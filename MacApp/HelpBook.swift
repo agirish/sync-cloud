@@ -9,7 +9,9 @@ import FileExplorer
 ///
 /// Every article is a hand-maintained mirror of what the app actually does; when a feature
 /// changes, update the matching topic and the pin test together. Deliberately no Sync/Events
-/// dependency: this is words about the app, not the app's logic.
+/// dependency: this is words about the app, not the app's logic. The `FileExplorer` import below
+/// is the view half's, for the one wrapping layout the related chips need — nothing in ``HelpBook``
+/// itself reads it, which is what keeps the data testable without a view.
 enum HelpBook {
     /// One rendered piece of an article. The renderer owns layout; the data owns words.
     enum Block: Equatable {
@@ -350,6 +352,7 @@ enum HelpBook {
                         "It chooses between two folders that differ only by person — School/Aditi beside School/Divit.",
                         "Add each person's full names as documents print them. That is what makes a shared surname attributable to the right person.",
                         "Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else's surname.",
+                        "“Look for names” reads the documents you have already filed and offers the forms it finds, so a name you never thought to type can still be added with one click.",
                     ]),
                     .paragraph("Setup asks for the list and proposes what a walk of your folders found, but nothing is ever locked in: a name can be added, changed or removed here at any time, and ⌘K's People rows gather everything belonging to whoever is on it."),
                     .tip("Nothing here leaves your Mac, and no document text is kept — only the names you add. A name left off costs nothing but attribution; those documents are sorted by their content instead."),

@@ -274,14 +274,19 @@ import Testing
                 Issue.record("Organize ▸ \(lens.title) is a rail item with no help topic named here")
                 continue
             }
-            #expect(HelpBook.topic(id: id) != nil,
-                    "Organize ▸ \(lens.title) is documented by “\(id)”, which is gone")
+            // `Issue.record` + `continue` rather than `#expect` and carry on: `#expect` records and
+            // KEEPS GOING, so the two checks below would run against a topic just shown not to
+            // exist and report a missing article as three unrelated failures.
+            guard let topic = HelpBook.topic(id: id) else {
+                Issue.record("Organize ▸ \(lens.title) is documented by “\(id)”, which is gone")
+                continue
+            }
             #expect(HelpBook.sectionTitle(forTopicID: id) == "Organize",
                     "“\(id)” documents Organize ▸ \(lens.title) and does not live in the Organize section")
             // And the article names the section, so the reader can tell which rail item it is
             // about. This is the substring half — kept, but no longer the whole guard.
-            let names = HelpBook.topic(id: id).map { Self.copy(of: $0).contains { $0.contains(lens.title) } }
-            #expect(names == true, "“\(id)” never says “\(lens.title)”")
+            #expect(Self.copy(of: topic).contains { $0.contains(lens.title) },
+                    "“\(id)” never says “\(lens.title)”")
         }
     }
 
@@ -301,14 +306,18 @@ import Testing
     /// graph in the other direction and is blind to this by construction: every link it checks
     /// resolves precisely because it starts from the links rather than from the topics.
     ///
-    /// The first topic is exempt — it is what Help opens on, so it needs no route in.
+    /// **No exemption for the topic Help opens on**, though it is the one that could argue for it.
+    /// The first draft skipped it — it needs no route in, being where you land — and that branch
+    /// could not fire: `setup` is linked from three other articles, so the exemption was dead code
+    /// that made the walk look more careful than it was. Every topic is held to the same bar, and
+    /// if a reorganisation ever does leave the entry unlinked, the failure is a decision to make
+    /// rather than a rule someone already made blind.
     @Test func everyTopicIsLinkedFromSomewhere() {
-        let entry = HelpBook.sections.first?.topics.first?.id
         var inbound: [String: Int] = [:]
         for topic in HelpBook.allTopics {
             for id in topic.article.related { inbound[id, default: 0] += 1 }
         }
-        for topic in HelpBook.allTopics where topic.id != entry {
+        for topic in HelpBook.allTopics {
             #expect(inbound[topic.id, default: 0] > 0,
                     "“\(topic.title)” is linked from no other article — the sidebar is its only route")
         }
@@ -502,11 +511,16 @@ import Testing
 ///
 /// It also stops a third flow layout being written here: two already exist in this repo —
 /// FileExplorer's and Settings' — and the one MacApp uses is FileExplorer's.
+///
+/// **`declarationBody` rather than the fixed character window this shipped with.** That window was
+/// 1,200 characters from the declaration and the struct is 1,081, so it read 119 characters of
+/// whatever came next — the same defect `01f7ff27` had just fixed in the setup-form scan two
+/// commits earlier, where a fixed 220 ran into an unrelated row. A neighbour added after
+/// `FlexibleChips` could have failed the negative assertion below, or answered it. The helper is
+/// brace-bounded and reads comment-stripped source, so this member's own prose — which discusses
+/// the `HStack` it replaced — cannot answer a question asked about its code.
 @Suite struct HelpChipRowTests {
 
-    /// `macAppDirectory()` rather than a path derived here: the test bundle runs from DerivedData
-    /// and promises no working directory, and `TestSupport` already owns that walk for every other
-    /// source scan in this target.
     static let source: String = {
         let file = macAppDirectory().appendingPathComponent("HelpBook.swift")
         return (try? String(contentsOf: file, encoding: .utf8)) ?? ""
@@ -514,16 +528,24 @@ import Testing
 
     @Test func theSourceIsActuallyReadable() {
         #expect(Self.source.contains("private struct FlexibleChips"),
-                "HelpBook.swift could not be read from #filePath — every check below would be vacuous")
+                "HelpBook.swift could not be read from macAppDirectory() — every check below would be vacuous")
     }
 
     @Test func theChipsUseTheSharedWrappingLayout() throws {
-        let body = try #require(Self.source.range(of: "private struct FlexibleChips").map {
-            String(Self.source[$0.lowerBound...].prefix(1_200))
-        })
+        let body = try declarationBody(of: "private struct FlexibleChips", in: Self.source)
         #expect(body.contains("FileExplorer.FlowLayout"),
                 "the related chips no longer use the shared wrapping layout")
         #expect(!body.contains("HStack(spacing: 8)"),
                 "the chip row is an HStack again — it squeezes rather than wraps")
+    }
+
+    /// The bound really is the declaration's, not a character count: the body stops before whatever
+    /// is declared next. Without this the scan above could be reading its neighbour and nobody
+    /// would know — which is exactly how it shipped.
+    @Test func theScanStopsAtTheDeclarationItIsAbout() throws {
+        let body = try declarationBody(of: "private struct FlexibleChips", in: Self.source)
+        #expect(!body.contains("struct ChipFlow"))
+        #expect(!body.contains("private var relatedChips"))
+        #expect(body.contains("let ids: [String]"), "the body no longer reaches its own members")
     }
 }
