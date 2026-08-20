@@ -192,6 +192,24 @@ extension FileSyncManager {
         return proposals
     }
 
+    /// Walks `root` and proposes household names from what it finds, with their evidence.
+    ///
+    /// The companion to ``proposePlaces(root:)``, and the People step's whole reason for having
+    /// anything to show on a fresh machine. `known` is the roster as it stands, so somebody already
+    /// added is not offered back.
+    public func proposePeople(root: URL, known: Set<String> = []) async -> [PersonCandidate] {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return [] }
+        let tree = await Self.buildTree(url: root, sortOption: .name)
+        let proposals = await Task.detached(priority: .userInitiated) {
+            PersonCandidates.propose(tree: tree, known: known)
+        }.value
+        Logger.shared.info("Folder walk: \(proposals.count) household candidate(s) in \(root.path) "
+                           + "— \(proposals.prefix(8).map(\.name).joined(separator: ", "))")
+        return proposals
+    }
+
     /// How the profile records the tree it describes.
     ///
     /// Folded to `~` when it is under the home directory, because that is how every hand-built

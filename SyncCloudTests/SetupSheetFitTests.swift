@@ -79,6 +79,7 @@ import Testing
             availableSize: Self.smallDisplayHost,
             hasFilingProfile: hasFilingProfile,
             placeCandidates: Self.realisticPlaces,
+            peopleCandidates: Self.realisticPeople,
             onOpenSettings: { _ in },
             onFinish: {},
             onDismiss: {}
@@ -170,6 +171,20 @@ import Testing
     /// **Five, because that is what the reference tree proposes**: `US`, `IN`, `HPE`, `IT` and
     /// `PRD` — two real and three inventions, which is the whole reason the step exists. A fixture
     /// with none measures a step with no chips in it.
+    /// Household names enough to make the People step the tallest it honestly gets.
+    ///
+    /// Six, because the reference tree proposes 28 and the step shows the first twelve — and a
+    /// fixture with none measures a step with no chips in it, which is the trap the roster taught
+    /// me once already.
+    static let realisticPeople: [PersonCandidate] = [
+        PersonCandidate(name: "Muktha", parents: ["Family"], folderCount: 5, householdParents: 2),
+        PersonCandidate(name: "Shweta", parents: ["Family"], folderCount: 28, householdParents: 1),
+        PersonCandidate(name: "Aditi", parents: ["Family"], folderCount: 12, householdParents: 1),
+        PersonCandidate(name: "Divit", parents: ["Family"], folderCount: 12, householdParents: 1),
+        PersonCandidate(name: "Anuraag", parents: ["Family"], folderCount: 5, householdParents: 1),
+        PersonCandidate(name: "Girish", parents: ["Family"], folderCount: 5, householdParents: 1),
+    ]
+
     static let realisticPlaces: [JurisdictionCandidate] = [
         JurisdictionCandidate(value: "US", parents: ["Finance", "Legal", "School"], folderCount: 214),
         JurisdictionCandidate(value: "IN", parents: ["Finance", "Immigration"], folderCount: 168),

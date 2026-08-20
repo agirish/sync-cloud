@@ -133,6 +133,10 @@ struct SetupSheet: View {
     @FocusState private var nameFieldFocused: Bool
     /// The folder the walk will learn. Seeded from the primary source, changeable.
     @State private var walkRoot: URL?
+    /// Household names the walk proposed, with their evidence. Empty until a root is known.
+    @State private var peopleCandidates: [PersonCandidate] = []
+    /// Whether the proposal walk has been asked for, so it happens once per opening.
+    @State private var askedForPeople = false
     /// What the walk proposed as places, with their evidence. Empty until a root is chosen.
     @State private var placeCandidates: [JurisdictionCandidate] = []
     /// The ones the user ticked. **Nothing starts ticked** — see `placeChip`.
@@ -187,6 +191,7 @@ struct SetupSheet: View {
          // proposes none — which is measuring the empty state, the way the Organize tab's fit guard
          // passed for a release while real users scrolled.
          placeCandidates: [JurisdictionCandidate] = [],
+         peopleCandidates: [PersonCandidate] = [],
          onProfileWritten: @escaping () -> Void = {},
          onOpenSettings: @escaping (SettingsView.SettingsTab) -> Void,
          onFinish: @escaping () -> Void,
@@ -200,6 +205,7 @@ struct SetupSheet: View {
         self.hasFilingProfile = hasFilingProfile
         self.syncManager = syncManager
         _placeCandidates = State(initialValue: placeCandidates)
+        _peopleCandidates = State(initialValue: peopleCandidates)
         self.onProfileWritten = onProfileWritten
         self.onOpenSettings = onOpenSettings
         self.onFinish = onFinish
@@ -241,6 +247,7 @@ struct SetupSheet: View {
             reconcilePrimary()
             if case .step(.you) = screen { nameFieldFocused = true }
             seedWalkRoot()
+            proposePeople()
             Logger.shared.info("Setup opened on \(screenName) — "
                                + "\(settings.availableProviders.count) source(s) discovered, "
                                + "roster \(peopleStore == nil ? "not writable yet (no profile)" : "available")")
@@ -962,6 +969,21 @@ struct SetupSheet: View {
                     .fill(Color.secondary.opacity(0.06)))
             }
 
+            if !visiblePeopleCandidates.isEmpty {
+                section("Found in your folders") {
+                    Text("These folders sit under a household folder, so they might be people. Add "
+                         + "the ones that are.")
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    WrapLayout(spacing: 7) {
+                        ForEach(visiblePeopleCandidates.prefix(12)) { candidate in
+                            personChip(candidate)
+                        }
+                    }
+                }
+            }
+
             TextField("Add a person, then press ⏎", text: $newPersonField)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 260)
@@ -1000,6 +1022,80 @@ struct SetupSheet: View {
     /// Both refusals live in `PeopleStore.save()`; `rosterIsReadOnly` is the store's own name for
     /// the pair. Read here so the form does not offer edits that would silently do nothing.
     private var rosterIsReadOnly: Bool { peopleStore?.rosterIsReadOnly ?? false }
+
+    /// The proposals still worth showing.
+    ///
+    /// **Filtered here rather than only when they are fetched.** `proposePeople` passes the roster
+    /// as `known`, which covers who was there when the walk ran — and not somebody added afterwards
+    /// by typing their name into the field below, or removed and re-added, or added on a previous
+    /// visit to this step. A chip offering to add a person who is already in the list above it reads
+    /// as the app having lost track, and this is the one place that can see both lists at once.
+    private var visiblePeopleCandidates: [PersonCandidate] {
+        let already = Set(rosterNames.map { $0.lowercased() }
+                          + [draft.yourName.lowercased()]
+                          + draft.others.map { $0.displayName.lowercased() })
+        return peopleCandidates.filter { !already.contains($0.name.lowercased()) }
+    }
+
+    /// One proposed household name, with the folder that vouches for it.
+    ///
+    /// **Adding is one click and nothing is added by default.** The rule over-proposes on purpose —
+    /// `Events` and `Hiring` are in the 28 it finds on the reference tree — so the evidence is on the
+    /// chip and the decision is the user's. Tapping adds; the chip then leaves the list, because the
+    /// person is on the roster below it and offering them twice reads as the app losing track.
+    private func personChip(_ candidate: PersonCandidate) -> some View {
+        Button {
+            addProposedPerson(candidate)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "plus.circle").scaledFont(.caption2)
+                Text(candidate.name).scaledFont(.caption.weight(.medium))
+                if let parent = candidate.parents.first, !parent.isEmpty {
+                    Text("· \(parent)")
+                        .scaledFont(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Color.secondary.opacity(0.10)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(rosterIsReadOnly)
+        .help(peopleEvidence(candidate))
+        .accessibilityLabel("Add \(candidate.name), \(peopleEvidence(candidate))")
+    }
+
+    private func peopleEvidence(_ candidate: PersonCandidate) -> String {
+        let parents = candidate.parents.filter { !$0.isEmpty }.prefix(3).joined(separator: ", ")
+        let count = "\(candidate.folderCount) folder\(candidate.folderCount == 1 ? "" : "s")"
+        return parents.isEmpty ? count : "\(count) under \(parents)"
+    }
+
+    private func addProposedPerson(_ candidate: PersonCandidate) {
+        if let store = peopleStore {
+            store.add(displayName: candidate.name)
+        } else {
+            draft.others.append(SetupDraft.DraftPerson(displayName: candidate.name))
+            saveDraft()
+        }
+        peopleCandidates.removeAll { $0.name == candidate.name }
+    }
+
+    /// Asks the walk who might be in the household, once per opening.
+    ///
+    /// Walks for itself rather than sharing the Folders step's tree: the People step comes first, so
+    /// there is nothing to share yet, and a walk is seconds.
+    private func proposePeople() {
+        guard !askedForPeople, let root = walkRoot, let manager = syncManager else { return }
+        askedForPeople = true
+        let known = Set((peopleStore?.people.flatMap(\.nameForms) ?? []) + draft.everyone.map(\.displayName))
+        Task {
+            peopleCandidates = await manager.proposePeople(root: root, known: known)
+        }
+    }
 
     /// What the roster records this person as, when it records anything.
     private func relationship(of name: String) -> String? {
