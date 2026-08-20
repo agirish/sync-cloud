@@ -78,6 +78,12 @@ public struct FontSize: Hashable, Identifiable, Sendable {
     public static let allCases: [FontSize] = [.small, .medium, .large, .extraLarge]
 
     /// Every value the slider can land on, ascending.
+    ///
+    /// **Derived rather than listed, and its consumers are the guards** —
+    /// `everySelectablePercentKeepsChromeUnderTheCliff` sweeps it against the line-height cliff and
+    /// `everyPresetIsDistinctAndReachable` checks the named presets are on it. The control itself
+    /// takes a range and a step, so it cannot consume a list; what this exists for is asking
+    /// questions of the whole set that the range-and-step spelling cannot answer.
     public static var selectablePercents: [Int] {
         Array(stride(from: minimumPercent, through: maximumPercent, by: step))
     }
@@ -95,8 +101,9 @@ public struct FontSize: Hashable, Identifiable, Sendable {
 
     /// What the four sizes were stored as before this was a percentage.
     ///
-    /// Kept as data rather than folded into a `switch` so ``migrateLegacyValue(in:)`` and
-    /// ``resolved(_:)`` cannot disagree about what an old value meant.
+    /// Kept as data rather than folded into a `switch`, so the table is one thing to read and
+    /// `everyLegacyRawValueStillMapsToTheSizeItNamed` derives its expectations from it rather
+    /// than restating them.
     static let legacyRawValues: [String: FontSize] = [
         "small": .small, "medium": .medium, "large": .large, "extraLarge": .extraLarge
     ]
@@ -107,18 +114,33 @@ public struct FontSize: Hashable, Identifiable, Sendable {
     /// **This has to run before anything reads the key**, which is why the app calls it at
     /// launch rather than lazily. `@AppStorage(defaultsKey) var percent: Int` cannot see a
     /// `String` on disk — it reports its own default and the user's chosen size is silently
-    /// gone, which is the exact failure this exists to prevent. ``resolved(_:)`` reads both
-    /// shapes so a caller that runs first is still right; migration is what stops the *writers*
-    /// from clobbering an unmigrated value.
+    /// gone, which is the exact failure this exists to prevent.
+    ///
+    /// **It is the only path, on purpose.** A tolerant `resolved(_:)` reader stood beside this
+    /// for a while, claiming to protect callers that ran before migration; it had none, and the
+    /// attempt to give it one reached `UserDefaults.standard` from a view whose store might be a
+    /// scratch suite — machine-dependent. `theAppMigratesTheStoredTextSizeAtLaunch` is what keeps
+    /// this call where it has to be.
+    /// What a migration did: the string that was on disk, and the size it now holds.
+    ///
+    /// **The raw value is carried out because the log needs it.** Reporting only the `FontSize`
+    /// made the launch line name the value's NEW label — a machine storing `extraLarge` logged
+    /// «migrated from the legacy "Largest" value», a string that was never on disk and that
+    /// nobody grepping for it would find.
+    public struct LegacyMigration: Equatable, Sendable {
+        public let raw: String
+        public let size: FontSize
+    }
+
     @discardableResult
-    public static func migrateLegacyValue(in defaults: UserDefaults = .standard) -> FontSize? {
+    public static func migrateLegacyValue(in defaults: UserDefaults = .standard) -> LegacyMigration? {
         // An Int already present is the current shape — nothing to do. Asked first because a
         // migrated value must never be re-examined by the string branch below.
         if defaults.object(forKey: defaultsKey) as? Int != nil { return nil }
         guard let raw = defaults.string(forKey: defaultsKey),
               let size = legacyRawValues[raw] else { return nil }
         defaults.set(size.percent, forKey: defaultsKey)
-        return size
+        return LegacyMigration(raw: raw, size: size)
     }
 
     // MARK: - Identity and copy

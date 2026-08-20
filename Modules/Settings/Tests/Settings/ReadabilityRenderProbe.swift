@@ -12,7 +12,8 @@ import AppKit
 @Suite struct ReadabilityRenderProbe {
 
     @MainActor
-    private func laidOut(_ size: FontSize, _ density: ListDensity, name: String) -> CGFloat {
+    private func laidOut(_ size: FontSize, _ density: ListDensity, name: String,
+                         appearance: NSAppearance.Name = .aqua) -> CGFloat {
         let suite = "ReadabilityProbe.\(name)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -26,6 +27,7 @@ import AppKit
                 .frame(width: 547)
                 .padding(16)
                 .background(Color(nsColor: .windowBackgroundColor)))
+        host.appearance = NSAppearance(named: appearance)
         let height = host.fittingSize.height
         host.frame = NSRect(x: 0, y: 0, width: 579, height: height + 32)
         host.layoutSubtreeIfNeeded()
@@ -55,6 +57,29 @@ import AppKit
                 """
                 The tab is \(compact)pt at Compact against \(comfortable)pt at Comfortable — the \
                 preview is not following the row spacing it claims to show.
+                """)
+    }
+
+    /// **Both appearances draw**, and draw differently.
+    ///
+    /// The tab leans on `Color.accentColor.opacity(0.10)` for a selected tile, `.secondary`
+    /// opacities for the tile borders and the preview's ground, and `.windowBackgroundColor`
+    /// behind all of it — every one of which resolves per appearance. A tile border that vanished
+    /// into a dark ground, or a preview panel that stopped being distinguishable from the page,
+    /// would be invisible to every measurement on this tab, which is why this renders both and
+    /// writes them out to be looked at.
+    @MainActor
+    @Test func theTabDrawsInBothAppearances() {
+        let light = laidOut(.medium, .comfortable, name: "light", appearance: .aqua)
+        let dark = laidOut(.medium, .comfortable, name: "dark", appearance: .darkAqua)
+
+        #expect(light > 0 && dark > 0, "an appearance laid out to nothing")
+        // Height is appearance-independent; what this asserts is that neither collapses. The
+        // colours are judged from the PNGs the two calls above write.
+        #expect(abs(light - dark) < 1,
+                """
+                The tab lays out at \(light)pt light and \(dark)pt dark — appearance is moving \
+                geometry, which nothing here intends.
                 """)
     }
 

@@ -138,8 +138,9 @@ struct SyncCloudApp: App {
             // is silent: `@AppStorage(FontSize.defaultsKey) var percent: Int` cannot see a
             // `String` on disk, so every user who had chosen Small, Large or Larger would open a
             // build reporting 100% — and the first write from the new control would make that
-            // permanent. `FontSize.resolved(_:)` reads both shapes for the same reason, but a
-            // tolerant *reader* does not save a value from a clobbering *writer*.
+            // permanent. There is deliberately no tolerant reader beside this: one was written,
+            // and the only store it could reach was `UserDefaults.standard`, which would have made
+            // every test inherit the developer's own chosen size. This is the single path.
             //
             // It is a no-op on every subsequent launch (an `Int` already present returns early),
             // so it stays rather than becoming a dated migration to remember to delete.
@@ -149,7 +150,8 @@ struct SyncCloudApp: App {
             // no other way to answer — and the no-op case is every launch after the first, so
             // logging that would be noise rather than evidence.
             if let migrated = FontSize.migrateLegacyValue() {
-                Logger.shared.info("Text size migrated from the legacy \"\(migrated.presetName ?? "custom")\" value to \(migrated.percent)%")
+                Logger.shared.info(
+                    "Text size migrated: \"\(migrated.raw)\" → \(migrated.size.percent)%")
             }
 
             // The log line that reports which state this session is in is deliberately NOT here —

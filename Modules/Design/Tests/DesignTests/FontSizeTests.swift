@@ -71,7 +71,11 @@ import Testing
         let defaults = ScratchDefaults("FontSizeTests.migrate")
 
         defaults.set("extraLarge", forKey: FontSize.defaultsKey)
-        #expect(FontSize.migrateLegacyValue(in: defaults) == .extraLarge)
+        let migrated = FontSize.migrateLegacyValue(in: defaults)
+        #expect(migrated?.size == .extraLarge)
+        // The raw string is carried out for the launch log, which named the value's NEW label
+        // until it was: a machine storing "extraLarge" logged «"Largest"», which was never on disk.
+        #expect(migrated?.raw == "extraLarge")
         // The point of migrating at all: what is on disk is now an Int, which is the only shape
         // `@AppStorage(...) var percent: Int` can see. Asserting what it WROTE BACK, not that it
         // decoded — a tolerant reader would pass this test without the store ever changing.

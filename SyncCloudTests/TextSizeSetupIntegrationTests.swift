@@ -23,10 +23,13 @@ import Design
     /// What this holds is the outer bound: that the card is wide enough for the control at all.
     @MainActor
     @Test func theSetupTextSizeRowFitsTheCardAtEveryTextSize() {
-        let content = SetupSheetMetrics.contentWidth(
-            availableSize: CGSize(width: 1200, height: 740), scale: 1)
-
         for size in FontSize.allCases {
+            // The card widens with the text setting (`resolvedWidth` is `cardWidth * scale`), so
+            // the row measured at 135% has to be held against the card at 135% — measuring a
+            // scaled row against the unscaled card is a stricter bound that reports a width the
+            // user never sees.
+            let content = SetupSheetMetrics.contentWidth(
+                availableSize: CGSize(width: 1200, height: 740), scale: size.scale)
             let label = Self.idealWidth(Text("Text size").scaledFont(.callout), at: size)
             let row = Self.idealWidth(
                 SizePresetRow(fontSize: .constant(size), density: .constant(.comfortable),
@@ -59,8 +62,8 @@ import Design
     /// enough to survive — it truncates — so the rule is that it is never given a fixed width.
     @Test func theSetupFormUsesTheSpecimenTilesAndDoesNotPinTheirWidth() throws {
         let source = try Self.appSource("SetupSheet.swift")
-        let call = try #require(source.range(of: "SizePresetRow(fontSize: setupFontSize"))
-        let statement = source[call.lowerBound...].prefix(220)
+        let statement = try #require(Self.expression(containing: "SizePresetRow(fontSize: setupFontSize",
+                                                    in: source))
 
         #expect(statement.contains("style: .specimen"),
                 """
@@ -93,11 +96,14 @@ import Design
                 """)
 
         // And that it runs at LAUNCH rather than somewhere lazy: it has to precede any read, which
-        // in practice means `init`. Checked by position, since a call moved into a view's
-        // `onAppear` would still satisfy the containment above.
-        let initRange = try #require(source.range(of: "init() {"))
-        let callRange = try #require(source.range(of: "FontSize.migrateLegacyValue()"))
-        #expect(callRange.lowerBound > initRange.lowerBound,
+        // in practice means `init`.
+        //
+        // **Brace-matched, not compared by position.** The first version asserted only that the
+        // call appeared later in the file than `init() {` — which every line after init's closing
+        // brace also satisfies, so a call moved into a view's `onAppear`, or into any method
+        // declared below, would have passed the check that exists to forbid exactly that.
+        let body = try #require(Self.body(ofFirst: "init() {", in: source))
+        #expect(body.contains("FontSize.migrateLegacyValue()"),
                 "the migration call is no longer inside App.init — it must run before any read")
     }
 
@@ -107,6 +113,44 @@ import Design
         let source = try Self.appSource("SyncCloudApp.swift")
         #expect(source.count > 1000, "SyncCloudApp.swift read as \(source.count) characters")
         #expect(source.contains("struct SyncCloudApp"), "this is not SyncCloudApp.swift")
+    }
+
+    /// The whole SwiftUI expression a call belongs to: its own line, plus the modifier lines
+    /// chained under it.
+    ///
+    /// **Replaces a fixed 220-character window**, which was not a statement at all — measured, it
+    /// ran off the end of this call and into the *Appearance* row two lines below, so a
+    /// `.frame(width:)` added to an unrelated control would have failed the width assertion, and a
+    /// modifier pushed past the 220th character would have escaped it.
+    static func expression(containing needle: String, in source: String) -> String? {
+        guard let hit = source.range(of: needle) else { return nil }
+        let lines = source[..<hit.lowerBound].components(separatedBy: "\n")
+        let startLine = lines.count - 1
+        let all = source.components(separatedBy: "\n")
+        var collected = [all[startLine]]
+        var i = startLine + 1
+        while i < all.count, all[i].trimmingCharacters(in: .whitespaces).hasPrefix(".") {
+            collected.append(all[i])
+            i += 1
+        }
+        return collected.joined(separator: "\n")
+    }
+
+    /// The body of the first declaration matching `opener`, by brace matching.
+    static func body(ofFirst opener: String, in source: String) -> String? {
+        guard let start = source.range(of: opener) else { return nil }
+        var depth = 0
+        var index = source.index(before: start.upperBound)   // the opener's own `{`
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" { depth += 1 }
+            if character == "}" {
+                depth -= 1
+                if depth == 0 { return String(source[start.upperBound..<index]) }
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 
     @MainActor
@@ -122,5 +166,51 @@ import Design
         let testFile = URL(fileURLWithPath: "\(file)")
         let repo = testFile.deletingLastPathComponent().deletingLastPathComponent()
         return try String(contentsOf: repo.appendingPathComponent("MacApp/\(name)"), encoding: .utf8)
+    }
+}
+
+/// The two source-scan helpers, tested on fixtures — because a helper that silently answers
+/// nothing turns every scan built on it into a test that cannot fail.
+@Suite struct SourceScanHelperTests {
+
+    @Test func theExpressionHelperStopsAtTheEndOfTheStatement() {
+        let source = """
+        HStack {
+            Widget(a: 1, b: 2)
+                .frame(width: 40)
+                .padding(4)
+            Other()
+                .frame(width: 999)
+        }
+        """
+        let expression = TextSizeSetupIntegrationTests.expression(containing: "Widget(a:", in: source)
+
+        #expect(expression?.contains(".frame(width: 40)") == true, "it dropped the call's own modifier")
+        #expect(expression?.contains(".padding(4)") == true)
+        // The point of the helper: the NEXT view's frame is not part of this statement.
+        #expect(expression?.contains("999") == false,
+                "the helper ran past the statement into the next view — the 220-character bug")
+        #expect(TextSizeSetupIntegrationTests.expression(containing: "Missing(", in: source) == nil)
+    }
+
+    @Test func theBodyHelperMatchesBracesRatherThanPositions() {
+        let source = """
+        init() {
+            first()
+            if condition { nested() }
+        }
+
+        func later() {
+            afterTheInit()
+        }
+        """
+        let body = TextSizeSetupIntegrationTests.body(ofFirst: "init() {", in: source)
+
+        #expect(body?.contains("first()") == true)
+        #expect(body?.contains("nested()") == true, "it closed on the first inner brace")
+        // The whole reason for brace matching: this call is LATER in the file but not in init.
+        #expect(body?.contains("afterTheInit()") == false,
+                "the helper swallowed a declaration below init — the positional-compare bug")
+        #expect(TextSizeSetupIntegrationTests.body(ofFirst: "nope() {", in: source) == nil)
     }
 }

@@ -226,6 +226,42 @@ import Testing
                 "Appearance has \(margin)pt of slack at \(size.displayName) (scale \(size.scale)).")
     }
 
+    /// Readability fits a 1280×800 display at every text size.
+    ///
+    /// **The gap this closes is the pointed one.** `everyMustFitTabFitsTheClampedOpening` measures
+    /// every tab, but only at scale 1, and the per-size sweep beside it measures only Appearance —
+    /// so the tab whose entire reason for existing is large text was the one tab never checked AT
+    /// large text. Its content is the tallest of any must-fit tab's, and it grows with the setting
+    /// it sets: the preset tiles, the detent labels and the preview all scale.
+    ///
+    /// **Measured, so the margin is a fact rather than an impression:** 404pt of 583 at 90%,
+    /// 432 of 579 at 100%, 461 of 636 at 125%, 477 of 632 at 135%. Comfortable at every rung —
+    /// the content grows about 73pt across the range while the sheet grows faster, so the tab
+    /// gets *easier* at large text, not harder. That is worth knowing before anyone treats this
+    /// as a tight bound and trims the tab to satisfy it.
+    ///
+    /// Recorded as which sizes fit rather than asserting all four, so it stays honest in both
+    /// directions — if a section is added and Largest stops fitting, this says so rather than
+    /// silently becoming a weaker claim.
+    @MainActor
+    @Test func readabilityFitsASmallDisplayAtEveryTextSize() async throws {
+        let fitting = FontSize.allCases.filter { size in
+            let height = laidOutHeight(
+                ReadabilitySettingsTab(),
+                width: SettingsSheetMetrics.contentWidth(textScale: size.scale,
+                                                        available: Self.smallDisplayWindow),
+                scale: size.scale)
+            return height <= SettingsSheetMetrics.contentOpening(textScale: size.scale,
+                                                                 available: Self.smallDisplayWindow)
+        }
+
+        #expect(fitting == FontSize.allCases,
+                """
+                Readability fits a 1280×800 display at \(fitting.map(\.displayName)) — the tab \
+                that exists for large text does not survive its own largest setting.
+                """)
+    }
+
     /// The fit against a SMALL display's CLAMPED opening — the assertion whose absence let the
     /// 688 → 758 raise ship a regression: every other fit test here passes `available: nil`, so
     /// the sheet they measure against grows in lockstep with `baseSize` and no raise can ever
@@ -1087,6 +1123,60 @@ import Testing
         }
         #expect(plain(.extraLarge) > plain(.medium) + 5,
                 "the fixture does not scale anything at all — the invariance above proves nothing")
+    }
+
+    /// A stored size outside the selectable range never reaches the slider.
+    ///
+    /// **Asserts what the SLIDER is fed**, not what `FontSize` would clamp to. The first version
+    /// of this test asserted the latter — true of the type whatever the control does with it — so
+    /// reverting the getter to the raw stored value left every assertion green. That is the whole
+    /// failure mode: a fixture whose expected value equals the fallback cannot fail.
+    @MainActor
+    @Test func aStoredSizeOutsideTheRangeIsClampedBeforeItReachesTheControls() async throws {
+        for stored in [-40, 0, 89, 200, 10_000] {
+            let test = TestDefaults("out-of-range-\(stored)")
+            defer { test.wipe() }
+            test.defaults.set(stored, forKey: FontSize.defaultsKey)
+
+            let fed = ReadabilitySettingsTab.sliderValue(forStored: stored)
+            #expect(fed >= Double(FontSize.minimumPercent),
+                    "the slider is fed \(fed) for a stored \(stored) — below its own range")
+            #expect(fed <= Double(FontSize.maximumPercent),
+                    "the slider is fed \(fed) for a stored \(stored) — above its own range")
+
+            // And the tab lays out rather than trapping or measuring nothing on such a value.
+            let height = laidOutHeight(
+                ReadabilitySettingsTab().defaultAppStorage(test.defaults), width: Self.contentWidth)
+            #expect(height > 0, "Readability laid out to nothing with \(stored) stored")
+        }
+
+        // The write direction too: a slider position never stores a value outside the range.
+        for position in [-10.0, 89.4, 137.6, 5_000] {
+            let stored = ReadabilitySettingsTab.storedValue(forSlider: position)
+            #expect(stored >= FontSize.minimumPercent && stored <= FontSize.maximumPercent,
+                    "a slider at \(position) stored \(stored)")
+        }
+    }
+
+    /// The slider actually uses the clamping seam.
+    ///
+    /// **A seam nothing calls is decoration**, and the pure functions above would keep passing
+    /// while the closure went back to reading `@AppStorage` raw. This is the half that notices.
+    @Test func theSliderReadsAndWritesThroughTheClamp() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/Settings/SettingsView.swift"),
+            encoding: .utf8)
+
+        let tab = try #require(source.range(of: "struct ReadabilitySettingsTab"))
+        let body = String(source[tab.lowerBound...])
+
+        #expect(body.contains("get: { Self.sliderValue(forStored: fontSizePercent) }"),
+                "the text-size slider no longer reads through sliderValue(forStored:)")
+        #expect(body.contains("set: { fontSizePercent = Self.storedValue(forSlider: $0) }"),
+                "the text-size slider no longer writes through storedValue(forSlider:)")
     }
 
     /// The preset row really does follow the app's text size — the premise the fit test leans on.

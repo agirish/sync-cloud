@@ -1133,6 +1133,28 @@ struct ReadabilitySettingsTab: View {
         Binding(get: { listDensity }, set: { listDensityRaw = $0.rawValue })
     }
 
+    /// The value the slider is fed for a stored percentage, and the value a slider position
+    /// stores back.
+    ///
+    /// **Extracted because the bug they fix is invisible from outside the closure.** The getter
+    /// read `fontSizePercent` raw while everything else on the tab reads through `FontSize`, which
+    /// clamps — so a stored value outside 90...135 (a build that once allowed more, a hand-edited
+    /// default) was handed to a `Slider` whose range excludes it, while the tiles and the readout
+    /// beside it said 135%. SwiftUI almost certainly clamps that for display, which is what makes
+    /// it a consistency bug rather than a visible one — and also what makes it impossible to catch
+    /// by rendering, because the two states draw the same.
+    ///
+    /// A pair of pure functions can be tested for what they ANSWER;
+    /// `theSliderReadsAndWritesThroughTheClamp` then scans the call site, because a seam nothing
+    /// calls is one revert from being decoration.
+    static func sliderValue(forStored stored: Int) -> Double {
+        Double(FontSize(percent: stored).percent)
+    }
+
+    static func storedValue(forSlider value: Double) -> Int {
+        FontSize(percent: Int(value.rounded())).percent
+    }
+
     private var smallAGlyph: some View {
         Text("A").scaledFont(.system(size: 10)).foregroundStyle(.secondary)
     }
@@ -1204,8 +1226,8 @@ struct ReadabilitySettingsTab: View {
                             smallAGlyph
                             Slider(
                                 value: Binding(
-                                    get: { Double(fontSizePercent) },
-                                    set: { fontSizePercent = FontSize(percent: Int($0.rounded())).percent }
+                                    get: { Self.sliderValue(forStored: fontSizePercent) },
+                                    set: { fontSizePercent = Self.storedValue(forSlider: $0) }
                                 ),
                                 in: Double(FontSize.minimumPercent)...Double(FontSize.maximumPercent),
                                 step: Double(FontSize.step)
