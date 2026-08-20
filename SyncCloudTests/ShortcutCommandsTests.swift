@@ -42,6 +42,10 @@ import Foundation
             organizeLens: OrganizeLensSwitch(current: .duplicates, select: { _ in }),
             organizeVerbs: OrganizeVerbs(organizeFolder: {}, findDuplicates: {},
                                          fixName: {}, keepName: {}),
+            paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, revealInFinder: {},
+                                       rename: {}, chooseDestination: { _ in },
+                                       ignore: PaneRowVerbs.IgnoreToggle(title: "Ignore in Comparison",
+                                                                         run: {})),
             suspended: suspended
         )
     }
@@ -170,6 +174,7 @@ import Foundation
         #expect(publisher.effectiveTabBar == nil)
         #expect(publisher.effectiveOrganizeLens == nil)
         #expect(publisher.effectiveOrganizeVerbs == nil)
+        #expect(publisher.effectivePaneRowVerbs == nil)
     }
 
     /// ...and the guard the test above depends on: unsuspended, the same loaded publisher passes
@@ -199,6 +204,7 @@ import Foundation
         #expect(publisher.effectiveTabBar != nil)
         #expect(publisher.effectiveOrganizeLens != nil)
         #expect(publisher.effectiveOrganizeVerbs != nil)
+        #expect(publisher.effectivePaneRowVerbs != nil)
     }
 
     /// **Every `effective…` the publisher exposes is named in BOTH lists above.**

@@ -110,9 +110,9 @@ import Foundation
         // promises this suite makes: a fifth site passed it in silence, which is the one event the
         // suite exists for. Raising this number is the deliberate act of having decided what the
         // new entry point does about `followsPane`.
-        #expect(sites.count == 4,
+        #expect(sites.count == 5,
                 """
-                \(sites.count) Quick Look call sites, expected 4 — if you added one, decide whether \
+                \(sites.count) Quick Look call sites, expected 5 — if you added one, decide whether \
                 it owns the pane preview (`followsPane:`) and then update this count:
                 \(sites.joined(separator: "\n"))
                 """)
@@ -140,6 +140,17 @@ import Foundation
         let call = String(content[treeView.upperBound...].prefix(4_000))
         #expect(call.contains("onQuickLook: { toggleQuickLook($0, followsPane: true) }"),
                 "the pane's row menu is not routed to the host's panel — it presents its own, which nothing can keep current")
+
+        // **The fifth site: File ▸ Quick Look.** The menu item is the row menu's verb reached from
+        // the menu bar instead of a right-click, so it previews the same thing — the pane
+        // selection — and must follow it for the same reason. Named here rather than left to the
+        // count above, which says only that a site exists.
+        let shortcuts = try Self.source("ShortcutCommands.swift")
+        let verbs = try #require(shortcuts.range(of: "var shortcutPaneRowVerbs"),
+                                 "the row verbs resolver is gone or has moved out of this file")
+        let resolver = String(shortcuts[verbs.upperBound...].prefix(2_000))
+        #expect(resolver.contains("followsPane: true"),
+                "File ▸ Quick Look opens a preview that will not follow the pane selection it is about")
     }
 
     /// …and the entry points that are NOT the panes'. Both surfaces can hold a selection at once, so

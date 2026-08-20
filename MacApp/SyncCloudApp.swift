@@ -571,6 +571,10 @@ struct SyncCloudApp: App {
                 CloseTabCommand()           // ⌘W
                 ReopenClosedTabCommand()    // no chord — see the type
                 Divider()
+                // The row menu's verbs, over the pane selection — the routes that until now needed
+                // a right-click on exactly the right row.
+                PaneRowVerbCommands()
+                Divider()
                 RescanCommand()             // ⌘R
                 Divider()
                 DeleteSelectionCommand()    // ⌘⌫

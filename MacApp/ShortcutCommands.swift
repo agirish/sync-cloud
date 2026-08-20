@@ -68,6 +68,68 @@ struct OrganizeVerbs {
     let keepName: (() -> Void)?
 }
 
+/// File ▸ the verbs the row menu has always had, over the pane selection.
+///
+/// **Reachable only by right-clicking the right row until now.** Every one has a working handler
+/// and no menu-bar route, so none of them can be found without already knowing where to look.
+///
+/// One value rather than six, on `TransferShortcut`'s argument: they read one selection, and six
+/// values would be six chances to disagree about it.
+struct PaneRowVerbs {
+    /// A single folder, when the pane can open tabs at all.
+    let openInNewTab: (() -> Void)?
+    /// A single node of either kind.
+    let quickLook: (() -> Void)?
+    let revealInFinder: (() -> Void)?
+    let rename: (() -> Void)?
+    /// The destination picker, for any selection. `true` moves, `false` copies.
+    let chooseDestination: ((Bool) -> Void)?
+    /// Ignore/Include, whose **title flips with the selection's state** — the row menu resolves the
+    /// same pair from `isNodeIgnored`, and a menu item that named only one direction would be wrong
+    /// half the time. `nil` when the workspace has no comparison to ignore anything from.
+    let ignore: IgnoreToggle?
+
+    struct IgnoreToggle {
+        /// Already resolved: "Ignore in Comparison" or "Include in Comparison".
+        let title: String
+        let run: () -> Void
+    }
+}
+
+/// What the pane-row verbs offer for a selection.
+///
+/// Pure, for `DifferencesShortcutRules`' reason — the resolver reads `ContentView` state, and a
+/// rule left inline is a rule no test can flip.
+enum PaneRowVerbAvailability {
+    struct Answer: Equatable {
+        let openInNewTab: Bool
+        let singleNodeVerbs: Bool
+        let chooseDestination: Bool
+        let ignore: Bool
+    }
+
+    /// **Download is deliberately absent**, and this is the note that keeps it that way. Its row
+    /// menu action starts a per-pane watch on `downloadChannel` so the cloud badge clears when the
+    /// content lands; a menu item has no pane to scope that to, and firing the download without
+    /// the watch leaves a badge that never clears. The row menu's own comment names Reveal in
+    /// Finder as the reliable download path everywhere, and that IS in the menu.
+    ///
+    /// **Get Info is absent too**, for the reason the mockup settled: it wants Finder's ⌘I, which
+    /// is the Info Inspector here, and the inspector already answers it without leaving the window.
+    static func resolve(selectionCount: Int, isDirectory: Bool,
+                        canOpenInNewTab: Bool, isComparing: Bool) -> Answer {
+        let single = selectionCount == 1
+        return Answer(
+            openInNewTab: single && isDirectory && canOpenInNewTab,
+            singleNodeVerbs: single,
+            // A destination pick works on a batch; the picker prunes nested nodes downstream
+            // (`FileOperations` does it again), so a folder and its child cannot both travel.
+            chooseDestination: selectionCount >= 1,
+            // Ignoring is a statement about a comparison. On Browse or Storage there is none.
+            ignore: selectionCount >= 1 && isComparing)
+    }
+}
+
 /// Whether ⌘A means the focused pane's rows.
 ///
 /// **The differences table can own the selection, and then it does not.** Registering ⌘A on a menu
@@ -126,6 +188,10 @@ private struct OrganizeLensKey: FocusedValueKey {
 
 private struct OrganizeVerbsKey: FocusedValueKey {
     typealias Value = OrganizeVerbs
+}
+
+private struct PaneRowVerbsKey: FocusedValueKey {
+    typealias Value = PaneRowVerbs
 }
 
 private struct WorkspaceSelectionKey: FocusedValueKey {
@@ -457,6 +523,12 @@ extension FocusedValues {
         set { self[OrganizeVerbsKey.self] = newValue }
     }
 
+    /// File ▸ the pane row menu's verbs, aimed at the pane selection.
+    var paneRowVerbs: PaneRowVerbs? {
+        get { self[PaneRowVerbsKey.self] }
+        set { self[PaneRowVerbsKey.self] = newValue }
+    }
+
     /// View ▸ Tab Bar.
     var tabBarVisible: TabBarSwitch? {
         get { self[TabBarVisibleKey.self] }
@@ -532,6 +604,7 @@ struct ShortcutValuePublisher: ViewModifier {
     let tabBar: TabBarSwitch?
     let organizeLens: OrganizeLensSwitch?
     let organizeVerbs: OrganizeVerbs?
+    let paneRowVerbs: PaneRowVerbs?
 
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
@@ -572,6 +645,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveTabBar: TabBarSwitch? { suspended ? nil : tabBar }
     var effectiveOrganizeLens: OrganizeLensSwitch? { suspended ? nil : organizeLens }
     var effectiveOrganizeVerbs: OrganizeVerbs? { suspended ? nil : organizeVerbs }
+    var effectivePaneRowVerbs: PaneRowVerbs? { suspended ? nil : paneRowVerbs }
 
     /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
     /// `effectiveCloseTab` still nils with the rest (a suspended ⌘W closes no tab); what this adds
@@ -606,6 +680,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
             .focusedSceneValue(\.organizeLens, effectiveOrganizeLens)         // View ▸ Organize ▸ …
             .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
+            .focusedSceneValue(\.paneRowVerbs, effectivePaneRowVerbs)         // File ▸ the row menu's verbs
     }
 }
 
@@ -634,6 +709,7 @@ extension ContentView {
             tabBar: shortcutTabBar,
             organizeLens: shortcutOrganizeLens,
             organizeVerbs: shortcutOrganizeVerbs,
+            paneRowVerbs: shortcutPaneRowVerbs,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
             // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind
@@ -790,6 +866,44 @@ extension ContentView {
             // section, it does not re-aim the lens at a folder the way ⌘K's "organize legal" does.
             aimOrganize(lens: section, scope: nil)
         }
+    }
+
+    /// File ▸ the row menu's verbs, over the active pane's selection.
+    ///
+    /// Built on the same `PaneActionDelegate` the row menu routes through, so a menu item and a
+    /// right-click are one act rather than two similar ones.
+    var shortcutPaneRowVerbs: PaneRowVerbs {
+        let selection = activeSelectionNodes
+        let none = PaneRowVerbs(openInNewTab: nil, quickLook: nil, revealInFinder: nil,
+                                rename: nil, chooseDestination: nil, ignore: nil)
+        guard actionHandler != nil, let pane = activePane, !selection.isEmpty else { return none }
+        let context = paneContext(isLeft: pane == .left)
+        let delegate = paneActionDelegate(for: context)
+        let node = selection.first
+        let can = PaneRowVerbAvailability.resolve(
+            selectionCount: selection.count,
+            isDirectory: node?.isDirectory ?? false,
+            canOpenInNewTab: delegate.canOpenInNewTab,
+            isComparing: layoutMode == .compare)
+        // Resolved here, not in the item: the row menu reads the same `isNodeIgnored` to decide
+        // which of the two verbs it is offering, and the two must not answer differently.
+        let allIgnored = selection.allSatisfy { delegate.isNodeIgnored($0, currentPath: context.currentPath) }
+        return PaneRowVerbs(
+            openInNewTab: can.openInNewTab ? { node.map { delegate.handleOpenInNewTab($0) } } : nil,
+            quickLook: can.singleNodeVerbs
+                ? { node.map { toggleQuickLook(URL(fileURLWithPath: $0.id), followsPane: true) } } : nil,
+            revealInFinder: can.singleNodeVerbs
+                ? { node.map { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: $0.id)]) } } : nil,
+            rename: can.singleNodeVerbs ? { node.map { delegate.handleRename($0) } } : nil,
+            // Fire-time selection, like `DeleteSelectionCommand`: a menu held open is not re-armed
+            // by a republish, so a captured array could name rows a bulk sync has since replaced.
+            chooseDestination: can.chooseDestination
+                ? { isMove in delegate.handleChooseDestination(activeSelectionNodes, isMove: isMove) } : nil,
+            ignore: can.ignore
+                ? PaneRowVerbs.IgnoreToggle(
+                    title: allIgnored ? "Include in Comparison" : "Ignore in Comparison",
+                    run: { delegate.handleIgnore(activeSelectionNodes) })
+                : nil)
     }
 
     /// File ▸ Organize's verbs, over the active pane's selection.
@@ -1237,6 +1351,35 @@ struct OrganizeLensCommands: View {
             ))
             .disabled(lens == nil)
         }
+    }
+}
+
+/// File ▸ the row menu's verbs.
+///
+/// Titles match the row menu's exactly — the same act must not have two names — except that
+/// "Ignore in comparison" is menu-cased here, where menus live.
+struct PaneRowVerbCommands: View {
+    @FocusedValue(\.paneRowVerbs) private var verbs
+
+    var body: some View {
+        Button("Open in New Tab") { verbs?.openInNewTab?() }
+            .disabled(verbs?.openInNewTab == nil)
+        Button("Quick Look") { verbs?.quickLook?() }
+            .disabled(verbs?.quickLook == nil)
+        Button("Reveal in Finder") { verbs?.revealInFinder?() }
+            .disabled(verbs?.revealInFinder == nil)
+        Divider()
+        // No chord: ↩ is the one people try, and it cannot be a menu key equivalent — it outranks
+        // every default button in the app. Order step 6 teaches the pane to handle it directly.
+        Button("Rename") { verbs?.rename?() }
+            .disabled(verbs?.rename == nil)
+        // Ellipses: both open the destination picker rather than moving anything.
+        Button("Copy to…") { verbs?.chooseDestination?(false) }
+            .disabled(verbs?.chooseDestination == nil)
+        Button("Move to…") { verbs?.chooseDestination?(true) }
+            .disabled(verbs?.chooseDestination == nil)
+        Button(verbs?.ignore?.title ?? "Ignore in Comparison") { verbs?.ignore?.run() }
+            .disabled(verbs?.ignore == nil)
     }
 }
 

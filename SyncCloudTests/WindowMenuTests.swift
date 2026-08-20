@@ -258,3 +258,54 @@ import AppKit
         #expect(!SelectAllScope.appliesToPane(surface: .differences))
     }
 }
+
+/// What the pane row menu's verbs offer, now that they are also menu items.
+@Suite struct PaneRowVerbAvailabilityTests {
+
+    static func resolve(count: Int = 1, isDirectory: Bool = true,
+                        canOpenInNewTab: Bool = true,
+                        isComparing: Bool = true) -> PaneRowVerbAvailability.Answer {
+        PaneRowVerbAvailability.resolve(selectionCount: count, isDirectory: isDirectory,
+                                        canOpenInNewTab: canOpenInNewTab, isComparing: isComparing)
+    }
+
+    @Test func oneFolderOffersEverything() {
+        let a = Self.resolve()
+        #expect(a.openInNewTab && a.singleNodeVerbs && a.chooseDestination && a.ignore)
+    }
+
+    /// A file has no tab to open, but keeps Quick Look, Reveal and Rename.
+    @Test func aFileOffersTheSingleNodeVerbsButNoTab() {
+        let a = Self.resolve(isDirectory: false)
+        #expect(!a.openInNewTab)
+        #expect(a.singleNodeVerbs)
+    }
+
+    /// The pane decides whether tabs are available at all — the row menu asks the same question.
+    @Test func aPaneThatCannotOpenTabsWithholdsIt() {
+        #expect(!Self.resolve(canOpenInNewTab: false).openInNewTab)
+    }
+
+    /// **A batch still picks a destination.** Copy to… and Move to… work on many; the picker and
+    /// `FileOperations` both prune nested nodes, so a folder and its child cannot both travel.
+    @Test(arguments: [2, 9])
+    func aBatchKeepsTheDestinationPickerAndLosesTheSingleNodeVerbs(count: Int) {
+        let a = Self.resolve(count: count)
+        #expect(a.chooseDestination && a.ignore)
+        #expect(!a.singleNodeVerbs && !a.openInNewTab,
+                "Quick Look, Reveal and Rename have no referent for \(count) rows")
+    }
+
+    /// **Ignoring is a statement about a comparison**, so Browse and Storage have nothing to say.
+    @Test func withoutAComparisonThereIsNothingToIgnore() {
+        #expect(!Self.resolve(isComparing: false).ignore)
+        #expect(Self.resolve(isComparing: false).chooseDestination,
+                "a destination pick is not about comparing and must survive")
+    }
+
+    @Test func anEmptySelectionOffersNothing() {
+        let a = Self.resolve(count: 0)
+        #expect(a == PaneRowVerbAvailability.Answer(openInNewTab: false, singleNodeVerbs: false,
+                                                    chooseDestination: false, ignore: false))
+    }
+}
