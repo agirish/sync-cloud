@@ -31,28 +31,30 @@ enum SetupSheetMetrics {
     /// Breathing room kept between the card and the window edge.
     static let hostMargin: CGFloat = 48
 
-    /// **The card is sized to the step it is showing, not to the tallest step it will ever show.**
+    /// **One height for every step.**
     ///
-    /// It used to be a flat 648pt, chosen against Sources — the one step that grows with the user's
-    /// data — and every other step then floated in the space Sources needed. Done was four rows and
-    /// 450pt of nothing. A form that leaves half its card empty reads as unfinished, and no amount
-    /// of spacing inside the content fixes a container that is simply too big for it.
+    /// It was briefly sized to each step, which removed the dead space and introduced something
+    /// worse: the card grew and shrank as you moved — 563pt on Sources, 360pt on People — and a
+    /// container that resizes under a form draws the eye to the container. A setup card should be a
+    /// steady frame you fill in, not a thing that moves while you read it.
     ///
-    /// The bounds are what keep that from becoming the opposite problem. Below `minCardHeight` the
-    /// card starts to feel like an alert rather than a form, and the rail runs out of room; above
-    /// `maxCardHeight` a step is long enough that scrolling is the honest answer.
-    /// **Both numbers are measured, not chosen.** The floor is where the rail runs out of room and
-    /// the card starts reading as an alert. The ceiling was 640 and Sources laid out at 605pt on a
-    /// seven-source Mac — 21pt over the 584pt of content that left — so it is 680, which gives that
-    /// step 19pt of headroom and still clamps comfortably inside the ~692pt a 1280×800 display has.
+    /// **Measured against the steps that can be measured.** You and Done lay out at 484pt and
+    /// People at 412pt on a 1200×740 window; 560 gives the tallest of those 20pt for a copy edit.
+    /// Sources is deliberately not in that set — it draws a row per source and a user may add any
+    /// number of folders, so no height promises to hold it (at seven sources it wants 635pt, more
+    /// than a 1280×800 display can give *any* card). It scrolls past a count
+    /// `sourcesOutgrowsTheOpeningEventually` names, which is the same bargain the settings sheet
+    /// strikes with its Providers tab — the difference being that this one has the measurement
+    /// under it rather than a label.
     ///
-    /// Raising it costs nothing on the other steps, which is the point of sizing to content: Done is
-    /// drawn at about 400pt whatever this says. `aShortStepGetsAShorterCard` is what keeps that true.
-    /// Measured against the shortest step rather than guessed: People lays out at 305pt, so a floor
-    /// of 430 handed it back 69pt of the dead space this whole change exists to remove. 360 clears
-    /// the rail's own content (~222pt) with room and lets the shortest step sit at its own size.
+    /// What keeps this from being the old 648pt problem is the other half of the change: every
+    /// step's closing line is pinned to the bottom of the pane, so the slack sits between the
+    /// controls and their caption rather than trailing off the end of the content.
+    static let cardHeight: CGFloat = 560
+
+    /// Below this a rail plus a usable content column stops being possible; the card stops shrinking
+    /// and its step scrolls instead. Overflowing a tiny window beats a card too small to use.
     static let minCardHeight: CGFloat = 360
-    static let maxCardHeight: CGFloat = 680
 
     /// The width the card actually gets, clamped to the window it is centred in.
     static func resolvedWidth(availableSize: CGSize, scale: CGFloat) -> CGFloat {
@@ -61,21 +63,19 @@ enum SetupSheetMetrics {
         return min(wanted, room)
     }
 
-    /// The height range the card may take, clamped to the window.
+    /// The height the card actually gets, clamped to the window it is centred in.
     ///
-    /// Clamped from both sides against the host for the reason the settings sheet learned the hard
-    /// way: a card sized in points on a 1280×800-class display has ~740pt of window to live in, and
-    /// a number chosen without that in mind hangs off the edge while every test still passes.
-    static func heightBounds(availableSize: CGSize, scale: CGFloat) -> (min: CGFloat, max: CGFloat) {
-        let room = max(availableSize.height - hostMargin, 360)
-        let top = min(maxCardHeight * scale, room)
-        let bottom = min(minCardHeight * scale, top)
-        return (bottom, top)
+    /// Clamped for the reason the settings sheet learned the hard way: a card sized in points on a
+    /// 1280×800-class display has ~740pt of window to live in, and a number chosen without that in
+    /// mind hangs off the edge while every test still passes.
+    static func resolvedHeight(availableSize: CGSize, scale: CGFloat) -> CGFloat {
+        let room = max(availableSize.height - hostMargin, minCardHeight)
+        return min(cardHeight * scale, room)
     }
 
-    /// The height a step's own content may take before the card stops growing and it scrolls.
-    static func maxContentHeight(availableSize: CGSize, scale: CGFloat) -> CGFloat {
-        heightBounds(availableSize: availableSize, scale: scale).max - footerHeight
+    /// The height a step's own content gets before it has to scroll.
+    static func contentHeight(availableSize: CGSize, scale: CGFloat) -> CGFloat {
+        resolvedHeight(availableSize: availableSize, scale: scale) - footerHeight
     }
 
     /// The width a step's content is laid out at.
@@ -117,10 +117,6 @@ struct SetupSheet: View {
     @State private var fullNameField = ""
     @State private var newPersonField = ""
     @State private var isRefreshingProviders = false
-    /// The natural height of the step currently on screen, reported by the content itself.
-    @State private var measuredContentHeight: CGFloat = 0
-    /// Whether a measurement has ever landed, so the first one does not animate.
-    @State private var hasMeasuredOnce = false
     /// The first field on the first step. A form that opens with nothing focused asks you to click
     /// before you can type.
     @FocusState private var nameFieldFocused: Bool
@@ -221,17 +217,8 @@ struct SetupSheet: View {
         SetupSheetMetrics.resolvedWidth(availableSize: availableSize, scale: fontScale)
     }
 
-    private var heightBounds: (min: CGFloat, max: CGFloat) {
-        SetupSheetMetrics.heightBounds(availableSize: availableSize, scale: fontScale)
-    }
-
-    /// The height the card takes for the step it is showing: what the content asked for, held
-    /// between the bounds. Zero until the first measurement lands, which is why it falls back to
-    /// the minimum rather than to nothing.
-    private var cardHeight: CGFloat {
-        let bounds = heightBounds
-        guard measuredContentHeight > 0 else { return bounds.min }
-        return min(max(measuredContentHeight + SetupSheetMetrics.footerHeight, bounds.min), bounds.max)
+    private var cardHeightResolved: CGFloat {
+        SetupSheetMetrics.resolvedHeight(availableSize: availableSize, scale: fontScale)
     }
 
     @ViewBuilder
@@ -242,18 +229,7 @@ struct SetupSheet: View {
             case .step(let step): stepScreen(step)
             }
         }
-        .frame(width: cardWidth, height: cardHeight)
-        // The card grows and shrinks between steps, so the change has to be a movement rather than
-        // a jump — and it must not animate on the very first measurement, which would play the card
-        // unfolding from its minimum every time the form opens.
-        .animation(hasMeasuredOnce ? .easeInOut(duration: 0.22) : nil, value: cardHeight)
-        .onPreferenceChange(SetupContentHeightKey.self) { height in
-            guard height > 0, abs(height - measuredContentHeight) > 0.5 else { return }
-            measuredContentHeight = height
-            // Set after the first value lands, so the opening frame is drawn at the right size
-            // rather than animated up from the minimum.
-            if !hasMeasuredOnce { hasMeasuredOnce = true }
-        }
+        .frame(width: cardWidth, height: cardHeightResolved)
         .contentSurface(hue: glassHue, tint: surfaceTint)
         .groundedGlassCard(level: glassLevel)
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
@@ -321,7 +297,7 @@ struct SetupSheet: View {
             .padding(.horizontal, 30)
             .padding(.top, 30)
             .padding(.bottom, 24)
-            .measuredHeight()
+
 
             Spacer(minLength: 0)
             Divider()
@@ -356,7 +332,13 @@ struct SetupSheet: View {
                 // `ScrollView` would simply claim the whole card again — which is the shape this
                 // replaced, where four of five steps floated in the space the tallest one needed.
                 ScrollView {
-                    stepContent(step).measuredHeight()
+                    stepContent(step)
+                        // At least the height of the pane, so the closing line sits on the bottom
+                        // edge rather than under the controls — and more than that when a step
+                        // genuinely outgrows the card, which is when this scrolls.
+                        .frame(minHeight: SetupSheetMetrics.contentHeight(availableSize: availableSize,
+                                                                          scale: fontScale),
+                               alignment: .topLeading)
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 Divider()
@@ -379,11 +361,48 @@ struct SetupSheet: View {
             case .people: peopleStep
             case .done: doneStep
             }
+
+            // **The slack goes here, above the closing line, not after it.**
+            //
+            // Every step is drawn in a card sized for the tallest of them, so all but one has空
+            // room to place. Left at the end of the content it reads as a card that ran out of
+            // things to say; put between the controls and the sentence that explains them, it reads
+            // as the margin a form ought to have — and the closing line lands in the same place on
+            // every step, which is its own kind of order.
+            Spacer(minLength: 14)
+
+            Text(stepFootnote(step))
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity,
+                       alignment: step == .done ? .center : .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // **No `maxHeight: .infinity` here.** A view that fills whatever it is offered cannot be
+        // measured: `fittingSize` on it answers the offer rather than the content, which is the
+        // same trap as measuring a `ScrollView`. It reported Sources at 635pt against a real 521.
+        // The pane gives it a floor instead — see `stepScreen` — so the spacer expands there and
+        // the natural height is still what a test sees.
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.horizontal, 28)
         .padding(.top, 26)
-        .padding(.bottom, 24)
+        .padding(.bottom, 20)
+    }
+
+    /// The line that closes each step, pinned to the bottom of the pane.
+    private func stepFootnote(_ step: SetupFlow.Step) -> String {
+        switch step {
+        case .you:
+            return "Startup, text size and the rest are in Settings ▸ General."
+        case .sources:
+            return "Primary only decides what gets learned. Every enabled source is browsable and "
+                + "comparable either way, and you can change which one is primary later."
+        case .people:
+            return "A first name is enough here. Full names and nicknames are worth adding in "
+                + "Settings ▸ People, where they do the most work."
+        case .done:
+            return "Run setup again from Help ▸ Set Up SyncCloud…"
+        }
     }
 
     /// The primary source, where one is set.
@@ -597,10 +616,6 @@ struct SetupSheet: View {
                         .controlSize(.small)
                         .labelsHidden()
                 }
-                Text("Startup, text size and the rest are in Settings ▸ General.")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -652,11 +667,6 @@ struct SetupSheet: View {
                     .monospacedDigit()
             }
 
-            Text("Primary only decides what gets learned. Every enabled source is browsable and "
-                 + "comparable either way, and you can change which one is primary later.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -665,7 +675,7 @@ struct SetupSheet: View {
         let isValid = settings.isPathValid(for: provider.id)
         let isPrimary = primarySourceId == provider.id
         return HStack(spacing: 11) {
-            ProviderLogo(provider.imageName, size: 26)
+            ProviderLogo(provider.imageName, size: 24)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 7) {
                     Text(sourceName(provider))
@@ -734,7 +744,7 @@ struct SetupSheet: View {
                       : "Show \(provider.displayName) in the pane sidebar.")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.vertical, 7)
         .opacity(isEnabled ? 1 : 0.5)
     }
 
@@ -878,11 +888,6 @@ struct SetupSheet: View {
                 .onSubmit(commitPerson)
                 .disabled(rosterIsReadOnly)
 
-            Text("A first name is enough here. Full names and nicknames are worth adding in "
-                 + "Settings ▸ People, where they do the most work.")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -999,10 +1004,6 @@ struct SetupSheet: View {
                           + "learn from when it lands.", systemImage: "clock")
             }
 
-            Text("Run setup again from Help ▸ Set Up SyncCloud…")
-                .scaledFont(.caption)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -1328,28 +1329,5 @@ private struct WrapLayout: Layout {
             x += size.width + spacing
             lineHeight = max(lineHeight, size.height)
         }
-    }
-}
-
-/// Reports a view's natural height up the tree, so the card can size itself to the step it holds.
-private struct SetupContentHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
-private extension View {
-    /// Publishes this view's laid-out height as a preference.
-    ///
-    /// **A background `GeometryReader`, not a `frame` read.** The measurement has to be of what the
-    /// content *wants*, taken without constraining it — reading it from a frame the card imposed
-    /// would measure the card, and the card is what this is trying to size.
-    func measuredHeight() -> some View {
-        background(
-            GeometryReader { proxy in
-                Color.clear.preference(key: SetupContentHeightKey.self, value: proxy.size.height)
-            }
-        )
     }
 }
