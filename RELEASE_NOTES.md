@@ -5,6 +5,260 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v4.2
+
+**SyncCloud can set itself up.** Until now the filing engine needed a *folder
+profile* — the record of your tree that To File, Renames and Restructure all read —
+and nothing in the app could produce one: `resurveyFilingMemory` opened by requiring
+a profile id and returned without one, so a machine that had never run an
+out-of-repo script got no routing, no rename proposals and no Restructure findings,
+with nothing on screen saying why. In place of the six-page welcome tour there is
+now a form that asks four questions and walks your tree.
+
+The other half of the release is reach. The menu bar had not grown since tabs
+arrived — Organize's sections and verbs, the row menu's seven verbs, the four
+clipboard chords, the transfer chords and ↩-to-rename all had working handlers and
+no menu route. ⌘K stops being a card over a dimmed window and becomes a field in the
+toolbar you can type a path into. Browse gets a sidebar of the folders you pin and
+the ones you keep coming back to. And Storage stops asking you to read digits to see
+which of two files is bigger.
+
+On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0
+section first.
+
+### Setting up
+
+- **A fresh install is asked four questions rather than shown six pages of prose.** Your name
+  and the forms of it documents print; which of the discovered sources you actually
+  use and which is primary; who else is in the household; and which folder to learn
+  from. The retired tour asked for nothing, so everything the filing engine needs was
+  left to be discovered later across nine settings tabs.
+- **The Folders step walks your tree and writes the profile.** Names and counts only
+  — no document is opened — so it takes seconds rather than the hours a document
+  survey needs, and the result takes effect without a relaunch. A walk that lands
+  beside a profile SyncCloud did not write is refused the pointer and says so
+  ("learned N folders, but this Mac already has a folder profile it did not write")
+  rather than reporting a plain success: a hand-built profile records judgements a
+  walk cannot see.
+- **It proposes the place names it found, and nothing starts ticked.** Mined from
+  folder names and used as-is, the proposals are mostly right and every one of their
+  mistakes is an invention — `HPE` is an employer, `IT` a department, `PRD` a product
+  stage. Handed only the values you confirm, the same code has nothing to invent
+  from. Each chip carries how many folders it would affect, with the parents it
+  splits in the tooltip: a value under Finance, Legal and School reads as a place;
+  one under Work/Payslips alone reads as an employer.
+- **It proposes the household too, from the one folder that says what its children
+  are.** `Family/Aditi` is a person because `Family` said so. Every rule that
+  measured repetition instead was thrown out by the numbers rather than by review —
+  on a document tree `Reference`, `Application` and `Statements` all outrank every
+  real person, because document-type words repeat harder than people do. It over-proposes on purpose, with the vouching folder on each chip: a
+  name you must think of unprompted costs more than a name you refuse with one click.
+- **Answers are kept when there is nowhere yet to put them.** `people.json` lives
+  *inside* a profile, so on the machine this form exists for, You and People have
+  nowhere to write until the walk mints one. Those two rows say the answer is kept
+  and applies once SyncCloud has learned a folder tree, rather than claiming to be in
+  effect. When the profile arrives they are applied to the roster — adding to records
+  and never removing from them, so a full name typed into Settings ▸ People in the
+  meantime survives.
+- **The form will not offer edits `PeopleStore` refuses to write.** It declines over
+  a `people.json` it could not read, and over one whose duplicated id it had to
+  collapse; the People step now says which of the two is in force, disables Add and
+  Remove, and withholds the count rather than reporting a household back to you that
+  it could not read.
+- **It opens by itself only on a machine that has never been set up** — nothing
+  completed, nobody greeted, no profile — and **Help ▸ Set Up SyncCloud…** opens it
+  any time without persisting anything. A re-run opens on the rail, not on a welcome
+  card addressed to somebody who has never seen the app.
+
+### The menu bar
+
+- **Cut, Copy, Paste and Select All reach your files.** Cut, Copy and *Paste here*
+  have worked from the row menu since before v4.0, and ⌘C over a selected file fell through to
+  AppKit's text Copy and did nothing you could see; Select All was missing outright,
+  appearing nowhere in the app except inside text-field editors. The cost was never
+  the pasteboard, it was the routing — all four are text-editing keys, and a menu key
+  equivalent outranks the field editor — so the keystroke is handed back whenever the
+  caret owns it, and ⌘C still copies text in the pane search, a rename field, the
+  differences search and the ⌘K field. ⌘X then ⌘V is a move.
+- **Organize has a menu.** Its five sections, ticked, then its four row verbs. Until
+  now ⌘3 was the whole menu-bar presence of the largest feature area in v4. The
+  sections route through the same call ⌘K's Organize rows use, so the workspace and
+  the scope cannot be moved out of step; every verb refuses a multiple selection,
+  because organizing two folders is two questions.
+- **The row menu's verbs are in File** — Open in New Tab, Quick Look, Reveal in
+  Finder, Rename, Copy to…, Move to… and Ignore in Comparison, each of which
+  previously needed a right-click on exactly the right row. Ignore's title flips with
+  the selection and is withheld outside Compare, where there is no comparison to
+  ignore anything in. Download stays on the row menu: its action starts a per-pane
+  watch so the cloud badge clears when the content lands, and a menu item has no pane
+  to scope that to.
+- **↩ renames the selected row.** It is a pane key handler rather than a menu key
+  equivalent, and that is deliberate: a registered bare ↩ would outrank every default
+  button in the app — the destination picker's, the ⌘K field's, every sheet's. Finder
+  does not register it either. It fires only while the file list has focus, runs the
+  same closure File ▸ Rename runs, and falls through untouched when no single row is
+  selected.
+- **⌘← and ⌘→ are in the Compare menu.** The four directional transfers worked and
+  were listed in the ⌘/ reference, but had no menu-bar route — and a menu item is
+  what lets a chord be read as well as pressed. Their titles name the providers
+  ("Copy to Dropbox"), as the header buttons and the row menu already do.
+- **Each auxiliary window is listed once.** Keyboard Shortcuts, Activity Log and Sync
+  History each appeared twice — in Help as "Open Activity Log", in Window as
+  "Activity Log" — and About appeared twice as well, since AppKit's application-menu
+  item was there all along. None of it was visible to a source scan: one of each pair
+  is generated by SwiftUI and written down nowhere. Help keeps what is genuinely help
+  — its own front door, the setup form, and the log reveal.
+- **The Window menu says which folders the window is on** — `SyncCloud (iCloud/Documents
+  ⇄ Dropbox/Documents)`, and in a lens the one source it is working. `NSWindow.subtitle`
+  was set nowhere: the window has no visible title bar, so nothing in the app ever
+  needed a name, but the Window menu and Mission Control read one whether or not it
+  is drawn and both had been saying "SyncCloud" for a window that could be on any
+  pair of folders in any cloud. A side whose provider no longer resolves drops out
+  rather than emptying the whole name.
+
+### Go to (⌘K)
+
+- **⌘K grows the toolbar's Go to pill into a field, and the results hang under it.**
+  It was a 620pt card floating over a dimmed window; the tree you are navigating now
+  stays visible while you type the name of the folder you want. ⌘K on an open field
+  selects what is there, as it does in every Mac search field, rather than closing it.
+- **Type a path and it goes there.** `/Users/…` or `~/Documents`, Finder's ⇧⌘G as a
+  behaviour rather than a surface. A bare name is still a search — treating
+  `Documents` as a path would shadow every recent and pinned folder the moment you
+  typed a word that happens to be a directory in your home — and a file's path goes
+  to its enclosing folder, which is what a Finder copy actually puts on the clipboard.
+- **A path it cannot deliver says why instead of doing nothing.** "Not in any
+  source", "In Dropbox — switch source first", "Backup SSD is not mounted", "No
+  folder at that path". Only the last is a claim about existence, and only it wears a
+  question mark.
+- **Recents survive quitting.** They were session-scoped, which is right for a pane's
+  jump menu and wrong for a field whose entire empty state is that list: the first ⌘K
+  of the day opened on nothing, at the one moment yesterday's folder is most wanted.
+- **A sleeping drive says so rather than opening blank.** Checking the provider root
+  first is one stalled `stat` instead of a dozen, and it correctly answered "none" for
+  every remembered folder at once — so an external disk that was not awake opened ⌘K
+  completely empty, with "I have no recents" indistinguishable from "my drive is not
+  awake". Those folders are now listed and marked *Not available*, the highlight
+  lands past them, and ↩ cannot run one.
+
+### Browse and Storage
+
+- **Browse gets a folder sidebar.** `FolderJumpStore` has held two lists since v3 —
+  the folders you pin and the last eight you visited under a root — and the only ways
+  to see them were the pane header's jump menu and ⌘K. Browse is one pane at full
+  width and has the room to keep them out: 180pt on the leading edge, **View ▸
+  Sidebar** or ⌃⌘S, Browse only. Click switches the pane, ⌘-click opens the folder in
+  a new tab, right-click pins or unpins. Two folders called `Legal` are told apart by
+  their parent, and a top-level one by its provider. A folder on a drive that is not
+  awake stays listed and refuses, rather than being dropped — a sleeping disk must not
+  cost you your pins.
+- **Storage's ranked lists draw a magnitude bar and a share.** Every size was set in
+  the same weight at the same position, so a four-fold difference between two rows
+  read as nothing until you compared the digits — in a section titled "the biggest
+  individual files". Each row's bar is scaled to its section's own largest file rather than to
+  what is still on screen, so typing a query does not silently rescale every bar; the
+  bars are on the size-ordered lists only, since on the oldest-first list a bar that
+  rose and fell would read as a ranking it has nothing to do with. The share rounds
+  away from zero, because "0%" claims the file is not there.
+- **The treemap is one ramp instead of ten hues.** Colour was assigned by index, so
+  blue-for-Work meant nothing and the eye kept looking for a legend that could not
+  exist. It now runs deep to pale in your own accent hue, ordered by size, so the
+  colour *is* the ranking — falling saturation against rising brightness, which keeps
+  luminance strictly monotonic for every hue and is the property that lets a ramp be
+  read as an order. Each tile's label takes its contrast from the fill that tile
+  actually got.
+
+### Text size and spacing
+
+- **Text size is a percentage, 90% to 135%, in 5% steps.** It had four stops with a
+  25-point hole between Default and Large that nothing lived in. The four keep their
+  names as detents under the slider's ticks — Small, Default, Large, Largest (the
+  last renamed from Larger, since the slider now physically stops there).
+- **They live in a Readability tab of their own.** Text size and list density were
+  two adjacent segmented pickers in Appearance with a caption between them and no
+  hint that they were related, though both answer the same question — so somebody who
+  finds everything too small had to work out that two separate controls were
+  involved. Drawn as they wanted to be drawn they no longer fit an Appearance tab
+  that was already running on about 15pt of margin, and a tab of their own is what
+  buys the room. It is called Readability rather than "Text size" because row spacing
+  is half of it and is not type at all. "List density" is now "Row spacing".
+- **Five presets over the two controls**, each step showing less and reading bigger,
+  and a live preview of three real file rows at the chosen size and spacing. The
+  preview is the only thing on screen that shows what Compact costs: it drops each
+  file's size and date entirely, which nobody choosing from the word alone would
+  guess.
+- **Your stored size migrates at launch.** The value was the string `small` /
+  `medium` / `large` / `extraLarge` for every release before this one, and a build
+  reading an integer cannot see it — so without the migration every user who had
+  chosen a size would have opened a build reporting 100%, and the first write would
+  have made it permanent.
+- **The setup form's first step carries the same preset row**, because somebody who
+  needs larger text needs it for the four questions that follow, not after them.
+
+### Help
+
+- **The Help card can be resized, and remembers the size.** It was fixed at 760×520
+  on the argument that its content is bounded — true of the sidebar and false of the
+  articles, which run well past the card and scroll. Eight grips, a 560×400 floor,
+  and a ceiling of what the window can show; at the smallest window the card is
+  exactly what it always was.
+- **The rail stops truncating its titles.** Every row set a one-line limit on a rail
+  fixed at 220pt, which does not widen when the card is resized — so there was no
+  window size that got the word back, and the surface you enlarge the type to read
+  answered by removing letters. Titles wrap now, as they always did in the Settings
+  rail one file over. "Who your documents belong to" is shortened to "People and
+  names".
+- **The book describes the app again.** Nineteen articles became twenty-eight, and
+  four separate drifts are fixed at once. Three articles sent people to a Help menu
+  that no longer has the item. Two told users to add a folder "under Settings ▸
+  Providers", a tab renamed **Sources** when it started listing plain folders beside
+  the cloud accounts. Three of Organize's five sections — Renames, Restructure and
+  Rules — had no article at all, under a section called "Cleanup tools" that
+  described half a workspace. And **"Requires macOS 15"** was two majors out of date,
+  which is the one stale claim here with a cost attached, since it is read by
+  somebody deciding whether to download; it is derived from the built bundle now.
+- New articles cover the setup form, the Organize workspace itself, each of its five
+  sections, Readability, Intelligence, ⌘K and the household.
+
+### People
+
+- **The person panel stops calling everyone "her".** It is drawn for whoever is
+  scoped, and four of its strings were written to a fixture: the header capsule
+  ("N hers"), both group titles ("In her folders", "Hers, filed elsewhere") and the
+  misfiling subtitle. Nothing failed,
+  because the fixtures the tests render are the two people it happened to be right
+  about; the copy was simply wrong for everyone else, on screen, from the day it
+  shipped. The panel now names the person where the group starts — "In Abhishek's
+  folders" — and says they/them in the sentence that follows, which is what every
+  other person-facing string in the app already did.
+
+  Deliberately not a `pronouns` field: that is a new persisted key, an editor, a
+  decoder state and a small grammar layer, bought for four strings and wrong for
+  every person until somebody fills it in. `relationship` ("wife", "daughter") is
+  sitting right there as a shortcut and is not one — inferring pronouns from a
+  free-text relationship word is how you misgender somebody.
+
+### Known limitations
+
+- **⌘A in a Tree pane selects the top-level rows only**, not the children of expanded
+  folders. Which rows are expanded is private to the view and a menu item cannot see
+  it, so "everything visible" would be a guess — and selecting a folder *and* its
+  contents copies both, once as the folder and again as its parts. Columns resolves
+  through the deepest open column, the same folder ⇧⌘N uses.
+- **Edit's four items are never greyed out.** A menu item cannot know where the caret
+  is when it renders, so disabling Copy when no files are selected would grey it out
+  while somebody is typing in the ⌘K field. The accepted cost is an enabled Paste
+  that does nothing on an empty clipboard.
+- **The Sources step scrolls on a long list.** It draws a row per source and you may
+  add any number of folders, so no card height promises to hold it; every other step
+  is measured to fit.
+- **⌘K cannot switch to the source a typed path is in.** A path under a source the
+  pane is not showing is listed and marked "In <source> — switch source first" rather
+  than delivered. Doing it properly means suppressing the provider change's own
+  navigation reset, or the pane lands at its root with the folder silently dropped.
+
+---
+
 ## v4.1
 
 Tabs. One pane, many parked locations — the thing that turns a two-pane

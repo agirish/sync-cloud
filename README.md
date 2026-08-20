@@ -11,7 +11,8 @@
 </p>
 
 SyncCloud has four workspaces, and opens in **Browse** — the plain file browser: one provider's
-tree, full width, nothing proposed, for the moves you make by hand. **Compare** puts two folders side by side
+tree, full width, nothing proposed, for the moves you make by hand, with a sidebar (⌃⌘S) of the
+folders you pin and the ones you keep coming back to. **Compare** puts two folders side by side
 and shows exactly what differs — what's missing on each side, what's newer, what only *looks* the
 same — and lets you copy, move, or reconcile items with one click. **Organize** points a single
 provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**, **Restructure**, and
@@ -68,9 +69,10 @@ One rail, five lenses:
   something by hand.
 
 ### 📊 Storage — see where the space goes
-A read-only **treemap** of where your space actually goes, plus ranked lists of the largest files,
-long-untouched files, and reclaim candidates. Strictly read-only: it never moves, deletes, or
-evicts anything.
+A read-only **treemap** of where your space actually goes — one ramp running deep to pale in your
+accent hue, ordered by size, so the colour *is* the ranking — plus ranked lists of the largest
+files, long-untouched files, and reclaim candidates, each row carrying a magnitude bar and its
+share of the scan. Strictly read-only: it never moves, deletes, or evicts anything.
 
 ### 🤖 AI-assisted filing (optional)
 Organize's suggestions start from a fast, fully-offline engine (your existing folder names + filename
@@ -83,6 +85,14 @@ Cloud usage is metered: every scan records tokens and estimated cost, guarded by
 confirmation** and hard **monthly / total budget caps** (a `$5` lifetime cap by default). Over budget,
 it silently falls back to the on-device engine.
 
+### 🧭 Setup that actually asks
+A first run asks the four things SyncCloud cannot work out by looking at your folders — your name as
+documents print it, which of the discovered sources you use and which is primary, who else is in the
+household, and which tree to learn from — then **walks that tree and writes the folder profile**
+Organize's filing, renaming and restructure passes all read. The walk reads names and counts only
+(no document is opened), proposes the place names and household members it found with the folder
+that vouches for each, and ticks none of them for you. **Help ▸ Set Up SyncCloud…** reopens it.
+
 ### 🛟 Safety by construction
 Atomic backed-up overwrites, Trash-backed deletes, grouped reversible **Undo/Redo** (including
 "Undo Last Run" from history), From:/To: transfer confirmations, collision strategies
@@ -91,7 +101,9 @@ and *reports* on ambiguity rather than guessing. No single action can quietly lo
 
 ### 🎨 Native macOS design
 A macOS 26-inspired **Liquid Glass** interface (Clear / Frosted / Solid), System / Light / Dark
-themes, 12 accent hues, per-provider brand colours, and adjustable list density.
+themes, 12 accent hues, and per-provider brand colours. **Settings ▸ Readability** puts text size
+(90–135%, on a slider with named detents) and row spacing together with five presets and a live
+preview of the rows they produce.
 
 ---
 
