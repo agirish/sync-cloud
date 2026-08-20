@@ -203,6 +203,47 @@ import Foundation
         #expect(row.unavailable == "Backup SSD is not mounted")
     }
 
+    // MARK: The root that decides it
+
+    /// **Deliverable is decided by `providerRoot`, because that is what the reveal relativizes
+    /// against.** Not by the owning provider's `isCurrent` flag, and the difference is reachable:
+    /// `providerRoot` comes from `settings.path(for:)`, which reads `availableProviders`, while
+    /// `index.providers` is built from `enabledProviders` — a *filtered* list. Switch off the source
+    /// the pane is currently showing and it disappears from `providers` while the pane keeps showing
+    /// its tree, so a path in the folder on screen answered "Not in any source".
+    ///
+    /// The fixture is that state exactly: an aimed root with no provider in the list naming it.
+    @Test func aPathUnderTheAimedRootWorksEvenWhenNoListedSourceClaimsIt() throws {
+        let index = PaletteIndex(
+            providers: [PaletteProvider(id: "dropbox", name: "Dropbox", isMounted: true,
+                                        isCurrent: false, root: Self.dropbox)],
+            providerRoot: Self.documents, folders: [], home: Self.home,
+            isScanning: false, hasSurvey: true)
+        let probe = Probe(directories: ["\(Self.documents)/Legal"])
+        let row = try #require(PaletteRouter.rows(query: "~/Documents/Legal", index: index,
+                                                  probe: probe.kind)
+            .first { $0.id.hasPrefix("path.") })
+        #expect(row.isAvailable,
+                "a path in the tree the pane is showing was refused with: \(row.unavailable ?? "") — the row and the reveal are asking two different roots")
+        #expect(row.route == .folder(path: "\(Self.documents)/Legal"))
+    }
+
+    /// The aimed root itself asleep: the same wording every remembered folder already carries, and
+    /// **no probe** — a child of a root that did not answer is the stall the ordering exists for.
+    @Test func aPathUnderAnAsleepAimedRootSaysWhatTheOtherFolderRowsSay() throws {
+        let index = PaletteIndex(
+            providers: Self.providers(), providerRoot: Self.documents, folders: [],
+            foldersUnavailable: "Not available", home: Self.home,
+            isScanning: false, hasSurvey: true)
+        let probe = Probe(directories: ["\(Self.documents)/Legal"])
+        let row = try #require(PaletteRouter.rows(query: "~/Documents/Legal", index: index,
+                                                  probe: probe.kind)
+            .first { $0.id.hasPrefix("path.") })
+        #expect(row.unavailable == "Not available")
+        #expect(probe.asked.isEmpty,
+                "a child of a root that did not answer was stat'ed — that is the stalled keystroke this ordering exists to avoid")
+    }
+
     // MARK: The stall guard — what must NOT be asked
 
     /// **Every refusal is reached without touching the disk, and that ordering is the feature's

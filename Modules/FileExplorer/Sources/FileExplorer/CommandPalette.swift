@@ -642,7 +642,12 @@ public enum PaletteRouter {
     /// strictly better than the empty list a path query used to produce.
     ///
     /// The order of the checks is `PalettePath`'s stall guard — everything answerable from the
-    /// index first, the disk last and only inside a mounted, current source.
+    /// index first, the disk last and only inside the aimed source, once that source has answered.
+    ///
+    /// **The route on a refusal is not a destination.** It is the typed path, because a refusal is
+    /// reached before anything knows whether that path names a folder, a file, or nothing at all —
+    /// `PaletteSelection.chosen` is what stops it being run, the same way it stops an unmounted
+    /// source's row. Read `unavailable` before reading `route` on any row from here.
     static func pathRow(query: String, index: PaletteIndex,
                         probe: PalettePathProbe?) -> PaletteRow? {
         guard PalettePath.looksLikeAPath(query), let probe else { return nil }
@@ -650,23 +655,45 @@ public enum PaletteRouter {
         // Refusals first, each stated without the disk being asked. `id` is the typed path rather
         // than the destination, so a refusal and the row it becomes once the path is fixed are the
         // same row rather than two — the highlight does not jump as you type.
+        // **The reasons are sized against the 320pt floor, and that was rendered rather than
+        // guessed.** `PaletteResultsList` draws the reason `.fixedSize()`, so it never truncates and
+        // always wins its row: measured 2026-08-19 at 320pt, the longest of these ("In Dropbox —
+        // switch source first", 32 characters) leaves the title intact and squeezes the path detail
+        // to `/Us…Legal`, and a long title degrades to `Some Very…` with the reason still whole.
+        // That is the right way round for a refusal — the reason is what the row is *for*, and the
+        // path is still sitting in the field above it — but a reason much longer than this one
+        // starts eating the folder name, which is the half that says WHICH folder was refused.
         func refusal(_ reason: String) -> PaletteRow {
             PaletteRow(id: "path.\(typed)", group: .folders, title: leaf(typed), detail: typed,
                        symbol: "folder.badge.questionmark", route: .folder(path: typed),
                        unavailable: reason, score: pathRowScore)
         }
-        guard let owner = PalettePath.owner(of: typed, in: index.providers) else {
-            // The commonest refusal by far, and the one worth being plain about: this palette can
-            // only show folders that are inside a source, because a pane IS a source.
-            return refusal("Not in any source")
+        // **Deliverable is decided against `providerRoot`, which is the root the reveal will
+        // actually relativize against** — not against the owning provider's `isCurrent` flag.
+        // Those are two different values and they can disagree: `providerRoot` comes from
+        // `settings.path(for:)`, which reads `availableProviders`, while `index.providers` is built
+        // from `enabledProviders` — a *filtered* list. Disable the source the pane is showing and
+        // it vanishes from `providers` while the pane keeps showing it, so the old check answered
+        // "Not in any source" for every path in the tree on screen. Asking the one value the route
+        // is applied with cannot drift from the route.
+        guard PathBoundary.contains(typed, under: index.providerRoot ?? "") else {
+            guard let owner = PalettePath.owner(of: typed, in: index.providers) else {
+                // The commonest refusal by far, and the one worth being plain about: this palette
+                // can only show folders inside a source, because a pane IS a source.
+                return refusal("Not in any source")
+            }
+            guard owner.isMounted else { return refusal("\(owner.name) is not mounted") }
+            // Decided 2026-08-19: refuse and name the source rather than switching to it.
+            // Switching means suppressing the provider change's own navigation reset (the counter
+            // `adoptProviderForTab` arms) and driving the reload, or the pane lands at the root
+            // with the folder silently dropped. Deferred to v4.3 — ROADMAP_V4 §3.
+            return refusal("In \(owner.name) — switch source first")
         }
-        // Refused BEFORE the probe, which is what keeps a sleeping drive from stalling a keystroke.
-        guard owner.isMounted else { return refusal("\(owner.name) is not mounted") }
-        // Decided 2026-08-19: refuse and name the source rather than switching to it. Switching
-        // means suppressing the provider change's own navigation reset (the counter
-        // `adoptProviderForTab` arms) and driving the reload, or the pane lands at the root with
-        // the folder silently dropped. Deferred to v4.3 with that mechanism named — ROADMAP_V4 §3.
-        guard owner.isCurrent else { return refusal("In \(owner.name) — switch source first") }
+        // **The aimed root itself did not answer.** Every remembered folder is already marked with
+        // this exact reason (`foldersUnavailable`), so a typed path under the same root says the
+        // same thing — and probing a child of a root that did not answer is precisely the stall
+        // this whole ordering exists to avoid.
+        if let asleep = index.foldersUnavailable { return refusal(asleep) }
         switch probe(typed) {
         case .missing:
             return refusal("No folder at that path")

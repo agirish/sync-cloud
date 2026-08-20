@@ -97,7 +97,33 @@ final class CommandPaletteState: ObservableObject {
         self.selection = PaletteSelection.initialIndex(in: PaletteRouter.rows(query: "", index: index))
     }
 
-    var rows: [PaletteRow] { PaletteRouter.rows(query: query, index: index, probe: pathProbe) }
+    /// The last path asked about and what was there — **a one-entry memo, and it is not a
+    /// micro-optimisation.**
+    ///
+    /// Measured 2026-08-19 by counting probe calls through a live presentation: one keystroke cost
+    /// **two** `stat`s and one ↓ cost **two more**. `rows` is a computed property read twice per
+    /// change — once by `setQuery` to re-seat the selection, once by the SwiftUI body — and an
+    /// arrow key re-ran the whole router, and its probe, against a query that had not changed at
+    /// all. With the memo a keystroke costs one and an arrow key costs none.
+    ///
+    /// Caching a filesystem answer for the life of a presentation is the rule this palette already
+    /// follows rather than an exception to it: the index is snapshotted at open and never re-read,
+    /// because the answer to "what is there" cannot honestly change inside one palette session.
+    private var lastProbed: (path: String, kind: PathKind)?
+
+    private func probeKind(_ path: String) -> PathKind {
+        if let lastProbed, lastProbed.path == path { return lastProbed.kind }
+        // `.missing` is unreachable: this is only reached through the closure below, which exists
+        // only when `pathProbe` does.
+        let kind = pathProbe?(path) ?? .missing
+        lastProbed = (path, kind)
+        return kind
+    }
+
+    var rows: [PaletteRow] {
+        PaletteRouter.rows(query: query, index: index,
+                           probe: pathProbe == nil ? nil : { [self] in probeKind($0) })
+    }
 
     /// Typing moves the selection with the list rather than leaving it where it was: an index into
     /// the PREVIOUS results names a different row after a keystroke, so ↩ would run something the

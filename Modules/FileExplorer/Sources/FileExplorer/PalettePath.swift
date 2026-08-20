@@ -13,8 +13,13 @@ public enum PathKind: Equatable, Sendable {
     case file
 }
 
-/// Answers what is at a path. Injected rather than called, for the reason `PalettePath.row` gives.
-public typealias PalettePathProbe = @Sendable (String) -> PathKind
+/// Answers what is at a path. Injected rather than called, for the reason `PalettePath` gives.
+///
+/// **Not `@Sendable`, deliberately.** The one production implementation is a memo on
+/// `CommandPaletteState`, which is `@MainActor` — the whole point of it being a closure is that the
+/// caller can put something stateful behind it, and every call is on the main actor inside one
+/// synchronous `rows` computation.
+public typealias PalettePathProbe = (String) -> PathKind
 
 /// **Go to Folder** — Finder's ⇧⌘G as a behaviour rather than a surface (ROADMAP_V4 §3).
 ///
