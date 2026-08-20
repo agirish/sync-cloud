@@ -131,6 +131,20 @@ struct SyncCloudApp: App {
             UserDefaults.standard.register(
                 defaults: [DisplayCycleAssert.key: false])
 
+            // Rewrite the text size from the four case names it shipped as to the percentage it
+            // is now, before anything reads the key.
+            //
+            // **This has to be here rather than at the first read**, and the failure it prevents
+            // is silent: `@AppStorage(FontSize.defaultsKey) var percent: Int` cannot see a
+            // `String` on disk, so every user who had chosen Small, Large or Larger would open a
+            // build reporting 100% — and the first write from the new control would make that
+            // permanent. `FontSize.resolved(_:)` reads both shapes for the same reason, but a
+            // tolerant *reader* does not save a value from a clobbering *writer*.
+            //
+            // It is a no-op on every subsequent launch (an `Int` already present returns early),
+            // so it stays rather than becoming a dated migration to remember to delete.
+            FontSize.migrateLegacyValue()
+
             // The log line that reports which state this session is in is deliberately NOT here —
             // it is in the delegate's `applicationDidFinishLaunching`, for exactly the reason the
             // "launched" breadcrumb is: App.init can be re-run by SwiftUI, and a diagnostic that

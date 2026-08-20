@@ -60,13 +60,24 @@ import Testing
             .contains { $0.title == "Accent color" })
     }
 
-    @Test func listDensityIsFindableByValueName() {
-        // H7: the new density control must be findable like its Appearance neighbors —
-        // both by title and by the value words people would type.
-        let byTitle = filterSettings(SettingsSearchIndex.all, query: "list density")
-        #expect(byTitle.contains { $0.title == "List density" && $0.tab == .appearance })
-        let byValue = filterSettings(SettingsSearchIndex.all, query: "compact")
-        #expect(byValue.contains { $0.title == "List density" })
+    @Test func rowSpacingIsFindableByValueNameAndByItsRetiredTitle() {
+        // H7: the density control must be findable like its Appearance neighbours — by title and
+        // by the value words people would type.
+        //
+        // **And by the name it used to have.** The control shipped as "List density" for four
+        // releases; anybody who learned that word has to keep finding it, which is why the
+        // retired title stays in the entry's keywords rather than being replaced by the new one.
+        let byOldTitle = filterSettings(SettingsSearchIndex.all, query: "list density")
+        #expect(byOldTitle.contains { $0.title == "Row spacing" && $0.tab == .appearance })
+
+        let byNewTitle = filterSettings(SettingsSearchIndex.all, query: "row spacing")
+        #expect(byNewTitle.contains { $0.title == "Row spacing" && $0.tab == .appearance })
+
+        for value in ["compact", "comfortable"] {
+            #expect(filterSettings(SettingsSearchIndex.all, query: value)
+                .contains { $0.title == "Row spacing" },
+                    "searching for the value name \(value) does not find the control that sets it")
+        }
     }
 
     @Test func partialSubstringMatches() {

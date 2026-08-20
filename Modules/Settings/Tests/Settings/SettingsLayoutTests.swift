@@ -988,39 +988,44 @@ import Testing
                 "the fixture window did not clamp the sheet — this would measure the easy case")
         let available = column - 2 * SettingsSheetMetrics.pagePaddingH
 
-        let wanted = laidOutTextSizePickerWidth(at: .medium)
-        #expect(wanted > 0, "the picker laid out to nothing — the fixture measured no control")
+        // **Measured at the LARGEST size, not the default.** The old segmented picker was
+        // font-invariant, so one measurement covered every setting; the preset row that replaced
+        // it is SwiftUI-drawn and really does grow with the text size it sets — which makes the
+        // worst case a user can reach the only one worth measuring.
+        let wanted = laidOutSizePresetRowWidth(at: .extraLarge)
+        #expect(wanted > 0, "the row laid out to nothing — the fixture measured no control")
         #expect(wanted <= available,
                 """
-                The Text size picker wants \(wanted)pt but the floored content column offers only \
-                \(available)pt — its labels will truncate. Margin: \(available - wanted)pt.
+                The size preset row wants \(wanted)pt at \(FontSize.extraLarge.percent)% but the \
+                floored content column offers only \(available)pt — its tile labels will \
+                truncate. Margin: \(available - wanted)pt.
                 """)
     }
 
-    /// A segmented picker's width does not follow the app's text size — and the fit test above
-    /// leans on that, so it is pinned rather than assumed.
+    /// A segmented picker's width does not follow the app's text size.
     ///
     /// Measured, because the obvious expectation is the opposite one: `NSSegmentedControl` ignores
-    /// the SwiftUI font outright. The row is 260pt at Small and at Larger, and stays 260pt under an
-    /// explicit `.font(.system(size: 24))`. The only lever that moves it is `controlSize`
-    /// (`.large` → 276pt, `.small` → 228pt), which Appearance does not set.
+    /// the SwiftUI font outright. The row is the same width at Small and at Largest, and stays so
+    /// under an explicit `.font(.system(size: 24))`. The only lever that moves it is `controlSize`
+    /// (`.large` → wider, `.small` → narrower), which Appearance does not set.
     ///
-    /// So this is the test that fires if that ever changes — if a future macOS, or a `controlSize`
-    /// added upstream of these rows, starts scaling them, the fit above has to be re-measured at
-    /// Larger rather than at one size.
+    /// **This used to be about the Text size picker, and it is now about Row spacing** — because
+    /// Text size stopped being a segmented control. That is the finding worth keeping: the fit
+    /// test above now measures its row at the largest size precisely because the preset row does
+    /// NOT have this property, and Row spacing is the one still relying on it.
     @MainActor
-    @Test func theSegmentedRowsWidthDoesNotFollowTheAppTextSize() {
-        let sizes = Set(FontSize.allCases.map { laidOutTextSizePickerWidth(at: $0) })
+    @Test func theSegmentedRowSpacingWidthDoesNotFollowTheAppTextSize() {
+        let sizes = Set(FontSize.allCases.map { laidOutRowSpacingPickerWidth(at: $0) })
         #expect(sizes.count == 1,
                 """
-                The Text size picker now measures \(sizes.sorted()) across the four text sizes. It \
-                used to be font-invariant, which is why `theTextSizeRowFitsTheNarrowestColumn…` \
-                measures one size — re-measure it at Larger.
+                The Row spacing picker now measures \(sizes.sorted()) across the four named text \
+                sizes. It used to be font-invariant — anything measuring it at one size has to be \
+                re-measured at \(FontSize.extraLarge.percent)%.
                 """)
         // The fixture CAN see a font change, so the agreement above is a property of the control
         // rather than of the harness: a plain Text through the same path grows by ~40pt.
         let plain = { (size: FontSize) -> CGFloat in
-            let host = NSHostingView(rootView: Text("Small Default Large Larger").appFontSize(size))
+            let host = NSHostingView(rootView: Text("Comfortable Compact").appFontSize(size))
             host.layoutSubtreeIfNeeded()
             return host.fittingSize.width
         }
@@ -1028,16 +1033,31 @@ import Testing
                 "the fixture does not scale anything at all — the invariance above proves nothing")
     }
 
-    /// Appearance's Text size row exactly as it ships — four options, labels hidden, the app
+    /// The preset row really does follow the app's text size — the premise the fit test leans on.
+    ///
+    /// Without this, `theTextSizeRowFitsTheNarrowestColumn…` measuring at Largest would be
+    /// measuring the same number as at Default and quietly proving nothing.
+    @MainActor
+    @Test func thePresetRowGrowsWithTheTextSizeItSets() {
+        let small = laidOutSizePresetRowWidth(at: .small)
+        let largest = laidOutSizePresetRowWidth(at: .extraLarge)
+        #expect(largest > small,
+                """
+                The preset row measured \(small)pt and \(largest)pt — it is not scaling, so the \
+                fit test's worst case is not a worst case.
+                """)
+    }
+
+    /// Appearance's Row spacing row exactly as it ships — two options, labels hidden, the app
     /// accent on the selection — laid out at `size` with no width constraint.
     @MainActor
-    private func laidOutTextSizePickerWidth(at size: FontSize) -> CGFloat {
-        struct TextSizeRow: View {
-            @State private var raw = FontSize.medium.rawValue
+    private func laidOutRowSpacingPickerWidth(at size: FontSize) -> CGFloat {
+        struct RowSpacingRow: View {
+            @State private var raw = ListDensity.comfortable.rawValue
             var body: some View {
-                Picker("Text size", selection: $raw) {
-                    ForEach(FontSize.allCases) { size in
-                        Text(size.displayName).tag(size.rawValue)
+                Picker("Row spacing", selection: $raw) {
+                    ForEach(ListDensity.allCases) { density in
+                        Text(density.displayName).tag(density.rawValue)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -1045,11 +1065,27 @@ import Testing
                 .accentedSegments(.blue)
             }
         }
-        // `appFontSize(_:)` rather than a bare `\.appFontScale`: see the guard test above.
-        let host = NSHostingView(rootView: TextSizeRow().appFontSize(size))
+        let host = NSHostingView(rootView: RowSpacingRow().appFontSize(size))
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.width
     }
+
+    /// Appearance's size preset row exactly as it ships — five tiles, the named style — laid out
+    /// at `size` with no width constraint.
+    @MainActor
+    private func laidOutSizePresetRowWidth(at size: FontSize) -> CGFloat {
+        struct PresetRow: View {
+            @State private var fontSize = FontSize.medium
+            @State private var density = ListDensity.comfortable
+            var body: some View {
+                SizePresetRow(fontSize: $fontSize, density: $density)
+            }
+        }
+        let host = NSHostingView(rootView: PresetRow().appFontSize(size))
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.width
+    }
+
 }
 
 // MARK: - The cloud-spend readout

@@ -265,8 +265,8 @@ public struct SettingsView: View {
     /// The app's text-size setting. The sheet is sized in points but its contents are sized in
     /// scaled type, so the sheet has to grow with the type or the taller tabs start scrolling
     /// again at Large — the exact failure this layout exists to fix.
-    @AppStorage(FontSize.defaultsKey) private var fontSizeRaw: String = FontSize.medium.rawValue
-    private var fontSize: FontSize { FontSize(rawValue: fontSizeRaw) ?? .medium }
+    @AppStorage(FontSize.defaultsKey) private var fontSizePercent: Int = FontSize.medium.percent
+    private var fontSize: FontSize { FontSize(percent: fontSizePercent) }
 
     /// The space the host has to place the sheet in, or `nil` when the host doesn't say. The
     /// window's own minimum is 760×560, which after `hostMargin` is still less than the sheet
@@ -437,11 +437,19 @@ enum SettingsSearchIndex {
         // "solid" belongs to Glass effect now, not here: this control is shape only.
         .init(tab: .appearance, title: "Content surface style",
               keywords: ["surface", "unified", "cards", "pane background", "content surface"]),
+        // Three entries for one section: the group heading a search for "spacing" should land on,
+        // and the two controls inside it, which people look for by their own names. "List density"
+        // keeps its keywords even though the label now reads Row spacing — the word was on screen
+        // for four releases and searching for it must still find the control it named.
+        .init(tab: .appearance, title: "Size & spacing",
+              keywords: ["size", "spacing", "size and spacing", "preset", "presets", "scale",
+                         "zoom", "how much fits", "bigger", "smaller"]),
         .init(tab: .appearance, title: "Text size",
               keywords: ["text size", "font", "font size", "type size", "bigger text", "larger text",
-                         "smaller text", "readability", "zoom", "scale"]),
-        .init(tab: .appearance, title: "List density",
-              keywords: ["density", "compact", "comfortable", "row height", "spacing", "tighter rows", "row size"]),
+                         "smaller text", "readability", "zoom", "scale", "percent", "percentage"]),
+        .init(tab: .appearance, title: "Row spacing",
+              keywords: ["density", "list density", "compact", "comfortable", "row height",
+                         "spacing", "row spacing", "tighter rows", "row size"]),
 
         // Sources
         .init(tab: .providers, title: "Cloud providers",
@@ -905,10 +913,23 @@ struct AppearanceSettingsTab: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
-    @AppStorage(FontSize.defaultsKey) private var fontSizeRaw: String = FontSize.medium.rawValue
+    @AppStorage(FontSize.defaultsKey) private var fontSizePercent: Int = FontSize.medium.percent
 
-    /// The resolved text size; `.medium` (the standard size) if unrecognized.
-    private var fontSize: FontSize { FontSize(rawValue: fontSizeRaw) ?? .medium }
+    /// The resolved text size. `FontSize.init(percent:)` clamps, so a value stored before the
+    /// range last moved is honoured rather than discarded.
+    private var fontSize: FontSize { FontSize(percent: fontSizePercent) }
+
+    /// The resolved row spacing; `.comfortable` (the standard rows) if unrecognized.
+    private var listDensity: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
+
+    /// The two settings as one value, for the preset row — which writes both and stores neither.
+    private var sizeBinding: Binding<FontSize> {
+        Binding(get: { fontSize }, set: { fontSizePercent = $0.percent })
+    }
+
+    private var densityBinding: Binding<ListDensity> {
+        Binding(get: { listDensity }, set: { listDensityRaw = $0.rawValue })
+    }
 
     private var selectedHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue
@@ -991,36 +1012,73 @@ struct AppearanceSettingsTab: View {
                 .accentedSegments(selectedHue)
             }
 
-            // Text size leads List density: the two are the pair that decides how much fits on
-            // screen, and how big the type is has to be settled before how tightly it packs.
-            SettingsSection("Text size", caption: fontSize.detail) {
-                Picker("Text size", selection: $fontSizeRaw) {
-                    ForEach(FontSize.allCases) { size in
-                        Text(size.displayName).tag(size.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accentedSegments(selectedHue)
-            }
-
+            // **Text size and row spacing are one section, because they are one question.**
+            // They shipped as two adjacent segmented pickers with 190 characters of caption
+            // between them and no hint that they were related — both answer "how much do you
+            // want on screen?", and somebody who finds everything too small has to work out
+            // that two separate controls are involved. The preset row is the shortcut over
+            // them; the controls underneath are what keep combinations the row does not offer
+            // (large text with compact rows, above all) reachable.
             SettingsSection(
-                "List density",
-                // 190 characters ≤ two lines at the 11pt caption size in the 547pt column —
-                // the 218-character long form wrapped to three when captions left 10pt, and that
-                // 14pt is Appearance's whole copy-edit margin. Measure before lengthening.
-                // (Naming Organize and Storage — the lens-bearing workspaces — cost 5 characters
-                // over "lens workspaces", paid for by "tightens list rows": 187 total.)
-                caption: "Comfortable keeps standard spacing. Compact tightens list rows across SyncCloud — file panes, the Compare table, Organize and Storage, Activity Log, Sync History — so more fits on screen."
+                "Size & spacing",
+                caption: SizePreset.caption(fontSize: fontSize, density: listDensity)
             ) {
-                Picker("List density", selection: $listDensityRaw) {
-                    ForEach(ListDensity.allCases) { density in
-                        Text(density.displayName).tag(density.rawValue)
+                SizePresetRow(fontSize: sizeBinding, density: densityBinding)
+
+                LabeledContent("Text size") {
+                    HStack(spacing: 10) {
+                        Text("A")
+                            .scaledFont(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        Slider(
+                            value: Binding(
+                                get: { Double(fontSizePercent) },
+                                set: { fontSizePercent = FontSize(percent: Int($0.rounded())).percent }
+                            ),
+                            in: Double(FontSize.minimumPercent)...Double(FontSize.maximumPercent),
+                            step: Double(FontSize.step)
+                        )
+                        .labelsHidden()
+                        .accessibilityValue("\(fontSize.percent) percent")
+                        // **A tooltip rather than a caption line**, and the reason is measured:
+                        // Appearance is the tallest tab and this section already carries two
+                        // lines of prose — its own state caption and Row spacing's. A third put
+                        // the tab 19pt past the opening a 1280×800 display gives it
+                        // (`appearanceKeepsRoomForACopyEdit`). The claim is worth keeping
+                        // somewhere, because it is the non-obvious half of the setting: 125% is
+                        // 125% for a caption and 100% for a title.
+                        .help(fontSize.detail)
+                        Text("A")
+                            .scaledFont(.system(size: 15))
+                            .foregroundStyle(.secondary)
+                        Text("\(fontSize.percent)%")
+                            .scaledFont(.caption.weight(.semibold))
+                            .monospacedDigit()
+                            .frame(width: 38, alignment: .trailing)
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accentedSegments(selectedHue)
+
+                // "Row spacing", not the "List density" this shipped as: density is a word from
+                // the implementation, spacing is what the person is changing, and it reads as a
+                // pair with "Text size" directly above. The option names and the stored key are
+                // deliberately untouched — `ListDensity.defaultsKey` is still `listDensity`.
+                LabeledContent("Row spacing") {
+                    Picker("Row spacing", selection: $listDensityRaw) {
+                        ForEach(ListDensity.allCases) { density in
+                            Text(density.displayName).tag(density.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .accentedSegments(selectedHue)
+                    .fixedSize()
+                }
+
+                Text(listDensity.detail)
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

@@ -34,29 +34,91 @@ import Testing
         #expect(FontSize.defaultsKey == "fontSize")
     }
 
-    @Test func rawValuesAreStable() {
-        #expect(FontSize.small.rawValue == "small")
-        #expect(FontSize.medium.rawValue == "medium")
-        #expect(FontSize.large.rawValue == "large")
-        #expect(FontSize.extraLarge.rawValue == "extraLarge")
-        // Order is the picker's left-to-right order: smallest first.
+    @Test func presetPercentsAreStable() {
+        // These four are what the app shipped as Small/Default/Large/Larger, and they are still
+        // the values on disk for everyone who chose one. Moving a number here silently changes
+        // the size an existing user sees.
+        #expect(FontSize.small.percent == 90)
+        #expect(FontSize.medium.percent == 100)
+        #expect(FontSize.large.percent == 125)
+        #expect(FontSize.extraLarge.percent == 135)
+        // Order is the row's left-to-right order: smallest first.
         #expect(FontSize.allCases == [.small, .medium, .large, .extraLarge])
     }
 
-    @Test func unknownRawValueFailsSoItCanFallBackToDefault() {
-        #expect(FontSize(rawValue: "huge") == nil)
+    @Test func initClampsToTheSelectableRange() {
+        #expect(FontSize(percent: 10).percent == FontSize.minimumPercent)
+        #expect(FontSize(percent: 400).percent == FontSize.maximumPercent)
+        // Deliberately NOT snapped to `step` — a value typed or restored between stops is honoured.
+        #expect(FontSize(percent: 113).percent == 113)
     }
 
-    @Test func resolvedFallsBackToMediumForMissingAndGarbageValues() {
-        // A fresh UUID suite starts empty, which is what "fresh install" needs here.
-        let defaults = ScratchDefaults("FontSizeTests.resolved")
+    @Test func everySelectablePercentIsInRangeAndOnTheStep() {
+        let stops = FontSize.selectablePercents
+        #expect(stops.first == FontSize.minimumPercent)
+        #expect(stops.last == FontSize.maximumPercent)
+        #expect(stops.allSatisfy { $0 % FontSize.step == 0 })
+        // Every named preset has to be reachable by the slider, or the detent labels point at
+        // values the control cannot land on.
+        for preset in FontSize.allCases {
+            #expect(stops.contains(preset.percent), "\(preset.percent)% is not a slider stop")
+        }
+    }
+
+    // MARK: The stored value changed shape
+
+    @Test func resolvedReadsTheLegacyStringsAsWellAsTheNumber() {
+        // The whole migration hazard in one test: this key held "small"/"medium"/"large"/
+        // "extraLarge" for every release before this one, and a reader that only understood the
+        // number would answer "default" for a user who had chosen Larger.
+        let defaults = ScratchDefaults("FontSizeTests.resolvedLegacy")
         #expect(FontSize.resolved(defaults) == .medium, "fresh install must be the default size")
+
+        for (raw, expected) in [("small", FontSize.small), ("medium", .medium),
+                                ("large", .large), ("extraLarge", .extraLarge)] {
+            defaults.set(raw, forKey: FontSize.defaultsKey)
+            #expect(FontSize.resolved(defaults) == expected, "legacy \(raw) must still resolve")
+        }
+
+        defaults.set(115, forKey: FontSize.defaultsKey)
+        #expect(FontSize.resolved(defaults) == FontSize(percent: 115))
 
         defaults.set("gigantic", forKey: FontSize.defaultsKey)
         #expect(FontSize.resolved(defaults) == .medium, "garbage must not trap or match")
+    }
 
-        defaults.set(FontSize.large.rawValue, forKey: FontSize.defaultsKey)
-        #expect(FontSize.resolved(defaults) == .large)
+    @Test func migrationRewritesLegacyStringsOnceAndLeavesNumbersAlone() {
+        let defaults = ScratchDefaults("FontSizeTests.migrate")
+
+        defaults.set("extraLarge", forKey: FontSize.defaultsKey)
+        #expect(FontSize.migrateLegacyValue(in: defaults) == .extraLarge)
+        // The point of migrating at all: what is on disk is now an Int, which is the only shape
+        // `@AppStorage(...) var percent: Int` can see. Asserting what it WROTE BACK, not that it
+        // decoded — a tolerant reader would pass this test without the store ever changing.
+        #expect(defaults.object(forKey: FontSize.defaultsKey) as? Int == 135)
+
+        // Idempotent: a second run has nothing to do, and must not re-examine its own output.
+        #expect(FontSize.migrateLegacyValue(in: defaults) == nil)
+        #expect(defaults.object(forKey: FontSize.defaultsKey) as? Int == 135)
+
+        // A fresh install has nothing to migrate, and must not be given a value.
+        let fresh = ScratchDefaults("FontSizeTests.migrateFresh")
+        #expect(FontSize.migrateLegacyValue(in: fresh) == nil)
+        #expect(fresh.object(forKey: FontSize.defaultsKey) == nil)
+
+        // An unrecognised string is left exactly where it is, for `resolved` to fall back on.
+        let junk = ScratchDefaults("FontSizeTests.migrateJunk")
+        junk.set("gigantic", forKey: FontSize.defaultsKey)
+        #expect(FontSize.migrateLegacyValue(in: junk) == nil)
+        #expect(junk.string(forKey: FontSize.defaultsKey) == "gigantic")
+    }
+
+    @Test func everyLegacyRawValueStillMapsToTheSizeItNamed() {
+        // Derived from the table rather than restated, so a key removed from `legacyRawValues`
+        // fails here instead of quietly resetting the users who still have it on disk.
+        #expect(Set(FontSize.legacyRawValues.keys)
+                == ["small", "medium", "large", "extraLarge"])
+        #expect(FontSize.legacyRawValues["medium"] == .medium)
     }
 
     // MARK: Scale range
@@ -125,10 +187,20 @@ import Testing
         // 18pt to spare (the differences count pill's inset age capsule — 19 + 2 + 8 = 29 was
         // the failure). Every selectable size must keep knee-sized text under 15pt, or those
         // rows grow a pixel and `theRowIsAlwaysTheActionBarHeight` fails across the ladder.
-        for size in FontSize.allCases {
+        for percent in FontSize.selectablePercents {
+            let size = FontSize(percent: percent)
             #expect(FontSize.scaledPointSize(FontSize.knee, scale: size.scale) < 15,
-                    "\(size.rawValue) renders 11pt chrome at \(FontSize.scaledPointSize(FontSize.knee, scale: size.scale))pt — over the 19pt line-height cliff")
+                    "\(percent)% renders 11pt chrome at \(FontSize.scaledPointSize(FontSize.knee, scale: size.scale))pt — over the 19pt line-height cliff")
         }
+    }
+
+    @Test func theCeilingIsTheLargestPercentUnderTheCliff() {
+        // The range is now the thing an edit widens, so pin WHY it stops where it does rather
+        // than only that today's stops are safe. 136% puts knee text at 14.96 and 137% at 15.07,
+        // so the first unsafe whole percent is 137 — and 135 is the round number under it.
+        #expect(FontSize.scaledPointSize(FontSize.knee, scale: 1.36) < 15)
+        #expect(FontSize.scaledPointSize(FontSize.knee, scale: 1.37) >= 15)
+        #expect(FontSize.maximumPercent == 135)
     }
 
     @Test func scalingUpNeverShrinksAnyFont() {
@@ -150,7 +222,7 @@ import Testing
             for base in stride(from: CGFloat(4), through: 54, by: 0.25) {
                 let scaled = FontSize.scaledPointSize(base, scale: size.scale)
                 #expect(scaled >= previous,
-                        "\(base)pt renders \(scaled) < \(previous) at \(size.rawValue)")
+                        "\(base)pt renders \(scaled) < \(previous) at \(size.percent)%")
                 previous = scaled
             }
         }
@@ -325,7 +397,7 @@ import Testing
         }
         for size in FontSize.allCases {
             let (ones, zeros) = digitWidths(ScaledFont.system(size: 12).monospacedDigit(), scale: size.scale)
-            #expect(ones == zeros, "digits stopped being monospaced at \(size.rawValue)")
+            #expect(ones == zeros, "digits stopped being monospaced at \(size.percent)%")
         }
         // And the guard that this probe can detect the difference at all.
         let (ones, zeros) = digitWidths(.system(size: 12), scale: 1)

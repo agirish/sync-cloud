@@ -38,8 +38,15 @@ enum SetupSheetMetrics {
     /// container that resizes under a form draws the eye to the container. A setup card should be a
     /// steady frame you fill in, not a thing that moves while you read it.
     ///
-    /// **Measured against the steps that can be measured.** You and Done lay out at 484pt and
-    /// People at 412pt on a 1200×740 window; 560 gives the tallest of those 20pt for a copy edit.
+    /// **Measured against the steps that can be measured.** You lays out at 530pt, Done at 484pt
+    /// and People at 412pt on a 1200×740 window; 610 gives the tallest of those 24pt for a copy
+    /// edit. (You was 484 too until it gained the text-size preset row, which costs 46pt — the
+    /// number moved because the content did, which is the whole method here.)
+    ///
+    /// **The ceiling is the window, not this constant.** A 1200×740 host leaves 692pt after
+    /// `hostMargin`, so there is real room above 610; what stops it growing further is the step
+    /// below, not the display. Re-measure before raising it again — and re-measure the steps, not
+    /// this number.
     /// Sources is deliberately not in that set — it draws a row per source and a user may add any
     /// number of folders, so no height promises to hold it (at seven sources it wants 635pt, more
     /// than a 1280×800 display can give *any* card). It scrolls past a count
@@ -50,7 +57,7 @@ enum SetupSheetMetrics {
     /// What keeps this from being the old 648pt problem is the other half of the change: every
     /// step's closing line is pinned to the bottom of the pane, so the slack sits between the
     /// controls and their caption rather than trailing off the end of the content.
-    static let cardHeight: CGFloat = 560
+    static let cardHeight: CGFloat = 610
 
     /// Below this a rail plus a usable content column stops being possible; the card stops shrinking
     /// and its step scrolls instead. Overflowing a tiny window beats a card too small to use.
@@ -124,6 +131,19 @@ struct SetupSheet: View {
     @AppStorage(LiquidGlass.appearanceModeKey) private var appearanceModeRaw = AppearanceMode.system.rawValue
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw = LiquidGlassHue.blue.rawValue
     @AppStorage(GeneralSettings.notifyOnBackgroundCompletionKey) private var notifyInBackground = false
+    @AppStorage(FontSize.defaultsKey) private var fontSizePercent = FontSize.medium.percent
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw = ListDensity.comfortable.rawValue
+
+    /// The text size and row spacing as one pair, for the preset row on the You step. It writes
+    /// both settings and stores nothing of its own — see `SizePreset`.
+    private var setupFontSize: Binding<FontSize> {
+        Binding(get: { FontSize(percent: fontSizePercent) }, set: { fontSizePercent = $0.percent })
+    }
+
+    private var setupDensity: Binding<ListDensity> {
+        Binding(get: { ListDensity(rawValue: listDensityRaw) ?? .comfortable },
+                set: { listDensityRaw = $0.rawValue })
+    }
 
     /// **The opening screen is resolved here rather than in `onAppear`.** `onAppear` fires after
     /// the first layout, so a re-run would render the welcome card — “four short questions, then
@@ -557,6 +577,28 @@ struct SetupSheet: View {
             }
 
             section("Preferences") {
+                // **First in the block, and the only one here that is not a matter of taste.**
+                // Somebody who needs larger text needs it for the four steps that follow, not
+                // after them — and because the sheet is inside `appFontSizeFromSettings()`, the
+                // card they are reading resizes under the click, which is the whole argument for
+                // asking here rather than leaving it in Settings ▸ Appearance.
+                //
+                // The tiles show a miniature rather than naming a row spacing: this runs before
+                // the user has seen a file list, so "Comfortable" and "Compact" name nothing yet.
+                // The fine 5%-step slider stays in Settings; setup asks one question.
+                //
+                // **Label left, control right — the same column the rows below it keep**, and one
+                // row rather than a stack. That is a budget, not a preference: the You step shares
+                // a card with People and Done, and a first draft with its own label line and
+                // caption put the step 88pt past what a 1280×800 display can show without
+                // scrolling. The caption lives in Settings, where there is room; here the tiles
+                // are the explanation.
+                HStack {
+                    Text("Text size").scaledFont(.callout)
+                    Spacer(minLength: 12)
+                    SizePresetRow(fontSize: setupFontSize, density: setupDensity)
+                        .frame(width: 232)
+                }
                 HStack {
                     Text("Appearance").scaledFont(.callout)
                     Spacer(minLength: 12)

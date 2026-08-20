@@ -23,18 +23,179 @@ import SwiftUI
 /// from outside is a known dead end in this codebase — see `HoverAffordanceStyle`. SyncCloud draws
 /// nearly all of its own chrome, so this affects only a handful of controls, which keep the
 /// system's metrics while everything around them scales.
-public enum FontSize: String, CaseIterable, Identifiable, Sendable {
-    case small
+public struct FontSize: Hashable, Identifiable, Sendable, Comparable {
+
+    /// The percentage this size applies at and below the `knee` — 90 through 135, in whole
+    /// numbers. **This is the stored value**, and it is an integer rather than a `Double` so the
+    /// thing on disk is the thing on screen: a readout that says 115% is the number persisted,
+    /// with no rounding standing between them.
+    public let percent: Int
+
+    /// The smallest selectable size. Below this the multiply is doing nothing useful — every
+    /// font the app draws at 9–11pt is already sitting on `legibilityFloor` by 85%, so the
+    /// remaining travel shrinks the large text alone and takes the type hierarchy with it.
+    public static let minimumPercent = 90
+
+    /// The largest selectable size, and a **hard constraint rather than a preference**.
+    ///
+    /// One line of system-font text is 18pt tall through 14.85pt and 19pt from 15.0pt. Header
+    /// chrome carries 11pt text inside pinned 28pt rows with exactly 18pt to give it (the
+    /// differences count pill's inset age capsule: 19 + 2×1 + 2×4 = 29 was the failure), so the
+    /// ceiling is the largest percentage keeping `knee`-sized text under 15pt — 136 would put
+    /// it at 14.96 and 137 at 15.07. 135 is the round number under that.
+    ///
+    /// `everySelectablePercentKeepsChromeUnderTheCliff` sweeps the whole range rather than the
+    /// four presets, because the range is now the thing a future edit widens.
+    public static let maximumPercent = 135
+
+    /// The slider's increment. Ten stops rather than 46: measured against the app's own type,
+    /// a 1% change moves 11pt row text by 0.11pt, which is not a difference anybody chose on
+    /// purpose. Typing an exact number is still possible — `init(percent:)` clamps but does not
+    /// round — so the step constrains the *control*, not the value.
+    public static let step = 5
+
+    /// Clamps to the selectable range. Deliberately does not snap to `step`: a value restored
+    /// from disk, or set before the range last moved, is honoured as written.
+    public init(percent: Int) {
+        self.percent = Swift.min(Swift.max(percent, Self.minimumPercent), Self.maximumPercent)
+    }
+
+    // MARK: - The named presets
+
+    /// The four sizes that carry names, unchanged in value from when they were the only choices.
+    /// They remain the detents on the slider and the vocabulary the release notes and Help use;
+    /// everything between them is reachable but unnamed.
+    public static let small = FontSize(percent: 90)
     /// The app's unchanged default — every font renders exactly as it did before this setting
     /// existed (see `ScaledFont.resolved(scale:)`).
-    case medium
-    case large
-    case extraLarge
+    public static let medium = FontSize(percent: 100)
+    public static let large = FontSize(percent: 125)
+    public static let extraLarge = FontSize(percent: 135)
 
-    /// UserDefaults key for the selected size (raw value of `FontSize`). Read via `@AppStorage`
-    /// by the Settings Appearance tab and by the root of every window — one shared constant so
-    /// the setting has a single source of truth.
+    /// The named presets in ascending order. Named `allCases` because that is what it was when
+    /// every size was a case, and every caller iterating "the sizes the UI offers by name" still
+    /// means exactly this list.
+    public static let allCases: [FontSize] = [.small, .medium, .large, .extraLarge]
+
+    /// Every value the slider can land on, ascending.
+    public static var selectablePercents: [Int] {
+        Array(stride(from: minimumPercent, through: maximumPercent, by: step))
+    }
+
+    // MARK: - Storage
+
+    /// UserDefaults key for the selected size. Read via `@AppStorage` by the Settings Appearance
+    /// tab, the setup form and the root of every window — one shared constant so the setting has
+    /// a single source of truth.
+    ///
+    /// **The key kept its name across the change of type**, because the alternative is worse: a
+    /// new key makes every existing user look like a fresh install and silently resets a size
+    /// they chose. What the value *is* changed — see ``migrateLegacyValue(in:)``.
     public static let defaultsKey = "fontSize"
+
+    /// What the four sizes were stored as before this was a percentage.
+    ///
+    /// Kept as data rather than folded into a `switch` so ``migrateLegacyValue(in:)`` and
+    /// ``resolved(_:)`` cannot disagree about what an old value meant.
+    static let legacyRawValues: [String: FontSize] = [
+        "small": .small, "medium": .medium, "large": .large, "extraLarge": .extraLarge
+    ]
+
+    /// Rewrites a legacy string value to its percentage, in place. Returns what it resolved to,
+    /// or nil when there was nothing to migrate.
+    ///
+    /// **This has to run before anything reads the key**, which is why the app calls it at
+    /// launch rather than lazily. `@AppStorage(defaultsKey) var percent: Int` cannot see a
+    /// `String` on disk — it reports its own default and the user's chosen size is silently
+    /// gone, which is the exact failure this exists to prevent. ``resolved(_:)`` reads both
+    /// shapes so a caller that runs first is still right; migration is what stops the *writers*
+    /// from clobbering an unmigrated value.
+    @discardableResult
+    public static func migrateLegacyValue(in defaults: UserDefaults = .standard) -> FontSize? {
+        // An Int already present is the current shape — nothing to do. Asked first because a
+        // migrated value must never be re-examined by the string branch below.
+        if defaults.object(forKey: defaultsKey) as? Int != nil { return nil }
+        guard let raw = defaults.string(forKey: defaultsKey),
+              let size = legacyRawValues[raw] else { return nil }
+        defaults.set(size.percent, forKey: defaultsKey)
+        return size
+    }
+
+    /// The persisted size, defaulting to `.medium` for a fresh install and for a stored value in
+    /// neither shape.
+    ///
+    /// Reads the legacy strings as well as the number, so this answers correctly whether or not
+    /// ``migrateLegacyValue(in:)`` has run yet. The order matters: `object(forKey:) as? Int` is
+    /// asked first and returns nil for a `String`, so the two branches cannot both claim a
+    /// value.
+    public static func resolved(_ defaults: UserDefaults = .standard) -> FontSize {
+        if let percent = defaults.object(forKey: defaultsKey) as? Int {
+            return FontSize(percent: percent)
+        }
+        if let raw = defaults.string(forKey: defaultsKey), let legacy = legacyRawValues[raw] {
+            return legacy
+        }
+        return .medium
+    }
+
+    // MARK: - Identity and copy
+
+    public var id: Int { percent }
+
+    public static func < (lhs: FontSize, rhs: FontSize) -> Bool { lhs.percent < rhs.percent }
+
+    /// The name this size carries, or nil for a value between the presets.
+    public var presetName: String? {
+        switch percent {
+        case Self.small.percent: return "Small"
+        case Self.medium.percent: return "Default"
+        case Self.large.percent: return "Large"
+        // "Largest" rather than the "Larger" this shipped as: the slider physically stops here,
+        // so the superlative is now literally true and it explains the ceiling without a second
+        // sentence. It is also why the small end stayed "Small" instead of becoming "Compact" —
+        // that word names a row spacing one control below, and the two would have meant
+        // different things in the same panel.
+        case Self.extraLarge.percent: return "Largest"
+        default: return nil
+        }
+    }
+
+    /// What the control shows: the percentage, with the preset name when there is one.
+    public var displayName: String {
+        guard let presetName else { return "\(percent)%" }
+        return "\(percent)% · \(presetName)"
+    }
+
+    /// Multiplier applied at and below the `knee`; above it growth is damped and then clamped
+    /// (see `scaledPointSize(_:scale:)`), so this is the *small-text* boost, not a uniform zoom.
+    ///
+    /// The presets are chosen against the type actually in the app: the fonts people struggle
+    /// with are the 10pt captions and 9–11pt secondary text, so the enlarged sizes spend their
+    /// budget there — 1.25 takes a caption to 12.5pt and the 11pt rows to 13.75pt, clearly
+    /// readable, while 13pt body only reaches 14.75pt and the 17pt+ titles barely move. A flat
+    /// multiplier big enough to rescue the captions (measured: it needs ~1.25) would drag the
+    /// titles to 21pt+ and blow the fixed chrome; the knee is what lets the small end have the
+    /// boost without that. 0.9 stays flat on the way down, with `legibilityFloor` as the guard.
+    ///
+    /// Exact for every selectable percentage: 90/100 is 0.9 and 125/100 is 1.25 with no
+    /// representation error, so `scaledPointSize(_:scale:)`'s `scale != 1` short-circuit still
+    /// fires precisely at 100% — which is what keeps the default size byte-identical to the
+    /// rendering that predates this setting.
+    public var scale: CGFloat { CGFloat(percent) / 100 }
+
+    /// One-line explanation shown under the Settings control.
+    public var detail: String {
+        switch percent {
+        case ..<Self.medium.percent:
+            return "Slightly smaller text throughout SyncCloud, to fit more on screen."
+        case Self.medium.percent:
+            return "The standard text size."
+        case Self.maximumPercent:
+            return "The largest text size SyncCloud's chrome can carry."
+        default:
+            return "Larger reading text — small print grows the most; titles stay put."
+        }
+    }
 
     /// The point size below which text stops being comfortably readable. Scaling *down* never
     /// takes a font past this (see `scaledPointSize(_:scale:)`), which is what keeps the small
@@ -52,64 +213,11 @@ public enum FontSize: String, CaseIterable, Identifiable, Sendable {
 
     /// How much of each base point above `knee` survives scaling up: 13pt body renders 1pt
     /// closer to the captions at every enlarged size, and past the crossover (16.5pt at Large,
-    /// 18.7pt at Larger) the clamp in `scaledPointSize(_:scale:)` takes over and the font simply
-    /// keeps its default size. Below 1 on purpose — the whole point is compressing the type
-    /// ramp instead of magnifying it — and safe against hierarchy inversion because the clamp
-    /// keeps every curve monotonic in the base size.
+    /// 18.7pt at Largest) the clamp in `scaledPointSize(_:scale:)` takes over and the font
+    /// simply keeps its default size. Below 1 on purpose — the whole point is compressing the
+    /// type ramp instead of magnifying it — and safe against hierarchy inversion because the
+    /// clamp keeps every curve monotonic in the base size.
     public static let surplusSlope: CGFloat = 0.5
-
-    /// The persisted size, defaulting to `.medium` for a fresh install and for an unrecognized
-    /// stored value.
-    public static func resolved(_ defaults: UserDefaults = .standard) -> FontSize {
-        FontSize(rawValue: defaults.string(forKey: defaultsKey) ?? "") ?? .medium
-    }
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .small: return "Small"
-        case .medium: return "Default"
-        case .large: return "Large"
-        case .extraLarge: return "Larger"
-        }
-    }
-
-    /// Multiplier applied at and below the `knee`; above it growth is damped and then clamped
-    /// (see `scaledPointSize(_:scale:)`), so this is the *small-text* boost, not a uniform zoom.
-    ///
-    /// The numbers are chosen against the type actually in the app: the fonts people struggle
-    /// with are the 10pt captions and 9–11pt secondary text, so the enlarged sizes spend their
-    /// budget there — 1.25 takes a caption to 12.5pt and the 11pt rows to 13.75pt, clearly
-    /// readable, while 13pt body only reaches 14.75pt and the 17pt+ titles barely move. A flat
-    /// multiplier big enough to rescue the captions (measured: it needs ~1.25) would drag the
-    /// titles to 21pt+ and blow the fixed chrome; the knee is what lets the small end have the
-    /// boost without that. 0.9 stays flat on the way down, with `legibilityFloor` as the guard.
-    ///
-    /// The top step is 1.35, not a rounder 1.4, because of a measured cliff: a single line of
-    /// system-font text is 18pt tall through 14.85pt and 19pt from 15.0pt, and the header
-    /// chrome that carries 11pt text inside a pinned 28pt row (the differences count pill's
-    /// inset age capsule: 19 + 2×1 + 2×4 = 29) has exactly 18pt to give it. 11 × 1.35 = 14.85
-    /// sits on the safe side of the cliff; 1.4 put every such row at 29pt.
-    /// `chromeTextAtTheKneeStaysUnderThePinnedRowCliff` pins this constraint.
-    public var scale: CGFloat {
-        switch self {
-        case .small: return 0.9
-        case .medium: return 1.0
-        case .large: return 1.25
-        case .extraLarge: return 1.35
-        }
-    }
-
-    /// One-line explanation shown under the Settings picker.
-    public var detail: String {
-        switch self {
-        case .small: return "Slightly smaller text throughout SyncCloud, to fit more on screen."
-        case .medium: return "The standard text size."
-        case .large: return "Larger reading text — small print grows the most; titles stay put."
-        case .extraLarge: return "The largest text size, with the boost focused on small print."
-        }
-    }
 
     /// The point size `base` renders at under `scale`.
     ///
@@ -193,10 +301,10 @@ public extension View {
 /// Bridges the `@AppStorage` default into the environment. A modifier rather than a call at each
 /// root so the storage is observed once per window and the picker takes effect immediately.
 private struct PersistedAppFontSize: ViewModifier {
-    @AppStorage(FontSize.defaultsKey) private var raw: String = FontSize.medium.rawValue
+    @AppStorage(FontSize.defaultsKey) private var percent: Int = FontSize.medium.percent
 
     func body(content: Content) -> some View {
-        content.appFontSize(FontSize(rawValue: raw) ?? .medium)
+        content.appFontSize(FontSize(percent: percent))
     }
 }
 

@@ -23,6 +23,21 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// One-line explanation shown under the Settings control.
+    ///
+    /// Says what compact actually *costs*, which the shipped caption did not: it hid each file's
+    /// size and date (`showsSecondaryDetail`) and nothing on screen said so. Somebody choosing
+    /// from the word alone would not guess the date disappears.
+    public var detail: String {
+        switch self {
+        case .comfortable:
+            return "Comfortable keeps the standard row height, and shows each file's size and date."
+        case .compact:
+            return "Compact fits more rows on screen — file panes, the Compare table, Organize and "
+                + "Storage, Activity Log, Sync History — and hides the size-and-date line to do it."
+        }
+    }
+
     /// The concrete row measurements for this density. Comfortable's values ARE the app's
     /// pre-H7 constants — comfortable must render pixel-identical to the look before the
     /// setting existed (pinned by `ListDensityTests`).

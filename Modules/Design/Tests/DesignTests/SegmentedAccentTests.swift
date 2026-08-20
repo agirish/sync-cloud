@@ -96,11 +96,11 @@ import Testing
     @Test func tintingChangesNoMetrics() {
         struct Specimen: View {
             var hue: LiquidGlassHue?
-            @State private var selection = FontSize.medium.rawValue
+            @State private var selection = FontSize.medium.percent
             var body: some View {
                 Picker("Text size", selection: $selection) {
                     ForEach(FontSize.allCases) { size in
-                        Text(size.displayName).tag(size.rawValue)
+                        Text(size.displayName).tag(size.percent)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -121,7 +121,7 @@ import Testing
         }
 
         // The premise the fixture depends on: the specimen's selection names a tag that exists.
-        #expect(FontSize.allCases.contains { $0.rawValue == FontSize.medium.rawValue },
+        #expect(FontSize.allCases.contains { $0.percent == FontSize.medium.percent },
                 "the specimen selects a tag no segment carries — nothing is selected")
 
         let bare = size(nil)
@@ -186,7 +186,10 @@ import Testing
         }
         // A tripwire, so the scan cannot pass by finding nothing. If you added a segmented picker
         // deliberately AND gave it `.accentedSegments`, raise this number.
-        #expect(sites == 7, "expected 7 segmented pickers in the app, found \(sites)")
+        // 6 since Appearance's Text size stopped being a segmented picker: it is a preset row
+        // over a slider now, and a `Button`'s tint is not the segmented-selection problem this
+        // scan exists for. Row spacing, one control below it, is still segmented and still here.
+        #expect(sites == 6, "expected 6 segmented pickers in the app, found \(sites)")
     }
 
     /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.
