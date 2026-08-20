@@ -92,32 +92,33 @@ enum HelpBook {
     static let sections: [Section] = [
         Section(title: "Getting started", topics: [
             Topic(id: "setup", title: "Set up SyncCloud", systemImage: "checklist", article: Article(
-                intro: "Setup asks for the handful of things SyncCloud cannot work out by looking at your folders: your name as documents print it, which of the places on this Mac you actually use, and who else your documents belong to. It runs itself once on a new install, and Help ▸ Set Up SyncCloud… opens it again any time.",
+                intro: "Setup asks for the handful of things SyncCloud cannot work out by looking at your folders: your name as documents print it, which of the places on this Mac you actually use, who else your documents belong to, and which tree to learn from. It runs itself once on a new install, and Help ▸ Set Up SyncCloud… opens it again any time.",
                 blocks: [
                     .bullets([
                         "You — the name your folders use, and the fuller forms a document might print. A full name is matched before any single word, so a shared surname stops making two people out of one document.",
                         "Sources — everything found in the system's cloud-storage folder, plus any folder you add. Turn off what you don't use, and mark one as primary: that's the tree SyncCloud learns your folder conventions from.",
-                        "People — anyone else whose documents live in your folders. A name left off costs nothing but attribution; those documents are sorted by their content instead.",
-                        "Survey — how much of each source to learn. Folder names are quick; reading inside your documents is what lets Organize propose destinations and better names.",
+                        "People — anyone else whose documents live in your folders. SyncCloud proposes the names it found — a folder sitting directly under one that says what its children are, like a person's folder under Family — and each chip carries the folder that vouches for it. Nothing is ticked to begin with, and you can type a name that has no folder at all.",
+                        "Folders — the tree SyncCloud learns from, and the places it found in that tree. Pick a root, confirm which of the proposed place names are real, and press the button: the walk reads folder names only, so it takes seconds. Nothing is ticked here either — handed only the names you confirm, the same code is right about all of them.",
                     ]),
+                    .paragraph("What that last step writes is the folder profile: the record of how your tree is shaped. It is what lets Organize propose a destination for a loose file and a better name for a badly named one, and it takes effect straight away — no relaunch."),
                     .paragraph("Nothing here is locked in. Every answer has a home in Settings — Sources, People and Organize — and setup is a faster way to give them all at once rather than the only way."),
                     .tip("It all happens on this Mac. The one thing that can reach a third party is Organize's optional Refine pass, which asks Claude about a scan's results, is off until you turn it on in Settings ▸ Intelligence, and never runs on its own."),
                 ],
-                related: ["what-is-synccloud", "choose-folders", "file-loose-items"]
+                related: ["what-is-synccloud", "choose-folders", "organize-workspace"]
             )),
             Topic(id: "what-is-synccloud", title: "What is SyncCloud?", systemImage: "sparkles", article: Article(
                 intro: "SyncCloud works on your cloud folders through four workspaces — Browse one provider's files, Compare two folders side by side, Organize what's out of place, and Storage to see where the space goes — without ever removing anything you didn't approve.",
                 blocks: [
-                    .paragraph("In Compare, the left and right panes each show one folder. A scan compares them and lists everything that isn't identical, so you can bring the two into line on your terms."),
+                    .paragraph("They are four different kinds of place rather than four tasks. Browse shows one tree and proposes nothing, Compare holds two trees side by side, Organize changes one tree on the app's suggestion, and Storage reads one tree and changes nothing at all."),
                     .bullets([
                         "Browse — the plain file browser: one provider's tree at full width, nothing proposed, nothing changed.",
-                        "The two panes — pick any two cloud folders, or two folders inside the same provider.",
-                        "The differences list — what a scan found, and which way a copy would go.",
-                        "Cleanup tools — Organize sorts loose files into folders, and its Duplicates lens removes redundant copies.",
+                        "Compare — pick any two cloud folders, or two folders inside the same provider, and scan them. The differences list shows everything that isn't identical, and which way a copy would go.",
+                        "Organize — five sections over a single tree: To File, Duplicates, Renames, Restructure, and Rules.",
+                        "Storage — a treemap of where a folder's bytes are, its largest and longest-untouched files, and the large-and-idle overlap worth reclaiming.",
                     ]),
-                    .tip("Nothing is copied, moved, or removed until you ask, and every action can be undone with ⌘Z."),
+                    .tip("Nothing is copied, moved, or removed until you ask, and every action can be undone with ⌘Z. ⌘1 through ⌘4 switch workspaces."),
                 ],
-                related: ["setup", "browse-workspace", "choose-folders", "scan"]
+                related: ["setup", "browse-workspace", "organize-workspace", "scan"]
             )),
             Topic(id: "browse-workspace", title: "Browse your files", systemImage: "folder", article: Article(
                 intro: "Browse is where SyncCloud opens, and it's the plain file browser: one provider's tree at the full width of the window, with nothing proposed and nothing changed. It's where you go to work on files by hand, without a lens's opinion.",
@@ -128,12 +129,12 @@ enum HelpBook {
                         "Hold two places at once with tabs: right-click a folder and choose “Open in New Tab”, or press ⌘T to open a second tab on the folder you are in. The strip appears as soon as there is a second tab.",
                         "Each tab keeps its own folder, and its selection, search and Back history for as long as the app is open. With “Reopen panes where I left off” on — it is on by default — the tabs you leave open come back the next time you launch. ⇧⌘] and ⇧⌘[ step between them; ⌘W closes one, and closes the window on the last.",
                         "Drag a tab along the strip to reorder it. Right-click one to pin it: a pinned tab sits at the front, keeps its place when the strip runs out of room, survives “Close Other Tabs”, and drops its ✕ so a stray click can't take it.",
-                        "⌘F searches the tree you're browsing; ⌘K jumps to a recent, pinned, or already-surveyed folder by name.",
-                        "Right-click a folder for “Organize This Folder…”, or a file for “Find duplicates of this” — each lands in the matching Organize lens.",
+                        "⌘F searches the tree you're browsing; ⌘K opens Go to, which reaches anywhere the app can go by name.",
+                        "Right-click a folder for “Organize This Folder…”, or a file for “Find Duplicates of This” — each lands in the matching Organize section. The same four verbs sit in the Organize menu, aimed at whatever the focused pane has selected.",
                     ]),
                     .tip("Browse and Compare's left pane share the same spot, so switching over keeps you in the folder you were just browsing — tabs and all. To aim Organize at a folder, use “Organize This Folder…” from its right-click menu."),
                 ],
-                related: ["what-is-synccloud", "choose-folders", "tidy-duplicates"]
+                related: ["what-is-synccloud", "choose-folders", "command-palette"]
             )),
             Topic(id: "choose-folders", title: "Choose your folders", systemImage: "cloud", article: Article(
                 intro: "SyncCloud finds your cloud providers automatically, and any folder on this Mac can be a source too. Each pane names the one it's showing, right in its header — click that name to point the pane somewhere else.",
@@ -153,13 +154,26 @@ enum HelpBook {
                 intro: "A scan walks both folders and compares them file by file. It reads names, sizes, and dates — and optionally checksums — but never changes anything.",
                 blocks: [
                     .bullets([
-                        "Click Scan to compare whatever the two panes currently show.",
+                        "Click Scan, or press ⌘R, to compare whatever the two panes currently show.",
                         "Large trees scan in parallel; the status bar tracks progress.",
                         "Re-scan any time — after a copy, SyncCloud refreshes the affected rows for you.",
+                        "⇧⌘V verifies date-only differences by checksum, so a file that merely has a different timestamp stops looking like a change.",
                     ]),
                     .tip("Turn on checksum verification in Settings ▸ Sync to compare contents byte-for-byte, not just size and date."),
                 ],
                 related: ["reading-differences", "sync-preferences"]
+            )),
+            Topic(id: "storage-lens", title: "See where space goes", systemImage: "chart.pie.fill", article: Article(
+                intro: "Storage maps a folder's biggest areas, ranks its largest and longest-untouched files, and flags large idle ones worth keeping online-only.",
+                blocks: [
+                    .bullets([
+                        "Analyze a folder to get a treemap of where its bytes actually are.",
+                        "The ranked lists show the largest files, the ones untouched longest, and the large-and-idle overlap worth reclaiming.",
+                        "Reopening Storage shows your last analysis, with its age beside it — re-analyze for current numbers.",
+                    ]),
+                    .tip("Storage never moves, deletes, or evicts anything. “Offload” reveals a file in Finder so you can decide there — the reading is the whole feature."),
+                ],
+                related: ["what-is-synccloud", "tidy-duplicates"]
             )),
         ]),
         Section(title: "Working with differences", topics: [
@@ -176,6 +190,10 @@ enum HelpBook {
                         LegendItem(systemImage: "arrow.triangle.2.circlepath", mood: .warning, title: "Different date or size", detail: "One copy is newer than the other, or the contents differ"),
                         LegendItem(systemImage: "exclamationmark.triangle.fill", mood: .caution, title: "Name conflict", detail: "Same name once surrounding spaces, trailing dots, and Unicode form are normalized — or differing only by case where the volume ignores case"),
                     ]),
+                    .bullets([
+                        "⌘D shows or hides the list; ⇧⌘F collapses or expands every folder in it.",
+                        "⇧⌘V verifies date-only rows by checksum — the ones that differ only by a timestamp drop out.",
+                    ]),
                     .tip("Select rows and press ⌘→ or ⌘← to copy them across. Add ⇧ to move instead of copy."),
                 ],
                 related: ["copy-move", "guided-review"]
@@ -187,6 +205,7 @@ enum HelpBook {
                         "Select one or more difference rows and use ⌘→ / ⌘← (⇧ makes it a move), or the row's right-click menu.",
                         "In a pane, select rows and use its action bar — “Copy to …” and “Move to …” name the other side — or the row's right-click menu.",
                         "Bulk-sync every difference in one direction from the toolbar.",
+                        "The Compare menu carries the same four transfers, with Review and Verify below them.",
                     ]),
                     .tip("A transfer that would overwrite a newer file, or remove the last copy, always asks first. Tune these prompts in Settings ▸ Sync."),
                 ],
@@ -195,7 +214,7 @@ enum HelpBook {
             Topic(id: "guided-review", title: "Guided review", systemImage: "checklist", article: Article(
                 intro: "Guided review steps through the differences one at a time so you can decide each on its own — ideal for a first big reconcile.",
                 blocks: [
-                    .paragraph("Open it from the Review button below the differences list, then work through the queue from the keyboard."),
+                    .paragraph("Open it from the Review button below the differences list, from Compare ▸ Review Differences, or with ⇧⌘R — then work through the queue from the keyboard."),
                     .bullets([
                         "Return copies the current item.",
                         "Delete skips it.",
@@ -218,42 +237,91 @@ enum HelpBook {
                 related: ["staying-safe", "activity-log", "sync-history"]
             )),
         ]),
-        Section(title: "Cleanup tools", topics: [
-            Topic(id: "tidy-duplicates", title: "Clear out duplicates", systemImage: "doc.on.doc", article: Article(
-                intro: "Duplicates finds files with identical contents under different names or folders and offers to trash the extra copies — keeping the best one.",
+        Section(title: "Organize", topics: [
+            Topic(id: "organize-workspace", title: "The Organize workspace", systemImage: "folder.badge.gearshape", article: Article(
+                intro: "Organize is the one workspace that changes a single tree, and every way of changing it is a section in its rail. Five of them, always in the same order — and before you pick one, the overview is what you see.",
                 blocks: [
                     .bullets([
-                        "Scan a folder for duplicates from Organize \u{25B8} Duplicates.",
+                        "To File — loose files, and where each one belongs.",
+                        "Duplicates — identical content under different names or folders.",
+                        "Renames — names worth changing: ones that won't store cleanly, files that ignore their folder's convention, and files whose numbering has drifted.",
+                        "Restructure — families of sibling folders that were set up differently at different times. It reports; it never rewrites.",
+                        "Rules — say once where a kind of file belongs, so To File stops asking the same question every time one turns up.",
+                    ]),
+                    .paragraph("A rail item is always there, whatever the counts are. The badge beside it is not: it appears when there is something to see and is absent at zero rather than showing one. So an empty section is a place you can legitimately stand — it says nothing here rather than vanishing from under you."),
+                    .paragraph("There is an Organize menu in the menu bar too: the five sections at the top, ticked so it says which one is on screen, then the four verbs that act on a pane's selection — Organize This Folder…, Find Duplicates of This, Fix Name…, and Always Allow This Name. Each verb acts on one item, so with two things selected they're greyed out. ⌘3 reaches the workspace they all live in; none of the items takes a chord of its own."),
+                    .tip("Right-click a folder in any pane and choose “Organize This Folder…” to point Organize at it. The section then answers about the folder you aimed it at, rather than wherever Organize happened to be."),
+                ],
+                related: ["file-loose-items", "tidy-duplicates", "fix-names"]
+            )),
+            Topic(id: "file-loose-items", title: "Put loose files away", systemImage: "tray.and.arrow.down", article: Article(
+                intro: "Organize's To File section suggests a home for the files sitting loose in a folder and can move them there — reusing the folders you already keep, and proposing a new one only when it's sure.",
+                blocks: [
+                    .bullets([
+                        "SyncCloud reads your folder layout — the profile setup learned — and proposes where each loose file belongs.",
+                        "On-device content signals handle files whose name says nothing on its own.",
+                        "Accept a suggestion to move the file. For a pattern you will meet again, say it once as a rule in Organize ▸ Rules.",
+                        "Ask for a specific folder from a pane: right-click it and choose “Organize This Folder…”.",
+                    ]),
+                    .tip("Nothing moves without your say-so, and every move is undoable. Which engines run is up to you — see Settings ▸ Intelligence."),
+                ],
+                related: ["organize-workspace", "automation-rules", "intelligence"]
+            )),
+            Topic(id: "tidy-duplicates", title: "Clear out duplicates", systemImage: "doc.on.doc", article: Article(
+                intro: "Duplicates scans one folder's tree for content that repeats under different names or in different places, and offers to trash the extra copies — keeping the best one.",
+                blocks: [
+                    .bullets([
+                        "Scan the folder you're standing on from Organize ▸ Duplicates, or right-click a file and choose “Find Duplicates of This”.",
                         "SyncCloud picks a keeper — shortest path, cleanest name — and marks the rest.",
+                        "Filter the groups by how they match: Identical, Same text, Overlapping, Name only, or Versions.",
                         "Review the groups, then move the extras to the Trash.",
                     ]),
+                    .paragraph("What counts as a duplicate is yours to set. Settings ▸ Duplicates turns on version detection — Report, Report (1), Report-final as one family — and reading PDFs to find copies a byte-for-byte hash would miss."),
                     .tip("The last remaining copy of a file is never trashed, and removed files go to the Trash — never a hard delete."),
                 ],
-                related: ["file-loose-items", "staying-safe"]
+                related: ["organize-workspace", "staying-safe", "storage-lens"]
             )),
-            Topic(id: "file-loose-items", title: "File loose items", systemImage: "tray.and.arrow.down", article: Article(
-                intro: "Organize's To File lens suggests a home for loose files and can move them there — using your folder names, the file's own contents, and, optionally, AI.",
+            Topic(id: "fix-names", title: "Fix names", systemImage: "textformat", article: Article(
+                intro: "Renames looks across the provider for names worth changing, and shows you every one of them before anything happens.",
                 blocks: [
                     .bullets([
-                        "SyncCloud reads your folder layout and proposes where each loose file belongs.",
-                        "On-device content signals handle files whose name says nothing on its own.",
-                        "Accept a suggestion to move the file, or remember a rule so similar files file themselves next time.",
+                        "Names that won't store cleanly — this provider's own rules, plus the invisible hazards any cloud mangles, which is why an iCloud or a plain-folder source fills this section too.",
+                        "Files that don't follow the convention their own folder uses.",
+                        "Files renumbered to make room for one of those.",
+                        "Files whose one-digit ordinals gain a leading zero, so 1. Jan 2011.pdf becomes 01. Jan 2011.pdf and the folder sorts the way you meant.",
                     ]),
-                    .tip("Cloud AI is opt-in and needs a key (Settings ▸ Intelligence). Without it, Organize runs entirely on-device."),
+                    .paragraph("What gets renamed is always a file. A folder is how the list groups the work — never the thing being renamed."),
+                    .tip("Nothing is renamed without your say-so, and every rename is undoable. Organize ▸ Fix Name… opens this on a pane's selected item, and Always Allow This Name tells SyncCloud to stop proposing a change for it."),
                 ],
-                related: ["tidy-duplicates", "sync-preferences"]
+                related: ["organize-workspace", "undo-redo", "providers"]
             )),
-            Topic(id: "storage-lens", title: "See where space goes", systemImage: "chart.pie.fill", article: Article(
-                intro: "Storage maps a folder's biggest areas, ranks its largest and longest-untouched files, and flags large idle ones worth keeping online-only.",
+            Topic(id: "restructure-shapes", title: "Compare folder shapes", systemImage: "square.stack.3d.up", article: Article(
+                intro: "Restructure finds families of sibling folders that were set up differently at different times — the same kind of folder, organized four ways — and names the disagreement.",
                 blocks: [
                     .bullets([
-                        "Analyze a folder to get a treemap of where its bytes actually are.",
-                        "The ranked lists show the largest files, the ones untouched longest, and the large-and-idle overlap worth reclaiming.",
-                        "Reopening Storage shows your last analysis, with its age beside it — re-analyze for current numbers.",
+                        "It compares sibling families across the surveyed tree, not inside the one folder you happen to be standing in.",
+                        "A finding says something like “these thirteen folders use four different internal shapes”, with the folders listed.",
+                        "Findings about a folder your scope sits inside are shown too, kept visually subordinate — under a scope pointed at a leaf they're often the only honest answer there is.",
+                        "Two findings can name the same folder, because one folder really can be two different kinds of odd at once.",
                     ]),
-                    .tip("Storage never moves, deletes, or evicts anything. “Offload” reveals a file in Finder so you can decide there — the reading is the whole feature."),
+                    .paragraph("It reads a folder profile, so it has nothing to say until SyncCloud has learned your tree — setup's Folders step is what writes one, and the section offers to re-learn from the tree as it stands now."),
+                    .tip("Read-only, and the odd one out among Organize's sections for that reason: Restructure names the disagreement and stops. Nothing here is created, renamed, or moved."),
                 ],
-                related: ["tidy-duplicates", "file-loose-items"]
+                related: ["organize-workspace", "setup", "fix-names"]
+            )),
+            Topic(id: "automation-rules", title: "Rules that run for you", systemImage: "wand.and.stars", article: Article(
+                intro: "Rules is where you say once where a kind of file belongs — “PDFs that mention ‘invoice’ go in Documents/Invoices/{year}” — instead of answering the same question every time one turns up.",
+                blocks: [
+                    .bullets([
+                        "A rule is a set of conditions — all of them, or any of them — and a destination. Every condition is matched on this Mac.",
+                        "The destination is relative to the provider root and can carry tokens like {year}, filled from each file. A file that can't supply one is flagged as needing a look rather than guessed at.",
+                        "Preview the rule against the folder you're standing in before keeping it, so one that's too broad shows itself immediately. A word too generic to match on is refused with a reason.",
+                        "A rule is written once and steers every scan of that provider's tree, not one folder's.",
+                        "Settings ▸ Organize holds the inbox and rule preferences behind the section.",
+                    ]),
+                    .tip("Rules steer suggestions — they never move anything on their own, and nothing moves without your confirmation."),
+                ],
+                related: ["organize-workspace", "file-loose-items", "intelligence"]
             )),
         ]),
         Section(title: "Settings and more", topics: [
@@ -286,17 +354,60 @@ enum HelpBook {
                 related: ["scan", "staying-safe"]
             )),
             Topic(id: "appearance", title: "Appearance", systemImage: "paintbrush", article: Article(
-                intro: "Tune how SyncCloud looks — theme, surface style, translucency, provider hues, and list density.",
+                intro: "Tune how SyncCloud looks — theme, accent, translucency, and the shape of its surfaces.",
                 blocks: [
                     .bullets([
                         "Theme — System follows macOS (including its light/dark schedule); Light and Dark pin SyncCloud regardless of the system setting.",
                         "Accent color and tint for the translucent surfaces.",
                         "Glass effect — Clear, Frosted, or Solid surfaces.",
                         "Content surface — Unified or Cards panes.",
-                        "List density — comfortable or compact rows across the file panes and lists.",
                     ]),
+                    .tip("Text size and row spacing used to sit at the bottom of this tab and now have one of their own — Settings ▸ Readability, directly below this one."),
                 ],
-                related: ["providers"]
+                related: ["readability", "providers"]
+            )),
+            Topic(id: "readability", title: "Text size and row spacing", systemImage: "textformat.size", article: Article(
+                intro: "Settings ▸ Readability answers one question — how much do you want on screen? Text size and row spacing sit together, with a row of presets over them and a live preview under them.",
+                blocks: [
+                    .bullets([
+                        "The presets are one click for both settings at once: every step to the right shows less and reads bigger. Default is 100% text with comfortable rows.",
+                        "Text size runs from 90% to 135%, in steps of 5, with Small, Default, Large and Largest named under the slider's ticks.",
+                        "The boost is spent where it's needed — the 9 to 11pt captions and secondary rows grow noticeably, while headings barely move. It's a readability setting, not a uniform zoom.",
+                        "Row spacing is Comfortable or Compact. Comfortable keeps the standard row height and shows each file's size and date; Compact fits more rows and hides that line to do it.",
+                        "The preview under the controls draws real file rows at the pair you've chosen — the one thing on screen that shows what Compact actually costs.",
+                    ]),
+                    .tip("The presets are a shortcut over the two controls, never a replacement for them. Large text with compact rows is a perfectly good combination; choose it below and the preset row simply shows nothing selected."),
+                ],
+                related: ["appearance", "keyboard-shortcuts"]
+            )),
+            Topic(id: "intelligence", title: "Suggestions and AI", systemImage: "sparkles", article: Article(
+                intro: "Organize's suggestions come from more than one place, and Settings ▸ Intelligence is where you choose which of them run. Everything that costs money is off until you turn it on, and nothing leaves this Mac unless you say so.",
+                blocks: [
+                    .bullets([
+                        "Names and layout, always — matching a file against what your folders are called and what its own metadata says. No model involved.",
+                        "On-device AI (Apple Intelligence) — free, private, and the first pass. Where it isn't available, Organize falls back to names and metadata.",
+                        "Reading file contents on-device — more to go on for a file whose name says nothing.",
+                        "Refine with Claude — the opt-in second pass. Once a scan has results, a Refine button re-asks Claude about them, billed to an API key you supply and kept in the macOS Keychain.",
+                    ]),
+                    .paragraph("The cloud pass never runs on its own. You press Refine, and you see a cost estimate to confirm before each one. Two caps pause it as well: a monthly cap, off by default, and a lifetime cap that ships at $5 as a backstop. Reaching either leaves the free on-device suggestions working until you raise it."),
+                    .tip("A file that hasn't been edited, renamed, or moved keeps the suggestion it already had, so scanning the same folder again doesn't ask the model — or pay for it — a second time."),
+                ],
+                related: ["file-loose-items", "automation-rules", "staying-safe"]
+            )),
+            Topic(id: "command-palette", title: "Go to anything (⌘K)", systemImage: "magnifyingglass", article: Article(
+                intro: "⌘K opens Go to: one field that reaches anywhere the app can go — including places that aren't on screen at all. It's in the Go menu, first, because it's the only item there that can reach a destination you're not already near.",
+                blocks: [
+                    .bullets([
+                        "Places — the four workspaces, and each of Organize's five sections.",
+                        "People — everything belonging to someone on your list.",
+                        "Folders — anywhere SyncCloud has surveyed, plus recent and pinned folders. Type a path and it will take you there.",
+                        "Sources — point the pane at another cloud account or folder.",
+                        "Actions — Rescan, New Folder…, Choose Folder…, Find in Pane…, Settings…, Keyboard Shortcuts, Activity Log.",
+                    ]),
+                    .paragraph("It answers to your words rather than the menu's: “keys” finds Keyboard Shortcuts, “preferences” finds Settings…, “search” finds Find in Pane…, and “refresh” finds Rescan — not one of which is the item's own name."),
+                    .tip("Everything here already exists as a menu item or an on-screen control — Go to is a second way to reach them, never the only way. A row it can't act on says so rather than doing nothing."),
+                ],
+                related: ["keyboard-shortcuts", "browse-workspace", "organize-workspace"]
             )),
             Topic(id: "keyboard-shortcuts", title: "Keyboard shortcuts", systemImage: "keyboard", article: Article(
                 intro: "SyncCloud is fully keyboard-drivable, and it will show you its own shortcuts — hold ⌥ and they appear on the buttons.",
@@ -304,12 +415,13 @@ enum HelpBook {
                     .bullets([
                         "Hold ⌥ on its own for a moment and every control with a shortcut grows a key badge; let go and they vanish. Press any key, click, or add a second modifier and the badges stay away — so ⌥-click and ⌥-typed characters work exactly as before.",
                         "Because ⌥ is held, the shortcut itself won't fire while the badges are up: look, release, then press.",
-                        "Open the full reference from Help ▸ Keyboard Shortcuts, or press ⌘/.",
-                        "⌘→ / ⌘← copy the selected differences; add ⇧ to move.",
+                        "The full reference is a window of its own: Window ▸ Keyboard Shortcuts, or ask for it by name in ⌘K.",
+                        "⌘1 – ⌘4 switch workspaces; ⌘→ / ⌘← copy the selected differences, and ⇧ makes it a move.",
                         "Space opens Quick Look; ⌥-click a breadcrumb navigates both panes at once.",
                     ]),
+                    .paragraph("The menu bar carries the rest, a menu per place: Go holds ⌘K and the per-pane Back and Forward, Compare holds the four transfers plus Review and Verify, Organize holds its five sections and its four verbs, and View holds the four workspaces and the show/hide switches."),
                 ],
-                related: ["copy-move", "guided-review"]
+                related: ["command-palette", "copy-move", "guided-review"]
             )),
         ]),
         Section(title: "Help and safety", topics: [
@@ -321,15 +433,16 @@ enum HelpBook {
                         "Removed files go to the Trash, never a hard delete, and the last copy is always kept.",
                         "⌘Z undoes any operation, and undo refuses to overwrite something that changed underneath it.",
                         "Quitting mid-operation warns you first, so a sync is never left half-done.",
+                        "Organize proposes and never acts: Restructure cannot change a file at all, and every other section asks before it moves, renames, or trashes anything.",
                     ]),
                 ],
-                related: ["undo-redo", "activity-log"]
+                related: ["undo-redo", "activity-log", "intelligence"]
             )),
             Topic(id: "activity-log", title: "Activity Log and troubleshooting", systemImage: "clock.arrow.circlepath", article: Article(
                 intro: "Every scan and file operation is logged. If something looks off, the Activity Log is where to look — and what to send if you need help.",
                 blocks: [
                     .bullets([
-                        "Open Activity Log from the Help menu to watch the live event stream.",
+                        "Open it from Window ▸ Activity Log, or press ⌘L, to watch the live event stream.",
                         "Filter by severity and copy lines straight from the window.",
                         "The full log is written to sync-cloud.log — Help ▸ Reveal Log File in Finder opens it.",
                     ]),
@@ -342,7 +455,7 @@ enum HelpBook {
                 blocks: [
                     .paragraph("Unlike the live Activity Log, which forgets when you quit, Sync History is written to disk as a structured record of each operation — its time, action, direction, the paths involved, and the size."),
                     .bullets([
-                        "Open it from Help ▸ Open Sync History.",
+                        "Open it from Window ▸ Sync History.",
                         "Filter by action, date range, or path, and search across everything recorded.",
                         "Export the current view to CSV or JSON for a spreadsheet or your own tooling.",
                         "Undo Last Run reverses the most recent sync in one step, moving files back where they were.",
@@ -352,15 +465,15 @@ enum HelpBook {
                 related: ["undo-redo", "activity-log", "staying-safe"]
             )),
             Topic(id: "about", title: "About SyncCloud", systemImage: "info.circle", article: Article(
-                intro: "SyncCloud compares and syncs two folders — a macOS app, plus a matching synccloud command-line tool for scripted workflows.",
+                intro: "SyncCloud compares and organizes your cloud folders — a macOS app, plus a matching synccloud command-line tool for scripted workflows.",
                 blocks: [
                     .bullets([
-                        "See the version and build in Help ▸ About SyncCloud.",
+                        "See the version and build in SyncCloud ▸ About SyncCloud, and again at the foot of the Settings rail.",
                         "The CLI mirrors the app's scan and sync for the terminal.",
-                        "Requires macOS 15 or later.",
+                        "Requires macOS 26 or later.",
                     ]),
                 ],
-                related: ["what-is-synccloud"]
+                related: ["what-is-synccloud", "activity-log"]
             )),
         ]),
     ]
@@ -426,7 +539,7 @@ extension HelpBook.Mood {
 
 // MARK: - Menu commands
 
-/// The Help ▸ Open Activity Log item. A separate View (not inline in the `.commands` builder)
+/// The Window ▸ Activity Log item. A separate View (not inline in the `.commands` builder)
 /// because `openWindow` is an Environment value the App struct doesn't carry — the same reason
 /// `ShortcutsWindowCommand` exists.
 struct ActivityLogWindowCommand: View {

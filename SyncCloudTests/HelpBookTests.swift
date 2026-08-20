@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import FileExplorer
 import Settings
 import Testing
 @testable import SyncCloud
@@ -13,7 +15,11 @@ import Testing
         #expect(HelpBook.sections.map(\.title) == [
             "Getting started",
             "Working with differences",
-            "Cleanup tools",
+            // "Organize", not the "Cleanup tools" this shipped as: three of the workspace's five
+            // sections had no article at all while the section was named for the two that did,
+            // and a name that describes half a workspace is what let the other half go
+            // undocumented without anything looking odd.
+            "Organize",
             "Settings and more",
             "Help and safety",
         ])
@@ -98,15 +104,6 @@ import Testing
 
     @Test func testUnmatchedQueryReturnsNothing() {
         #expect(HelpBook.filteredSections(matching: "zzzznotatopic").isEmpty)
-    }
-
-    /// Every workspace the bar offers has a help topic. Browse shipped without one — the Help
-    /// book described the app as Compare-plus-cleanup for a whole release while the bar's first
-    /// segment went unexplained.
-    @Test func testTheBrowseWorkspaceHasATopic() {
-        let topic = HelpBook.topic(id: "browse-workspace")
-        #expect(topic != nil, "Browse has no help topic")
-        #expect(HelpBook.sectionTitle(forTopicID: "browse-workspace") == "Getting started")
     }
 
     /// **Tabs are findable in Help.** The feature's own discovery route is a right-click, which the
@@ -202,6 +199,200 @@ import Testing
             rest = tail
         }
         return out
+    }
+
+    /// Every workspace the bar offers has a help topic, derived from `Workspace` so the next one
+    /// added fails here rather than shipping unexplained.
+    ///
+    /// **This started life as a Browse-only test.** Browse shipped without a topic and the Help
+    /// book described the app as Compare-plus-cleanup for a whole release while the bar's first
+    /// segment went unmentioned — which is exactly the shape of failure a hand-named check cannot
+    /// generalise out of. Storage was the second: it had a topic, and the topic was filed under
+    /// "Cleanup tools" beside two Organize sections, which is not what a read-only workspace is.
+    /// `testTheBrowseWorkspaceHasATopic` is folded in here rather than kept beside this — every
+    /// assertion it made is one of the four below, and two tests asking the same question is how
+    /// one of them comes to be the only one anybody updates.
+    @Test func everyWorkspaceHasATopic() {
+        let expected: [Workspace: String] = [
+            .browse: "browse-workspace",
+            .compare: "what-is-synccloud",
+            .filing: "organize-workspace",
+            .storage: "storage-lens",
+        ]
+        for workspace in Workspace.allCases {
+            let id = expected[workspace]
+            #expect(id != nil, "\(workspace.title) is a workspace with no help topic named here")
+            if let id { #expect(HelpBook.topic(id: id) != nil, "\(workspace.title)'s topic \(id) is gone") }
+        }
+        #expect(HelpBook.sectionTitle(forTopicID: "browse-workspace") == "Getting started")
+
+        // The copy counts the segments too, and a number written out in prose is exactly the
+        // thing that does not move when one is added. `ShortcutsReference` derives its own row
+        // from `allCases` for this reason; the articles read better with the word, so the count
+        // is checked here rather than interpolated into the copy.
+        //
+        // The match is folded to a `Bool` first on purpose: `everyWord` is the whole Help book,
+        // and asserting `.contains` on it directly dumps every article into the failure.
+        let count = Workspace.allCases.count
+        let everyWord = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
+        for claim in ["⌘1 through ⌘\(count)", "⌘1 – ⌘\(count)", "the \(Self.spelled(count)) workspaces"] {
+            let saidSomewhere = everyWord.contains(claim)
+            #expect(saidSomewhere,
+                    "no article says “\(claim)” — the workspace count moved and the copy did not")
+        }
+    }
+
+    /// The small numbers Help spells out. Above six the copy should be using digits, and this
+    /// falls back to them rather than pretending it knows the word.
+    private static func spelled(_ n: Int) -> String {
+        let words = ["zero", "one", "two", "three", "four", "five", "six"]
+        return words.indices.contains(n) ? words[n] : "\(n)"
+    }
+
+    /// Every one of Organize's rail sections is named somewhere in Help.
+    ///
+    /// **Three of the five were undocumented for a release.** Renames, Restructure and Rules are
+    /// rail items with intros, badges and menu-bar routes of their own, and the Help book covered
+    /// only the two it had always covered. Derived from `OrganizeLens.allCases`, because the
+    /// failure mode is a section that exists without prose, which no list written by hand here
+    /// would ever have caught.
+    @Test func everyOrganizeSectionIsDocumented() {
+        for lens in OrganizeLens.allCases {
+            let hits = HelpBook.filteredSections(matching: lens.title).flatMap(\.topics).map(\.id)
+            #expect(!hits.isEmpty, "Organize ▸ \(lens.title) is a rail item no Help topic mentions")
+        }
+    }
+
+    /// The positive control for the scan above: a section name Organize does not have finds
+    /// nothing, so the walk is matching the titles rather than matching everything.
+    @Test func theOrganizeSectionScanCanActuallyFail() {
+        #expect(HelpBook.filteredSections(matching: "Quarantine").isEmpty)
+        #expect(!OrganizeLens.allCases.map(\.title).contains("Quarantine"),
+                "“Quarantine” is a section name now — this test's counter-example is no longer one")
+    }
+
+    /// Help may not send anyone to a menu the app does not have.
+    ///
+    /// **Three articles did, for a release.** `cd87b08e` moved Keyboard Shortcuts, Activity Log
+    /// and Sync History out of the Help menu — they were listed twice, in two menus, under two
+    /// names — and the articles telling users to open them from Help were left behind. The bar is
+    /// low on purpose: this pins the four phrasings that went stale, not every sentence about a
+    /// menu, because the general form of this question is what `WindowMenuTests` reads off the
+    /// running app.
+    @Test func noArticleSendsTheUserToARetiredHelpMenuItem() {
+        for phrase in ["Help ▸ Keyboard Shortcuts",
+                       "Help ▸ Open Activity Log",
+                       "Help ▸ Open Sync History",
+                       "Help ▸ About SyncCloud"] {
+            let hits = HelpBook.filteredSections(matching: phrase).flatMap(\.topics).map(\.id)
+            #expect(hits.isEmpty, "Help still sends the user to “\(phrase)”, which is not there: \(hits)")
+        }
+        // The other half: the two Help entries that DO exist are still taught, so the bans above
+        // cannot quietly become a rule against naming the Help menu at all.
+        let reveal = HelpBook.filteredSections(matching: "Help ▸ Reveal Log File").flatMap(\.topics).map(\.id)
+        #expect(reveal.contains("activity-log"))
+        let setup = HelpBook.filteredSections(matching: "Help ▸ Set Up SyncCloud").flatMap(\.topics).map(\.id)
+        #expect(setup.contains("setup"))
+    }
+
+    /// Every "<Menu> ▸ <Item>" in the Help book names a menu item the running app really has.
+    ///
+    /// **Read off `NSApp.mainMenu`, not the source, and that is the whole point.** Whether a
+    /// `CommandMenu` or a `Menu` inside a `CommandGroup` became the arrangement it was declared as
+    /// is not a question the source can answer — `WindowMenuTests` exists for the same reason.
+    ///
+    /// This is the general form of the failure this file keeps meeting. `cd87b08e` moved three
+    /// windows out of the Help menu and left three articles pointing at it; `75b9488e` moved
+    /// Organize's sections and verbs out of View and File into a menu of their own, hours after
+    /// the articles describing the old arrangement were written. Neither broke a test, because
+    /// prose about a menu is invisible to everything that reads either one.
+    ///
+    /// "Settings ▸ …" is excluded on purpose — Settings is a tab rail, not a menu, and
+    /// ``everySettingsPathInHelpNamesARealTab`` is the check that fits it.
+    @MainActor
+    @Test func everyMenuPathInHelpNamesARealMenuItem() throws {
+        let mainMenu = try #require(NSApp.mainMenu)
+        var checked = 0
+
+        for topic in HelpBook.allTopics {
+            for text in Self.copy(of: topic) {
+                for (menuName, itemName) in Self.menuDestinations(in: text) {
+                    guard menuName != "Settings" else { continue }
+                    checked += 1
+                    let menu = mainMenu.items.first { $0.title == menuName }?.submenu
+                    #expect(menu != nil,
+                            "“\(topic.title)” names a \(menuName) menu, and the app has none")
+                    let titles = (menu?.items ?? []).map(\.title)
+                    // Prefix rather than equality: the extractor stops at the first lowercase
+                    // word, so "Reveal Log File in Finder" arrives as "Reveal Log File".
+                    let found = titles.contains { $0.hasPrefix(itemName) }
+                    #expect(found,
+                            "“\(topic.title)” sends the user to \(menuName) ▸ \(itemName), which is not in that menu: \(titles)")
+                }
+            }
+        }
+
+        #expect(checked > 4, "only \(checked) menu paths were found — this scan has gone vacuous")
+    }
+
+    /// The positive control: a real path is extracted and matched, and a plausible wrong one is
+    /// caught. `View ▸ Organize` is the specific mistake this test was written after — the five
+    /// sections were a submenu there for one afternoon.
+    @MainActor
+    @Test func theMenuPathScanCanActuallyFail() throws {
+        #expect(Self.menuDestinations(in: "Open it from Window ▸ Activity Log, or press ⌘L.")
+                    .map(\.item) == ["Activity Log"])
+        let mainMenu = try #require(NSApp.mainMenu)
+        let view = try #require(mainMenu.items.first { $0.title == "View" }?.submenu)
+        #expect(!view.items.contains { $0.title.hasPrefix("Restructure") },
+                "View carries Organize's sections again — the copy this test defends would be right, not wrong")
+    }
+
+    /// The `(menu, item)` pairs in every "<Menu> ▸ <Item>" in a string. Same shape as
+    /// ``settingsDestinations(in:)``: the item name runs to the first character that is neither a
+    /// letter, a space nor an ellipsis, and only its leading capitalised words are kept.
+    private static func menuDestinations(in text: String) -> [(menu: String, item: String)] {
+        var out: [(String, String)] = []
+        var rest = Substring(text)
+        while let marker = rest.range(of: " ▸ ") {
+            let head = rest[..<marker.lowerBound]
+            let menu = String(head.split(separator: " ").last ?? "")
+            let tail = rest[marker.upperBound...]
+            let run = tail.prefix { $0.isLetter || $0 == " " || $0 == "…" }
+            var name: [String] = []
+            for word in run.split(separator: " ").map(String.init) {
+                guard let first = word.first, first.isUppercase else { break }
+                name.append(word)
+            }
+            if !menu.isEmpty, !name.isEmpty { out.append((menu, name.joined(separator: " "))) }
+            rest = tail
+        }
+        return out
+    }
+
+    /// The macOS version Help claims is the one the app is actually built against.
+    ///
+    /// It said **15** while the deployment target had moved to 26 — a claim that costs somebody a
+    /// download and a failed launch to disprove, and one nothing else in the app would ever
+    /// contradict. Derived from the built bundle's `LSMinimumSystemVersion` rather than from a
+    /// number typed here, so the next bump of `deploymentTarget` fails this test instead of
+    /// ageing quietly the way the last one did.
+    ///
+    /// `Bundle.main` is the app itself here: `SyncCloudTests` is hosted by `SyncCloud.app`, which
+    /// is why this can be asked at all. Under `swift test` it could not.
+    @Test func theStatedSystemRequirementMatchesTheBuild() throws {
+        let raw = try #require(Bundle.main.infoDictionary?["LSMinimumSystemVersion"] as? String,
+                               "the host bundle carries no LSMinimumSystemVersion — this test cannot see the truth")
+        let built = try #require(Int(raw.prefix { $0.isNumber }))
+
+        let about = try #require(HelpBook.topic(id: "about"))
+        let copy = about.article.blocks.map(String.init(describing:)).joined(separator: " ")
+        let range = try #require(copy.range(of: "Requires macOS "),
+                                 "the About topic no longer states a system requirement at all")
+        let claimed = try #require(Int(copy[range.upperBound...].prefix { $0.isNumber }))
+
+        #expect(claimed == built,
+                "Help says “Requires macOS \(claimed)” and the app is built against \(built)")
     }
 
     /// Retired product vocabulary stays out of the copy. "Filing" became Organize's To File lens
