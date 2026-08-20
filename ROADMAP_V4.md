@@ -282,7 +282,7 @@ stands" below was re-read at `c604321e` rather than carried forward.
 
 | Item | Cost | State on `main` |
 |---|---|---|
-| **Status bar** (⌘/) — item count, selection size, cloud-only count, scan freshness | small | Zero `statusBar` hits anywhere. Highest value per point of work. |
+| **Status bar** (⌘/) — item count, selection size, cloud-only count, scan freshness | small | Zero `statusBar` hits anywhere. Highest value per point of work. **Deferred to v4.3 on placement.** |
 | **↩ renames** | — | **Shipped 2026-08-20** (`88d95ed9`) — a pane key handler beside Space, sharing File ▸ Rename's own closure so the two cannot drift. Never a menu equivalent: a bare ↩ there would take the key that commits the destination picker, the ⌘K field and every sheet. |
 | **⌘↑ enclosing folder, ⌘↓ open** | small | **Deferred to v4.3, 2026-08-20 — the chords are free, the meaning is not.** A pane has TWO positions and the two candidates move different ones: `handleFocus` (what the row menu calls "Open") **re-scopes the pane**, while `drill`/`popLast` walk the **column stack** the breadcrumb shows. Pairing them across axes — Open re-scoping while Up pops a column — makes two chords that look like opposites move different things, which is the confusion this codebase already has a history of. Columns is the default mode, so a stack-based pair works where most people are and is dead in Tree; a scope-based pair works in both and resets the breadcrumb rather than walking it. **Decide the axis first; the implementation is small either way.** |
 | **Go to Folder** | small | **Shipped 2026-08-19** — `PalettePath`, no sheet. Cross-source paths refuse and name the source; switching to it is deferred to v4.3, see below. |
@@ -418,7 +418,33 @@ a folder that has since gone — the same three questions the tab strip already 
   **⌃⌘S was the fourth chord to overflow the shortcuts reference**, and the first time a *single*
   row did it — `theReferenceFitsItsWindowWithoutScrolling` measured 743pt against a 720pt window.
   Raised to 780. That test is still the only thing that notices.
-- **⌘C / ⌘V / ⌥⌘V.** ⚠️ **The ⌥⌘V spelling is not available** — see the ⌥ ban above: an ⌥-chord
+- **⌘C / ⌘V / ⌥⌘V.** **Shipped 2026-08-20**, minus the third chord — see below.
+  `Dashboard/SystemClipboard.swift`. ⌘C in a pane now also writes file URLs to
+  `NSPasteboard.general`, so ⌘V in Finder pastes the files; files copied in any other app paste into
+  a pane. Four things the build settled:
+
+  - **`NSFilePromiseProvider` is not involved, and §10's costing of it as "the Medium" was wrong.**
+    A promise provider exists for content that does not exist yet. Every node in a pane is a real
+    file at a real path, an online-only placeholder included — that is a dataless file the system
+    materialises on read. Writing the URLs is sufficient and is what every other file browser does.
+  - **One clipboard, decided by `changeCount`.** Two clipboards would be two behaviours. While the
+    count recorded at the app's own ⌘C still matches the live one, the internal list wins — it is
+    the only one carrying `isCut`, so it is the only path that can move. The moment anything else
+    writes, the pasteboard is the answer.
+  - **A pasteboard holding non-files pastes nothing**, rather than falling back to the app's stale
+    list. Copying text elsewhere and then pressing ⌘V here must not write files nobody asked for.
+    And a paste *from* another app is always a copy: the pasteboard carries no cut flag.
+  - **The handler takes a pasteboard now**, injected like its `defaults`. An existing test caught
+    why on the first run: with `.general` in play, `testPasteClipboardToNodeWithEmptyClipboardDoes
+    Nothing` pasted the preceding test's file into its temp directory — the suite had begun
+    clobbering the developer's real clipboard.
+
+  **Paste-as-move still has no chord, and that is the `tabBar` outcome rather than an omission.**
+  ⌥⌘V cannot ship (below), and ⌘X-then-⌘V already means move for the app's own clipboard, so the
+  verb exists and only a second spelling of it is missing. Left for whoever wants it to choose a
+  non-⌥ modifier scanned against both `AppChord.registry` and the raw `keyboardShortcut` literals.
+
+  ⚠️ **The ⌥⌘V spelling is not available** — see the ⌥ ban above: an ⌥-chord
   fires from inside the keycap reveal, so a user reading the "⌘V" badge who presses ⌘V while still
   holding ⌥ would move files. The paste-as-move verb needs a different spelling (or none, following
   `tabBar`); everything else in this item stands.

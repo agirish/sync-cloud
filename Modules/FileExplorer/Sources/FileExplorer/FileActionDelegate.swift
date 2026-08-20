@@ -21,7 +21,8 @@ public protocol FileActionDelegate: Sendable {
     /// verb, as distinct from `handleMove`/`handleCopy`, which put each item where its counterpart
     /// belongs in the opposite pane. `isMove` chooses the verb throughout.
     func handleChooseDestination(_ nodes: [FileNode], isMove: Bool)
-    /// Whether the app's internal clipboard holds items to paste — drives the enablement
+    /// Whether either clipboard holds files to paste — the app's own list or the system
+    /// pasteboard, resolved by `ClipboardSource`. Drives the enablement
     /// of the "Paste here" menu items (pasting from an empty clipboard is a silent no-op).
     var clipboardHasItems: Bool { get }
 

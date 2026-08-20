@@ -1,4 +1,5 @@
 import SwiftUI
+import Dashboard
 import Design
 import Events
 import FileExplorer
@@ -872,7 +873,8 @@ extension ContentView {
     }
 
     /// ⌘X / ⌘C / ⌘V, resolved together — see ``ClipboardActions``. Edit ▸ Cut / Copy / Paste, over
-    /// the app's internal clipboard.
+    /// the file clipboard — the app's own list, or the system pasteboard, whichever was written
+    /// last (`ClipboardSource.resolve`).
     ///
     /// **The source and the destination are resolved by different rules, and that is what makes
     /// cut-and-paste a cross-pane move.** Cut and Copy take `activeSelectionNodes` — wherever the
@@ -895,9 +897,15 @@ extension ContentView {
         return ClipboardActions(
             cut: hasSelection ? { actionHandler?.handleCopyToClipboard(activeSelectionNodes, isCut: true) } : nil,
             copy: hasSelection ? { actionHandler?.handleCopyToClipboard(activeSelectionNodes, isCut: false) } : nil,
-            // Withheld on an empty clipboard: pasting nothing is a no-op, and an enabled item that
-            // does nothing is the thing `clipboardHasItems` was added to the row menu to prevent.
-            paste: syncManager.clipboardNodes.isEmpty ? nil
+            // Withheld when neither clipboard has files: pasting nothing is a no-op, and an
+            // enabled item that does nothing is the thing `clipboardHasItems` was added to the row
+            // menu to prevent. **Through `ClipboardSource.current`, which is the same call the
+            // paste itself makes** — asking `clipboardNodes.isEmpty` here was right while the app's
+            // clipboard was the only one, and would now grey out a paste of files copied in Finder.
+            paste: ClipboardSource.current(pasteboard: actionHandler?.pasteboard ?? .general,
+                                           hasInAppItems: !syncManager.clipboardNodes.isEmpty,
+                                           ownChangeCount: syncManager.clipboardPasteboardChangeCount) == .none
+                 ? nil
                  : { actionHandler?.pasteClipboard(toPath: destination) })
     }
 
@@ -1182,8 +1190,13 @@ struct SelectAllCommand: View {
     }
 }
 
-/// Edit ▸ Cut / Copy / Paste — the app's **internal** file clipboard
-/// (`FileSyncManager.clipboardNodes`), not `NSPasteboard`.
+/// Edit ▸ Cut / Copy / Paste — the file clipboard, **and since v4.2 the system pasteboard too**.
+///
+/// It was the app's internal list alone (`FileSyncManager.clipboardNodes`), which is why the
+/// comment here used to end "not `NSPasteboard`". A copy now also writes file URLs to the general
+/// pasteboard, so ⌘C here and ⌘V in Finder works, and a paste takes whichever clipboard was written
+/// last — `ClipboardSource.resolve` decides, and the internal list stays the only one that carries
+/// `isCut`.
 ///
 /// **These verbs already worked; they had no menu and no chord.** Cut, Copy and *Paste here* have
 /// been on the row menu and the empty-area menu since before v4.0, spending through the same

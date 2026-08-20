@@ -13,6 +13,10 @@ public class FileActionHandler {
     private let settings: SettingsManager
     /// Read for the "Confirm before deleting" flag; injectable so tests don't mutate `.standard`.
     private let defaults: UserDefaults
+    /// The system pasteboard this handler copies to and pastes from — injected for the same reason
+    /// `defaults` is: a test that used the real one would clobber the developer's clipboard mid-session,
+    /// and one such test wrote a file into a temp dir from whatever happened to be on it.
+    public let pasteboard: NSPasteboard
     /// Runs an AppleScript source, returning the error dictionary on failure (nil on success).
     /// Injectable so tests can capture the script instead of driving the real Finder.
     private let appleScriptRunner: (String) -> NSDictionary?
@@ -26,6 +30,7 @@ public class FileActionHandler {
         syncManager: FileSyncManager,
         settings: SettingsManager,
         defaults: UserDefaults = .standard,
+        pasteboard: NSPasteboard = .general,
         appleScriptRunner: ((String) -> NSDictionary?)? = nil,
         renamePrompter: @escaping (_ currentName: String, _ validate: (String) -> String?) -> String? =
             { NativeAlerts.promptForRename(currentName: $0, validate: $1) },
@@ -37,6 +42,7 @@ public class FileActionHandler {
         self.syncManager = syncManager
         self.settings = settings
         self.defaults = defaults
+        self.pasteboard = pasteboard
         // nil → the real NSAppleScript runner (an internal symbol can't appear as a public
         // init's default argument directly).
         self.appleScriptRunner = appleScriptRunner ?? Self.executeAppleScript
@@ -226,16 +232,30 @@ public class FileActionHandler {
         pasteItems(nodes, toPath: validDestinationPath, isCut: isCut)
     }
     
+    /// Resolves the directory and hands over to `pasteClipboard(toPath:)`, which owns the
+    /// which-clipboard decision — the same resolution `pasteItems(_:to:isCut:)` does, kept here so
+    /// there is exactly one place that answers "where is a paste going" and one that answers
+    /// "what is being pasted".
     public func pasteClipboard(to targetDir: FileNode) {
-        let nodesToPaste = syncManager.clipboardNodes
-        guard !nodesToPaste.isEmpty else { return }
-        pasteItems(nodesToPaste, to: targetDir, isCut: syncManager.clipboardIsCut)
+        let destination = targetDir.isDirectory
+            ? targetDir.id
+            : URL(fileURLWithPath: targetDir.id).deletingLastPathComponent().path
+        pasteClipboard(toPath: destination)
     }
-    
+
+    /// ⌘C / ⌘X — into the app's own clipboard **and** onto the system pasteboard.
+    ///
+    /// The second half is what makes ⌘C here and ⌘V in Finder work. The change count it returns is
+    /// what later tells a paste whether SyncCloud still owns the pasteboard; see
+    /// `FileSyncManager.clipboardPasteboardChangeCount`.
     public func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {
-        Logger.shared.info("User \(isCut ? "cut" : "copied") \(nodes.count) item(s) to the internal clipboard")
+        Logger.shared.info("User \(isCut ? "cut" : "copied") \(nodes.count) item(s) to the clipboard")
         syncManager.clipboardNodes = nodes
         syncManager.clipboardIsCut = isCut
+        // A cut writes what a copy writes: the pasteboard has no move flag that Finder reads, so a
+        // cut here pasted THERE copies. See `SystemClipboard.write`.
+        syncManager.clipboardPasteboardChangeCount = SystemClipboard.write(paths: nodes.map(\.id),
+                                                                             to: pasteboard)
     }
     
     public func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
@@ -257,10 +277,40 @@ public class FileActionHandler {
         }
     }
     
+    /// ⌘V — from whichever clipboard last had something put on it.
+    ///
+    /// **One rule, one clipboard, decided by `changeCount`** (`ClipboardSource.resolve`). While the
+    /// app still owns the pasteboard its own list wins, because that list carries `isCut` and is
+    /// therefore the only path that can move rather than copy. Once anything else has written, the
+    /// pasteboard is what a paste means — which is what a user who just pressed ⌘C in Finder
+    /// expects, and what a single-clipboard platform promises.
+    ///
+    /// A pasteboard holding something that is not files ends in `.none` and pastes nothing, rather
+    /// than falling back to a stale in-app list: copying text elsewhere and then pressing ⌘V here
+    /// must not write files nobody asked for.
     public func pasteClipboard(toPath destinationPath: String) {
-        let nodesToPaste = syncManager.clipboardNodes
-        guard !nodesToPaste.isEmpty else { return }
-        pasteItems(nodesToPaste, toPath: destinationPath, isCut: syncManager.clipboardIsCut)
+        switch ClipboardSource.current(pasteboard: pasteboard,
+                                       hasInAppItems: !syncManager.clipboardNodes.isEmpty,
+                                       ownChangeCount: syncManager.clipboardPasteboardChangeCount) {
+        case .inApp:
+            pasteItems(syncManager.clipboardNodes, toPath: destinationPath,
+                       isCut: syncManager.clipboardIsCut)
+        case .system:
+            // Read again rather than reusing the probe above: `nodes` drops URLs whose file is no
+            // longer there, so this is the list that will actually be written, not the one that
+            // decided which clipboard to use.
+            let nodes = SystemClipboard.nodes(from: pasteboard)
+            guard !nodes.isEmpty else {
+                Logger.shared.warning("Paste: the pasteboard's files are no longer on disk")
+                return
+            }
+            Logger.shared.info("User pasted \(nodes.count) item(s) from another app")
+            // Never a move: the pasteboard carries no cut flag, so the only safe reading of
+            // somebody else's copy is a copy.
+            pasteItems(nodes, toPath: destinationPath, isCut: false)
+        case .none:
+            Logger.shared.info("Paste: nothing on either clipboard to paste")
+        }
     }
 
     // Internal (not private) so its escaping order can be unit-tested; only used by openGetInfo.

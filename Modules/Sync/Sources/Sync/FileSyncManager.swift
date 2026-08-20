@@ -1526,6 +1526,18 @@ public class FileSyncManager: ObservableObject {
     
     @Published public var clipboardNodes: [FileNode] = []
     @Published public var clipboardIsCut: Bool = false
+    /// `NSPasteboard.general.changeCount` as it stood after the app's own last ⌘C/⌘X, or nil if it
+    /// has not written one this launch.
+    ///
+    /// The token that keeps two clipboards behaving as one: while this still equals the live count,
+    /// SyncCloud owns what is on the pasteboard and `clipboardNodes` — which carries `isCut`, and
+    /// so is the only path that can move rather than copy — is what a paste means. The moment
+    /// anything else writes, the count moves and the pasteboard becomes the answer. See
+    /// `ClipboardSource.resolve`.
+    ///
+    /// Held here rather than in `FileActionHandler` because it is part of the clipboard's state,
+    /// and the two lines above are already here.
+    @Published public var clipboardPasteboardChangeCount: Int? = nil
     
     /// Global UndoManager injected from SwiftUI environment. Re-wires the did-undo/did-redo
     /// observers that keep the "Undo Last Run" pairing honest (see `invalidateRunUndoPairing`).

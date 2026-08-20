@@ -306,9 +306,15 @@ struct PaneActionDelegate: FileActionDelegate {
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
         syncManager.isNodeIgnored(node, currentPath: currentPath)
     }
-    /// "Paste here" enablement: the app's internal clipboard is `syncManager.clipboardNodes`
-    /// (the pasteboard is not involved), so an empty list means paste would be a no-op.
+    /// "Paste here" enablement — **both clipboards since v4.2**, resolved by the one rule the paste
+    /// itself uses so the offer and the act cannot disagree.
+    ///
+    /// It used to read `clipboardNodes` alone, with a comment saying "the pasteboard is not
+    /// involved". It is now: files copied in Finder are pastable here, and this is where the row
+    /// menu decides whether to say so.
     var clipboardHasItems: Bool {
-        !syncManager.clipboardNodes.isEmpty
+        ClipboardSource.current(pasteboard: handler?.pasteboard ?? .general,
+                                hasInAppItems: !syncManager.clipboardNodes.isEmpty,
+                                ownChangeCount: syncManager.clipboardPasteboardChangeCount) != .none
     }
 }

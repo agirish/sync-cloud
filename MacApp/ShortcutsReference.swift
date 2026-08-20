@@ -63,7 +63,7 @@ enum ShortcutsReference {
             Item(keys: "⌘ A", action: "Select everything in the focused pane's current folder"),
             // No ⌘ on this one, and that is the point: it is a pane key, not a menu chord.
             Item(keys: "↩", action: "Rename the selected file or folder"),
-            Item(keys: "⌘ C / ⌘ X / ⌘ V", action: "Copy or cut files, then paste — cut then paste is a move"),
+            Item(keys: "⌘ C / ⌘ X / ⌘ V", action: "Copy or cut files, then paste — also to and from Finder"),
             Item(keys: "Esc", action: "Close the Settings overlay"),
         ]),
         Group(title: "Panes", items: [
