@@ -90,7 +90,7 @@ extension ContentView {
         // stopped answering arrow keys and type-select until it was clicked. It could not happen
         // before §7, when the field lived in the palette's own panel and never touched this
         // window's responder.
-        let caretWasWith = host.firstResponder
+        let caretWasWith = Self.caretHolder(in: host)
         let index = paletteIndex
         let state = CommandPaletteState(index: index)
         // The field is what the user types into now, so it opens first and the list follows it.
@@ -184,10 +184,14 @@ extension ContentView {
             // root so an unreachable mount costs one stalled `stat` rather than a dozen.
             recentFolders: remembered.recents,
             pinnedFolders: remembered.pinned,
-            // Nil while the root answers. When it does not, every remembered folder is listed
-            // marked with this rather than dropped — decided 2026-08-19; the wording is the one
-            // an unmounted provider already uses, so the two read as the same kind of fact.
-            rememberedUnavailable: remembered.rootIsAvailable ? nil : "Not available",
+            // Nil while the root answers. When it does not, every folder row is listed marked with
+            // this rather than dropped — decided 2026-08-19; the wording is the one an unmounted
+            // provider already uses, so the two read as the same kind of fact. **Every folder row,
+            // not just the remembered ones**: the survey's folders are held in memory and answer a
+            // typed query whether or not the disk is awake, so marking only the landing said "this
+            // drive is not there" and then offered the same tree as live the moment anything was
+            // typed.
+            foldersUnavailable: remembered.rootIsAvailable ? nil : "Not available",
             people: syncManager.filingPersonRegistry?.people ?? [],
             registry: syncManager.filingPersonRegistry,
             isScanning: isScanning || syncManager.isSuggestingFiles,
@@ -250,8 +254,6 @@ extension ContentView {
         if aimedAtRight { rightProviderId = id } else { leftProviderId = id }
     }
 
-    /// Whether a source's folder is there right now. Expanded first, and required to be a
-    /// directory — the app's own validity rule (`SettingsManager`), asked the same way.
     /// The store's rule, wired to the real disk. Separate from `FolderJumpStore.reachable` so the
     /// rule stays testable without one, and `static` for the reason `isMountedFolder` is.
     static func reachableFolders(recents: [String], pinned: [String],
@@ -290,6 +292,25 @@ extension ContentView {
             return view
         }
         return nil
+    }
+
+    /// **Who to hand the caret back to**, resolved from whoever is holding it at ⌘K time.
+    ///
+    /// Not `host.firstResponder` itself, and that is the whole point: **a window has ONE field
+    /// editor**, shared by every `NSTextField` in it, so while the user is typing in a pane's Find
+    /// field the first responder is that `NSTextView` rather than the field. Remembering the editor
+    /// remembers nothing — by the time ⌘K closes, the very same object has been re-bound to the
+    /// Go-to field, so `makeFirstResponder` on it puts the caret where it already is and the pane's
+    /// field never gets it back. The editor's `delegate` is the control being edited, which is the
+    /// thing that survives the handover.
+    ///
+    /// A responder that is not a field editor is already the thing to restore — a file pane's
+    /// table, which is the case this was written for — and is returned unchanged.
+    static func caretHolder(in host: NSWindow) -> NSResponder? {
+        guard let editor = host.firstResponder as? NSTextView, editor.isFieldEditor else {
+            return host.firstResponder
+        }
+        return editor.delegate as? NSResponder ?? editor
     }
 
     /// Puts the caret back where ⌘K found it, if ⌘K is still holding it.
@@ -331,6 +352,9 @@ extension ContentView {
         return view.subviews.contains(where: containsEditableField)
     }
 
+    /// Whether a source's folder is there right now. Expanded first, and required to be a
+    /// directory — the app's own validity rule (`SettingsManager`), asked the same way. (This doc
+    /// spent two commits attached to `reachableFolders` above, which is not what it describes.)
     static func isMountedFolder(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
         let expanded = (path as NSString).expandingTildeInPath

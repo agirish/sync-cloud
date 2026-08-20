@@ -170,7 +170,17 @@ final class CommandPalettePanelController: ObservableObject {
             guard retriesLeft > 0 else {
                 // Said out loud: a palette with no anchor is a palette with nowhere to be, and it
                 // has no other trace.
-                Logger.shared.warning("[palette] the Go to field never appeared — the list has nothing to hang from")
+                Logger.shared.warning("[palette] the Go to field is not in the window — closing the palette, "
+                    + "because there is nothing left to type into")
+                // **Closed, not left up.** Two states reach here and neither is survivable. The
+                // field never mounted, which used to leave an invisible inert panel that only a
+                // click or esc could clear — and the toolbar item still open with no list under
+                // it. Or the field went away while the palette was up: macOS folds a toolbar item
+                // behind the overflow chevron when the window is dragged narrow, `anchor` starts
+                // answering nil, and the panel stays exactly where it was last placed — a list
+                // hanging under nothing, following a field that is no longer on the row. The
+                // palette is the field plus its list; without the field there is no palette.
+                dismiss()
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.anchorRetryInterval) { [weak self] in
@@ -184,17 +194,41 @@ final class CommandPalettePanelController: ObservableObject {
     }
 
     /// The height the list reported for itself. Arrives from SwiftUI, on its own schedule.
+    ///
+    /// **Ignored until the width is real.** `listWidth` is zero until the anchor lands, and the
+    /// list is laid out at that width in the meantime — so the first height to arrive is the height
+    /// of a zero-wide list, and taking it would place the panel at a height measured for something
+    /// nobody is going to see. The report is dropped rather than the callback suppressed: a
+    /// suppressed `onGeometryChange` that then measures the same number at the real width never
+    /// fires again, and the palette would open with no list at all.
     private func noteContentHeight(_ height: CGFloat) {
-        guard height > 0, height != contentHeight else { return }
+        guard let state, state.listWidth > 0, height > 0, height != contentHeight else { return }
         contentHeight = height
         place()
     }
 
     /// Puts the panel under the field, exactly as tall as its content.
     ///
-    /// Clamped to the host's own bottom edge so a long list in a short window is cut off by the
-    /// window rather than hanging past it — the palette is part of that window, not a thing beside
-    /// it. **The panel ignores the mouse until it has been placed**: an unplaced panel is a
+    /// Clamped to the host's own bottom edge rather than hanging past it — the palette is part of
+    /// that window, not a thing beside it.
+    ///
+    /// **What the clamp does when it bites is ugly, and the reason it is left alone is that it
+    /// cannot.** A panel shorter than its content does not crop the bottom of the list: measured
+    /// 2026-08-19 with a colour ladder, `NSHostingView` **centres** a root view whose ideal height
+    /// exceeds its bounds, so the first rows go as well as the last — and none of `.frame(maxHeight:
+    /// .infinity, alignment: .top)`, a trailing `Spacer`, a top-aligned `ZStack` or `.clipped()`
+    /// moves it, because the placement is AppKit's and not SwiftUI's.
+    ///
+    /// It is unreachable in the shipped app **by 97pt, measured**. The field is a toolbar item, so
+    /// its bottom edge is never below the content's top edge — which puts the room under it at no
+    /// less than the window's content floor, 560pt (`ContentView.frame(minHeight:)`), without
+    /// needing to know how tall the toolbar band is. A full list measures 463pt (`listMaxHeight`
+    /// 420, plus the divider and the ↑↓ ↩ esc footer) and wants 6pt of gap above it.
+    /// `theWholeListFitsTheShortestWindowThisAppAllows` holds that sum against the floor read out
+    /// of `ContentView`'s own source: raise `listMaxHeight` to 600 and it fails naming 643 against
+    /// 560, which is the mutation it was written against.
+    ///
+    /// **The panel ignores the mouse until it has been placed**: an unplaced panel is a
     /// transparent rectangle sitting somewhere arbitrary, and one of those over the app eats clicks
     /// exactly the way the scrim used to.
     private func place() {
@@ -323,12 +357,12 @@ final class CommandPalettePanelController: ObservableObject {
             + "frame=\(panel.frame) "
             + "host children=\((host.childWindows ?? []).map { String(describing: type(of: $0)) })")
 
-        // **Resigning key covers a left-click in another window, and another app.** Not clicks over
-        // the host's own frame — the panel spans that frame and hit-tests, so those land on the
-        // panel, move no key, and fall to the scrim's own tap. And not a right- or middle-click
-        // anywhere, which changes no key window at all; the mouse monitor below is the only thing
-        // that covers those. See `clickDismissesThePalette` for the whole boundary and for which
-        // parts of it are still unverified.
+        // **Resigning key covers a left-click in another window, and another app.** It does not
+        // cover a click over the host itself — the host is *already* key, so clicking its content
+        // moves no key at all — and it does not cover a right- or middle-click anywhere. The mouse
+        // monitor below is the only thing that reaches those, which since `963faf4b` includes every
+        // click over the app's own panes. See `clickDismissesThePalette` for the whole boundary and
+        // for which parts of it are still unverified.
         //
         // **Observed on the HOST now, not on the panel.** The panel cannot become key any more, so
         // it can never resign it either: an observer on the panel would be a dismissal path that
@@ -360,17 +394,21 @@ final class CommandPalettePanelController: ObservableObject {
                     }
                 })
         }
-        // Clicks in another of this app's windows, dismissing before the event is dispatched rather
-        // than after key has moved. **Not deletable as a duplicate of the resign observer: a right-
-        // or middle-click moves no key, so for two of these three masks this is the only dismissal
-        // path.** What it can and cannot reach — and what about that is still unverified — is
-        // written out on `clickDismissesThePalette`.
+        // Clicks away, dismissing before the event is dispatched rather than after key has moved.
+        // **Since `963faf4b` this is the whole of click-away over the app itself**, not just the
+        // other-window case: the panel no longer covers the host, so a click on a pane is a click
+        // on a window that is already key and nothing else would notice it. It was never deletable
+        // as a duplicate of the resign observer either — a right- or middle-click moves no key, so
+        // for two of these three masks this is the only dismissal path. What it can and cannot
+        // reach — including the Go-to field, which it must NOT dismiss on — is written out on
+        // `clickDismissesThePalette`.
         addMonitor(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            // Compared against `self.panel`, not a captured one: the capture would name the panel
-            // from *this* presentation, and a monitor outliving its presentation would then measure
-            // a click against a window that is no longer on screen.
-            guard let self, let panel = self.panel,
-                  Self.clickDismissesThePalette(clickedWindow: event.window, palette: panel)
+            // Asked of `self`, not of a captured panel and rect: both are per-presentation, and a
+            // monitor outliving its presentation would otherwise measure a click against a window
+            // that is no longer on screen and a field that has since moved.
+            guard let self,
+                  self.clickDismissesThePalette(clickedWindow: event.window,
+                                                at: Self.screenPoint(of: event))
             else { return event }
             // The event is RETURNED, never swallowed: the click that dismisses the palette is also
             // the click the user meant for whatever is under it, and eating it would trade one
@@ -409,40 +447,52 @@ final class CommandPalettePanelController: ObservableObject {
         eventMonitors.append(monitor)
     }
 
+    /// The click rule, asked of the live presentation — **the one call the monitor makes**, so the
+    /// rule the tests pin and the rule the app runs cannot come apart.
+    func clickDismissesThePalette(clickedWindow: NSWindow?, at screenPoint: CGPoint?) -> Bool {
+        guard let panel else { return false }
+        return Self.clickDismissesThePalette(clickedWindow: clickedWindow, palette: panel,
+                                             at: screenPoint, field: fieldRect)
+    }
+
+    /// Where a mouse event happened, in screen coordinates — the space `fieldRect` is in.
+    ///
+    /// An event with no window of this app's is one this app cannot convert, and
+    /// `NSEvent.mouseLocation` is where the pointer is at the moment the monitor runs, which for a
+    /// mouse-down is the same point.
+    static func screenPoint(of event: NSEvent) -> CGPoint {
+        guard let window = event.window else { return NSEvent.mouseLocation }
+        return window.convertPoint(toScreen: event.locationInWindow)
+    }
+
     /// Whether a mouse-down **outside the palette** should dismiss it.
     ///
-    /// **This is a rule about which WINDOW was clicked — not about layering, and not about key
-    /// state.** A click *on* the palette is left alone, because the card has to keep working and
-    /// the scrim's own tap already owns the dimmed area.
+    /// **Two things are the palette, and it took a regression to learn the second.** The panel is
+    /// one; the toolbar's Go-to field is the other, and it lives in the HOST window. While the
+    /// panel was sized to the host's whole frame, every click over the app — the field included —
+    /// was attributed to the panel and this rule answered `false` for all of it. `963faf4b` sized
+    /// the panel to its list, which is what stopped the palette eating clicks meant for the panes,
+    /// and in the same move made a click on the field a click on *the host*: `clickedWindow !==
+    /// palette` was suddenly true for the control the user was typing into, so touching the field
+    /// to move the caret — or pressing its own clear button — closed the palette and wiped the
+    /// query. The clear button could not be used at all.
     ///
-    /// ## What this does NOT cover, and the correction that matters
+    /// So the rule is about the palette's SURFACE, not about one window: the panel by identity,
+    /// and the field by the rect the panel is already anchored to. `field` is the whole toolbar
+    /// item — magnifier, text and keycap — because that is what the anchor measures and what a
+    /// person aims at.
     ///
-    /// **The title-bar bug this rule was written for is almost certainly not fixed by this rule, and
-    /// reading it that way is how a fifth attempt at click-away gets started.** The panel is sized
-    /// to the host's whole `frame` (nine lines above the monitor) and its scrim is a filled,
-    /// hit-testing `Rectangle`, so every click over the host — title band and toolbar band included
-    /// — should be attributed to *this panel*, making `clickedWindow === palette` and leaving the
-    /// monitor to return the event untouched.
+    /// ## What this does NOT cover
     ///
-    /// **INFERRED, not observed, and the distinction is the whole lesson of this file.** What
-    /// supports it: the panel's frame is the host's, and `399d0c04` fixed a *title-bar* symptom by
-    /// reordering `.contentShape` on a SwiftUI view **inside this panel**, which can only work if
-    /// the click landed on the panel. What would settle it: log `event.window` in the monitor for
-    /// one session and click the title bar. **That has never been done, and `event.window` has
-    /// never been logged.** Do it before building anything else on this paragraph.
-    ///
-    /// What actually restored dismissal above the card was that same `.contentShape` sitting
-    /// outside its top padding, so a 620×96pt block swallowed the clicks; the strip is the scrim's
-    /// again.
-    ///
-    /// So the reachable job of this rule is narrower than "anything outside": it is **another
-    /// window of this app** — Keyboard Shortcuts, Activity Log and Sync History are real `Window`
-    /// scenes (Settings and Help are in-window overlays and are *under* the panel, not other
-    /// windows), plus an open/save panel.
+    /// The reachable job of the rest of it is **another window of this app** — Keyboard Shortcuts,
+    /// Activity Log and Sync History are real `Window` scenes (Settings and Help are in-window
+    /// overlays and are *under* the panel, not other windows), plus an open/save panel — and,
+    /// since `963faf4b`, the host's own content, title band and toolbar: those now land on the
+    /// host and dismiss, **returning the event**, which is the click-away the user means.
     ///
     /// **Probably not redundant with the resign-key observer, and the difference is the mask.** A
-    /// left-click in one of those windows makes it key, so the observer would have covered it and
-    /// this monitor merely gets there first — synchronously during dispatch, where the observer is
+    /// left-click in another window makes it key, so the observer would have covered it and this
+    /// monitor merely gets there first — synchronously during dispatch, where the observer is
     /// registered `queue: .main` and lands a turn later. A **right- or middle-click is believed not
     /// to change the key window**, which would make this monitor the only thing that dismisses for
     /// two of its three masks.
@@ -458,10 +508,15 @@ final class CommandPalettePanelController: ObservableObject {
     /// window dragging". What follows for the palette — that it stays up over a pulled-down menu —
     /// is inferred from it and has not been observed here.
     ///
-    /// `nil` is a click this app cannot attribute to a window of its own; treating it as outside is
-    /// the safe direction, since the alternative is a palette that survives a click it cannot see.
-    static func clickDismissesThePalette(clickedWindow: NSWindow?, palette: NSWindow) -> Bool {
-        clickedWindow !== palette
+    /// `nil` for the window is a click this app cannot attribute to a window of its own; treating
+    /// it as outside is the safe direction, since the alternative is a palette that survives a
+    /// click it cannot see. A `nil` `field` is a palette whose anchor has not landed yet, which is
+    /// the same direction: nothing to spare.
+    static func clickDismissesThePalette(clickedWindow: NSWindow?, palette: NSWindow,
+                                         at screenPoint: CGPoint?, field: CGRect?) -> Bool {
+        if clickedWindow === palette { return false }
+        if let screenPoint, let field, field.contains(screenPoint) { return false }
+        return true
     }
 
     /// Idempotent, because six different things call it and two of them can race — esc arriving

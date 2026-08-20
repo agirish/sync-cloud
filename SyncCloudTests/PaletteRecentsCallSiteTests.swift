@@ -37,7 +37,7 @@ import Dashboard
         #expect(host.contains("recentFolders: remembered.recents"))
         #expect(host.contains("pinnedFolders: remembered.pinned"))
         // The asleep-root half: resolving is not enough if the answer is thrown away.
-        #expect(host.contains("rememberedUnavailable: remembered.rootIsAvailable ? nil : \"Not available\""),
+        #expect(host.contains("foldersUnavailable: remembered.rootIsAvailable ? nil : \"Not available\""),
                 "an asleep root drops every recent and every pin silently — \u{2318}K opens blank with nothing saying why")
     }
 

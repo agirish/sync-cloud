@@ -201,21 +201,9 @@ public final class FolderJumpStore: ObservableObject {
     ///
     /// `isDirectory` is injected so the rule is testable without a disk, and `nonisolated` so a
     /// caller off the main actor could use it.
-    public nonisolated static func reachable(_ relatives: [String], underRoot root: String,
-                                      isDirectory: (String) -> Bool) -> [String] {
-        let resolved = reachable(recents: relatives, pinned: [], underRoot: root,
-                                 isDirectory: isDirectory)
-        // A root that did not answer yields nothing *through this signature*, which is the
-        // per-folder question: "is this one still there" cannot be answered under a sleeping root,
-        // and guessing yes would offer a destination that cannot be delivered. The caller that
-        // wants to SAY the root is asleep asks the two-list form below instead.
-        return resolved.rootIsAvailable ? resolved.recents : []
-    }
-
-    /// Both remembered lists, resolved in one pass — **and whether the root answered at all.**
     ///
-    /// The distinction is the point. A folder that has gone under a live root should not be
-    /// offered; a root that is merely asleep takes out **every** recent and **every** pin at once,
+    /// **Both lists and the root's own verdict, in one pass.** The distinction is the point: a
+    /// folder that has gone under a live root should not be offered; a root that is merely asleep takes out **every** recent and **every** pin at once,
     /// and the ⌘K landing *is* that list, so hiding them turns "my drive is not awake" into a
     /// palette that opens blank. Those are different claims and this answers both: the lists come
     /// back unchecked with `rootIsAvailable == false`, for the caller to mark unavailable rather
@@ -224,6 +212,12 @@ public final class FolderJumpStore: ObservableObject {
     ///
     /// One pass so the root is `stat`ed **once** for both lists — under an unreachable network
     /// mount every one of those can block.
+    ///
+    /// (There was a single-list form of this until 2026-08-19, answering a bare `[String]`. It
+    /// yielded `[]` for a root that did not respond — the right answer to "is this one folder still
+    /// there" and the wrong one to what ⌘K asks — and once the palette moved to this signature it
+    /// had no caller left, kept alive only by four tests of its own. Deleted rather than left
+    /// standing as a second way to ask one question.)
     public nonisolated static func reachable(recents: [String], pinned: [String],
                                              underRoot root: String,
                                              isDirectory: (String) -> Bool) -> RememberedFolders {

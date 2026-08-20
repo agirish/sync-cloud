@@ -198,14 +198,19 @@ public struct PaletteIndex: Equatable, Sendable {
     /// folder you pinned months ago would be the wrong one.
     public var pinnedFolders: [String]
 
-    /// Why none of the remembered folders can be reached right now, or nil.
+    /// Why no folder under this source can be reached right now, or nil.
     ///
     /// Set when the provider **root** did not answer — an external drive asleep, a network mount
-    /// down. That takes out every recent and every pin at once, and this landing IS that list, so
-    /// dropping them silently makes ⌘K open blank and "I have no recents" indistinguishable from
-    /// "my drive is not awake". The rows are kept and marked instead, which is what this palette
-    /// already does for an unmounted source.
-    public var rememberedUnavailable: String?
+    /// down. That takes out every recent and every pin at once, and the empty-query landing IS that
+    /// list, so dropping them silently makes ⌘K open blank and "I have no recents"
+    /// indistinguishable from "my drive is not awake". The rows are kept and marked instead, which
+    /// is what this palette already does for an unmounted source.
+    ///
+    /// **It marks every folder row, not only the remembered ones.** `folders` comes from the survey
+    /// profile held in memory, which answers a typed query whether or not the disk is awake — so
+    /// scoping this to recents and pins meant ⌘K opened saying "Not available" and then, the moment
+    /// anything was typed, offered the same tree as live destinations. One root, one answer.
+    public var foldersUnavailable: String?
     public var people: [Person]
     /// The registry, when there is one. Person routing is phrase-first and longest-wins; the
     /// palette must not hand-roll a second matcher (see ``PaletteRouter/personRow(for:index:)``).
@@ -218,7 +223,7 @@ public struct PaletteIndex: Equatable, Sendable {
 
     public init(providers: [PaletteProvider] = [], providerRoot: String? = nil,
                 folders: [String] = [], recentFolders: [String] = [],
-                pinnedFolders: [String] = [], rememberedUnavailable: String? = nil,
+                pinnedFolders: [String] = [], foldersUnavailable: String? = nil,
                 people: [Person] = [],
                 registry: PersonRegistry? = nil, isScanning: Bool = false,
                 hasSurvey: Bool = false) {
@@ -227,7 +232,7 @@ public struct PaletteIndex: Equatable, Sendable {
         self.folders = folders
         self.recentFolders = recentFolders
         self.pinnedFolders = pinnedFolders
-        self.rememberedUnavailable = rememberedUnavailable
+        self.foldersUnavailable = foldersUnavailable
         self.people = people
         self.registry = registry
         self.isScanning = isScanning
@@ -609,6 +614,11 @@ public enum PaletteRouter {
                        title: leaf(folder.path), detail: folder.path,
                        symbol: "folder",
                        route: .folder(path: (root as NSString).appendingPathComponent(folder.path)),
+                       // **The same mark the landing carries, for the same root.** These come from
+                       // the survey profile in memory, so they answer a query perfectly well with
+                       // the drive asleep — and offering them as live while the empty-query landing
+                       // says "Not available" is one surface making two claims about one disk.
+                       unavailable: index.foldersUnavailable,
                        score: folder.score)
         }
     }
@@ -674,9 +684,9 @@ public enum PaletteRouter {
                     detail: "\(entry.1) · \(entry.0)", symbol: entry.2,
                     route: .folder(path: (root as NSString).appendingPathComponent(entry.0)),
                     // Kept and marked rather than dropped when the root is asleep — see
-                    // `rememberedUnavailable`. ↑↓ skip these and ↩ refuses them, so a row that
+                    // `foldersUnavailable`. ↑↓ skip these and ↩ refuses them, so a row that
                     // cannot deliver is never run.
-                    unavailable: index.rememberedUnavailable,
+                    unavailable: index.foldersUnavailable,
                     score: 1_000 - offset))
             }
         }

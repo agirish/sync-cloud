@@ -266,9 +266,10 @@ import Foundation
 
     @Test func reachableKeepsWhatIsThereAndDropsWhatIsGone() {
         let present: Set<String> = ["/root", "/root/Legal", "/root/Legal/2026"]
-        let kept = FolderJumpStore.reachable(["Legal", "Gone", "Legal/2026"],
+        let kept = FolderJumpStore.reachable(recents: ["Legal", "Gone", "Legal/2026"], pinned: [],
                                              underRoot: "/root") { present.contains($0) }
-        #expect(kept == ["Legal", "Legal/2026"], "order is the list's order, and a gone folder is absent")
+        #expect(kept.recents == ["Legal", "Legal/2026"],
+                "order is the list's order, and a gone folder is absent")
     }
 
     /// The root is checked first so an unreachable mount costs ONE stalled `stat`, not one per
@@ -276,11 +277,12 @@ import Foundation
     /// each child answering false.
     @Test func reachableStopsAtAMissingRootAfterASingleCheck() {
         var asked: [String] = []
-        let kept = FolderJumpStore.reachable(["A", "B", "C", "D"], underRoot: "/asleep") { path in
+        let kept = FolderJumpStore.reachable(recents: ["A", "B", "C", "D"], pinned: [],
+                                             underRoot: "/asleep") { path in
             asked.append(path)
             return false
         }
-        #expect(kept.isEmpty)
+        #expect(kept.rootIsAvailable == false)
         #expect(asked == ["/asleep"], "every remembered folder was stat'ed under a root already known to be gone")
     }
 
@@ -291,8 +293,9 @@ import Foundation
         let store = FolderJumpStore(defaults: defaults)
         store.recordVisit(root: "/asleep", relativePath: "Legal", name: "Legal")
 
-        #expect(FolderJumpStore.reachable(store.recentPaths(forRoot: "/asleep"),
-                                          underRoot: "/asleep") { _ in false }.isEmpty)
+        let drawn = FolderJumpStore.reachable(recents: store.recentPaths(forRoot: "/asleep"), pinned: [],
+                                              underRoot: "/asleep") { _ in false }
+        #expect(drawn.rootIsAvailable == false, "the fixture's root answered — nothing here is exercised")
         #expect(store.recentPaths(forRoot: "/asleep") == ["Legal"], "drawing the list pruned the store")
         #expect(FolderJumpStore(defaults: defaults).recentPaths(forRoot: "/asleep") == ["Legal"],
                 "the entry did not survive to the next launch — a sleeping drive cost the user their recents")
@@ -355,7 +358,8 @@ import Foundation
     /// The root itself is never a row (`emptyQueryRows` skips "" and "."), and neither is it a
     /// path to `stat` — a `"."` under a live root exists, so without this it would be offered.
     @Test func reachableRefusesTheRootsOwnSpellings() {
-        let kept = FolderJumpStore.reachable(["", ".", "Legal"], underRoot: "/root") { _ in true }
-        #expect(kept == ["Legal"])
+        let kept = FolderJumpStore.reachable(recents: ["", ".", "Legal"], pinned: [],
+                                             underRoot: "/root") { _ in true }
+        #expect(kept.recents == ["Legal"])
     }
 }

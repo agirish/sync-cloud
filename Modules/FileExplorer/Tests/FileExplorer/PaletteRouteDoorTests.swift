@@ -113,11 +113,13 @@ import Design
 
     /// **Two folders with the same leaf must not render as the same row — at either width.**
     ///
-    /// `Clients/Legal` and `Archive/Legal` are both titled "Legal"; only the detail line
-    /// ("Recent · Clients/Legal" against "Pinned · Archive/Legal") tells them apart. At the 620pt
-    /// ceiling there is room for it. At the **320pt floor** there may not be, and if the detail is
-    /// dropped or truncated to a common prefix the two rows become one visible destination with the
-    /// other silently unreachable — the exact removal the card's deletion put at risk.
+    /// The fixture's two folders are both titled "Legal"; only the detail line — the same
+    /// "Recent · " prefix over two paths that share a long head and their leaf, and differ in the
+    /// middle — tells them apart. At the 620pt ceiling there is room for it. At the **320pt floor**
+    /// there may not be, and if the detail is dropped or middle-truncated down to that common head
+    /// the two rows become one visible destination with the other silently unreachable — the exact
+    /// removal the card's deletion put at risk. (`PaletteRouteDoorTests.index` carries why both are
+    /// recents and why the paths are long; two short ones could not fail.)
     ///
     /// Rendered and compared pixel-for-pixel rather than measured: this codebase's own record is
     /// that geometry and ink counts cannot see "omitted" versus "truncated".

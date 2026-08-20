@@ -60,7 +60,7 @@ import Foundation
             providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
             providerRoot: Self.root, folders: [],
             recentFolders: ["Legal", "Finance/US"], pinnedFolders: ["Archive/2019/Legal"],
-            rememberedUnavailable: "Not available",
+            foldersUnavailable: "Not available",
             people: [], registry: nil, isScanning: false, hasSurvey: true)
         let rows = PaletteRouter.rows(query: "", index: index)
         let folders = rows.filter { $0.group == .folders }
@@ -77,6 +77,47 @@ import Foundation
         #expect(rows[opening].group != .folders)
     }
 
+    /// **The typed query is the same disk**, and it was answering differently.
+    ///
+    /// `folders` comes from the survey profile held in memory, so it matches a query with the drive
+    /// asleep exactly as it does awake. Until 2026-08-19 only the empty-query landing carried the
+    /// mark: ⌘K opened saying "Not available" against every remembered folder, and typing one
+    /// letter replaced them with the same tree offered as live destinations — ↩ then revealed a
+    /// path that is not there. One root, one answer.
+    @Test func aTypedQueryUnderAnAsleepRootMarksItsFoldersToo() {
+        let index = PaletteIndex(
+            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
+            providerRoot: Self.root, folders: ["Legal", "Archive/2019/Legal"],
+            recentFolders: [], pinnedFolders: [],
+            foldersUnavailable: "Not available",
+            people: [], registry: nil, isScanning: false, hasSurvey: true)
+        let rows = PaletteRouter.rows(query: "legal", index: index)
+        let folders = rows.filter { $0.group == .folders }
+
+        #expect(folders.count == 2, "the fixture matched no folders — it cannot detect the mark going missing")
+        #expect(folders.allSatisfy { $0.unavailable == "Not available" },
+                "a typed query offers folders on a sleeping drive as live destinations while the landing says they are not there")
+        // And ↩ must refuse them, which is what the mark buys beyond the wording.
+        for (offset, row) in rows.enumerated() where row.group == .folders {
+            #expect(PaletteSelection.chosen(at: offset, in: rows) == nil,
+                    "↩ on \(row.title) still tries to reveal a path under a root that did not answer")
+        }
+    }
+
+    /// The awake half of the same query, so the assertion above is not just "unavailable is
+    /// whatever we passed".
+    @Test func aTypedQueryUnderAWakeRootStillOffersItsFolders() {
+        let index = PaletteIndex(
+            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
+            providerRoot: Self.root, folders: ["Legal", "Archive/2019/Legal"],
+            recentFolders: [], pinnedFolders: [],
+            foldersUnavailable: nil,
+            people: [], registry: nil, isScanning: false, hasSurvey: true)
+        let folders = PaletteRouter.rows(query: "legal", index: index).filter { $0.group == .folders }
+        #expect(folders.count == 2)
+        #expect(folders.allSatisfy { $0.isAvailable })
+    }
+
     /// The other side, so the assertion above is not just "unavailable is whatever we passed":
     /// with the root awake the very same folders are live rows.
     @Test func aWakeRootListsTheSameFoldersAsRunnable() {
@@ -84,7 +125,7 @@ import Foundation
             providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
             providerRoot: Self.root, folders: [],
             recentFolders: ["Legal", "Finance/US"], pinnedFolders: ["Archive/2019/Legal"],
-            rememberedUnavailable: nil,
+            foldersUnavailable: nil,
             people: [], registry: nil, isScanning: false, hasSurvey: true)
         let folders = PaletteRouter.rows(query: "", index: index).filter { $0.group == .folders }
         #expect(folders.count == 3)

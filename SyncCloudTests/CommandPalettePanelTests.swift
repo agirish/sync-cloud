@@ -19,10 +19,11 @@ import Sync
 ///   inside the window's own content, and not even those: the panes are `NSViewRepresentable`s, so
 ///   clicks landed in the `NSTableView` underneath (`[click] left pane selected 1 item(s)`, again
 ///   while the palette was open). Resigning key covers another of this app's windows, and another
-///   app. It does **not** cover clicks over the host itself: the panel spans the host's frame and
-///   its scrim hit-tests, so those land on the panel and never move key — the scrim's own tap
-///   dismisses them. `CommandPalettePanelController.clickDismissesThePalette` carries that boundary
-///   in full, and an earlier version of this comment had it wrong.
+///   app; it cannot cover a click over the host, which is already key. Since `963faf4b` the panel
+///   is only its list, so those clicks land on the host and the mouse monitor dismisses on them —
+///   **except over the Go-to field, which is the palette wearing the host's window.**
+///   `CommandPalettePanelController.clickDismissesThePalette` carries that boundary in full, and
+///   two earlier versions of this comment had it wrong.
 ///
 /// ## Where the boundary is, measured
 ///
@@ -236,28 +237,43 @@ import Sync
                      people: [], registry: nil, isScanning: false, hasSurvey: false)
     }
 
+    /// A stand-in for the toolbar field's screen rect, **measured from the parked host** so the
+    /// list this anchors lands off every display too. Deliberately not centred and not square, so a
+    /// transposed placement cannot come out right by accident.
+    static func fieldRect(in host: NSWindow) -> CGRect {
+        CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80, width: 420, height: 28)
+    }
+
     /// Presents the palette over `host`, and witnesses any dismissal the test did not ask for.
     ///
     /// **There is no `orderOut` here any more, and that is the fix for mechanism 11** — `makeHost`
     /// carries the deduction. The pair stays out of sight because the host is parked past every
-    /// display and the panel is built at `host.frame`, not because it is taken back off the screen
-    /// list. Production still raises the panel with a `makeKeyAndOrderFront` of its own, and
-    /// **ordering a child window front orders its parent in too** — measured: a parent never ordered
+    /// display and every anchor this fixture hands out is measured from the parked host's frame,
+    /// not because either is taken back off the screen list. Production raises the panel with an
+    /// `orderFront` of its own, and **ordering a child window front orders its parent in too** — measured: a parent never ordered
     /// in reads `isVisible == false` right up until a borderless child of it is ordered front, and
     /// `true` immediately after. That measurement is why the old fixture needed an `orderOut` at
     /// all, and it is unchanged; what changed is that a window ordered in where nobody can see it
     /// costs nothing, while ordering the parent back out cost this suite its five tests.
     ///
+    /// **The default anchor is derived from the host, and it has to be.** It was a literal
+    /// `(100, 100, 400, 28)` — a rect on the user's actual display — and the panel is placed under
+    /// whatever the anchor says, so every async test using the default put a live, fully opaque
+    /// list over the desktop for its duration. `theHostAndItsPanelStayOutOfSight` could not catch
+    /// it: that test never awaits, and placement needs a runloop turn, so it always measured the
+    /// panel at its unplaced construction frame. Parking the host is only half of staying out of
+    /// sight once the panel stopped being a copy of the host's frame.
+    ///
     /// `onDismiss` is wrapped rather than passed straight through: it is the only seam from which an
     /// ambient teardown can be seen at all. See `DismissalWitness`.
     @discardableResult
     private func present(_ controller: CommandPalettePanelController, over host: NSWindow,
-                         anchor: @escaping () -> CGRect? = { CGRect(x: 100, y: 100, width: 400, height: 28) },
+                         anchor: (() -> CGRect?)? = nil,
                          onRun: @escaping (PaletteRoute) -> Void = { _ in },
                          onDismiss: @escaping () -> Void = {}) -> CommandPaletteState {
         let state = CommandPaletteState(index: index)
         controller.present(over: host, state: state, accent: .blue, glassLevel: .frosted,
-                           anchor: anchor,
+                           anchor: anchor ?? { Self.fieldRect(in: host) },
                            onRun: onRun,
                            onDismiss: { [witness] in witness.record(); onDismiss() })
         return state
@@ -433,7 +449,7 @@ import Sync
         let host = makeHost()
         let controller = CommandPalettePanelController()
         // The field moves with the window, so the anchor is read live rather than captured.
-        var field = CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80, width: 420, height: 28)
+        var field = Self.fieldRect(in: host)
         present(controller, over: host, anchor: { field })
         await waitUntil("the panel was placed under the field") {
             host.childWindows?.first.map { $0.frame.minX == field.minX && $0.frame.width == field.width } ?? false
@@ -480,7 +496,7 @@ import Sync
         let host = makeHost()
         let controller = CommandPalettePanelController()
         defer { teardown(host, controller) }
-        let field = CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80, width: 420, height: 28)
+        let field = Self.fieldRect(in: host)
         present(controller, over: host, anchor: { field })
         await waitUntil("the panel was placed and sized to its content") {
             (host.childWindows?.first?.frame.width ?? 0) == field.width
@@ -503,13 +519,12 @@ import Sync
 
     /// **The rule for the half of click-away that is about another window.**
     ///
-    /// Not the title bar, and an earlier version of this comment claimed otherwise. The panel spans
-    /// the host's whole frame and its scrim hit-tests, so a click over the host — content, toolbar
-    /// band, title bar — is attributed to *the panel*, and this rule answers `false` for it; the
-    /// scrim's own tap is what dismisses there. What this rule reaches is another of this app's
-    /// windows: Keyboard Shortcuts, Activity Log, Sync History, an open panel. (Not "the host's
-    /// resize margin", which an earlier version of this listed — that is inside `host.frame` and so
-    /// is the panel by the same argument.) See
+    /// Two earlier versions of this comment described a panel spanning the host's whole frame, so
+    /// that a click anywhere over the app — content, toolbar band, title bar — was attributed to
+    /// *the panel* and this rule answered `false` for all of it. `963faf4b` retired that panel;
+    /// those clicks now land on the host and dismiss, returning the event, which is the click-away
+    /// the user means. What is left for this half is another of this app's windows: Keyboard
+    /// Shortcuts, Activity Log, Sync History, an open panel. See
     /// `CommandPalettePanelController.clickDismissesThePalette` for the whole boundary.
     ///
     /// No real window is ordered in for this: the rule is object identity, and three `NSWindow`s
@@ -527,10 +542,10 @@ import Sync
         // for why these are closed while the titled hosts are only ordered out.
         defer { panel.close(); other.close() }
         typealias C = CommandPalettePanelController
-        #expect(C.clickDismissesThePalette(clickedWindow: other, palette: panel),
+        #expect(C.clickDismissesThePalette(clickedWindow: other, palette: panel, at: nil, field: nil),
                 "a click in another of this app's windows left the palette up")
         // A click this app cannot attribute to a window of its own is outside by definition.
-        #expect(C.clickDismissesThePalette(clickedWindow: nil, palette: panel))
+        #expect(C.clickDismissesThePalette(clickedWindow: nil, palette: panel, at: nil, field: nil))
     }
 
     /// **The rule is only worth anything if the monitor still installs it.**
@@ -561,8 +576,10 @@ import Sync
                                                 in: source,
                                                 what: "the click monitor")
 
-        #expect(block.contains("Self.clickDismissesThePalette(clickedWindow: event.window, palette: panel)"),
+        #expect(block.contains("self.clickDismissesThePalette(clickedWindow: event.window,"),
                 "the click monitor no longer consults clickDismissesThePalette — the rule is extracted and unused")
+        #expect(block.contains("at: Self.screenPoint(of: event))"),
+                "the monitor asks the rule without a point — the Go to field stops being spared, so clicking it closes the palette")
         #expect(block.contains("self.dismiss()"), "the click monitor no longer dismisses")
 
         // The mask, read off the monitor's OWN call, never the file at large.
@@ -866,8 +883,55 @@ import Sync
         // Never ordered in; closed for the reason `theWindowClassCanBecomeKeyAtAll` gives.
         defer { panel.close() }
         #expect(!CommandPalettePanelController.clickDismissesThePalette(clickedWindow: panel,
-                                                                        palette: panel),
+                                                                        palette: panel,
+                                                                        at: nil, field: nil),
                 "clicking the palette dismissed it — its own field and rows would be unusable")
+    }
+
+    /// **A click on the Go-to field must not close the thing it is typing into.**
+    ///
+    /// This is the regression `963faf4b` introduced and this pass fixes. The palette's surface is
+    /// two objects — the panel, and the field in the HOST window's toolbar — and while the panel
+    /// was sized to the host's whole frame the rule never had to know that: every click over the
+    /// app was attributed to the panel. Sizing the panel to its list made a click on the field a
+    /// click on the host, so `clickedWindow !== palette` answered `true` for the control the user
+    /// was typing into: touching the field to move the caret, or pressing its own clear button,
+    /// dismissed the palette and wiped the query. The clear button could not be used at all.
+    ///
+    /// Asked through the live presentation, because the field's rect is per-presentation state that
+    /// exists only once the anchor has landed — a pure-rule test would pass whatever it liked in.
+    ///
+    /// **All three directions**, because sparing everything is as broken as sparing nothing: the
+    /// mutation that matters (drop the `field` clause) leaves the other two green.
+    @Test func aClickOnTheGoToFieldDoesNotCloseTheThingItIsTypingInto() async throws {
+        let host = makeHost()
+        let controller = CommandPalettePanelController()
+        defer { teardown(host, controller) }
+        let field = Self.fieldRect(in: host)
+        present(controller, over: host, anchor: { field })
+        await waitUntil("the panel was placed, so the field's rect is known") {
+            (host.childWindows?.first?.frame.width ?? 0) == field.width
+        }
+
+        #expect(!controller.clickDismissesThePalette(clickedWindow: host,
+                                                     at: CGPoint(x: field.midX, y: field.midY)),
+                "clicking the Go to field closes the palette and clears what was typed — its own clear button can never be used")
+        // The corner a user aims at when they mean "the pane, not the palette", which must still go.
+        #expect(controller.clickDismissesThePalette(clickedWindow: host,
+                                                    at: CGPoint(x: host.frame.minX + 30,
+                                                                y: host.frame.minY + 30)),
+                "a click in the pane no longer dismisses — click-away is gone")
+        // Just past the capsule's trailing edge: the spared area is the field, not the row.
+        #expect(controller.clickDismissesThePalette(clickedWindow: host,
+                                                    at: CGPoint(x: field.maxX + 4, y: field.midY)),
+                "the spared area is wider than the field — the controls beside it cannot be clicked")
+    }
+
+    /// The rule is inert once nothing is up: a monitor that outlived its presentation must not
+    /// answer for a panel that is gone.
+    @Test func theClickRuleAnswersNothingWithNoPaletteUp() {
+        let controller = CommandPalettePanelController()
+        #expect(!controller.clickDismissesThePalette(clickedWindow: nil, at: .zero))
     }
 
     // MARK: The state the panel owns
@@ -893,7 +957,7 @@ import Sync
         let host = makeHost()
         let controller = CommandPalettePanelController()
         defer { teardown(host, controller) }
-        let field = CGRect(x: host.frame.minX + 60, y: host.frame.maxY - 80, width: 420, height: 28)
+        let field = Self.fieldRect(in: host)
         present(controller, over: host, anchor: { field })
         await waitUntil("the panel was placed") { (host.childWindows?.first?.frame.width ?? 0) == field.width }
         let panel = try #require(host.childWindows?.first)
@@ -932,6 +996,38 @@ import Sync
         }
         #expect(state.listWidth != 0,
                 "every retry was spent inside one runloop turn — ⌘K opens an empty panel with no list")
+    }
+
+    /// **A field that goes away takes the palette with it.**
+    ///
+    /// macOS folds a toolbar item behind the overflow chevron when the window is dragged narrow,
+    /// and `goToFieldItemView` refuses a view that is not in the host — deliberately, because a
+    /// folded item answers `convert(_:to: nil)` in its own bounds and hands back a plausible-looking
+    /// rect at the window's corner. So the anchor starts answering nil while the palette is up, and
+    /// before this the panel simply stayed at its last frame: a list hanging under nothing, with the
+    /// field it belongs to no longer on the row. The other state that reaches here is the field
+    /// never mounting at all, which left an invisible inert panel and an open toolbar item with no
+    /// list beneath it.
+    ///
+    /// Bounded by the retry budget (~0.6s), so this asserts on a real wait rather than a poll that
+    /// could pass on a timeout.
+    @Test func aFieldThatGoesAwayTakesThePaletteWithIt() async {
+        let host = makeHost()
+        let controller = CommandPalettePanelController()
+        defer { teardown(host, controller) }
+        var field: CGRect? = Self.fieldRect(in: host)
+        var dismissed = false
+        present(controller, over: host, anchor: { field }, onDismiss: { dismissed = true })
+        await waitUntil("the panel was placed while the field was still there") {
+            (host.childWindows?.first?.frame.width ?? 0) == field?.width
+        }
+
+        // The item folds into the overflow menu.
+        field = nil
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: host)
+        await waitUntil("the palette gave up on the missing field and closed") { !controller.isPresented }
+        #expect(dismissed, "the palette closed without telling the host — the toolbar item stays open with no list under it")
+        #expect(host.childWindows?.isEmpty != false, "the list is still hanging under a field that has gone")
     }
 
     /// The whole of what the toolbar field can do to the list, which is everything the palette's

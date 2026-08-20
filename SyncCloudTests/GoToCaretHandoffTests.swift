@@ -110,6 +110,49 @@ import AppKit
         #expect(host.firstResponder === holding)
     }
 
+    // MARK: Who was holding it
+
+    /// **A window has ONE field editor, so remembering the first responder remembers nothing.**
+    ///
+    /// While the user types in a pane's Find field the window's first responder is the shared
+    /// `NSTextView`, not the field. ⌘K then re-binds that very same object to the Go-to field — so
+    /// a close that restores the remembered responder hands the caret to the object that already
+    /// has it, and the pane's field never gets it back. The same identity trap made the first
+    /// version of this whole suite vacuous; here it was in the shipped rule.
+    @Test func whatIsRememberedIsTheFieldBeingEditedAndNotTheSharedEditor() throws {
+        let host = window()
+        let paneField = NSTextField(string: "invoice")
+        let goTo = NSTextField(string: "")
+        for field in [paneField, goTo] {
+            field.isEditable = true
+            host.contentView?.addSubview(field)
+        }
+        #expect(host.makeFirstResponder(paneField))
+
+        let remembered = try #require(ContentView.caretHolder(in: host))
+        #expect(remembered === paneField,
+                "⌘K remembered the window's field editor rather than the field being typed into")
+
+        // ⌘K takes it, which re-binds the one editor to the Go-to field.
+        #expect(host.makeFirstResponder(goTo))
+        #expect(host.firstResponder !== paneField, "the fixture never moved the caret off the pane's field")
+
+        ContentView.restoreCaret(to: remembered, in: host, caretIsInField: true)
+        let editor = try #require(host.firstResponder as? NSTextView, "nothing is being edited after the restore")
+        #expect(editor.delegate === paneField,
+                "the caret went back to the shared editor rather than to the pane's field — the user's search field stays dead")
+    }
+
+    /// A responder that is not a field editor is already the thing to restore, and is returned
+    /// untouched. This is the case the fix was written for — a file pane's table.
+    @Test func aPlainResponderIsRememberedAsItself() throws {
+        let host = window()
+        let pane = focusable(host)
+        #expect(host.makeFirstResponder(pane))
+        #expect(ContentView.caretHolder(in: host) === pane,
+                "a pane holding the caret was resolved to something else")
+    }
+
     /// The two-argument form is what the close path calls, and it must route through the rule
     /// above rather than carrying a second copy of it — see `CommandPaletteHost.swift`.
     @Test func theClosePathCallsTheRuleRatherThanRepeatingIt() throws {
@@ -120,7 +163,7 @@ import AppKit
                                 "cannot read CommandPaletteHost.swift — the checks below would be vacuous")
         #expect(text.contains("Self.restoreCaret(to: caretWasWith, in: host)"),
                 "the palette's close path no longer hands the caret back — closing ⌘K will leave the window focusing nothing")
-        #expect(text.contains("let caretWasWith = host.firstResponder"),
+        #expect(text.contains("let caretWasWith = Self.caretHolder(in: host)"),
                 "nothing records who held the caret before the field opened, so there is nothing to restore to")
         #expect(text.contains("restoreCaret(to: previous, in: host, caretIsInField: caretIsInTheGoToField(host))"),
                 "the live path no longer asks the same rule the tests pin")
