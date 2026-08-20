@@ -140,8 +140,31 @@ public extension AppChord {
     /// routing every colliding chord here uses — so the chord can be registered where it can also
     /// be *read*. Before this it appeared in no menu and no ⌘/ row: four working verbs nobody
     /// could find.
+    /// **Four `static let`s and a resolver, not a constructor.** Built inline at first, which
+    /// broke the registry's own accounting: `everyDeclaredChordIsInTheRegistry` counts
+    /// `static let … = AppChord(` declarations in this file and requires the registry to hold
+    /// exactly that many, so four members that were registered without being *declared* left it
+    /// reading 27 against 31. The family is small and fixed, so declaring each member is both
+    /// possible and better than teaching the scan an exception — every member now gets its
+    /// display pinned by `everyChordRendersItsDocumentedDisplay` on the day it is declared,
+    /// which is the guarantee that exception would have quietly removed.
+    ///
+    /// (`workspace(_:)` stays a constructor because its membership is the workspace list's
+    /// length, which is not fixed and is documented as a range rather than as members.)
+    static let copyToLeft = AppChord(.leftArrow, .command)
+    static let copyToRight = AppChord(.rightArrow, .command)
+    static let moveToLeft = AppChord(.leftArrow, [.shift, .command])
+    static let moveToRight = AppChord(.rightArrow, [.shift, .command])
+
+    /// The member for a direction and a mode — one lookup, so the badge and the menu item cannot
+    /// pick different members of the same family.
     static func transfer(toRight: Bool, isMove: Bool) -> AppChord {
-        AppChord(toRight ? .rightArrow : .leftArrow, isMove ? [.shift, .command] : .command)
+        switch (toRight, isMove) {
+        case (false, false): return copyToLeft
+        case (true, false): return copyToRight
+        case (false, true): return moveToLeft
+        case (true, true): return moveToRight
+        }
     }
 
     static let reviewDifferences = AppChord("r", [.shift, .command])
@@ -179,10 +202,6 @@ public extension AppChord {
         deleteSelection, switchPaneFocus,
         newTab, closeTab, nextTab, previousTab, tabBar,
         reviewDifferences, verifyDifferences, differencesList, foldAllDifferences,
-        // The four transfers, spelled out: `transfer(toRight:isMove:)` is a family like
-        // `workspace(_:)`, but unlike that one it has a FIXED, small membership, so the registry
-        // can hold every member rather than describing a range.
-        transfer(toRight: false, isMove: false), transfer(toRight: true, isMove: false),
-        transfer(toRight: false, isMove: true), transfer(toRight: true, isMove: true),
+        copyToLeft, copyToRight, moveToLeft, moveToRight,
     ]
 }

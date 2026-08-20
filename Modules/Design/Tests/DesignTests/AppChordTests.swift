@@ -27,6 +27,13 @@ import Foundation
         #expect(AppChord.previewColumn.display == "⇧⌘P")
         #expect(AppChord.deleteSelection.display == "⌘⌫")
         #expect(AppChord.switchPaneFocus.display == "⌃⇥")
+        // The four directional transfers. The arrows are function-key code points, so these pin a
+        // GLYPH the keycap has to supply by hand — without it `display` renders an unprintable box,
+        // which reads on screen as a font problem rather than a missing case.
+        #expect(AppChord.copyToLeft.display == "⌘←")
+        #expect(AppChord.copyToRight.display == "⌘→")
+        #expect(AppChord.moveToLeft.display == "⇧⌘←")
+        #expect(AppChord.moveToRight.display == "⇧⌘→")
         // The tabs. ⌘T/⌘W are Finder's; the cycle pair is SHIFTED so the unshifted ⌘[ / ⌘] stay
         // pane back/forward, and ⇧⌘T is View ▸ Tab Bar rather than Reopen Closed Tab — which has
         // no chord at all and so nothing to pin here.
