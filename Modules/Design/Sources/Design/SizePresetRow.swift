@@ -3,30 +3,24 @@ import SwiftUI
 /// The row of `SizePreset` tiles — the one control that answers "how much do you want on screen?"
 /// in a click, in both places the app asks it.
 ///
-/// **Each tile is a picture of the outcome rather than a name for it.** Three miniature rows drawn
-/// at that preset's type size and row spacing: the bar heights come from `FontSize.scaledPointSize`,
-/// the gaps from `ListDensityMetrics`, and a compact preset draws the name bar alone because
-/// compact rows genuinely drop the size-and-date line. The percentage underneath is the numeric
-/// anchor; the row-spacing word is not on the tile at all.
-///
-/// That is a measured decision, not a stylistic one, and it replaced a two-line tile that said
-/// `100%` over `Comfortable`:
-///
-/// - **It did not fit.** At 135% in the settings sheet's narrowest column the row wanted 399pt
-///   against 307pt available — five tiles each carrying an eleven-character word cannot fit a
-///   column that once held a 260pt segmented picker.
-///   (`theTextSizeRowFitsTheNarrowestColumnTheSheetCanOffer`.)
-/// - **It could not fit on the setup card either**, where "Comfortable" and "Compact" name nothing
-///   yet — that screen runs on step one of a first launch, before the person has seen a file list.
-///
-/// So both surfaces get the same control, and the words live where they are already spelled out:
-/// the section caption underneath (`SizePreset.caption`) and the Row spacing picker one control
-/// below it.
+/// **Each tile names both settings it applies** — the percentage over the row spacing — which is
+/// what lets the two 100% tiles tell themselves apart with no legend, rail, or end labels under
+/// the row.
 ///
 /// The row **does** scale with the text size it sets, which the segmented picker it replaced could
 /// not (`FontSize`'s KNOWN LIMIT — AppKit draws its own labels). A control that stayed small at
-/// 135% would be illegible exactly when somebody is using it to fix legibility.
+/// 135% would be illegible exactly when somebody is using it to fix legibility. That is also the
+/// one case where the tiles run out of room: five eleven-character words want 399pt against the
+/// 307pt the settings sheet's narrowest column offers, so the labels shrink to fit rather than
+/// truncate — see `tile(_:)`.
 public struct SizePresetRow: View {
+    /// How far a tile's label may shrink before SwiftUI would truncate it instead.
+    ///
+    /// Internal to the type rather than a literal at the call site because the settings-column fit
+    /// test has to measure against the same number — a test restating 0.7 would keep passing after
+    /// this moved.
+    public static let minimumLabelScale: CGFloat = 0.7
+
     @Binding private var fontSize: FontSize
     @Binding private var density: ListDensity
 
@@ -55,15 +49,23 @@ public struct SizePresetRow: View {
             fontSize = preset.fontSize
             density = preset.density
         } label: {
-            VStack(spacing: 3) {
-                SizePresetSpecimen(preset: preset, isSelected: isSelected)
+            VStack(spacing: 1) {
                 Text("\(preset.fontSize.percent)%")
-                    .scaledFont(.system(size: 10, weight: .semibold))
-                    .lineLimit(1)
+                    .scaledFont(.system(size: 12, weight: .semibold))
+                Text(preset.densityName)
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
             }
+            // **Shrink rather than truncate.** Five tiles each carrying an eleven-character word
+            // want 399pt at 135%, and the settings sheet's narrowest column offers 307pt — the
+            // case that made an earlier draft drop the words entirely. Scaling the label down is
+            // what keeps them, and it only ever engages in that corner: at the sheet's normal
+            // width every tile draws at full size.
+            .lineLimit(1)
+            .minimumScaleFactor(Self.minimumLabelScale)
             .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
+            .padding(.vertical, 6)
             .padding(.horizontal, 4)
             .background {
                 RoundedRectangle(cornerRadius: 8)
@@ -86,92 +88,117 @@ public struct SizePresetRow: View {
     }
 }
 
-/// Three miniature rows drawn at a preset's type size and row spacing — a tile's face.
+/// The detent labels under the text-size slider — the four named sizes, at their real positions.
 ///
-/// A picture of the outcome rather than an icon *of* the outcome: a compact preset draws the name
-/// bar alone because compact rows genuinely drop the size-and-date line (`showsSecondaryDetail`).
-/// Somebody picking from the word "Compact" would not guess the date disappears; somebody picking
-/// from this can see it.
-struct SizePresetSpecimen: View {
-    let preset: SizePreset
-    let isSelected: Bool
+/// A slider with a bare percentage readout gives no sense of where the shipped sizes are; these
+/// are what make 125% recognisably "Large" and the right-hand end recognisably the last stop.
+/// Positioned from the values themselves rather than laid out evenly, so a preset whose percentage
+/// moves takes its label with it instead of quietly pointing at the wrong place.
+public struct FontSizeDetentLabels: View {
+    private let selected: FontSize
 
-    /// The tile face's fixed height, so every `%` label in the row sits on one baseline no matter
-    /// what the preset draws above it.
-    ///
-    /// **14pt, and the number is a budget rather than a taste.** This row goes on the setup form's
-    /// You step, which shares one card with People and Done and is measured against what a
-    /// 1280×800 display can show without scrolling (`SetupSheetFitTests.everyBoundedStepFitsThe
-    /// CardTheyShare`). The first draft drew a 26pt face with its own label line and caption and
-    /// put the step 88pt over that ceiling.
-    static let faceHeight: CGFloat = 14
+    public init(selected: FontSize) { self.selected = selected }
 
-    /// Never draw more than this many rows, however small the type gets — past four the bars stop
-    /// reading as rows of text and start reading as a texture.
-    static let maximumRows = 4
-
-    /// The height of one miniature row at `preset`: a name bar, plus the size-and-date bar when
-    /// this density shows one.
-    static func rowHeight(for preset: SizePreset) -> CGFloat {
-        let bar = barHeight(for: preset)
-        return preset.density.metrics.showsSecondaryDetail ? bar * 2 + detailGap : bar
+    /// Where a percentage sits along the track, 0...1.
+    static func position(_ percent: Int) -> CGFloat {
+        let span = CGFloat(FontSize.maximumPercent - FontSize.minimumPercent)
+        return (CGFloat(percent) - CGFloat(FontSize.minimumPercent)) / span
     }
 
-    /// Scaled from the app's workhorse 11pt row text, so the bars really do thicken with the
-    /// setting. A sixth of it: thin enough to read as a line of text rather than a block.
-    static func barHeight(for preset: SizePreset) -> CGFloat {
-        max(1, FontSize.scaledPointSize(11, scale: preset.fontSize.scale) / 6)
+    /// Half a slider knob. The track a `Slider` draws is inset by this at each end, so a label
+    /// placed at a raw fraction of the full width drifts away from its tick — most visibly at the
+    /// two ends, which are exactly the labels somebody checks.
+    static let knobInset: CGFloat = 9
+
+    public var body: some View {
+        GeometryReader { proxy in
+            let usable = max(proxy.size.width - Self.knobInset * 2, 1)
+            ForEach(FontSize.allCases) { size in
+                // **No tick mark of its own.** A `Slider` with a `step` draws the system's own
+                // ticks under the track at every stop, and an earlier draft added a second mark
+                // per detent directly on top of them — two tick rows saying different things at
+                // the same y. The label alone, positioned over the system tick it names, is what
+                // was missing.
+                VStack(spacing: 2) {
+                    Text(size.presetName ?? "\(size.percent)%")
+                        .scaledFont(.system(size: 9.5,
+                                            weight: size == selected ? .semibold : .regular))
+                        .foregroundStyle(size == selected ? Color.accentColor : Color.secondary)
+                        .fixedSize()
+                }
+                .position(x: Self.knobInset + Self.position(size.percent) * usable,
+                          y: proxy.size.height / 2)
+            }
+        }
+        .frame(height: 22)
+        .accessibilityHidden(true)
+    }
+}
+
+/// A few file rows drawn exactly as the panes draw them, at the chosen size and spacing.
+///
+/// **This is the only part of the section that shows what the settings actually do.** Row spacing
+/// in particular cannot be read off its own name: going Compact drops each file's size and date
+/// entirely (`showsSecondaryDetail`), shrinks the icon 17pt → 14pt and cuts row padding 6pt → 2pt,
+/// and nobody choosing from the word alone would guess the date disappears.
+///
+/// It takes its metrics from `ListDensityMetrics` and its fonts through `scaledFont`, so it is the
+/// real thing rather than a picture of it — a change to either setting's effect shows up here
+/// without anyone remembering to update a mock.
+public struct SizeSpacingPreview: View {
+    private let fontSize: FontSize
+    private let density: ListDensity
+
+    public init(fontSize: FontSize, density: ListDensity) {
+        self.fontSize = fontSize
+        self.density = density
     }
 
-    static let detailGap: CGFloat = 1
+    /// Real-looking documents rather than "Item 1": the point is to judge legibility, and a name
+    /// of a plausible length is what makes that judgement transferable.
+    static let rows: [(name: String, detail: String)] = [
+        ("Birth Certificate.pdf", "12 Aug 2026 · 2.4 MB"),
+        ("Tax Return 2025.pdf", "3 Apr 2026 · 812 KB"),
+        ("Passport scan.jpeg", "27 Jan 2026 · 4.1 MB"),
+    ]
 
-    static func rowGap(for preset: SizePreset) -> CGFloat {
-        preset.density.metrics.showsSecondaryDetail ? 2 : 1.5
-    }
+    private var metrics: ListDensityMetrics { density.metrics }
 
-    /// **How many rows fit the fixed face — which is the whole point of the picture.**
-    ///
-    /// The first version drew three rows at every preset and pinned the face at 14pt, so the
-    /// stack simply overflowed: six comfortable bars at 135% want 21.9pt in a 14pt frame, and
-    /// SwiftUI does not clip, it centres — the bars bled over the tile's border and towards the
-    /// percentage underneath. Rendering it is what caught that; every geometry test passed,
-    /// because the frame was the size it claimed and the overflow was outside it.
-    ///
-    /// Deriving the count instead fixes the overflow *and* makes the tile truthful: a fixed
-    /// height showing more rows is exactly what a tighter row spacing buys, and it is what a
-    /// person actually sees when they choose Compact. `theSpecimenNeverOverflowsItsFace` pins the
-    /// arithmetic.
-    static func rowCount(for preset: SizePreset) -> Int {
-        let row = rowHeight(for: preset)
-        let gap = rowGap(for: preset)
-        let fits = Int(((faceHeight + gap) / (row + gap)).rounded(.down))
-        return min(max(fits, 1), maximumRows)
-    }
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Preview — \(fontSize.percent)% · \(density.displayName.lowercased()) rows")
+                .scaledFont(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
 
-    private var metrics: ListDensityMetrics { preset.density.metrics }
-
-    var body: some View {
-        VStack(spacing: Self.rowGap(for: preset)) {
-            ForEach(0..<Self.rowCount(for: preset), id: \.self) { _ in
-                VStack(alignment: .leading, spacing: Self.detailGap) {
-                    bar(widthFraction: 1)
-                    if metrics.showsSecondaryDetail {
-                        bar(widthFraction: 0.62)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Self.rows, id: \.name) { row in
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.accentColor.opacity(0.55))
+                            .frame(width: metrics.treeIconSize, height: metrics.treeIconSize)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(row.name)
+                                .scaledFont(.system(size: 11))
+                            if metrics.showsSecondaryDetail {
+                                Text(row.detail)
+                                    .scaledFont(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 0)
                     }
+                    .padding(.vertical, metrics.flatRowVerticalPadding)
                 }
             }
         }
-        .frame(height: Self.faceHeight)
-        .frame(maxWidth: .infinity)
-        .accessibilityHidden(true)
-    }
-
-    private func bar(widthFraction: CGFloat) -> some View {
-        GeometryReader { proxy in
-            RoundedRectangle(cornerRadius: 0.5)
-                .fill(isSelected ? Color.accentColor.opacity(0.85) : Color.secondary.opacity(0.55))
-                .frame(width: proxy.size.width * widthFraction, height: Self.barHeight(for: preset))
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.secondary.opacity(0.07))
         }
-        .frame(height: Self.barHeight(for: preset))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Preview at \(fontSize.percent) percent, \(density.displayName) rows")
     }
 }

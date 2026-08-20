@@ -68,10 +68,10 @@ import Testing
         // releases; anybody who learned that word has to keep finding it, which is why the
         // retired title stays in the entry's keywords rather than being replaced by the new one.
         let byOldTitle = filterSettings(SettingsSearchIndex.all, query: "list density")
-        #expect(byOldTitle.contains { $0.title == "Row spacing" && $0.tab == .appearance })
+        #expect(byOldTitle.contains { $0.title == "Row spacing" && $0.tab == .readability })
 
         let byNewTitle = filterSettings(SettingsSearchIndex.all, query: "row spacing")
-        #expect(byNewTitle.contains { $0.title == "Row spacing" && $0.tab == .appearance })
+        #expect(byNewTitle.contains { $0.title == "Row spacing" && $0.tab == .readability })
 
         for value in ["compact", "comfortable"] {
             #expect(filterSettings(SettingsSearchIndex.all, query: value)

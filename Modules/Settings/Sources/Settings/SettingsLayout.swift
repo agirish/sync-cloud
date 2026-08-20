@@ -71,7 +71,7 @@ enum SettingsSheetMetrics {
     /// This is the "raise it deliberately" branch `appearanceKeepsRoomForACopyEdit` asks for:
     /// Appearance measures ~642pt and the 704pt sheet's 659pt opening keeps the 15pt copy-edit
     /// margin with no dead air (the upper-bound test still holds at ~17pt).
-    static let baseSize = CGSize(width: 760, height: 704)
+    static let baseSize = CGSize(width: 760, height: 624)
 
     /// Below this, a rail plus a usable content column stops being possible. The sheet stops
     /// shrinking and its content scrolls instead: overflowing a tiny window is better than a

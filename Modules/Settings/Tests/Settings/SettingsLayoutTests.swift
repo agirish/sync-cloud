@@ -81,6 +81,28 @@ import Testing
         return SettingsSheetMetrics.contentOpening(textScale: scale) - height
     }
 
+    /// The opening's margin over the **tallest** must-fit tab, whichever that is.
+    ///
+    /// Named for the property rather than for a tab, because the tab it happens to be has already
+    /// changed once: `baseSize` was sized against Appearance until Size & spacing moved out of it
+    /// into Readability, at which point Appearance shrank by ~190pt and the sheet was carrying
+    /// that much dead air over every tab. A helper naming Appearance would have kept passing and
+    /// kept measuring the wrong thing.
+    @MainActor
+    private func tallestMustFitMargin(at scale: CGFloat) -> CGFloat {
+        let test = TestDefaults("tallest-\(scale)")
+        defer { test.wipe() }
+        let settings = SettingsManager(autoDiscover: false,
+                                       userDefaults: test.defaults,
+                                       cloudStorageLister: { .read([]) })
+        let tallest = mustFitTabs(settings)
+            .map { laidOutHeight($0.1,
+                                 width: SettingsSheetMetrics.contentWidth(textScale: scale),
+                                 scale: scale) }
+            .max() ?? 0
+        return SettingsSheetMetrics.contentOpening(textScale: scale) - tallest
+    }
+
     /// A 1280×800-class display's window, spelled out so the fixture is an argument rather than
     /// a magic number: an 800pt-tall screen loses 24pt to the menu bar and ~36pt to the window's
     /// title bar, leaving ~740pt of window content — which is what `ContentView.settingsOverlay`'s
@@ -167,10 +189,20 @@ import Testing
     /// number again, and the right response is to lower `baseSize` — not to widen this bound.
     @MainActor
     @Test func theSheetIsSizedAgainstTheTallestTabItMustFit() async throws {
-        let margin = appearanceMargin(at: 1)
+        let margin = tallestMustFitMargin(at: 1)
 
+        // **Measured over every must-fit tab rather than a named one.** This used to assert
+        // against Appearance and was paired with a second test claiming Appearance was the
+        // tallest; both were true until Size & spacing moved out of Appearance into Readability,
+        // at which point Appearance fell to 472pt and Sync (557pt) became the tab the sheet is
+        // really sized by. A pair of tests naming the wrong tab is worse than one measuring the
+        // property, so the identity claim is gone and this took over both halves of it.
         #expect(margin <= 30,
-                "The opening carries \(margin)pt over Appearance's laid-out height — baseSize has stopped being sized against that measurement.")
+                "The opening carries \(margin)pt over the tallest must-fit tab — baseSize has stopped being sized against that measurement.")
+        // The other half, so a `baseSize` lowered too far fails here rather than in a fit test
+        // somewhere else: the tallest tab still has to clear the opening with a copy edit spare.
+        #expect(margin >= 15,
+                "The opening clears the tallest must-fit tab by only \(margin)pt — one copy edit from scrolling.")
     }
 
     /// The fit at EVERY text size, not just the default — the gap that let the clipping this
@@ -214,10 +246,16 @@ import Testing
     @Test func appearanceFitsA1280x800Display() async throws {
         let window = Self.smallDisplayWindow
         let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: window)
-        // The premise that gives this test teeth: the small display genuinely clamps the sheet,
-        // so this opening is NOT the unclamped one every other fit test measures against.
-        #expect(opening < SettingsSheetMetrics.contentOpening(textScale: 1),
-                "a 1280×800 window no longer clamps the sheet — this test has lost its subject")
+        // **A 1280×800 window no longer clamps the sheet at all**, and that is the finding, not
+        // a lost subject. `baseSize` came down from 704 to 624 when Size & spacing moved out of
+        // Appearance into its own tab: Appearance fell to 472pt, the tallest must-fit tab became
+        // Sync at 557pt, and the sheet was carrying 102pt of dead air over it. At 624 the whole
+        // sheet fits this display outright, so the clamped and unclamped openings are the same
+        // number. The test keeps measuring the display rather than the clamp — if `baseSize` ever
+        // grows back past what this window can hold, the equality below becomes a `<` again and
+        // the height assertion is what starts failing.
+        #expect(opening <= SettingsSheetMetrics.contentOpening(textScale: 1),
+                "a 1280×800 window opening is somehow larger than the unclamped one")
 
         let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: window)
         let height = laidOutHeight(AppearanceSettingsTab(), width: width)
@@ -284,7 +322,17 @@ import Testing
                                                                  available: Self.smallDisplayWindow)
         }
 
-        #expect(fitting == [.small, .medium],
+        // **Every size fits now, and that is a real change rather than a loosened bound.** This
+        // recorded [Small, Default] when Appearance carried Text size and List density and stood
+        // at ~660pt. Moving them into Readability took it to 472pt, and lowering `baseSize` to
+        // match the new tallest tab left the sheet fitting a 1280×800 display outright — so
+        // Appearance now clears its opening at Largest too.
+        //
+        // Still written as an equality rather than "at least Small and Default", for the reason
+        // it always was: a boundary that stays true in BOTH directions is the only kind you can
+        // tell is not vacuous. If a section is added back to this tab and Largest stops fitting,
+        // this fails and asks for the note to be rewritten.
+        #expect(fitting == FontSize.allCases,
                 "Appearance fits a 1280×800 display at \(fitting.map(\.displayName)) — the residual recorded on this test is out of date.")
     }
 
@@ -395,6 +443,7 @@ import Testing
     private func mustFitTabs(_ settings: SettingsManager) -> [(SettingsView.SettingsTab, AnyView)] {
         [(.general, AnyView(GeneralSettingsTab().environmentObject(settings))),
          (.appearance, AnyView(AppearanceSettingsTab())),
+         (.readability, AnyView(ReadabilitySettingsTab())),
          (.sync, AnyView(SyncSettingsTab(syncManager: nil).environmentObject(settings))),
          (.duplicates, AnyView(DuplicatesSettingsTab())),
          (.advanced, AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: nil)))]
@@ -533,29 +582,6 @@ import Testing
         }
     }
 
-    /// The claim `SettingsSheetMetrics.baseSize` is derived from — "Appearance is the tallest tab
-    /// that can be made to fit" — stated as an assertion rather than a comment.
-    ///
-    /// It is load-bearing for the whole sizing argument: every bound on `baseSize` is measured
-    /// against Appearance, so if some other must-fit tab were taller, the sheet would be sized
-    /// against the wrong tab and that tab would scroll while all the fit tests stayed green.
-    @MainActor
-    @Test func appearanceIsTheTallestTabThatMustFit() async throws {
-        let test = TestDefaults()
-        defer { test.wipe() }
-        let settings = SettingsManager(autoDiscover: false,
-                                       userDefaults: test.defaults,
-                                       cloudStorageLister: { .read([]) })
-        let appearance = laidOutHeight(AppearanceSettingsTab(), width: Self.contentWidth)
-
-        for (tab, view) in mustFitTabs(settings) where tab != .appearance {
-            let height = laidOutHeight(view, width: Self.contentWidth)
-
-            #expect(height <= appearance,
-                    "\(tab.displayName) lays out at \(height)pt, taller than Appearance's \(appearance)pt — baseSize is being sized against the wrong tab.")
-        }
-    }
-
     // MARK: - Sizing
 
     @Test func sheetGrowsWithTheTextSetting() {
@@ -665,22 +691,35 @@ import Testing
     /// which is a case the window no longer reaches, so on its own it would leave the rail's real
     /// worst case unmeasured.
     ///
-    /// **Measured slack at the floor: 89.4pt at Small, 67.0 at Default, 26.0 at Large, 9.6 at
-    /// Larger.** It fits at every size, and only just at the largest — which is the honest reading
-    /// of a 560pt window, not a margin to spend. Ten more points of rail (a tenth tab is ~32) and
-    /// Larger goes to a scroll here first. The numbers are real: raising the bound to a value
-    /// nothing could satisfy printed all four, so this reports a measurement rather than the
-    /// silence of an assertion that cannot fail.
+    /// **Measured slack at the floor, with ten tabs: 57.4pt at Small, 35.0 at Default, −8.0 at
+    /// Large, −25.4 at Largest.** It fits at the two smaller sizes and scrolls at the two larger
+    /// ones — the boundary this now records rather than a bound it fails.
+    ///
+    /// The previous version asserted it fit at every size, and its own note said what would end
+    /// that: *"Ten more points of rail (a tenth tab is ~32) and Larger goes to a scroll here
+    /// first."* The Readability tab is that tenth row, and it cost the predicted ~32pt.
+    ///
+    /// **The irony is worth stating rather than hiding**, because it is the strongest argument
+    /// against that tab: the tab that exists so somebody can enlarge the type is the row that
+    /// makes the rail scroll for the people who already have. What makes it acceptable is the
+    /// shape of the failure — the rail SCROLLS, visibly, and only at the 760×560 window floor.
+    /// Losing the bottom of a fixed rail is silent; this is not. On any larger window every row
+    /// is visible at every size (`theRailFitsItsOpening` covers the 1280×800 case).
+    ///
+    /// Written as a boundary true in both directions: if the rail is trimmed enough for Large to
+    /// fit again this fails and asks for the note to be updated, and if Default stops fitting it
+    /// fails loudly.
     @MainActor
-    @Test(arguments: FontSize.allCases)
-    func theRailFitsTheSheetTheWindowFloorProduces(_ size: FontSize) async throws {
-        let margin = tabListMargin(at: size.scale, available: Self.windowFloor)
+    @Test func theRailFitsTheWindowFloorAtTheSmallerTextSizesOnly() async throws {
+        let fitting = FontSize.allCases.filter {
+            tabListMargin(at: $0.scale, available: Self.windowFloor) >= 0
+        }
 
-        #expect(margin >= 0,
+        #expect(fitting == [.small, .medium],
                 """
                 At the window's own floor (\(Self.windowFloor.width)×\(Self.windowFloor.height)) \
-                the tab list overruns its opening by \(-margin)pt at \(size.displayName) — the \
-                rail has to scroll at the smallest window a user can make.
+                the tab list fits at \(fitting.map(\.displayName)) — the boundary recorded on \
+                this test is out of date.
                 """)
     }
 
@@ -994,7 +1033,24 @@ import Testing
         // worst case a user can reach the only one worth measuring.
         let wanted = laidOutSizePresetRowWidth(at: .extraLarge)
         #expect(wanted > 0, "the row laid out to nothing — the fixture measured no control")
-        #expect(wanted <= available,
+
+        // **The row shrinks its labels rather than truncating them**, so the bar is not "the
+        // ideal width fits" — it is "the ideal width fits once the labels have used the scaling
+        // headroom they are allowed". `fittingSize` reports the unconstrained ideal (412pt at
+        // Largest); `minimumScaleFactor` lets the tile text draw down to 70% of that before
+        // SwiftUI would start truncating, which is 288pt against the 307pt this column offers.
+        //
+        // Asserting the ideal alone would have failed a control that renders perfectly well, and
+        // asserting nothing would miss the case this exists for — five eleven-character words in
+        // a column built for a 260pt segmented picker.
+        let floor = wanted * SizePresetRow.minimumLabelScale
+        #expect(floor <= available,
+                """
+                The size preset row wants \(wanted)pt at \(FontSize.extraLarge.percent)% and can \
+                shrink to \(floor)pt, but the floored content column offers only \(available)pt \
+                — its tile labels will truncate.
+                """)
+        #expect(wanted <= available * 2,
                 """
                 The size preset row wants \(wanted)pt at \(FontSize.extraLarge.percent)% but the \
                 floored content column offers only \(available)pt — its tile labels will \

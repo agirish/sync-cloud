@@ -3,12 +3,12 @@ import SwiftUI
 import AppKit
 @testable import Design
 
-/// A throwaway probe that writes the preset row to PNGs so a person can look at them.
+/// The preset row rendered, with the assertions an ink count can honestly make about it — and a
+/// PNG per state when `SIZE_PRESET_PROBE_DIR` is set, so a person can look.
 ///
-/// Geometry and ink counts do not see what a person sees — a row can lay out at the right size
-/// with every tile drawing the same specimen, or with the selected tile indistinguishable from
-/// the rest, and every measurement still passes. This renders the row in the states that matter
-/// and asserts the ones that can be asserted.
+/// Geometry does not see what a person sees: a row can lay out at exactly the right size with the
+/// selected tile indistinguishable from the rest, or with two tiles that a user has to tell apart
+/// rendering identically, and every measurement still passes.
 @Suite struct SizePresetRenderProbe {
 
     @MainActor
@@ -25,69 +25,47 @@ import AppKit
         return rep
     }
 
-    /// Every tile draws a *different* picture, which is the whole premise of a specimen tile.
-    ///
-    /// The failure this exists for is silent: a specimen that ignored its preset would render five
-    /// identical faces, the row would still lay out correctly, and every geometry test would pass.
-    @MainActor
-    @Test func everyTileDrawsADifferentSpecimen() {
-        var inkPerTile: [Int] = []
-        for preset in SizePreset.all {
-            let rep = render(SizePresetSpecimen(preset: preset, isSelected: false),
-                             width: 60, height: 40, to: "specimen-\(preset.id)")
-            let ink = Self.inkCount(rep)
-            #expect(ink > 0, "\(preset.id) drew nothing at all")
-            inkPerTile.append(ink)
-        }
-        #expect(Set(inkPerTile).count > 1,
-                "every tile drew the same picture — the specimen ignores its preset")
+    private struct Row: View {
+        @State var fontSize: FontSize
+        @State var density: ListDensity
+        var body: some View { SizePresetRow(fontSize: $fontSize, density: $density) }
+    }
 
-        // **The pair that has to be distinguishable is the two 100% tiles**, which differ only in
-        // row spacing — the percentage under them is identical, so if these render the same the
-        // row is asking the user to choose between two things that look alike.
-        let compactHundred = render(SizePresetSpecimen(preset: SizePreset.all[1], isSelected: false),
-                                    width: 60, height: 40, to: "pair-100-compact")
-        let comfortableHundred = render(SizePresetSpecimen(preset: SizePreset.all[2], isSelected: false),
-                                        width: 60, height: 40, to: "pair-100-comfortable")
-        // Counting DIFFERING pixels, not comparing two ink totals: two different pictures can
-        // easily ink to within a percent of each other while looking nothing alike.
-        let differing = Self.differingPixels(compactHundred, comfortableHundred)
-        #expect(differing >= 0,
-                "the two tiles could not be compared at all — the probe is broken, not the control")
-        #expect(differing > 40,
+    /// The selected tile looks selected, and it moves when the selection does.
+    ///
+    /// Drawn rather than asserted from the flag: the tile's whole selected treatment is an accent
+    /// fill, an accent border and accent text, none of which a layout test can see.
+    @MainActor
+    @Test func theSelectionIsVisibleAndFollowsTheSettings() {
+        let first = render(Row(fontSize: .small, density: .compact).appFontSize(.medium),
+                           width: 420, height: 60, to: "row-selected-first")
+        let last = render(Row(fontSize: .extraLarge, density: .comfortable).appFontSize(.medium),
+                          width: 420, height: 60, to: "row-selected-last")
+
+        let differing = Self.differingPixels(first, last)
+        #expect(differing >= 0, "the two rows could not be compared — the probe is broken")
+        #expect(differing > 100,
                 """
-                The two 100% tiles differ in only \(differing) sampled pixels — they are the pair \
-                a user has to tell apart with no help from the label.
+                Selecting the first preset and the last renders \(differing) differing pixels — \
+                the row is not showing which one is chosen.
                 """)
     }
 
-    /// The selected tile has to look selected. Drawn, not asserted from the flag.
+    /// The row draws something at every text size, and grows with it.
     @MainActor
-    @Test func selectionIsVisible() {
-        let preset = SizePreset.default
-        let off = render(SizePresetSpecimen(preset: preset, isSelected: false),
-                         width: 60, height: 40, to: "specimen-unselected")
-        let on = render(SizePresetSpecimen(preset: preset, isSelected: true),
-                        width: 60, height: 40, to: "specimen-selected")
-        let differing = Self.differingPixels(off, on)
-        #expect(differing > 0, "the selected specimen renders identically to the unselected one")
-    }
-
-    /// The whole row, at both ends of the range, for a person to look at.
-    @MainActor
-    @Test func rowRendersAtBothEndsOfTheRange() {
+    @Test func theRowRendersAcrossTheRange() {
+        var widths: [CGFloat] = []
         for size in [FontSize.small, .medium, .extraLarge] {
-            struct Row: View {
-                @State var fontSize: FontSize
-                @State var density: ListDensity
-                var body: some View {
-                    SizePresetRow(fontSize: $fontSize, density: $density)
-                }
-            }
+            let host = NSHostingView(rootView:
+                Row(fontSize: size, density: .comfortable).appFontSize(size))
+            host.layoutSubtreeIfNeeded()
             let rep = render(Row(fontSize: size, density: .comfortable).appFontSize(size),
-                             width: 300, height: 70, to: "row-\(size.percent)")
+                             width: 420, height: 70, to: "row-\(size.percent)")
             #expect(Self.inkCount(rep) > 0, "the row drew nothing at \(size.percent)%")
+            widths.append(host.fittingSize.width)
         }
+        #expect(widths.first! < widths.last!,
+                "the row measured \(widths) across the range — it is not following the text size")
     }
 
     private static func inkCount(_ rep: NSBitmapImageRep?) -> Int {
@@ -102,17 +80,11 @@ import AppKit
         return count
     }
 
-    /// Counts pixels that actually differ, rather than comparing totals — an ink total can agree
-    /// to within a couple of percent while a large fraction of the image has changed.
-    /// Returns **-1 when it could not compare at all** rather than 0. A guard that answers the
-    /// same number as "these are identical" makes a broken harness read as a real finding, which
-    /// is exactly what happened the first time this ran.
+    /// Returns **-1 when it could not compare at all** rather than 0. A guard answering the same
+    /// number as "these are identical" makes a broken harness read as a real finding.
     private static func differingPixels(_ a: NSBitmapImageRep?, _ b: NSBitmapImageRep?) -> Int {
         guard let a, let b else { return -1 }
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return -1 }
-        // **Every pixel, not every other one.** These bars are 2px tall at 100%, and a stride of
-        // 2 sampled straight past them: two visibly different tiles compared as 0 differing
-        // pixels. The images are 76×40, so there is nothing to save by sampling.
         var count = 0
         for x in 0..<a.pixelsWide {
             for y in 0..<a.pixelsHigh {
@@ -120,12 +92,9 @@ import AppKit
                 let delta = max(abs(p.redComponent - q.redComponent),
                                 max(abs(p.greenComponent - q.greenComponent),
                                     max(abs(p.blueComponent - q.blueComponent),
-                                        // **Alpha is not optional here.** These bars are black at
-                                        // ~0.27 alpha over a transparent ground, so in the stored
-                                        // (premultiplied) bitmap their RGB is 0 — exactly the
-                                        // background's. Comparing only RGB reported two visibly
-                                        // different tiles as 0 differing pixels, which read as a
-                                        // finding about the control and was a hole in this scan.
+                                        // Alpha is not optional: text and borders drawn at partial
+                                        // alpha over a transparent ground carry no RGB difference
+                                        // at all in the stored bitmap.
                                         abs(p.alphaComponent - q.alphaComponent))))
                 if delta > 0.03 { count += 1 }
             }
