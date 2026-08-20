@@ -75,11 +75,10 @@ import AppKit
     }
 }
 
-/// Organize's two menu-bar homes: its sections under View, its row verbs under File.
+/// The Organize menu — its sections, then its verbs.
 ///
-/// Read off the running app for the same reason the Window menu is — a `Menu` inside a
-/// `CommandGroup` is a submenu AppKit builds, and whether it landed where it was declared is not
-/// something the source can answer.
+/// Read off the running app rather than the source: whether a `CommandMenu` landed as its own
+/// top-level menu, and in what order, is not a question the declaration can answer.
 @MainActor
 @Suite struct OrganizeMenuTests {
 
@@ -88,43 +87,51 @@ import AppKit
                      "no \(title) menu — this check would be vacuous")
     }
 
-    /// The five sections are a submenu of View, next to the workspaces.
-    @Test func viewCarriesTheSectionsAsASubmenu() throws {
-        let view = try Self.menu("View")
-        let organize = try #require(view.items.first { $0.title == "Organize" && $0.hasSubmenu }?.submenu,
-                                    "View has no Organize submenu — \(view.items.map(\.title))")
-        let sections = organize.items.map(\.title)
-        #expect(sections == ["To File", "Duplicates", "Renames", "Restructure", "Rules"],
-                "the Organize submenu reads \(sections)")
+    static func titles(_ menu: NSMenu) -> [String] {
+        menu.items.filter { !$0.isSeparatorItem }.map(\.title)
     }
 
-    /// **The workspace item and the submenu are different things with the same word.** View already
-    /// had "Organize ⌘3", which selects the workspace; the submenu chooses a section inside it. The
-    /// tell them apart, and the reason this is not a collision worth renaming: one has a chord and
-    /// no submenu, the other has a submenu and no chord.
-    @Test func theOrganizeWorkspaceItemIsStillThereAndDistinct() throws {
+    @Test func organizeIsItsOwnMenuOpeningWithTheFiveSections() throws {
+        let organize = Self.titles(try Self.menu("Organize"))
+        #expect(organize.prefix(5) == ["To File", "Duplicates", "Renames", "Restructure", "Rules"],
+                "the Organize menu opens with \(organize.prefix(5))")
+    }
+
+    @Test func theFourVerbsFollowTheSections() throws {
+        let organize = Self.titles(try Self.menu("Organize"))
+        #expect(organize.suffix(4) == ["Organize This Folder…", "Find Duplicates of This",
+                                       "Fix Name…", "Always Allow This Name"],
+                "the Organize menu ends with \(organize.suffix(4))")
+    }
+
+    /// **The word appears once per menu, and that is the whole point of the arrangement.**
+    ///
+    /// The first cut put the sections in a `Menu("Organize")` inside View, four rows below the ⌘3
+    /// workspace item — one menu, one word, two meanings, and a test asserting they were "distinct"
+    /// rather than fixing it. View now carries only the workspace item, exactly as it carries
+    /// "Compare ⌘2" beside a separate Compare menu.
+    @Test func viewCarriesTheWorkspaceItemAndNothingElseCalledOrganize() throws {
         let organizeItems = try Self.menu("View").items.filter { $0.title == "Organize" }
-        #expect(organizeItems.count == 2, "expected the workspace item and the submenu, got \(organizeItems.count)")
-        #expect(organizeItems.contains { $0.keyEquivalent == "3" && !$0.hasSubmenu },
-                "the ⌘3 workspace item is gone")
-        #expect(organizeItems.contains { $0.hasSubmenu && $0.keyEquivalent.isEmpty },
-                "the sections submenu is gone, or acquired a chord")
+        #expect(organizeItems.count == 1,
+                "View has \(organizeItems.count) items called Organize — it should have only the workspace")
+        #expect(organizeItems.first?.keyEquivalent == "3")
+        #expect(organizeItems.first?.hasSubmenu == false, "the workspace item grew a submenu again")
     }
 
-    /// The four verbs are in File, and none of them registers a key equivalent — every free chord
-    /// is spent, and a verb that is usually unavailable is the wrong place to spend the next one.
-    @Test func fileCarriesTheFourVerbsWithoutChords() throws {
-        let titles = try Self.menu("File").items.map(\.title)
+    /// The verbs left File when they gained a menu; File must not keep a stale copy.
+    @Test func fileNoLongerCarriesTheVerbs() throws {
+        let file = Self.titles(try Self.menu("File"))
         for verb in ["Organize This Folder…", "Find Duplicates of This", "Fix Name…",
                      "Always Allow This Name"] {
-            #expect(titles.contains(verb), "File is missing \(verb)")
+            #expect(!file.contains(verb), "File still carries \(verb)")
         }
-        let verbItems = try Self.menu("File").items.filter {
-            ["Organize This Folder…", "Find Duplicates of This", "Fix Name…",
-             "Always Allow This Name"].contains($0.title)
-        }
-        #expect(verbItems.allSatisfy { $0.keyEquivalent.isEmpty },
-                "an Organize verb claimed a chord")
+    }
+
+    /// No verb or section takes a chord — every free one is spent, and ⌘3 already reaches the
+    /// workspace these all live inside.
+    @Test func theOrganizeMenuRegistersNoChords() throws {
+        #expect(try Self.menu("Organize").items.allSatisfy { $0.keyEquivalent.isEmpty },
+                "something in the Organize menu claimed a chord")
     }
 }
 

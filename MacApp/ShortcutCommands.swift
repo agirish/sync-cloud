@@ -1159,30 +1159,26 @@ struct ToggleTabBarCommand: View {
     }
 }
 
-/// View ▸ Organize — the five sections, as a submenu beside the workspaces they belong to.
+/// The Organize menu's five sections, ticked.
 ///
-/// **A submenu under View, not a top-level Organize menu.** The mockup argued for one from
-/// Compare's precedent and drawing it refuted the argument: Compare's items are bulk actions on the
-/// whole comparison, so a menu of its own reads as a verb list, while Organize's are per-selection
-/// verbs that belong in File beside Delete and Rename. What is left — choosing which section is on
-/// screen — is a *view* choice, which is where every other one in this app lives.
+/// **Flat, because this IS the menu.** An earlier cut nested these in a `Menu("Organize")` inside
+/// View, which put a second item reading "Organize" four rows under the ⌘3 workspace item — one
+/// menu, one word, two meanings. The word now appears once per menu, exactly as View ▸ Compare ⌘2
+/// and the Compare menu have coexisted since v4.0.
 struct OrganizeLensCommands: View {
     @FocusedValue(\.organizeLens) private var lens
 
     var body: some View {
-        Menu("Organize") {
-            ForEach(OrganizeLens.allCases) { section in
-                Toggle(section.title, isOn: Binding(
-                    get: { lens?.current == section },
-                    // Clicking the ticked section asks to un-choose it, which has no meaning —
-                    // Organize always shows something — so `false` is dropped, as the workspace
-                    // toggles drop theirs.
-                    set: { isOn in if isOn { lens?.select(section) } }
-                ))
-                .disabled(lens == nil)
-            }
+        ForEach(OrganizeLens.allCases) { section in
+            Toggle(section.title, isOn: Binding(
+                get: { lens?.current == section },
+                // Clicking the ticked section asks to un-choose it, which has no meaning —
+                // Organize always shows something — so `false` is dropped, as the workspace
+                // toggles drop theirs.
+                set: { isOn in if isOn { lens?.select(section) } }
+            ))
+            .disabled(lens == nil)
         }
-        .disabled(lens == nil)
     }
 }
 

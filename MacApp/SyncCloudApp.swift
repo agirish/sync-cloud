@@ -564,10 +564,6 @@ struct SyncCloudApp: App {
                 Divider()
                 RescanCommand()             // ⌘R
                 Divider()
-                // Organize's row verbs, aimed at the pane selection. In File rather than a menu of
-                // their own: they act on what is selected, which is what File's other items do.
-                OrganizeVerbCommands()
-                Divider()
                 DeleteSelectionCommand()    // ⌘⌫
             }
             // `.saveItem` is where AppKit puts File ▸ Close, and Close Tab has taken its key and
@@ -586,9 +582,6 @@ struct SyncCloudApp: App {
             // surface the window shows — not what the app does to any file.
             CommandGroup(after: .sidebar) {
                 WorkspaceCommands()
-                // The five Organize sections, beside the workspaces they belong to — choosing one
-                // is a view choice, and this is where the app keeps those.
-                OrganizeLensCommands()
                 Divider()
                 ToggleTabBarCommand()           // ⇧⌘T
                 ToggleHiddenFilesCommand()      // ⇧⌘.
@@ -628,6 +621,25 @@ struct SyncCloudApp: App {
                 Divider()
                 ReviewDifferencesCommand()  // ⇧⌘R
                 VerifyDifferencesCommand()  // ⇧⌘V
+            }
+            // Organize ▸ its sections, then its verbs — **a menu of its own, and the first cut
+            // got this wrong twice.**
+            //
+            // It was argued out of existence on the grounds that "Compare's items are bulk actions
+            // on the whole comparison, Organize's are per-selection verbs, so the precedent does
+            // not transfer". That stopped being true when the directional transfers landed in
+            // Compare: that menu now opens with four verbs that act on the selection, so the two
+            // menus have the same shape and the precedent transfers exactly.
+            //
+            // The replacement — sections as a submenu under View — put a second item reading
+            // "Organize" four rows below the ⌘3 workspace item, in the same menu. A test was even
+            // written asserting the two were "distinct", which is what rationalising a collision
+            // looks like. Here the word appears once per menu, which is the arrangement View ▸
+            // Compare ⌘2 and the Compare menu have had all along without reading as a duplicate.
+            CommandMenu("Organize") {
+                OrganizeLensCommands()      // the five sections, ticked
+                Divider()
+                OrganizeVerbCommands()      // the four row verbs, over the pane selection
             }
             // Replace the whole Help menu. AppKit's default `.help` group is just the
             // `showHelp:` item (and its search field), which — with no registered Help Book —
