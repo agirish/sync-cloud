@@ -91,6 +91,35 @@ new feature, which `CLAUDE.md` puts on `main` alone — not a fix that a mainten
 The one part of this work that *would* have been portable — a bug fix inside `scaledPointSize` —
 does not exist: the curve was not touched.
 
+### The v4.2 adversarial review — checked, and none of it is owed
+
+Settled 2026-08-20, after a review of the seventy commits since `v4.1`. Nine findings; every one of
+them lands on code that no maintenance line carries, so nothing here is a backport candidate. Stated
+per finding rather than as a blanket "v4 feature work", because two of the nine *look* portable:
+
+| Finding | Why `main` alone |
+|---|---|
+| the setup form's disclosure, outline, focus and copy | `MacApp/SetupSheet.swift` is ABSENT on both lines |
+| `PersonCandidates` dead code and stale ordering doc | `Modules/Sync/Sources/Sync/PersonCandidates.swift` is ABSENT on both |
+| `mayRepoint` and four stale `writeProfile` claims | `mayRepoint` is v4.2's; the claims it falsified are its own |
+| `FontSize.migrateLegacyValue`'s hijacked doc block | the percentage `FontSize` is main-only by the entry above |
+| `ReadabilitySettingsTab` taking `ProvidersSettingsTab`'s doc | the Readability tab is main-only by the entry above |
+
+The two that needed checking rather than reasoning about:
+
+- **⌘/ registered on nothing.** `cd87b08e` removed `ShortcutsWindowCommand`'s only call site while
+  taking the auxiliary windows out of the Help menu, and nothing re-registered the chord. That
+  commit is inside the v4.2 range, and both maintenance lines still call it — checked directly:
+  `git show origin/v2.x:MacApp/SyncCloudApp.swift | grep -c 'ShortcutsWindowCommand()'` answers `1`,
+  and so does `v3.x`. ⌘/ works on both lines; the regression is `main`'s alone.
+- **↩ / Space firing under the destination picker.** ↩ (`paneRename`) arrived in `88d95ed9`, in
+  range. Space's half looked portable — `MacApp/ContentView+PaneSearch.swift` is present on `v3.x` —
+  but `paneQuickLook` is not in it: `git show origin/v3.x:MacApp/ContentView+PaneSearch.swift | grep
+  'func paneQuickLook'` finds nothing, and the file is absent from `v2.x` entirely. The guard also
+  reads `showCommandPalette`, which neither line has. Symbol to check if this is revisited:
+  `paneChordsSuspended` in `MacApp/ShortcutCommands.swift`.
+
+
 ---
 
 ## `v2.x` — owed
