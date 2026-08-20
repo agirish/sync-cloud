@@ -415,7 +415,9 @@ extension ContentView {
     /// lives — a view-local copy here would be a second source of truth for the one thing the whole
     /// Organize feature is anchored on. The pane follows the scope, so the source rail is showing
     /// the folder the lenses are answering about rather than wherever it happened to be parked.
-    private func aimOrganize(lens: OrganizeLens?, scope: String?) {
+    /// Internal rather than private: View ▸ Organize's sections route through this too, so the
+    /// menu and ⌘K aim Organize the same way. See `shortcutOrganizeLens`.
+    func aimOrganize(lens: OrganizeLens?, scope: String?) {
         // **The aim is read BEFORE the workspace moves, because moving it changes the aim.**
         // `lensProviderRootExpanded` follows the focused pane, and only Compare has two — so
         // switching to Organize makes it the left pane's root unconditionally. The scope string in

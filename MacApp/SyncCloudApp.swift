@@ -564,6 +564,10 @@ struct SyncCloudApp: App {
                 Divider()
                 RescanCommand()             // ⌘R
                 Divider()
+                // Organize's row verbs, aimed at the pane selection. In File rather than a menu of
+                // their own: they act on what is selected, which is what File's other items do.
+                OrganizeVerbCommands()
+                Divider()
                 DeleteSelectionCommand()    // ⌘⌫
             }
             // `.saveItem` is where AppKit puts File ▸ Close, and Close Tab has taken its key and
@@ -582,6 +586,9 @@ struct SyncCloudApp: App {
             // surface the window shows — not what the app does to any file.
             CommandGroup(after: .sidebar) {
                 WorkspaceCommands()
+                // The five Organize sections, beside the workspaces they belong to — choosing one
+                // is a view choice, and this is where the app keeps those.
+                OrganizeLensCommands()
                 Divider()
                 ToggleTabBarCommand()           // ⇧⌘T
                 ToggleHiddenFilesCommand()      // ⇧⌘.

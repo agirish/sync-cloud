@@ -248,7 +248,7 @@ import FileExplorer
         let host = try Self.host()
         // The shared comment-stripping reader, like every other body scan in this target — the
         // suite next door used to keep a private slicer for this one declaration, over RAW source.
-        let body = try declarationBody(of: "private func aimOrganize(lens: OrganizeLens?, scope: String?) {",
+        let body = try declarationBody(of: "func aimOrganize(lens: OrganizeLens?, scope: String?) {",
                                        in: host)
         let lensWrite = try #require(body.range(of: "paletteRailLens = lens"),
                                      "aimOrganize no longer writes the rail selection")

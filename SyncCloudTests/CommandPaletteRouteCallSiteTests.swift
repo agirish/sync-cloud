@@ -134,7 +134,7 @@ import Sync
         let host = try Self.source("CommandPaletteHost.swift")
         // Comment-stripped, and via the shared reader: the needles below are ordinary prose about
         // this very function, and its comments already quote `setOrganizeScope(_:)` by name.
-        let body = try declarationBody(of: "private func aimOrganize(lens: OrganizeLens?, scope: String?) {",
+        let body = try declarationBody(of: "func aimOrganize(lens: OrganizeLens?, scope: String?) {",
                                        in: host)
         let read = try #require(body.range(of: "let root = lensProviderRootExpanded"),
                                 "aimOrganize no longer resolves a provider root")
@@ -194,7 +194,7 @@ import Sync
     /// this suite learned in this very function.
     @Test func theOrganizePaneSwapIsOrderedAndCancellingItWritesNothing() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        let body = try declarationBody(of: "private func aimOrganize(lens: OrganizeLens?, scope: String?) {",
+        let body = try declarationBody(of: "func aimOrganize(lens: OrganizeLens?, scope: String?) {",
                                        in: host)
         let decide = try #require(body.range(of: "PaneLogic.organizeAimNeedsPaneSwap("),
                                   "the swap decision is no longer the one pure rule — a second copy cannot be held to the resolver")

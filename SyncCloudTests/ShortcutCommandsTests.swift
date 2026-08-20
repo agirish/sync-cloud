@@ -39,6 +39,9 @@ import Foundation
             clipboard: ClipboardActions(cut: {}, copy: {}, paste: {}),
             newTab: {}, closeTab: closeTab, cycleTab: { _ in }, reopenClosedTab: {},
             tabBar: TabBarSwitch(isOn: false, isForced: false, set: { _ in }),
+            organizeLens: OrganizeLensSwitch(current: .duplicates, select: { _ in }),
+            organizeVerbs: OrganizeVerbs(organizeFolder: {}, findDuplicates: {},
+                                         fixName: {}, keepName: {}),
             suspended: suspended
         )
     }
@@ -165,6 +168,8 @@ import Foundation
         #expect(publisher.effectiveCycleTab == nil)
         #expect(publisher.effectiveReopenClosedTab == nil)
         #expect(publisher.effectiveTabBar == nil)
+        #expect(publisher.effectiveOrganizeLens == nil)
+        #expect(publisher.effectiveOrganizeVerbs == nil)
     }
 
     /// ...and the guard the test above depends on: unsuspended, the same loaded publisher passes
@@ -192,6 +197,8 @@ import Foundation
         #expect(publisher.effectiveCycleTab != nil)
         #expect(publisher.effectiveReopenClosedTab != nil)
         #expect(publisher.effectiveTabBar != nil)
+        #expect(publisher.effectiveOrganizeLens != nil)
+        #expect(publisher.effectiveOrganizeVerbs != nil)
     }
 
     /// **Every `effective…` the publisher exposes is named in BOTH lists above.**

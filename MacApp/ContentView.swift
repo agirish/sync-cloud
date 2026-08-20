@@ -3115,7 +3115,9 @@ struct ContentView: View {
     /// window — a test failing about Quick Look because a tab handler was added three arguments
     /// earlier. (Naming that view here in prose would break the same scan, since it anchors on the
     /// literal: this comment deliberately does not.)
-    private func paneActionDelegate(for pane: PaneContext) -> PaneActionDelegate {
+    /// Internal rather than private: File ▸ Organize's verbs build one for the active pane, so the
+    /// menu items and the row menu route through the same delegate. See `shortcutOrganizeVerbs`.
+    func paneActionDelegate(for pane: PaneContext) -> PaneActionDelegate {
         PaneActionDelegate(
             handler: actionHandler, syncManager: syncManager, settings: settings,
             isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId,

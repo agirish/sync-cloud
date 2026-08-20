@@ -23,6 +23,80 @@ import Sync
 
 // MARK: Focused values published by ContentView
 
+/// View ▸ Organize ▸ the five sections, and the one that is current.
+///
+/// **Not a `Binding<OrganizeLens?>`, deliberately.** Writing the stored key directly is what the
+/// palette's `aimOrganize` exists to prevent: the aim — which pane, which provider root — has to be
+/// read *before* the workspace moves, because moving it changes the answer. A binding would let a
+/// menu item set the lens and leave the workspace behind, or move the workspace and resolve the
+/// scope against the wrong tree. The closure routes through the same call ⌘K's Organize rows use,
+/// so there is one way to aim Organize rather than two.
+struct OrganizeLensSwitch {
+    /// The section showing now — `nil` is the overview — for the checkmark.
+    let current: OrganizeLens?
+    /// Selects a section, switching to Organize if the window is elsewhere.
+    let select: (OrganizeLens) -> Void
+}
+
+/// File ▸ the four verbs Organize offers on a row, aimed at the pane selection instead.
+///
+/// **One value for four items** for `TransferShortcut`'s reason: they read one selection and would
+/// otherwise be four chances to disagree about it. Each closure is `nil` on its own though, because
+/// unlike the transfers these become available at different moments — a folder can be organized
+/// when a file cannot, and only a risky name can be fixed.
+struct OrganizeVerbs {
+    /// A single selected folder. Files are not organized; the lens is about where things live.
+    let organizeFolder: (() -> Void)?
+    /// A single selection of either kind — a folder's duplicates are its contents'.
+    let findDuplicates: (() -> Void)?
+    /// Both `nil` unless the single selection's name is one the app would rewrite. Rare, and that
+    /// is the argument for the row menu carrying them too rather than instead: the badge that
+    /// explains *why* is on the row, and a menu item cannot show it.
+    let fixName: (() -> Void)?
+    let keepName: (() -> Void)?
+}
+
+/// Which of the four verbs a selection offers, as a pure rule.
+///
+/// Extracted for `DifferencesShortcutRules`' reason: the resolver reads `ContentView` state and a
+/// `View` cannot be built in a test, so a rule left inline is a rule no test can flip. Every
+/// parameter here changes an answer — one that could not would be a parameter the view had stopped
+/// passing correctly with nothing failing.
+enum OrganizeVerbAvailability {
+    struct Answer: Equatable {
+        let organizeFolder: Bool
+        let findDuplicates: Bool
+        let fixName: Bool
+        let keepName: Bool
+    }
+
+    /// **One selected thing, always.** Each verb takes a single `FileNode`: organizing two folders
+    /// is two questions, and "find duplicates of this" has no referent for two things at once. With
+    /// several rows selected every item disables rather than quietly acting on the first — the
+    /// failure mode a menu cannot show and the row menu never had, because a right-click has one
+    /// row under the pointer by construction.
+    static func resolve(selectionCount: Int, isDirectory: Bool, isRisky: Bool) -> Answer {
+        guard selectionCount == 1 else {
+            return Answer(organizeFolder: false, findDuplicates: false, fixName: false, keepName: false)
+        }
+        return Answer(
+            // Files are not organized: the lens answers "where does this live", which is a question
+            // about a folder's contents.
+            organizeFolder: isDirectory,
+            findDuplicates: true,
+            fixName: isRisky,
+            keepName: isRisky)
+    }
+}
+
+private struct OrganizeLensKey: FocusedValueKey {
+    typealias Value = OrganizeLensSwitch
+}
+
+private struct OrganizeVerbsKey: FocusedValueKey {
+    typealias Value = OrganizeVerbs
+}
+
 private struct WorkspaceSelectionKey: FocusedValueKey {
     typealias Value = Binding<Workspace>
 }
@@ -340,6 +414,18 @@ extension FocusedValues {
         set { self[ClipboardActionsKey.self] = newValue }
     }
 
+    /// View ▸ Organize ▸ the five sections.
+    var organizeLens: OrganizeLensSwitch? {
+        get { self[OrganizeLensKey.self] }
+        set { self[OrganizeLensKey.self] = newValue }
+    }
+
+    /// File ▸ Organize's row verbs, aimed at the pane selection.
+    var organizeVerbs: OrganizeVerbs? {
+        get { self[OrganizeVerbsKey.self] }
+        set { self[OrganizeVerbsKey.self] = newValue }
+    }
+
     /// View ▸ Tab Bar.
     var tabBarVisible: TabBarSwitch? {
         get { self[TabBarVisibleKey.self] }
@@ -413,6 +499,8 @@ struct ShortcutValuePublisher: ViewModifier {
     let cycleTab: ((Bool) -> Void)?
     let reopenClosedTab: (() -> Void)?
     let tabBar: TabBarSwitch?
+    let organizeLens: OrganizeLensSwitch?
+    let organizeVerbs: OrganizeVerbs?
 
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
@@ -451,6 +539,8 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveCycleTab: ((Bool) -> Void)? { suspended ? nil : cycleTab }
     var effectiveReopenClosedTab: (() -> Void)? { suspended ? nil : reopenClosedTab }
     var effectiveTabBar: TabBarSwitch? { suspended ? nil : tabBar }
+    var effectiveOrganizeLens: OrganizeLensSwitch? { suspended ? nil : organizeLens }
+    var effectiveOrganizeVerbs: OrganizeVerbs? { suspended ? nil : organizeVerbs }
 
     /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
     /// `effectiveCloseTab` still nils with the rest (a suspended ⌘W closes no tab); what this adds
@@ -483,6 +573,8 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.cycleTab, effectiveCycleTab)                 // ⇧⌘] / ⇧⌘[
             .focusedSceneValue(\.reopenClosedTab, effectiveReopenClosedTab)   // File ▸ Reopen Closed Tab
             .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
+            .focusedSceneValue(\.organizeLens, effectiveOrganizeLens)         // View ▸ Organize ▸ …
+            .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
     }
 }
 
@@ -509,6 +601,8 @@ extension ContentView {
             cycleTab: shortcutCycleTab,
             reopenClosedTab: shortcutReopenClosedTab,
             tabBar: shortcutTabBar,
+            organizeLens: shortcutOrganizeLens,
+            organizeVerbs: shortcutOrganizeVerbs,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
             // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind
@@ -637,6 +731,43 @@ extension ContentView {
             // does nothing is the thing `clipboardHasItems` was added to the row menu to prevent.
             paste: syncManager.clipboardNodes.isEmpty ? nil
                  : { actionHandler?.pasteClipboard(toPath: destination) })
+    }
+
+    /// View ▸ Organize ▸ … — routed through `aimOrganize`, never by writing the stored key.
+    var shortcutOrganizeLens: OrganizeLensSwitch {
+        OrganizeLensSwitch(current: selectedOrganizeLens) { section in
+            // `scope: nil` leaves whatever Organize is aimed at alone: this item chooses a
+            // section, it does not re-aim the lens at a folder the way ⌘K's "organize legal" does.
+            aimOrganize(lens: section, scope: nil)
+        }
+    }
+
+    /// File ▸ Organize's verbs, over the active pane's selection.
+    ///
+    /// **Single selection throughout, and that is the verbs' own rule rather than a simplification.**
+    /// Every one of them takes a `FileNode`: organizing two folders is two questions, and "find
+    /// duplicates of this" has no meaning for two things at once. With several rows selected each
+    /// item disables rather than silently acting on the first.
+    var shortcutOrganizeVerbs: OrganizeVerbs {
+        // **The row menu's own delegate, for the pane the selection is in.** Not `actionHandler`
+        // directly: these four verbs live on `PaneActionDelegate`, which is what decides a risky
+        // name and what the row menu routes through. Building the same value here is what keeps a
+        // menu item and a right-click doing one thing rather than two similar things.
+        guard actionHandler != nil,
+              let pane = activePane,
+              activeSelectionNodes.count == 1,
+              let node = activeSelectionNodes.first else {
+            return OrganizeVerbs(organizeFolder: nil, findDuplicates: nil, fixName: nil, keepName: nil)
+        }
+        let delegate = paneActionDelegate(for: paneContext(isLeft: pane == .left))
+        let can = OrganizeVerbAvailability.resolve(selectionCount: activeSelectionNodes.count,
+                                                   isDirectory: node.isDirectory,
+                                                   isRisky: delegate.riskyName(for: node) != nil)
+        return OrganizeVerbs(
+            organizeFolder: can.organizeFolder ? { delegate.handleOrganizeFolder(node) } : nil,
+            findDuplicates: can.findDuplicates ? { delegate.handleFindDuplicates(node) } : nil,
+            fixName: can.fixName ? { delegate.handleFixName(node) } : nil,
+            keepName: can.keepName ? { delegate.handleKeepName(node) } : nil)
     }
 
     var shortcutGoBack: (() -> Void)? {
@@ -1025,6 +1156,50 @@ struct ToggleTabBarCommand: View {
         // Ticked AND disabled while a second tab is open: the switch must never hide a strip whose
         // tabs would then be unreachable.
         .disabled(tabBar == nil || tabBar?.isForced == true)
+    }
+}
+
+/// View ▸ Organize — the five sections, as a submenu beside the workspaces they belong to.
+///
+/// **A submenu under View, not a top-level Organize menu.** The mockup argued for one from
+/// Compare's precedent and drawing it refuted the argument: Compare's items are bulk actions on the
+/// whole comparison, so a menu of its own reads as a verb list, while Organize's are per-selection
+/// verbs that belong in File beside Delete and Rename. What is left — choosing which section is on
+/// screen — is a *view* choice, which is where every other one in this app lives.
+struct OrganizeLensCommands: View {
+    @FocusedValue(\.organizeLens) private var lens
+
+    var body: some View {
+        Menu("Organize") {
+            ForEach(OrganizeLens.allCases) { section in
+                Toggle(section.title, isOn: Binding(
+                    get: { lens?.current == section },
+                    // Clicking the ticked section asks to un-choose it, which has no meaning —
+                    // Organize always shows something — so `false` is dropped, as the workspace
+                    // toggles drop theirs.
+                    set: { isOn in if isOn { lens?.select(section) } }
+                ))
+                .disabled(lens == nil)
+            }
+        }
+        .disabled(lens == nil)
+    }
+}
+
+/// File ▸ the four Organize verbs, aimed at the pane selection.
+struct OrganizeVerbCommands: View {
+    @FocusedValue(\.organizeVerbs) private var verbs
+
+    var body: some View {
+        // Ellipsis: it opens the lens on a question, it does not file anything.
+        Button("Organize This Folder…") { verbs?.organizeFolder?() }
+            .disabled(verbs?.organizeFolder == nil)
+        Button("Find Duplicates of This") { verbs?.findDuplicates?() }
+            .disabled(verbs?.findDuplicates == nil)
+        Button("Fix Name…") { verbs?.fixName?() }
+            .disabled(verbs?.fixName == nil)
+        Button("Always Allow This Name") { verbs?.keepName?() }
+            .disabled(verbs?.keepName == nil)
     }
 }
 
