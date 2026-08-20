@@ -170,12 +170,17 @@ public struct PaletteProvider: Equatable, Sendable {
     /// Whether its folder is actually there. False keeps the row and dims it.
     public let isMounted: Bool
     public let isCurrent: Bool
+    /// Where this source lives, tilde-expanded. **Only Go to Folder reads it**, to decide which
+    /// source a typed path is inside — the rest of the palette never names a source by its path,
+    /// which is why this arrived late rather than being here from the start.
+    public let root: String
 
-    public init(id: String, name: String, isMounted: Bool, isCurrent: Bool) {
+    public init(id: String, name: String, isMounted: Bool, isCurrent: Bool, root: String = "") {
         self.id = id
         self.name = name
         self.isMounted = isMounted
         self.isCurrent = isCurrent
+        self.root = root
     }
 }
 
@@ -211,6 +216,9 @@ public struct PaletteIndex: Equatable, Sendable {
     /// scoping this to recents and pins meant ⌘K opened saying "Not available" and then, the moment
     /// anything was typed, offered the same tree as live destinations. One root, one answer.
     public var foldersUnavailable: String?
+    /// This user's home directory, for expanding a typed `~`. Carried on the index rather than read
+    /// from `NSHomeDirectory()` inside the rule, so a test can resolve `~` against a fixture.
+    public var home: String
     public var people: [Person]
     /// The registry, when there is one. Person routing is phrase-first and longest-wins; the
     /// palette must not hand-roll a second matcher (see ``PaletteRouter/personRow(for:index:)``).
@@ -224,6 +232,7 @@ public struct PaletteIndex: Equatable, Sendable {
     public init(providers: [PaletteProvider] = [], providerRoot: String? = nil,
                 folders: [String] = [], recentFolders: [String] = [],
                 pinnedFolders: [String] = [], foldersUnavailable: String? = nil,
+                home: String = NSHomeDirectory(),
                 people: [Person] = [],
                 registry: PersonRegistry? = nil, isScanning: Bool = false,
                 hasSurvey: Bool = false) {
@@ -233,6 +242,7 @@ public struct PaletteIndex: Equatable, Sendable {
         self.recentFolders = recentFolders
         self.pinnedFolders = pinnedFolders
         self.foldersUnavailable = foldersUnavailable
+        self.home = home
         self.people = people
         self.registry = registry
         self.isScanning = isScanning
@@ -410,50 +420,19 @@ enum PaletteMatch: Int, Comparable {
 /// the point rather than a style.
 public enum PaletteRouter {
 
-    /// A typed path, as a path — Finder's ⇧⌘G without a sheet.
-    ///
-    /// **Parsing only. This does not touch the disk, and must not.** The router is pure, which is
-    /// what lets every routing decision be asserted without a filesystem; a `fileExists` here would
-    /// make the whole table answer differently on two machines. So this answers "is the user typing
-    /// a path, and what path" — the caller answers "does it exist", and hands the verdict back
-    /// through `resolvedPath:` below.
-    ///
-    /// Absolute forms only. A bare `Documents` is a *name*, and names are what the fuzzy folder
-    /// matcher is for; treating it as a path would shadow every recent and pinned folder the moment
-    /// someone typed a word that happened to be a directory in their home.
-    public static func typedPath(in query: String) -> String? {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed == "~" || trimmed.hasPrefix("~/") || trimmed.hasPrefix("/") else { return nil }
-        let expanded = (trimmed as NSString).expandingTildeInPath
-        // A trailing slash is how people type a directory; `/Users/` and `/Users` are one place.
-        let trimmedTail = expanded.count > 1 && expanded.hasSuffix("/")
-            ? String(expanded.dropLast()) : expanded
-        return trimmedTail.isEmpty ? "/" : trimmedTail
-    }
-
     /// Rows for a query, best first.
-    ///
-    /// `resolvedPath` is a typed path the CALLER has already confirmed is a directory — see
-    /// ``typedPath(in:)`` for why the check lives out there. `nil` (the default) means either the
-    /// query is not a path or it does not name a directory, and in both cases no path row is
-    /// offered: a row for a path that does not exist would flicker in and out on every keystroke of
-    /// typing one, which is worse than nothing to look at.
+    /// - Parameter probe: what is at a typed path, for **Go to Folder**. `nil` means the caller
+    ///   cannot answer that — no path row is offered rather than one being offered on faith. It is
+    ///   injected because this is the only thing in the whole router that touches the disk, and it
+    ///   runs on the keystroke path: `PalettePath` says what bounds it, and
+    ///   `theHostGivesTheRouterARealPathProbe` is what stops the app quietly passing `nil`.
     public static func rows(query: String, index: PaletteIndex,
-                            resolvedPath: String? = nil) -> [PaletteRow] {
+                            probe: PalettePathProbe? = nil) -> [PaletteRow] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return emptyQueryRows(index: index) }
 
         var rows: [PaletteRow] = []
-        // First, and scored above every fuzzy tier: a typed path is not a guess about what was
-        // meant, it is a statement of it. `exact` is 400, so 500 puts this above the best possible
-        // name match without inventing a new tier for one row.
-        if let path = resolvedPath {
-            rows.append(PaletteRow(id: "path.\(path)", group: .folders,
-                                   title: leaf(path), detail: path,
-                                   symbol: "folder.badge.questionmark",
-                                   route: .folder(path: path),
-                                   score: 500))
-        }
+        if let path = pathRow(query: trimmed, index: index, probe: probe) { rows.append(path) }
         rows.append(contentsOf: verbRows(query: trimmed, index: index))
         rows.append(contentsOf: placeRows(query: trimmed))
         if let person = personRow(for: trimmed, index: index) { rows.append(person) }
@@ -651,6 +630,64 @@ public enum PaletteRouter {
         }
         return ranked.sorted { $0.score != $1.score ? $0.score > $1.score : $0.path < $1.path }
     }
+
+    // MARK: Go to Folder — a typed path
+
+    /// The one row a typed path produces, or nil when the query is not a path at all.
+    ///
+    /// **Always exactly one row, and often a refusal.** The user has said precisely where they mean,
+    /// so there is nothing to rank — and the cases where the palette cannot take them there are the
+    /// point of the feature rather than an edge of it: a path that resolves to nothing, or to a
+    /// folder outside every source, is a question this surface can answer, and answering it is
+    /// strictly better than the empty list a path query used to produce.
+    ///
+    /// The order of the checks is `PalettePath`'s stall guard — everything answerable from the
+    /// index first, the disk last and only inside a mounted, current source.
+    static func pathRow(query: String, index: PaletteIndex,
+                        probe: PalettePathProbe?) -> PaletteRow? {
+        guard PalettePath.looksLikeAPath(query), let probe else { return nil }
+        let typed = PalettePath.absolute(query, home: index.home)
+        // Refusals first, each stated without the disk being asked. `id` is the typed path rather
+        // than the destination, so a refusal and the row it becomes once the path is fixed are the
+        // same row rather than two — the highlight does not jump as you type.
+        func refusal(_ reason: String) -> PaletteRow {
+            PaletteRow(id: "path.\(typed)", group: .folders, title: leaf(typed), detail: typed,
+                       symbol: "folder.badge.questionmark", route: .folder(path: typed),
+                       unavailable: reason, score: pathRowScore)
+        }
+        guard let owner = PalettePath.owner(of: typed, in: index.providers) else {
+            // The commonest refusal by far, and the one worth being plain about: this palette can
+            // only show folders that are inside a source, because a pane IS a source.
+            return refusal("Not in any source")
+        }
+        // Refused BEFORE the probe, which is what keeps a sleeping drive from stalling a keystroke.
+        guard owner.isMounted else { return refusal("\(owner.name) is not mounted") }
+        // Decided 2026-08-19: refuse and name the source rather than switching to it. Switching
+        // means suppressing the provider change's own navigation reset (the counter
+        // `adoptProviderForTab` arms) and driving the reload, or the pane lands at the root with
+        // the folder silently dropped. Deferred to v4.3 with that mechanism named — ROADMAP_V4 §3.
+        guard owner.isCurrent else { return refusal("In \(owner.name) — switch source first") }
+        switch probe(typed) {
+        case .missing:
+            return refusal("No folder at that path")
+        case .directory:
+            return PaletteRow(id: "path.\(typed)", group: .folders, title: leaf(typed),
+                              detail: typed, symbol: "folder", route: .folder(path: typed),
+                              score: pathRowScore)
+        case .file:
+            // A pasted path is usually a file's — that is what a Finder copy puts on the clipboard.
+            // Its enclosing folder is the destination, the way ⇧⌘G accepts a file, and the row says
+            // so rather than silently going somewhere the user did not type.
+            let parent = (typed as NSString).deletingLastPathComponent
+            return PaletteRow(id: "path.\(typed)", group: .folders, title: leaf(parent),
+                              detail: "Enclosing folder of \(leaf(typed))", symbol: "folder",
+                              route: .folder(path: parent), score: pathRowScore)
+        }
+    }
+
+    /// Above every other folder row. A typed path is the most specific claim a query can make —
+    /// nothing was inferred from it — so it leads, and `initialIndex` puts ↩ on it.
+    static let pathRowScore = 1_100
 
     static func folderRows(query: String, index: PaletteIndex) -> [PaletteRow] {
         guard let root = index.providerRoot, !root.isEmpty else { return [] }

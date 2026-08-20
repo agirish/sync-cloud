@@ -82,31 +82,22 @@ final class CommandPaletteState: ObservableObject {
     @Published var listWidth: CGFloat = 0
 
     let index: PaletteIndex
+    /// What is at a typed path, for **Go to Folder** — the one thing the router cannot answer from
+    /// the snapshot, because the user has not typed it yet. Held here rather than on the index
+    /// because a closure is neither `Equatable` nor `Sendable` and the index is both.
+    ///
+    /// Optional, and `nil` means no path rows: a default that answered "yes, it is there" would be
+    /// a fixture whose expected value is its own fallback. The app passes a real one and
+    /// `theHostGivesTheRouterARealPathProbe` is what says so.
+    let pathProbe: PalettePathProbe?
 
-    init(index: PaletteIndex) {
+    init(index: PaletteIndex, pathProbe: PalettePathProbe? = nil) {
         self.index = index
+        self.pathProbe = pathProbe
         self.selection = PaletteSelection.initialIndex(in: PaletteRouter.rows(query: "", index: index))
     }
 
-    /// The one filesystem question the palette asks per keystroke, and it lives here rather than in
-    /// the router for the reason `PaletteRouter.typedPath(in:)` records: the routing table is pure.
-    ///
-    /// **`isDirectory`, not `fileExists`.** A typed path naming a *file* must not offer a row — the
-    /// route reveals a folder in the browser, so a file would land the pane somewhere it cannot
-    /// show. One `stat`, on a string the user is typing, only when it starts `/` or `~/`; every
-    /// other keystroke skips it because `typedPath` returns nil first.
-    static func resolvedDirectory(for query: String) -> String? {
-        guard let path = PaletteRouter.typedPath(in: query) else { return nil }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
-              isDirectory.boolValue else { return nil }
-        return path
-    }
-
-    var rows: [PaletteRow] {
-        PaletteRouter.rows(query: query, index: index,
-                           resolvedPath: Self.resolvedDirectory(for: query))
-    }
+    var rows: [PaletteRow] { PaletteRouter.rows(query: query, index: index, probe: pathProbe) }
 
     /// Typing moves the selection with the list rather than leaving it where it was: an index into
     /// the PREVIOUS results names a different row after a keystroke, so ↩ would run something the

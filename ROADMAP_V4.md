@@ -275,7 +275,7 @@ stands" below was re-read at `c604321e` rather than carried forward.
 | **Status bar** (⌘/) — item count, selection size, cloud-only count, scan freshness | small | Zero `statusBar` hits anywhere. Highest value per point of work. |
 | **↩ renames** | small | Rename is a row-menu item with a working handler and no key. |
 | **⌘↑ enclosing folder, ⌘↓ open** | small | No `enclosingFolder` / `goUp` in the tree. Both chords free. |
-| **Go to Folder** | small | No path parsing in the palette. Do not add a sheet — teach §7's field to accept a typed path. |
+| **Go to Folder** | small | **Shipped 2026-08-19** — `PalettePath`, no sheet. Cross-source paths refuse and name the source; switching to it is deferred to v4.3, see below. |
 | **Pins + recents sidebar** | medium | `FolderJumpStore` persists pins, **not** recents — see the correction below. Menu-only today. |
 | **⌘C / ⌘V / ⌥⌘V** ⚠️ | medium | No file pasteboard. All eight `NSPasteboard` sites copy a path *as text*. **⌥⌘V is barred by the ⌥ ban above — spelling unresolved.** |
 | **Gallery view mode** | large | `PaneViewMode` has two cases; a third is free, thumbnails are the job. |
@@ -314,9 +314,37 @@ a folder that has since gone — the same three questions the tab strip already 
 - **⌘↑ / ⌘↓.** Back and forward exist as ⌘[ / ⌘], and the breadcrumb is clickable, but "up one
   level" has no key — and back is not the same gesture: it retraces where you have been rather than
   climbing where you are.
-- **Go to Folder.** Finder's ⇧⌘G as a behaviour rather than a surface: §7's field accepts a typed
-  path, `~/` and `/` included, resolved against the pane's provider roots. Effectively free once §7
-  lands, and pointless before it.
+- **Go to Folder.** ~~Finder's ⇧⌘G as a behaviour rather than a surface: §7's field accepts a typed
+  path, `~/` and `/` included, resolved against the pane's provider roots.~~ **Shipped 2026-08-19**
+  (`PalettePath`). A query starting `/` or `~` resolves to one row: the folder, or a refusal saying
+  which of four things went wrong — outside every source, in a source that is not mounted, in a
+  source the pane is not showing, or nothing there. **The refusals are most of the feature**, because
+  a path query used to match nothing at all and an empty list is the "nothing happened" this family
+  of features exists to remove. A **file** path goes to its enclosing folder, the way ⇧⌘G accepts
+  one — that is what a Finder copy puts on the clipboard.
+
+  **The order of those checks is a stall guard rather than a style.** The existence check is a
+  `stat` on the keystroke path, and a `stat` under an unreachable mount blocks — the hazard
+  `FolderJumpStore.reachable` is arranged around — so everything answerable from the index is asked
+  first and a path outside every source, or inside a sleeping one, is refused without the disk being
+  touched.
+
+  **The one half deferred, and it is the interesting one: a path inside a source the pane is not
+  currently showing.** It refuses and names the source ("In Dropbox — switch source first") rather
+  than switching. Switching is not the one line it looks like: `onChange(of: leftProviderId)` fires
+  on the *next* view update and calls `resetNavigation()`, so an `aimProvider` followed by a
+  `focusOn` lands the pane at the root with the typed folder silently dropped — the same discard
+  `aimOrganize` spends thirty lines of comment on. The mechanism to do it properly already exists
+  and is named: `adoptProviderForTab` arms `pendingTabProviderChanges`, which suppresses that reset
+  for a writer that has done the handler's work itself, and its caller then drives one reload.
+  **v4.3 or later**; expect the reload ordering to be the whole of the work.
+
+  Also visible now that paths resolve: **a query containing a slash matches no folder by name.**
+  `rankedFolders` normalises the slashes in the *candidate* (`Clients/Legal` → `Clients Legal`) and
+  not in the query, so `~/Documents/Clients/Legal` works and `Clients/Legal` finds nothing. Left
+  alone deliberately — normalising the query changes how every folder query ranks, which is not this
+  item's to decide — and recorded on
+  `PalettePathTests.aRelativeNameIsNotAPathAndTheDiskIsNotAskedAboutIt`.
 
 ### The two mediums
 
@@ -387,8 +415,11 @@ Nothing in this file depends on any of the moved sections.
 
 **Status, 2026-08-19.** All four of this section's items have shipped. Three landed between
 `c77d96d3` and `ee46628f`; **Go to Folder closed it** — a typed `/…` or `~/…` resolves through the
-existing `.folder` route, scored above every fuzzy tier because a typed path is a statement of
-intent rather than a guess at one. The same commit renamed the menu item and the ⌘/ row to **Go
+existing `.folder` route (no new case: a typed path and a picked folder mean the same thing and
+differ only in where the string came from), scored above every fuzzy tier because a typed path is a
+statement of intent rather than a guess at one. A path it cannot deliver is **kept and marked with
+the reason** rather than dropped, which is the same rule the unmounted-source and asleep-root rows
+follow; §3's item carries the four reasons and the one half deferred to v4.3. The same commit renamed the menu item and the ⌘/ row to **Go
 to**, which is what the control had been calling itself since the field shipped. The 620pt card is gone: `CommandPaletteView` was deleted
 in `7e8fff03`, and the live list it also contained now lives in `PaletteResultsList.swift`. Read the
 rest of this section as the record of a design that landed, not as a plan.
@@ -429,7 +460,8 @@ click; it should be the control you type into.
   panel behind it hit-tests for click-away and paints nothing — the same mechanism as today's scrim,
   minus the dim. Without it, a click meant to dismiss selects a file instead.
 - **Go to Folder rides the same field** (§3): a typed path resolves against the pane's provider
-  roots.
+  roots. **Shipped 2026-08-19** — and "roots" plural turned out to be the deferred half: a path
+  under a source the pane is not showing is named rather than switched to.
 - **The narrow case is not free — but it never reaches the floor.** Built and measured
   2026-08-18: at the 760pt window minimum the field opens at **359pt**, above its own 320pt floor,
   and at *every* text size, because the icon-only bar's width is glyphs and padding and does not
@@ -694,8 +726,9 @@ have already shipped, so what is actually left is nine.
    ahead of it. **Done 2026-08-19 — clean**; see the decisions block above for the verdict and for
    the two fixtures that were too weak to detect the collapse they were written for.
 4. ~~**Go to Folder** (§3).~~ **Done, 2026-08-19** — the field takes `/…` and `~/…` and routes to
-   `.folder`. The parse is pure and in the router; the one `stat` is in the host, because the
-   routing table answering differently on two machines is not a table.
+   `.folder`. The parse is pure and in the router; the one `stat` is injected from the host, because
+   a routing table that answers differently on two machines is not a table. Not quite free: the four
+   refusals are most of it, and the ordering of their checks is a stall guard.
 5. **The menu bar** (§10). Six small items. **Before the chords, and that is the dependency** —
    its Edit ▸ Select All / Cut / Copy / Paste is where the text-editor routing rule gets written,
    and step 6's ⌘↑ / ⌘↓ need the same rule. Ordered the other way round until 2026-08-19, with a

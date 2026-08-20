@@ -98,7 +98,7 @@ extension ContentView {
         // window's responder.
         let caretWasWith = Self.caretHolder(in: host)
         let index = paletteIndex
-        let state = CommandPaletteState(index: index)
+        let state = CommandPaletteState(index: index, pathProbe: Self.pathKind)
         // The field is what the user types into now, so it opens first and the list follows it.
         goToQuery = ""
         showCommandPalette = true
@@ -175,7 +175,11 @@ extension ContentView {
                                 // the focused one in Compare — for the same reason the folder rows
                                 // are indexed from its root. Asking `leftProviderId` had a
                                 // right-root index calling the left provider current.
-                                isCurrent: provider.id == paletteProviderId)
+                                isCurrent: provider.id == paletteProviderId,
+                                // Expanded, for the reason `isMounted` is expanded above: a
+                                // hand-typed `~/…` in Settings is stored verbatim, and Go to
+                                // Folder compares this against a path it has already expanded.
+                                root: (provider.path as NSString).expandingTildeInPath)
             },
             providerRoot: root.isEmpty ? nil : root,
             folders: folders,
@@ -371,6 +375,19 @@ extension ContentView {
     private static func containsEditableField(_ view: NSView) -> Bool {
         if let field = view as? NSTextField, field.isEditable { return true }
         return view.subviews.contains(where: containsEditableField)
+    }
+
+    /// What is at a typed path — **Go to Folder's** one disk question, wired to the real disk.
+    ///
+    /// No tilde expansion here, deliberately: `PalettePath.absolute` has already done it against
+    /// the index's `home`, and a second expansion would be a second rule. `PalettePath` bounds when
+    /// this is called at all — never outside a source, never under one that is not mounted — which
+    /// is what makes a `stat` acceptable on the keystroke path.
+    static func pathKind(_ path: String) -> PathKind {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+        else { return .missing }
+        return isDirectory.boolValue ? .directory : .file
     }
 
     /// Whether a source's folder is there right now. Expanded first, and required to be a
