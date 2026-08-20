@@ -81,6 +81,26 @@ public enum FolderSidebarModel {
         }
     }
 
+    /// **Where the sidebar can exist at all** — Browse, and nowhere else.
+    ///
+    /// Gated on the workspace rather than on `layoutMode`: the lens workspaces are single-source
+    /// too, and their pane is the 220pt-clamped rail, which has no room for a 180pt column beside
+    /// it. This is the question the *menu item* asks, so it stays live on Browse with the sidebar
+    /// switched off — that item is how you switch it on.
+    ///
+    /// `Workspace` is not visible from this module, so the caller supplies the verdict rather than
+    /// the value; the point of having it here is that the two questions below are written once.
+    public static func appliesTo(isBrowse: Bool) -> Bool { isBrowse }
+
+    /// **Whether the column is on screen**, which is a different question from the one above and
+    /// the one that decides whether resolving its rows is worth a `stat` of the provider root.
+    ///
+    /// Both callers must agree or the sidebar draws rows nobody refreshed — or refreshes rows
+    /// nobody draws. Written once for that reason.
+    public static func isShowing(isBrowse: Bool, preference: Bool) -> Bool {
+        appliesTo(isBrowse: isBrowse) && preference
+    }
+
     /// The rows of one group, in order — the view's `ForEach` and the tests read the same list.
     public static func rows(_ rows: [FolderSidebarRow], in group: FolderSidebarRow.Group) -> [FolderSidebarRow] {
         rows.filter { $0.group == group }
@@ -208,6 +228,25 @@ public struct FolderSidebarView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
+            // The `Spacer` above is what makes the row the full width of the column, and that is
+            // load-bearing rather than cosmetic: a `hoverAffordance` row is clickable only where it
+            // paints, so a row sized to its text would be readable across 180pt and clickable
+            // across forty. Measured at 359 of 360 device pixels with it, 143 without —
+            // `theCurrentRowFillsTheColumn` is what keeps it that way.
+            //
+            // (A `.frame(maxWidth: .infinity)` was added here first, on the assumption that the
+            // `Spacer` was not enough. Mutating it out changed nothing, so it went: a line that
+            // cannot be shown to matter is a line that will be believed to.)
+            .background {
+                // The pane's current folder, marked the way a Mac sidebar marks it. Weight and a
+                // tinted glyph were doing this alone, which is legible next to a neighbour and
+                // invisible on its own — and this is also what makes the row's real width
+                // measurable, which is why `theCurrentRowFillsTheColumn` can exist at all.
+                if isCurrent {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(accent.opacity(0.16))
+                }
+            }
             .contentShape(Rectangle())
             // Drawn rather than left to `.disabled`, which under `hoverAffordance` dims nothing.
             .opacity(canOpen ? 1 : 0.4)

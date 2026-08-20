@@ -340,6 +340,29 @@ import Settings
                 "the cut was downgraded to a copy — the in-app branch is what carries isCut")
     }
 
+    /// **A ⌘C that copies nothing must leave the clipboard alone.**
+    ///
+    /// Harmless while the app's list was the only clipboard — it emptied something only this app
+    /// read. Not harmless once a copy writes to `NSPasteboard.general`: an empty write clears it,
+    /// so a copy of nothing would throw away whatever the user had copied in another app.
+    @Test func copyingAnEmptySelectionDoesNotClearWhatSomebodyElseCopied() throws {
+        let dir = try tempDir("empty-copy")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("theirs.txt")
+        try Data("x".utf8).write(to: file)
+
+        let pasteboard = board()
+        SystemClipboard.write(paths: [file.path], to: pasteboard)
+        let before = pasteboard.changeCount
+
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        handler.handleCopyToClipboard([], isCut: false)
+
+        #expect(pasteboard.changeCount == before, "an empty copy wrote to the pasteboard")
+        #expect(SystemClipboard.fileURLs(from: pasteboard).map(\.path) == [file.path])
+    }
+
     /// Text copied elsewhere after a copy here pastes **nothing**, rather than falling back to the
     /// stale list and writing files nobody asked for.
     @Test func textCopiedElsewhereWritesNothing() async throws {

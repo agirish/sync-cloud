@@ -249,6 +249,12 @@ public class FileActionHandler {
     /// what later tells a paste whether SyncCloud still owns the pasteboard; see
     /// `FileSyncManager.clipboardPasteboardChangeCount`.
     public func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {
+        // **Nothing selected changes nothing.** Before the pasteboard was involved this was
+        // harmless — it emptied a list that only this app read. It is not harmless now: writing an
+        // empty set clears `NSPasteboard.general`, so a ⌘C that copied nothing would throw away
+        // whatever the user had copied in another app. No caller does this today; the guard is
+        // here because the consequence of one that did changed when the bridge landed.
+        guard !nodes.isEmpty else { return }
         Logger.shared.info("User \(isCut ? "cut" : "copied") \(nodes.count) item(s) to the clipboard")
         syncManager.clipboardNodes = nodes
         syncManager.clipboardIsCut = isCut

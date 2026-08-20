@@ -19,10 +19,17 @@ struct TreemapView: View {
     /// the eye kept looking for a legend that could not exist.
     ///
     /// Built from the hue's own accent: step 0 **is** that accent, and each later step desaturates
-    /// toward white. Both moves push every sRGB component the same way — HSB→RGB is
-    /// `b · (1 − s·f)` for an `f` fixed by the hue — so falling saturation and rising brightness
-    /// make luminance **strictly monotonic** for every hue, which is the property that lets the
-    /// ramp be read as an order. `TreemapRampTests` pins it over all twelve.
+    /// toward white. Luminance is therefore **strictly monotonic** for every hue, which is the
+    /// property that lets the ramp be read as an order; `TreemapRampTests` pins it over all twelve.
+    ///
+    /// The argument, because the first version of this comment gave the wrong one. HSB→RGB is
+    /// `b · (1 − s·f)`, with `f ∈ [0,1]` fixed per component by the hue. Falling `s` raises every
+    /// component; rising `b` raises every component; so both moves agree — **provided `b` actually
+    /// rises**. Six of the twelve hues have `b = 1.0` already, blue and the app's default among
+    /// them, and against a flat 0.97 ceiling their brightness would *fall* by three points while
+    /// saturation fell. Luminance still rose (saturation dominates), so the ramp was right and the
+    /// reason given for it was not. `max(0, …)` makes the ceiling a floor-under-no-change: those
+    /// hues hold `b` and ramp on saturation alone, and the sentence above is true as written.
     ///
     /// Absolute endpoints were tried first and abandoned: forcing every hue into one luminance
     /// band turns amber into a dark brown at the deep end. Ramping from each hue's own accent
@@ -45,7 +52,7 @@ struct TreemapView: View {
             return Color(nsColor: NSColor(colorSpace: .sRGB,
                                           hue: h,
                                           saturation: s * (1 - 0.62 * t),
-                                          brightness: b + (0.97 - b) * t,
+                                          brightness: b + max(0, 0.97 - b) * t,
                                           alpha: 1))
         }
     }

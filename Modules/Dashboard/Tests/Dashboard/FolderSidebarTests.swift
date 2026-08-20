@@ -151,20 +151,6 @@ import Design
     /// backwards: the empty state is two sentences of explanation and out-inks a pair of one-word
     /// rows almost three to one (1535 against 685). "Rows paint more than nothing" is not the claim
     /// worth making anyway; this one fails if a row stops drawing.
-    /// More rows paint more.
-    ///
-    /// Against a **shorter list**, not against the empty state — measured, and the first cut had it
-    /// backwards: the empty state is two sentences of explanation and out-inks a pair of one-word
-    /// rows almost three to one (1535 against 685). "Rows paint more than nothing" is not the claim
-    /// worth making anyway; this one fails if a row stops drawing.
-    @Test func dumpForInspection() throws {
-        let listed = rows(RememberedFolders(recents: ["Downloads", "Q3 Report", "Legal"],
-                                            pinned: ["Work", "Clients/Legal"], rootIsAvailable: true))
-        let rep = try #require(render(rows: listed, current: "Work"))
-        try rep.representation(using: .png, properties: [:])!.write(
-            to: URL(fileURLWithPath: "/private/tmp/claude-501/-Users-abhishek-Projects-SyncCloud/e3acceb2-2dca-4195-9255-571f7a997cf1/scratchpad/sidebar.png"))
-    }
-
     @Test func eachRowPaints() throws {
         let one = try #require(render(rows: rows(RememberedFolders(
             recents: [], pinned: ["Work"], rootIsAvailable: true))))
@@ -192,6 +178,35 @@ import Design
                 "the unavailable row paints as strongly as the live one — \(inked(asleep)) vs \(inked(live))")
     }
 
+    /// **The current row fills the column, and that is a claim about the hit area.**
+    ///
+    /// A `hoverAffordance` row is clickable only where it paints, so a row sized to its text would
+    /// be readable across 180pt and clickable across forty. Nothing can hover a SwiftUI button from
+    /// a test, but the current-folder highlight is drawn by the same modifier chain that carries
+    /// the hit shape — so measuring how wide *it* paints measures the row.
+    @Test func theCurrentRowFillsTheColumn() throws {
+        let listed = rows(RememberedFolders(recents: [], pinned: ["Work"], rootIsAvailable: true))
+        let rep = try #require(render(rows: listed, current: "Work"))
+        // The widest painted scanline, in device pixels; the canvas is 180pt at 2×.
+        var widest = 0
+        for y in 0..<rep.pixelsHigh {
+            var first = -1, last = -1
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      let bg = rep.colorAt(x: 1, y: 1)?.usingColorSpace(.sRGB) else { continue }
+                if abs(c.redComponent - bg.redComponent) > 0.02
+                    || abs(c.blueComponent - bg.blueComponent) > 0.02 {
+                    if first < 0 { first = x }
+                    last = x
+                }
+            }
+            if first >= 0 { widest = max(widest, last - first) }
+        }
+        let column = rep.pixelsWide
+        #expect(widest > Int(Double(column) * 0.8),
+                "the widest painted row spans \(widest) of \(column) px — the row is sized to its text, so most of the column is unclickable")
+    }
+
     /// The current folder is emphasised — semibold and an accented glyph — so the column says where
     /// the pane is as well as where it could go.
     @Test func theCurrentFolderIsMarked() throws {
@@ -200,5 +215,29 @@ import Design
         let onIt = try #require(render(rows: listed, current: "Work"))
         #expect(inked(onIt) != inked(elsewhere),
                 "the row renders identically whether or not the pane is on it")
+    }
+}
+
+/// **Where the sidebar exists, and where it is showing.** Two questions that read alike and are
+/// not the same one — a menu item that asked the second could never be used to switch the column
+/// on, and a refresh that asked the first would `stat` a provider root on every workspace.
+@Suite struct FolderSidebarVisibilityTests {
+
+    @Test func theSidebarBelongsToBrowseAlone() {
+        #expect(FolderSidebarModel.appliesTo(isBrowse: true))
+        #expect(!FolderSidebarModel.appliesTo(isBrowse: false))
+    }
+
+    /// **The item stays live on Browse with the column switched off**, because it is what switches
+    /// it on. This is the assertion that stops the two rules being collapsed into one.
+    @Test func theToggleIsStillAvailableWhileTheColumnIsHidden() {
+        #expect(FolderSidebarModel.appliesTo(isBrowse: true))
+        #expect(!FolderSidebarModel.isShowing(isBrowse: true, preference: false))
+    }
+
+    @Test func theColumnShowsOnlyOnBrowseAndOnlyWhenAskedFor() {
+        #expect(FolderSidebarModel.isShowing(isBrowse: true, preference: true))
+        #expect(!FolderSidebarModel.isShowing(isBrowse: false, preference: true))
+        #expect(!FolderSidebarModel.isShowing(isBrowse: false, preference: false))
     }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import Dashboard
+import Events
 import Design
 
 /// **Browse's remembered-folders sidebar** — the host half. The column itself is
@@ -11,6 +12,13 @@ extension ContentView {
     /// Expanded, matching `FolderJumpStore.key(forRoot:)`, which expands before keying: a folder
     /// source is stored with its `~` intact and the two spellings never met, which is the defect
     /// that comment records.
+    /// Whether the column is on screen — the one rule, so `browseLayout`'s `if` and the refresh's
+    /// guard cannot come to disagree about it.
+    var folderSidebarIsShowing: Bool {
+        FolderSidebarModel.isShowing(isBrowse: selectedWorkspace == .browse,
+                                     preference: browseSidebarVisible)
+    }
+
     var folderSidebarRoot: String {
         (settings.path(for: leftProviderId) as NSString).expandingTildeInPath
     }
@@ -20,6 +28,11 @@ extension ContentView {
     /// Called from the four places the answer can change rather than from `body` — see
     /// `folderSidebarRows`' own note for why a `stat` does not belong in a render.
     func refreshFolderSidebarRows() {
+        // **Only where there is a sidebar to fill.** The refresh `stat`s the provider root, and the
+        // triggers that call it — the left pane moving, and the store publishing — fire on every
+        // workspace: sitting in Compare with the sidebar switched off would still have paid a
+        // blocking `stat` per pane move, for a column that is not on screen.
+        guard folderSidebarIsShowing else { return }
         let root = folderSidebarRoot
         guard !root.isEmpty else {
             folderSidebarRows = []
@@ -55,7 +68,13 @@ extension ContentView {
     func openFolderSidebarRow(_ row: FolderSidebarRow, inNewTab: Bool) {
         guard FolderSidebarModel.canOpen(row) else { return }
         let root = folderSidebarRoot
-        guard !root.isEmpty else { return }
+        // Not supposed to be reachable — a rootless pane has no rows — but that is exactly the
+        // claim a log line is for, and `revealInSourcePane` sets the precedent: a row the user
+        // watched do nothing is worse than one that says why in the log.
+        guard !root.isEmpty else {
+            Logger.shared.warning("Sidebar: nowhere to open \(row.relativePath) — the pane has no source path")
+            return
+        }
         if inNewTab {
             openInNewTab(absolutePath: (root as NSString).appendingPathComponent(row.relativePath),
                          isLeft: true)

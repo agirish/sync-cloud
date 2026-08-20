@@ -818,7 +818,9 @@ extension ContentView {
     /// The gate is the workspace and not `layoutMode`: the lens workspaces are single-source too,
     /// and their pane is the 220pt-clamped rail, which has no room for a 180pt column beside it.
     var shortcutFolderSidebar: Binding<Bool>? {
-        guard selectedWorkspace == .browse else { return nil }
+        // `appliesTo`, not `isShowing`: the item is live on Browse with the sidebar switched OFF,
+        // because this item is how it gets switched on.
+        guard FolderSidebarModel.appliesTo(isBrowse: selectedWorkspace == .browse) else { return nil }
         return Binding(get: { browseSidebarVisible }, set: { browseSidebarVisible = $0 })
     }
 

@@ -233,7 +233,7 @@ extension ContentView {
             // answer to a search, and a sidebar that shrank when one opened would read as part of
             // it. This also keeps `browseLayout`'s "one structure whether or not a gather is up"
             // rule intact: the sidebar's presence changes nothing about the VStack beside it.
-            if browseSidebarVisible {
+            if folderSidebarIsShowing {
                 folderSidebar
                 Divider()
             }

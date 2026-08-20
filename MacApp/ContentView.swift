@@ -3045,12 +3045,25 @@ struct ContentView: View {
         // switch (a different root is a different pair of lists), and the store publishing a pin
         // made anywhere else — the pane header's jump menu and the breadcrumb both write to it.
         //
-        // `objectWillChange` fires BEFORE the store mutates, so this hops a run-loop turn; reading
-        // it inline would re-read the lists as they were.
+        // `objectWillChange` fires BEFORE the store mutates, so the handler hops a run-loop turn;
+        // reading inline would re-read the lists as they were.
+        //
+        // **The publisher is handed over bare, and the hop is inside the handler.** Writing it as
+        // `objectWillChange.receive(on: RunLoop.main)` builds a NEW `Publishers.ReceiveOn` value on
+        // every evaluation of this body, and `onReceive` has no way to see it as the same one — so
+        // it tears down and re-subscribes on every render, and an event that lands in the gap is
+        // simply lost. `ObservableObjectPublisher` itself is one stable instance.
         .onAppear { refreshFolderSidebarRows() }
         .onChange(of: leftProviderId) { _, _ in refreshFolderSidebarRows() }
-        .onReceive(FolderJumpStore.shared.objectWillChange.receive(on: RunLoop.main)) { _ in
-            refreshFolderSidebarRows()
+        // **The two the gate makes necessary.** `refreshFolderSidebarRows` now returns early
+        // wherever the column is not on screen — which is right, because it `stat`s a provider root
+        // and the other triggers fire on every workspace. But it also means switching the sidebar
+        // ON, or arriving at Browse, lands on whatever was last resolved: exactly the stale list a
+        // person would read as "my pins are gone". The guard and these two are one change.
+        .onChange(of: browseSidebarVisible) { _, _ in refreshFolderSidebarRows() }
+        .onChange(of: selectedWorkspace) { _, _ in refreshFolderSidebarRows() }
+        .onReceive(FolderJumpStore.shared.objectWillChange) { _ in
+            DispatchQueue.main.async { refreshFolderSidebarRows() }
         }
     }
 

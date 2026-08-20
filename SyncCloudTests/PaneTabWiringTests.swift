@@ -1351,7 +1351,12 @@ import Sync
         #expect(hostFiles.count > 20,
                 "the host walk found \(hostFiles.count) Swift files — it is reading the wrong folder, or the enumerator yielded nothing")
 
-        let wiringFiles = ["ContentView.swift", "ShortcutCommands.swift", "ContentView+PaneSearch.swift"]
+        // `ContentView+FolderSidebar.swift` joined the list in v4.2: the Browse sidebar's ⌘-click
+        // opens a remembered folder in a new tab, which is `openInNewTab` — a verb of this file.
+        // The derivation reads it for exactly the reason it reads the other three; this test is
+        // what noticed, by name, on the first full run after the sidebar landed.
+        let wiringFiles = ["ContentView.swift", "ShortcutCommands.swift", "ContentView+PaneSearch.swift",
+                           "ContentView+FolderSidebar.swift"]
         var derived: Set<String> = []
         for file in hostFiles where file.lastPathComponent != "ContentView+PaneTabs.swift" {
             let code = Self.codeOnly(try String(contentsOf: file, encoding: .utf8))

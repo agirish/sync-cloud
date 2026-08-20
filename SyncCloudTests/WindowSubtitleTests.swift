@@ -145,3 +145,59 @@ import SwiftUI
                 "the composed entry did not follow the title: \(entries())")
     }
 }
+
+
+/// **The wiring, read off `ContentView`'s source.**
+///
+/// The rule and the binder are both tested, and both would stay green if nothing ever *mounted* the
+/// binder — the window would simply keep the scene's bare "SyncCloud" and no assertion anywhere
+/// would notice. That is the same failure `ShortcutCommandsTests` guards against for a deleted
+/// `.focusedSceneValue`: a feature that is fully built, fully tested, and not connected.
+@Suite struct WindowSubtitleWiringTests {
+
+    static func source(_ file: String) throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent(file)
+        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
+                               "cannot read \(file) — this scan would be vacuous")
+        try #require(raw.count > 5000, "\(file) is implausibly short — the scan is vacuous")
+        return raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let comment = line.range(of: "//") else { return line }
+                return line[..<comment.lowerBound]
+            }
+            .joined(separator: "\n")
+    }
+
+    @Test func theBinderIsActuallyMounted() throws {
+        let content = try Self.source("MacApp/ContentView.swift")
+        #expect(content.contains("WindowChromeBinder(subtitle: windowSubtitleText)"),
+                "nothing mounts WindowChromeBinder — the window keeps the scene's bare title and no other test can tell")
+    }
+
+    /// And the name it is handed comes from the rule rather than being assembled at the call site,
+    /// which is where the "⇄ on a lens workspace" bug would live.
+    @Test func theNameComesFromTheRule() throws {
+        let content = try Self.source("MacApp/ContentView.swift")
+        #expect(content.contains("WindowSubtitle.text(mode: layoutMode"),
+                "windowSubtitleText builds the name itself instead of going through WindowSubtitle.text")
+    }
+}
+
+/// **Paste's enablement asks the same question the paste does.**
+///
+/// Both sites used to ask `clipboardNodes.isEmpty`, which was right while the app's list was the
+/// only clipboard and now greys out a paste of files copied in Finder. Neither site is reachable
+/// from a test — one is a `ContentView` property, the other a delegate built from a dozen live
+/// values — so this is a source scan, and it is scoped to the one regression it can actually see:
+/// a site reverting to the in-app-only check.
+@Suite struct PasteEnablementWiringTests {
+
+    @Test(arguments: ["MacApp/ShortcutCommands.swift", "MacApp/PaneActionDelegate.swift"])
+    func bothEnablementSitesGoThroughTheSharedRule(file: String) throws {
+        let source = try WindowSubtitleWiringTests.source(file)
+        #expect(source.contains("ClipboardSource.current("),
+                "\(file) decides Paste's enablement without the rule the paste itself uses")
+    }
+}
