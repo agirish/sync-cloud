@@ -17,7 +17,11 @@ let package = Package(
         .package(path: "../Modules/Sync"),
         .package(path: "../Modules/Settings"),
         .package(path: "../Modules/Events"),
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0")
+        // Pinned `exact:` for the same reason as the four module manifests: nothing in the
+        // dependency graph should float. ArgumentParser has no transitives of its own, and
+        // this package is not in project.yml, so it has only the one resolution — but a
+        // floating requirement is the hazard whether or not a second resolver exists.
+        .package(url: "https://github.com/apple/swift-argument-parser", exact: "1.8.2")
     ],
     targets: [
         // The command orchestration logic (filtering, verify partitioning, collision
