@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Settings
+import Sync
 import SwiftUI
 import Testing
 @testable import SyncCloud
@@ -48,10 +49,30 @@ import Testing
         return manager
     }
 
-    private func sheet(_ settings: SettingsManager, hasFilingProfile: Bool = false) -> SetupSheet {
+    /// A household the size of a real one.
+    ///
+    /// **Seven, from this machine's `people.json`.** The People step draws a row per person, so a
+    /// fixture with an empty roster measures the empty state — which is exactly how the Organize
+    /// tab's fit guard passed for a release while real users scrolled, and it got there the same
+    /// way: by handing the view a nil dependency.
+    static let realisticRoster = ["Abhishek", "Shweta", "Aditi", "Divit", "Muktha", "Girish", "Anuraag"]
+
+    private func roster() throws -> PeopleStore {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-fit-roster-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let store = PeopleStore(directory: dir, profileId: "fit", profile: nil)
+        for name in Self.realisticRoster {
+            store.add(displayName: name, relationship: name == "Abhishek" ? "me" : "family")
+        }
+        return store
+    }
+
+    private func sheet(_ settings: SettingsManager, people: PeopleStore? = nil,
+                       hasFilingProfile: Bool = false) -> SetupSheet {
         SetupSheet(
             settings: settings,
-            peopleStore: nil,
+            peopleStore: people,
             glassHue: .blue,
             glassLevel: .frosted,
             surfaceTint: 0,
@@ -104,6 +125,31 @@ import Testing
         #expect(resolved == SetupSheetMetrics.floorSize)
     }
 
+    /// The footer really is no taller than the height the opening is computed from.
+    ///
+    /// **An unverified constant inside a fit guard makes every assertion that uses it unverified.**
+    /// `contentOpening` subtracts `footerHeight` from the card, so a real footer taller than the
+    /// number means every step measurement in this file is optimistic by the difference — the guard
+    /// would keep passing while a step overflowed on screen.
+    @Test func theFooterFitsTheHeightTheOpeningIsComputedFrom() async throws {
+        let settings = await manager(providerCount: 2)
+        let sheet = sheet(settings)
+        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
+
+        for step in SetupFlow.Step.allCases {
+            let host = NSHostingView(
+                rootView: sheet.footer(step)
+                    .environment(\.appFontScale, 1)
+                    .frame(width: card.width - SetupSheetMetrics.railWidth)
+            )
+            host.layoutSubtreeIfNeeded()
+            let measured = host.fittingSize.height
+            #expect(measured > 0, "the footer measured nothing at all")
+            #expect(measured <= SetupSheetMetrics.footerHeight,
+                    "\(step.displayName)'s footer is \(Int(measured))pt against a \(Int(SetupSheetMetrics.footerHeight))pt budget — every step fit assertion here is optimistic by the difference")
+        }
+    }
+
     // MARK: - The steps
 
     /// Every step fits the opening on the smallest display anyone runs this on.
@@ -115,7 +161,12 @@ import Testing
         #expect(settings.availableProviders.count >= Self.realisticProviderCount,
                 "the fixture discovered no providers — this would measure the empty state")
 
-        let sheet = sheet(settings)
+        let store = try roster()
+        // The People step draws a row per person, so an empty roster measures the empty state.
+        #expect(store.people.count == Self.realisticRoster.count,
+                "the fixture roster is empty — the People step would be measured with nothing in it")
+
+        let sheet = sheet(settings, people: store, hasFilingProfile: true)
         let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
         let opening = SetupSheetMetrics.contentOpening(cardSize: card)
 
@@ -133,7 +184,7 @@ import Testing
     /// this one, and a taller neighbour means the number was chosen against the wrong thing.
     @Test func sourcesIsTheTallestStep() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
-        let sheet = sheet(settings)
+        let sheet = sheet(settings, people: try roster(), hasFilingProfile: true)
         let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
         let opening = SetupSheetMetrics.contentOpening(cardSize: card)
 
@@ -192,6 +243,63 @@ import Testing
                                     "Sources fits at 24 sources — either the card grew a great deal or this measurement stopped seeing the list")
         #expect(overflow > Self.realisticProviderCount,
                 "Sources scrolls at \(overflow) sources, and this Mac has \(Self.realisticProviderCount) — the card is sized under what a real machine holds")
+    }
+
+    /// The People step grows with the household, and the measurement sees it.
+    ///
+    /// **The second positive control, and it is the one the first draft of this file was missing.**
+    /// Every fit assertion is an upper bound, and a step measured with an empty roster satisfies
+    /// one trivially — so "People fits" means nothing until it is shown that People *can* stop
+    /// fitting. This is the same claim `theMeasurementSeesAStepGrow` makes for Sources, on the
+    /// other list in this form that grows with the user's data.
+    @Test func theMeasurementSeesTheRosterGrow() async throws {
+        let settings = await manager(providerCount: 2)
+        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
+        let opening = SetupSheetMetrics.contentOpening(cardSize: card)
+
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-fit-grow-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let store = PeopleStore(directory: dir, profileId: "grow", profile: nil)
+
+        let empty = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
+                           width: opening.width)
+        for name in Self.realisticRoster { store.add(displayName: name) }
+        let full = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
+                          width: opening.width)
+
+        #expect(empty > 0, "the fixture measured nothing at all")
+        #expect(full > empty,
+                "seven people did not make the People step taller (\(Int(empty))pt vs \(Int(full))pt) — this measurement is not seeing the roster")
+    }
+
+    /// Where People stops fitting.
+    ///
+    /// Same shape as `sourcesOutgrowsTheOpeningEventually`, and needed for the same reason: the
+    /// roster is the user's data and no card height can promise to hold it. What can be promised is
+    /// that a real household fits, and that the number where it stops is known.
+    @Test func peopleOutgrowsTheOpeningEventually() async throws {
+        let settings = await manager(providerCount: 2)
+        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
+        let opening = SetupSheetMetrics.contentOpening(cardSize: card)
+
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("setup-fit-people-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let store = PeopleStore(directory: dir, profileId: "many", profile: nil)
+
+        var firstOverflow: Int?
+        for count in 1...40 {
+            store.add(displayName: "Person \(count)")
+            let measured = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
+                                  width: opening.width)
+            if measured > opening.height { firstOverflow = count; break }
+        }
+
+        let overflow = try #require(firstOverflow,
+                                    "People fits 40 members — either the card grew a great deal or this measurement stopped seeing the roster")
+        #expect(overflow > Self.realisticRoster.count,
+                "People scrolls at \(overflow) members, and this household has \(Self.realisticRoster.count) — the card is sized under a real roster")
     }
 
     /// At the largest text size the card grows too, so the steps still have somewhere to go.

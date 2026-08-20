@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SyncCloud
 
@@ -63,6 +64,45 @@ import Testing
                                           hasSeenLegacyWelcome: true, hasFilingProfile: false))
         #expect(!SetupFlow.shouldAutoShow(hasCompletedSetup: false,
                                           hasSeenLegacyWelcome: false, hasFilingProfile: true))
+    }
+
+    // MARK: - Where it opens
+
+    /// A machine that has never been set up gets the introduction.
+    @Test func aFirstRunOpensOnTheWelcomeScreen() {
+        #expect(SetupFlow.initialScreen(hasCompletedSetup: false, hasFilingProfile: false) == .welcome)
+    }
+
+    /// Everything else opens on the rail.
+    ///
+    /// **The welcome screen is addressed to somebody who has never seen the app** — it promises
+    /// “four short questions, then SyncCloud learns your folders”. Showing that to somebody who
+    /// came back through Help ▸ Set Up SyncCloud… to change one answer describes neither what they
+    /// did nor what they are about to do.
+    @Test func aReRunOpensOnTheRail() {
+        #expect(SetupFlow.initialScreen(hasCompletedSetup: true, hasFilingProfile: false) == .step(.you))
+        #expect(SetupFlow.initialScreen(hasCompletedSetup: false, hasFilingProfile: true) == .step(.you))
+        #expect(SetupFlow.initialScreen(hasCompletedSetup: true, hasFilingProfile: true) == .step(.you))
+    }
+
+    /// The two rules read the same facts.
+    ///
+    /// `shouldAutoShow` decides whether the form appears; `initialScreen` decides what it opens on.
+    /// Both are asking “has this machine been through this?”, so a machine the gate would greet is
+    /// exactly the machine that gets the greeting — and any machine it refuses, if it is opened by
+    /// hand, does not.
+    @Test func theOpeningScreenAgreesWithTheShowGate() {
+        for completed in [true, false] {
+            for profile in [true, false] {
+                let greeted = SetupFlow.shouldAutoShow(hasCompletedSetup: completed,
+                                                       hasSeenLegacyWelcome: false,
+                                                       hasFilingProfile: profile)
+                let opensOnWelcome = SetupFlow.initialScreen(hasCompletedSetup: completed,
+                                                             hasFilingProfile: profile) == .welcome
+                #expect(greeted == opensOnWelcome,
+                        "completed=\(completed) profile=\(profile): the gate and the opening screen disagree")
+            }
+        }
     }
 
     // MARK: - Movement
@@ -199,6 +239,101 @@ import Testing
             offender.localizedCaseInsensitiveContains("\($0) workspace")
         }
         #expect(caught, "the matcher no longer catches the phrasing this test exists to ban")
+    }
+
+    // MARK: - Retired vocabulary
+
+    /// The form's copy may not use product words that were retired.
+    ///
+    /// **The Help book has had this guard for a while, and it caught the first draft of this very
+    /// screen.** “Filing” became Organize's To File lens and “tidy” left the product's voice with
+    /// it; both survived in Help long after every other surface was reworded, because nothing
+    /// looked — and setup is the surface *least* likely to be looked at, since it renders once per
+    /// install on a machine nobody developing the app is using.
+    ///
+    /// Scanned over the source rather than over a list of constants because most of this screen's
+    /// copy is written inline in the step bodies, where a constant-only check would see none of it.
+    /// Only string literals count, so a comment explaining the retired word is not a violation, and
+    /// `Logger` lines are exempt: the log names the artifacts by what the code calls them
+    /// (`filing profile`, `filing-memory.json`), and renaming those in a log would make it harder
+    /// to read rather than easier.
+    @Test func noSetupCopyUsesRetiredVocabulary() throws {
+        // A known sentence from each file, so "the extractor works" is a claim about *this* copy
+        // rather than a count that a broken extractor could still satisfy on a big enough file.
+        let canaries = ["MacApp/SetupSheet.swift": "Who are you?",
+                        "MacApp/SetupFlow.swift": "Stays on this Mac"]
+        for (file, canary) in canaries {
+            let url = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent(file)
+            let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                      "cannot read \(file) — this scan would be vacuous")
+            try #require(source.count > 500, "\(file) is implausibly short")
+
+            let literals = Self.userFacingLiterals(in: source)
+            #expect(literals.contains(canary),
+                    "\(file): the extractor did not find “\(canary)”, so this scan is not reading the copy")
+
+            for word in ["tidy", "filing"] {
+                let offenders = literals.filter { $0.localizedCaseInsensitiveContains(word) }
+                #expect(offenders.isEmpty,
+                        "\(file) still says “\(word)” to the user: \(offenders.prefix(3))")
+            }
+        }
+    }
+
+    /// The positive control: the extractor really returns copy, and the matcher really catches the
+    /// banned word in it.
+    ///
+    /// Without this, an extractor that returned nothing — or a `contains` that never matched —
+    /// would let the scan above pass on a screen full of retired vocabulary.
+    @Test func theVocabularyScanCanActuallyFail() {
+        let sample = [
+            "        let a = \"Organize sorts loose files\"",
+            "        // filing is fine in a comment",
+            "        let b = \"your filing conventions\"",
+            "        Logger.shared.info(\"no filing profile yet\")",
+        ].joined(separator: "\n")
+
+        let literals = Self.userFacingLiterals(in: sample)
+        #expect(literals.contains { $0.localizedCaseInsensitiveContains("filing") },
+                "the extractor did not find the offending literal")
+        #expect(!literals.contains { $0.contains("is fine in a comment") },
+                "the extractor is reading comments as copy")
+        #expect(!literals.contains { $0.contains("no filing profile yet") },
+                "Logger lines should be exempt from the product-vocabulary rule")
+    }
+
+    /// String literals on lines that are neither comments nor `Logger` calls.
+    ///
+    /// Deliberately line-based and simple. It cannot see a literal split across lines by `+`
+    /// concatenation as one string — each half is checked on its own, which is enough for a
+    /// word-level ban — and it drops single-word literals, which are overwhelmingly symbol names,
+    /// SF Symbol ids and defaults keys rather than copy.
+    private static func userFacingLiterals(in source: String) -> [String] {
+        var out: [String] = []
+        for rawLine in source.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.hasPrefix("//"), !line.contains("Logger.shared") else { continue }
+            var inside = false
+            var current = ""
+            var escaped = false
+            for character in line {
+                if escaped {
+                    if inside { current.append(character) }
+                    escaped = false
+                    continue
+                }
+                if character == "\\" { escaped = true; continue }
+                if character == "\"" {
+                    if inside { out.append(current); current = "" }
+                    inside.toggle()
+                    continue
+                }
+                if inside { current.append(character) }
+            }
+        }
+        return out.filter { $0.contains(" ") }
     }
 
     // MARK: - The privacy claim

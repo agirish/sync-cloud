@@ -1,5 +1,6 @@
 import AppKit
 import Design
+import Events
 import Settings
 import SwiftUI
 import Sync
@@ -91,7 +92,7 @@ struct SetupSheet: View {
     let onDismiss: () -> Void
 
     @Environment(\.appFontScale) private var fontScale
-    @State private var screen: SetupFlow.Screen = .welcome
+    @State private var screen: SetupFlow.Screen
     @State private var draft = SetupDraft()
     @State private var fullNameField = ""
     @State private var newPersonField = ""
@@ -101,7 +102,46 @@ struct SetupSheet: View {
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw = LiquidGlassHue.blue.rawValue
     @AppStorage(GeneralSettings.notifyOnBackgroundCompletionKey) private var notifyInBackground = false
 
+    /// **The opening screen is resolved here rather than in `onAppear`.** `onAppear` fires after
+    /// the first layout, so a re-run would render the welcome card — “four short questions, then
+    /// SyncCloud learns your folders” — for a frame before replacing it with the rail. Reading the
+    /// completed flag straight from `UserDefaults` is the same store the `@AppStorage` below reads;
+    /// a property wrapper simply cannot be consulted before `self` exists.
+    init(settings: SettingsManager,
+         peopleStore: PeopleStore?,
+         glassHue: LiquidGlassHue,
+         glassLevel: GlassLevel,
+         surfaceTint: Double,
+         availableSize: CGSize,
+         hasFilingProfile: Bool,
+         defaults: UserDefaults = .standard,
+         onOpenSettings: @escaping (SettingsView.SettingsTab) -> Void,
+         onFinish: @escaping () -> Void,
+         onDismiss: @escaping () -> Void) {
+        self.settings = settings
+        self.peopleStore = peopleStore
+        self.glassHue = glassHue
+        self.glassLevel = glassLevel
+        self.surfaceTint = surfaceTint
+        self.availableSize = availableSize
+        self.hasFilingProfile = hasFilingProfile
+        self.onOpenSettings = onOpenSettings
+        self.onFinish = onFinish
+        self.onDismiss = onDismiss
+        _screen = State(initialValue: SetupFlow.initialScreen(
+            hasCompletedSetup: defaults.bool(forKey: SetupFlow.hasCompletedDefaultsKey),
+            hasFilingProfile: hasFilingProfile))
+    }
+
     private var draftURL: URL? { SetupDraftStore.defaultURL() }
+
+    /// What the log calls the current screen.
+    private var screenName: String {
+        switch screen {
+        case .welcome: return "the welcome screen"
+        case .step(let step): return "step \(step.number), \(step.displayName)"
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -123,6 +163,9 @@ struct SetupSheet: View {
             // it then has no source to describe. The first enabled source is the honest default:
             // it is what discovery put at the top, and changing it is one click.
             reconcilePrimary()
+            Logger.shared.info("Setup opened on \(screenName) — "
+                               + "\(settings.availableProviders.count) source(s) discovered, "
+                               + "roster \(peopleStore == nil ? "not writable yet (no profile)" : "available")")
         }
         // Discovery republishes the list on every refresh and every folder added, and the primary
         // may have been in what changed.
@@ -349,7 +392,13 @@ struct SetupSheet: View {
                             + (isDone ? ", done" : isCurrent ? ", current" : ""))
     }
 
-    private func footer(_ step: SetupFlow.Step) -> some View {
+    /// The card's bottom chrome.
+    ///
+    /// **`internal`, so `SetupSheetMetrics.footerHeight` can be checked against it rather than
+    /// trusted.** That constant is subtracted from the card to get the opening every step is
+    /// measured against, so if the real footer is taller than the number, every fit assertion in
+    /// this form is optimistic by the difference — and nothing else would ever say so.
+    func footer(_ step: SetupFlow.Step) -> some View {
         HStack(spacing: 10) {
             if SetupFlow.previous(before: .step(step)) != nil {
                 Button("Back") { retreat() }
@@ -391,10 +440,15 @@ struct SetupSheet: View {
 
             section("Your name") {
                 HStack(spacing: 8) {
+                    // **Not saved per keystroke.** This used to write the whole draft — a JSON
+                    // encode and an atomic file replace, on the main actor — for every character
+                    // typed into it. The draft is written when the step is left, when Return
+                    // commits a field, and when a person is added or removed, which is every point
+                    // at which an answer is actually finished.
                     TextField("First name", text: $draft.yourName)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 180)
-                        .onChange(of: draft.yourName) { _, _ in saveDraft() }
+                        .onSubmit { saveDraft() }
                     Text("is what your folders call you")
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
@@ -488,7 +542,7 @@ struct SetupSheet: View {
             stepHeader("SyncCloud found \(settings.availableProviders.count) "
                        + "place\(settings.availableProviders.count == 1 ? "" : "s") on this Mac",
                        "Turn off the ones you do not use. One of them is primary: the tree "
-                       + "SyncCloud learns your filing conventions from.")
+                       + "SyncCloud learns your folder conventions from.")
 
             if settings.availableProviders.isEmpty {
                 emptyNote("No cloud accounts were found in ~/Library/CloudStorage, and iCloud Drive "
@@ -622,6 +676,15 @@ struct SetupSheet: View {
                             Image(systemName: "person.crop.circle")
                                 .foregroundStyle(.secondary)
                             Text(name).scaledFont(.callout)
+                            // The roster already knows who these people are to the user, and a
+                            // column of bare first names is the one thing this list can be that a
+                            // household is not. Absent for a draft person, who has no relationship
+                            // until they reach a roster.
+                            if let relationship = relationship(of: name) {
+                                Text(relationship)
+                                    .scaledFont(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             Spacer(minLength: 8)
                             Button("Remove") { removePerson(named: name) }
                                 .controlSize(.small)
@@ -663,12 +726,33 @@ struct SetupSheet: View {
     private var rosterNames: [String] {
         if let store = peopleStore {
             let mine = draft.yourName.trimmingCharacters(in: .whitespacesAndNewlines)
-            return store.people.map(\.displayName).filter {
-                mine.isEmpty || $0.compare(mine, options: [.caseInsensitive, .diacriticInsensitive])
-                    != .orderedSame
-            }
+            return store.people
+                // **Two ways to be you, and the second is not redundant.** A roster seeded from the
+                // survey's person axis carries no relationships at all, so on a machine whose
+                // `people.json` has never been hand-edited nothing answers to "me" — and matching
+                // on the draft name alone then listed the user among "everyone else", with a Remove
+                // button beside them. Removing yourself from your own household is not a thing this
+                // step should be able to do.
+                .filter { $0.relationship?.lowercased() != "me" }
+                .map(\.displayName)
+                .filter {
+                    mine.isEmpty || $0.compare(mine, options: [.caseInsensitive, .diacriticInsensitive])
+                        != .orderedSame
+                }
         }
         return draft.others.map(\.displayName)
+    }
+
+    /// What the roster records this person as, when it records anything.
+    private func relationship(of name: String) -> String? {
+        guard let store = peopleStore else { return nil }
+        let match = store.people.first {
+            $0.displayName.compare(name, options: [.caseInsensitive, .diacriticInsensitive])
+                == .orderedSame
+        }
+        guard let relationship = match?.relationship?.trimmingCharacters(in: .whitespaces),
+              !relationship.isEmpty else { return nil }
+        return relationship
     }
 
     private func commitPerson() {
@@ -705,10 +789,10 @@ struct SetupSheet: View {
                        + "Organize propose destinations and better names — and it takes a while.")
 
             if hasFilingProfile {
-                calloutNote("This Mac has already learned a tree, so there is nothing to survey here "
+                privacyNote("This Mac has already learned a tree, so there is nothing to survey here "
                             + "yet. Organize is using it now.", systemImage: "checkmark.circle")
             } else {
-                calloutNote("Learning your folders is not in this build yet. When it lands it will "
+                privacyNote("Learning your folders is not in this build yet. When it lands it will "
                             + "run in the background, pause whenever you are busy, and pick up where "
                             + "it left off — including after you quit. Until then Organize files by "
                             + "folder name, which needs no survey.",
@@ -772,10 +856,19 @@ struct SetupSheet: View {
         }
     }
 
+    /// **Reads the roster where there is one, and the draft only where there is not.**
+    ///
+    /// The step above it says “everything below is already in effect”, so it has to report what is
+    /// in effect. On a machine with a profile that is `people.json` — which may carry name forms
+    /// this run of the form never touched, typed into Settings ▸ People months ago — and reporting
+    /// the draft there would undercount them, or say “no name given” about a household the app is
+    /// actively filing for.
     private var youSummary: String {
-        let name = draft.yourName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let me = peopleStore?.people.first { $0.relationship?.lowercased() == "me" }
+        let name = (me?.displayName ?? draft.yourName)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return "No name given — Organize will file by content alone" }
-        let forms = draft.yourFullNames.count
+        let forms = me?.fullNames.count ?? draft.yourFullNames.count
         return forms == 0 ? "You — \(name)"
             : "You — \(name), with \(forms) full name form\(forms == 1 ? "" : "s")"
     }
@@ -800,7 +893,15 @@ struct SetupSheet: View {
             Image(systemName: symbol).foregroundStyle(.tint).frame(width: 18)
             Text(text).scaledFont(.callout).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
-            Button("Change") { onOpenSettings(tab) }
+            // **Finishing first, and it is not a nicety.** These live on the last step: the user
+            // has been through the whole form and is leaving it to adjust one answer in the surface
+            // that owns it. Reporting only a dismissal would leave `hasCompletedSetup` false, so
+            // the next launch of a machine that has not been surveyed would greet them with the
+            // form all over again — for having read their own summary.
+            Button("Change") {
+                onFinish()
+                onOpenSettings(tab)
+            }
                 .controlSize(.small)
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
@@ -853,10 +954,6 @@ struct SetupSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(Color.secondary.opacity(0.07)))
-    }
-
-    private func calloutNote(_ text: String, systemImage: String) -> some View {
-        privacyNote(text, systemImage: systemImage)
     }
 
     private func emptyNote(_ text: String) -> some View {
@@ -920,6 +1017,9 @@ struct SetupSheet: View {
     private func finish() {
         commitCurrentStep()
         applyDraftIfPossible()
+        Logger.shared.info("Setup finished — \(settings.enabledProviders.count) source(s) enabled, "
+                           + "primary \(primaryProvider?.displayName ?? "none"), "
+                           + "\(rosterNames.count) other person/people on the roster")
         onFinish()
     }
 
@@ -943,8 +1043,14 @@ struct SetupSheet: View {
         }
     }
 
+    /// Writes the draft — but only on a machine that has nowhere better to put the answers.
+    ///
+    /// **With a roster the draft is not a backup, it is a second copy that goes stale.** Those
+    /// answers land in `people.json` the moment the step is left, so writing them here too would
+    /// leave a file that `loadDraft` prefers over the roster on the next open — and it would be the
+    /// older of the two the moment anything was edited in Settings ▸ People.
     private func saveDraft() {
-        guard let url = draftURL else { return }
+        guard peopleStore == nil, let url = draftURL else { return }
         SetupDraftStore.write(draft, to: url)
     }
 
@@ -954,9 +1060,24 @@ struct SetupSheet: View {
     /// machine with no profile; deleting it on the way past the People step would throw away
     /// everything the survey stage is supposed to pick up.
     private func applyDraftIfPossible() {
-        guard let store = peopleStore, !draft.isEmpty else { return }
-        SetupDraft.apply(draft, to: store)
-        if let url = draftURL { SetupDraftStore.clear(at: url) }
+        guard !draft.isEmpty else { return }
+        guard let store = peopleStore else {
+            // **The state stage B has to know about, said once where it can be read back.** There
+            // is no profile on this machine, so there is no `people.json` to write into and the
+            // answers are sitting in `setup-draft.json` waiting for the first survey to mint one.
+            // Nothing else on screen or on disk says so, and "the household I typed in did not
+            // stick" is exactly the report this line answers.
+            Logger.shared.info("Setup: no filing profile yet, so \(draft.everyone.count) roster "
+                               + "answer(s) stay in the setup draft until a survey creates one")
+            return
+        }
+        let result = SetupDraft.apply(draft, to: store)
+        if result.added > 0 || result.updated > 0, let url = draftURL {
+            // **Cleared only when it actually landed.** `apply` is idempotent, so a no-op result on
+            // a re-run is not evidence the draft reached the roster — and clearing on that would
+            // delete the only copy of answers a *failed* apply never wrote.
+            SetupDraftStore.clear(at: url)
+        }
     }
 }
 

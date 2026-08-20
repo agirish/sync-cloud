@@ -91,6 +91,20 @@ enum HelpBook {
 
     static let sections: [Section] = [
         Section(title: "Getting started", topics: [
+            Topic(id: "setup", title: "Set up SyncCloud", systemImage: "checklist", article: Article(
+                intro: "Setup asks for the handful of things SyncCloud cannot work out by looking at your folders: your name as documents print it, which of the places on this Mac you actually use, and who else your documents belong to. It runs itself once on a new install, and Help ▸ Set Up SyncCloud… opens it again any time.",
+                blocks: [
+                    .bullets([
+                        "You — the name your folders use, and the fuller forms a document might print. A full name is matched before any single word, so a shared surname stops making two people out of one document.",
+                        "Sources — everything found in the system's cloud-storage folder, plus any folder you add. Turn off what you don't use, and mark one as primary: that's the tree SyncCloud learns your folder conventions from.",
+                        "People — anyone else whose documents live in your folders. A name left off costs nothing but attribution; those documents are sorted by their content instead.",
+                        "Survey — how much of each source to learn. Folder names are quick; reading inside your documents is what lets Organize propose destinations and better names.",
+                    ]),
+                    .paragraph("Nothing here is locked in. Every answer has a home in Settings — Sources, People and Organize — and setup is a faster way to give them all at once rather than the only way."),
+                    .tip("It all happens on this Mac. The one thing that can reach a third party is Organize's optional Refine pass, which asks Claude about a scan's results, is off until you turn it on in Settings ▸ Intelligence, and never runs on its own."),
+                ],
+                related: ["what-is-synccloud", "choose-folders", "file-loose-items"]
+            )),
             Topic(id: "what-is-synccloud", title: "What is SyncCloud?", systemImage: "sparkles", article: Article(
                 intro: "SyncCloud works on your cloud folders through four workspaces — Browse one provider's files, Compare two folders side by side, Organize what's out of place, and Storage to see where the space goes — without ever removing anything you didn't approve.",
                 blocks: [
@@ -103,7 +117,7 @@ enum HelpBook {
                     ]),
                     .tip("Nothing is copied, moved, or removed until you ask, and every action can be undone with ⌘Z."),
                 ],
-                related: ["browse-workspace", "choose-folders", "scan"]
+                related: ["setup", "browse-workspace", "choose-folders", "scan"]
             )),
             Topic(id: "browse-workspace", title: "Browse your files", systemImage: "folder", article: Article(
                 intro: "Browse is where SyncCloud opens, and it's the plain file browser: one provider's tree at the full width of the window, with nothing proposed and nothing changed. It's where you go to work on files by hand, without a lens's opinion.",

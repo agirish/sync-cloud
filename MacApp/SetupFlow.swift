@@ -116,6 +116,20 @@ enum SetupFlow {
         }
     }
 
+    /// Where the form opens.
+    ///
+    /// **A re-run does not get the welcome screen.** It introduces the app and promises “four short
+    /// questions, then SyncCloud learns your folders” — a sentence addressed to somebody who has
+    /// never seen any of this. Somebody returning from Help ▸ Set Up SyncCloud… is not being
+    /// introduced to anything; for them the rail is a menu of things to change, which is why the
+    /// steps are a rail and not a wizard in the first place.
+    ///
+    /// The test is the same one the auto-show gate asks — has this machine been through it, by the
+    /// form or by other means — so both read the same two facts rather than inventing a third.
+    static func initialScreen(hasCompletedSetup: Bool, hasFilingProfile: Bool) -> Screen {
+        hasCompletedSetup || hasFilingProfile ? .step(.you) : .welcome
+    }
+
     // MARK: - The show gate
 
     /// Whether the form opens itself on launch.
