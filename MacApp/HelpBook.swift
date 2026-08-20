@@ -346,7 +346,7 @@ enum HelpBook {
                 ],
                 related: ["choose-folders", "setup", "appearance"]
             )),
-            Topic(id: "people", title: "Who your documents belong to", systemImage: "person.2", article: Article(
+            Topic(id: "people", title: "People and names", systemImage: "person.2", article: Article(
                 intro: "Settings ▸ People is the household Organize works for. It is a short list of names, and it is what lets the app tell one person's document from another's.",
                 blocks: [
                     .bullets([
@@ -644,6 +644,23 @@ enum HelpCardSize {
     /// getting narrow.
     static let minimum = CGSize(width: 560, height: 400)
 
+    /// The topic rail's width. Fixed, and it does NOT grow with the card — so a title too long for
+    /// it is too long at every card size, which is why `everyTopicTitleFitsTheRail` measures
+    /// against this rather than against whatever the card happens to be.
+    static let sidebarWidth: CGFloat = 220
+
+    /// The width a topic's title has to set in, derived from the row rather than written down
+    /// twice: the rail, less the row's outer 6pt inset a side, its inner 8pt a side, the 18pt
+    /// glyph, and the 9pt between glyph and text.
+    ///
+    /// **A title wider than this wraps; it used to be truncated.** The row set `lineLimit(1)`, so
+    /// anything over the budget lost its tail to an ellipsis — silently, and invisibly to every
+    /// test that reads the copy as data, where the string is whole. "Who your documents belong to"
+    /// shipped that way and read "Who your documents be…" in the rail, and five other titles were
+    /// already over it at Default. `HelpRailFitTests` measures against this so the replacement
+    /// bar — no title needs more than two lines — is about the rail the card really draws.
+    static let sidebarTitleWidth: CGFloat = sidebarWidth - 2 * 6 - 2 * 8 - 18 - 9
+
     /// The defaults keys. Two, rather than one archived `CGSize`, because a width that survives a
     /// height's decoding failure is strictly better than losing both — and `@AppStorage` reads
     /// `Double` natively.
@@ -754,9 +771,6 @@ struct HelpView: View {
     /// a drag that is abandoned mid-flight leaves nothing written, and so the defaults are touched
     /// once per drag rather than once per frame.
     @State private var dragging: CGSize?
-    /// The size the current drag started from. `DragGesture.translation` is cumulative from the
-    /// drag's start, so the rule needs the size at that moment, not the size a frame ago.
-    @State private var dragStart: CGSize?
 
     init(available: CGSize, onClose: @escaping () -> Void) {
         self.available = available
@@ -769,9 +783,20 @@ struct HelpView: View {
     /// The size to draw at: the live drag if there is one, otherwise what was remembered — and
     /// clamped either way, because the window may have been made smaller since, or the stored pair
     /// may have come from a larger display.
-    private var size: CGSize {
-        HelpCardSize.clamped(dragging ?? CGSize(width: storedWidth, height: storedHeight),
-                             within: available)
+    private var size: CGSize { dragging ?? baseSize }
+
+    /// The size with no drag in progress — what is remembered, held to what the window can show.
+    ///
+    /// **This is also every drag's base, which is why no drag-start needs capturing.**
+    /// `DragGesture.translation` is cumulative from the drag's start, and the remembered pair does
+    /// not move until `commitDrag` writes it on release, so this expression is constant for the
+    /// whole gesture. The first version stashed the size on the first `onChanged` instead, in a
+    /// second piece of `@State` that had to be cleared in `commitDrag` — and a gesture that ends
+    /// without `onEnded` (interrupted, cancelled) left both set, so the NEXT drag on that grip
+    /// re-based on the stale start and jumped by the previous drag's delta before following the
+    /// pointer. Deriving the base removes the variable and the failure with it.
+    private var baseSize: CGSize {
+        HelpCardSize.clamped(CGSize(width: storedWidth, height: storedHeight), within: available)
     }
 
     var body: some View {
@@ -780,7 +805,7 @@ struct HelpView: View {
             Divider()
             HStack(spacing: 0) {
                 sidebar
-                    .frame(width: 220)
+                    .frame(width: HelpCardSize.sidebarWidth)
                 Divider()
                 detail
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -863,13 +888,10 @@ struct HelpView: View {
         }
     }
 
-    /// Resolve a drag into a live size. The start size is captured on the first change rather than
-    /// on a separate `onBegan` — `DragGesture` has no such callback, and the first `onChanged`
-    /// carries a translation small enough that reading the size there is the same answer.
+    /// Resolve a drag into a live size, always from ``baseSize`` — see there for why the drag's
+    /// starting size needs no capturing.
     private func apply(_ translation: CGSize, grip: HelpCardGrip) {
-        let start = dragStart ?? size
-        if dragStart == nil { dragStart = start }
-        dragging = HelpCardSize.resized(from: start, by: translation,
+        dragging = HelpCardSize.resized(from: baseSize, by: translation,
                                         grip: grip, within: available)
     }
 
@@ -880,7 +902,6 @@ struct HelpView: View {
             storedHeight = dragging.height
         }
         dragging = nil
-        dragStart = nil
     }
 
     // MARK: Header
@@ -983,7 +1004,15 @@ struct HelpView: View {
                     .foregroundStyle(isSelected ? onAccent : .secondary)
                 Text(topic.title)
                     .foregroundStyle(isSelected ? onAccent : .primary)
-                    .lineLimit(1)
+                    // **No `lineLimit`, matching `SettingsRail.railRow`**, which has never had
+                    // one. The rail is fixed at 220pt and does not widen when the card is
+                    // resized, so a `lineLimit(1)` here does not shorten a long title — it
+                    // TRUNCATES it, silently, and worse the larger the text. Measured: five
+                    // titles were already past the 165pt a row gives them at Default, and
+                    // "Activity Log and troubleshooting" wanted 213pt at Large — on the one
+                    // surface a reader enlarges the type to read. Wrapping costs a taller row
+                    // in a rail that already scrolls; truncating costs the word.
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
             .scaledFont(.callout)

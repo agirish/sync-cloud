@@ -134,9 +134,13 @@ import Testing
     @Test func theCardResolvesItsSizeThroughTheRule() throws {
         let source = try String(contentsOf: macAppDirectory().appendingPathComponent("HelpBook.swift"),
                                 encoding: .utf8)
-        let body = try declarationBody(of: "private var size: CGSize", in: source)
+        let body = try declarationBody(of: "private var baseSize: CGSize", in: source)
         #expect(body.contains("HelpCardSize.clamped"),
                 "the card no longer resolves its size through the clamp")
+        // And the drag has no second source of truth for where it started — the defect the
+        // derived base replaced was a captured start that outlived an interrupted gesture.
+        #expect(!source.contains("dragStart"),
+                "a drag-start is being captured again; base every drag on baseSize instead")
         let drag = try declarationBody(of: "private func apply(", in: source)
         #expect(drag.contains("HelpCardSize.resized"),
                 "the drag no longer goes through the resize rule")
