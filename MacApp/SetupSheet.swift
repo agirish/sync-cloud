@@ -902,8 +902,9 @@ struct SetupSheet: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return "No name given — Organize will file by content alone" }
         let forms = me?.fullNames.count ?? draft.yourFullNames.count
-        return forms == 0 ? "You — \(name)"
+        let base = forms == 0 ? "You — \(name)"
             : "You — \(name), with \(forms) full name form\(forms == 1 ? "" : "s")"
+        return peopleStore == nil ? "\(base) — \(SetupFlow.heldUntilSurveyed)" : base
     }
 
     private var sourcesSummary: String {
@@ -915,7 +916,10 @@ struct SetupSheet: View {
     }
 
     private var peopleSummary: String {
-        SetupFlow.peopleSummary(otherCount: rosterNames.count, rosterIsReadOnly: rosterIsReadOnly)
+        let summary = SetupFlow.peopleSummary(otherCount: rosterNames.count,
+                                              rosterIsReadOnly: rosterIsReadOnly)
+        guard peopleStore == nil, !rosterNames.isEmpty else { return summary }
+        return "\(summary) — \(SetupFlow.heldUntilSurveyed)"
     }
 
     private func summaryRow(_ symbol: String, _ text: String,

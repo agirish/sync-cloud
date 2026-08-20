@@ -215,6 +215,15 @@ enum SetupFlow {
         return otherCount == 0 ? "Nobody else on the list yet" : "\(others) in your household"
     }
 
+    /// What the Done step says about the answers that have nowhere to land yet.
+    ///
+    /// **On a machine with no folder profile there is no `people.json` to write into**, so the You
+    /// and People answers sit in `setup-draft.json` until a survey mints one. The Done step's
+    /// heading is "everything below is already in effect", and for those two rows on that machine
+    /// it is not — the answers are kept, and they start working when SyncCloud has learned a tree.
+    /// Saying so is the difference between a promise and a lie about the most common case there is.
+    static let heldUntilSurveyed = "kept, and applied once SyncCloud learns a folder tree"
+
     /// The one-line privacy claim, said on the welcome screen and echoed in the footer of every
     /// step.
     ///
