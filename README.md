@@ -186,8 +186,8 @@ SyncCloud/
 
 ## Continuous integration
 
-The seven SPM package test suites and the app-target build run on every push to `main` or
-`v2.x` and on every `v*` release tag, via a self-hosted GitHub Actions runner — see
+The seven SPM package test suites and the app-target build run on every push to `main`, `v3.x`
+or `v2.x` and on every `v*` release tag, via a self-hosted GitHub Actions runner — see
 [`docs/ci.md`](docs/ci.md).
 
 ## Performance notes
