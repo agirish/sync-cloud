@@ -17,6 +17,20 @@ pegged near 100%? **Nothing below applies.** Go to
 [mechanism 8](flaky-tests.md#8-the-wait-that-hangs-instead-of-failing); `sample <pid>` is the only
 truth, because neither the log nor a live pid will say which test is stuck.
 
+And the other half of the same question — **a verdict, but no test named**. Exit 65,
+`** TEST FAILED **`, every package suite green, and **no `Test run with N tests` line anywhere in
+the app-target step**? Then no test ran there either: the *build* failed, and only the reporting
+makes it look like a test did. **Nothing below applies**, `gh run rerun --failed` will not clear
+it, and the commit in front of you is almost certainly not the cause. Go to
+[mechanism 13](flaky-tests.md#13-the-build-failed-before-any-test-ran).
+
+```bash
+gh run view <run-id> --log | grep 'Test run with' || echo 'NO TEST-COUNT LINE — nothing ran'
+```
+
+Use that form rather than `grep -c`, which **exits 1 when the count is zero** and so reads as a
+failed command instead of an answer.
+
 ## 1. Match the signature
 
 Read down until one fits. The first four are decided by the *shape* of the failure and need no

@@ -15,6 +15,10 @@ it links back to each section below. Come here once you know which one you have 
 about to write an assertion that something did *not* happen, in which case read mechanism 12 and the
 three beside it in [the silent half](flaky-triage.md#the-silent-half--read-before-writing-any-absence-assertion).
 
+**Mechanism 13 is not a flake**, and is filed here anyway because this is where you will look: it
+is a *build* failure that reports itself as exit 65 and `** TEST FAILED **`, exactly like a red
+suite. Its tell is an absence — no `Test run with N tests` line.
+
 See [ci.md](ci.md) for what CI runs and the runner's own quirks.
 
 ---
@@ -1353,6 +1357,108 @@ and a commit on `v2.x` already refers to that line's entry by this one's number.
 **See.** `f87d9e11` — *Account for a rollback and a widening the log could not explain* (where it was
 first measured); `flushPendingEntries()` in `Modules/Events/Sources/Events/Logger.swift` for the cap
 itself.
+
+### 13. The build failed before any test ran
+
+**This is the one entry here that is not a flake**, and it is in the file because at a glance
+nothing distinguishes it from one. Every other mechanism is a test that failed for a reason outside
+the code under test. This is a build that never produced a test at all — and it reports itself with
+exit 65 and `** TEST FAILED **`, the same as a red suite.
+
+**Symptom.** The app-target step (`App-target tests (xcodegen + xcodebuild)`) fails; all seven
+package suites pass in the same run. The step's output contains no test names, no failures, and no
+summary:
+
+```
+error: Could not compute dependency graph: unable to load transferred PIF:
+PIFLoader: GUID 'PRODUCTREF-PACKAGE-PRODUCT:IssueReporting-2041EB56849B4D1-dynamic'
+has already been registered
+Testing cancelled because the build failed.
+** TEST FAILED **
+```
+
+**The tell is an absence: no `Test run with N tests` line.** A regression names a test. A flake
+names a test. This names none, because there were none to name. It is the first thing to check on
+any red, and it costs one command:
+
+```bash
+gh run view <run-id> --log | grep 'Test run with' || echo 'NO TEST-COUNT LINE — nothing ran'
+```
+
+Use that form rather than `grep -c`, which **exits 1 when the count is zero** and will read as a
+failed command instead of an answer.
+
+**Mechanism** (2026-08-20). The four module manifests that need a snapshot-testing net declared it
+floating — `.package(url: ".../swift-snapshot-testing", from: "1.18.0")` — and SnapshotTesting
+floats every one of its own dependencies in turn:
+
+```
+Modules/{Dashboard,Design,FileExplorer,Settings}
+  → swift-snapshot-testing   from: "1.18.0"
+    → swift-custom-dump      from: "1.3.3"
+      → xctest-dynamic-overlay  from: "1.2.2"
+```
+
+The SPM side of that was pinned by committing `Modules/*/Package.resolved`. **The Xcode workspace
+keeps a second, separate resolution** at
+`SyncCloud.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`, and
+`SyncCloud.xcodeproj/` is gitignored (`.gitignore:45`) — so that pin never covered it, and it
+re-resolved freely. The app-target build loads the four local packages *and* the workspace's own
+resolution. On 2026-08-20 they disagreed:
+
+| package | `Modules/*/Package.resolved` (tracked) | workspace resolution (gitignored) |
+|---|---|---|
+| swift-snapshot-testing | 1.19.4 | 1.19.4 |
+| swift-custom-dump | 1.6.1 | 1.7.0 |
+| xctest-dynamic-overlay | 1.11.0 | **1.12.0** |
+| swift-issue-reporting | absent | **2.1.0** |
+
+`xctest-dynamic-overlay` 1.12.0 moved the `IssueReporting` product out into the separately-named
+repo `swift-issue-reporting`. The drifted workspace took **both** packages, and both vend a product
+called `IssueReporting`. Two packages, one product GUID, PIF load fails — before a single file is
+compiled.
+
+**Three things made this expensive to diagnose, and each is worth knowing on its own.**
+
+- **`gh run rerun --failed` does not clear it.** The stale resolution lives in the runner's
+  checkout, not in the run. Re-running replays it.
+- **A local `xcodebuild test` passed throughout.** The primary checkout's workspace resolution was
+  dated 16 July and had simply never re-resolved — it still held snapshot-testing 1.19.3, older than
+  the tracked pin. **A local green here proves your workspace file is old, and nothing else.** Any
+  checkout that re-resolves, including a brand-new worktree, is exposed.
+- **The upstream tag was withdrawn while this was being investigated.** `git ls-remote` on
+  `xctest-dynamic-overlay` came back with a maximum tag of **1.11.0** — no 1.12.0 anywhere — while
+  the runner's package cache still held it, with the revision recorded for "1.12.0" being that
+  repo's current `HEAD`. So the failure could not be reproduced from the network at all, only from
+  that cache; and once CI wiped `.dd`, not even from there. **A red that stops reproducing has not
+  necessarily been fixed.** An upstream tag being pulled cures the symptom and leaves the cause — a
+  floating requirement — exactly where it was.
+
+**The fix.** Every external package is pinned `exact:` in all four manifests, transitives named
+explicitly so that they are pinned too. Two things about that shape are load-bearing:
+
+- **A root-level requirement is the only thing that constrains a transitive.** `exact:` on
+  swift-snapshot-testing alone leaves custom-dump and the overlay free to move, which is what
+  floated in the first place. The transitives are declared even though no target uses them; that is
+  the whole point of declaring them.
+- **`Modules/*/Package.resolved` is not a substitute, because the Xcode workspace does not read
+  it.** Pinning in the manifest constrains both resolutions, since both start from these manifests.
+
+Bump the four together, and re-run the app target — not just the package suites — after any change
+to them. `SyncCloudCLI` was pinned in the same pass, though it is a different case: it is not in
+`project.yml`, so it has only one resolution and its lockfile was already authoritative. Nothing in
+the graph floats now, which is the invariant worth keeping — the second resolver is what made this
+one expensive, not what made it possible.
+
+**If it recurs, clear the runner's stale state; it is not in the run.**
+
+```bash
+R=~/actions-runner-synccloud-x64/_work/sync-cloud/sync-cloud
+rm -rf "$R/SyncCloud.xcodeproj" "$R/.dd"
+```
+
+Then confirm the app-target step reports a real `Test run with N tests` line, rather than trusting
+the green tick.
 
 ---
 
