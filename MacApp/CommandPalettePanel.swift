@@ -328,10 +328,17 @@ final class CommandPalettePanelController: ObservableObject {
 
     /// Raises the palette over `host`.
     ///
-    /// - Parameter onDismiss: called for every way it can close — resigning key, a click in another
-    ///   of this app's windows, esc, the scrim, running a route, or ⌘K again — so the caller has
-    ///   exactly one place to put "it is closed now". A second path that skipped this is how a
-    ///   chord-suspension flag gets stuck on.
+    /// - Parameter onDismiss: called for every way it can close — resigning key, a click anywhere
+    ///   outside the palette's surface, esc from the field editor, and running a route — so the
+    ///   caller has exactly one place to put "it is closed now". A second path that skipped this is
+    ///   how a chord-suspension flag gets stuck on.
+    ///
+    ///   **Two entries on that list are gone and it went on naming them.** *The scrim* was deleted
+    ///   with the dim (`963faf4b`), and its absence is the reason the mouse monitor is now the whole
+    ///   of click-away; *⌘K again* stopped closing the palette on 2026-08-18, when the chord became
+    ///   "select what is in the field" and the local monitor behind it was removed. Both facts are
+    ///   written out at length elsewhere in this file, which is what made a stale list here easy to
+    ///   miss: every other paragraph was correct.
     func present(over host: NSWindow,
                  state: CommandPaletteState,
                  accent: Color,

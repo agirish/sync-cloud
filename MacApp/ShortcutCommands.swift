@@ -718,9 +718,14 @@ extension ContentView {
             //
             // **⌘K is suspended with the rest, not exempt from it.** An earlier version of this note
             // said ⌘K "stays live (its own focused value) so the toggle can close it"; `a1c96082`
-            // moved ⌘K into this publisher and that stopped being true. Closing the palette is the
-            // panel's own keyDown monitor's job (`CommandPalettePanel.present`), not the menu
-            // item's — the item is disabled for exactly as long as the palette is up.
+            // moved ⌘K into this publisher and that stopped being true. Closing the palette is not
+            // the menu item's job — the item is disabled for exactly as long as the palette is up.
+            //
+            // **Escape is what closes it, from the field editor**, not from a monitor: the Go-to
+            // field's `cancelOperation:` calls `palettePanel.dismiss()` (`GoToFieldBar`). The panel
+            // DID carry a keyDown monitor, and this note went on naming it after `7e8fff03` removed
+            // it — §7 moved the field into the toolbar, so the host keeps key and the field editor
+            // sees the key first. The panel's remaining monitor watches the mouse only.
             //
             // Suspending the *publication* is not the same as suspending the *act*:
             // `toggleCommandPalette` carries its own `pendingDestination` guard, because the toolbar
