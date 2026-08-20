@@ -1,4 +1,5 @@
 @testable import SyncCloud
+import Sync
 import Testing
 import AppKit
 
@@ -170,5 +171,90 @@ import AppKit
                 == OrganizeVerbAvailability.Answer(organizeFolder: false, findDuplicates: false,
                                                    fixName: false, keepName: false),
                 "a selection of \(count) offered a verb")
+    }
+}
+
+/// The Edit menu's file verbs, and the one property that must not be "tidied".
+@MainActor
+@Suite struct EditMenuTests {
+
+    static func edit() throws -> NSMenu {
+        try #require(NSApp.mainMenu?.items.first { $0.title == "Edit" }?.submenu,
+                     "no Edit menu — this check would be vacuous")
+    }
+
+    static func item(_ title: String) throws -> NSMenuItem {
+        try #require(try Self.edit().items.first { $0.title == title }, "Edit has no \(title)")
+    }
+
+    @Test(arguments: [("Select All", "a"), ("Cut", "x"), ("Copy", "c"), ("Paste", "v")])
+    func eachFileVerbIsPresentWithItsChord(spec: (title: String, key: String)) throws {
+        let item = try Self.item(spec.title)
+        #expect(item.keyEquivalent == spec.key)
+        #expect(item.keyEquivalentModifierMask == .command)
+    }
+
+    /// **None of the four may be disabled, and this is the guard on that.**
+    ///
+    /// A menu item cannot know where the caret is when it renders, so disabling Copy when no files
+    /// are selected would grey it out while somebody is typing in the ⌘K field — and `.disabled()`
+    /// on a SwiftUI menu item is static per render, not a validator that could ask. The items stay
+    /// live and `TextEditingChord.route` picks the meaning at fire time.
+    ///
+    /// The test host has no selection and no caret, which is precisely the state that would tempt
+    /// someone to disable them.
+    @Test(arguments: ["Select All", "Cut", "Copy", "Paste"])
+    func theEditItemsAreNeverDisabled(title: String) throws {
+        #expect(try Self.item(title).isEnabled,
+                "\(title) is disabled — that kills the chord in every text field too")
+    }
+
+    /// Exactly one item claims each of the four chords. Two would leave one dead and AppKit picks.
+    @Test func noChordIsClaimedTwiceInEdit() throws {
+        let chords = try Self.edit().items
+            .filter { !$0.keyEquivalent.isEmpty && $0.keyEquivalentModifierMask == .command }
+            .map(\.keyEquivalent)
+        for key in ["a", "x", "c", "v"] {
+            #expect(chords.filter { $0 == key }.count == 1,
+                    "⌘\(key.uppercased()) is claimed \(chords.filter { $0 == key }.count) times in Edit")
+        }
+    }
+}
+
+/// Which section the Organize menu ticks.
+@Suite struct OrganizeTickTests {
+
+    /// In Organize, the stored section is the one showing.
+    @Test func inOrganizeTheStoredSectionIsTicked() {
+        #expect(OrganizeLensSwitch.tick(workspace: .filing, stored: .duplicates) == .duplicates)
+        #expect(OrganizeLensSwitch.tick(workspace: .filing, stored: nil) == nil,
+                "the overview is not a section and ticks nothing")
+    }
+
+    /// **Outside Organize nothing is ticked**, because nothing is showing. The stored key survives
+    /// leaving — that is what makes ⌘3 return you where you were — so ticking it from Browse would
+    /// be the menu claiming a section is on screen while the window shows a file tree.
+    @Test(arguments: [Workspace.browse, .compare, .storage])
+    func outsideOrganizeNothingIsTicked(workspace: Workspace) {
+        #expect(OrganizeLensSwitch.tick(workspace: workspace, stored: .duplicates) == nil,
+                "\(workspace) ticked a section it is not showing")
+    }
+}
+
+/// Whether ⌘A means the pane.
+@Suite struct SelectAllScopeTests {
+
+    /// The ordinary case, and the one a fresh window is in.
+    @Test(arguments: [SelectionSurface.pane, nil])
+    func thePaneOrNothingMeansThePane(surface: SelectionSurface?) {
+        #expect(SelectAllScope.appliesToPane(surface: surface))
+    }
+
+    /// **A differences selection withholds it.** ⌘A is registered app-wide as a menu equivalent, so
+    /// without this it fires in a Compare window whose selection lives in the Differences table and
+    /// selects the whole pane instead — re-aiming ⌘⌫ and the transfer verbs at rows the user was not
+    /// looking at. The table has no select-all of its own, so nothing that worked stops working.
+    @Test func aDifferencesSelectionWithholdsIt() {
+        #expect(!SelectAllScope.appliesToPane(surface: .differences))
     }
 }

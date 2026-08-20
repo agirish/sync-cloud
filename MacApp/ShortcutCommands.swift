@@ -32,10 +32,22 @@ import Sync
 /// scope against the wrong tree. The closure routes through the same call ⌘K's Organize rows use,
 /// so there is one way to aim Organize rather than two.
 struct OrganizeLensSwitch {
-    /// The section showing now — `nil` is the overview — for the checkmark.
+    /// The section showing now — `nil` is the overview, or any workspace that is not Organize — for
+    /// the checkmark.
     let current: OrganizeLens?
     /// Selects a section, switching to Organize if the window is elsewhere.
     let select: (OrganizeLens) -> Void
+
+    /// **Which section the menu ticks — nothing, unless Organize is the workspace on screen.**
+    ///
+    /// The stored key survives leaving Organize, which is what makes ⌘3 return you where you were.
+    /// Ticking it from Browse would be a checkmark claiming a section is showing when the window is
+    /// displaying something else entirely — the menu asserting a state the user can see is false.
+    /// Selecting a section from elsewhere still works and still switches workspace; only the
+    /// *claim* is withheld.
+    static func tick(workspace: Workspace, stored: OrganizeLens?) -> OrganizeLens? {
+        workspace == .filing ? stored : nil
+    }
 }
 
 /// File ▸ the four verbs Organize offers on a row, aimed at the pane selection instead.
@@ -54,6 +66,25 @@ struct OrganizeVerbs {
     /// explains *why* is on the row, and a menu item cannot show it.
     let fixName: (() -> Void)?
     let keepName: (() -> Void)?
+}
+
+/// Whether ⌘A means the focused pane's rows.
+///
+/// **The differences table can own the selection, and then it does not.** Registering ⌘A on a menu
+/// item took the chord app-wide, so it fires wherever the user is standing — including a Compare
+/// window whose selection lives in the Differences table. Selecting the whole pane there changes a
+/// selection the user was not looking at, and the pane's selection is what `⌘⌫` and the transfer
+/// verbs then act on: a chord meaning "select what I am working in" would have quietly re-aimed
+/// the destructive ones at something else.
+///
+/// The table has no select-all of its own, so withholding costs nothing that existed — and a
+/// disabled item does not consume its key equivalent, so `⌘A` still reaches a text field's own
+/// select-all underneath. This is the rule the transfer chords already follow
+/// (`DifferencesShortcutRules.transferAvailable`), applied to the one chord that was missing it.
+enum SelectAllScope {
+    static func appliesToPane(surface: SelectionSurface?) -> Bool {
+        surface != .differences
+    }
 }
 
 /// Which of the four verbs a selection offers, as a pure rule.
@@ -691,6 +722,7 @@ extension ContentView {
     /// Columns resolves through the deepest open column, the same target `beginNewFolder` uses, so
     /// ⌘A and ⇧⌘N cannot disagree about which folder the pane is "in".
     var shortcutSelectAll: (() -> Void)? {
+        guard SelectAllScope.appliesToPane(surface: syncManager.lastSelectionSurface) else { return nil }
         let isLeft = shortcutTargetIsLeft
         let pane = paneContext(isLeft: isLeft)
         let ids: [String]
@@ -701,6 +733,11 @@ extension ContentView {
                                : syncManager.rightChildrenIndex(treeRoot: pane.currentPath)
             ids = (index.children(atPath: directory) ?? []).map(\.id)
         } else {
+            // **Top-level rows only, and this is not an oversight.** A Tree pane draws a hierarchy,
+            // so "everything visible" would include the children of every expanded folder — and
+            // selecting a folder *and* its contents is a transfer that copies both, once as the
+            // folder and again as its parts. Selecting the roots already covers everything beneath
+            // them, because every verb here treats a folder as its contents.
             ids = pane.tree.nodes.map(\.id)
         }
         // Empty folder: withheld, so ⌘A disables rather than clearing the selection you had.
@@ -716,6 +753,18 @@ extension ContentView {
     /// Cut and Copy read the selection at FIRE time rather than capturing it, for the reason
     /// `shortcutDeleteSelection` records: a menu held open is not re-armed by a republish, so a
     /// captured array can name rows a background sync has since replaced.
+    /// Edit ▸ Cut / Copy / Paste, over the app's internal clipboard.
+    ///
+    /// **The source and the destination are resolved by different rules, and that is what makes
+    /// cut-and-paste a cross-pane move.** Cut and Copy take `activeSelectionNodes` — wherever the
+    /// selection *is*. Paste targets `shortcutTargetIsLeft` — wherever focus *is*. They agree until
+    /// ⌃⇥ moves focus without moving the selection, and then they are exactly what is wanted:
+    /// select on the left, ⌃⇥, paste on the right. Making them one rule would break that.
+    ///
+    /// Cut and Copy read the selection at FIRE time, matching `DeleteSelectionCommand`'s rule that
+    /// a menu held open is not re-armed by a republish. The paste destination is captured at
+    /// publish time instead, which is safe for the one reason worth stating: a pane's directory
+    /// only changes by navigating, and the menu being open is what stops that happening.
     var shortcutClipboard: ClipboardActions {
         let isLeft = shortcutTargetIsLeft
         let hasSelection = !activeSelectionNodes.isEmpty
@@ -733,9 +782,10 @@ extension ContentView {
                  : { actionHandler?.pasteClipboard(toPath: destination) })
     }
 
-    /// View ▸ Organize ▸ … — routed through `aimOrganize`, never by writing the stored key.
+    /// The Organize menu's sections — routed through `aimOrganize`, never by writing the stored key.
     var shortcutOrganizeLens: OrganizeLensSwitch {
-        OrganizeLensSwitch(current: selectedOrganizeLens) { section in
+        OrganizeLensSwitch(current: OrganizeLensSwitch.tick(workspace: selectedWorkspace,
+                                                           stored: selectedOrganizeLens)) { section in
             // `scope: nil` leaves whatever Organize is aimed at alone: this item chooses a
             // section, it does not re-aim the lens at a folder the way ⌘K's "organize legal" does.
             aimOrganize(lens: section, scope: nil)
@@ -753,14 +803,17 @@ extension ContentView {
         // directly: these four verbs live on `PaneActionDelegate`, which is what decides a risky
         // name and what the row menu routes through. Building the same value here is what keeps a
         // menu item and a right-click doing one thing rather than two similar things.
+        // Read ONCE. `activeSelectionNodes` resolves every selected path through the manager's
+        // index on each access, and the first cut evaluated it three times to answer one question.
+        let selection = activeSelectionNodes
         guard actionHandler != nil,
               let pane = activePane,
-              activeSelectionNodes.count == 1,
-              let node = activeSelectionNodes.first else {
+              selection.count == 1,
+              let node = selection.first else {
             return OrganizeVerbs(organizeFolder: nil, findDuplicates: nil, fixName: nil, keepName: nil)
         }
         let delegate = paneActionDelegate(for: paneContext(isLeft: pane == .left))
-        let can = OrganizeVerbAvailability.resolve(selectionCount: activeSelectionNodes.count,
+        let can = OrganizeVerbAvailability.resolve(selectionCount: selection.count,
                                                    isDirectory: node.isDirectory,
                                                    isRisky: delegate.riskyName(for: node) != nil)
         return OrganizeVerbs(
@@ -922,12 +975,6 @@ struct NewFolderCommand: View {
 struct DeleteSelectionCommand: View {
     @FocusedValue(\.deleteSelection) private var delete
 
-    /// Kept as a forwarding alias: the rule moved to ``TextEditingChord`` when four more chords
-    /// needed it, and this name is what `AppChordRoutingTests` and the ⌘⌫ account referred to.
-    static func chordBelongsToTextEditor(_ responder: NSResponder?) -> Bool {
-        TextEditingChord.belongsToTextEditor(responder)
-    }
-
     var body: some View {
         // Ellipsis: the action confirms before touching anything (`NativeAlerts.confirmDelete`).
         Button("Delete Selection…") {
@@ -989,6 +1036,17 @@ struct SelectAllCommand: View {
 /// **⌘X then ⌘V is move-here.** The clipboard carries `isCut`, so Finder's ⌥⌘V has nothing left to
 /// do — which is fortunate, because it could not be registered anyway: no chord in this app may
 /// contain ⌥ (`AppChordTests.noChordContainsOption`).
+/// **None of the three is ever `.disabled`, and that is deliberate rather than an oversight.**
+///
+/// A menu item cannot know where the caret is when it renders. Disabling Copy whenever no *files*
+/// are selected would grey it out while someone is typing in the ⌘K field or a rename box — the
+/// item would read as unavailable at the exact moment it is doing its most ordinary job. So the
+/// items stay live and `TextEditingChord.route` decides at fire time which of the two meanings
+/// applies.
+///
+/// The cost is accepted, not overlooked: with no caret and no selection, Paste is an enabled item
+/// that does nothing. `theEditItemsAreNeverDisabled` pins the property so this is not "fixed" into
+/// a regression that kills ⌘C in every text field the moment a pane has no selection.
 struct CutCommand: View {
     @FocusedValue(\.clipboardActions) private var clipboard
 
@@ -1192,6 +1250,10 @@ struct OrganizeVerbCommands: View {
             .disabled(verbs?.organizeFolder == nil)
         Button("Find Duplicates of This") { verbs?.findDuplicates?() }
             .disabled(verbs?.findDuplicates == nil)
+        // The two name verbs are a different act from the two above — those ask Organize a question
+        // about a folder, these repair or bless a name — and unlike them they are available only
+        // for a name the app would rewrite, so they are usually the greyed half of this menu.
+        Divider()
         Button("Fix Name…") { verbs?.fixName?() }
             .disabled(verbs?.fixName == nil)
         Button("Always Allow This Name") { verbs?.keepName?() }
@@ -1280,22 +1342,23 @@ struct TransferCommands: View {
         ForEach(Self.items, id: \.self) { item in
             let chord = AppChord.transfer(toRight: item.toRight, isMove: item.isMove)
             Button(Self.title(item, transfer)) {
-                // The same routing every colliding chord in this file uses. ⌘← and ⌘→ are
-                // NSText's move-to-beginning/end-of-line, and a menu key equivalent outranks the
-                // field editor — so with rows selected and the caret in the differences search,
-                // ⌘→ would transfer files instead of moving the cursor. This is the objection the
-                // old `.onKeyPress` scoping existed to avoid, answered rather than dodged.
-                if DeleteSelectionCommand.chordBelongsToTextEditor(NSApp.keyWindow?.firstResponder) {
-                    let editor = NSApp.keyWindow?.firstResponder as? NSTextView
-                    if item.isMove {
-                        item.toRight ? editor?.moveToEndOfLineAndModifySelection(nil)
-                                     : editor?.moveToBeginningOfLineAndModifySelection(nil)
-                    } else {
-                        item.toRight ? editor?.moveToEndOfLine(nil) : editor?.moveToBeginningOfLine(nil)
-                    }
-                } else {
-                    transfer?.run(item.toRight ? .copyToRight : .copyToLeft, item.isMove)
-                }
+                // ⌘← and ⌘→ are NSText's move-to-beginning/end-of-line, and a menu key equivalent
+                // outranks the field editor — so with rows selected and the caret in the
+                // differences search, ⌘→ would transfer files instead of moving the cursor. This
+                // is the objection the old `.onKeyPress` scoping existed to avoid, answered rather
+                // than dodged. Through `TextEditingChord.route` like the other five colliding
+                // chords: it reads the first responder ONCE, where the hand-rolled branch this
+                // replaces read it twice and could in principle answer two different questions.
+                TextEditingChord.route(
+                    editorAction: { editor in
+                        switch (item.toRight, item.isMove) {
+                        case (true, false):  editor.moveToEndOfLine(nil)
+                        case (false, false): editor.moveToBeginningOfLine(nil)
+                        case (true, true):   editor.moveToEndOfLineAndModifySelection(nil)
+                        case (false, true):  editor.moveToBeginningOfLineAndModifySelection(nil)
+                        }
+                    },
+                    fileAction: { transfer?.run(item.toRight ? .copyToRight : .copyToLeft, item.isMove) })
             }
             .keyboardShortcut(chord.key, modifiers: chord.modifiers)
             .disabled(transfer == nil)

@@ -1,7 +1,7 @@
 import Design
 import SwiftUI
 
-/// The static keyboard/mouse shortcut listing behind Help → Keyboard Shortcuts (⌘/).
+/// The static keyboard/mouse shortcut listing behind Window ▸ Keyboard Shortcuts (⌘/).
 /// Pure data, pinned by SyncCloudTests so the reference can't silently drift from reality —
 /// when a shortcut is added or changed, update this list and the pin test together.
 enum ShortcutsReference {
@@ -102,8 +102,6 @@ enum ShortcutsReference {
             Item(keys: "⌘ → / ⌘ ←", action: "Copy the selected differences to the right / left pane"),
             Item(keys: "⇧⌘ → / ⇧⌘ ←", action: "Move the selected differences to the right / left pane"),
             Item(keys: "⇧⌘ R", action: "Step through each difference (Review)"),
-            Item(keys: "⌘ ← / ⌘ →", action: "Copy the differences selection to the left or right pane"),
-            Item(keys: "⇧⌘ ← / ⇧⌘ →", action: "Move it instead of copying"),
             Item(keys: "⇧⌘ V", action: "Verify date-only differences by checksum"),
             Item(keys: "⌘ D", action: "Show or hide the differences list"),
             Item(keys: "⇧⌘ F", action: "Collapse or expand all folders"),

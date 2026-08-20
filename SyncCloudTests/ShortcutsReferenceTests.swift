@@ -44,6 +44,28 @@ import Design
     /// on the whole string made the check strictly weaker than the hand-typed list it replaced:
     /// `⌘F` is a substring of the Differences row's `⇧⌘ F`, and `⌘R` of `⇧⌘ R`, so **deleting the
     /// ⌘F or ⌘R row passed**. That is the one failure this test exists to catch.
+    /// **No chord is described by two rows in one group.**
+    ///
+    /// `testActionsAreUniqueWithinEachGroup` compares the *prose*, and that is not the same
+    /// property: the four transfer chords were once listed twice in Differences — once as
+    /// "⌘ → / ⌘ ←" and once as "⌘ ← / ⌘ →", with different wording and in the opposite order — and
+    /// every existing check passed. `testEveryRegisteredChordHasAReferenceRow` cannot see it either,
+    /// because it asks whether a chord has *a* row, not how many.
+    ///
+    /// Split on "/" so a row listing a pair is read as the pair it is; a range written with "–"
+    /// (the workspace digits) stays one token, which is what it means.
+    @Test func testNoChordIsListedTwiceWithinAGroup() {
+        for group in ShortcutsReference.groups {
+            let chords = group.items
+                .flatMap { $0.keys.components(separatedBy: "/") }
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let repeated = Set(chords.filter { chord in chords.filter { $0 == chord }.count > 1 })
+            #expect(repeated.isEmpty,
+                    "\(group.title) describes \(repeated.sorted().joined(separator: ", ")) in more than one row")
+        }
+    }
+
     @Test func testEveryRegisteredChordHasAReferenceRow() {
         let listed = Self.listedChordKeys()
         #expect(listed.count > 10, "the reference is implausibly short — this scan would be near-vacuous")

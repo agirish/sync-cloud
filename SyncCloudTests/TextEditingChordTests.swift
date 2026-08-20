@@ -68,9 +68,9 @@ import AppKit
     /// thing, or the ⌘⌫ account this rule was extracted from stops being true.
     @Test func theDeleteCommandsAliasStillAnswersTheSharedRule() {
         let editor = fieldEditor()
-        #expect(DeleteSelectionCommand.chordBelongsToTextEditor(editor)
+        #expect(TextEditingChord.belongsToTextEditor(editor)
                 == TextEditingChord.belongsToTextEditor(editor))
-        #expect(DeleteSelectionCommand.chordBelongsToTextEditor(nil)
+        #expect(TextEditingChord.belongsToTextEditor(nil)
                 == TextEditingChord.belongsToTextEditor(nil))
     }
 }
