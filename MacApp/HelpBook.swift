@@ -134,7 +134,7 @@ enum HelpBook {
                         "Drag a tab along the strip to reorder it. Right-click one to pin it: a pinned tab sits at the front, keeps its place when the strip runs out of room, survives “Close Other Tabs”, and drops its ✕ so a stray click can't take it.",
                         "⌘F searches the tree you're browsing; ⌘K opens Go to, which reaches anywhere the app can go by name.",
                         "Right-click a folder for “Organize This Folder…”, or a file for “Find Duplicates of This” — each lands in the matching Organize section. The same four verbs sit in the Organize menu, aimed at whatever the focused pane has selected.",
-                        "The rest of a row's right-click menu is in the File menu for the same reason — Open in New Tab, Quick Look, Reveal in Finder, Rename, Copy to… and Move to… all act on the focused pane's selection, so none of them needs you to find the right row to right-click first.",
+                        "The rest of a row's right-click menu is in the File menu for the same reason — Open in New Tab, Quick Look, Reveal in Finder, Rename, Copy to… and Move to… all act on the focused pane's selection, so none of them needs you to find the right row to right-click first. Rename also answers to ↩ with a row selected, the way it does in Finder; the menu item carries no key because a bare ↩ registered there would take the Return that commits every sheet in the app.",
                     ]),
                     .tip("Browse and Compare's left pane share the same spot, so switching over keeps you in the folder you were just browsing — tabs and all. To aim Organize at a folder, use “Organize This Folder…” from its right-click menu."),
                 ],

@@ -118,9 +118,16 @@ enum ShortcutsReference {
     ]
 }
 
-/// The Help-menu item that opens the shortcuts window. A separate View (not inline in the
-/// `.commands` builder) because `openWindow` is an Environment value, which the App struct
-/// itself doesn't carry.
+/// The **Window**-menu item that opens the shortcuts window, and the one thing in the app that
+/// registers ⌘/.
+///
+/// A separate View (not inline in the `.commands` builder) because `openWindow` is an Environment
+/// value, which the App struct itself doesn't carry.
+///
+/// **It was in Help until `cd87b08e`, and for two commits it was nowhere.** That commit moved the
+/// auxiliary windows out of Help — each was listed twice — and this was the only registration of
+/// ⌘/, so removing its call site removed the chord while the reference below went on listing it.
+/// `everyDeclaredChordIsOnAMenuItem` is what says so now.
 struct ShortcutsWindowCommand: View {
     @Environment(\.openWindow) private var openWindow
 
