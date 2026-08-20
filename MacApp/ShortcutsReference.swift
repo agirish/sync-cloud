@@ -81,6 +81,8 @@ enum ShortcutsReference {
             Item(keys: "⇧⌘ N", action: "New folder in the focused pane's current folder"),
             Item(keys: "⇧⌘ .", action: "Show or hide hidden files"),
             Item(keys: "⇧⌘ P", action: "Show or hide the Columns preview"),
+            // Browse only — the sidebar is that workspace's, and the menu item dims elsewhere.
+            Item(keys: "⌃⌘ S", action: "In Browse, show or hide the pinned and recent folders"),
             Item(keys: "⌘ ⌫", action: "Delete the selected items, after confirming"),
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
@@ -165,7 +167,13 @@ struct ShortcutsReferenceView: View {
     /// worth naming now that it has repeated three times: **this window grows by chords, and the
     /// test is the only thing that notices** — nothing about the reference looks wrong until it is
     /// scrolled, and it is not scrollable.
-    static let windowSize = CGSize(width: 880, height: 720)
+    ///
+    /// **720 → 780 when Browse's sidebar arrived** (⌃⌘S, §3). One row, in Panes beside the two
+    /// other show/hide rungs it belongs with, and the content went to **743pt** — the fourth time
+    /// the test has caught this and the first time a *single* row did it, which is the margin
+    /// telling the truth about how little was left. 780 leaves 37pt, comparable to the 34 the last
+    /// raise left, and still clears a 13" display's usable height.
+    static let windowSize = CGSize(width: 880, height: 780)
 
     var body: some View {
         ScrollView {

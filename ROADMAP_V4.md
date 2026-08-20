@@ -286,7 +286,7 @@ stands" below was re-read at `c604321e` rather than carried forward.
 | **↩ renames** | — | **Shipped 2026-08-20** (`88d95ed9`) — a pane key handler beside Space, sharing File ▸ Rename's own closure so the two cannot drift. Never a menu equivalent: a bare ↩ there would take the key that commits the destination picker, the ⌘K field and every sheet. |
 | **⌘↑ enclosing folder, ⌘↓ open** | small | **Deferred to v4.3, 2026-08-20 — the chords are free, the meaning is not.** A pane has TWO positions and the two candidates move different ones: `handleFocus` (what the row menu calls "Open") **re-scopes the pane**, while `drill`/`popLast` walk the **column stack** the breadcrumb shows. Pairing them across axes — Open re-scoping while Up pops a column — makes two chords that look like opposites move different things, which is the confusion this codebase already has a history of. Columns is the default mode, so a stack-based pair works where most people are and is dead in Tree; a scope-based pair works in both and resets the breadcrumb rather than walking it. **Decide the axis first; the implementation is small either way.** |
 | **Go to Folder** | small | **Shipped 2026-08-19** — `PalettePath`, no sheet. Cross-source paths refuse and name the source; switching to it is deferred to v4.3, see below. |
-| **Pins + recents sidebar** | medium | `FolderJumpStore` persists pins, **not** recents — see the correction below. Menu-only today. |
+| **Pins + recents sidebar** | medium | **Shipped 2026-08-20** — `Dashboard/FolderSidebar.swift`, Browse only, View ▸ Sidebar (⌃⌘S). |
 | **⌘C / ⌘V / ⌥⌘V** ⚠️ | medium | No file pasteboard. All eight `NSPasteboard` sites copy a path *as text*. **⌥⌘V is barred by the ⌥ ban above — spelling unresolved.** |
 | **Gallery view mode** | large | `PaneViewMode` has two cases; a third is free, thumbnails are the job. |
 | **Group by kind / date** | large | Sort is per-pane `KeyPathComparator`; grouping does not exist. |
@@ -396,11 +396,28 @@ a folder that has since gone — the same three questions the tab strip already 
 
 ### The two mediums
 
-- **Pins and recents, as a sidebar.** The store already answers both questions —
-  `pinnedPaths(forRoot:)` and `recentPaths(forRoot:)` are what fill the palette's Folders group — and
-  today they are reachable only through a menu. Browse has the width. With tabs it composes: click
-  to switch, ⌘-click to open in a new tab. **Folders only** — the old Left/Right provider sidebar was
-  removed on purpose when the provider became a dropdown, and this must not quietly bring it back.
+- **Pins and recents, as a sidebar.** **Shipped 2026-08-20.** Browse only, 180pt, leading; click to
+  switch (`focusOn`, so it re-scopes the pane rather than walking the column stack the breadcrumb
+  shows), ⌘-click for a new tab, right-click to pin or unpin. Folders only, as required — no
+  provider row. View ▸ Sidebar, ⌃⌘S, Finder's own chord and free here.
+
+  Three things the build added to the design:
+
+  - **Browse only, gated on the workspace and not on `layoutMode`.** The lens workspaces are
+    single-source too, and their pane is the 220pt-clamped rail — no room for a 180pt column beside
+    it. The menu item is `nil`-disabled everywhere else, like every other view switch.
+  - **A colliding leaf name is qualified, and a top-level one by the provider.** Two `Legal` folders
+    is the case the ⌘K palette had to be rebuilt twice to see. **Found by rendering it**: the first
+    cut qualified `Clients/Legal` and left a root-level `Legal` bare, because a top-level folder's
+    parent path is the empty string — two rows reading "Legal" where only one says which.
+  - **The rows are resolved, not recomputed in `body`.** `FolderJumpStore.reachable` `stat`s the
+    root, and that is the call that blocks for seconds under a network mount that has gone. Once per
+    ⌘K open is survivable; once per render of the workspace is not. Refreshed at the four moments
+    the answer changes: appearing, the provider changing, the pane moving, and the store publishing.
+
+  **⌃⌘S was the fourth chord to overflow the shortcuts reference**, and the first time a *single*
+  row did it — `theReferenceFitsItsWindowWithoutScrolling` measured 743pt against a 720pt window.
+  Raised to 780. That test is still the only thing that notices.
 - **⌘C / ⌘V / ⌥⌘V.** ⚠️ **The ⌥⌘V spelling is not available** — see the ⌥ ban above: an ⌥-chord
   fires from inside the keycap reveal, so a user reading the "⌘V" badge who presses ⌘V while still
   holding ⌥ would move files. The paste-as-move verb needs a different spelling (or none, following

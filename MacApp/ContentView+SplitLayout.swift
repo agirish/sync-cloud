@@ -227,22 +227,33 @@ extension ContentView {
                                                         minFraction: minFraction)
         let fraction = PaneLogic.clampedFraction(verticalDragFraction ?? bottomPaneFraction,
                                                  lower: minFraction, upper: maxFraction)
-        VStack(spacing: 0) {
-            paneColumn(isLeft: true)
-                .panesRegionFrame(surfaceStyle, level: glassLevel)
-                .frame(maxHeight: .infinity)
-            verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction,
-                                  maxFraction: maxFraction)
-                .frame(height: dividerHeight)
-                .opacity(hasGather ? 1 : 0)
-                .allowsHitTesting(hasGather)
-            if let scope = personScope {
-                personGatherSection(scope)
-                    .frame(height: panesHeight * fraction)
+        HStack(spacing: 0) {
+            // **Leading, and outside the vertical stack.** The remembered folders belong to the
+            // pane's *source*, not to whatever is stacked under the pane — a gather is a temporary
+            // answer to a search, and a sidebar that shrank when one opened would read as part of
+            // it. This also keeps `browseLayout`'s "one structure whether or not a gather is up"
+            // rule intact: the sidebar's presence changes nothing about the VStack beside it.
+            if browseSidebarVisible {
+                folderSidebar
+                Divider()
             }
+            VStack(spacing: 0) {
+                paneColumn(isLeft: true)
+                    .panesRegionFrame(surfaceStyle, level: glassLevel)
+                    .frame(maxHeight: .infinity)
+                verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction,
+                                      maxFraction: maxFraction)
+                    .frame(height: dividerHeight)
+                    .opacity(hasGather ? 1 : 0)
+                    .allowsHitTesting(hasGather)
+                if let scope = personScope {
+                    personGatherSection(scope)
+                        .frame(height: panesHeight * fraction)
+                }
+            }
+            .coordinateSpace(.named(Self.verticalStackSpace))
         }
         .frame(width: geo.size.width, height: geo.size.height)
-        .coordinateSpace(.named(Self.verticalStackSpace))
     }
 
     /// The collapsed source rail: a thin, clickable spine that expands the pane when clicked (the

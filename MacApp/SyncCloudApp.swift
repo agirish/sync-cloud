@@ -596,6 +596,10 @@ struct SyncCloudApp: App {
             CommandGroup(after: .sidebar) {
                 WorkspaceCommands()
                 Divider()
+                // First of the switches, and above the divider's other side deliberately: it is
+                // the only one that changes the window's *structure* rather than what a pane
+                // shows, and ⌃⌘S is where a Mac user reaches for a sidebar.
+                ToggleFolderSidebarCommand()    // ⌃⌘S
                 ToggleTabBarCommand()           // ⇧⌘T
                 ToggleHiddenFilesCommand()      // ⇧⌘.
                 TogglePreviewColumnCommand()    // ⇧⌘P

@@ -266,6 +266,10 @@ private struct TabBarVisibleKey: FocusedValueKey {
     typealias Value = TabBarSwitch
 }
 
+private struct FolderSidebarVisibleKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 /// View ▸ Tab Bar's state, which a `Binding<Bool>` cannot carry.
 ///
 /// The switch has THREE states, not two: off, on, and **on-because-a-second-tab-is-open** — where
@@ -534,6 +538,13 @@ extension FocusedValues {
         get { self[TabBarVisibleKey.self] }
         set { self[TabBarVisibleKey.self] = newValue }
     }
+
+    /// View ▸ Sidebar. `nil` off Browse, which is the only workspace that has one — a plain
+    /// `Binding<Bool>` rather than `TabBarSwitch` because nothing ever forces it on.
+    var folderSidebarVisible: Binding<Bool>? {
+        get { self[FolderSidebarVisibleKey.self] }
+        set { self[FolderSidebarVisibleKey.self] = newValue }
+    }
 }
 
 // MARK: - ContentView's half
@@ -602,6 +613,8 @@ struct ShortcutValuePublisher: ViewModifier {
     let cycleTab: ((Bool) -> Void)?
     let reopenClosedTab: (() -> Void)?
     let tabBar: TabBarSwitch?
+    /// `nil` off Browse — the only workspace with a sidebar. See ``ToggleFolderSidebarCommand``.
+    let folderSidebar: Binding<Bool>?
     let organizeLens: OrganizeLensSwitch?
     let organizeVerbs: OrganizeVerbs?
     let paneRowVerbs: PaneRowVerbs?
@@ -643,6 +656,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveCycleTab: ((Bool) -> Void)? { suspended ? nil : cycleTab }
     var effectiveReopenClosedTab: (() -> Void)? { suspended ? nil : reopenClosedTab }
     var effectiveTabBar: TabBarSwitch? { suspended ? nil : tabBar }
+    var effectiveFolderSidebar: Binding<Bool>? { suspended ? nil : folderSidebar }
     var effectiveOrganizeLens: OrganizeLensSwitch? { suspended ? nil : organizeLens }
     var effectiveOrganizeVerbs: OrganizeVerbs? { suspended ? nil : organizeVerbs }
     var effectivePaneRowVerbs: PaneRowVerbs? { suspended ? nil : paneRowVerbs }
@@ -678,6 +692,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.cycleTab, effectiveCycleTab)                 // ⇧⌘] / ⇧⌘[
             .focusedSceneValue(\.reopenClosedTab, effectiveReopenClosedTab)   // File ▸ Reopen Closed Tab
             .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
+            .focusedSceneValue(\.folderSidebarVisible, effectiveFolderSidebar) // ⌃⌘S
             .focusedSceneValue(\.organizeLens, effectiveOrganizeLens)         // View ▸ Organize ▸ …
             .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
             .focusedSceneValue(\.paneRowVerbs, effectivePaneRowVerbs)         // File ▸ the row menu's verbs
@@ -707,6 +722,7 @@ extension ContentView {
             cycleTab: shortcutCycleTab,
             reopenClosedTab: shortcutReopenClosedTab,
             tabBar: shortcutTabBar,
+            folderSidebar: shortcutFolderSidebar,
             organizeLens: shortcutOrganizeLens,
             organizeVerbs: shortcutOrganizeVerbs,
             paneRowVerbs: shortcutPaneRowVerbs,
@@ -796,6 +812,15 @@ extension ContentView {
     /// The condition is `PaneTabStripVisibility.forcesTabBarSwitch`, which is defined as the
     /// visibility rule with the switch's own term removed — so the two cannot drift again. Inlining
     /// the disjunction here is what let them drift the first time.
+    /// View ▸ Sidebar's binding, and `nil` on every workspace but Browse.
+    ///
+    /// The gate is the workspace and not `layoutMode`: the lens workspaces are single-source too,
+    /// and their pane is the 220pt-clamped rail, which has no room for a 180pt column beside it.
+    var shortcutFolderSidebar: Binding<Bool>? {
+        guard selectedWorkspace == .browse else { return nil }
+        return Binding(get: { browseSidebarVisible }, set: { browseSidebarVisible = $0 })
+    }
+
     var shortcutTabBar: TabBarSwitch {
         let isLeft = shortcutTabTargetIsLeft
         let forced = PaneTabStripVisibility.forcesTabBarSwitch(
@@ -1423,6 +1448,22 @@ struct OrganizeVerbCommands: View {
             .disabled(verbs?.fixName == nil)
         Button("Always Allow This Name") { verbs?.keepName?() }
             .disabled(verbs?.keepName == nil)
+    }
+}
+
+/// View ▸ Sidebar — Browse's pinned-and-recent folders column.
+///
+/// A noun with a tick, like every other view switch here, and `nil` (disabled, unticked) on every
+/// workspace but Browse: Compare's two panes and the lens rail have no room for it and no version
+/// of it, so an item that stayed live there would toggle a preference with nothing on screen to
+/// show for it.
+struct ToggleFolderSidebarCommand: View {
+    @FocusedValue(\.folderSidebarVisible) private var sidebarVisible
+
+    var body: some View {
+        Toggle("Sidebar", isOn: sidebarVisible ?? .constant(false))
+            .keyboardShortcut(AppChord.folderSidebar.key, modifiers: AppChord.folderSidebar.modifiers)
+            .disabled(sidebarVisible == nil)
     }
 }
 

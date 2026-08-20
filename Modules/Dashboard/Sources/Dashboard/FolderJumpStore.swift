@@ -156,7 +156,9 @@ public final class FolderJumpStore: ObservableObject {
 
     /// Pins or unpins a folder for its pane's provider. Pinning the folder that's already pinned
     /// removes it, so the same menu item toggles.
-    func togglePin(root: String, relativePath: String, name: String) {
+    /// Public since v4.2: the Browse sidebar is a second surface onto the same two lists, and a
+    /// pin it can show but not remove would send the user back to the menu it replaces.
+    public func togglePin(root: String, relativePath: String, name: String) {
         let key = Self.key(forRoot: root)
         var list = pinnedByRoot[key] ?? []
         // `removeAll`, not `remove(at: firstIndex)`: a list written before the keys were normalised

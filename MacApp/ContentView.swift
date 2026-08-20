@@ -126,6 +126,19 @@ struct ContentView: View {
     /// "do I want a tab bar" is a question about the app, not about one of three surfaces that all
     /// draw the same pane.
     @AppStorage("browseTabBarVisible") var tabBarVisible: Bool = false
+    /// Browse's pinned-and-recent folders column. **On by default**: the store has always held
+    /// both lists and nothing but a menu ever showed them, so shipping this off would leave the
+    /// item exactly as discoverable as the menu it replaces.
+    @AppStorage("browseSidebarVisible") var browseSidebarVisible: Bool = true
+    /// The sidebar's rows, resolved rather than recomputed in `body`.
+    ///
+    /// `FolderJumpStore.reachable` touches the disk — one `stat` for the root, then one per
+    /// remembered folder — and the root's is the one that can block for seconds under a network
+    /// mount that has gone away. That is survivable on the ⌘K path, which runs once per open; in a
+    /// view body it would run on every render of the workspace. Refreshed at the four moments the
+    /// answer can change instead: appearing, the provider changing, the pane moving, and the store
+    /// publishing a pin or a visit.
+    @State var folderSidebarRows: [FolderSidebarRow] = []
 
     /// Active "compare two duplicate copies" handoff from the Duplicates lens: the keeper (left pane) and the
     /// redundant copy (right pane) opened in Compare, plus the duplicate scan root to re-scan once
@@ -3019,10 +3032,25 @@ struct ContentView: View {
         .onChange(of: syncManager.leftRelativePath) { _, rel in
             FolderJumpStore.shared.recordVisit(root: settings.path(for: leftProviderId),
                                                relativePath: rel, name: (rel as NSString).lastPathComponent)
+            // The visit just recorded is a row the sidebar does not have yet. Same handler rather
+            // than a second `onChange` on the same value: two would fire in an order SwiftUI does
+            // not promise, and the wrong one puts the sidebar one folder behind the pane.
+            refreshFolderSidebarRows()
         }
         .onChange(of: syncManager.rightRelativePath) { _, rel in
             FolderJumpStore.shared.recordVisit(root: settings.path(for: rightProviderId),
                                                relativePath: rel, name: (rel as NSString).lastPathComponent)
+        }
+        // The other three moments the sidebar's answer can change: first appearance, a provider
+        // switch (a different root is a different pair of lists), and the store publishing a pin
+        // made anywhere else — the pane header's jump menu and the breadcrumb both write to it.
+        //
+        // `objectWillChange` fires BEFORE the store mutates, so this hops a run-loop turn; reading
+        // it inline would re-read the lists as they were.
+        .onAppear { refreshFolderSidebarRows() }
+        .onChange(of: leftProviderId) { _, _ in refreshFolderSidebarRows() }
+        .onReceive(FolderJumpStore.shared.objectWillChange.receive(on: RunLoop.main)) { _ in
+            refreshFolderSidebarRows()
         }
     }
 

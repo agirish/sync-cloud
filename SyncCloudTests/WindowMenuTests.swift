@@ -118,6 +118,20 @@ import AppKit
         return out + String(chord.key.character).lowercased()
     }
 
+    /// **View ▸ Sidebar is registered, and carries the chord it advertises.**
+    ///
+    /// The item is `nil`-disabled off Browse, which a source scan reads as present and a running
+    /// app reads as *there*; what a scan cannot say is that it kept its key equivalent — a `Toggle`
+    /// whose `.keyboardShortcut` were dropped would still compile, still appear, and still be the
+    /// only route to a sidebar the ⌘/ reference documents a chord for.
+    @Test func theSidebarSwitchIsInViewWithItsChord() throws {
+        let view = try Self.menu("View")
+        let item = try #require(view.items.first { $0.title == "Sidebar" },
+                                "View has no Sidebar item: \(Self.titles(view))")
+        #expect(item.keyEquivalent == "s")
+        #expect(item.keyEquivalentModifierMask == [.control, .command])
+    }
+
     /// Help keeps what is genuinely help, and nothing that is a window.
     @Test func helpCarriesNoWindowsAndNoSecondAbout() throws {
         let help = Self.titles(try Self.menu("Help"))

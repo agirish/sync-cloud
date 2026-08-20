@@ -39,6 +39,7 @@ import Foundation
             clipboard: ClipboardActions(cut: {}, copy: {}, paste: {}),
             newTab: {}, closeTab: closeTab, cycleTab: { _ in }, reopenClosedTab: {},
             tabBar: TabBarSwitch(isOn: false, isForced: false, set: { _ in }),
+            folderSidebar: .constant(true),
             organizeLens: OrganizeLensSwitch(current: .duplicates, select: { _ in }),
             organizeVerbs: OrganizeVerbs(organizeFolder: {}, findDuplicates: {},
                                          fixName: {}, keepName: {}),
@@ -172,6 +173,7 @@ import Foundation
         #expect(publisher.effectiveCycleTab == nil)
         #expect(publisher.effectiveReopenClosedTab == nil)
         #expect(publisher.effectiveTabBar == nil)
+        #expect(publisher.effectiveFolderSidebar == nil)
         #expect(publisher.effectiveOrganizeLens == nil)
         #expect(publisher.effectiveOrganizeVerbs == nil)
         #expect(publisher.effectivePaneRowVerbs == nil)
@@ -202,6 +204,7 @@ import Foundation
         #expect(publisher.effectiveCycleTab != nil)
         #expect(publisher.effectiveReopenClosedTab != nil)
         #expect(publisher.effectiveTabBar != nil)
+        #expect(publisher.effectiveFolderSidebar != nil)
         #expect(publisher.effectiveOrganizeLens != nil)
         #expect(publisher.effectiveOrganizeVerbs != nil)
         #expect(publisher.effectivePaneRowVerbs != nil)

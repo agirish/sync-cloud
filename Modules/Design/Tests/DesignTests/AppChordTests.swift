@@ -42,6 +42,7 @@ import Foundation
         #expect(AppChord.nextTab.display == "⇧⌘]")
         #expect(AppChord.previousTab.display == "⇧⌘[")
         #expect(AppChord.tabBar.display == "⇧⌘T")
+        #expect(AppChord.folderSidebar.display == "⌃⌘S")
         #expect(AppChord.reviewDifferences.display == "⇧⌘R")
         #expect(AppChord.verifyDifferences.display == "⇧⌘V")
         #expect(AppChord.differencesList.display == "⌘D")
