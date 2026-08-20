@@ -1439,9 +1439,13 @@ public struct DifferencesView: View {
                                sessionActive: reviewStore.session != nil,
                                blocked: isSyncActionBlocked,
                                suspended: shortcutsSuspended)
+                               // **No rows captured here.** `keyboardCopy` reads the visible rows
+                               // when it fires; passing `sorted` in closed over the array this
+                               // render had computed, and a focused value is not re-armed while a
+                               // menu is open. See `TransferShortcut`.
                                ? TransferShortcut(leftName: paneNames.left, rightName: paneNames.right,
                                                   run: { direction, isMove in
-                                                      keyboardCopy(direction: direction, isMove: isMove, in: sorted)
+                                                      keyboardCopy(direction: direction, isMove: isMove)
                                                   })
                                : nil)
         // Marks this table as the surface the user means, so Space can tell a Differences
@@ -1813,9 +1817,28 @@ public struct DifferencesView: View {
     /// modifier (⌘ is always held for this chord, so `ModifierTracker` would read every ⌘→ as a
     /// move). Filters to the rows whose `.action` matches the pressed direction, exactly like the
     /// header. Respects the same in-flight gate the header buttons disable on.
-    private func keyboardCopy(direction: FileDifference.SyncAction, isMove: Bool, in sorted: [FileDifference]) {
-        guard !selection.isEmpty, !isSyncActionBlocked else { return }
-        let items = sorted.filter { selection.contains($0.id) && $0.action == direction }
+    /// What ⌘← / ⌘→ / ⇧⌘← / ⇧⌘→ do, resolved **entirely at fire time**.
+    ///
+    /// **Every input is read here, and the rows used not to be.** `selection` and
+    /// `isSyncActionBlocked` were always read on this line; the rows arrived as a parameter, closed
+    /// over from the `sorted` array `body` had computed when the shortcut was published. A focused
+    /// value is not re-armed while a menu is open — the rule `DeleteSelectionCommand` records — so a
+    /// bulk sync underneath an open Compare menu left this holding `FileDifference` values whose
+    /// `action` had since changed, and they went straight to `syncFile`/`syncAll`.
+    ///
+    /// `displayRows.sorted` rather than `syncManager.differences`, deliberately: these are the rows
+    /// the user can see, and a chord that acted on a selected row the current filter has hidden
+    /// would be acting outside what is on screen. The freshness that matters is that the VALUES are
+    /// current, which the `.task(id:)` rebuild keeps them.
+    ///
+    /// The selection filter is ``DifferencesShortcutRules/transferItems(rows:selection:direction:)``,
+    /// which exists to keep this away from ``DifferenceActionTargets``' whole-set fallback — see
+    /// there.
+    private func keyboardCopy(direction: FileDifference.SyncAction, isMove: Bool) {
+        guard !isSyncActionBlocked else { return }
+        let items = DifferencesShortcutRules.transferItems(rows: displayRows.sorted,
+                                                           selection: selection,
+                                                           direction: direction)
         guard !items.isEmpty else { return }
         runCopyOrMove(direction: direction, items: items, scope: "selection", isMove: isMove)
     }

@@ -362,4 +362,88 @@ import Foundation
                                              underRoot: "/root") { _ in true }
         #expect(kept.recents == ["Legal"])
     }
+
+    // MARK: Bytes this build cannot read
+
+    /// **An unreadable pins blob is not destroyed by the next pin.**
+    ///
+    /// The failure, exactly: `try?` decoded to nil, the store started at `[:]` looking like a fresh
+    /// install, and the first `togglePin` encoded that empty map straight over the key. Every pin
+    /// the user had curated was gone — not on the read, on the WRITE, which is why a test that only
+    /// checked the decode would have passed throughout.
+    ///
+    /// So this asserts what the store WRITES BACK, and that the original bytes survived it.
+    @Test func unreadablePinsSurviveTheNextWrite() throws {
+        let defaults = freshDefaults()
+        let corrupt = Data("{ this is not the shape it was ".utf8)
+        defaults.set(corrupt, forKey: FolderJumpStore.pinnedKey)
+
+        let store = FolderJumpStore(defaults: defaults)
+        #expect(store.pinned(forRoot: "/root").isEmpty, "undecodable bytes must not become pins")
+
+        store.togglePin(root: "/root", relativePath: "Legal", name: "Legal")
+
+        let salvage = FolderJumpStore.salvageKey(for: FolderJumpStore.pinnedKey)
+        #expect(defaults.data(forKey: salvage) == corrupt, """
+                the original pins were not preserved. They are unrecoverable at this point: the \
+                write below has already replaced the live key.
+                """)
+        // …and the store is usable, rather than locked out.
+        let written = try #require(defaults.data(forKey: FolderJumpStore.pinnedKey))
+        let decoded = try JSONDecoder().decode([String: [JumpLocation]].self, from: written)
+        #expect(decoded["/root"]?.map(\.relativePath) == ["Legal"],
+                "the new pin did not land — refusing the write is not what this fix does")
+    }
+
+    /// Recents get the identical treatment, because the two lists are read side by side.
+    @Test func unreadableRecentsArePreservedToo() {
+        let defaults = freshDefaults()
+        let corrupt = Data("[not a map]".utf8)
+        defaults.set(corrupt, forKey: FolderJumpStore.recentsKey)
+
+        let store = FolderJumpStore(defaults: defaults)
+        store.recordVisit(root: "/root", relativePath: "Legal", name: "Legal")
+
+        #expect(defaults.data(forKey: FolderJumpStore.salvageKey(for: FolderJumpStore.recentsKey)) == corrupt)
+        #expect(store.recentPaths(forRoot: "/root") == ["Legal"])
+    }
+
+    /// **A second failure must not overwrite the first stash**, which is the one holding real data.
+    ///
+    /// Launch 1 stashes the user's list and starts empty. Launch 2 reads whatever was written since
+    /// — quite possibly a valid, nearly empty map, or another corruption — and stashing that on top
+    /// would destroy the list one launch later than the bug this replaces.
+    @Test func theFirstStashIsTheOneThatIsKept() {
+        let defaults = freshDefaults()
+        let salvage = FolderJumpStore.salvageKey(for: FolderJumpStore.pinnedKey)
+        let original = Data("the user's real pins".utf8)
+        defaults.set(original, forKey: salvage)
+        defaults.set(Data("a later, different corruption".utf8), forKey: FolderJumpStore.pinnedKey)
+
+        _ = FolderJumpStore(defaults: defaults)
+
+        #expect(defaults.data(forKey: salvage) == original,
+                "a later failure overwrote the stash holding the user's actual pins")
+    }
+
+    /// **Absent is not unreadable.** A fresh install must not litter a salvage key.
+    @Test func anAbsentKeyStashesNothing() {
+        let defaults = freshDefaults()
+        _ = FolderJumpStore(defaults: defaults)
+        #expect(defaults.data(forKey: FolderJumpStore.salvageKey(for: FolderJumpStore.pinnedKey)) == nil)
+        #expect(defaults.data(forKey: FolderJumpStore.salvageKey(for: FolderJumpStore.recentsKey)) == nil)
+    }
+
+    /// The ordinary case is untouched: readable bytes decode and stash nothing.
+    @Test func readablePinsAreUnaffected() {
+        let defaults = freshDefaults()
+        let seeded = FolderJumpStore(defaults: defaults)
+        seeded.togglePin(root: "/root", relativePath: "Legal", name: "Legal")
+
+        let reopened = FolderJumpStore(defaults: defaults)
+        #expect(reopened.pinnedPaths(forRoot: "/root") == ["Legal"])
+        #expect(defaults.data(forKey: FolderJumpStore.salvageKey(for: FolderJumpStore.pinnedKey)) == nil,
+                "a perfectly readable list was treated as unreadable")
+    }
 }
+

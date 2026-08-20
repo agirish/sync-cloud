@@ -33,6 +33,18 @@ public struct FoldAllShortcut {
 /// **One value for four items, not four**, on `cycleTab`'s argument: they are available together
 /// and unavailable together, so four focused values would be four chances for two of them to
 /// disagree about a selection they all act on.
+///
+/// **`run` must resolve its rows when it FIRES, not when it is published**, and the first cut did
+/// not: it closed over the `sorted` array `body` had just computed, so the closure held that exact
+/// snapshot for as long as the focused value lived. A focused value is not re-armed while a menu is
+/// open — the rule `DeleteSelectionCommand` and the clipboard both record — so a bulk sync running
+/// underneath an open Compare menu left ⌘→ holding `FileDifference` values whose `action` had since
+/// changed, and `runCopyOrMove` hands those values straight to `syncFile`/`syncAll`. Stale values
+/// reaching a real file operation is the whole hazard.
+///
+/// It is unrepresentable now rather than merely fixed: `keyboardCopy` takes no rows at all and reads
+/// `displayRows.sorted` itself, alongside the `selection` and `isSyncActionBlocked` it was already
+/// reading at fire time. The captured parameter was the odd one out in its own body.
 public struct TransferShortcut {
     /// Runs one of the four. The direction and the move flag are the item's, not the value's.
     public let run: (FileDifference.SyncAction, Bool) -> Void
@@ -78,6 +90,29 @@ enum DifferencesShortcutRules {
     static func foldAvailable(sessionActive: Bool, collapsed: Bool,
                               sectionCount: Int, suspended: Bool) -> Bool {
         !sessionActive && !collapsed && sectionCount > 0 && !suspended
+    }
+
+    /// The rows a directional transfer acts on: **the selection, in this direction, and nothing
+    /// else.**
+    ///
+    /// **The absent fallback is the whole point of this being its own rule.**
+    /// ``DifferenceActionTargets`` — the header buttons' resolver — deliberately falls back to the
+    /// entire filtered set when a selection resolves to no visible row, so the buttons stay
+    /// actionable after a rescan mints new ids. That is right for a button whose label counts what
+    /// it will do, and catastrophic for a chord: ⌘→ pressed over a selection that has gone stale
+    /// would transfer *every* differing file, with nothing on screen having said so.
+    ///
+    /// So the two resolvers stay two, and this one is named and tested rather than living as two
+    /// lines inside a view method — because "unify these, they look the same" is exactly the edit
+    /// that would introduce the fallback.
+    ///
+    /// - Parameter rows: the visible rows **as of the moment the chord fires**, never a snapshot
+    ///   taken when the shortcut was published. See ``TransferShortcut``.
+    static func transferItems(rows: [FileDifference],
+                              selection: Set<FileDifference.ID>,
+                              direction: FileDifference.SyncAction) -> [FileDifference] {
+        guard !selection.isEmpty else { return [] }
+        return rows.filter { selection.contains($0.id) && $0.action == direction }
     }
 
     /// ⌘← / ⌘→ / ⇧⌘← / ⇧⌘→: rows selected in the differences table, and **that table is the

@@ -47,37 +47,50 @@ public final class FolderJumpStore: ObservableObject {
     @Published private(set) var pinnedByRoot: [String: [JumpLocation]] = [:]
 
     private let defaults: UserDefaults
-    private static let pinnedKey = "folderJumpPinnedByRoot"
-    private static let recentsKey = "folderJumpRecentsByRoot"
+    static let pinnedKey = "folderJumpPinnedByRoot"
+    static let recentsKey = "folderJumpRecentsByRoot"
     static let maxRecents = 8
+
+    /// Where bytes this build cannot decode are put, instead of being overwritten.
+    ///
+    /// **The failure this closes destroys the user's pins, and it destroys them on the NEXT write
+    /// rather than on the read.** A `try?` that falls back to `[:]` leaves the store looking like a
+    /// fresh install; the first `togglePin` after that encodes that empty map over the key and the
+    /// real pins are gone. Absent and unreadable are not the same state, and only one of them is
+    /// safe to write over.
+    ///
+    /// `PeopleStore` draws this line for `people.json` — "whether there is structured content to
+    /// lose" — and answers it by REFUSING to write, because Settings ▸ People has a banner to
+    /// explain the refusal with. This surface has none: the jump menu's pin item would simply stop
+    /// working, which is this app's own named bug. So the bytes are kept and the store carries on,
+    /// which loses nothing either way.
+    static func salvageKey(for key: String) -> String { key + ".unreadable" }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.pinnedKey),
-           let decoded = try? JSONDecoder().decode([String: [JumpLocation]].self, from: data) {
-            // Re-keyed on the way in. Pins written before this store normalised its keys sit under
-            // whatever spelling the writer happened to hold — `~/Documents` for a folder source —
-            // and reading them back through `key(forRoot:)` would miss every one of them. A fix
-            // that makes existing pins reachable must not begin by orphaning them.
-            //
-            // **Deduplicated as they merge, because the bug being repaired is what creates the
-            // duplicates.** A folder pinned from the breadcrumb read as unpinned in the pane, so
-            // pinning it again there was the obvious thing to do — and wrote a second entry for the
-            // same folder under the other spelling. Concatenating the two lists lands that folder
-            // twice on exactly the installs this migration exists for: the ⌘K palette then lists it
-            // twice, and one unpin peels off one copy and leaves it pinned.
-            //
-            // Keys taken in sorted order so the merged ORDER is the same on every launch —
-            // dictionary iteration is not, and pins are shown in the order they are held.
-            pinnedByRoot = decoded.keys.sorted().reduce(into: [:]) { out, rawKey in
-                let key = Self.key(forRoot: rawKey)
-                var list = out[key] ?? []
-                for pin in decoded[rawKey] ?? []
-                where !list.contains(where: { $0.relativePath == pin.relativePath }) {
-                    list.append(pin)
-                }
-                out[key] = list
+        // Re-keyed on the way in. Pins written before this store normalised its keys sit under
+        // whatever spelling the writer happened to hold — `~/Documents` for a folder source —
+        // and reading them back through `key(forRoot:)` would miss every one of them. A fix
+        // that makes existing pins reachable must not begin by orphaning them.
+        //
+        // **Deduplicated as they merge, because the bug being repaired is what creates the
+        // duplicates.** A folder pinned from the breadcrumb read as unpinned in the pane, so
+        // pinning it again there was the obvious thing to do — and wrote a second entry for the
+        // same folder under the other spelling. Concatenating the two lists lands that folder
+        // twice on exactly the installs this migration exists for: the ⌘K palette then lists it
+        // twice, and one unpin peels off one copy and leaves it pinned.
+        //
+        // Keys taken in sorted order so the merged ORDER is the same on every launch —
+        // dictionary iteration is not, and pins are shown in the order they are held.
+        let storedPins = Self.storedMap(Self.pinnedKey, from: defaults)
+        pinnedByRoot = storedPins.keys.sorted().reduce(into: [:]) { out, rawKey in
+            let key = Self.key(forRoot: rawKey)
+            var list = out[key] ?? []
+            for pin in storedPins[rawKey] ?? []
+            where !list.contains(where: { $0.relativePath == pin.relativePath }) {
+                list.append(pin)
             }
+            out[key] = list
         }
         // Recents, through the same re-keying — not for a legacy spelling (nothing ever wrote this
         // key before) but so the two lists cannot come to disagree about what a root is; they are
@@ -85,18 +98,54 @@ public final class FolderJumpStore: ObservableObject {
         //
         // **Capped on the way in as well as on the way out.** The cap is a constant that can be
         // lowered, and a list written under a larger one would otherwise stay long forever.
-        if let data = defaults.data(forKey: Self.recentsKey),
-           let decoded = try? JSONDecoder().decode([String: [JumpLocation]].self, from: data) {
-            recentsByRoot = decoded.keys.sorted().reduce(into: [:]) { out, rawKey in
-                let key = Self.key(forRoot: rawKey)
-                var list = out[key] ?? []
-                for visit in decoded[rawKey] ?? []
-                where !list.contains(where: { $0.relativePath == visit.relativePath }) {
-                    list.append(visit)
-                }
-                out[key] = Array(list.prefix(Self.maxRecents))
+        let storedRecents = Self.storedMap(Self.recentsKey, from: defaults)
+        recentsByRoot = storedRecents.keys.sorted().reduce(into: [:]) { out, rawKey in
+            let key = Self.key(forRoot: rawKey)
+            var list = out[key] ?? []
+            for visit in storedRecents[rawKey] ?? []
+            where !list.contains(where: { $0.relativePath == visit.relativePath }) {
+                list.append(visit)
             }
+            out[key] = Array(list.prefix(Self.maxRecents))
         }
+    }
+
+    /// One of the two stored maps, **with bytes this build cannot read preserved rather than
+    /// silently replaced.**
+    ///
+    /// Three states, and the middle one is the whole reason this is not a `try?` at the call site:
+    ///
+    /// - **Absent** — a fresh install, or a list never written. Nothing to lose; empty is the truth.
+    /// - **Present and undecodable** — a shape from another build, or a hand-edited plist. The
+    ///   bytes go to ``salvageKey(for:)`` before the store carries on empty, so the next write
+    ///   cannot be what destroys them.
+    /// - **Present and decodable** — the ordinary case, unchanged.
+    ///
+    /// Recents get the same treatment as pins even though they regenerate by themselves: the two
+    /// lists are read side by side by the same callers, and a rule that applied to one of them
+    /// would be a rule somebody has to remember which.
+    static func storedMap(_ key: String, from defaults: UserDefaults) -> [String: [JumpLocation]] {
+        guard let data = defaults.data(forKey: key) else { return [:] }
+        if let decoded = try? JSONDecoder().decode([String: [JumpLocation]].self, from: data) {
+            return decoded
+        }
+        preserveUnreadable(data, from: key, in: defaults)
+        return [:]
+    }
+
+    /// Stashes undecodable bytes once, under ``salvageKey(for:)``.
+    ///
+    /// **Only if nothing is stashed already**, and that is not tidiness: the FIRST failure is the
+    /// one holding the user's real list. A later launch reads whatever the store has since written
+    /// — quite possibly a valid, nearly empty map — and letting that overwrite the stash would
+    /// destroy the thing the stash exists to keep, one launch later than the bug it replaces.
+    private static func preserveUnreadable(_ data: Data, from key: String, in defaults: UserDefaults) {
+        let salvage = salvageKey(for: key)
+        guard defaults.data(forKey: salvage) == nil else { return }
+        defaults.set(data, forKey: salvage)
+        Logger.shared.warning("\(key) is present but could not be read — its \(data.count) bytes were "
+                              + "kept under \(salvage) rather than overwritten, and the list starts "
+                              + "empty this session")
     }
 
     /// **The one place a provider root becomes a key.** Every entry point below routes through it,
