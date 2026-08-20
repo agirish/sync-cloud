@@ -48,8 +48,6 @@ enum SetupFlow {
         case sources
         /// The household the filing rules attribute documents to.
         case people
-        /// How much of each source to learn. Inert until the survey stage lands.
-        case survey
         /// The summary, and what is running.
         case done
 
@@ -58,7 +56,6 @@ enum SetupFlow {
             case .you: return "You"
             case .sources: return "Sources"
             case .people: return "People"
-            case .survey: return "Survey"
             case .done: return "Done"
             }
         }
@@ -71,7 +68,6 @@ enum SetupFlow {
             case .you: return "person"
             case .sources: return "cloud"
             case .people: return "person.2"
-            case .survey: return "folder.badge.gearshape"
             case .done: return "checkmark.circle"
             }
         }
@@ -155,6 +151,18 @@ enum SetupFlow {
 
     // MARK: - Welcome copy
 
+    /// The welcome screen's subtitle.
+    ///
+    /// **It counts the questions, so it has to be derived from them.** The first draft said "four
+    /// short questions" and then the survey step folded away, leaving the card promising one more
+    /// than it asked — `theWelcomeBlurbCountsTheQuestionsItAsks` is what fails on that now.
+    static var welcomeBlurb: String {
+        "\(questionCount) short questions, and SyncCloud is ready to work. About a minute."
+    }
+
+    /// How many steps actually ask the user something. `done` reports; it does not ask.
+    static var questionCount: Int { Step.allCases.count - 1 }
+
     /// One of the three panels on the welcome screen: what SyncCloud does, in a strip.
     struct Panel: Equatable, Sendable {
         let art: SetupArt.Art
@@ -196,8 +204,7 @@ enum SetupFlow {
     static let outline: [OutlineRow] = [
         OutlineRow(step: .you, detail: "Your name, and the forms of it documents print"),
         OutlineRow(step: .sources, detail: "The places SyncCloud found on this Mac"),
-        OutlineRow(step: .people, detail: "Anyone else your documents are filed for"),
-        OutlineRow(step: .survey, detail: "How much of each source to learn"),
+        OutlineRow(step: .people, detail: "Anyone else your documents belong to"),
     ]
 
     /// What the Done step says about the household.
@@ -244,18 +251,15 @@ enum SetupFlow {
     /// The local half of the survey step's disclosure — stated where the user authorises reading
     /// their documents, which is the only screen that asks for that.
     static let surveyPrivacyNote =
-        "Your documents are read on this Mac and never leave it. SyncCloud opens each file locally, "
-        + "keeps a few hundred characters of text to learn from, and writes the result into your own "
-        + "Library folder. Nothing is uploaded — not the files, not the text, not the folder names."
+        "Your documents are read on this Mac and never leave it. SyncCloud keeps what it learns in "
+        + "your own Library folder — not the files, not the text, not the folder names."
 
     /// The exception, named on the same screen **even though setup cannot enable it**.
     ///
     /// A promise stated without its exception reads as complete, and the user meets the Refine
     /// button a week later. Four lines here are what make the rest of the claim believable.
     static let surveyThirdPartyNote =
-        "One thing can reach a third party, and setup does not turn it on. Organize has an optional "
-        + "Refine button that asks Claude — Anthropic's service, billed to an API key you supply — "
-        + "about a scan's results. It never runs on its own, you see a cost estimate first, and it "
-        + "sends folder and file names plus a short excerpt only for files whose name says nothing. "
-        + "Off unless you turn it on in Settings ▸ Intelligence."
+        "One thing can reach a third party, and setup does not turn it on: Organize's optional "
+        + "Refine pass asks Claude — Anthropic's service, on an API key you supply. It never runs "
+        + "on its own, and it is off unless you turn it on in Settings ▸ Intelligence."
 }

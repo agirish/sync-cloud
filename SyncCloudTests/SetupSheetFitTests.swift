@@ -98,121 +98,118 @@ import Testing
 
     // MARK: - The metrics themselves
 
+    private var bounds: (min: CGFloat, max: CGFloat) {
+        SetupSheetMetrics.heightBounds(availableSize: Self.smallDisplayHost, scale: 1)
+    }
+
+    private var contentWidth: CGFloat {
+        SetupSheetMetrics.contentWidth(availableSize: Self.smallDisplayHost, scale: 1)
+    }
+
     /// The card never exceeds the window it is centred in.
     ///
-    /// This is the property the settings sheet's tests were all missing, so it is asserted directly
-    /// rather than only through the step measurements below.
+    /// This is the property the settings sheet's tests were all missing — it was raised to 758pt,
+    /// every fit test passed, and it still hung off a 1280×800-class display, because they all
+    /// measured the unclamped number.
     @Test func theCardClampsToTheWindowItIsShownIn() {
-        let tight = CGSize(width: 900, height: 600)
-        let resolved = SetupSheetMetrics.resolvedSize(availableSize: tight, scale: 1)
-        #expect(resolved.height <= tight.height - SetupSheetMetrics.hostMargin)
-        #expect(resolved.width <= tight.width - SetupSheetMetrics.hostMargin)
+        let tight = CGSize(width: 900, height: 560)
+        let width = SetupSheetMetrics.resolvedWidth(availableSize: tight, scale: 1)
+        let heights = SetupSheetMetrics.heightBounds(availableSize: tight, scale: 1)
+        #expect(width <= tight.width - SetupSheetMetrics.hostMargin)
+        #expect(heights.max <= tight.height - SetupSheetMetrics.hostMargin)
+        #expect(heights.min <= heights.max, "a floor above the ceiling would size the card off-screen")
     }
 
-    /// On a large display it takes its base size and no more — a card that grew to fill a 6K screen
-    /// would be a form with a metre of dead air in it.
-    @Test func theCardStopsGrowingAtItsBaseSize() {
+    /// On a roomy display it takes its own bounds and no more.
+    @Test func theCardStopsGrowingAtItsCeiling() {
         let huge = CGSize(width: 3000, height: 2000)
-        let resolved = SetupSheetMetrics.resolvedSize(availableSize: huge, scale: 1)
-        #expect(resolved == SetupSheetMetrics.baseSize)
+        #expect(SetupSheetMetrics.resolvedWidth(availableSize: huge, scale: 1) == SetupSheetMetrics.cardWidth)
+        #expect(SetupSheetMetrics.heightBounds(availableSize: huge, scale: 1).max
+                == SetupSheetMetrics.maxCardHeight)
+        #expect(SetupSheetMetrics.heightBounds(availableSize: huge, scale: 1).min
+                == SetupSheetMetrics.minCardHeight)
     }
 
-    /// Below the floor it stops shrinking and the step scrolls instead: overflowing a tiny window
-    /// is better than a card too small to use.
-    @Test func theCardStopsShrinkingAtItsFloor() {
-        let tiny = CGSize(width: 300, height: 200)
-        let resolved = SetupSheetMetrics.resolvedSize(availableSize: tiny, scale: 1)
-        #expect(resolved == SetupSheetMetrics.floorSize)
-    }
-
-    /// The footer really is no taller than the height the opening is computed from.
+    /// The footer really is no taller than the height the content budget is computed from.
     ///
-    /// **An unverified constant inside a fit guard makes every assertion that uses it unverified.**
-    /// `contentOpening` subtracts `footerHeight` from the card, so a real footer taller than the
-    /// number means every step measurement in this file is optimistic by the difference — the guard
-    /// would keep passing while a step overflowed on screen.
+    /// **An unverified constant inside a sizing rule makes every height that uses it unverified.**
+    /// `maxContentHeight` subtracts `footerHeight` from the card, so a real footer taller than the
+    /// number means every measurement here is optimistic by the difference.
     @Test func theFooterFitsTheHeightTheOpeningIsComputedFrom() async throws {
         let settings = await manager(providerCount: 2)
         let sheet = sheet(settings)
-        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
-
         for step in SetupFlow.Step.allCases {
             let host = NSHostingView(
                 rootView: sheet.footer(step)
                     .environment(\.appFontScale, 1)
-                    .frame(width: card.width - SetupSheetMetrics.railWidth)
+                    .frame(width: contentWidth)
             )
             host.layoutSubtreeIfNeeded()
             let measured = host.fittingSize.height
             #expect(measured > 0, "the footer measured nothing at all")
             #expect(measured <= SetupSheetMetrics.footerHeight,
-                    "\(step.displayName)'s footer is \(Int(measured))pt against a \(Int(SetupSheetMetrics.footerHeight))pt budget — every step fit assertion here is optimistic by the difference")
+                    "\(step.displayName)'s footer is \(Int(measured))pt against a \(Int(SetupSheetMetrics.footerHeight))pt budget — every height this form computes is optimistic by the difference")
         }
     }
 
     // MARK: - The steps
 
-    /// Every step fits the opening on the smallest display anyone runs this on.
-    @Test func everyStepFitsTheClampedOpening() async throws {
+    /// No step needs to scroll on the smallest display anyone runs this on.
+    ///
+    /// The card grows to its content now, so this is a claim about the *ceiling*: a step taller than
+    /// the card may ever be is a step the user has to scroll, and on a form of four short questions
+    /// that should not happen for an ordinary Mac.
+    @Test func noStepHasToScrollOnASmallDisplay() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
-        // The fixture has to be able to fail. A Sources step measured with no providers is the
-        // empty state, and measuring the empty state is exactly how the Organize tab's fit guard
-        // passed for a release while real users scrolled.
         #expect(settings.availableProviders.count >= Self.realisticProviderCount,
                 "the fixture discovered no providers — this would measure the empty state")
-
         let store = try roster()
-        // The People step draws a row per person, so an empty roster measures the empty state.
         #expect(store.people.count == Self.realisticRoster.count,
                 "the fixture roster is empty — the People step would be measured with nothing in it")
 
         let sheet = sheet(settings, people: store, hasFilingProfile: true)
-        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
-        let opening = SetupSheetMetrics.contentOpening(cardSize: card)
+        let ceiling = SetupSheetMetrics.maxContentHeight(availableSize: Self.smallDisplayHost, scale: 1)
 
         for step in SetupFlow.Step.allCases {
-            let measured = height(of: step, in: sheet, width: opening.width)
-            #expect(measured <= opening.height,
-                    "\(step.displayName) lays out at \(Int(measured))pt inside a \(Int(opening.height))pt opening — it will scroll on a 1280×800 display")
+            let measured = height(of: step, in: sheet, width: contentWidth)
+            #expect(measured <= ceiling,
+                    "\(step.displayName) lays out at \(Int(measured))pt against a \(Int(ceiling))pt ceiling — it will scroll on a 1280×800 display")
         }
     }
 
-    /// Sources is the step the card is sized against, and it is the one that grows with the user's
-    /// data.
+    /// The steps are genuinely different heights.
     ///
-    /// Pinned so a step that quietly overtakes it gets noticed: the card's height was chosen against
-    /// this one, and a taller neighbour means the number was chosen against the wrong thing.
-    @Test func sourcesIsTheTallestStep() async throws {
+    /// **The positive control for sizing the card to its content at all.** If every step measured
+    /// about the same, a card that "fits each step" would be indistinguishable from the fixed one it
+    /// replaced — and the whole point was that Done is four rows while Sources is a row per source.
+    /// A spread this small would mean the measurement is not seeing the steps.
+    @Test func theStepsAreDifferentEnoughHeightsToBeWorthSizingFor() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
         let sheet = sheet(settings, people: try roster(), hasFilingProfile: true)
-        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
-        let opening = SetupSheetMetrics.contentOpening(cardSize: card)
-
-        let heights = SetupFlow.Step.allCases.map {
-            ($0, height(of: $0, in: sheet, width: opening.width))
-        }
-        let tallest = try #require(heights.max { $0.1 < $1.1 })
-        #expect(tallest.0 == .sources,
-                "\(tallest.0.displayName) is now the tallest step at \(Int(tallest.1))pt — the card's height was measured against Sources")
+        let heights = SetupFlow.Step.allCases.map { height(of: $0, in: sheet, width: contentWidth) }
+        let shortest = try #require(heights.min())
+        let tallest = try #require(heights.max())
+        #expect(shortest > 0, "a step measured nothing at all")
+        #expect(tallest - shortest > 80,
+                "the tallest step is only \(Int(tallest - shortest))pt taller than the shortest — sizing the card to its content buys nothing")
     }
 
-    /// The measurement can see a step growing.
+    /// A short step does not inherit the tallest step's height.
     ///
-    /// **The positive control.** Every assertion above is an upper bound, which a measurement stuck
-    /// at zero — a `fittingSize` that never resolved, a view that rendered nothing — would satisfy
-    /// perfectly. Adding four more sources has to make Sources taller.
-    @Test func theMeasurementSeesAStepGrow() async throws {
-        let small = await manager(providerCount: 3)
-        let large = await manager(providerCount: 7)
-        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
-        let opening = SetupSheetMetrics.contentOpening(cardSize: card)
+    /// This is the defect the whole change exists to fix, asserted directly: the card shown for a
+    /// short step must be shorter than the card shown for a long one.
+    @Test func aShortStepGetsAShorterCard() async throws {
+        let settings = await manager(providerCount: Self.realisticProviderCount)
+        let sheet = sheet(settings, people: try roster(), hasFilingProfile: true)
+        let bounds = bounds
 
-        let shortRun = height(of: .sources, in: sheet(small), width: opening.width)
-        let longRun = height(of: .sources, in: sheet(large), width: opening.width)
+        func cardHeight(for step: SetupFlow.Step) -> CGFloat {
+            let content = height(of: step, in: sheet, width: contentWidth)
+            return min(max(content + SetupSheetMetrics.footerHeight, bounds.min), bounds.max)
+        }
 
-        #expect(shortRun > 0, "the fixture measured nothing at all")
-        #expect(longRun > shortRun,
-                "four more sources did not make the step taller (\(Int(shortRun))pt vs \(Int(longRun))pt) — this measurement is not seeing the list")
+        #expect(cardHeight(for: .done) < cardHeight(for: .sources),
+                "Done is drawn at the same height as Sources — the card is still sized to its tallest step")
     }
 
     /// Where Sources stops fitting.
@@ -229,8 +226,8 @@ import Testing
     /// than scrolled, a measurement that flatlined) fails here rather than passing as "fits at
     /// every count".
     @Test func sourcesOutgrowsTheOpeningEventually() async throws {
-        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
-        let opening = SetupSheetMetrics.contentOpening(cardSize: card)
+        let opening = (width: contentWidth,
+                       height: SetupSheetMetrics.maxContentHeight(availableSize: Self.smallDisplayHost, scale: 1))
 
         var firstOverflow: Int?
         for count in 1...24 {
@@ -254,8 +251,8 @@ import Testing
     /// other list in this form that grows with the user's data.
     @Test func theMeasurementSeesTheRosterGrow() async throws {
         let settings = await manager(providerCount: 2)
-        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
-        let opening = SetupSheetMetrics.contentOpening(cardSize: card)
+        let opening = (width: contentWidth,
+                       height: SetupSheetMetrics.maxContentHeight(availableSize: Self.smallDisplayHost, scale: 1))
 
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-fit-grow-\(UUID().uuidString)")
@@ -280,8 +277,8 @@ import Testing
     /// that a real household fits, and that the number where it stops is known.
     @Test func peopleOutgrowsTheOpeningEventually() async throws {
         let settings = await manager(providerCount: 2)
-        let card = SetupSheetMetrics.resolvedSize(availableSize: Self.smallDisplayHost, scale: 1)
-        let opening = SetupSheetMetrics.contentOpening(cardSize: card)
+        let opening = (width: contentWidth,
+                       height: SetupSheetMetrics.maxContentHeight(availableSize: Self.smallDisplayHost, scale: 1))
 
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("setup-fit-people-\(UUID().uuidString)")
@@ -308,9 +305,10 @@ import Testing
     /// size legitimately scrolls. What must hold is that the opening did not get *smaller*.
     @Test func theOpeningDoesNotShrinkWhenTextGrows() {
         let roomy = CGSize(width: 2000, height: 1400)
-        let base = SetupSheetMetrics.resolvedSize(availableSize: roomy, scale: 1)
-        let large = SetupSheetMetrics.resolvedSize(availableSize: roomy, scale: 1.35)
-        #expect(large.height >= base.height)
-        #expect(large.width >= base.width)
+        let base = SetupSheetMetrics.heightBounds(availableSize: roomy, scale: 1)
+        let large = SetupSheetMetrics.heightBounds(availableSize: roomy, scale: 1.35)
+        #expect(large.max >= base.max)
+        #expect(SetupSheetMetrics.resolvedWidth(availableSize: roomy, scale: 1.35)
+                >= SetupSheetMetrics.resolvedWidth(availableSize: roomy, scale: 1))
     }
 }

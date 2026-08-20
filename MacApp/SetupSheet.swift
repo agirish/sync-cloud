@@ -14,54 +14,73 @@ import Sync
 /// sheet fell into: every fit test there measured the UNCLAMPED opening, so a card raised to 758pt
 /// passed them all and still scrolled on a 1280×800 screen, where the window has ~740pt to give.
 enum SetupSheetMetrics {
-    /// The card at the default text size.
-    ///
-    /// Narrower and shorter than the settings sheet (760×704) because it holds one step rather than
-    /// nine tabs, and every step is a short form. The height is chosen against the tallest of them
-    /// — Sources, which draws a row per source this Mac has — and `SetupSheetFitTests` measures
-    /// that against the CLAMPED opening rather than this number.
-    ///
-    /// **620 → 648, from a measurement rather than a preference.** At 620 the opening is 564pt and
-    /// Sources lays out at 565pt on a Mac with seven sources, which is what the machine this was
-    /// designed against actually has — one point over, and the guard caught it on its first run.
-    /// 648 gives a 592pt opening and 27pt of headroom at that count.
-    ///
-    /// **It is deliberately not raised until Sources cannot overflow, because it cannot be.** That
-    /// step draws a row per source and a user may add any number of folders, so no height promises
-    /// to hold it — the same property that keeps the settings sheet's Providers tab out of its fit
-    /// guard. What replaces the promise is a measurement of where it breaks:
-    /// `sourcesOutgrowsTheOpeningEventually` names the count, so raising this is a decision someone
-    /// takes against a number rather than a surprise a user finds.
-    static let baseSize = CGSize(width: 720, height: 648)
-
-    /// Below this a rail plus a usable content column stops being possible; the card stops
-    /// shrinking and its step scrolls instead.
-    static let floorSize = CGSize(width: 520, height: 400)
-
-    /// Breathing room kept between the card and the window edge.
-    static let hostMargin: CGFloat = 48
+    /// The card's width. Fixed, because a form whose measure changed between steps would reflow
+    /// every line of prose in it as you moved.
+    static let cardWidth: CGFloat = 720
 
     /// The rail's width — the same 176pt the Settings rail uses, because they are the same kind of
     /// list in the same kind of card and two widths would read as a mistake.
     static let railWidth: CGFloat = 176
 
-    /// The title/footer chrome the step's own content does not get.
+    /// The bottom chrome the step's own content does not get.
+    ///
+    /// Checked against the real footer by `theFooterFitsTheHeightTheOpeningIsComputedFrom`: an
+    /// unverified constant here would make every height this file computes wrong by the difference.
     static let footerHeight: CGFloat = 56
 
-    /// The card's size: the base size scaled by the text setting, then clamped to what the host
-    /// actually has room for, never below `floorSize`.
-    static func resolvedSize(availableSize: CGSize, scale: CGFloat) -> CGSize {
-        let wanted = CGSize(width: baseSize.width * scale, height: baseSize.height * scale)
-        let room = CGSize(width: max(availableSize.width - hostMargin, floorSize.width),
-                          height: max(availableSize.height - hostMargin, floorSize.height))
-        return CGSize(width: min(wanted.width, max(room.width, floorSize.width)),
-                      height: min(wanted.height, max(room.height, floorSize.height)))
+    /// Breathing room kept between the card and the window edge.
+    static let hostMargin: CGFloat = 48
+
+    /// **The card is sized to the step it is showing, not to the tallest step it will ever show.**
+    ///
+    /// It used to be a flat 648pt, chosen against Sources — the one step that grows with the user's
+    /// data — and every other step then floated in the space Sources needed. Done was four rows and
+    /// 450pt of nothing. A form that leaves half its card empty reads as unfinished, and no amount
+    /// of spacing inside the content fixes a container that is simply too big for it.
+    ///
+    /// The bounds are what keep that from becoming the opposite problem. Below `minCardHeight` the
+    /// card starts to feel like an alert rather than a form, and the rail runs out of room; above
+    /// `maxCardHeight` a step is long enough that scrolling is the honest answer.
+    /// **Both numbers are measured, not chosen.** The floor is where the rail runs out of room and
+    /// the card starts reading as an alert. The ceiling was 640 and Sources laid out at 605pt on a
+    /// seven-source Mac — 21pt over the 584pt of content that left — so it is 680, which gives that
+    /// step 19pt of headroom and still clamps comfortably inside the ~692pt a 1280×800 display has.
+    ///
+    /// Raising it costs nothing on the other steps, which is the point of sizing to content: Done is
+    /// drawn at about 400pt whatever this says. `aShortStepGetsAShorterCard` is what keeps that true.
+    /// Measured against the shortest step rather than guessed: People lays out at 305pt, so a floor
+    /// of 430 handed it back 69pt of the dead space this whole change exists to remove. 360 clears
+    /// the rail's own content (~222pt) with room and lets the shortest step sit at its own size.
+    static let minCardHeight: CGFloat = 360
+    static let maxCardHeight: CGFloat = 680
+
+    /// The width the card actually gets, clamped to the window it is centred in.
+    static func resolvedWidth(availableSize: CGSize, scale: CGFloat) -> CGFloat {
+        let wanted = cardWidth * scale
+        let room = max(availableSize.width - hostMargin, 460)
+        return min(wanted, room)
     }
 
-    /// The height a step's own content gets inside a card of `size` — what a fit test measures a
-    /// step against.
-    static func contentOpening(cardSize: CGSize) -> CGSize {
-        CGSize(width: cardSize.width - railWidth, height: cardSize.height - footerHeight)
+    /// The height range the card may take, clamped to the window.
+    ///
+    /// Clamped from both sides against the host for the reason the settings sheet learned the hard
+    /// way: a card sized in points on a 1280×800-class display has ~740pt of window to live in, and
+    /// a number chosen without that in mind hangs off the edge while every test still passes.
+    static func heightBounds(availableSize: CGSize, scale: CGFloat) -> (min: CGFloat, max: CGFloat) {
+        let room = max(availableSize.height - hostMargin, 360)
+        let top = min(maxCardHeight * scale, room)
+        let bottom = min(minCardHeight * scale, top)
+        return (bottom, top)
+    }
+
+    /// The height a step's own content may take before the card stops growing and it scrolls.
+    static func maxContentHeight(availableSize: CGSize, scale: CGFloat) -> CGFloat {
+        heightBounds(availableSize: availableSize, scale: scale).max - footerHeight
+    }
+
+    /// The width a step's content is laid out at.
+    static func contentWidth(availableSize: CGSize, scale: CGFloat) -> CGFloat {
+        resolvedWidth(availableSize: availableSize, scale: scale) - railWidth
     }
 }
 
@@ -92,11 +111,19 @@ struct SetupSheet: View {
     let onDismiss: () -> Void
 
     @Environment(\.appFontScale) private var fontScale
+    @Environment(\.colorScheme) private var colorScheme
     @State private var screen: SetupFlow.Screen
     @State private var draft = SetupDraft()
     @State private var fullNameField = ""
     @State private var newPersonField = ""
     @State private var isRefreshingProviders = false
+    /// The natural height of the step currently on screen, reported by the content itself.
+    @State private var measuredContentHeight: CGFloat = 0
+    /// Whether a measurement has ever landed, so the first one does not animate.
+    @State private var hasMeasuredOnce = false
+    /// The first field on the first step. A form that opens with nothing focused asks you to click
+    /// before you can type.
+    @FocusState private var nameFieldFocused: Bool
     @AppStorage(SetupFlow.primarySourceDefaultsKey) private var primarySourceId = ""
     @AppStorage(LiquidGlass.appearanceModeKey) private var appearanceModeRaw = AppearanceMode.system.rawValue
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw = LiquidGlassHue.blue.rawValue
@@ -163,6 +190,7 @@ struct SetupSheet: View {
             // it then has no source to describe. The first enabled source is the honest default:
             // it is what discovery put at the top, and changing it is one click.
             reconcilePrimary()
+            if case .step(.you) = screen { nameFieldFocused = true }
             Logger.shared.info("Setup opened on \(screenName) — "
                                + "\(settings.availableProviders.count) source(s) discovered, "
                                + "roster \(peopleStore == nil ? "not writable yet (no profile)" : "available")")
@@ -171,6 +199,13 @@ struct SetupSheet: View {
         // may have been in what changed.
         .onChange(of: settings.availableProviders.map(\.id)) { _, _ in reconcilePrimary() }
     }
+
+    /// The hues offered here — a spread across the palette, not the whole of it.
+    ///
+    /// `.none` is deliberately absent: it means "follow the system accent" and paints the same blue
+    /// as `.blue`, so side by side the row began with two swatches that could not be told apart.
+    /// Somebody who wants it wants Settings ▸ Appearance, where every hue is named.
+    static let offeredHues: [LiquidGlassHue] = [.blue, .teal, .green, .amber, .coral, .purple, .graphite]
 
     /// The box a panel's illustration draws in, before it is scaled down into the strip.
     ///
@@ -182,8 +217,21 @@ struct SetupSheet: View {
     /// can carry above two lines of copy and still leave the outline list room on the card.
     static let panelArtScale: CGFloat = 0.44
 
-    private var cardSize: CGSize {
-        SetupSheetMetrics.resolvedSize(availableSize: availableSize, scale: fontScale)
+    private var cardWidth: CGFloat {
+        SetupSheetMetrics.resolvedWidth(availableSize: availableSize, scale: fontScale)
+    }
+
+    private var heightBounds: (min: CGFloat, max: CGFloat) {
+        SetupSheetMetrics.heightBounds(availableSize: availableSize, scale: fontScale)
+    }
+
+    /// The height the card takes for the step it is showing: what the content asked for, held
+    /// between the bounds. Zero until the first measurement lands, which is why it falls back to
+    /// the minimum rather than to nothing.
+    private var cardHeight: CGFloat {
+        let bounds = heightBounds
+        guard measuredContentHeight > 0 else { return bounds.min }
+        return min(max(measuredContentHeight + SetupSheetMetrics.footerHeight, bounds.min), bounds.max)
     }
 
     @ViewBuilder
@@ -194,7 +242,18 @@ struct SetupSheet: View {
             case .step(let step): stepScreen(step)
             }
         }
-        .frame(width: cardSize.width, height: cardSize.height)
+        .frame(width: cardWidth, height: cardHeight)
+        // The card grows and shrinks between steps, so the change has to be a movement rather than
+        // a jump — and it must not animate on the very first measurement, which would play the card
+        // unfolding from its minimum every time the form opens.
+        .animation(hasMeasuredOnce ? .easeInOut(duration: 0.22) : nil, value: cardHeight)
+        .onPreferenceChange(SetupContentHeightKey.self) { height in
+            guard height > 0, abs(height - measuredContentHeight) > 0.5 else { return }
+            measuredContentHeight = height
+            // Set after the first value lands, so the opening frame is drawn at the right size
+            // rather than animated up from the minimum.
+            if !hasMeasuredOnce { hasMeasuredOnce = true }
+        }
         .contentSurface(hue: glassHue, tint: surfaceTint)
         .groundedGlassCard(level: glassLevel)
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
@@ -212,80 +271,59 @@ struct SetupSheet: View {
 
     private var welcomeScreen: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 18) {
-                    VStack(spacing: 10) {
-                        SetupIllustration(art: .welcome, leftName: paneNames.0, rightName: paneNames.1)
-                            .frame(height: 108)
-                            .accessibilityHidden(true)
-                        Text("Welcome to SyncCloud")
-                            .scaledFont(.title2.weight(.semibold))
-                        Text("Four short questions, then SyncCloud learns your folders in the "
-                             + "background. About two minutes.")
-                            .scaledFont(.callout)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: 380)
-                    }
-
-                    HStack(alignment: .top, spacing: 9) {
-                        ForEach(SetupFlow.panels, id: \.title) { panel in
-                            VStack(spacing: 6) {
-                                // **Scaled, not framed.** A `frame(height:)` does not resize its
-                                // content — the illustrations draw at their natural ~120pt and a
-                                // smaller frame simply lets them overflow, which is what the first
-                                // render of this strip did: Compare's panes spilled across both its
-                                // neighbours and Organize's folders sat on top of its own title.
-                                // The outer frame is the space it takes; the inner one is the box it
-                                // draws in.
-                                SetupIllustration(art: panel.art,
-                                                  leftName: paneNames.0, rightName: paneNames.1)
-                                    .frame(width: Self.panelArtBox.width,
-                                           height: Self.panelArtBox.height)
-                                    .scaleEffect(Self.panelArtScale)
-                                    .frame(width: Self.panelArtBox.width * Self.panelArtScale,
-                                           height: Self.panelArtBox.height * Self.panelArtScale)
-                                    .accessibilityHidden(true)
-                                Text(panel.title).scaledFont(.callout.weight(.semibold))
-                                Text(panel.blurb)
-                                    .scaledFont(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, 8)
-                            .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(Color.secondary.opacity(0.07)))
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("Setting up asks for")
-                            .scaledFont(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        ForEach(SetupFlow.outline, id: \.step) { row in
-                            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                                Image(systemName: row.step.symbolName)
-                                    .foregroundStyle(.tint)
-                                    .frame(width: 18)
-                                Text(row.step.displayName).scaledFont(.callout.weight(.medium))
-                                Text(row.detail)
-                                    .scaledFont(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer(minLength: 0)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    privacyNote(SetupFlow.privacyClaim, systemImage: "lock")
+            VStack(spacing: 20) {
+                VStack(spacing: 12) {
+                    SetupIllustration(art: .welcome, leftName: paneNames.0, rightName: paneNames.1)
+                        .frame(height: 104)
+                        .accessibilityHidden(true)
+                    Text("Welcome to SyncCloud")
+                        .scaledFont(.largeTitle.weight(.semibold))
+                    Text(SetupFlow.welcomeBlurb)
+                        .scaledFont(.title3)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 420)
                 }
-                .padding(24)
-            }
 
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(SetupFlow.panels, id: \.title) { panel in
+                        VStack(spacing: 7) {
+                            // **Scaled, not framed.** A `frame(height:)` does not resize its
+                            // content — the illustrations draw at their natural ~120pt and a smaller
+                            // frame simply lets them overflow, which is what the first render of
+                            // this strip did: Compare's panes spilled across both its neighbours and
+                            // Organize's folders sat on top of its own title.
+                            SetupIllustration(art: panel.art,
+                                              leftName: paneNames.0, rightName: paneNames.1)
+                                .frame(width: Self.panelArtBox.width, height: Self.panelArtBox.height)
+                                .scaleEffect(Self.panelArtScale)
+                                .frame(width: Self.panelArtBox.width * Self.panelArtScale,
+                                       height: Self.panelArtBox.height * Self.panelArtScale)
+                                .accessibilityHidden(true)
+                            Text(panel.title).scaledFont(.callout.weight(.semibold))
+                            Text(panel.blurb)
+                                .scaledFont(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 10)
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.secondary.opacity(0.07)))
+                    }
+                }
+
+                quietNote(SetupFlow.privacyClaim, systemImage: "lock")
+            }
+            .padding(.horizontal, 30)
+            .padding(.top, 30)
+            .padding(.bottom, 24)
+            .measuredHeight()
+
+            Spacer(minLength: 0)
             Divider()
             HStack(spacing: 10) {
                 Text("Run this again any time from Help ▸ Set Up SyncCloud…")
@@ -300,7 +338,7 @@ struct SetupSheet: View {
                     .shortcutKeycap("⏎")
             }
             .controlSize(.large)
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 20)
             .padding(.vertical, 10)
         }
     }
@@ -313,7 +351,14 @@ struct SetupSheet: View {
             rail(current: step)
             Divider()
             VStack(spacing: 0) {
-                ScrollView { stepContent(step) }
+                // **Scrolls only when the card has stopped growing.** The card is sized to its
+                // content, so on every ordinary step there is nothing to scroll and a greedy
+                // `ScrollView` would simply claim the whole card again — which is the shape this
+                // replaced, where four of five steps floated in the space the tallest one needed.
+                ScrollView {
+                    stepContent(step).measuredHeight()
+                }
+                .scrollBounceBehavior(.basedOnSize)
                 Divider()
                 footer(step)
             }
@@ -322,67 +367,80 @@ struct SetupSheet: View {
 
     /// A step's own content, without the scroll view that holds it.
     ///
-    /// **Split out so a fit test can measure the thing that actually overflows.** A `ScrollView`
-    /// accepts any height it is offered, so `fittingSize` taken on the card answers the card's own
-    /// height however tall the step inside it is — a guard written that way would pass with a step
-    /// twice the size of the opening. `SetupSheetFitTests` measures this instead, and it is
-    /// `internal` for exactly that reason.
+    /// **Split out so a fit test can measure the thing that actually overflows**, and so the card
+    /// can size itself to it. A `ScrollView` accepts any height it is offered, so a measurement
+    /// taken on the card answers the card's own height however tall the step inside it is.
     @ViewBuilder
     func stepContent(_ step: SetupFlow.Step) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 20) {
             switch step {
             case .you: youStep
             case .sources: sourcesStep
             case .people: peopleStep
-            case .survey: surveyStep
             case .done: doneStep
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(22)
+        .padding(.horizontal, 28)
+        .padding(.top, 26)
+        .padding(.bottom, 24)
+    }
+
+    /// The primary source, where one is set.
+    private var primaryProvider: CloudProvider? {
+        settings.availableProviders.first { $0.id == primarySourceId }
     }
 
     private func rail(current: SetupFlow.Step) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             Text("Setup")
                 .scaledFont(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 9)
+                .padding(.bottom, 6)
             ForEach(SetupFlow.Step.allCases, id: \.self) { step in
                 railRow(step, current: current)
             }
-            Spacer(minLength: 8)
-            Text("Everything here is in Settings afterwards. Nothing is locked in.")
+            Spacer(minLength: 12)
+            Text("Everything here is in Settings afterwards.")
                 .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, 9)
         }
-        .padding(.vertical, 16)
-        .padding(.horizontal, 10)
+        .padding(.vertical, 18)
+        .padding(.horizontal, 9)
         .frame(width: SetupSheetMetrics.railWidth, alignment: .leading)
     }
 
+    /// One rail row.
+    ///
+    /// **Quieter than it was, and the reason is that there were three blues on screen at once.** The
+    /// selected row was a filled accent pill, every completed row was a filled accent check, and the
+    /// primary button is accent too — so the rail, which is the least important thing on the card,
+    /// read louder than the question being asked. Selection is now a soft fill with an accent label,
+    /// the way a macOS sidebar marks a row, and a finished step is a plain secondary checkmark.
     private func railRow(_ step: SetupFlow.Step, current: SetupFlow.Step) -> some View {
         let isCurrent = step == current
         let isDone = step.number < current.number
         return HStack(spacing: 9) {
-            Image(systemName: isDone ? "checkmark.circle.fill" : step.symbolName)
-                .foregroundStyle(isCurrent ? AnyShapeStyle(.white)
-                                 : isDone ? AnyShapeStyle(Color.accentColor)
-                                 : AnyShapeStyle(Color.secondary))
-                .frame(width: 18)
+            Image(systemName: isDone ? "checkmark" : step.symbolName)
+                .scaledFont(.callout)
+                .foregroundStyle(isCurrent ? AnyShapeStyle(.tint)
+                                 : isDone ? AnyShapeStyle(Color.secondary)
+                                 : AnyShapeStyle(Color.secondary.opacity(0.7)))
+                .frame(width: 17)
             Text(step.displayName)
-                .scaledFont(.callout.weight(isCurrent ? .medium : .regular))
-                .foregroundStyle(isCurrent ? AnyShapeStyle(.white) : AnyShapeStyle(Color.primary))
+                .scaledFont(.callout.weight(isCurrent ? .semibold : .regular))
+                .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.primary))
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .padding(.horizontal, 9)
         .background {
             if isCurrent {
-                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.accentColor)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.14))
             }
         }
         // The rail reports where you are; it is not a way to skip ahead past answers a later step
@@ -395,18 +453,22 @@ struct SetupSheet: View {
     /// The card's bottom chrome.
     ///
     /// **`internal`, so `SetupSheetMetrics.footerHeight` can be checked against it rather than
-    /// trusted.** That constant is subtracted from the card to get the opening every step is
-    /// measured against, so if the real footer is taller than the number, every fit assertion in
-    /// this form is optimistic by the difference — and nothing else would ever say so.
+    /// trusted.** That constant is subtracted from the card to get the height the content may take,
+    /// so if the real footer is taller than the number, every height this form computes is wrong by
+    /// the difference — and nothing else would ever say so.
     func footer(_ step: SetupFlow.Step) -> some View {
         HStack(spacing: 10) {
             if SetupFlow.previous(before: .step(step)) != nil {
                 Button("Back") { retreat() }
             }
+            Spacer(minLength: 8)
+            // The lock sat immediately beside Back, where a bordered neighbour made it read as a
+            // second button. It belongs with the step counter: both are things the card is telling
+            // you, not things you can press.
             Label(SetupFlow.privacyFooter, systemImage: "lock")
                 .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
+                .foregroundStyle(.tertiary)
+                .labelStyle(.titleAndIcon)
             if step == .done {
                 Button("Start browsing") { finish() }
                     .buttonStyle(.borderedProminent)
@@ -426,7 +488,7 @@ struct SetupSheet: View {
             }
         }
         .controlSize(.large)
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 20)
         .padding(.vertical, 10)
     }
 
@@ -434,12 +496,12 @@ struct SetupSheet: View {
 
     private var youStep: some View {
         Group {
-            stepHeader("Who are you?",
+            stepHeader(.you, "Who are you?",
                        "SyncCloud reads names out of your documents to work out whose they are. It "
                        + "needs to know yours, and every form a document might print it in.")
 
             section("Your name") {
-                HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 5) {
                     // **Not saved per keystroke.** This used to write the whole draft — a JSON
                     // encode and an atomic file replace, on the main actor — for every character
                     // typed into it. The draft is written when the step is left, when Return
@@ -447,9 +509,10 @@ struct SetupSheet: View {
                     // at which an answer is actually finished.
                     TextField("First name", text: $draft.yourName)
                         .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 180)
+                        .frame(maxWidth: 220)
+                        .focused($nameFieldFocused)
                         .onSubmit { saveDraft() }
-                    Text("is what your folders call you")
+                    Text("This is what your folders call you — usually a first name.")
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -460,15 +523,13 @@ struct SetupSheet: View {
                     draft.yourFullNames.removeAll { $0 == name }
                     saveDraft()
                 }
-                HStack(spacing: 8) {
-                    TextField("Add a form…", text: $fullNameField)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 200)
-                        .onSubmit(commitFullName)
-                    Button("Add", action: commitFullName)
-                        .controlSize(.small)
-                        .disabled(fullNameField.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
+                // **One field, no Add button.** The button was disabled until you typed and then
+                // did what ⏎ already did — a second control for one action, sitting there greyed
+                // out most of the time. The placeholder carries the instruction instead.
+                TextField("Add a form, then press ⏎", text: $fullNameField)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 260)
+                    .onSubmit(commitFullName)
                 Text("A full name is matched before any single word, so a shared surname stops "
                      + "making two people out of one document.")
                     .scaledFont(.caption)
@@ -479,7 +540,7 @@ struct SetupSheet: View {
             section("Preferences") {
                 HStack {
                     Text("Appearance").scaledFont(.callout)
-                    Spacer()
+                    Spacer(minLength: 12)
                     Picker("Appearance", selection: $appearanceModeRaw) {
                         ForEach(AppearanceMode.allCases, id: \.rawValue) { mode in
                             Text(mode.displayName).tag(mode.rawValue)
@@ -498,7 +559,11 @@ struct SetupSheet: View {
                     Text("Accent").scaledFont(.callout)
                     Spacer()
                     HStack(spacing: 7) {
-                        ForEach(LiquidGlassHue.allCases, id: \.rawValue) { hue in
+                        // **Not every hue.** Twelve dots is a wall, and the first two of them —
+                        // `.none` and `.blue` — paint the same blue, so the row opened with what
+                        // looked like the same colour twice. The full set lives in
+                        // Settings ▸ Appearance, where it has room and a label each.
+                        ForEach(Self.offeredHues, id: \.rawValue) { hue in
                             Button { selectedHueRaw = hue.rawValue } label: {
                                 Circle()
                                     .fill(hue.accentColor)
@@ -516,12 +581,23 @@ struct SetupSheet: View {
                         }
                     }
                 }
-                Toggle("Notify me when a long pass finishes", isOn: $notifyInBackground)
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .scaledFont(.callout)
-                Text("Surveys, duplicate scans and bulk copies. Startup, and everything else, is in "
-                     + "Settings ▸ General.")
+                // **Label left, control right — the same column the two rows above it set up.**
+                // A `Toggle` with its own title puts the switch immediately after the text, which
+                // broke that column and made the block read as two unrelated groups.
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Notify me when a long pass finishes").scaledFont(.callout)
+                        Text("Surveys, duplicate scans and bulk copies")
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $notifyInBackground)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                }
+                Text("Startup, text size and the rest are in Settings ▸ General.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -544,7 +620,7 @@ struct SetupSheet: View {
 
     private var sourcesStep: some View {
         Group {
-            stepHeader("SyncCloud found \(settings.availableProviders.count) "
+            stepHeader(.sources, "SyncCloud found \(settings.availableProviders.count) "
                        + "place\(settings.availableProviders.count == 1 ? "" : "s") on this Mac",
                        "Turn off the ones you do not use. One of them is primary: the tree "
                        + "SyncCloud learns your folder conventions from.")
@@ -586,44 +662,115 @@ struct SetupSheet: View {
 
     private func sourceRow(_ provider: CloudProvider) -> some View {
         let isEnabled = settings.isEnabled(provider.id)
-        return HStack(spacing: 10) {
-            ProviderLogo(provider.imageName, size: 24)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(provider.displayName).scaledFont(.callout.weight(.medium))
-                Text(provider.path)
+        let isValid = settings.isPathValid(for: provider.id)
+        let isPrimary = primarySourceId == provider.id
+        return HStack(spacing: 11) {
+            ProviderLogo(provider.imageName, size: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 7) {
+                    Text(sourceName(provider))
+                        .scaledFont(.callout.weight(.medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    // **The badge appears only when something is wrong.** Seven green "Valid path"
+                    // pills said nothing seven times and made the one red one hard to find; a list
+                    // where every row is decorated has no way left to point at a row.
+                    if !isValid {
+                        Text("Can't be found")
+                            .scaledFont(.caption2.weight(.medium))
+                            .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(SemanticColor.caution.opacity(0.16)))
+                    }
+                }
+                Text(sourceDetail(provider))
                     .scaledFont(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .help(provider.path)
             }
-            Spacer(minLength: 8)
-            StatusBadge(isValid: settings.isPathValid(for: provider.id))
+            Spacer(minLength: 10)
+
+            // **The primary control says what it is.** It was a bare radio circle beside a switch,
+            // with nothing in the row naming it — the header sentence explained the idea and the
+            // control itself explained nothing. A labelled button is both the affordance and its
+            // own caption, and the chosen one reads as a state rather than as another thing to press.
             Button {
                 primarySourceId = provider.id
             } label: {
-                Image(systemName: primarySourceId == provider.id
-                      ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(primarySourceId == provider.id
-                                     ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary))
+                Label(isPrimary ? "Primary" : "Make primary",
+                      systemImage: isPrimary ? "star.fill" : "star")
+                    .scaledFont(.caption)
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(isPrimary ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background {
+                        if isPrimary {
+                            Capsule().fill(Color.accentColor.opacity(0.14))
+                        }
+                    }
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .disabled(!isEnabled)
-            .help(isEnabled ? "Learn this source's folders"
-                  : "Turn \(provider.displayName) on to make it primary.")
-            .accessibilityLabel("Make \(provider.displayName) primary")
+            .disabled(!isEnabled || isPrimary)
+            // The label already reads "Primary"; without this the chosen row announces a button
+            // somebody can press, which is exactly what it is not.
+            .opacity(isEnabled ? 1 : 0)
+            .help(isPrimary ? "SyncCloud learns your folder conventions from this source."
+                  : "Learn folder conventions from \(provider.displayName) instead.")
+
             Toggle("", isOn: Binding(
                 get: { isEnabled },
                 set: { settings.setEnabled($0, for: provider.id); reconcilePrimary() }))
                 .toggleStyle(.switch)
+                .controlSize(.small)
                 .labelsHidden()
                 .disabled(isEnabled && !settings.canDisable(provider.id))
                 .help(isEnabled && !settings.canDisable(provider.id)
                       ? "At least one source must remain enabled."
                       : "Show \(provider.displayName) in the pane sidebar.")
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .opacity(isEnabled ? 1 : 0.55)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .opacity(isEnabled ? 1 : 0.5)
+    }
+
+    /// The provider's name without the account in it.
+    ///
+    /// **The account is what makes these truncate.** `Google Drive (abhishek.girish@gmail.com)` is
+    /// 41 characters and clipped mid-address in a row that also holds a badge, a primary control and
+    /// a switch — and the clipped half is the only part that tells two Drive accounts apart. The
+    /// name goes on the first line and the account leads the second, where it has the width.
+    private func sourceName(_ provider: CloudProvider) -> String {
+        guard let open = provider.displayName.firstIndex(of: "("),
+              provider.displayName.hasSuffix(")") else { return provider.displayName }
+        return String(provider.displayName[..<open]).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// What identifies this source at a glance.
+    ///
+    /// **The same rule Settings ▸ Sources follows, and for its reason**: a cloud account is
+    /// identified by the account, and its path is a consequence of that — while a folder source's
+    /// id is a UUID that says nothing to anyone, so the folder *is* the path.
+    ///
+    /// Showing both was worse than either. `OneDrive` over
+    /// `HewlettPackardEnterp…dEnterprise/Documents` says one thing twice and truncates in the
+    /// middle of both halves; the full path is on the row's tooltip, where it costs nothing.
+    private func sourceDetail(_ provider: CloudProvider) -> String {
+        if provider.isLocalFolder { return shortPath(provider.path) }
+        guard let open = provider.displayName.firstIndex(of: "("),
+              provider.displayName.hasSuffix(")") else { return shortPath(provider.path) }
+        return String(provider.displayName[provider.displayName.index(after: open)...].dropLast())
+    }
+
+    /// A source path with the home directory folded to `~`, which is most of what the long ones say.
+    private func shortPath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        guard path.hasPrefix(home) else { return path }
+        return "~" + path.dropFirst(home.count)
     }
 
     /// Keeps the primary pointer on a source that is actually enabled.
@@ -665,7 +812,7 @@ struct SetupSheet: View {
 
     private var peopleStep: some View {
         Group {
-            stepHeader("Who else is in your folders?",
+            stepHeader(.people, "Who else is in your folders?",
                        hasFilingProfile
                        ? "These are the people Organize files for. Add anyone it should know about."
                        : "Add anyone your documents are filed for. Once SyncCloud has learned your "
@@ -679,12 +826,12 @@ struct SetupSheet: View {
             // same warning for the same reason; without it, adding somebody here is a change that
             // appears to work and does nothing.
             if let store = peopleStore, store.rosterIsUnreadable {
-                privacyNote("This Mac's people.json exists but could not be read, so the list below "
+                quietNote("This Mac's people.json exists but could not be read, so the list below "
                             + "is what SyncCloud guessed from your folder names. Nothing you change "
                             + "here will be saved until the file is fixed — Settings ▸ People says "
                             + "where it is.", systemImage: "exclamationmark.triangle")
             } else if let store = peopleStore, !store.repeatedRosterIds.isEmpty {
-                privacyNote("Two people in this Mac's people.json share an id, so one record was "
+                quietNote("Two people in this Mac's people.json share an id, so one record was "
                             + "dropped when the file was read. Nothing you change here will be saved "
                             + "until they have separate ids — Settings ▸ People names which.",
                             systemImage: "exclamationmark.triangle")
@@ -725,21 +872,14 @@ struct SetupSheet: View {
                     .fill(Color.secondary.opacity(0.06)))
             }
 
-            HStack(spacing: 8) {
-                TextField("Add a person…", text: $newPersonField)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 200)
-                    .onSubmit(commitPerson)
-                    .disabled(rosterIsReadOnly)
-                Button("Add", action: commitPerson)
-                    .controlSize(.small)
-                    .disabled(rosterIsReadOnly
-                              || newPersonField.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
+            TextField("Add a person, then press ⏎", text: $newPersonField)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 260)
+                .onSubmit(commitPerson)
+                .disabled(rosterIsReadOnly)
 
-            Text("Full names and nicknames are worth adding in Settings ▸ People — a first name is "
-                 + "enough to get started. A name left off costs nothing but attribution: documents "
-                 + "naming that person are filed by their content instead.")
+            Text("A first name is enough here. Full names and nicknames are worth adding in "
+                 + "Settings ▸ People, where they do the most work.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -813,62 +953,28 @@ struct SetupSheet: View {
         }
     }
 
-    // MARK: - Step 4, Survey
-
-    private var surveyStep: some View {
-        Group {
-            stepHeader("How much should SyncCloud learn?",
-                       "Folder names are free. Reading what is inside your documents is what makes "
-                       + "Organize propose destinations and better names — and it takes a while.")
-
-            if hasFilingProfile {
-                privacyNote("This Mac has already learned a tree, so there is nothing to survey here "
-                            + "yet. Organize is using it now.", systemImage: "checkmark.circle")
-            } else {
-                privacyNote("Learning your folders is not in this build yet. When it lands it will "
-                            + "run in the background, pause whenever you are busy, and pick up where "
-                            + "it left off — including after you quit. Until then Organize files by "
-                            + "folder name, which needs no survey.",
-                            systemImage: "clock")
-            }
-
-            if let primary = primaryProvider {
-                section("What it would learn from") {
-                    HStack(spacing: 10) {
-                        ProviderLogo(primary.imageName, size: 22)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(primary.displayName).scaledFont(.callout.weight(.medium))
-                            Text(primary.path)
-                                .scaledFont(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    Text("SyncCloud learns from a folder, not a whole account — you will pick which "
-                         + "one when the survey lands.")
-                        .scaledFont(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            privacyNote(SetupFlow.surveyPrivacyNote, systemImage: "lock")
-            privacyNote(SetupFlow.surveyThirdPartyNote, systemImage: "diamond")
-        }
-    }
-
-    private var primaryProvider: CloudProvider? {
-        settings.availableProviders.first { $0.id == primarySourceId }
-    }
-
-    // MARK: - Step 5, Done
+    // MARK: - Step 4, Done
 
     private var doneStep: some View {
         Group {
-            stepHeader("SyncCloud is set up",
-                       "Everything below is already in effect. Change any of it in Settings.")
+            // **A completion moment, because finishing a form should feel like finishing it.**
+            // Every other step opens with a question; this one opens with an answer, so it takes
+            // the accent mark the rest of the card deliberately does without.
+            VStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .scaledFont(.system(size: 40))
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                Text("You're all set")
+                    .scaledFont(.title.weight(.semibold))
+                Text("Everything below is in effect now. Change any of it in Settings.")
+                    .scaledFont(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 4)
 
             VStack(spacing: 0) {
                 summaryRow("person", youSummary, tab: .people)
@@ -876,17 +982,34 @@ struct SetupSheet: View {
                 summaryRow("cloud", sourcesSummary, tab: .providers)
                 Divider()
                 summaryRow("person.2", peopleSummary, tab: .people)
-                Divider()
-                summaryRow("lock", "Everything stays on this Mac — cloud refinement is off",
-                           tab: .intelligence)
             }
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.secondary.opacity(0.06)))
+
+            // **The survey's disclosure, folded in with the step it belonged to.** Learning your
+            // folders is not in this build yet, so a whole step spent reading about it was a step
+            // with no decision in it. What must not fold away is the promise and its one exception:
+            // this is still the only place either is said in full.
+            quietNote(SetupFlow.surveyPrivacyNote, systemImage: "lock")
+            quietNote(SetupFlow.surveyThirdPartyNote, systemImage: "sparkles")
+
+            if !hasFilingProfile {
+                quietNote("Learning your folders comes next. Until then Organize files by folder "
+                          + "name, which needs no survey — and \(primaryName) is the tree it will "
+                          + "learn from when it lands.", systemImage: "clock")
+            }
 
             Text("Run setup again from Help ▸ Set Up SyncCloud…")
                 .scaledFont(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
+    }
+
+    /// The primary source's name, for the line about what a survey would learn from.
+    private var primaryName: String {
+        settings.availableProviders.first { $0.id == primarySourceId }?.displayName
+            ?? "your primary source"
     }
 
     /// **Reads the roster where there is one, and the draft only where there is not.**
@@ -947,25 +1070,42 @@ struct SetupSheet: View {
 
     // MARK: - Shared pieces
 
-    private func stepHeader(_ title: String, _ blurb: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).scaledFont(.title3.weight(.semibold))
-            Text(blurb)
-                .scaledFont(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    /// A step's heading.
+    ///
+    /// **The mark is what makes this read as a setup pane rather than a settings tab.** Every step
+    /// already declares an SF Symbol for its rail row; drawn once at size beside the question, it
+    /// gives the top of the card something to hold and tells you at a glance which of the four you
+    /// are on without reading the rail.
+    private func stepHeader(_ step: SetupFlow.Step, _ title: String, _ blurb: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: step.symbolName)
+                .scaledFont(.system(size: 22))
+                .foregroundStyle(.tint)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Color.accentColor.opacity(0.12)))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).scaledFont(.title2.weight(.semibold))
+                Text(blurb)
+                    .scaledFont(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 2)
     }
 
     @ViewBuilder
     private func section(_ title: String,
                          @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .scaledFont(.caption2.weight(.semibold))
+            // **Sentence case, not the Settings all-caps.** Three uppercase labels in a row made a
+            // four-question form read as a settings pane; the step already has a title and a mark
+            // saying what it is, so these only need to name the group.
+            Text(title)
+                .scaledFont(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .kerning(0.5)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -975,7 +1115,7 @@ struct SetupSheet: View {
         FlowChips(items: items, onRemove: onRemove)
     }
 
-    private func privacyNote(_ text: String, systemImage: String) -> some View {
+    private func quietNote(_ text: String, systemImage: String) -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: systemImage)
                 .foregroundStyle(.secondary)
@@ -1038,7 +1178,7 @@ struct SetupSheet: View {
             applyDraftIfPossible()
         case .sources:
             reconcilePrimary()
-        case .survey, .done:
+        case .done:
             break
         }
     }
@@ -1126,9 +1266,9 @@ private struct FlowChips: View {
 
     var body: some View {
         if items.isEmpty {
-            Text("None yet")
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
+            // Nothing. The field below is the whole affordance, and "None yet" floating above it
+            // read as a warning about an empty list rather than as an ordinary starting point.
+            EmptyView()
         } else {
             WrapLayout(spacing: 6) {
                 ForEach(items, id: \.self) { item in
@@ -1188,5 +1328,28 @@ private struct WrapLayout: Layout {
             x += size.width + spacing
             lineHeight = max(lineHeight, size.height)
         }
+    }
+}
+
+/// Reports a view's natural height up the tree, so the card can size itself to the step it holds.
+private struct SetupContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private extension View {
+    /// Publishes this view's laid-out height as a preference.
+    ///
+    /// **A background `GeometryReader`, not a `frame` read.** The measurement has to be of what the
+    /// content *wants*, taken without constraining it — reading it from a frame the card imposed
+    /// would measure the card, and the card is what this is trying to size.
+    func measuredHeight() -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: SetupContentHeightKey.self, value: proxy.size.height)
+            }
+        )
     }
 }
