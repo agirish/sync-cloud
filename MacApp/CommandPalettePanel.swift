@@ -88,7 +88,25 @@ final class CommandPaletteState: ObservableObject {
         self.selection = PaletteSelection.initialIndex(in: PaletteRouter.rows(query: "", index: index))
     }
 
-    var rows: [PaletteRow] { PaletteRouter.rows(query: query, index: index) }
+    /// The one filesystem question the palette asks per keystroke, and it lives here rather than in
+    /// the router for the reason `PaletteRouter.typedPath(in:)` records: the routing table is pure.
+    ///
+    /// **`isDirectory`, not `fileExists`.** A typed path naming a *file* must not offer a row — the
+    /// route reveals a folder in the browser, so a file would land the pane somewhere it cannot
+    /// show. One `stat`, on a string the user is typing, only when it starts `/` or `~/`; every
+    /// other keystroke skips it because `typedPath` returns nil first.
+    static func resolvedDirectory(for query: String) -> String? {
+        guard let path = PaletteRouter.typedPath(in: query) else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return nil }
+        return path
+    }
+
+    var rows: [PaletteRow] {
+        PaletteRouter.rows(query: query, index: index,
+                           resolvedPath: Self.resolvedDirectory(for: query))
+    }
 
     /// Typing moves the selection with the list rather than leaving it where it was: an index into
     /// the PREVIOUS results names a different row after a keystroke, so ↩ would run something the

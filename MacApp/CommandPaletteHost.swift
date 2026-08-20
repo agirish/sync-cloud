@@ -19,8 +19,14 @@ struct CommandPaletteCommand: View {
     @FocusedValue(\.commandPalette) private var palette
 
     var body: some View {
+        // **"Go to…", which is what the control is called.** The field's own accessibility label is
+        // "Go to" (`GoToFieldBar`), and this item said "Command Palette…" for the whole of v4.1 —
+        // one surface with two names, because the field shipped and the naming did not follow it.
+        // The TYPE names stay `CommandPalette*`: internally it is still a palette, and renaming a
+        // file is not what makes a menu honest.
+        //
         // Ellipsis: it opens a field, it does not do anything yet.
-        Button("Command Palette…") { palette?() }
+        Button("Go to…") { palette?() }
             .keyboardShortcut(AppChord.commandPalette.key, modifiers: AppChord.commandPalette.modifiers)
             .disabled(palette == nil)
     }

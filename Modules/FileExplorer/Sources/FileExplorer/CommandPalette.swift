@@ -410,12 +410,50 @@ enum PaletteMatch: Int, Comparable {
 /// the point rather than a style.
 public enum PaletteRouter {
 
+    /// A typed path, as a path — Finder's ⇧⌘G without a sheet.
+    ///
+    /// **Parsing only. This does not touch the disk, and must not.** The router is pure, which is
+    /// what lets every routing decision be asserted without a filesystem; a `fileExists` here would
+    /// make the whole table answer differently on two machines. So this answers "is the user typing
+    /// a path, and what path" — the caller answers "does it exist", and hands the verdict back
+    /// through `resolvedPath:` below.
+    ///
+    /// Absolute forms only. A bare `Documents` is a *name*, and names are what the fuzzy folder
+    /// matcher is for; treating it as a path would shadow every recent and pinned folder the moment
+    /// someone typed a word that happened to be a directory in their home.
+    public static func typedPath(in query: String) -> String? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed == "~" || trimmed.hasPrefix("~/") || trimmed.hasPrefix("/") else { return nil }
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        // A trailing slash is how people type a directory; `/Users/` and `/Users` are one place.
+        let trimmedTail = expanded.count > 1 && expanded.hasSuffix("/")
+            ? String(expanded.dropLast()) : expanded
+        return trimmedTail.isEmpty ? "/" : trimmedTail
+    }
+
     /// Rows for a query, best first.
-    public static func rows(query: String, index: PaletteIndex) -> [PaletteRow] {
+    ///
+    /// `resolvedPath` is a typed path the CALLER has already confirmed is a directory — see
+    /// ``typedPath(in:)`` for why the check lives out there. `nil` (the default) means either the
+    /// query is not a path or it does not name a directory, and in both cases no path row is
+    /// offered: a row for a path that does not exist would flicker in and out on every keystroke of
+    /// typing one, which is worse than nothing to look at.
+    public static func rows(query: String, index: PaletteIndex,
+                            resolvedPath: String? = nil) -> [PaletteRow] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return emptyQueryRows(index: index) }
 
         var rows: [PaletteRow] = []
+        // First, and scored above every fuzzy tier: a typed path is not a guess about what was
+        // meant, it is a statement of it. `exact` is 400, so 500 puts this above the best possible
+        // name match without inventing a new tier for one row.
+        if let path = resolvedPath {
+            rows.append(PaletteRow(id: "path.\(path)", group: .folders,
+                                   title: leaf(path), detail: path,
+                                   symbol: "folder.badge.questionmark",
+                                   route: .folder(path: path),
+                                   score: 500))
+        }
         rows.append(contentsOf: verbRows(query: trimmed, index: index))
         rows.append(contentsOf: placeRows(query: trimmed))
         if let person = personRow(for: trimmed, index: index) { rows.append(person) }

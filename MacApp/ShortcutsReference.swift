@@ -51,7 +51,7 @@ enum ShortcutsReference {
             // the entry that makes the rest of this list optional. (Unnumbered on purpose: the
             // count above is derived for exactly this reason, and Names folding into Renames took
             // the rail from six to five.)
-            Item(keys: "⌘ K", action: "Command palette — go to any place, folder or person"),
+            Item(keys: "⌘ K", action: "Go to — any place, folder, person, or a typed path"),
             Item(keys: "⌘ I", action: "Show or hide the Info inspector"),
             Item(keys: "⌘ L", action: "Open the Activity Log"),
             Item(keys: "⌘ ,", action: "Open Settings"),

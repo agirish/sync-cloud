@@ -383,11 +383,13 @@ Nothing in this file depends on any of the moved sections.
 
 ---
 
-## 7. Go to, expanded in place — the ⌘K field — **shipped, bar Go to Folder**
+## 7. Go to, expanded in place — the ⌘K field — **shipped**
 
-**Status, 2026-08-19.** Three of this section's four items shipped between `c77d96d3` and
-`ee46628f`; **Go to Folder (order step 4) is the one still open** — nothing parses a typed path yet,
-and there is no path case on `PaletteRoute`. The 620pt card is gone: `CommandPaletteView` was deleted
+**Status, 2026-08-19.** All four of this section's items have shipped. Three landed between
+`c77d96d3` and `ee46628f`; **Go to Folder closed it** — a typed `/…` or `~/…` resolves through the
+existing `.folder` route, scored above every fuzzy tier because a typed path is a statement of
+intent rather than a guess at one. The same commit renamed the menu item and the ⌘/ row to **Go
+to**, which is what the control had been calling itself since the field shipped. The 620pt card is gone: `CommandPaletteView` was deleted
 in `7e8fff03`, and the live list it also contained now lives in `PaletteResultsList.swift`. Read the
 rest of this section as the record of a design that landed, not as a plan.
 
@@ -691,7 +693,9 @@ have already shipped, so what is actually left is nine.
    `7e8fff03` with the walk still outstanding, so it is owed against the deleted card rather than
    ahead of it. **Done 2026-08-19 — clean**; see the decisions block above for the verdict and for
    the two fixtures that were too weak to detect the collapse they were written for.
-4. **Go to Folder** (§3). Nearly free once 3 lands, pointless before it.
+4. ~~**Go to Folder** (§3).~~ **Done, 2026-08-19** — the field takes `/…` and `~/…` and routes to
+   `.folder`. The parse is pure and in the router; the one `stat` is in the host, because the
+   routing table answering differently on two machines is not a table.
 5. **The menu bar** (§10). Six small items. **Before the chords, and that is the dependency** —
    its Edit ▸ Select All / Cut / Copy / Paste is where the text-editor routing rule gets written,
    and step 6's ⌘↑ / ⌘↓ need the same rule. Ordered the other way round until 2026-08-19, with a
