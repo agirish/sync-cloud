@@ -61,6 +61,8 @@ enum ShortcutsReference {
             // The file clipboard, not the text one — though each of these four hands the keystroke
             // back to the caret when a text field has it (`TextEditingChord`).
             Item(keys: "⌘ A", action: "Select everything in the focused pane's current folder"),
+            // No ⌘ on this one, and that is the point: it is a pane key, not a menu chord.
+            Item(keys: "↩", action: "Rename the selected file or folder"),
             Item(keys: "⌘ C / ⌘ X / ⌘ V", action: "Copy or cut files, then paste — cut then paste is a move"),
             Item(keys: "Esc", action: "Close the Settings overlay"),
         ]),

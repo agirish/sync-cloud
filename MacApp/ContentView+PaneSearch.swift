@@ -201,6 +201,24 @@ extension ContentView {
         return .handled
     }
 
+    /// ↩ renames the selected row — Finder's chord, and the one people try first in any file list.
+    ///
+    /// **A pane key handler, not a menu key equivalent, and that is the whole design.** A menu
+    /// equivalent outranks the field editor and every default button, so a registered bare ↩ would
+    /// take the key that commits the destination picker, the ⌘K field, a rename field itself and
+    /// every sheet in the app. Finder does not register it either: its File ▸ Rename carries no
+    /// key, and the list view handles ↩ itself. `.onKeyPress` is focus-scoped, so this fires only
+    /// while the file list holds focus — which is exactly when ↩ means "rename this".
+    ///
+    /// **The action is the menu item's own closure**, so File ▸ Rename and ↩ cannot come to mean
+    /// different things: `shortcutPaneRowVerbs.rename` is `nil` unless exactly one row is selected,
+    /// and returning `.ignored` there lets ↩ fall through to whatever else would have had it.
+    func paneRename() -> KeyPress.Result {
+        guard let rename = shortcutPaneRowVerbs.rename else { return .ignored }
+        rename()
+        return .handled
+    }
+
     /// What ⌘F opens — and, through `shortcutTargetIsLeft`, what ⌘[, ⌘], ⇧⌘N and ⇧⌘P act on. The
     /// rule itself is `PaneLogic.searchTargetIsLeft`, where it can be tested; this only supplies
     /// the three live facts.

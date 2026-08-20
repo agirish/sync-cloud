@@ -2755,6 +2755,8 @@ struct ContentView: View {
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel)
                 // Space → Quick Look, scoped to the FILE LIST — see `paneQuickLook()`.
                 .onKeyPress(.space) { paneQuickLook() }
+                // ↩ → Rename, scoped the same way and for a stronger reason — see `paneRename()`.
+                .onKeyPress(.return) { paneRename() }
                 // The file actions (Compare/Copy/Move/Delete) live here now, not in the titlebar: a
                 // contextual bar on whichever pane holds the selection, so the buttons name their
                 // target. (New Folder stays on the right-click menu to keep the bar compact.) The
