@@ -580,6 +580,102 @@ struct SyncHistoryWindowCommand: View {
     }
 }
 
+// MARK: - Resizing
+
+/// Which part of the Help card's frame a resize drag has hold of.
+///
+/// The card stays **centred**, so a drag moves the grabbed edge and the opposite one moves with
+/// it — see ``HelpCardSize/resized(from:by:grip:within:)`` for why that means doubling the
+/// translation rather than adding it.
+enum HelpCardGrip: CaseIterable {
+    case top, bottom, leading, trailing
+    case topLeading, topTrailing, bottomLeading, bottomTrailing
+
+    /// Whether this grip moves the card's width, and in which direction a positive drag takes it.
+    /// `0` for the two grips that only move height.
+    var horizontal: CGFloat {
+        switch self {
+        case .trailing, .topTrailing, .bottomTrailing: return 1
+        case .leading, .topLeading, .bottomLeading: return -1
+        case .top, .bottom: return 0
+        }
+    }
+
+    /// The same for height; `0` for the two that only move width.
+    var vertical: CGFloat {
+        switch self {
+        case .bottom, .bottomLeading, .bottomTrailing: return 1
+        case .top, .topLeading, .topTrailing: return -1
+        case .leading, .trailing: return 0
+        }
+    }
+
+    /// The pointer macOS shows over this grip.
+    var pointer: FrameResizePosition {
+        switch self {
+        case .top: return .top
+        case .bottom: return .bottom
+        case .leading: return .leading
+        case .trailing: return .trailing
+        case .topLeading: return .topLeading
+        case .topTrailing: return .topTrailing
+        case .bottomLeading: return .bottomLeading
+        case .bottomTrailing: return .bottomTrailing
+        }
+    }
+}
+
+/// The Help card's size: its bounds, and the one rule that resolves a drag into a new one.
+///
+/// **Pure, because the view around it cannot be built in a test.** `HelpView` is a SwiftUI `View`
+/// with `@State` and `@AppStorage`; a clamp written inline there is a clamp no test can flip. The
+/// call site is pinned separately so the rule cannot become one nobody calls.
+enum HelpCardSize {
+
+    /// What the card opens at on a machine that has never resized it — the size it was fixed at
+    /// before it could be resized at all, so nothing about the default view changes.
+    static let initial = CGSize(width: 760, height: 520)
+
+    /// The floor. The sidebar is a fixed 220pt and does not shrink, so the width floor is really
+    /// a floor on the ARTICLE column: 560 leaves it 339pt, which still sets a bullet's second
+    /// line without hyphenating. Below this the article stops being readable rather than merely
+    /// getting narrow.
+    static let minimum = CGSize(width: 560, height: 400)
+
+    /// The defaults keys. Two, rather than one archived `CGSize`, because a width that survives a
+    /// height's decoding failure is strictly better than losing both — and `@AppStorage` reads
+    /// `Double` natively.
+    static let widthDefaultsKey = "helpCardWidth"
+    static let heightDefaultsKey = "helpCardHeight"
+
+    /// The new size for a drag of `translation` that started with the card at `start`.
+    ///
+    /// **The translation is doubled, and that is what keeps the pointer on the grip.** The card is
+    /// centred in the overlay, so half of any growth goes to each side: to move the trailing edge
+    /// 10pt right, the width has to grow 20. Adding the translation once would leave the edge
+    /// drifting at half the pointer's speed, which reads as lag rather than as a rule.
+    static func resized(from start: CGSize, by translation: CGSize,
+                        grip: HelpCardGrip, within available: CGSize) -> CGSize {
+        let wanted = CGSize(width: start.width + grip.horizontal * translation.width * 2,
+                            height: start.height + grip.vertical * translation.height * 2)
+        return clamped(wanted, within: available)
+    }
+
+    /// A size held to the floor and to what the window can actually show.
+    ///
+    /// **The `max(minimum, available)` is live, not defensive padding.** `GeometryReader` reports
+    /// `.zero` on its first layout pass, and clamping straight to `available` there would collapse
+    /// the card to nothing on the frame it appears. Preferring the floor when the window is
+    /// smaller than the card also fails in the safer direction: an overflowing card is legible and
+    /// a 0×0 one is gone.
+    static func clamped(_ size: CGSize, within available: CGSize) -> CGSize {
+        let ceiling = CGSize(width: Swift.max(minimum.width, available.width),
+                             height: Swift.max(minimum.height, available.height))
+        return CGSize(width: Swift.min(Swift.max(size.width, minimum.width), ceiling.width),
+                      height: Swift.min(Swift.max(size.height, minimum.height), ceiling.height))
+    }
+}
+
 // MARK: - Overlay
 
 /// The in-window Help overlay (⌘? / Help ▸ SyncCloud Help): a dimmed backdrop behind a centered
@@ -593,15 +689,22 @@ struct HelpOverlay: View {
     let onClose: () -> Void
 
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
-                .ignoresSafeArea()
-                .onTapGesture(perform: onClose)
+        // The card can now be dragged bigger, so it needs to know what "bigger" runs out at.
+        // `GeometryReader` here rather than inside the card: this view already fills the window,
+        // and the card's own geometry is the thing being resized — reading the size from inside it
+        // would be reading the answer out of the question.
+        GeometryReader { proxy in
+            ZStack {
+                Rectangle()
+                    .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onClose)
 
-            card
-                // Absorb clicks on the card so they don't fall through to the dismiss backdrop.
-                .contentShape(Rectangle())
+                card(available: proxy.size)
+                    // Absorb clicks on the card so they don't fall through to the dismiss backdrop.
+                    .contentShape(Rectangle())
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .transition(.opacity)
     }
@@ -611,8 +714,8 @@ struct HelpOverlay: View {
     /// to `.frosted` because this card sits over live app content; the ground under the content
     /// answers that without collapsing Clear and Frosted into the same card.
     @ViewBuilder
-    private var card: some View {
-        HelpView(onClose: onClose)
+    private func card(available: CGSize) -> some View {
+        HelpView(available: available, onClose: onClose)
             .contentSurface(hue: glassHue, tint: surfaceTint)
             // No hairline overlay here: `groundedGlassCard` now draws it for BOTH schemes. Adding
             // one on top put a second border over the dark specular edge.
@@ -622,20 +725,52 @@ struct HelpOverlay: View {
 }
 
 /// The Help card's content: a searchable topic sidebar on the left and the selected article on
-/// the right. Fixed size, like the Keyboard Shortcuts window — the content is bounded, so the
-/// card doesn't need to resize.
+/// the right.
+///
+/// **Resizable, and still an overlay.** It was fixed at 760×520 on the argument that the content
+/// is bounded — which is true of the sidebar and false of the articles, whose longest ones run
+/// well past the card and scroll. Nothing else about the overlay changes: the scrim, the centring,
+/// the glass card and all three ways out are as they were. The size is dragged from any edge or
+/// corner, held between ``HelpCardSize/minimum`` and what the window can show, and remembered.
 struct HelpView: View {
+    /// What the window can show — the ceiling a drag is clamped to. Passed in rather than measured
+    /// here because this view IS the thing being measured.
+    let available: CGSize
     let onClose: () -> Void
 
     @State private var selectedTopicID: String
     @State private var query: String = ""
 
-    init(onClose: @escaping () -> Void) {
+    /// The remembered size. Two `Double`s rather than an archived `CGSize` — see
+    /// ``HelpCardSize/widthDefaultsKey``.
+    @AppStorage(HelpCardSize.widthDefaultsKey) private var storedWidth: Double
+        = HelpCardSize.initial.width
+    @AppStorage(HelpCardSize.heightDefaultsKey) private var storedHeight: Double
+        = HelpCardSize.initial.height
+
+    /// The size for the drag in progress, or nil when none is. Kept apart from the stored pair so
+    /// a drag that is abandoned mid-flight leaves nothing written, and so the defaults are touched
+    /// once per drag rather than once per frame.
+    @State private var dragging: CGSize?
+    /// The size the current drag started from. `DragGesture.translation` is cumulative from the
+    /// drag's start, so the rule needs the size at that moment, not the size a frame ago.
+    @State private var dragStart: CGSize?
+
+    init(available: CGSize, onClose: @escaping () -> Void) {
+        self.available = available
         self.onClose = onClose
         _selectedTopicID = State(initialValue: HelpBook.sections.first?.topics.first?.id ?? "")
     }
 
     private var results: [HelpBook.Section] { HelpBook.filteredSections(matching: query) }
+
+    /// The size to draw at: the live drag if there is one, otherwise what was remembered — and
+    /// clamped either way, because the window may have been made smaller since, or the stored pair
+    /// may have come from a larger display.
+    private var size: CGSize {
+        HelpCardSize.clamped(dragging ?? CGSize(width: storedWidth, height: storedHeight),
+                             within: available)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -649,7 +784,101 @@ struct HelpView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(width: 760, height: 520)
+        .frame(width: size.width, height: size.height)
+        .overlay { resizeHandles }
+    }
+
+    // MARK: Resize handles
+
+    /// The eight grips, laid over the card's own edges and corners.
+    ///
+    /// **Corners after edges, deliberately.** An edge strip runs the card's whole side, so it sits
+    /// under both corners at that end; declaring the corners last puts them on top, where a
+    /// diagonal drag expects to find them.
+    ///
+    /// **8pt strips and 16pt corners, and those numbers are clearances rather than taste.** The
+    /// grips sit OVER the content, the way a window's own resize band does, so anything they cover
+    /// stops being clickable. The two controls close enough to matter both clear them: the close
+    /// button is inset 16pt horizontally and 12pt vertically, so the trailing strip (8) and the top
+    /// strip (8) stop short of it and the 16pt corner ends exactly where it begins; the sidebar's
+    /// search field is inset 10pt, clearing the leading strip by 2. Thickening either of these
+    /// without re-measuring those two would take the ✕ or the field with it.
+    private var resizeHandles: some View {
+        ZStack {
+            edgeGrip(.top)
+            edgeGrip(.bottom)
+            edgeGrip(.leading)
+            edgeGrip(.trailing)
+            cornerGrip(.topLeading)
+            cornerGrip(.topTrailing)
+            cornerGrip(.bottomLeading)
+            cornerGrip(.bottomTrailing)
+        }
+    }
+
+    /// One side, using the window's own seam component so the fixed-coordinate-space rule that
+    /// every other resize in this app follows is not re-derived here.
+    private func edgeGrip(_ grip: HelpCardGrip) -> some View {
+        ResizeHandle(
+            axis: grip.vertical == 0 ? .horizontal : .vertical,
+            thickness: 8,
+            // NEVER `.local`: the strip moves as the card it resizes grows, so in its own space
+            // the gesture feeds back on itself and the drag stutters. `ResizeHandle` documents
+            // this and requires the parameter for exactly this reason.
+            coordinateSpace: .global,
+            onDrag: { apply($0.translation, grip: grip) },
+            onCommit: commitDrag
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment(for: grip))
+    }
+
+    /// One corner. `ResizeHandle` is single-axis by construction — it draws a strip and shows a
+    /// column-or-row pointer — so the diagonal grips are their own small view rather than a third
+    /// axis bolted onto a component four pane seams depend on.
+    private func cornerGrip(_ grip: HelpCardGrip) -> some View {
+        Color.clear
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+            .pointerStyle(.frameResize(position: grip.pointer))
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { apply($0.translation, grip: grip) }
+                    .onEnded { _ in commitDrag() }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment(for: grip))
+    }
+
+    private func alignment(for grip: HelpCardGrip) -> Alignment {
+        switch grip {
+        case .top: return .top
+        case .bottom: return .bottom
+        case .leading: return .leading
+        case .trailing: return .trailing
+        case .topLeading: return .topLeading
+        case .topTrailing: return .topTrailing
+        case .bottomLeading: return .bottomLeading
+        case .bottomTrailing: return .bottomTrailing
+        }
+    }
+
+    /// Resolve a drag into a live size. The start size is captured on the first change rather than
+    /// on a separate `onBegan` — `DragGesture` has no such callback, and the first `onChanged`
+    /// carries a translation small enough that reading the size there is the same answer.
+    private func apply(_ translation: CGSize, grip: HelpCardGrip) {
+        let start = dragStart ?? size
+        if dragStart == nil { dragStart = start }
+        dragging = HelpCardSize.resized(from: start, by: translation,
+                                        grip: grip, within: available)
+    }
+
+    /// Write the dragged size once, on release.
+    private func commitDrag() {
+        if let dragging {
+            storedWidth = dragging.width
+            storedHeight = dragging.height
+        }
+        dragging = nil
+        dragStart = nil
     }
 
     // MARK: Header
