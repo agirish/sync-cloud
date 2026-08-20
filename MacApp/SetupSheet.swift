@@ -460,6 +460,12 @@ struct SetupSheet: View {
                 quietNote(SetupFlow.privacyClaim, systemImage: "lock")
             }
             .padding(.horizontal, 30)
+            // **30/24 with 20pt of stack spacing does not fit any more, measured.** Restoring the
+            // outline list costs about 90pt, and at the old numbers the card lays out at 620pt
+            // against the 610pt it is drawn in — `theWelcomeScreenFitsTheCardItIsDrawnIn` fails
+            // naming both. 24/20 and 18pt of spacing is where it fits, with the strip and the
+            // privacy note unchanged. Re-measure before growing this screen again; the card's
+            // height is `SetupSheetMetrics.cardHeight` and it is set by the STEPS, not by this.
             .padding(.top, 24)
             .padding(.bottom, 20)
 
@@ -528,15 +534,6 @@ struct SetupSheet: View {
             case .done: doneStep
             }
 
-            // **Said before the button that reads the documents, not after it.** Which step that is
-            // comes from `SetupFlow.disclosureStep` rather than from where this happens to be
-            // written, because it has already been in the wrong place once: the notes sat on Done
-            // for as long as Folders was folded into Done, and stayed there when the step came
-            // back — a consent notice on the screen after the act it discloses.
-            if step == SetupFlow.disclosureStep {
-                quietNote(SetupFlow.surveyPrivacyNote, systemImage: "lock")
-                quietNote(SetupFlow.surveyThirdPartyNote, systemImage: "sparkles")
-            }
 
             // **The slack goes here, above the closing line, not after it.**
             //
@@ -1338,6 +1335,23 @@ struct SetupSheet: View {
             case .failed(let why):
                 quietNote("SyncCloud could not learn that folder — \(why).",
                           systemImage: "exclamationmark.triangle")
+            }
+
+            // **The disclosure, immediately above the button that acts on it.**
+            //
+            // Which step carries it is `SetupFlow.disclosureStep`'s to say, not this file's — it has
+            // been in the wrong place once already, riding along when Folders folded into Done and
+            // staying there when the step came back, so that the app promised "your documents are
+            // read on this Mac" on the screen *after* the walk. Asking the constant here means
+            // moving it stops this step drawing the notes, which `theDisclosureIsDrawnOnTheStep
+            // ThatAsksForIt` turns into a failure rather than a silent relocation.
+            //
+            // Placed here rather than appended by `stepContent` for the reason the placement was
+            // wrong before: a notice under the button is read after the decision it informs. The
+            // step composes its own order; only *which* step is the rule's business.
+            if SetupFlow.disclosureStep == .survey {
+                quietNote(SetupFlow.surveyPrivacyNote, systemImage: "lock")
+                quietNote(SetupFlow.surveyThirdPartyNote, systemImage: "sparkles")
             }
 
             HStack(spacing: 8) {

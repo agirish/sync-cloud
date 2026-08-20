@@ -495,8 +495,15 @@ import Testing
         try #require(source.count > 500, "SetupSheet.swift is implausibly short")
 
         // Drawn through the rule, not at a location somebody has to remember.
-        #expect(source.contains("if step == SetupFlow.disclosureStep {"),
+        #expect(source.contains("if SetupFlow.disclosureStep == .survey {"),
                 "the notes are no longer gated on `disclosureStep` — moving the constant would move nothing")
+        // **And above the button, not under it.** The first fix put the notes in `stepContent`,
+        // which appends after the step body — so they landed BELOW *Learn this folder*, which is a
+        // notice read after the decision it informs. This holds the order the step draws them in.
+        let gate = try #require(source.range(of: "if SetupFlow.disclosureStep == .survey {"))
+        let button = try #require(source.range(of: "Button(walkPhase.isDone ? \"Learn again\" : \"Learn this folder\")"))
+        #expect(gate.lowerBound < button.lowerBound,
+                "the disclosure is drawn after the button that reads the documents")
         // And exactly once each: a second copy is how the two screens came to disagree before.
         for note in ["SetupFlow.surveyPrivacyNote", "SetupFlow.surveyThirdPartyNote"] {
             #expect(source.components(separatedBy: note).count - 1 == 1,
