@@ -23,7 +23,8 @@ import Testing
     /// Deliberately unlike the hand-built fixture below in every visible field, so "the file did
     /// not change" and "the file changed to this" can never be confused.
     private static func nameOnly(id: String = "abhishek",
-                                 root: String = "~/Documents") -> FolderProfile {
+                                 root: String = "~/Documents",
+                                 builtBy: String? = nil) -> FolderProfile {
         FolderProfile(
             profileId: id, root: root,
             folders: [
@@ -38,7 +39,7 @@ import Testing
                                                    anchors: [], acceptsNewFiles: false,
                                                    fileCount: 4, subfolderCount: 0, axes: [:])
             ],
-            personTokens: [], personAliases: [:])
+            personTokens: [], personAliases: [:], builtBy: builtBy)
     }
 
     // MARK: - Direction one: it writes where there is nothing
@@ -81,7 +82,12 @@ import Testing
         #expect(written == FilingProfileStore.profileURL(id: "abhishek", in: dir))
 
         let read = try #require(FilingProfileStore.profile(id: "abhishek", in: dir))
-        #expect(read == Self.nameOnly())            // every field, including the empty person axis
+        // Every field, including the empty person axis — and the `builtBy` the store stamps, which
+        // the input did not carry. **The round trip is deliberately not identity**: that header is
+        // what makes the profile the app's own to replace later, so a read that came back equal to
+        // the input would mean provenance had been dropped on the way through.
+        #expect(read == Self.nameOnly(builtBy: read.builtBy))
+        #expect(read.provenance == .derived)
         #expect(read.folders.count == 3)
         #expect(read.folders["Finance/Receipts"]?.fileCount == 9)
         #expect(!read.acceptsNewFiles("Finance/TODO"))
@@ -114,7 +120,10 @@ import Testing
         let read = try #require(FilingProfileStore.profile(id: "abhishek", in: dir))
         #expect(read.personTokens == ["abhishek", "shweta", "mom", "muktha"])
         #expect(read.personAliases["mom"] == "muktha")
-        #expect(read == profile)
+        #expect(read == FolderProfile(profileId: profile.profileId, root: profile.root,
+                                      folders: profile.folders, personTokens: profile.personTokens,
+                                      personAliases: profile.personAliases, builtBy: read.builtBy))
+        #expect(read.provenance == .derived)
     }
 
     /// With no index at all, the write creates one and names itself active — the bootstrap this

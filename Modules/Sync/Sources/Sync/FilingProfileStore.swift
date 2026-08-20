@@ -263,6 +263,29 @@ extension FilingProfileStore {
     /// therefore logs exactly one thing — the rollback in ``land(_:at:index:at:writeIndex:)``,
     /// which is the only fact no thrown error carries (see there). **A caller wiring this up owes
     /// the log line**, and `description` is written to be that line.
+    /// Whether a freshly written profile may become the active one.
+    ///
+    /// **Provenance, not existence — this is the rule that changed, and it changed in one
+    /// direction.** It used to be "only when nothing is active", which protected a hand-built
+    /// profile perfectly and also refused to let the app replace *its own* previous derivation. The
+    /// consequence was not theoretical: on a machine with any active profile, a survey ran to
+    /// completion, wrote a correct `folder-profile.json` under a fresh id, and then nothing read it,
+    /// because `profiles.json` still named the old one and no message said so.
+    ///
+    /// So: re-point when nothing is active, or when what is active is the app's own work. Never
+    /// when it is hand-built — that file also records judgements a walk cannot see (`naming`,
+    /// `folderSemantics`, the `outbound-pack` refusals), so aiming the app at a derived profile
+    /// instead would quietly degrade To File and the rename pass with nothing failing.
+    ///
+    /// **An unreadable active profile counts as hand-built**, on the same principle as
+    /// ``FolderProfile/provenance``: a file this build cannot parse is one it must not decide it
+    /// owns. It refuses to re-point, which leaves the user where they were.
+    static func mayRepoint(activeId: String?, in directory: URL) -> Bool {
+        guard let activeId else { return true }
+        guard let active = profile(id: activeId, in: directory) else { return false }
+        return active.provenance == .derived
+    }
+
     public enum WriteRefusal: Error, Equatable, CustomStringConvertible {
         /// `folder-profile.json` already exists for this id. Never overwritten, never merged.
         case profileExists(id: String)
@@ -357,7 +380,7 @@ extension FilingProfileStore {
         // index here" to the first and as a perfectly good index to the second, so an index that
         // named an active profile got silently re-pointed at this survey.
         let reading = try indexForAmending(in: directory)
-        let index = reading.activeProfileId == nil
+        let index = mayRepoint(activeId: reading.activeProfileId, in: directory)
             ? try amendedIndex(from: reading, naming: profile, now: now) : nil
 
         try FileManager.default.createDirectory(at: directory.appendingPathComponent(id),

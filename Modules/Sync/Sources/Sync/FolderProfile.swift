@@ -26,6 +26,19 @@ public struct FolderProfile: Sendable, Equatable {
     /// person?". ``PersonRegistry/seeded(from:)`` is what reads it.
     public let personAliases: [String: String]
 
+    /// What wrote this profile, verbatim from the file's `builtBy` header — nil when the header is
+    /// absent, which is how every hand-built profile written before it existed reads.
+    ///
+    /// **Written since the first in-app write and decoded only now, which is the point.** The field
+    /// was stamped into every profile `writeProfile` produced and read by nothing, so the app could
+    /// not tell a profile it had derived from one somebody built by hand — and the store's guard had
+    /// to key on *existence* instead, refusing to replace either. That is right for a hand-built
+    /// file and needlessly strict for the app's own: a derived profile is re-derivable in seconds,
+    /// and refusing to replace it is what left a fresh survey on disk with nothing reading it.
+    ///
+    /// See ``provenance``, which is the question callers actually ask.
+    public let builtBy: String?
+
     /// `role` strings this build has no case for, and how many folders carried each.
     ///
     /// **The profile is written by a generator that is not this app**, so a role added there
@@ -36,14 +49,48 @@ public struct FolderProfile: Sendable, Equatable {
     /// Folder entries that could not be decoded at all, even leniently. Also reported once.
     public let undecodableFolders: Int
 
+    /// Who produced a profile, and therefore what the app may do with it.
+    ///
+    /// **The distinction is provenance, not age or content.** A profile the app derived from a walk
+    /// records what a walk can see; a hand-built one also records judgements a walk cannot —
+    /// `naming`, `folderSemantics`, the `outbound-pack` refusals — so replacing it with a derived
+    /// one silently degrades To File and the rename pass with nothing failing. Replacing the app's
+    /// own previous derivation costs nothing at all.
+    public enum Provenance: Equatable, Sendable {
+        /// Written by this app's folder survey. The app may supersede it with a fresh one.
+        case derived
+        /// Written by anything else — the out-of-repo builder, or a hand edit — including every
+        /// profile that predates the `builtBy` header. **Never replaced.**
+        case handBuilt
+    }
+
+    /// Whether this profile is the app's own work.
+    ///
+    /// **Absent `builtBy` means hand-built, and that default is the safe one by construction**: the
+    /// only profiles without the header are the ones written before the app could write any, which
+    /// are exactly the hand-built ones. A new marker string would read as hand-built too, which errs
+    /// toward refusing to replace something rather than toward replacing something it should not.
+    public var provenance: Provenance {
+        builtBy?.hasPrefix(FolderProfile.derivedBuiltByPrefix) == true ? .derived : .handBuilt
+    }
+
+    /// The prefix `writeProfile` stamps into every profile the app derives.
+    ///
+    /// Matched on a prefix rather than in full so the rest of the string stays free for a version or
+    /// a date without turning every older derived profile hand-built — which would strand it,
+    /// unreplaceable, for the reason this type exists.
+    public static let derivedBuiltByPrefix = "SyncCloud"
+
     public init(profileId: String, root: String, folders: [String: FolderProfileEntry],
                 personTokens: Set<String>, personAliases: [String: String] = [:],
+                builtBy: String? = nil,
                 unknownRoles: [String: Int] = [:], undecodableFolders: Int = 0) {
         self.profileId = profileId
         self.root = root
         self.folders = folders
         self.personTokens = personTokens
         self.personAliases = personAliases
+        self.builtBy = builtBy
         self.unknownRoles = unknownRoles
         self.undecodableFolders = undecodableFolders
     }
@@ -182,7 +229,7 @@ public enum FolderRole: String, Sendable, Equatable, Decodable {
 
 extension FolderProfile: Decodable {
     private enum Key: String, CodingKey {
-        case profileId, root, folders, axes
+        case profileId, root, folders, axes, builtBy
     }
     private struct AxisBox: Decodable {
         let values: [String]?
@@ -221,6 +268,9 @@ extension FolderProfile: Decodable {
         let c = try decoder.container(keyedBy: Key.self)
         profileId = try c.decodeIfPresent(String.self, forKey: .profileId) ?? "default"
         root = try c.decodeIfPresent(String.self, forKey: .root) ?? "~"
+        // Tolerated as absent, and as the wrong type: a hand-edited header should cost the file its
+        // provenance — which reads as hand-built, the cautious answer — not its 3,013 folders.
+        builtBy = try? c.decodeIfPresent(String.self, forKey: .builtBy)
         // **One unknown `role` string used to kill the whole filing layer, unrepairably.**
         //
         // `FolderRole` is a raw-value enum and `role` is optional, but *optional* only makes an

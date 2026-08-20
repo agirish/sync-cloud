@@ -38,6 +38,15 @@ import Foundation
 /// where that is enforced — this type only produces the value.
 public enum FolderSurveyBuilder {
 
+    /// The key the root's own entry is filed under.
+    ///
+    /// Named because callers have to be able to tell "this profile describes a tree" from "this
+    /// profile describes an empty folder": every profile has this entry, so a folder count of one
+    /// means nothing was found below the root — and a guard written as `folders.isEmpty` is a branch
+    /// that can never be taken.
+    public static let rootEntryPath = "."
+
+
     /// Builds a profile from the nodes **directly inside** `root`.
     ///
     /// - Parameters:
