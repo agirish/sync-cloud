@@ -1,4 +1,5 @@
 @testable import SyncCloud
+import Design
 import Sync
 import Testing
 import AppKit
@@ -53,6 +54,68 @@ import AppKit
         let item = try #require(try Self.menu("Window").items.first { $0.title == "Activity Log" })
         #expect(item.keyEquivalent == "l")
         #expect(item.keyEquivalentModifierMask == .command)
+    }
+
+    /// **Every chord the app declares is actually on a menu item.**
+    ///
+    /// The guard that was missing, and the regression it catches shipped inside the very commit
+    /// this suite was written for. `cd87b08e` took the auxiliary windows out of the Help menu —
+    /// correctly — and `ShortcutsWindowCommand` was the only thing in the app registering ⌘/. It
+    /// was not put anywhere else, so from that commit the app's own keyboard-shortcut chord opened
+    /// nothing: a `View` with no call site, and a documented row in the ⌘/ reference pointing at a
+    /// key that did nothing.
+    ///
+    /// Nothing could see it. `AppChordTests` reads the registry, `ShortcutsReferenceTests` compares
+    /// the registry against the reference table, and neither knows whether anything *registers* the
+    /// chord — the same blindness that let a menu carry two copies of one window. Only the built
+    /// menu knows, and the test host is the app, so it can be asked.
+    ///
+    /// Presence, not enabled state: most of these are `@FocusedValue` items that are correctly grey
+    /// with no window focused. An item that is not there at all is the failure.
+    @Test func everyDeclaredChordIsOnAMenuItem() throws {
+        var registered: Set<String> = []
+        func walk(_ menu: NSMenu) {
+            for item in menu.items {
+                if !item.keyEquivalent.isEmpty {
+                    registered.insert(Self.chordKey(item.keyEquivalent,
+                                                    item.keyEquivalentModifierMask))
+                }
+                if let sub = item.submenu { walk(sub) }
+            }
+        }
+        walk(try #require(NSApp.mainMenu, "the app built no menu bar — this check would be vacuous"))
+        #expect(registered.count > 20,
+                "only \(registered.count) chords found in the menu bar — the walk lost its way")
+
+        let missing = AppChord.registry
+            .filter { !registered.contains(Self.chordKey($0)) }
+            .map(\.display)
+        #expect(missing.isEmpty, """
+                \(missing.count) declared chord(s) are on no menu item: \(missing.joined(separator: ", ")).
+                A chord in `AppChord.registry` has a row in the ⌘/ reference, so one that nothing \
+                registers is a key the app documents and does not answer.
+                """)
+    }
+
+    /// A chord as a comparable string. `AppChord` carries SwiftUI's `KeyEquivalent` and AppKit's
+    /// items carry a `String` plus an `NSEvent.ModifierFlags`, so the two are folded to one
+    /// spelling rather than compared across the frameworks' own types.
+    static func chordKey(_ key: String, _ modifiers: NSEvent.ModifierFlags) -> String {
+        var out = ""
+        if modifiers.contains(.control) { out += "^" }
+        if modifiers.contains(.option) { out += "~" }
+        if modifiers.contains(.shift) { out += "$" }
+        if modifiers.contains(.command) { out += "@" }
+        return out + key.lowercased()
+    }
+
+    static func chordKey(_ chord: AppChord) -> String {
+        var out = ""
+        if chord.modifiers.contains(.control) { out += "^" }
+        if chord.modifiers.contains(.option) { out += "~" }
+        if chord.modifiers.contains(.shift) { out += "$" }
+        if chord.modifiers.contains(.command) { out += "@" }
+        return out + String(chord.key.character).lowercased()
     }
 
     /// Help keeps what is genuinely help, and nothing that is a window.

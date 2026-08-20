@@ -192,6 +192,9 @@ extension ContentView {
     /// resolved before. Whichever list holds focus fires, and both get the same answer — so moving
     /// one handler to two changes where Space is heard and nothing about what it previews.
     func paneQuickLook() -> KeyPress.Result {
+        // See `paneChordsSuspended`: a pending pick owns the keyboard, and the overlay that draws
+        // it does not take key from the AppKit table underneath.
+        guard !paneChordsSuspended else { return .ignored }
         guard let targetPath = CurrentSelection.primaryPanePath(
             left: syncManager.selectedLeftPaths,
             right: syncManager.selectedRightPaths,
@@ -214,6 +217,12 @@ extension ContentView {
     /// different things: `shortcutPaneRowVerbs.rename` is `nil` unless exactly one row is selected,
     /// and returning `.ignored` there lets ↩ fall through to whatever else would have had it.
     func paneRename() -> KeyPress.Result {
+        // **Suspended with every other mirrored chord, and it has to be asked here.** The menu item
+        // reading the same closure is silenced by the `suspended:` flag on the publication; this
+        // handler reads `shortcutPaneRowVerbs` directly and never saw it. `paneChordsSuspended`
+        // carries why focus scoping is not enough — ↩ over a pending destination pick renamed a row
+        // and ate the keystroke the picker's default button was waiting for.
+        guard !paneChordsSuspended else { return .ignored }
         guard let rename = shortcutPaneRowVerbs.rename else { return .ignored }
         rename()
         return .handled

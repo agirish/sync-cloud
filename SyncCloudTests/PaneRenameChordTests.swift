@@ -55,10 +55,51 @@ import AppKit
         let search = try Self.source("ContentView+PaneSearch.swift")
         let handler = try #require(search.range(of: "func paneRename()"),
                                    "the ↩ handler is gone or has moved out of this file")
-        let body = String(search[handler.upperBound...].prefix(300))
+        // Wide enough to hold the handler with its reasoning in it. 300 was enough when the body
+        // was two lines; the suspension guard and the note explaining it pushed the line this
+        // asserts out of the window, and a scan whose window is tighter than the thing it reads
+        // fails for the wrong reason.
+        let body = String(search[handler.upperBound...].prefix(900))
         #expect(body.contains("shortcutPaneRowVerbs.rename"),
                 "↩ resolves its own rename target — it must share the menu item's, or the two will drift")
         #expect(body.contains("return .ignored"),
                 "↩ swallows the key when a rename is not possible, so nothing else can have it")
+    }
+
+    /// **↩ and Space are suspended while a surface owns the keyboard**, exactly as every mirrored
+    /// menu chord is.
+    ///
+    /// The gap this closes: `suspended:` on the focused-value publication silences the MENU items,
+    /// and these two are `.onKeyPress` handlers that read `shortcutPaneRowVerbs` and the selection
+    /// directly — so neither ever went through it. With a destination pick up, ↩ renamed the
+    /// selected row and returned `.handled`, which also swallowed the keystroke the picker's own
+    /// default button was waiting for.
+    ///
+    /// ↩'s wiring note argues focus scoping makes this impossible. It does not: the picker is a
+    /// full-window SwiftUI overlay over `NSViewRepresentable` file panes, and this app's log is
+    /// where the fact that such an overlay does NOT take key from the tables underneath it is
+    /// recorded (`CommandPalettePanel.swift`, the whole reason ⌘K is a window rather than an
+    /// overlay). Scanned at source because both handlers are methods on a `ContentView` extension,
+    /// which nothing can construct.
+    @Test func bothPaneKeyHandlersAskTheSuspensionRule() throws {
+        let search = try Self.source("ContentView+PaneSearch.swift")
+        for handler in ["func paneRename()", "func paneQuickLook()"] {
+            let body = try #require(search.range(of: handler).map { String(search[$0.upperBound...].prefix(600)) },
+                                    "\(handler) is gone — this check would be vacuous")
+            #expect(body.contains("guard !paneChordsSuspended else { return .ignored }"),
+                    "\(handler) does not ask the suspension rule — it fires under the destination picker")
+        }
+    }
+
+    /// The rule itself, and that the publication reads the SAME one rather than a second copy.
+    @Test func theSuspensionRuleIsOneExpression() throws {
+        let commands = try Self.source("ShortcutCommands.swift")
+        #expect(commands.contains("var paneChordsSuspended: Bool { pendingDestination != nil || showCommandPalette }"),
+                "the suspension rule moved or changed shape — the two key handlers name it by hand")
+        #expect(commands.contains("suspended: paneChordsSuspended"),
+                "the menu publication no longer reads the same rule the key handlers do — two copies is how they come to disagree")
+        // The regression this replaces: the inline expression, which the key handlers could not see.
+        #expect(!commands.contains("suspended: pendingDestination != nil || showCommandPalette"),
+                "the publication went back to its own inline copy of the rule")
     }
 }

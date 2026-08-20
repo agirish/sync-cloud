@@ -140,7 +140,10 @@ import Foundation
     @Test func testTheTargetIsResolvedFromTheLayout() throws {
         let search = try Self.source("ContentView+PaneSearch.swift")
         let start = try #require(search.range(of: "func paneQuickLook()"))
-        let body = String(search[start.upperBound...].prefix(500))
+        // Widened when `paneQuickLook` gained its suspension guard: a source scan whose window is
+        // tighter than the body it reads fails for the wrong reason, and a comment added above the
+        // asserted line is not a regression.
+        let body = String(search[start.upperBound...].prefix(1_100))
         #expect(body.contains("CurrentSelection.primaryPanePath"),
                 "the target is no longer resolved by the shared resolver")
         #expect(body.contains("singleSource: layoutMode == .singleSource"),

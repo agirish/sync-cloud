@@ -724,10 +724,27 @@ extension ContentView {
             //
             // Suspending the *publication* is not the same as suspending the *act*:
             // `toggleCommandPalette` carries its own `pendingDestination` guard, because the toolbar
-            // pill and the armed-on-launch path call it without going through a focused value.
-            suspended: pendingDestination != nil || showCommandPalette
+            // pill and the armed-on-launch path call it without going through a focused value —
+            // and so do the two pane key handlers, through `paneChordsSuspended` below.
+            suspended: paneChordsSuspended
         )
     }
+
+    /// Whether a surface that owns the keyboard is up: the destination picker, or the ⌘K palette.
+    ///
+    /// **Named because two things read it, and one of them is not a menu item.** `suspended:` above
+    /// silences every mirrored chord while a pick is pending — but ↩ (Rename) and Space (Quick Look)
+    /// are `.onKeyPress` handlers on the file list, not menu equivalents, so they never went through
+    /// that publication and were live underneath the picker.
+    ///
+    /// **Focus scoping does not cover this, which is the assumption worth naming.** ↩'s own
+    /// reasoning is that `.onKeyPress` fires "only while the file list holds focus", and the picker
+    /// is a full-window SwiftUI overlay drawn over `NSViewRepresentable` file panes — the exact
+    /// arrangement `CommandPalettePanel.swift` records as NOT taking key from the tables underneath
+    /// it, off this app's own log. So the table keeps first responder, focus stays inside the tree
+    /// view, and ↩ reached `paneRename` and renamed a row while the user was confirming where to
+    /// copy files — swallowing the keystroke from the picker's default button on the way.
+    var paneChordsSuspended: Bool { pendingDestination != nil || showCommandPalette }
 
     var shortcutRescan: (() -> Void)? {
         isScanning ? nil : forceRefreshAction
@@ -1379,7 +1396,11 @@ struct PaneRowVerbCommands: View {
     }
 }
 
-/// File ▸ the four Organize verbs, aimed at the pane selection.
+/// Organize ▸ the four verbs, aimed at the pane selection.
+///
+/// They were under File until `c75927be` gave Organize a menu of its own — where the sections above
+/// them already were, and where a verb about Organize belongs. `fileNoLongerCarriesTheVerbs` is what
+/// stops File keeping a stale copy.
 struct OrganizeVerbCommands: View {
     @FocusedValue(\.organizeVerbs) private var verbs
 

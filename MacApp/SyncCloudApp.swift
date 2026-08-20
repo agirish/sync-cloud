@@ -700,13 +700,22 @@ struct SyncCloudApp: App {
             // twice, in two menus, under two different names. A source scan cannot see this —
             // one of the two entries is never written down — which is why it survived to v4.2.
             //
-            // The automatic entries are suppressed at the scenes (`.commandsRemoved()`) and
-            // replaced here rather than simply left alone, because the automatic ones carry no
-            // key equivalent and ⌘L is a registered chord this app documents. Supplying them by
-            // hand also fixes their titles: the Window menu names windows, so "Activity Log", not
-            // "Open Activity Log".
+            // **Two of the three are supplied by hand, and only because they carry chords.** An
+            // automatic Window-menu entry has no key equivalent, so a scene whose item is a
+            // registered `AppChord` has its automatic entry suppressed (`.commandsRemoved()` at
+            // the scene) and a real item put here instead. Sync History has no chord and keeps its
+            // automatic one. Supplying them by hand also fixes their titles: the Window menu names
+            // windows, so "Activity Log", not "Open Activity Log".
+            //
+            // **⌘/ is here because taking it out of Help took it out of the app.** `cd87b08e`
+            // removed the auxiliary windows from Help — correctly, they were listed twice — and
+            // `ShortcutsWindowCommand` was the only thing registering ⌘/. Nothing re-registered it,
+            // so from that commit the chord opened nothing while the ⌘/ reference went on
+            // documenting it. `everyDeclaredChordIsOnAMenuItem` is what would have said so, and
+            // does now.
             CommandGroup(before: .windowArrangement) {
-                ActivityLogWindowCommand()      // ⌘L — the only one supplied by hand; see the scene
+                ActivityLogWindowCommand()      // ⌘L
+                ShortcutsWindowCommand()        // ⌘/
             }
         }
 
@@ -715,9 +724,9 @@ struct SyncCloudApp: App {
                 .appFontSizeFromSettings()
         }
         .windowResizability(.contentSize)
-        // Suppressed because this scene's menu item is supplied by hand in `.commands` above —
-        // see the note there. Without this the window appears in the Window menu twice.
-
+        // Suppressed because this scene's item is supplied by hand in `.commands` above, to keep
+        // ⌘/ — see the note there. Without this the window appears in the Window menu twice.
+        .commandsRemoved()
 
         Window("Activity Log", id: "activity-log") {
             if isRunningTests {
@@ -734,19 +743,16 @@ struct SyncCloudApp: App {
         // own header row and insets it past the traffic lights.
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
-        // Suppressed because this scene's menu item is supplied by hand in `.commands` above —
-        // see the note there. Without this the window appears in the Window menu twice.
-        // **Only this scene is suppressed, and only because its item carries ⌘L.** SwiftUI
-        // creates a Window-menu opener for every `Window` scene; the automatic ones carry no key
-        // equivalent, so Activity Log's is replaced by hand in `.commands` above to keep the
-        // chord. Keyboard Shortcuts and Sync History keep theirs, which is why they are not
-        // supplied by hand.
+        // Suppressed because this scene's item is supplied by hand in `.commands` above, to keep
+        // ⌘L — see the note there. Without this the window appears in the Window menu twice.
         //
         // **Do not suppress all three.** Measured twice off the running app: with all three
         // removed the window-list section comes back EMPTY — the main window's own "SyncCloud"
         // opener goes with them, and closing the main window would leave no menu route back to
-        // it. With one removed the other three are intact. The mechanism is not documented;
-        // the behaviour is reproducible.
+        // it. The mechanism is not documented; the behaviour is reproducible. Two of three is
+        // where this now sits (Activity Log for ⌘L, Keyboard Shortcuts for ⌘/), and it is not a
+        // guess: `theMainWindowKeepsItsOpener` reads the built menu bar and fails if the main
+        // window's own opener goes. Sync History has no chord, so it has no reason to move.
         .commandsRemoved()
 
         // Durable Sync History (X2): its own window (not a bottom tab) so it doesn't collide with
@@ -775,9 +781,9 @@ struct SyncCloudApp: App {
             }
         }
         .windowResizability(.contentMinSize)
-        // Suppressed because this scene's menu item is supplied by hand in `.commands` above —
-        // see the note there. Without this the window appears in the Window menu twice.
-
+        // NOT suppressed: Sync History carries no chord, so its automatic Window-menu entry is
+        // exactly the item this app would otherwise write by hand — and it is the third scene, the
+        // one the "do not suppress all three" measurement above is about.
     }
 }
 

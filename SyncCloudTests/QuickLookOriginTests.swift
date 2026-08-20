@@ -131,7 +131,10 @@ import Foundation
         let search = try Self.source("ContentView+PaneSearch.swift")
         let handler = try #require(search.range(of: "func paneQuickLook()"),
                                    "the pane Space handler is gone or has moved out of this file")
-        let body = String(search[handler.upperBound...].prefix(400))
+        // Widened when `paneQuickLook` gained its suspension guard: a source scan whose window is
+        // tighter than the body it reads fails for the wrong reason, and a comment added above the
+        // asserted line is not a regression.
+        let body = String(search[handler.upperBound...].prefix(1_000))
         #expect(body.contains("toggleQuickLook(URL(fileURLWithPath: targetPath), followsPane: true)"),
                 "Space opens a pane preview that will not follow the selection")
         let content = try Self.source("ContentView.swift")
