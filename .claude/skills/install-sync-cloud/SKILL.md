@@ -147,10 +147,29 @@ Steps 5–6 only clean the bundle this install produced. Everything below is deb
     du -sh ~/Library/Developer/Xcode/DerivedData/*/Logs/Test 2>/dev/null | sort -rh | head
     # safe to clear: only the dir whose WorkspacePath is the primary checkout. Report the rest.
     ```
-13. **Leaked test-suite preference plists.** Test suites leave `<SuiteOrTestName>-<UUID>.plist` in `~/Library/Preferences` (42–102 bytes, never `com.*`); 332 had accumulated here. Sweep the debris — but **do not try to "fix" the mechanism.** It is *bounded*: cfprefsd rewrites a plist after the process exits and the next run's own sweep takes it, so the count oscillates (measured 6 → 0 → 32 → 32 → 16 → 16) and never grows. What accumulates is only from suites that were never re-run. Measure across 4+ runs before concluding anything is broken.
+13. **Leaked test-suite preference plists.** Test suites leave `<SuiteOrTestName><sep><UUID>.plist` in `~/Library/Preferences` (42–224 bytes, never `com.*`). Sweep the debris — but **do not try to "fix" the mechanism.** It is *bounded*: cfprefsd rewrites a plist after the process exits and the next run's own sweep takes it, so the count oscillates (measured 6 → 0 → 32 → 32 → 16 → 16) and never grows. What accumulates is only from suites that were never re-run. Measure across 4+ runs before concluding anything is broken.
+
+    **The separator is `-` OR `.`, and the one-line sweep this step used to give missed every dotted one.** On 2026-08-19 the dash-only pattern matched 341 files while `WorkspaceTests.writes.<UUID>`, `LastScanSummaryTests.<UUID>` and `CloudFilingClassifierTests.<UUID>` — 286 more, from `UserDefaults(suiteName: "X.\(case)")` rather than `"X-\(case)"` — sat right beside them, invisible. A handful of suites also use a **fixed** name with no UUID at all (`OrganizeScopeStorageTests.roundTrip`, `PaneViewModeTests.garbage`), which no UUID pattern can see; those are rewritten each run rather than accumulating, so they are worth taking once and not worth a pattern.
+
+    **Never delete by shape. Resolve every prefix against the repo first.** This directory is shared with the developer's other projects, and the fastest proof is what a shape-only sweep would have destroyed: `$(PRODUCT_BUNDLE_IDENTIFIER).plist` — an unexpanded Xcode variable, so it *looks* exactly like build debris — holds **`NSWindow Frame PdfUtils.RootView`**, a window position belonging to the **PdfUtils** project, dated months earlier. Read the name, then confirm it:
+
     ```bash
-    ls ~/Library/Preferences/*.plist | grep -vi '/com\.' | grep -Ei -- '-[0-9A-F]{8}-[0-9A-F]{4}-' | tr '\n' '\0' | xargs -0 rm -f
+    cd ~/Library/Preferences
+    ls *.plist | grep -vi '^com\.' | grep -Ei -- '[-.][0-9A-F]{8}-[0-9A-F]{4}-' > /tmp/cand.txt
+    # Every distinct prefix must resolve to a suite name in the repo. Interpolated names
+    # ("KeptNames-\(name)-\(UUID())") only match on their stem, so check the stem too.
+    R=~/Projects/SyncCloud
+    sed -E 's/[-.][0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\.plist$//' /tmp/cand.txt \
+      | sort -u | while read -r p; do
+          grep -rq --include='*.swift' -- "$p" $R/Modules $R/SyncCloudTests $R/MacApp 2>/dev/null \
+            || grep -rq --include='*.swift' -- "${p%%[-.]*}" $R/Modules $R/SyncCloudTests $R/MacApp 2>/dev/null \
+            || echo "UNVERIFIED: $p"
+        done
+    # Delete only after that prints nothing, or after each UNVERIFIED line is accounted for.
+    tr '\n' '\0' < /tmp/cand.txt | xargs -0 rm -f
     ```
+
+    A prefix that resolves nowhere — not in the tree, not in `git log --all -S` — is a probe script's leavings, and **leaving it costs nothing**. Three such (`EXITPROBE-fullnuke`, `EXITPROBE-unlinkonly`, `accentprobe2`, 172 bytes between them) were left in place for exactly the reason PdfUtils' was: plausible is not proof. `LogViewerHarness.plist` looked identical from the outside and *was* taken, because its contents name `Dashboard.LogViewer` — read the file when the name is not enough.
 14. **Stale LaunchServices registrations.** Step 5 unregisters the bundle it just installed, but earlier sessions' bundles stay registered after their DerivedData is gone, which is what puts duplicate SyncCloud entries in Spotlight and Launchpad. Unregister every registered path that no longer exists on disk:
     ```bash
     mdfind "kMDItemFSName == 'SyncCloud.app'" | while read -r p; do
