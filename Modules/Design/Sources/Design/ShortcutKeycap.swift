@@ -217,6 +217,8 @@ public enum ShortcutKeycapSpeech {
         ("␣", "Space"),
         ("⌫", "Delete"),
         ("⇥", "Tab"),
+        ("←", "Left Arrow"),
+        ("→", "Right Arrow"),
         // Punctuation keys, named. A bare "." or "," in the hint is sentence punctuation to a
         // voice — "Command ." is announced as just "Command", which is a shortcut that doesn't
         // exist. Letters and digits need no entry; every punctuation key badged anywhere does.

@@ -1172,10 +1172,13 @@ public struct DifferencesView: View {
                                 isMove: Bool,
                                 targets: DifferenceActionTargets) -> some View {
         let toRight = direction == .copyToRight
-        // The chord `KeyboardCopyIntent` maps to this button, written once and used by the badge,
-        // the tooltip and nothing else. The ⇧ is part of it because the button has already
-        // retitled to Move — badge and label describe the same action or neither is trustworthy.
-        let chord = (isMove ? "⇧⌘" : "⌘") + (toRight ? "→" : "←")
+        // **Derived from the registration, not spelled beside it.** This was a hand-built string
+        // — `(isMove ? "⇧⌘" : "⌘") + (toRight ? "→" : "←")` — which is the exact drift `AppChord`
+        // exists to remove: it agreed with the key handler only for as long as nobody changed
+        // either. Now the badge and the menu item that registers the equivalent read one value.
+        // The ⇧ is part of it because the button has already retitled to Move — badge and label
+        // describe the same action or neither is trustworthy.
+        let chord = AppChord.transfer(toRight: toRight, isMove: isMove).display
         return Button {
             copy(direction: direction, targets: targets)
         } label: {
@@ -1418,18 +1421,29 @@ public struct DifferencesView: View {
                 emptyState
             }
         }
-        // Directional Copy/Move on the selection: ⌘→/⌘← copy, ⇧ makes it a move. Scoped to the
-        // Table subtree via .onKeyPress (NOT a window-level .keyboardShortcut, which is consulted
-        // before the first responder and would hijack ⌘→ typed into the search field). Fires
-        // only while key focus is inside the table, so the search field keeps ⌘→ for its cursor.
-        // A bare arrow (no ⌘) returns .ignored so the Table's own row navigation is untouched.
-        .onKeyPress(keys: [.leftArrow, .rightArrow], phases: .down) { press in
-            guard let intent = KeyboardCopyIntent.from(key: press.key, modifiers: press.modifiers) else {
-                return .ignored
-            }
-            keyboardCopy(direction: intent.direction, isMove: intent.isMove, in: sorted)
-            return .handled
-        }
+        // Directional Copy/Move used to live here, as a `.onKeyPress` scoped to the Table subtree
+        // — deliberately not a window-level key equivalent, which is consulted before the first
+        // responder and would have hijacked ⌘→ typed into the search field.
+        //
+        // **It is a menu item now (`TransferCommands`), and the handler is gone rather than kept.**
+        // Two paths to one act is the hazard this file's ⌘K note names; a disabled menu item does
+        // not consume its equivalent, so leaving the press handler would have made ⌘→ work
+        // *sometimes* through a second route with different availability. The search field is
+        // protected where every other colliding chord protects it — `chordBelongsToTextEditor` at
+        // the item — and "which selection does ⌘→ mean" is answered by `lastSelectionSurface`,
+        // the same arbiter Space already uses, rather than by where focus happens to be.
+        .focusedSceneValue(\.transferSelection,
+                           DifferencesShortcutRules.transferAvailable(
+                               selectionCount: selection.count,
+                               surface: syncManager.lastSelectionSurface,
+                               sessionActive: reviewStore.session != nil,
+                               blocked: isSyncActionBlocked,
+                               suspended: shortcutsSuspended)
+                               ? TransferShortcut(leftName: paneNames.left, rightName: paneNames.right,
+                                                  run: { direction, isMove in
+                                                      keyboardCopy(direction: direction, isMove: isMove, in: sorted)
+                                                  })
+                               : nil)
         // Marks this table as the surface the user means, so Space can tell a Differences
         // selection from a pane one. Only a non-empty selection claims it: a clear (the ✕ chip,
         // a rescan dropping the row) says "not this any more", and letting it claim the token

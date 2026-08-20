@@ -1,4 +1,5 @@
 import SwiftUI
+import Sync
 
 // MARK: - Differences shortcuts
 
@@ -27,7 +28,29 @@ public struct FoldAllShortcut {
     }
 }
 
-/// The availability rules behind the three published values, pure so they can be held by tests
+/// The four directional transfers — ⌘← / ⌘→ copy, ⇧ makes it a move — as one value.
+///
+/// **One value for four items, not four**, on `cycleTab`'s argument: they are available together
+/// and unavailable together, so four focused values would be four chances for two of them to
+/// disagree about a selection they all act on.
+public struct TransferShortcut {
+    /// Runs one of the four. The direction and the move flag are the item's, not the value's.
+    public let run: (FileDifference.SyncAction, Bool) -> Void
+    /// What the items say instead of "Left"/"Right" — the provider names, so the menu reads
+    /// "Copy to Dropbox" like every other transfer surface in the app rather than naming a side
+    /// the user has to translate.
+    public let leftName: String
+    public let rightName: String
+
+    public init(leftName: String, rightName: String,
+                run: @escaping (FileDifference.SyncAction, Bool) -> Void) {
+        self.leftName = leftName
+        self.rightName = rightName
+        self.run = run
+    }
+}
+
+/// The availability rules behind the four published values, pure so they can be held by tests
 /// (a `.focusedSceneValue` cannot be read without a scene). Each parameter exists because some
 /// state of it must flip the answer; a parameter no test can flip is one the view stopped
 /// passing correctly without anything failing.
@@ -56,6 +79,27 @@ enum DifferencesShortcutRules {
                               sectionCount: Int, suspended: Bool) -> Bool {
         !sessionActive && !collapsed && sectionCount > 0 && !suspended
     }
+
+    /// ⌘← / ⌘→ / ⇧⌘← / ⇧⌘→: rows selected in the differences table, and **that table is the
+    /// surface the selection belongs to**.
+    ///
+    /// `surface` is the gate that replaces focus. Until now these chords were a
+    /// `.onKeyPress` inside the Table, scoped there deliberately — a window-level key equivalent
+    /// is consulted before the first responder and would have hijacked ⌘→ typed into the search
+    /// field. As a menu item the chord is window-level by construction, so the question "does
+    /// ⌘→ mean these rows?" needs an answer that is not "where is focus". The app already has
+    /// one: `lastSelectionSurface`, which arbitrates exactly this for Space/Quick Look — both
+    /// panes and the table can hold a selection at once, and this says which the user last meant.
+    ///
+    /// The text-field half of the original worry is handled where every other colliding chord
+    /// handles it, by `chordBelongsToTextEditor` at the menu item.
+    ///
+    /// A review session owns the keyboard while it runs (its card reads plain ⌫ and ↩), and a
+    /// blocking sync means no transfer may start — the same two gates Review and Verify carry.
+    static func transferAvailable(selectionCount: Int, surface: SelectionSurface?,
+                                  sessionActive: Bool, blocked: Bool, suspended: Bool) -> Bool {
+        selectionCount > 0 && surface == .differences && !sessionActive && !blocked && !suspended
+    }
 }
 
 private struct StartDifferencesReviewKey: FocusedValueKey {
@@ -68,6 +112,10 @@ private struct VerifyDifferencesKey: FocusedValueKey {
 
 private struct FoldAllDifferencesKey: FocusedValueKey {
     typealias Value = FoldAllShortcut
+}
+
+private struct TransferSelectionKey: FocusedValueKey {
+    typealias Value = TransferShortcut
 }
 
 public extension FocusedValues {
@@ -89,5 +137,12 @@ public extension FocusedValues {
     var foldAllDifferences: FoldAllShortcut? {
         get { self[FoldAllDifferencesKey.self] }
         set { self[FoldAllDifferencesKey.self] = newValue }
+    }
+
+    /// Copy or move the differences selection across. `nil` when the table holds nothing, when the
+    /// panes hold the selection instead, or while a review or a sync owns the keyboard.
+    var transferSelection: TransferShortcut? {
+        get { self[TransferSelectionKey.self] }
+        set { self[TransferSelectionKey.self] = newValue }
     }
 }

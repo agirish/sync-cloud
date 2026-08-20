@@ -637,6 +637,11 @@ struct SyncCloudApp: App {
             // header's own facts, published by `DifferencesView` from the render that drew (or
             // withheld) the matching buttons.
             CommandMenu("Compare") {
+                // The four directional transfers first: they act on the selection, which is what
+                // the reader came to this menu holding. Review and Verify act on the whole
+                // comparison, so they sit below the divider as the bulk pair they are.
+                TransferCommands()          // ⌘← ⌘→ ⇧⌘← ⇧⌘→
+                Divider()
                 ReviewDifferencesCommand()  // ⇧⌘R
                 VerifyDifferencesCommand()  // ⇧⌘V
             }

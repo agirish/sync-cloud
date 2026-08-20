@@ -1092,6 +1092,66 @@ struct ReviewDifferencesCommand: View {
     }
 }
 
+/// Compare ▸ the four directional transfers — ⌘← / ⌘→ copy, ⇧ makes it a move.
+///
+/// **One `View` for four items**, because the four differ only in two booleans and a title, and
+/// four hand-written copies is four chances for one of them to register a chord its title
+/// contradicts. The chord and the badge on the header button both come from
+/// `AppChord.transfer(toRight:isMove:)`.
+///
+/// **The titles name the providers, not the sides.** "Copy to Dropbox" is what the header buttons,
+/// the row menu and the floating action bar all say; a Compare menu reading "Copy to Right" would
+/// be the only surface in the app asking the reader to work out which side that is.
+struct TransferCommands: View {
+    @FocusedValue(\.transferSelection) private var transfer
+
+    var body: some View {
+        ForEach(Self.items, id: \.self) { item in
+            let chord = AppChord.transfer(toRight: item.toRight, isMove: item.isMove)
+            Button(Self.title(item, transfer)) {
+                // The same routing every colliding chord in this file uses. ⌘← and ⌘→ are
+                // NSText's move-to-beginning/end-of-line, and a menu key equivalent outranks the
+                // field editor — so with rows selected and the caret in the differences search,
+                // ⌘→ would transfer files instead of moving the cursor. This is the objection the
+                // old `.onKeyPress` scoping existed to avoid, answered rather than dodged.
+                if DeleteSelectionCommand.chordBelongsToTextEditor(NSApp.keyWindow?.firstResponder) {
+                    let editor = NSApp.keyWindow?.firstResponder as? NSTextView
+                    if item.isMove {
+                        item.toRight ? editor?.moveToEndOfLineAndModifySelection(nil)
+                                     : editor?.moveToBeginningOfLineAndModifySelection(nil)
+                    } else {
+                        item.toRight ? editor?.moveToEndOfLine(nil) : editor?.moveToBeginningOfLine(nil)
+                    }
+                } else {
+                    transfer?.run(item.toRight ? .copyToRight : .copyToLeft, item.isMove)
+                }
+            }
+            .keyboardShortcut(chord.key, modifiers: chord.modifiers)
+            .disabled(transfer == nil)
+        }
+    }
+
+    struct Item: Hashable {
+        let toRight: Bool
+        let isMove: Bool
+    }
+
+    /// Copy before Move, left before right — the order the header's own buttons sit in.
+    static let items: [Item] = [
+        Item(toRight: false, isMove: false), Item(toRight: true, isMove: false),
+        Item(toRight: false, isMove: true), Item(toRight: true, isMove: true),
+    ]
+
+    /// The item's title. Static so the naming rule can be tested without a scene — and so the
+    /// disabled form is written down rather than improvised: with nothing published there are no
+    /// provider names to use, and "Copy to Right" is the honest fallback for a dead item.
+    static func title(_ item: Item, _ transfer: TransferShortcut?) -> String {
+        let verb = item.isMove ? "Move" : "Copy"
+        guard let transfer else { return "\(verb) to \(item.toRight ? "Right" : "Left")" }
+        return "\(verb) to \(item.toRight ? transfer.rightName : transfer.leftName)"
+    }
+}
+
 struct VerifyDifferencesCommand: View {
     @FocusedValue(\.verifyDifferences) private var verify
 

@@ -196,11 +196,15 @@ import Sync
         }
     }
 
-    // MARK: ⌘←/⌘→
+    // MARK: A key handler hung off the Group
 
-    /// The directional-copy shortcut reaches the handler through the Group, in both branches, with
-    /// its modifiers intact — `KeyboardCopyIntent` reads ⌘ and ⇧ off the press, so a press that
-    /// arrived stripped of them would silently do nothing.
+    /// A `.onKeyPress` on the Group reaches its handler in both branches, with modifiers intact.
+    ///
+    /// **Written for ⌘←/⌘→, which no longer use this route** — the directional transfers became
+    /// menu items in v4.2, so their chord is a key equivalent now. The property is still live and
+    /// still worth pinning: `DifferencesView` hangs its Quick Look handler off the same Group with
+    /// the same technique, and a press arriving stripped of its modifiers would silently do
+    /// nothing there in exactly the same way.
     @Test func arrowKeysReachTheHandlerThroughTheGroup() {
         for grouped in [true, false] {
             let recorder = Recorder()

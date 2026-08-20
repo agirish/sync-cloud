@@ -39,6 +39,11 @@ public struct AppChord: Sendable {
         // U+007F and ⇥ is a literal tab, which a keycap would render as blank space.
         if key == .delete { return "⌫" }
         if key == .tab { return "⇥" }
+        // The arrows are function-key code points (`NSLeftArrowFunctionKey` and friends), so
+        // `String(key.character)` is an unprintable glyph rather than a missing one — a keycap that
+        // renders as a blank box instead of nothing, which is worse.
+        if key == .leftArrow { return "←" }
+        if key == .rightArrow { return "→" }
         return String(key.character).uppercased()
     }
 }
@@ -126,6 +131,19 @@ public extension AppChord {
     static let tabBar = AppChord("t", [.shift, .command])
 
     // Differences
+    /// ⌘← / ⌘→ copy the differences selection across; ⇧ makes it a move.
+    ///
+    /// **Menu items since v4.2, and the chord is the same one it always was.** These lived as an
+    /// `.onKeyPress` inside the Differences table, scoped there because a window-level equivalent
+    /// is consulted before the first responder and would hijack ⌘→ typed into the search field.
+    /// The item now carries `chordBelongsToTextEditor`, which hands that keystroke back — the same
+    /// routing every colliding chord here uses — so the chord can be registered where it can also
+    /// be *read*. Before this it appeared in no menu and no ⌘/ row: four working verbs nobody
+    /// could find.
+    static func transfer(toRight: Bool, isMove: Bool) -> AppChord {
+        AppChord(toRight ? .rightArrow : .leftArrow, isMove ? [.shift, .command] : .command)
+    }
+
     static let reviewDifferences = AppChord("r", [.shift, .command])
     static let verifyDifferences = AppChord("v", [.shift, .command])
     static let differencesList = AppChord("d", .command)
@@ -161,5 +179,10 @@ public extension AppChord {
         deleteSelection, switchPaneFocus,
         newTab, closeTab, nextTab, previousTab, tabBar,
         reviewDifferences, verifyDifferences, differencesList, foldAllDifferences,
+        // The four transfers, spelled out: `transfer(toRight:isMove:)` is a family like
+        // `workspace(_:)`, but unlike that one it has a FIXED, small membership, so the registry
+        // can hold every member rather than describing a range.
+        transfer(toRight: false, isMove: false), transfer(toRight: true, isMove: false),
+        transfer(toRight: false, isMove: true), transfer(toRight: true, isMove: true),
     ]
 }
