@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Design
+import FileExplorer
 
 /// The content behind Help ▸ SyncCloud Help (⌘?). Pure data — a handful of sections, each a
 /// list of topics, each topic a short article of typed blocks — kept UI-free so SyncCloudTests
@@ -104,7 +105,7 @@ enum HelpBook {
                     .paragraph("Nothing here is locked in. Every answer has a home in Settings — Sources, People and Organize — and setup is a faster way to give them all at once rather than the only way."),
                     .tip("It all happens on this Mac. The one thing that can reach a third party is Organize's optional Refine pass, which asks Claude about a scan's results, is off until you turn it on in Settings ▸ Intelligence, and never runs on its own."),
                 ],
-                related: ["what-is-synccloud", "choose-folders", "organize-workspace"]
+                related: ["what-is-synccloud", "choose-folders", "people", "organize-workspace"]
             )),
             Topic(id: "what-is-synccloud", title: "What is SyncCloud?", systemImage: "sparkles", article: Article(
                 intro: "SyncCloud works on your cloud folders through four workspaces — Browse one provider's files, Compare two folders side by side, Organize what's out of place, and Storage to see where the space goes — without ever removing anything you didn't approve.",
@@ -252,7 +253,7 @@ enum HelpBook {
                     .paragraph("There is an Organize menu in the menu bar too: the five sections at the top, ticked so it says which one is on screen, then the four verbs that act on a pane's selection — Organize This Folder…, Find Duplicates of This, Fix Name…, and Always Allow This Name. Each verb acts on one item, so with two things selected they're greyed out. ⌘3 reaches the workspace they all live in; none of the items takes a chord of its own."),
                     .tip("Right-click a folder in any pane and choose “Organize This Folder…” to point Organize at it. The section then answers about the folder you aimed it at, rather than wherever Organize happened to be."),
                 ],
-                related: ["file-loose-items", "tidy-duplicates", "fix-names"]
+                related: ["file-loose-items", "tidy-duplicates", "fix-names", "restructure-shapes", "automation-rules"]
             )),
             Topic(id: "file-loose-items", title: "Put loose files away", systemImage: "tray.and.arrow.down", article: Article(
                 intro: "Organize's To File section suggests a home for the files sitting loose in a folder and can move them there — reusing the folders you already keep, and proposing a new one only when it's sure.",
@@ -265,7 +266,7 @@ enum HelpBook {
                     ]),
                     .tip("Nothing moves without your say-so, and every move is undoable. Which engines run is up to you — see Settings ▸ Intelligence."),
                 ],
-                related: ["organize-workspace", "automation-rules", "intelligence"]
+                related: ["organize-workspace", "automation-rules", "intelligence", "people"]
             )),
             Topic(id: "tidy-duplicates", title: "Clear out duplicates", systemImage: "doc.on.doc", article: Article(
                 intro: "Duplicates scans one folder's tree for content that repeats under different names or in different places, and offers to trash the extra copies — keeping the best one.",
@@ -302,7 +303,7 @@ enum HelpBook {
                         "It compares sibling families across the surveyed tree, not inside the one folder you happen to be standing in.",
                         "A finding says something like “these thirteen folders use four different internal shapes”, with the folders listed.",
                         "Findings about a folder your scope sits inside are shown too, kept visually subordinate — under a scope pointed at a leaf they're often the only honest answer there is.",
-                        "Two findings can name the same folder, because one folder really can be two different kinds of odd at once.",
+                        "Children named for a year, a person, a jurisdiction or an inbox are set aside before two siblings are compared. Those recur by design, and counting them as structure would bury the real findings under hundreds of folders that are doing nothing wrong.",
                     ]),
                     .paragraph("It reads a folder profile, so it has nothing to say until SyncCloud has learned your tree — setup's Folders step is what writes one, and the section offers to re-learn from the tree as it stands now."),
                     .tip("Read-only, and the odd one out among Organize's sections for that reason: Restructure names the disagreement and stops. Nothing here is created, renamed, or moved."),
@@ -340,6 +341,20 @@ enum HelpBook {
                     ]),
                 ],
                 related: ["choose-folders", "setup", "appearance"]
+            )),
+            Topic(id: "people", title: "Who your documents belong to", systemImage: "person.2", article: Article(
+                intro: "Settings ▸ People is the household Organize works for. It is a short list of names, and it is what lets the app tell one person's document from another's.",
+                blocks: [
+                    .bullets([
+                        "It keeps one person's document out of another's folder.",
+                        "It chooses between two folders that differ only by person — School/Aditi beside School/Divit.",
+                        "Add each person's full names as documents print them. That is what makes a shared surname attributable to the right person.",
+                        "Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else's surname.",
+                    ]),
+                    .paragraph("Setup asks for the list and proposes what a walk of your folders found, but nothing is ever locked in: a name can be added, changed or removed here at any time, and ⌘K's People rows gather everything belonging to whoever is on it."),
+                    .tip("Nothing here leaves your Mac, and no document text is kept — only the names you add. A name left off costs nothing but attribution; those documents are sorted by their content instead."),
+                ],
+                related: ["setup", "file-loose-items", "command-palette"]
             )),
             Topic(id: "sync-preferences", title: "Sync preferences", systemImage: "slider.horizontal.3", article: Article(
                 intro: "Control how SyncCloud decides and confirms. Each setting applies to the very next operation.",
@@ -468,7 +483,7 @@ enum HelpBook {
                 intro: "SyncCloud compares and organizes your cloud folders — a macOS app, plus a matching synccloud command-line tool for scripted workflows.",
                 blocks: [
                     .bullets([
-                        "See the version and build in SyncCloud ▸ About SyncCloud, and again at the foot of the Settings rail.",
+                        "SyncCloud ▸ About SyncCloud gives the version and the build number; the foot of the Settings rail carries the version on its own.",
                         "The CLI mirrors the app's scan and sync for the terminal.",
                         "Requires macOS 26 or later.",
                     ]),
@@ -901,12 +916,26 @@ struct HelpArticleView: View {
 /// The related-topic chips. A simple wrapping row: each chip shows a real topic's title and
 /// jumps the selection when clicked. Ids are validated by `HelpBookTests`, so a lookup miss
 /// here would be a test failure, not a runtime surprise.
+/// The related-topic chips under an article, wrapping onto as many rows as they need.
+///
+/// **This was an `HStack`, and "Flexible" was the only flexible thing about it.** An `HStack` given
+/// more children than fit does not wrap — it squeezes — and a capsule with a fixed 12pt horizontal
+/// inset has nowhere to give but its label, so the text wrapped *inside* the chip. At five chips on
+/// the 515pt article column that rendered "Clear out dupli-cates" hyphenated across two lines
+/// inside a tall oval. It degraded quietly at three or four long titles too; five is where it
+/// stopped being deniable, and only a render showed it — a layout test measures the row, and a
+/// squeezed row is exactly as wide as an intact one.
+///
+/// `FileExplorer.FlowLayout` rather than a third wrapping layout in this repo: it is the more
+/// complete of the two already here (it clamps an over-wide child to the row instead of drawing
+/// past the edge) and its geometry is tested in `FlowLayoutMathTests`. Spelled with its module so
+/// it cannot be confused with `Settings.FlowLayout`, which is a different type of the same name.
 private struct FlexibleChips: View {
     let ids: [String]
     let onSelect: (String) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        FileExplorer.FlowLayout(spacing: 8, lineSpacing: 8) {
             ForEach(ids, id: \.self) { id in
                 if let topic = HelpBook.topic(id: id) {
                     Button {

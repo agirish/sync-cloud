@@ -867,17 +867,29 @@ private struct AutomationDryRunRowView: View {
 /// width is clamped to the container's, so one over-wide chip (a long `mentions` phrase) is
 /// proposed the container width — its truncating Text elides — instead of drawing past the card
 /// border. The geometry lives in ``FlowLayoutMath`` so it's testable without Layout subviews.
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 6
-    var lineSpacing: CGFloat = 6
+///
+/// **Public because MacApp's Help card needs exactly this and had started writing a third copy.**
+/// There were already two — this one and `Settings.FlowLayout`, written for the person editor's
+/// name chips — and the Help book's related-topic row was an `HStack` that squeezed rather than
+/// wrapped, which is the defect this type exists to prevent. Widening the most complete of the
+/// three beat adding a fourth; `Settings`' remains its own, and folding all of them into `Design`
+/// is a separate change with three modules' tests behind it.
+public struct FlowLayout: Layout {
+    public var spacing: CGFloat = 6
+    public var lineSpacing: CGFloat = 6
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    public init(spacing: CGFloat = 6, lineSpacing: CGFloat = 6) {
+        self.spacing = spacing
+        self.lineSpacing = lineSpacing
+    }
+
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         FlowLayoutMath.place(sizes: subviews.map { $0.sizeThatFits(.unspecified) },
                              maxWidth: proposal.width ?? .infinity,
                              spacing: spacing, lineSpacing: lineSpacing).total
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let placements = FlowLayoutMath.place(sizes: subviews.map { $0.sizeThatFits(.unspecified) },
                                               maxWidth: bounds.width,
                                               spacing: spacing, lineSpacing: lineSpacing).placements

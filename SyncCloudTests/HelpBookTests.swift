@@ -249,26 +249,69 @@ import Testing
         return words.indices.contains(n) ? words[n] : "\(n)"
     }
 
-    /// Every one of Organize's rail sections is named somewhere in Help.
+    /// Every one of Organize's rail sections has an article of its own.
     ///
     /// **Three of the five were undocumented for a release.** Renames, Restructure and Rules are
-    /// rail items with intros, badges and menu-bar routes of their own, and the Help book covered
-    /// only the two it had always covered. Derived from `OrganizeLens.allCases`, because the
-    /// failure mode is a section that exists without prose, which no list written by hand here
-    /// would ever have caught.
-    @Test func everyOrganizeSectionIsDocumented() {
+    /// rail items with their own intros, badges, scan behaviour and menu-bar routes, and the Help
+    /// book covered only the two it had always covered.
+    ///
+    /// **The first version of this was a substring scan over the copy, and it could not have
+    /// caught that.** Searching for "Rules" matches six topics — `fix-names` says "this provider's
+    /// own rules", `intelligence` says "no model involved" beside rule talk — so deleting the
+    /// Rules article outright left the scan green. It pinned a spelling, not an article. The map
+    /// below names the topic each section is documented BY, and is walked over `allCases` so a
+    /// section added without one fails here rather than shipping.
+    @Test func everyOrganizeSectionHasAnArticle() {
+        let expected: [OrganizeLens: String] = [
+            .toFile: "file-loose-items",
+            .duplicates: "tidy-duplicates",
+            .renames: "fix-names",
+            .restructure: "restructure-shapes",
+            .rules: "automation-rules",
+        ]
         for lens in OrganizeLens.allCases {
-            let hits = HelpBook.filteredSections(matching: lens.title).flatMap(\.topics).map(\.id)
-            #expect(!hits.isEmpty, "Organize ▸ \(lens.title) is a rail item no Help topic mentions")
+            guard let id = expected[lens] else {
+                Issue.record("Organize ▸ \(lens.title) is a rail item with no help topic named here")
+                continue
+            }
+            #expect(HelpBook.topic(id: id) != nil,
+                    "Organize ▸ \(lens.title) is documented by “\(id)”, which is gone")
+            #expect(HelpBook.sectionTitle(forTopicID: id) == "Organize",
+                    "“\(id)” documents Organize ▸ \(lens.title) and does not live in the Organize section")
+            // And the article names the section, so the reader can tell which rail item it is
+            // about. This is the substring half — kept, but no longer the whole guard.
+            let names = HelpBook.topic(id: id).map { Self.copy(of: $0).contains { $0.contains(lens.title) } }
+            #expect(names == true, "“\(id)” never says “\(lens.title)”")
         }
     }
 
-    /// The positive control for the scan above: a section name Organize does not have finds
-    /// nothing, so the walk is matching the titles rather than matching everything.
+    /// The positive control for the walk above: a section name Organize does not have finds
+    /// nothing, so the copy half is matching titles rather than matching everything.
     @Test func theOrganizeSectionScanCanActuallyFail() {
         #expect(HelpBook.filteredSections(matching: "Quarantine").isEmpty)
         #expect(!OrganizeLens.allCases.map(\.title).contains("Quarantine"),
                 "“Quarantine” is a section name now — this test's counter-example is no longer one")
+    }
+
+    /// No topic is reachable only by scrolling the sidebar.
+    ///
+    /// The related chips are the one route between articles, and **`restructure-shapes` shipped
+    /// with no inbound link at all** — the newest and least-known of Organize's five sections was
+    /// the one topic nothing pointed at. `testEveryRelatedLinkResolvesToARealTopic` walks the same
+    /// graph in the other direction and is blind to this by construction: every link it checks
+    /// resolves precisely because it starts from the links rather than from the topics.
+    ///
+    /// The first topic is exempt — it is what Help opens on, so it needs no route in.
+    @Test func everyTopicIsLinkedFromSomewhere() {
+        let entry = HelpBook.sections.first?.topics.first?.id
+        var inbound: [String: Int] = [:]
+        for topic in HelpBook.allTopics {
+            for id in topic.article.related { inbound[id, default: 0] += 1 }
+        }
+        for topic in HelpBook.allTopics where topic.id != entry {
+            #expect(inbound[topic.id, default: 0] > 0,
+                    "“\(topic.title)” is linked from no other article — the sidebar is its only route")
+        }
     }
 
     /// Help may not send anyone to a menu the app does not have.
@@ -342,6 +385,13 @@ import Testing
     @Test func theMenuPathScanCanActuallyFail() throws {
         #expect(Self.menuDestinations(in: "Open it from Window ▸ Activity Log, or press ⌘L.")
                     .map(\.item) == ["Activity Log"])
+        // Punctuation around the menu name must not become part of it — the old copy wrote
+        // "(Settings ▸ Intelligence)", which would have read as a menu called "(Settings" and
+        // failed the walk on a correct sentence.
+        #expect(Self.menuDestinations(in: "needs a key (Settings ▸ Intelligence).")
+                    .map(\.menu) == ["Settings"])
+        #expect(Self.menuDestinations(in: "“Settings ▸ Sources is where SyncCloud lists them.")
+                    .map(\.menu) == ["Settings"])
         let mainMenu = try #require(NSApp.mainMenu)
         let view = try #require(mainMenu.items.first { $0.title == "View" }?.submenu)
         #expect(!view.items.contains { $0.title.hasPrefix("Restructure") },
@@ -356,7 +406,12 @@ import Testing
         var rest = Substring(text)
         while let marker = rest.range(of: " ▸ ") {
             let head = rest[..<marker.lowerBound]
-            let menu = String(head.split(separator: " ").last ?? "")
+            // Trailing word before the arrow, stripped of anything that is not a letter — a
+            // sentence may open with the menu name ("Settings ▸ Sources is where…") or wrap it
+            // ("(Settings ▸ Intelligence)", which the copy used to say). Left unstripped, a
+            // bracketed name reads as the menu "(Settings", which is neither skippable as
+            // Settings nor findable as a menu, and a perfectly correct sentence fails here.
+            let menu = String(head.split(separator: " ").last ?? "").filter(\.isLetter)
             let tail = rest[marker.upperBound...]
             let run = tail.prefix { $0.isLetter || $0 == " " || $0 == "…" }
             var name: [String] = []
@@ -431,5 +486,44 @@ import Testing
         let reorder = HelpBook.filteredSections(matching: "drag a tab").flatMap(\.topics).map(\.id)
         #expect(reorder.contains("browse-workspace"),
                 "the one drag the app has is no longer taught — this test has become a ban on a word")
+    }
+}
+
+
+/// The related-chip row is a WRAPPING layout, not an `HStack`.
+///
+/// **A source scan, deliberately, and the narrow kind.** What this defends is the call site's
+/// choice of container — a spelling-level fact — and the behaviour behind it is already tested:
+/// `FlowLayoutMathTests` pins the wrapping geometry, over-wide clamp included. What no test could
+/// see is `FlexibleChips` going back to the `HStack` it shipped as, which squeezes instead of
+/// wrapping and renders "Clear out dupli-cates" hyphenated inside a tall oval at five chips. A
+/// layout test cannot catch it (a squeezed row is exactly as wide as an intact one) and a render
+/// assertion would have to tell a wrapped label from a hyphenated one in pixels.
+///
+/// It also stops a third flow layout being written here: two already exist in this repo —
+/// FileExplorer's and Settings' — and the one MacApp uses is FileExplorer's.
+@Suite struct HelpChipRowTests {
+
+    /// `macAppDirectory()` rather than a path derived here: the test bundle runs from DerivedData
+    /// and promises no working directory, and `TestSupport` already owns that walk for every other
+    /// source scan in this target.
+    static let source: String = {
+        let file = macAppDirectory().appendingPathComponent("HelpBook.swift")
+        return (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+    }()
+
+    @Test func theSourceIsActuallyReadable() {
+        #expect(Self.source.contains("private struct FlexibleChips"),
+                "HelpBook.swift could not be read from #filePath — every check below would be vacuous")
+    }
+
+    @Test func theChipsUseTheSharedWrappingLayout() throws {
+        let body = try #require(Self.source.range(of: "private struct FlexibleChips").map {
+            String(Self.source[$0.lowerBound...].prefix(1_200))
+        })
+        #expect(body.contains("FileExplorer.FlowLayout"),
+                "the related chips no longer use the shared wrapping layout")
+        #expect(!body.contains("HStack(spacing: 8)"),
+                "the chip row is an HStack again — it squeezes rather than wraps")
     }
 }
