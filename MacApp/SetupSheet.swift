@@ -111,6 +111,10 @@ struct SetupSheet: View {
     /// Whether this machine already has a surveyed tree. Drives the survey step's copy, which must
     /// not offer to learn a tree that is already learned.
     let hasFilingProfile: Bool
+    /// The engine, for the walk. Nil in a layout test, which never runs one.
+    var syncManager: FileSyncManager?
+    /// Re-reads the filing artifacts after a profile lands, so it takes effect without a relaunch.
+    let onProfileWritten: () -> Void
     let onOpenSettings: (SettingsView.SettingsTab) -> Void
     /// The user reached the end. The caller persists the completed flag.
     let onFinish: () -> Void
@@ -127,6 +131,25 @@ struct SetupSheet: View {
     /// The first field on the first step. A form that opens with nothing focused asks you to click
     /// before you can type.
     @FocusState private var nameFieldFocused: Bool
+    /// The folder the walk will learn. Seeded from the primary source, changeable.
+    @State private var walkRoot: URL?
+    /// What the walk proposed as places, with their evidence. Empty until a root is chosen.
+    @State private var placeCandidates: [JurisdictionCandidate] = []
+    /// The ones the user ticked. **Nothing starts ticked** — see `placeChip`.
+    @State private var confirmedPlaces: Set<String> = []
+    @State private var walkPhase: WalkPhase = .idle
+    @State private var walkStatus = ""
+
+    /// Where the walk has got to. Its own type so the step can render one thing at a time rather
+    /// than juggling three booleans that can disagree.
+    enum WalkPhase: Equatable {
+        case idle
+        case running
+        case done(FileSyncManager.FolderWalkReport)
+        case failed(String)
+
+        var isDone: Bool { if case .done = self { return true }; return false }
+    }
     @AppStorage(SetupFlow.primarySourceDefaultsKey) private var primarySourceId = ""
     @AppStorage(LiquidGlass.appearanceModeKey) private var appearanceModeRaw = AppearanceMode.system.rawValue
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw = LiquidGlassHue.blue.rawValue
@@ -157,7 +180,14 @@ struct SetupSheet: View {
          surfaceTint: Double,
          availableSize: CGSize,
          hasFilingProfile: Bool,
+         syncManager: FileSyncManager? = nil,
          defaults: UserDefaults = .standard,
+         // **Injectable so a fit test can measure the step with chips in it.** The Folders step
+         // grows with the number of places the walk proposed, and a fixture built with no engine
+         // proposes none — which is measuring the empty state, the way the Organize tab's fit guard
+         // passed for a release while real users scrolled.
+         placeCandidates: [JurisdictionCandidate] = [],
+         onProfileWritten: @escaping () -> Void = {},
          onOpenSettings: @escaping (SettingsView.SettingsTab) -> Void,
          onFinish: @escaping () -> Void,
          onDismiss: @escaping () -> Void) {
@@ -168,6 +198,9 @@ struct SetupSheet: View {
         self.surfaceTint = surfaceTint
         self.availableSize = availableSize
         self.hasFilingProfile = hasFilingProfile
+        self.syncManager = syncManager
+        _placeCandidates = State(initialValue: placeCandidates)
+        self.onProfileWritten = onProfileWritten
         self.onOpenSettings = onOpenSettings
         self.onFinish = onFinish
         self.onDismiss = onDismiss
@@ -207,6 +240,7 @@ struct SetupSheet: View {
             // it is what discovery put at the top, and changing it is one click.
             reconcilePrimary()
             if case .step(.you) = screen { nameFieldFocused = true }
+            seedWalkRoot()
             Logger.shared.info("Setup opened on \(screenName) — "
                                + "\(settings.availableProviders.count) source(s) discovered, "
                                + "roster \(peopleStore == nil ? "not writable yet (no profile)" : "available")")
@@ -379,6 +413,7 @@ struct SetupSheet: View {
             case .you: youStep
             case .sources: sourcesStep
             case .people: peopleStep
+            case .survey: surveyStep
             case .done: doneStep
             }
 
@@ -420,6 +455,9 @@ struct SetupSheet: View {
         case .people:
             return "A first name is enough here. Full names and nicknames are worth adding in "
                 + "Settings ▸ People, where they do the most work."
+        case .survey:
+            return "Learning is quick — it reads names only. Reading inside your documents is a "
+                + "longer pass that comes later."
         case .done:
             return "Run setup again from Help ▸ Set Up SyncCloud…"
         }
@@ -1000,7 +1038,191 @@ struct SetupSheet: View {
         }
     }
 
-    // MARK: - Step 4, Done
+    // MARK: - Step 4, Folders
+
+    private var surveyStep: some View {
+        Group {
+            stepHeader(.survey, "Which folder should SyncCloud learn?",
+                       "It reads folder and file names — no document is opened — and uses what it "
+                       + "finds to propose where things belong.")
+
+            section("The folder") {
+                HStack(spacing: 10) {
+                    Image(systemName: "folder")
+                        .foregroundStyle(.tint)
+                        .frame(width: 18)
+                    Text(walkRootDisplay)
+                        .scaledFont(.callout)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(walkRoot?.path ?? "")
+                    Spacer(minLength: 8)
+                    Button("Change…", action: chooseWalkRoot)
+                        .controlSize(.small)
+                        .disabled(walkPhase == .running)
+                }
+                // **A folder, not a whole account.** The store records a tree, and on this machine
+                // the hand-built profile's is `~/Documents` — surveying the iCloud source's own root
+                // would pull in Desktop, Downloads and Word beside it.
+                Text("SyncCloud learns from one folder, not a whole account. Your documents folder "
+                     + "is usually the right answer.")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !placeCandidates.isEmpty {
+                section("Places in your folder names") {
+                    Text("These folder names might be places. Tick the ones that are — the rest are "
+                         + "read as ordinary names.")
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    WrapLayout(spacing: 7) {
+                        ForEach(placeCandidates) { candidate in
+                            placeChip(candidate)
+                        }
+                    }
+                }
+            }
+
+            switch walkPhase {
+            case .idle:
+                EmptyView()
+            case .running:
+                HStack(spacing: 9) {
+                    ProgressView().controlSize(.small)
+                    Text(walkStatus)
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .done(let report):
+                quietNote(report.becameActive ? report.summary : SetupFlow.walkNotInUse,
+                          systemImage: report.becameActive ? "checkmark.circle" : "exclamationmark.triangle")
+            case .failed(let why):
+                quietNote("SyncCloud could not learn that folder — \(why).",
+                          systemImage: "exclamationmark.triangle")
+            }
+
+            HStack(spacing: 8) {
+                Button(walkPhase.isDone ? "Learn again" : "Learn this folder") { startWalk() }
+                    .buttonStyle(.borderedProminent)
+                    .chromeHover()
+                    .disabled(walkRoot == nil || walkPhase == .running)
+                if walkPhase == .idle, hasFilingProfile {
+                    Text("This Mac already has a folder profile.")
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// One proposed place, with the evidence that makes it refusable at a glance.
+    ///
+    /// **Nothing is pre-ticked**, and that is measured rather than cautious: used as-is the rule
+    /// agrees with the hand-built profile on 83.2% of folders, and every point of the gap is an
+    /// invention — `HPE` is an employer, `IT` a department, `PRD` a product stage. Handed only the
+    /// confirmed values the same code is right about 100%. The whole error is in the guessing.
+    private func placeChip(_ candidate: JurisdictionCandidate) -> some View {
+        let isOn = confirmedPlaces.contains(candidate.value)
+        return Button {
+            if isOn { confirmedPlaces.remove(candidate.value) }
+            else { confirmedPlaces.insert(candidate.value) }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                    .scaledFont(.caption2)
+                Text(candidate.value).scaledFont(.caption.weight(.medium))
+                Text("· \(candidate.folderCount)")
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(isOn ? Color.accentColor.opacity(0.16)
+                                       : Color.secondary.opacity(0.10)))
+            .foregroundStyle(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.primary))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(placeEvidence(candidate))
+        .accessibilityLabel("\(candidate.value), \(placeEvidence(candidate))")
+    }
+
+    /// Why this name was proposed — the parents it splits, and how many folders it would change.
+    private func placeEvidence(_ candidate: JurisdictionCandidate) -> String {
+        let parents = candidate.parents.filter { !$0.isEmpty }.prefix(3).joined(separator: ", ")
+        let where_ = parents.isEmpty ? "at the top level" : "under \(parents)"
+        return "\(candidate.folderCount) folder\(candidate.folderCount == 1 ? "" : "s") \(where_)"
+    }
+
+    private var walkRootDisplay: String {
+        guard let root = walkRoot else { return "No folder chosen" }
+        let home = NSHomeDirectory()
+        return root.path.hasPrefix(home) ? "~" + root.path.dropFirst(home.count) : root.path
+    }
+
+    private func chooseWalkRoot() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = walkRoot
+        panel.message = "Choose the folder SyncCloud should learn from"
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        walkRoot = url
+        // The proposals belong to the tree they came from, so a new root discards them rather than
+        // carrying a stale list — and any tick the user made on it.
+        placeCandidates = []
+        confirmedPlaces = []
+        walkPhase = .idle
+        proposePlaces()
+    }
+
+    /// Starts the walk root at the primary source, which is what the user just chose on Sources.
+    ///
+    /// A *folder*, and the source's own path is the honest default: on this Mac the iCloud source's
+    /// path is already `~/Documents`, which is exactly the tree the hand-built profile describes.
+    private func seedWalkRoot() {
+        guard walkRoot == nil, let primary = primaryProvider else { return }
+        walkRoot = URL(fileURLWithPath: primary.path)
+        proposePlaces()
+    }
+
+    /// Asks the walk what might be a place, without committing to anything.
+    private func proposePlaces() {
+        guard let root = walkRoot, let manager = syncManager else { return }
+        Task {
+            let proposals = await manager.proposePlaces(root: root)
+            placeCandidates = proposals
+        }
+    }
+
+    private func startWalk() {
+        guard let root = walkRoot, let manager = syncManager else { return }
+        walkPhase = .running
+        walkStatus = "Reading \(walkRootDisplay)…"
+        Task {
+            let result = await manager.deriveFolderProfile(root: root,
+                                                           jurisdictionValues: confirmedPlaces,
+                                                           registry: peopleStore?.registry)
+            switch result {
+            case .success(let report):
+                // The profile is on disk; this is what makes it take effect without a relaunch —
+                // and what gives the draft a roster to land in at last.
+                onProfileWritten()
+                applyDraftIfPossible()
+                walkPhase = .done(report)
+            case .failure(let failure):
+                walkPhase = .failed(String(describing: failure))
+            }
+        }
+    }
+
+    // MARK: - Step 5, Done
 
     private var doneStep: some View {
         Group {
@@ -1221,7 +1443,7 @@ struct SetupSheet: View {
             applyDraftIfPossible()
         case .sources:
             reconcilePrimary()
-        case .done:
+        case .survey, .done:
             break
         }
     }

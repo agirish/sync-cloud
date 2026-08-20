@@ -1583,6 +1583,11 @@ struct ContentView: View {
                 surfaceTint: surfaceTint,
                 availableSize: proxy.size,
                 hasFilingProfile: syncManager.filingFolderProfile != nil,
+                syncManager: syncManager,
+                // A profile the user just produced has to take effect without a relaunch: this is
+                // the same read the app does at launch, run again now that there is something new
+                // on disk to read.
+                onProfileWritten: { FilingArtifacts.attach(to: syncManager) },
                 // Through the one door, not by writing the latch here: `openSettings(on:)` stashes
                 // the tab it displaces so a refused open — one landing mid-destination-pick — can
                 // put it back. Presetting the tab and raising the latch by hand is the pairing that

@@ -48,6 +48,12 @@ enum SetupFlow {
         case sources
         /// The household the filing rules attribute documents to.
         case people
+        /// The folder SyncCloud learns from, and the places it found in it.
+        ///
+        /// **Back as a real step.** It folded into Done while it had no controls — three grey boxes
+        /// and 180 words about work that was not in the build was a step with no decision in it.
+        /// It now picks a root, confirms the place names, and runs the walk.
+        case survey
         /// The summary, and what is running.
         case done
 
@@ -56,6 +62,7 @@ enum SetupFlow {
             case .you: return "You"
             case .sources: return "Sources"
             case .people: return "People"
+            case .survey: return "Folders"
             case .done: return "Done"
             }
         }
@@ -68,6 +75,7 @@ enum SetupFlow {
             case .you: return "person"
             case .sources: return "cloud"
             case .people: return "person.2"
+            case .survey: return "folder.badge.gearshape"
             case .done: return "checkmark.circle"
             }
         }
@@ -205,6 +213,7 @@ enum SetupFlow {
         OutlineRow(step: .you, detail: "Your name, and the forms of it documents print"),
         OutlineRow(step: .sources, detail: "The places SyncCloud found on this Mac"),
         OutlineRow(step: .people, detail: "Anyone else your documents belong to"),
+        OutlineRow(step: .survey, detail: "The folder SyncCloud should learn from"),
     ]
 
     /// What the Done step says about the household.
@@ -221,6 +230,15 @@ enum SetupFlow {
         }
         return otherCount == 0 ? "Nobody else on the list yet" : "\(others) in your household"
     }
+
+    /// What the Folders step says about a walk that ran but is not in use.
+    ///
+    /// The store refuses to re-point away from a profile SyncCloud did not write, so on a machine
+    /// with a hand-built one the walk succeeds, lands on disk, and changes nothing the user will
+    /// notice. Saying so is the difference between "done" and "done, and it changed nothing".
+    static let walkNotInUse =
+        "This Mac already has a folder profile SyncCloud did not write, so that one is still in "
+        + "use. What was just learned is saved beside it and unused."
 
     /// What the Done step says about the answers that have nowhere to land yet.
     ///

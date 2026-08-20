@@ -78,6 +78,7 @@ import Testing
             surfaceTint: 0,
             availableSize: Self.smallDisplayHost,
             hasFilingProfile: hasFilingProfile,
+            placeCandidates: Self.realisticPlaces,
             onOpenSettings: { _ in },
             onFinish: {},
             onDismiss: {}
@@ -162,7 +163,20 @@ import Testing
     /// Measured against the CLAMPED height, not `SetupSheetMetrics.cardHeight`: the settings sheet
     /// passed every fit test it had while scrolling on a small display, because all of them measured
     /// the unclamped number.
-    static let boundedSteps: [SetupFlow.Step] = [.you, .people, .done]
+    static let boundedSteps: [SetupFlow.Step] = [.you, .people, .survey, .done]
+
+    /// Places enough to make the Folders step the tallest it honestly gets.
+    ///
+    /// **Five, because that is what the reference tree proposes**: `US`, `IN`, `HPE`, `IT` and
+    /// `PRD` — two real and three inventions, which is the whole reason the step exists. A fixture
+    /// with none measures a step with no chips in it.
+    static let realisticPlaces: [JurisdictionCandidate] = [
+        JurisdictionCandidate(value: "US", parents: ["Finance", "Legal", "School"], folderCount: 214),
+        JurisdictionCandidate(value: "IN", parents: ["Finance", "Immigration"], folderCount: 168),
+        JurisdictionCandidate(value: "HPE", parents: ["Work"], folderCount: 61),
+        JurisdictionCandidate(value: "IT", parents: ["Work/Payslips"], folderCount: 12),
+        JurisdictionCandidate(value: "PRD", parents: ["Work/Releases"], folderCount: 9),
+    ]
 
     @Test func everyBoundedStepFitsTheCardTheyShare() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)

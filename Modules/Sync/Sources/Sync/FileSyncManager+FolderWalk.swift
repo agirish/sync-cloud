@@ -170,6 +170,28 @@ extension FileSyncManager {
         return .success(report)
     }
 
+    /// Walks `root` and proposes the folder names that might be places, with their evidence.
+    ///
+    /// **A separate call from the derivation, and it walks again rather than holding the tree.** The
+    /// proposals have to be *confirmed* before a profile is built — used as-is the rule agrees with
+    /// the hand-built profile on 83.2% of folders, and every point of that gap is an invention
+    /// (`HPE` is an employer, `IT` a department, `PRD` a product stage) — so the user sees the list
+    /// between the two calls. A walk is seconds and a 3,000-folder tree held across a user decision
+    /// is state that can go stale while they think; walking twice is the cheaper mistake.
+    public func proposePlaces(root: URL) async -> [JurisdictionCandidate] {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return [] }
+        let tree = await Self.buildTree(url: root, sortOption: .name)
+        let recordedRoot = Self.recordedRoot(for: root)
+        let proposals = await Task.detached(priority: .userInitiated) {
+            JurisdictionCandidates.propose(tree: tree, root: recordedRoot)
+        }.value
+        Logger.shared.info("Folder walk: \(proposals.count) place candidate(s) in \(root.path) — "
+                           + "\(proposals.map(\.value).joined(separator: ", "))")
+        return proposals
+    }
+
     /// How the profile records the tree it describes.
     ///
     /// Folded to `~` when it is under the home directory, because that is how every hand-built
