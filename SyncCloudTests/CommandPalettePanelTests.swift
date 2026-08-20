@@ -927,6 +927,38 @@ import Sync
                 "the spared area is wider than the field — the controls beside it cannot be clicked")
     }
 
+    /// **The spared area follows the field, rather than a rect captured when the palette opened.**
+    ///
+    /// `fieldRect` is refreshed only when the window moves or resizes, and the field moves without
+    /// either: the pill grows into the field over 120ms on ⌘K, so the first anchor to answer can be
+    /// a frame from the middle of that animation. Placement can be a frame behind and nobody dies;
+    /// the click rule cannot, because the part of the real field outside a stale rect is exactly
+    /// where a click closes the palette instead of moving the caret.
+    ///
+    /// No resize is posted here on purpose — that is what makes this about the LIVE read rather
+    /// than about the refresh.
+    @Test func theSparedAreaFollowsTheFieldRatherThanARectCapturedAtOpen() async throws {
+        let host = makeHost()
+        let controller = CommandPalettePanelController()
+        defer { teardown(host, controller) }
+        let opened = Self.fieldRect(in: host)
+        var field = opened
+        present(controller, over: host, anchor: { field })
+        await waitUntil("the panel was placed") {
+            (host.childWindows?.first?.frame.width ?? 0) == opened.width
+        }
+
+        // The control finishes growing: same row, wider, further left. Nothing posts a notification.
+        field = CGRect(x: opened.minX - 200, y: opened.minY, width: opened.width + 200,
+                       height: opened.height)
+        #expect(!controller.clickDismissesThePalette(clickedWindow: host,
+                                                     at: CGPoint(x: field.minX + 20, y: field.midY)),
+                "a click on the part of the field that arrived after the anchor was captured closes the palette")
+        #expect(controller.clickDismissesThePalette(clickedWindow: host,
+                                                    at: CGPoint(x: field.maxX + 40, y: field.midY)),
+                "the spared area is not the field's — click-away beside it is gone")
+    }
+
     /// The rule is inert once nothing is up: a monitor that outlived its presentation must not
     /// answer for a panel that is gone.
     @Test func theClickRuleAnswersNothingWithNoPaletteUp() {
@@ -998,36 +1030,48 @@ import Sync
                 "every retry was spent inside one runloop turn — ⌘K opens an empty panel with no list")
     }
 
-    /// **A field that goes away takes the palette with it.**
+    /// **A field that goes away takes its list off the screen — and brings it back.**
     ///
     /// macOS folds a toolbar item behind the overflow chevron when the window is dragged narrow,
-    /// and `goToFieldItemView` refuses a view that is not in the host — deliberately, because a
-    /// folded item answers `convert(_:to: nil)` in its own bounds and hands back a plausible-looking
-    /// rect at the window's corner. So the anchor starts answering nil while the palette is up, and
-    /// before this the panel simply stayed at its last frame: a list hanging under nothing, with the
-    /// field it belongs to no longer on the row. The other state that reaches here is the field
-    /// never mounting at all, which left an invisible inert panel and an open toolbar item with no
-    /// list beneath it.
+    /// and `goToFieldItemView` refuses a folded item's view (it answers in its own bounds and hands
+    /// back a plausible rect at the window's corner). The anchor then answers nil, and before this
+    /// the panel simply stayed at its last frame: a list hanging under nothing, with the field it
+    /// belongs to no longer on the row.
     ///
-    /// Bounded by the retry budget (~0.6s), so this asserts on a real wait rather than a poll that
-    /// could pass on a timeout.
-    @Test func aFieldThatGoesAwayTakesThePaletteWithIt() async {
+    /// **Hidden rather than dismissed, deliberately.** Closing the palette reads better for the two
+    /// states this can see — the field folded away, the field never mounted — and it claims more
+    /// than the anchor can know: a field that is on screen but not measurable through `host` would
+    /// be closed too, which is the shape of the unverified full-screen case
+    /// (`goToFieldItemView` carries it). Hiding is never worse than what shipped, and it is
+    /// reversible, which is what the second half asserts.
+    @Test func aFieldThatGoesAwayTakesItsListOffTheScreen() async throws {
         let host = makeHost()
         let controller = CommandPalettePanelController()
         defer { teardown(host, controller) }
         var field: CGRect? = Self.fieldRect(in: host)
-        var dismissed = false
-        present(controller, over: host, anchor: { field }, onDismiss: { dismissed = true })
+        present(controller, over: host, anchor: { field })
         await waitUntil("the panel was placed while the field was still there") {
             (host.childWindows?.first?.frame.width ?? 0) == field?.width
         }
+        let panel = try #require(host.childWindows?.first)
+        #expect(panel.alphaValue == 1, "the fixture never got the list on screen — the hiding below proves nothing")
 
         // The item folds into the overflow menu.
         field = nil
         NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: host)
-        await waitUntil("the palette gave up on the missing field and closed") { !controller.isPresented }
-        #expect(dismissed, "the palette closed without telling the host — the toolbar item stays open with no list under it")
-        #expect(host.childWindows?.isEmpty != false, "the list is still hanging under a field that has gone")
+        await waitUntil("the list came off the screen once its field was unmeasurable") {
+            panel.alphaValue == 0
+        }
+        #expect(panel.ignoresMouseEvents,
+                "the hidden list still swallows clicks — an invisible window over the app is the defect this whole shape exists to avoid")
+        #expect(controller.isPresented,
+                "the palette closed on an anchor it merely could not measure; in full screen that would be \u{2318}K closing itself")
+
+        // …and it comes back, which is what makes hiding the safe half of the choice.
+        field = Self.fieldRect(in: host)
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: host)
+        await waitUntil("the list came back when its field did") { panel.alphaValue == 1 }
+        #expect(panel.frame.width == field?.width, "the list came back at the wrong width")
     }
 
     /// The whole of what the toolbar field can do to the list, which is everything the palette's

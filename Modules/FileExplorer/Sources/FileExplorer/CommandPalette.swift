@@ -494,6 +494,13 @@ public enum PaletteRouter {
                 detail: "Point Organize at \(folder.path)",
                 symbol: place.symbol,
                 route: place.route(scope: absolute),
+                // **The third builder that names a path under the root, and the one the first fix
+                // for this missed.** `scope` is a folder under `providerRoot` exactly as
+                // `folderRows`' path is, so a root that did not answer cannot deliver it either:
+                // running it writes an Organize scope for a folder that is not there, moves the
+                // workspace, and reveals nothing. Marked here for the same reason and with the same
+                // string. `everyPathBearingRouteIsRefusedWhenTheRootIsAsleep` walks all three.
+                unavailable: index.foldersUnavailable,
                 // **Scored above a bare place match on purpose.** A query that named a verb AND an
                 // object asked for both; putting the object-less row first would answer half of it.
                 score: 900 + folder.score)

@@ -48,6 +48,22 @@ import Design
     static let people = [Person(id: "p.aditi", displayName: "Aditi", relationship: "daughter",
                                 fullNames: ["Aditi Girish"])]
 
+    /// The path a route resolves under the provider root, or nil for a route that names none.
+    ///
+    /// **Exhaustive on purpose, like `kind` above.** "Which routes name a folder" is the question a
+    /// root that did not answer has to be applied to, and the first attempt at that answered it
+    /// from memory: `folderRows` and `emptyQueryRows` were marked and `verbRows` — which turns the
+    /// same `index.folders` into an Organize *scope* — was not, so "organize legal" on a sleeping
+    /// drive still wrote a scope for a folder that is not there and moved the workspace to show it.
+    /// A new case with a path in it fails to compile here rather than being quietly unguarded.
+    static func pathUnderRoot(of route: PaletteRoute) -> String? {
+        switch route {
+        case .folder(let path): return path
+        case .organize(_, let scope): return scope
+        case .browse, .compare, .storage, .person, .provider, .action: return nil
+        }
+    }
+
     /// **Both same-leaf folders are RECENTS**, deliberately. With one pinned and one recent the two
     /// rows differ by the word "Pinned" against "Recent" — a label, not the path — and the render
     /// check below would pass even if the path truncated away entirely, which is the collapse it
@@ -59,16 +75,23 @@ import Design
     /// collapse at either.
     static func index(recents: [String] = ["Clients/Acme Holdings International/2024 Filings/Legal",
                                            "Clients/Acme Holdings International/2019 Filings/Legal"],
-                      pinned: [String] = []) -> PaletteIndex {
+                      pinned: [String] = [],
+                      unavailable: String? = nil) -> PaletteIndex {
         PaletteIndex(
             providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true),
                         PaletteProvider(id: "ssd", name: "Backup SSD", isMounted: false, isCurrent: false)],
             providerRoot: root,
             folders: recents + ["Finance"],
             recentFolders: recents, pinnedFolders: pinned,
+            foldersUnavailable: unavailable,
             people: people, registry: PersonRegistry(people: people),
             isScanning: false, hasSurvey: true)
     }
+
+    /// The queries that reach every builder able to mint a path under the root: the landing
+    /// (`emptyQueryRows`), a plain folder match (`folderRows`), and a verb with an object
+    /// (`verbRows`).
+    static let pathBearingQueries = ["", "legal", "organize legal", "finance", "organize finance"]
 
     /// **Every destination the palette can reach still has a door.**
     ///
@@ -94,6 +117,43 @@ import Design
         let missing = expected.subtracting(reached).sorted()
         #expect(missing.isEmpty,
                 "these destinations have no door left in the palette, and the 620pt card that used to show them is deleted: \(missing.joined(separator: ", "))")
+    }
+
+    /// **A root that did not answer must take EVERY route that names a path under it, not the two
+    /// builders somebody remembered.**
+    ///
+    /// This is the walk the first fix should have been: three builders mint a path under
+    /// `providerRoot` — the landing's recents and pins, a folder match, and a verb row's Organize
+    /// scope — and marking two of them left "organize legal" writing a scope for a folder on a
+    /// sleeping drive, moving the workspace to Organize to show it, and revealing nothing. The
+    /// route is walked by `pathUnderRoot`, so a fourth builder cannot be missed the same way.
+    @Test func everyPathBearingRouteIsRefusedWhenTheRootIsAsleep() {
+        let index = Self.index(unavailable: "Not available")
+        var seen = 0
+        for query in Self.pathBearingQueries {
+            for row in PaletteRouter.rows(query: query, index: index) {
+                guard let path = Self.pathUnderRoot(of: row.route) else { continue }
+                seen += 1
+                #expect(row.unavailable == "Not available",
+                        "“\(query)” offers \(path) as a live destination under a root that did not answer")
+            }
+        }
+        #expect(seen >= 6,
+                "only \(seen) path-bearing rows were reached — the queries no longer cover the builders this is about")
+    }
+
+    /// The awake half, so the assertion above is not "unavailable is whatever we passed" — and so a
+    /// fix that simply marked everything always would fail here.
+    @Test func thoseSameRoutesAreLiveWhenTheRootAnswers() {
+        let index = Self.index()
+        var seen = 0
+        for query in Self.pathBearingQueries {
+            for row in PaletteRouter.rows(query: query, index: index) where Self.pathUnderRoot(of: row.route) != nil {
+                seen += 1
+                #expect(row.isAvailable, "“\(query)” refuses a folder under a root that is right there")
+            }
+        }
+        #expect(seen >= 6, "only \(seen) path-bearing rows were reached — this pair is not measuring the same set")
     }
 
     /// The landing alone — what ⌘K opens on — must carry the four groups the card led with.

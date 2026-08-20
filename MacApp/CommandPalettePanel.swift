@@ -40,7 +40,14 @@ import FileExplorer
 //   list hung under the toolbar field rather than centred. The transparent hit-testing fill
 //   outlived the dim by one step and was removed with it: a window you can see through is a window
 //   you expect to click. The panel is now exactly its list, placed under the field by
-//   `refreshAnchor`/`place`, and everything outside it belongs to the window underneath.
+//   `refreshAnchor`/`place`.
+//
+//   **What that leaves outside the panel is not all "the window underneath", and the first
+//   version of this sentence said it was.** The toolbar's Go-to field is part of the palette and
+//   lives in the HOST window, so a rule that reads "which window was clicked" calls it the window
+//   underneath and dismisses on it — which is exactly what shipped for a day, taking the query and
+//   the field's own clear button with it. The palette's surface is two objects in two windows;
+//   `clickDismissesThePalette` is where that is reconciled.
 
 /// The panel class, which exists for one overridden line — and as of §7 that line reads the other
 /// way round.
@@ -170,17 +177,27 @@ final class CommandPalettePanelController: ObservableObject {
             guard retriesLeft > 0 else {
                 // Said out loud: a palette with no anchor is a palette with nowhere to be, and it
                 // has no other trace.
-                Logger.shared.warning("[palette] the Go to field is not in the window — closing the palette, "
-                    + "because there is nothing left to type into")
-                // **Closed, not left up.** Two states reach here and neither is survivable. The
-                // field never mounted, which used to leave an invisible inert panel that only a
-                // click or esc could clear — and the toolbar item still open with no list under
-                // it. Or the field went away while the palette was up: macOS folds a toolbar item
-                // behind the overflow chevron when the window is dragged narrow, `anchor` starts
-                // answering nil, and the panel stays exactly where it was last placed — a list
-                // hanging under nothing, following a field that is no longer on the row. The
-                // palette is the field plus its list; without the field there is no palette.
-                dismiss()
+                Logger.shared.warning("[palette] the Go to field is not in this window — the list "
+                    + "is hidden until it comes back")
+                // **Hidden, not left hanging — and not closed either.** Two states reach here. The
+                // field never mounted, which leaves an invisible inert panel: hiding is what it
+                // already was. Or the field went away while the palette was up — macOS folds a
+                // toolbar item behind the overflow chevron when the window is dragged narrow, so
+                // `anchor` starts answering nil and the panel stayed exactly where it was last
+                // placed, a list hanging under nothing, following a field no longer on the row.
+                // That is the defect; hiding fixes it.
+                //
+                // **`dismiss()` was written here first, and it claims more than this can know.**
+                // Closing the palette is right when the field is genuinely gone and wrong when it
+                // is merely unmeasurable — and this cannot tell those apart. The case that decides
+                // it is full screen, where AppKit is understood to move a window's toolbar into a
+                // window of its own; `goToFieldItemView` requires the host, so it would answer nil
+                // for a field sitting in plain sight, and dismissing would make ⌘K close itself.
+                // **That premise could not be verified** (a bare binary cannot enter full screen,
+                // and no test host can), so the behaviour is the one that is never worse than what
+                // shipped. `place()` logs the field rect on first placement; ⌘K in a full-screen
+                // window and one `grep` settles it.
+                hide()
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.anchorRetryInterval) { [weak self] in
@@ -205,6 +222,15 @@ final class CommandPalettePanelController: ObservableObject {
         guard let state, state.listWidth > 0, height > 0, height != contentHeight else { return }
         contentHeight = height
         place()
+    }
+
+    /// Takes the list off the screen without ending the presentation — the panel goes back to the
+    /// inert, invisible state it is built in, and `place()` brings it back the moment an anchor
+    /// answers again.
+    private func hide() {
+        guard let panel else { return }
+        panel.alphaValue = 0
+        panel.ignoresMouseEvents = true
     }
 
     /// Puts the panel under the field, exactly as tall as its content.
@@ -237,8 +263,21 @@ final class CommandPalettePanelController: ObservableObject {
         let floor = host?.frame.minY ?? (top - contentHeight)
         let height = max(0, min(contentHeight, top - floor))
         guard height > 0 else { return }
-        panel.setFrame(CGRect(x: field.minX, y: top - height, width: field.width, height: height),
-                       display: true)
+        // **Logged on the first placement of each presentation, because this is the half of the
+        // surface nothing can see.** The existing `[palette] panel …` line is stamped in `present`
+        // and reports the CONSTRUCTION rect (the ceiling width by the list's maximum, at the host's
+        // origin) — 29 of them in `~/sync-cloud.log` all read `620.0, 420.0`, which says nothing
+        // about where the list ended up or how wide the field really was. The field rect is the
+        // interesting number: it decides the list's width, and it is measured once, from a control
+        // that animates open over 120ms. If ⌘K ever draws a list narrower than its field, this line
+        // is what says so. `alphaValue == 0` is the first-placement test — no extra state, and it
+        // keeps a window drag from stamping a line per frame.
+        let frame = CGRect(x: field.minX, y: top - height, width: field.width, height: height)
+        if panel.alphaValue == 0 {
+            Logger.shared.debug("[palette] placed under field=\(field) → \(frame) "
+                + "(content wanted \(contentHeight), room \(top - floor))")
+        }
+        panel.setFrame(frame, display: true)
         panel.ignoresMouseEvents = false
         panel.alphaValue = 1
     }
@@ -449,10 +488,22 @@ final class CommandPalettePanelController: ObservableObject {
 
     /// The click rule, asked of the live presentation — **the one call the monitor makes**, so the
     /// rule the tests pin and the rule the app runs cannot come apart.
+    ///
+    /// **The field is asked for LIVE rather than read from `fieldRect`.** That cached rect is only
+    /// refreshed when the window moves or resizes, and the field moves without either: the pill
+    /// grows into the field over 120ms when ⌘K opens, so the rect captured by the first anchor that
+    /// answered can be a frame from the middle of that animation. Placement can live with being a
+    /// frame behind; a click rule cannot, because the part of the field outside a stale rect is
+    /// precisely where a click would close the palette instead of moving the caret. One toolbar
+    /// walk per mouse-down while the palette is up is not a cost worth caching against.
+    ///
+    /// `fieldRect` is still the fallback: an anchor that has stopped answering means the field is
+    /// going away and the palette with it, and until it does, the last place it was is a better
+    /// guess than nothing.
     func clickDismissesThePalette(clickedWindow: NSWindow?, at screenPoint: CGPoint?) -> Bool {
         guard let panel else { return false }
         return Self.clickDismissesThePalette(clickedWindow: clickedWindow, palette: panel,
-                                             at: screenPoint, field: fieldRect)
+                                             at: screenPoint, field: anchor?() ?? fieldRect)
     }
 
     /// Where a mouse event happened, in screen coordinates — the space `fieldRect` is in.

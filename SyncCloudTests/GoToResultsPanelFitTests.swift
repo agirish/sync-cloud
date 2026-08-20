@@ -54,6 +54,12 @@ import FileExplorer
             .appendingPathComponent("MacApp/ContentView.swift")
         let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                                 "cannot read ContentView.swift — this sum would be vacuous")
+        // **Exactly one, or this is reading somebody else's number.** `range(of:)` takes the first
+        // match, so a `minHeight:` added anywhere above the window's own frame would silently
+        // become the floor this sum is checked against.
+        let count = text.components(separatedBy: "minHeight: ").count - 1
+        try #require(count == 1,
+                     "ContentView declares \(count) minHeights — this reads the first, which is no longer certainly the window's")
         let marker = try #require(text.range(of: "minHeight: "),
                                   "ContentView no longer declares a minHeight — the window has no floor to measure against")
         let digits = text[marker.upperBound...].prefix { $0.isNumber }

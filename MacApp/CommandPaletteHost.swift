@@ -284,6 +284,21 @@ extension ContentView {
     /// back is the window's bottom-left corner, at a plausible width. That is an anchor the caller
     /// cannot tell from a real one, so it is refused here and the caller's retry (and then its
     /// warning) does its job instead.
+    ///
+    /// **Loosening this to `view.window != nil` was tried on 2026-08-19 and backed out.** The
+    /// argument for it: the conversion is wrong only when the view has no window at all, so the
+    /// caller could convert through whatever window the view *is* in, and AppKit is understood to
+    /// host a window's titlebar and toolbar in a separate full-screen toolbar window — which the
+    /// strict form would refuse, costing a full-screen user the palette now that running out of
+    /// anchor retries hides it. Two things stopped it. The loosened form promptly handed back a
+    /// confident anchor at `(1272, 444)` for a host parked at `(-9000, -9000)`, which is the exact
+    /// class of wrong answer this guard exists to refuse; and **the full-screen premise could not be
+    /// verified** — a bare `swiftc` binary cannot enter full screen (`styleMask` never gains
+    /// `.fullScreen`, measured), and no test host can either. An unverified premise is not grounds
+    /// for widening a guard, so the risk was taken out of the other end instead: exhausting the
+    /// retries hides the list rather than closing the palette, which is never worse than what
+    /// shipped whichever way the premise falls. Settle it by pressing ⌘K in a full-screen window
+    /// and reading the `[palette] placed under field=` line in `~/sync-cloud.log`.
     static func goToFieldItemView(in host: NSWindow) -> NSView? {
         guard let toolbar = host.toolbar else { return nil }
         for item in toolbar.items {
