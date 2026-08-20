@@ -242,6 +242,32 @@ import Testing
         #expect(caught, "the matcher no longer catches the phrasing this test exists to ban")
     }
 
+    // MARK: - What the summary may claim
+
+    /// The Done step reports a household, not a guess.
+    ///
+    /// **The refusal is the point.** `PeopleStore.save()` will not write over a `people.json` it
+    /// could not read, nor over one whose duplicated id it had to collapse — so in both states the
+    /// list the form showed is a seed from folder names and nothing the user did to it was saved.
+    /// The heading above this line says "everything below is already in effect", which makes a
+    /// plain count the one thing it must not print.
+    @Test func theSummaryWillNotCountAHouseholdItCouldNotRead() {
+        let honest = SetupFlow.peopleSummary(otherCount: 6, rosterIsReadOnly: false)
+        #expect(honest == "6 others in your household")
+
+        let refused = SetupFlow.peopleSummary(otherCount: 6, rosterIsReadOnly: true)
+        #expect(refused.contains("could not be read"))
+        #expect(refused.contains("Settings ▸ People"), "it has to say where to fix it")
+        #expect(refused != honest)
+    }
+
+    @Test func theSummaryCountsInSingularAndPlural() {
+        #expect(SetupFlow.peopleSummary(otherCount: 0, rosterIsReadOnly: false)
+                == "Nobody else on the list yet")
+        #expect(SetupFlow.peopleSummary(otherCount: 1, rosterIsReadOnly: false)
+                == "1 other in your household")
+    }
+
     // MARK: - Retired vocabulary
 
     /// The form's copy may not use product words that were retired.

@@ -186,7 +186,7 @@ import Testing
         }
         // A tripwire, so the scan cannot pass by finding nothing. If you added a segmented picker
         // deliberately AND gave it `.accentedSegments`, raise this number.
-        #expect(sites == 6, "expected 6 segmented pickers in the app, found \(sites)")
+        #expect(sites == 7, "expected 7 segmented pickers in the app, found \(sites)")
     }
 
     /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.

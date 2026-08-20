@@ -200,6 +200,21 @@ enum SetupFlow {
         OutlineRow(step: .survey, detail: "How much of each source to learn"),
     ]
 
+    /// What the Done step says about the household.
+    ///
+    /// **Pure, because the interesting half is a refusal.** When `people.json` cannot be read — or
+    /// had to have a duplicated id collapsed — the list the form showed is a seed from folder
+    /// names, and `PeopleStore.save()` will not write over the file. A summary that counted it
+    /// anyway would make a claim about the user's family out of directory listings, on the screen
+    /// whose heading is "everything below is already in effect".
+    static func peopleSummary(otherCount: Int, rosterIsReadOnly: Bool) -> String {
+        let others = "\(otherCount) other\(otherCount == 1 ? "" : "s")"
+        if rosterIsReadOnly {
+            return "\(others) listed, but people.json could not be read — fix it in Settings ▸ People"
+        }
+        return otherCount == 0 ? "Nobody else on the list yet" : "\(others) in your household"
+    }
+
     /// The one-line privacy claim, said on the welcome screen and echoed in the footer of every
     /// step.
     ///

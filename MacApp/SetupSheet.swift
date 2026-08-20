@@ -487,6 +487,11 @@ struct SetupSheet: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
+                    // The selection paints the SYSTEM accent otherwise, while every other control
+                    // in this card follows the hue the user picked one row down. `SegmentedAccentTests`
+                    // source-scans every `.segmented` picker in the app for this — and it caught
+                    // this one, from a package suite the app-target test run never executes.
+                    .accentedSegments(glassHue)
                     .fixedSize()
                 }
                 HStack {
@@ -666,6 +671,25 @@ struct SetupSheet: View {
                        : "Add anyone your documents are filed for. Once SyncCloud has learned your "
                        + "folders it will offer the names it found there too.")
 
+            // **Said before the list, because while either of these holds the edits below it will
+            // not be written.** `PeopleStore.save()` refuses over a `people.json` it could not read
+            // (this session's roster is a seed, and writing it would replace the real household with
+            // a guess) and over one whose records it had to collapse (a copy-pasted id, where a
+            // whole-file write would delete a record the user typed). Settings ▸ People carries the
+            // same warning for the same reason; without it, adding somebody here is a change that
+            // appears to work and does nothing.
+            if let store = peopleStore, store.rosterIsUnreadable {
+                privacyNote("This Mac's people.json exists but could not be read, so the list below "
+                            + "is what SyncCloud guessed from your folder names. Nothing you change "
+                            + "here will be saved until the file is fixed — Settings ▸ People says "
+                            + "where it is.", systemImage: "exclamationmark.triangle")
+            } else if let store = peopleStore, !store.repeatedRosterIds.isEmpty {
+                privacyNote("Two people in this Mac's people.json share an id, so one record was "
+                            + "dropped when the file was read. Nothing you change here will be saved "
+                            + "until they have separate ids — Settings ▸ People names which.",
+                            systemImage: "exclamationmark.triangle")
+            }
+
             if rosterNames.isEmpty {
                 emptyNote("Nobody yet. You are on the list already — this is for everyone else whose "
                           + "documents live in your folders.")
@@ -690,6 +714,7 @@ struct SetupSheet: View {
                                 .controlSize(.small)
                                 .buttonStyle(.plain)
                                 .foregroundStyle(.secondary)
+                                .disabled(rosterIsReadOnly)
                         }
                         .padding(.horizontal, 11)
                         .padding(.vertical, 7)
@@ -705,9 +730,11 @@ struct SetupSheet: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
                     .onSubmit(commitPerson)
+                    .disabled(rosterIsReadOnly)
                 Button("Add", action: commitPerson)
                     .controlSize(.small)
-                    .disabled(newPersonField.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(rosterIsReadOnly
+                              || newPersonField.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
             Text("Full names and nicknames are worth adding in Settings ▸ People — a first name is "
@@ -742,6 +769,12 @@ struct SetupSheet: View {
         }
         return draft.others.map(\.displayName)
     }
+
+    /// Whether the roster on this Mac is one the store will refuse to write.
+    ///
+    /// Both refusals live in `PeopleStore.save()`; `rosterIsReadOnly` is the store's own name for
+    /// the pair. Read here so the form does not offer edits that would silently do nothing.
+    private var rosterIsReadOnly: Bool { peopleStore?.rosterIsReadOnly ?? false }
 
     /// What the roster records this person as, when it records anything.
     private func relationship(of name: String) -> String? {
@@ -882,9 +915,7 @@ struct SetupSheet: View {
     }
 
     private var peopleSummary: String {
-        let count = rosterNames.count
-        return count == 0 ? "Nobody else on the list yet"
-            : "\(count) other\(count == 1 ? "" : "s") in your household"
+        SetupFlow.peopleSummary(otherCount: rosterNames.count, rosterIsReadOnly: rosterIsReadOnly)
     }
 
     private func summaryRow(_ symbol: String, _ text: String,
