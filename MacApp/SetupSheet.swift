@@ -104,6 +104,31 @@ struct SetupSheet: View {
     /// machine this form is for** — no profile means no `profiles/<id>/` to write `people.json`
     /// into — and it is why ``SetupDraft`` exists.
     var peopleStore: PeopleStore?
+
+    /// The roster to read and write, preferring the engine's own over the one this view was built
+    /// with.
+    ///
+    /// **The captured property goes stale the moment a walk succeeds, and nothing tells the view.**
+    /// `FileSyncManager`'s filing artifacts — `filingPeopleStore`, `filingFolderProfile` and the
+    /// rest — are plain `var`s rather than `@Published`, so `FilingArtifacts.attach(to:)` sets a
+    /// roster and triggers no SwiftUI invalidation at all. `peopleStore` was read once at
+    /// construction, so after the Folders step wrote a profile it was still nil: the draft had a
+    /// roster to land in and could not see it, and the hand-off stage A's draft and stage B's walk
+    /// were built for did nothing.
+    ///
+    /// Reading through the manager fixes it without making six properties `@Published` and paying
+    /// for a re-render on every scan: the walk's own `@State` change re-renders this view, and by
+    /// then the manager holds the new store.
+    private var roster: PeopleStore? { syncManager?.filingPeopleStore ?? peopleStore }
+
+    /// Whether this machine has a surveyed tree **now**, not when the view was built.
+    ///
+    /// The same staleness as `roster`, and it reads on the Done step: after a walk the passed-in
+    /// flag still said no, so Done went on offering "learning your folders comes next" about a tree
+    /// the user had just finished learning.
+    private var hasProfile: Bool {
+        syncManager?.filingFolderProfile != nil || hasFilingProfile
+    }
     let glassHue: LiquidGlassHue
     let glassLevel: GlassLevel
     let surfaceTint: Double
@@ -142,6 +167,9 @@ struct SetupSheet: View {
     /// The ones the user ticked. **Nothing starts ticked** — see `placeChip`.
     @State private var confirmedPlaces: Set<String> = []
     @State private var walkPhase: WalkPhase = .idle
+    /// Whether the user picked the root themselves. Once they have, the primary source no longer
+    /// moves it — an explicit choice must outrank a default that arrives later.
+    @State private var rootChosenByHand = false
     @State private var walkStatus = ""
 
     /// Where the walk has got to. Its own type so the step can render one thing at a time rather
@@ -250,11 +278,17 @@ struct SetupSheet: View {
             proposePeople()
             Logger.shared.info("Setup opened on \(screenName) — "
                                + "\(settings.availableProviders.count) source(s) discovered, "
-                               + "roster \(peopleStore == nil ? "not writable yet (no profile)" : "available")")
+                               + "roster \(roster == nil ? "not writable yet (no profile)" : "available")")
         }
         // Discovery republishes the list on every refresh and every folder added, and the primary
         // may have been in what changed.
         .onChange(of: settings.availableProviders.map(\.id)) { _, _ in reconcilePrimary() }
+        // **The root follows the primary source, because Sources is answered after this view
+        // appeared.** `seedWalkRoot` ran once in `onAppear` and only when the root was nil, so
+        // changing which source is primary on step 2 left the Folders step still aimed at the one
+        // discovery happened to put first — the step would learn a tree the user had just moved
+        // away from, and nothing on screen would disagree.
+        .onChange(of: primarySourceId) { _, _ in seedWalkRoot() }
     }
 
     /// The hues offered here — a spread across the palette, not the whole of it.
@@ -910,7 +944,7 @@ struct SetupSheet: View {
     private var peopleStep: some View {
         Group {
             stepHeader(.people, "Who else is in your folders?",
-                       hasFilingProfile
+                       hasProfile
                        ? "These are the people Organize files for. Add anyone it should know about."
                        : "Add anyone your documents are filed for. Once SyncCloud has learned your "
                        + "folders it will offer the names it found there too.")
@@ -922,12 +956,12 @@ struct SetupSheet: View {
             // whole-file write would delete a record the user typed). Settings ▸ People carries the
             // same warning for the same reason; without it, adding somebody here is a change that
             // appears to work and does nothing.
-            if let store = peopleStore, store.rosterIsUnreadable {
+            if let store = roster, store.rosterIsUnreadable {
                 quietNote("This Mac's people.json exists but could not be read, so the list below "
                             + "is what SyncCloud guessed from your folder names. Nothing you change "
                             + "here will be saved until the file is fixed — Settings ▸ People says "
                             + "where it is.", systemImage: "exclamationmark.triangle")
-            } else if let store = peopleStore, !store.repeatedRosterIds.isEmpty {
+            } else if let store = roster, !store.repeatedRosterIds.isEmpty {
                 quietNote("Two people in this Mac's people.json share an id, so one record was "
                             + "dropped when the file was read. Nothing you change here will be saved "
                             + "until they have separate ids — Settings ▸ People names which.",
@@ -998,7 +1032,7 @@ struct SetupSheet: View {
     /// **Your own record is excluded**, because Step 1 is where it is edited and a list that
     /// repeated you here would offer a Remove that unpicks an answer given two screens ago.
     private var rosterNames: [String] {
-        if let store = peopleStore {
+        if let store = roster {
             let mine = draft.yourName.trimmingCharacters(in: .whitespacesAndNewlines)
             return store.people
                 // **Two ways to be you, and the second is not redundant.** A roster seeded from the
@@ -1021,7 +1055,7 @@ struct SetupSheet: View {
     ///
     /// Both refusals live in `PeopleStore.save()`; `rosterIsReadOnly` is the store's own name for
     /// the pair. Read here so the form does not offer edits that would silently do nothing.
-    private var rosterIsReadOnly: Bool { peopleStore?.rosterIsReadOnly ?? false }
+    private var rosterIsReadOnly: Bool { roster?.rosterIsReadOnly ?? false }
 
     /// The proposals still worth showing.
     ///
@@ -1075,13 +1109,31 @@ struct SetupSheet: View {
     }
 
     private func addProposedPerson(_ candidate: PersonCandidate) {
-        if let store = peopleStore {
+        if let store = roster {
             store.add(displayName: candidate.name)
         } else {
             draft.others.append(SetupDraft.DraftPerson(displayName: candidate.name))
             saveDraft()
         }
         peopleCandidates.removeAll { $0.name == candidate.name }
+    }
+
+    /// The household to hand the walk, whether or not there is a roster on disk yet.
+    ///
+    /// **This is the reason People comes before Folders, and the walk was ignoring it.** It passed
+    /// `roster?.registry`, which is nil on the machine this form exists for — so the profile was
+    /// built with no person axis and no `person-bucket` roles at all, from a form that had just
+    /// finished asking who the household is. The answers were sitting in the draft.
+    ///
+    /// The roster wins where there is one: it carries full names and aliases the draft's bare first
+    /// names do not.
+    private var walkRegistry: PersonRegistry? {
+        if let roster { return roster.registry }
+        let people = draft.everyone.map {
+            Person(id: Person.idCandidate(from: $0.displayName), displayName: $0.displayName,
+                   relationship: $0.relationship, fullNames: $0.fullNames, aliases: $0.aliases)
+        }
+        return people.isEmpty ? nil : PersonRegistry(people: people, source: .profileAxis)
     }
 
     /// Asks the walk who might be in the household, once per opening.
@@ -1091,7 +1143,7 @@ struct SetupSheet: View {
     private func proposePeople() {
         guard !askedForPeople, let root = walkRoot, let manager = syncManager else { return }
         askedForPeople = true
-        let known = Set((peopleStore?.people.flatMap(\.nameForms) ?? []) + draft.everyone.map(\.displayName))
+        let known = Set((roster?.people.flatMap(\.nameForms) ?? []) + draft.everyone.map(\.displayName))
         Task {
             peopleCandidates = await manager.proposePeople(root: root, known: known)
         }
@@ -1099,7 +1151,7 @@ struct SetupSheet: View {
 
     /// What the roster records this person as, when it records anything.
     private func relationship(of name: String) -> String? {
-        guard let store = peopleStore else { return nil }
+        guard let store = roster else { return nil }
         let match = store.people.first {
             $0.displayName.compare(name, options: [.caseInsensitive, .diacriticInsensitive])
                 == .orderedSame
@@ -1114,7 +1166,7 @@ struct SetupSheet: View {
         guard !name.isEmpty, !rosterNames.contains(where: {
             $0.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
         }) else { newPersonField = ""; return }
-        if let store = peopleStore {
+        if let store = roster {
             store.add(displayName: name)
         } else {
             draft.others.append(SetupDraft.DraftPerson(displayName: name))
@@ -1124,7 +1176,7 @@ struct SetupSheet: View {
     }
 
     private func removePerson(named name: String) {
-        if let store = peopleStore {
+        if let store = roster {
             if let person = store.people.first(where: { $0.displayName == name }) {
                 store.remove(id: person.id)
             }
@@ -1205,7 +1257,7 @@ struct SetupSheet: View {
                     .buttonStyle(.borderedProminent)
                     .chromeHover()
                     .disabled(walkRoot == nil || walkPhase == .running)
-                if walkPhase == .idle, hasFilingProfile {
+                if walkPhase == .idle, hasProfile {
                     Text("This Mac already has a folder profile.")
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
@@ -1270,12 +1322,17 @@ struct SetupSheet: View {
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         walkRoot = url
+        rootChosenByHand = true
         // The proposals belong to the tree they came from, so a new root discards them rather than
-        // carrying a stale list — and any tick the user made on it.
+        // carrying a stale list — and any tick the user made on it. **Both lists**: the people
+        // proposals came from the old tree just as the places did, and only the places were cleared.
         placeCandidates = []
         confirmedPlaces = []
+        peopleCandidates = []
+        askedForPeople = false
         walkPhase = .idle
         proposePlaces()
+        proposePeople()
     }
 
     /// Starts the walk root at the primary source, which is what the user just chose on Sources.
@@ -1283,9 +1340,18 @@ struct SetupSheet: View {
     /// A *folder*, and the source's own path is the honest default: on this Mac the iCloud source's
     /// path is already `~/Documents`, which is exactly the tree the hand-built profile describes.
     private func seedWalkRoot() {
-        guard walkRoot == nil, let primary = primaryProvider else { return }
-        walkRoot = URL(fileURLWithPath: primary.path)
+        guard !rootChosenByHand, let primary = primaryProvider else { return }
+        let seeded = URL(fileURLWithPath: primary.path)
+        guard seeded != walkRoot else { return }
+        walkRoot = seeded
+        // The proposals belong to the tree they came from.
+        placeCandidates = []
+        confirmedPlaces = []
+        peopleCandidates = []
+        askedForPeople = false
+        walkPhase = .idle
         proposePlaces()
+        proposePeople()
     }
 
     /// Asks the walk what might be a place, without committing to anything.
@@ -1304,13 +1370,18 @@ struct SetupSheet: View {
         Task {
             let result = await manager.deriveFolderProfile(root: root,
                                                            jurisdictionValues: confirmedPlaces,
-                                                           registry: peopleStore?.registry)
+                                                           registry: walkRegistry)
             switch result {
             case .success(let report):
                 // The profile is on disk; this is what makes it take effect without a relaunch —
                 // and what gives the draft a roster to land in at last.
+                // Order matters: attach first so `roster` resolves to the store the walk just
+                // created, then land the draft in it. Reading the captured `peopleStore` here is
+                // what made this a no-op for two stages.
                 onProfileWritten()
                 applyDraftIfPossible()
+                Logger.shared.info("Setup: walk finished — profile '\(report.profileId)', "
+                                   + "roster \(roster == nil ? "still unavailable" : "now holds \(roster?.people.count ?? 0) person(s)")")
                 walkPhase = .done(report)
             case .failure(let failure):
                 walkPhase = .failed(String(describing: failure))
@@ -1358,7 +1429,7 @@ struct SetupSheet: View {
             quietNote(SetupFlow.surveyPrivacyNote, systemImage: "lock")
             quietNote(SetupFlow.surveyThirdPartyNote, systemImage: "sparkles")
 
-            if !hasFilingProfile {
+            if !hasProfile {
                 quietNote("Learning your folders comes next. Until then Organize files by folder "
                           + "name, which needs no survey — and \(primaryName) is the tree it will "
                           + "learn from when it lands.", systemImage: "clock")
@@ -1381,14 +1452,14 @@ struct SetupSheet: View {
     /// the draft there would undercount them, or say “no name given” about a household the app is
     /// actively filing for.
     private var youSummary: String {
-        let me = peopleStore?.people.first { $0.relationship?.lowercased() == "me" }
+        let me = roster?.people.first { $0.relationship?.lowercased() == "me" }
         let name = (me?.displayName ?? draft.yourName)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return "No name given — Organize will file by content alone" }
         let forms = me?.fullNames.count ?? draft.yourFullNames.count
         let base = forms == 0 ? "You — \(name)"
             : "You — \(name), with \(forms) full name form\(forms == 1 ? "" : "s")"
-        return peopleStore == nil ? "\(base) — \(SetupFlow.heldUntilSurveyed)" : base
+        return roster == nil ? "\(base) — \(SetupFlow.heldUntilSurveyed)" : base
     }
 
     private var sourcesSummary: String {
@@ -1402,7 +1473,7 @@ struct SetupSheet: View {
     private var peopleSummary: String {
         let summary = SetupFlow.peopleSummary(otherCount: rosterNames.count,
                                               rosterIsReadOnly: rosterIsReadOnly)
-        guard peopleStore == nil, !rosterNames.isEmpty else { return summary }
+        guard roster == nil, !rosterNames.isEmpty else { return summary }
         return "\(summary) — \(SetupFlow.heldUntilSurveyed)"
     }
 
@@ -1572,7 +1643,7 @@ struct SetupSheet: View {
 
     /// Fills the form in from a roster that already exists, so a re-run opens on current state.
     private func seedDraftFromRoster() {
-        guard let store = peopleStore else { return }
+        guard let store = roster else { return }
         if let me = store.people.first(where: { $0.relationship?.lowercased() == "me" }) {
             draft.yourName = me.displayName
             draft.yourFullNames = me.fullNames
@@ -1586,7 +1657,7 @@ struct SetupSheet: View {
     /// leave a file that `loadDraft` prefers over the roster on the next open — and it would be the
     /// older of the two the moment anything was edited in Settings ▸ People.
     private func saveDraft() {
-        guard peopleStore == nil, let url = draftURL else { return }
+        guard roster == nil, let url = draftURL else { return }
         SetupDraftStore.write(draft, to: url)
     }
 
@@ -1597,7 +1668,7 @@ struct SetupSheet: View {
     /// everything the survey stage is supposed to pick up.
     private func applyDraftIfPossible() {
         guard !draft.isEmpty else { return }
-        guard let store = peopleStore else {
+        guard let store = roster else {
             // **The state stage B has to know about, said once where it can be read back.** There
             // is no profile on this machine, so there is no `people.json` to write into and the
             // answers are sitting in `setup-draft.json` waiting for the first survey to mint one.

@@ -10,11 +10,6 @@ import Testing
 /// did it.
 @Suite struct PersonCandidatesTests {
 
-    /// A folder node with children, for building a tree by hand.
-    private static func dir(_ name: String, _ children: [FileNode] = []) -> FileNode {
-        FileNode(id: "/root/" + name, name: name, isDirectory: true, children: children)
-    }
-
     private static func tree(_ paths: [String]) -> [FileNode] {
         // Builds a nested tree from `A/B/C` strings, sharing parents.
         var roots: [String: FileNode] = [:]

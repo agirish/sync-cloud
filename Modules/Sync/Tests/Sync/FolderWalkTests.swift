@@ -100,6 +100,27 @@ import Testing
         }
     }
 
+    /// Two walks inside one second do not collide.
+    ///
+    /// The stamp is second-resolution and `writeProfile` refuses over an existing id, so without a
+    /// suffix the ordinary act of pressing *Learn again* on a small tree reported "the profile could
+    /// not be written".
+    @Test func twoWalksInTheSameSecondBothLand() async throws {
+        let root = try Self.scratch(), profiles = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        try Self.tree(in: root)
+        let manager = manager(profiles: profiles)
+        let instant = Date(timeIntervalSince1970: 1_754_000_000)
+
+        let first = try #require(try? (await manager.deriveFolderProfile(root: root, now: instant)).get())
+        let second = try #require(try? (await manager.deriveFolderProfile(root: root, now: instant)).get())
+
+        #expect(first.profileId != second.profileId)
+        #expect(second.becameActive, "the second walk of the same second was refused")
+        #expect(FilingProfileStore.profile(id: first.profileId, in: profiles) != nil)
+        #expect(FilingProfileStore.profile(id: second.profileId, in: profiles) != nil)
+    }
+
     // MARK: - What it refuses
 
     @Test func aWalkWithNowhereToWriteFails() async throws {

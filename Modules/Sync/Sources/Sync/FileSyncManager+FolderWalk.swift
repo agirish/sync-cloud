@@ -121,7 +121,7 @@ extension FileSyncManager {
         let tree = await Self.buildTree(url: root, sortOption: .name)
 
         let recordedRoot = Self.recordedRoot(for: root)
-        let profileId = Self.walkProfileId(now: now)
+        let profileId = Self.availableWalkProfileId(now: now, in: directory)
 
         // **Hoisted off the main actor.** `FileSyncManager` is `@MainActor`, and
         // `FolderSurveyBuilder.build` is a pure function of its arguments — no `FileManager`, no
@@ -221,6 +221,30 @@ extension FileSyncManager {
         let path = url.standardizedFileURL.path
         guard path == home || path.hasPrefix(home + "/") else { return path }
         return "~" + path.dropFirst(home.count)
+    }
+
+    /// A walk id that is not already on disk.
+    ///
+    /// **The stamp is second-resolution, so two walks in one second collide** — and `writeProfile`
+    /// refuses over an existing id, correctly, which surfaced as "the profile could not be written"
+    /// for the ordinary act of pressing *Learn again* on a small tree. Disambiguated with a suffix
+    /// rather than a UUID because these ids are read by a person in `profiles.json`; `walk-…-2` says
+    /// what it is where `walk-3f9c…` does not.
+    static func availableWalkProfileId(now: Date, in directory: URL) -> String {
+        let base = walkProfileId(now: now)
+        var candidate = base
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: profileURLForId(candidate, in: directory).path) {
+            candidate = "\(base)-\(suffix)"
+            suffix += 1
+            // A hundred walks inside one second is not a user, it is a loop; stop rather than spin.
+            if suffix > 100 { return "\(base)-\(UUID().uuidString.prefix(8))" }
+        }
+        return candidate
+    }
+
+    private static func profileURLForId(_ id: String, in directory: URL) -> URL {
+        FilingProfileStore.profileURL(id: id, in: directory)
     }
 
     /// A fresh id for each walk.
