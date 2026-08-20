@@ -651,7 +651,8 @@ Full mockups of all eight menus, drawn against the code, are at
 **Every new item reuses `DeleteSelectionCommand.chordBelongsToTextEditor`.** A menu key equivalent
 outranks the field editor, so ⌘X/⌘C/⌘V — and §3's ⌘↑/⌘↓ — would take the caret's own keys away from
 the pane search, the rename field and the differences search. That routing rule already exists for
-⌘⌫; write it once, in this step, and step 5 inherits it.
+⌘⌫; write it once, here at order step 5, and step 6's chords inherit it. **This is why this section
+is ordered ahead of §3's chords** rather than after them.
 
 **↩ renames cannot be a menu key equivalent.** The chord is right and the row belongs in File, but a
 registered bare ↩ outranks every default button — it would take the key that commits the destination
@@ -691,12 +692,14 @@ have already shipped, so what is actually left is nine.
    ahead of it. **Done 2026-08-19 — clean**; see the decisions block above for the verdict and for
    the two fixtures that were too weak to detect the collapse they were written for.
 4. **Go to Folder** (§3). Nearly free once 3 lands, pointless before it.
-5. **The chords and the status bar** (§3). ↩, ⌘↑/⌘↓, the status bar, and ⌘/ moving to it — the
-   shortcuts reference gives the chord up rather than take a replacement.
-   Independent of everything above; schedulable against anything.
-6. **The menu bar** (§10). Six small items, no dependencies between them. **Lead with
-   Edit ▸ Select All / Cut / Copy / Paste**: it establishes the text-editor routing rule that step
-   5's ⌘↑ and ⌘↓ also need, so doing it after means writing that rule twice.
+5. **The menu bar** (§10). Six small items. **Before the chords, and that is the dependency** —
+   its Edit ▸ Select All / Cut / Copy / Paste is where the text-editor routing rule gets written,
+   and step 6's ⌘↑ / ⌘↓ need the same rule. Ordered the other way round until 2026-08-19, with a
+   note telling the implementer to reach forward for it; the note is gone because the order now
+   says it.
+6. **The chords and the status bar** (§3). ↩, ⌘↑/⌘↓, the status bar, and ⌘/ moving to it — the
+   shortcuts reference gives the chord up rather than take a replacement. Independent of everything
+   above **except step 5's routing rule**, which ⌘↑ and ⌘↓ reuse rather than restate.
 7. **The polish batch** (§9). Four small items, no dependencies.
 8. **Title-bar subtitle** (§8). Small, and the only item here that answers a question the app
    currently cannot answer at all.
