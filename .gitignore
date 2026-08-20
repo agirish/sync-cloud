@@ -101,3 +101,9 @@ build_runtime_backup/
 .claude/settings.local.json
 
 .dd/
+
+# Published-artifact sources. The HTML behind the roadmap companions is kept here so a
+# swept scratchpad cannot destroy it again — but it is a build input for a page, not
+# repo content, and it is large. Ignored rather than merely untracked because several
+# sessions run `git add -A` concurrently and one of them would eventually sweep it in.
+artifact-src/
