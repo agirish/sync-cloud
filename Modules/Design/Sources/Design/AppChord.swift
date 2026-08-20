@@ -74,6 +74,21 @@ public extension AppChord {
         return AppChord(KeyEquivalent(Character("\(ordinal)")), .command)
     }
 
+    // The file clipboard, and the selection it acts on.
+    //
+    // **Every one of these four is also a text-editing key**, and a menu key equivalent outranks the
+    // field editor — so each is routed through ``TextEditingChord`` at its call site, exactly as
+    // ⌘⌫ has been since `deleteSelection` was registered. Registering them without that routing
+    // takes ⌘C away from the pane search, the rename field and the differences search.
+    //
+    // ⌘X + ⌘V is move-here, which is why there is no paste-as-move chord: the clipboard carries
+    // `isCut`, so Finder's ⌥⌘V has nothing left to do — and could not be registered anyway, per the
+    // no-⌥ invariant `AppChordTests` guards.
+    static let selectAll = AppChord("a", .command)
+    static let cut = AppChord("x", .command)
+    static let copy = AppChord("c", .command)
+    static let paste = AppChord("v", .command)
+
     // Panes
     static let findInPane = AppChord("f", .command)
     static let paneBack = AppChord("[", .command)
@@ -141,6 +156,7 @@ public extension AppChord {
     /// reference lists it as the range `⌘ 1 – ⌘ N`, which its own test pins.
     static let registry: [AppChord] = [
         settings, infoInspector, activityLog, shortcutsReference, commandPalette,
+        selectAll, cut, copy, paste,
         findInPane, paneBack, paneForward, rescan, newFolder, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
         newTab, closeTab, nextTab, previousTab, tabBar,

@@ -58,6 +58,10 @@ enum ShortcutsReference {
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
             Item(keys: "⌘ ?", action: "Open SyncCloud Help"),
             Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo the last file operation"),
+            // The file clipboard, not the text one — though each of these four hands the keystroke
+            // back to the caret when a text field has it (`TextEditingChord`).
+            Item(keys: "⌘ A", action: "Select everything in the focused pane's current folder"),
+            Item(keys: "⌘ C / ⌘ X / ⌘ V", action: "Copy or cut files, then paste — cut then paste is a move"),
             Item(keys: "Esc", action: "Close the Settings overlay"),
         ]),
         Group(title: "Panes", items: [
@@ -144,7 +148,15 @@ struct ShortcutsReferenceView: View {
     /// **600 → 640 when ⌘? was listed.** Same column, same story, and the test caught it the same
     /// way: the content went to 614pt the moment the Help chord got the row it should always have
     /// had. 640 keeps a comparable margin and still clears a 13" display's usable height.
-    static let windowSize = CGSize(width: 880, height: 640)
+    ///
+    /// **640 → 720 when the file clipboard arrived** (⌘A / ⌘X / ⌘C / ⌘V, §10). Four chords, and the
+    /// test caught it the same way for the third time — three rows measured 707pt, so they were
+    /// tightened to two and the content settled at **686pt measured**. 720 keeps a 34pt margin,
+    /// comparable to the 26pt the last raise left, and still clears a 13" display. The pattern is
+    /// worth naming now that it has repeated three times: **this window grows by chords, and the
+    /// test is the only thing that notices** — nothing about the reference looks wrong until it is
+    /// scrolled, and it is not scrollable.
+    static let windowSize = CGSize(width: 880, height: 720)
 
     var body: some View {
         ScrollView {

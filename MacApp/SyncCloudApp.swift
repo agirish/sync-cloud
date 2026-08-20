@@ -552,8 +552,24 @@ struct SyncCloudApp: App {
             // Edit ▸ Find, where a Mac user looks for it — and the only form ⌘F can take: a
             // focus-scoped `.onKeyPress` never sees the key, because a pane search is invoked
             // exactly when focus is sitting in a file table. See `FindInPaneCommand`.
-            CommandGroup(after: .pasteboard) {
-                FindInPaneCommand()
+            // Edit ▸ the file clipboard, then Find. **Replacing `.pasteboard` rather than adding
+            // after it**: AppKit's group supplies Cut/Copy/Paste/Select All bound to the responder
+            // chain, which for a file pane means they do nothing — so leaving it in place would put
+            // two items on each of ⌘X, ⌘C, ⌘V and ⌘A and let AppKit pick one, the same collision
+            // the emptied `.saveItem` group avoids for ⌘W.
+            //
+            // The text-editing behaviour those items provided is not lost: every one of these
+            // routes back to the field editor through `TextEditingChord` when the caret owns the
+            // keystroke, which is strictly more correct than the responder chain was — it also
+            // covers the case where files are selected AND a field has focus.
+            CommandGroup(replacing: .pasteboard) {
+                CutCommand()                // ⌘X
+                CopyCommand()               // ⌘C
+                PasteCommand()              // ⌘V
+                Divider()
+                SelectAllCommand()          // ⌘A
+                Divider()
+                FindInPaneCommand()         // ⌘F
             }
             // File ▸ the pane chrome's actions. Replacing `.newItem` is free real estate: this
             // is a one-window app, so there is no "New Window" to displace and ⌘N had nothing

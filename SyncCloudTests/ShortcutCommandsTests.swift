@@ -35,6 +35,8 @@ import Foundation
             switchPaneFocus: PaneFocusSwitch(targetName: "Dropbox", run: {}),
             commandPalette: {},
             beginPaneSearch: {},
+            selectAll: {},
+            clipboard: ClipboardActions(cut: {}, copy: {}, paste: {}),
             newTab: {}, closeTab: closeTab, cycleTab: { _ in }, reopenClosedTab: {},
             tabBar: TabBarSwitch(isOn: false, isForced: false, set: { _ in }),
             suspended: suspended
@@ -154,6 +156,10 @@ import Foundation
         // closed the window out from under the pick. `everySuspendableValueIsCoveredHere` is what
         // stops the next value being added without landing in these two lists.
         #expect(publisher.effectiveBeginPaneSearch == nil)
+        // The clipboard verbs go silent together, not one at a time: a paste answered under the
+        // picker would write files into the pane the pick is describing.
+        #expect(publisher.effectiveSelectAll == nil)
+        #expect(publisher.effectiveClipboard == nil)
         #expect(publisher.effectiveNewTab == nil)
         #expect(publisher.effectiveCloseTab == nil)
         #expect(publisher.effectiveCycleTab == nil)
@@ -179,6 +185,8 @@ import Foundation
         #expect(publisher.effectiveSwitchPaneFocus != nil)
         #expect(publisher.effectiveCommandPalette != nil)
         #expect(publisher.effectiveBeginPaneSearch != nil)
+        #expect(publisher.effectiveSelectAll != nil)
+        #expect(publisher.effectiveClipboard != nil)
         #expect(publisher.effectiveNewTab != nil)
         #expect(publisher.effectiveCloseTab != nil)
         #expect(publisher.effectiveCycleTab != nil)

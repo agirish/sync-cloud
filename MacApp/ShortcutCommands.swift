@@ -83,6 +83,14 @@ private struct ReopenClosedTabKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct SelectAllInPaneKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct ClipboardActionsKey: FocusedValueKey {
+    typealias Value = ClipboardActions
+}
+
 private struct TabBarVisibleKey: FocusedValueKey {
     typealias Value = TabBarSwitch
 }
@@ -109,6 +117,22 @@ struct TabBarSwitch {
                         set: @escaping (Bool) -> Void) -> TabBarSwitch {
         TabBarSwitch(isOn: hasSecondTab || preference, isForced: hasSecondTab, set: set)
     }
+}
+
+/// Edit ▸ Cut / Copy / Paste, as one value.
+///
+/// **The three travel together because they are one question asked three ways** — *which pane, and
+/// what is selected in it* — and a value that answers it once cannot answer it differently for Copy
+/// than for Paste. Published as three separate closures they could disagree by a render: the pane
+/// chords resolve through `paneSearchTargetIsLeft`, and a focus change between two `@FocusedValue`
+/// reads is exactly the drift `ShortcutValuePublisher` exists to prevent.
+///
+/// `cut` and `copy` are `nil` with nothing selected; `paste` is `nil` when the clipboard is empty,
+/// which is what makes the menu item disable rather than becoming a silent no-op.
+struct ClipboardActions {
+    let cut: (() -> Void)?
+    let copy: (() -> Void)?
+    let paste: (() -> Void)?
 }
 
 /// ⌘W's payload — **three states, because an optional closure only has two and ⌘W needs three.**
@@ -303,6 +327,19 @@ extension FocusedValues {
         set { self[ReopenClosedTabKey.self] = newValue }
     }
 
+    /// ⌘A — everything in the focused pane's current folder. `nil` when that folder is empty,
+    /// so the item disables rather than selecting nothing.
+    var selectAllInPane: (() -> Void)? {
+        get { self[SelectAllInPaneKey.self] }
+        set { self[SelectAllInPaneKey.self] = newValue }
+    }
+
+    /// ⌘X / ⌘C / ⌘V, as one value — see ``ClipboardActions``.
+    var clipboardActions: ClipboardActions? {
+        get { self[ClipboardActionsKey.self] }
+        set { self[ClipboardActionsKey.self] = newValue }
+    }
+
     /// View ▸ Tab Bar.
     var tabBarVisible: TabBarSwitch? {
         get { self[TabBarVisibleKey.self] }
@@ -363,6 +400,8 @@ struct ShortcutValuePublisher: ViewModifier {
     // The tab chords. All five suspend with the rest: a destination picker is up because an
     // in-flight file operation is waiting on an answer, and a tab switch under it would move the
     // pane the pick is describing.
+    let selectAll: (() -> Void)?
+    let clipboard: ClipboardActions
     let newTab: (() -> Void)?
     /// Never `nil` while a pane exists — on the last tab it closes the WINDOW, which is what
     /// Finder's ⌘W does and what keeps this from being a chord that dies at one tab.
@@ -401,6 +440,12 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveSwitchPaneFocus: PaneFocusSwitch? { suspended ? nil : switchPaneFocus }
     var effectiveCommandPalette: (() -> Void)? { suspended ? nil : commandPalette }
     var effectiveBeginPaneSearch: (() -> Void)? { suspended ? nil : beginPaneSearch }
+    var effectiveSelectAll: (() -> Void)? { suspended ? nil : selectAll }
+    /// Suspended as a whole, so a destination pick cannot be answered by pasting into the pane
+    /// underneath it — and so the three verbs go silent together rather than one at a time.
+    var effectiveClipboard: ClipboardActions? {
+        suspended ? nil : clipboard
+    }
     var effectiveNewTab: (() -> Void)? { suspended ? nil : newTab }
     var effectiveCloseTab: (() -> Void)? { suspended ? nil : closeTab }
     var effectiveCycleTab: ((Bool) -> Void)? { suspended ? nil : cycleTab }
@@ -429,6 +474,8 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.switchPaneFocus, effectiveSwitchPaneFocus)  // ⌃⇥
             .focusedSceneValue(\.commandPalette, effectiveCommandPalette)     // ⌘K
             .focusedSceneValue(\.beginPaneSearch, effectiveBeginPaneSearch)   // ⌘F
+            .focusedSceneValue(\.selectAllInPane, effectiveSelectAll)          // ⌘A
+            .focusedSceneValue(\.clipboardActions, effectiveClipboard)         // ⌘X / ⌘C / ⌘V
             .focusedSceneValue(\.newTab, effectiveNewTab)                     // ⌘T
             // ⌘W — three states, not two: `.suspended` is what the silenced value publishes, so the
             // item can tell it from the auxiliary windows that publish nothing at all.
@@ -455,6 +502,8 @@ extension ContentView {
             switchPaneFocus: switchPaneFocusAction,
             commandPalette: toggleCommandPalette,
             beginPaneSearch: beginPaneSearch,
+            selectAll: shortcutSelectAll,
+            clipboard: shortcutClipboard,
             newTab: { openNewTabHere(isLeft: shortcutTabTargetIsLeft) },
             closeTab: shortcutCloseTab,
             cycleTab: shortcutCycleTab,
@@ -537,6 +586,59 @@ extension ContentView {
     /// Resolved once and used for both the gate and the act, so the menu item can never be enabled
     /// by a column stack the pane on screen does not draw — the same pairing the header's arrows
     /// make. See `paneDrawsColumns(isLeft:)`.
+    /// ⌘A — the rows of the focused pane's **current folder**.
+    ///
+    /// **Not every visible row, and the reason is a real limit rather than a preference.** In Tree
+    /// mode a pane can have folders expanded, and which rows those are lives in
+    /// `FileTreeView.expanded` — `@State private`, inside the view. A menu item is published from
+    /// the App scope and cannot see it, so an item claiming to select "everything visible" would be
+    /// guessing. Selecting the current folder's contents is a promise this layer can actually keep.
+    ///
+    /// Columns resolves through the deepest open column, the same target `beginNewFolder` uses, so
+    /// ⌘A and ⇧⌘N cannot disagree about which folder the pane is "in".
+    var shortcutSelectAll: (() -> Void)? {
+        let isLeft = shortcutTargetIsLeft
+        let pane = paneContext(isLeft: isLeft)
+        let ids: [String]
+        if pane.viewMode == .columns {
+            let directory = (isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath)
+                .currentDirectory(treeRoot: pane.currentPath)
+            let index = isLeft ? syncManager.leftChildrenIndex(treeRoot: pane.currentPath)
+                               : syncManager.rightChildrenIndex(treeRoot: pane.currentPath)
+            ids = (index.children(atPath: directory) ?? []).map(\.id)
+        } else {
+            ids = pane.tree.nodes.map(\.id)
+        }
+        // Empty folder: withheld, so ⌘A disables rather than clearing the selection you had.
+        guard !ids.isEmpty else { return nil }
+        return {
+            if isLeft { syncManager.selectedLeftPaths = Set(ids) }
+            else { syncManager.selectedRightPaths = Set(ids) }
+        }
+    }
+
+    /// ⌘X / ⌘C / ⌘V, resolved together — see ``ClipboardActions``.
+    ///
+    /// Cut and Copy read the selection at FIRE time rather than capturing it, for the reason
+    /// `shortcutDeleteSelection` records: a menu held open is not re-armed by a republish, so a
+    /// captured array can name rows a background sync has since replaced.
+    var shortcutClipboard: ClipboardActions {
+        let isLeft = shortcutTargetIsLeft
+        let hasSelection = !activeSelectionNodes.isEmpty
+        let pane = paneContext(isLeft: isLeft)
+        let destination = pane.viewMode == .columns
+            ? (isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath)
+                .currentDirectory(treeRoot: pane.currentPath)
+            : pane.currentPath
+        return ClipboardActions(
+            cut: hasSelection ? { actionHandler?.handleCopyToClipboard(activeSelectionNodes, isCut: true) } : nil,
+            copy: hasSelection ? { actionHandler?.handleCopyToClipboard(activeSelectionNodes, isCut: false) } : nil,
+            // Withheld on an empty clipboard: pasting nothing is a no-op, and an enabled item that
+            // does nothing is the thing `clipboardHasItems` was added to the row menu to prevent.
+            paste: syncManager.clipboardNodes.isEmpty ? nil
+                 : { actionHandler?.pasteClipboard(toPath: destination) })
+    }
+
     var shortcutGoBack: (() -> Void)? {
         let isLeft = shortcutTargetIsLeft
         let columns = paneDrawsColumns(isLeft: isLeft)
@@ -689,31 +791,19 @@ struct NewFolderCommand: View {
 struct DeleteSelectionCommand: View {
     @FocusedValue(\.deleteSelection) private var delete
 
-    /// Whether the ⌘⌫ keystroke belongs to the text being edited rather than to this item.
-    ///
-    /// ⌘⌫ is also NSText's delete-to-beginning-of-line, and a menu key equivalent outranks the
-    /// field editor — so with files selected (the normal state) and the caret in the pane
-    /// search, a rename field, or the differences search, ⌘⌫-to-clear-the-line would confirm-
-    /// delete the selection instead. Worse than surprising: with "Confirm before deleting" off,
-    /// `confirmDelete` deletes immediately, silently, from a text-editing keystroke. Finder
-    /// ships exactly this wart; it is not worth importing.
-    ///
-    /// Static and injected so the routing rule is testable — the live check reads the key
-    /// window's first responder, which is the field editor (an `NSTextView`) whenever any text
-    /// field has the caret.
+    /// Kept as a forwarding alias: the rule moved to ``TextEditingChord`` when four more chords
+    /// needed it, and this name is what `AppChordRoutingTests` and the ⌘⌫ account referred to.
     static func chordBelongsToTextEditor(_ responder: NSResponder?) -> Bool {
-        responder is NSTextView
+        TextEditingChord.belongsToTextEditor(responder)
     }
 
     var body: some View {
         // Ellipsis: the action confirms before touching anything (`NativeAlerts.confirmDelete`).
         Button("Delete Selection…") {
-            if Self.chordBelongsToTextEditor(NSApp.keyWindow?.firstResponder) {
-                // Hand the editing action back to the editor the equivalent took it from.
-                (NSApp.keyWindow?.firstResponder as? NSTextView)?.deleteToBeginningOfLine(nil)
-            } else {
-                delete?()
-            }
+            // ⌘⌫ is also NSText's delete-to-beginning-of-line — see `TextEditingChord`.
+            TextEditingChord.route(
+                editorAction: { $0.deleteToBeginningOfLine(nil) },
+                fileAction: { delete?() })
         }
         .keyboardShortcut(AppChord.deleteSelection.key, modifiers: AppChord.deleteSelection.modifiers)
         .disabled(delete == nil)
@@ -734,6 +824,73 @@ struct SwitchPaneFocusCommand: View {
         Button(PaneFocusSwitch.menuTitle(for: focus)) { focus?.run() }
             .keyboardShortcut(AppChord.switchPaneFocus.key, modifiers: AppChord.switchPaneFocus.modifiers)
             .disabled(focus == nil)
+    }
+}
+
+// MARK: The file clipboard
+
+/// Edit ▸ Select All, ⌘A.
+///
+/// Routed through ``TextEditingChord`` like its three neighbours: ⌘A is *select all text* whenever
+/// the caret is in a field, and a menu equivalent would take it.
+struct SelectAllCommand: View {
+    @FocusedValue(\.selectAllInPane) private var selectAll
+
+    var body: some View {
+        Button("Select All") {
+            TextEditingChord.route(editorAction: { $0.selectAll(nil) },
+                                   fileAction: { selectAll?() })
+        }
+        .keyboardShortcut(AppChord.selectAll.key, modifiers: AppChord.selectAll.modifiers)
+        // Never disabled: with the caret in a field the item is still live, because it selects the
+        // TEXT. Withholding it on an empty pane would take ⌘A away from every field in the window.
+    }
+}
+
+/// Edit ▸ Cut / Copy / Paste — the app's **internal** file clipboard
+/// (`FileSyncManager.clipboardNodes`), not `NSPasteboard`.
+///
+/// **These verbs already worked; they had no menu and no chord.** Cut, Copy and *Paste here* have
+/// been on the row menu and the empty-area menu since before v4.0, spending through the same
+/// `copyItems`/`moveItems` as every transfer — grouped undo and success banner included. So ⌘C over
+/// a selected file did nothing visible while the working verb hid in a right-click.
+///
+/// **⌘X then ⌘V is move-here.** The clipboard carries `isCut`, so Finder's ⌥⌘V has nothing left to
+/// do — which is fortunate, because it could not be registered anyway: no chord in this app may
+/// contain ⌥ (`AppChordTests.noChordContainsOption`).
+struct CutCommand: View {
+    @FocusedValue(\.clipboardActions) private var clipboard
+
+    var body: some View {
+        Button("Cut") {
+            TextEditingChord.route(editorAction: { $0.cut(nil) },
+                                   fileAction: { clipboard?.cut?() })
+        }
+        .keyboardShortcut(AppChord.cut.key, modifiers: AppChord.cut.modifiers)
+    }
+}
+
+struct CopyCommand: View {
+    @FocusedValue(\.clipboardActions) private var clipboard
+
+    var body: some View {
+        Button("Copy") {
+            TextEditingChord.route(editorAction: { $0.copy(nil) },
+                                   fileAction: { clipboard?.copy?() })
+        }
+        .keyboardShortcut(AppChord.copy.key, modifiers: AppChord.copy.modifiers)
+    }
+}
+
+struct PasteCommand: View {
+    @FocusedValue(\.clipboardActions) private var clipboard
+
+    var body: some View {
+        Button("Paste") {
+            TextEditingChord.route(editorAction: { $0.paste(nil) },
+                                   fileAction: { clipboard?.paste?() })
+        }
+        .keyboardShortcut(AppChord.paste.key, modifiers: AppChord.paste.modifiers)
     }
 }
 
