@@ -10,6 +10,14 @@ at v4.0 and never took the surfaces shipped since (**§10**). What v4.1 took is 
 titles, shipped 2026-08-16). `main` only, with one stated exception: §2's code exists on `v2.x` too,
 and that item says what follows from it.
 
+**Organize has moved out.** Restructure went first, on 2026-08-16; the rest of the Organize surface
+followed on 2026-08-20, when `ROADMAP_V5.md` was rescoped from one project to one **workspace**.
+What went with it: Organize's menu-bar row (was §10's sixth item, now v5 §11), the two
+`LensWorkspaceView` polish items (were §9's, now v5 §12), and CLI parity for the Organize lenses
+(v5 §13). **This file keeps everything else** — Browse and its tabs, the pane bar, the Finder
+borrowings, the ⌘K field, window chrome, and the menu-bar work that is not Organize's. The two lines
+are **concurrent, not sequential**: an item lives in whichever one owns its surface.
+
 **Restructure has moved out, on 2026-08-16.** The storage-layer gaps behind Organize ▸ Restructure,
 the plan surface the lens was shipped without, and the first background survey now live in
 **`ROADMAP_V5.md`** — moved unchanged, together with the four decisions taken on 2026-08-16 and the
@@ -641,25 +649,26 @@ ever does misfire in use, the fix is the guard, not a longer memory.
 
 ## 9. The polish batch — cited, not restated
 
-Four items from `ROADMAP.md`'s Interface section, scheduled into 4.2 because each is genuinely
-small, none has a dependency, and all four were re-checked against the code at `c604321e` and are
-still unbuilt. **Their specifications stay in `ROADMAP.md`** — a spec kept in two places drifts in
+Two items from `ROADMAP.md`'s Interface section — both Storage's — scheduled here because each is
+genuinely small, neither has a dependency, and both were re-checked against the code at `c604321e`
+and are still unbuilt. (It was four; see the note below the table.) **Their specifications stay in `ROADMAP.md`** — a spec kept in two places drifts in
 one of them — so what follows is only the citation and the evidence that the item still applies.
 
 | Item | Still unbuilt because | Evidence |
 |---|---|---|
 | **Magnitude bars behind the largest-files list** | the ranked lists are plain rows | `StorageLensView.swift:357` — `case largest, stale, reclaim` |
 | **One sequential ramp for the treemap** | the palette is assigned **by index**, and the light entries still force a per-tile label-colour table | `TreemapView.swift:24` `palette[index % count]`, `:21` the luminance table |
-| **Drop the "Identical" badge from the majority row** | the badge still fires on the majority case | `LensWorkspaceView.swift` — `.identical` → `checkmark.seal.fill`, `SemanticColor.success` |
-| **Make the stat pills the filter** | the pills are still inert and the real filter is still a separate control | `LensWorkspaceView.swift:2532`, `:2538`, `:2545` pills; `:2680` the `Picker` |
 
 The treemap ramp is the one that **deletes** code rather than adding it: the contrast problem the
 label table exists to solve dissolves when the ramp's pale end lands on the small tiles, which carry
 no labels anyway.
 
-One constraint the stat-pill item must not lose: **not every pill is a subset.** The reclaim figure,
-Organize's *reused* and Storage's freshness marker are scan-level facts, not filters, and they must
-stay visibly inert or the header teaches that clicking pills sometimes does nothing.
+**Two of this batch's four moved to `ROADMAP_V5.md` §12 on 2026-08-20** — *Drop the "Identical"
+badge* and *Make the stat pills the filter*, both of which live in `LensWorkspaceView`, which is
+Organize's screen and one v5.0 is already rebuilding. The constraint they carry moved with them:
+*not every pill is a subset* — the reclaim figure, Organize's *reused* and Storage's freshness
+marker are scan-level facts, not filters. **Storage's two stay here**, with the workspace they
+belong to.
 
 ---
 
@@ -686,14 +695,16 @@ Full mockups of all eight menus, drawn against the code, are at
   them, because an ⌥ chord is the one kind that fires through the ⌥-hold reveal. Nothing is lost: the
   clipboard already carries `isCut`, so **⌘X then ⌘V is move-here**, one chord fewer than Finder.
 
-### The six items
+### The five items
+
+**Organize's row moved to `ROADMAP_V5.md` §11 on 2026-08-20**, where the four v5.0 verbs that also
+need menu homes are — including `Undo this reorganisation`, which must never be mistaken for ⌘Z.
 
 | Item | Size | Read out of the code |
 |---|---|---|
 | **Edit ▸ Select All / Cut / Copy / Paste** | small | No `.keyboardShortcut` for a/x/c/v anywhere; `selectAll` appears only inside text-field editors. A file browser with no ⌘A. |
 | **The transfer verbs get a menu home** | small | ⌘←/⌘→/⇧⌘←/⇧⌘→ exist only as a focus-scoped `onKeyPress` in `KeyboardCopyIntent.swift` — absent from `AppChord`, from the menus and from the ⌘/ reference. |
 | **Auxiliary windows leave Help** | small | Activity Log, Sync History and Keyboard Shortcuts are Help items; the Window menu already exists (see §8's note about it listing "SyncCloud" twice). `.appInfo` is never replaced, so About likely renders twice. |
-| **Organize reaches the bar** | small | ⌘3 is its only menu presence. Five sections and four row-menu-only verbs. The verbs join File; the sections become one View submenu. **No top-level Organize menu** — Compare's items are bulk actions on the whole comparison, Organize's are per-selection verbs, so the precedent does not transfer. |
 | **View ▸ Text Size** | small | `FontSize` scales the whole app and persists; Settings is the only route to it. ⌘+ / ⌘− / ⌘0 are free. |
 | **The row menu's dozen verbs** | small | Open in New Tab, Quick Look, Reveal in Finder, Download, Copy to…, Move to…, Ignore in Comparison — working handlers, no menu-bar row. |
 
@@ -746,7 +757,7 @@ have already shipped, so what is actually left is nine.
    `.folder`. The parse is pure and in the router; the one `stat` is injected from the host, because
    a routing table that answers differently on two machines is not a table. Not quite free: the four
    refusals are most of it, and the ordering of their checks is a stall guard.
-5. **The menu bar** (§10). Six small items. **Before the chords, and that is the dependency** —
+5. **The menu bar** (§10). Five small items — Organize's sixth moved to `ROADMAP_V5.md` §11. **Before the chords, and that is the dependency** —
    its Edit ▸ Select All / Cut / Copy / Paste is where the text-editor routing rule gets written,
    and step 6's ⌘↑ / ⌘↓ need the same rule. Ordered the other way round until 2026-08-19, with a
    note telling the implementer to reach forward for it; the note is gone because the order now
@@ -754,7 +765,8 @@ have already shipped, so what is actually left is nine.
 6. **The chords and the status bar** (§3). ↩, ⌘↑/⌘↓, the status bar, and ⌘/ moving to it — the
    shortcuts reference gives the chord up rather than take a replacement. Independent of everything
    above **except step 5's routing rule**, which ⌘↑ and ⌘↓ reuse rather than restate.
-7. **The polish batch** (§9). Four small items, no dependencies.
+7. **The polish batch** (§9). Two small items, no dependencies — the two Organize ones moved to
+   `ROADMAP_V5.md` §12.
 8. **Title-bar subtitle** (§8). Small, and the only item here that answers a question the app
    currently cannot answer at all.
 9. **Pins and recents sidebar** (§3). Reads the store step 1 made durable — already shipped, so this

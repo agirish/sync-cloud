@@ -1,10 +1,22 @@
-# SyncCloud — v5.0 roadmap: Restructure
+# SyncCloud — v5.0 roadmap: Organize
 
-**Scope:** one project. **Organize ▸ Restructure** — the storage-layer gaps behind a lens that
-already ships (§4), the plan surface it was deliberately shipped without (§5), and the first folder
-survey, run in the background, which is what gives a fresh machine anything to read at all (§6).
-§§4–5 run first, under the four decisions recorded below; §6 follows the release, and that section
-says why. `main` only.
+**Scope: one workspace.** v5.0 is the **Organize** release. Its spine is **Restructure** — the
+storage-layer gaps behind a lens that already ships (§4), the plan surface it was deliberately
+shipped without (§5), and the document survey the filing lenses read (§6) — and around that spine sit the rest of the Organize surface's unfinished work: reaching the
+menu bar (§11), the two lens-workspace controls that never became what they look like (§12), and
+command-line parity for the lenses (§13). §§4–5 run first, under the four decisions recorded below.
+`main` only.
+
+**Why one workspace and not one project.** Restructure alone would have left four small Organize
+items scattered across the 4.x file and `ROADMAP.md`, each too small to schedule and each touching
+the same two views Restructure rebuilds. Organize is also the only workspace where v5.0 changes
+anything, so a release named for it is a release a user can be told about in one sentence: *the tab
+that files your documents can now fix the shape of the tree they live in.*
+
+**What stays on the 4.x line.** Browse and its tabs, the pane bar, the Finder borrowings, the ⌘K
+Go-to field, window chrome, and the menu-bar work that is not Organize's. `ROADMAP_V4.md` is not
+closed and is not a predecessor: the two lines are concurrent, and an item lives in whichever one
+owns its surface.
 
 **Moved out of `ROADMAP_V4.md` on 2026-08-16, unchanged.** It was v4.2's defining feature until
 then; it is now its own release, because it is its own project. Everything below is the text as it
@@ -16,6 +28,12 @@ that argument is reversed, and the reversal is explained where it sits rather th
 the figures are still 21–34. "§4.2 shipped" and "§5.5 step 6" appear in both companions, in commit
 messages and in the audit notes; renumbering would silently repoint every one of them.
 `ROADMAP_V4.md` keeps a tombstone at those numbers and starts its own new work at §7.
+
+**New work in this file is numbered from §11**, and that is a rule rather than an accident. The 4.x
+file now uses §§1–10, so starting here at §11 means **no section number is ever ambiguous between
+the two roadmaps** — "§7" is always the 4.x Go-to field, "§11" is always Organize's menu-bar work.
+Anything moved into this file from the 4.x one is renumbered on arrival and its old home keeps a
+one-line pointer, for the same reason the §§4–6 tombstone exists.
 
 **Why v5.0 and not v4.3.** `CLAUDE.md` earns a major with a breaking change, and by that rule this
 would be v4.3: nothing here breaks, removes or restructures a shipped behaviour, and §5.5 is written
@@ -321,7 +339,17 @@ Each is a finding kind before it is a plan, and each is worth landing on its own
 Detectors, all specified in `ROADMAP.md` 20: **backlog** (the newest instance of a recurring series
 has no folders yet — worth saying the month it happens rather than thirteen years later),
 **shadow axis** (= §4.3), **echo name** (`PG&E/PGE`), **mirrored inbox** (`Health/TODO/Dental` beside
-`Health/Dental`), **dead weight** (pass-through folders and single-file leaves).
+`Health/Dental`), **dead weight** (pass-through folders and single-file leaves), **loose above a
+series** (files parked in the parent of a year run that has folders for them) and **loose beside a
+container** (`Home/ATT Bill` next to `Home/ATT/`). The last two were in `ROADMAP.md` 20's list and
+were dropped in every draft after it; they are measured below and one of them is the second-best
+detector on this tree.
+
+**Echo name is two rules, not one, and only one of them was ever written down.** `ROADMAP.md` 20's
+example — `PG&E/PGE` — is a **child echoing its parent**. The example this file has been carrying —
+`Form W-2` beside `Form W2` — is **two siblings echoing each other**. They need different code and
+they return different things: parent/child fires **4** times here, sibling/sibling **1**. Build
+both; count them as one kind with two sub-rules, or the card cannot say which shape it found.
 
 **What each would actually return here**, dry-run against the live profile on 2026-08-16 — worth
 knowing before building, because two of them cannot be validated on this tree:
@@ -333,6 +361,18 @@ knowing before building, because two of them cannot be validated on this tree:
 | **Mirrored inbox** | **1** | Only the degenerate `Finance/US/TODO/IRS/IRS`. The 6 Aug TODO drain already cleared the class this tree had. **Build it, but do not expect to validate it here.** |
 | **Shadow axis** | **5** | Under the narrow rule — see §4.3, which the audit reframed. |
 | **Dead weight** | **86 / 503 / 20** | Pass-through, single-file leaves, and **wholly empty**. |
+| **Loose above a series** | **10** | *(measured 2026-08-20)* `Finance/US/Investments/Fidelity/Statements` — **22 loose files above 4 year folders** — plus `Finance/US/Credit Reports` (5 above 11) and `Finance/US/Income Tax` itself (5 above 14). **The second-best detector on this tree after backlog**, and the closest thing here to an everyday one: a statement gets saved to the folder rather than into the year. Its fix is per-file, so it hands off to To File exactly as the scaffold does (§5.2's scaffold) rather than growing an Apply. |
+| **Loose beside a container** | **2** | *(measured 2026-08-20)* `School/US/Divit/City Pre-K` beside `Pre-K/`, and `Work/HPE/Products/Cray PE` beside `Cray/`. **The raw rule fires 4 and two are junk** — `Picasso/Releases/5.2.1` "inside" `5.1.1` — because version numbers tokenise into subsets of each other. **Skip names whose tokens are all digits, on both sides**, and it is 2 for 2. Cheapest possible guard, and without it this detector's first impression is a false positive. |
+
+**Two detectors will name the same folder, and the list has to decide which one speaks.** Measured:
+`Finance/US/TODO/IRS/IRS` is caught by **mirrored inbox** *and* by **parent/child echo**, and
+`Finance/US/Income Tax` is caught by **shape** *and* by **loose above a series**. §5.0's `kind ×
+path` identity makes both rows renderable, which is correct — they are different observations — but
+two cards about one folder, one above the other, reads as a bug the first time it happens. **Rule:
+render every kind, but sort a folder's rows together and let the first one carry the path as a
+heading**, so the second reads as a second thing about the same place rather than a repeat. This is
+cheaper than a precedence table and it never has to decide which observation is more important,
+which is a judgement the tree cannot support.
 
 The crowding strip is the answer to *"it sees a lot of folders"*: three counts above the findings,
 each a filter into a list. **Crowding is a property of the scope, not a finding** — always non-zero
@@ -677,42 +717,98 @@ respectively rather than as an item:
 
 ---
 
-## 6. The first survey, run in the background
+### 5.9 Duplicated taxonomy — the eighth detector, and it is newly unblocked
 
-**Why:** the router reads a folder profile the app has never been able to create. It has only ever
-come from an out-of-repo script, so a machine that has never run one gets **no routing at all** —
-and the guard that proves it is three lines:
+**Held back deliberately, and the reason has now expired.** `ROADMAP.md` 20 kept this one out of the
+set because it must not ship on **name** evidence: matching siblings by their child names is
+dominated by correct parallels on this tree — Vanguard's Roth and Traditional IRAs, four Chase
+accounts each foldered by year, `PFL - Shweta` beside `SDI - Shweta`. **Identical sibling structure
+is usually a sign of health.**
 
-```swift
-guard let profileId = filingMemory?.profileId ?? filingFolderProfile?.profileId else {
-    Logger.shared.info("No filing profile on this machine — nothing to re-survey")
-    return .none
-}
-```
+What separates the real case — `Work/Archive/MapR/Compensation/` holding both `Forms/` and
+`Income Tax/`, each with the same three form folders — is that **the same documents sit in both**.
+That is a content claim, and the evidence for it did not exist when the detector was deferred.
+**It does now:** item 18 shipped the PDF content fingerprint, and its `.sameText` pass already groups
+both halves of the `Form 1095-C` pair across `Work/Archive/MapR/Compensation/Forms/` and
+`Finance/US/Income Tax/2016/Forms/`. `ROADMAP.md` 20 records the unblocking; nothing has been built
+on it.
 
-`Modules/Sync/Sources/Sync/FileSyncManager+FilingSurvey.swift:74`. The re-survey refreshes the half
-the app owns and cannot produce the half it does not. §4.2 shipped the derivation and the write;
-this is the **run**.
+What remains is **reading those groups as a statement about the two folders rather than about the
+two files**: two folders are duplicated taxonomy when a material share of their contents are
+`.sameText` partners of each other, not merely when their child names agree.
 
-**Two halves, and 5.0 builds one of them for another reason.** Read carefully, this item was
-conflating two things a fresh machine lacks. The **folder profile** is a *walk*: names, counts, the
-roster and the jurisdiction values — `buildTree` then `FolderSurveyBuilder.build`, seconds, no PDF
-opened — and it is all Restructure reads. The **document survey** — the corpus and the memory the
-*router* wants — is the hours-long, PDFKit-serial, checkpointed pass everything below describes.
-§5.5 step 6 ships the first half as an app code path (walk → build → write under a new id → re-point),
-so after 5.0 what a fresh machine lacks for **Restructure** is the setup dialog's three answers and
-a button, and what it lacks for **routing** is this whole section. When §6 is picked up its first
-sheet should offer the walk on its own — *Learn your folders* — and the document survey as the
-second, longer step, because a lens that can answer in seconds should not wait forty minutes for a
-corpus it does not read. Not scheduled for 5.0 (decisions block); shaped here so it is not designed
-twice.
+- **It is the one detector that needs the duplicate scan**, so it is the one that can be *stale* —
+  every other detector here is a pure function of the profile in memory. It reports only when a
+  duplicate scan has run over both folders, and says so when it has not.
+- **Unmeasured here, deliberately.** The yield cannot be derived from `folder-profile.json` the way
+  the other seven were; it needs a scan. **Do not put a number in a mockup for it** until one has
+  run — that is the trap the crowding counts fell into.
+- **Its fix is a merge**, so it inherits §5.4 whole.
+
+**Schedule it last of the detectors**, after §5.2's seven, because it is the only one that can be
+wrong for a reason outside itself.
+
+### 5.10 Getting to a finding on purpose — and from the command line
+
+The lens is a **reporting** surface: it is found by opening Organize, and that is right, because a
+check you have to remember to run is a check nobody runs. But `ROADMAP.md` 20 also names three
+**deliberate** routes into it, and none of them exists:
+
+| Route | What it does | Where |
+|---|---|---|
+| **The palette** | `⌘K` → *Restructure this folder* — the aim is the folder you are standing in | `ROADMAP.md` 14, and the palette shipped in 4.x |
+| **A folder row's context menu** | *Check this folder's shape* on any row, in Browse or Compare | the row menu already carries a dozen verbs |
+| **A Home tile** | the one-screen answer names Restructure when it has findings | `ROADMAP.md` 16, unbuilt |
+
+Only the first two are v5.0's; the Home tile arrives with the workspace that owns it and is listed
+here so nobody builds a third route by accident.
+
+**And from a terminal:** `synccloud restructure --json`, which is §13 — worth building *with* §5.2
+rather than after it, for the reason given there.
+
+## 6. The document survey, run in the background
+
+**Two halves — and the first one shipped on 2026-08-20, while this file said it had not.**
+
+This item spent every draft conflating two things a fresh machine lacks, and they are not the same
+size:
+
+| Half | What it is | Cost | State |
+|---|---|---|---|
+| **The folder profile** | a tree *walk* — names, counts, the roster, the confirmed jurisdiction values. **All Restructure reads.** | seconds; no document opened | **shipped** — see below |
+| **The document survey** | the corpus and the memory, read from page one of ~11,000 files. What the **router** wants; Restructure never reads it. | hours, background, resumable | **not built — this is what §6 now is** |
+
+**What shipped.** `FileSyncManager+FolderWalk.swift` — `deriveFolderProfile(root:)` walks, builds
+through `FolderSurveyBuilder`, writes through the store's first-write path and reports what it did;
+`proposePlaces(root:)` supplies the jurisdiction candidates with their evidence. Setup grew a
+**Folders step** (`e52076eb`) that picks a root, offers those candidates as chips with **nothing
+pre-ticked**, and runs the walk on a button. `FilingArtifacts.attach(to:)` was extracted so a profile
+the user just wrote takes effect **without a relaunch**. The measurement that settled the chips is
+worth keeping: used as-is the proposals agree with the hand-built profile on **83.2%** of folders and
+every point of that gap is an invention (`HPE` an employer, `IT` a department, `PRD` a product
+stage); handed only the *confirmed* values the same code is right about **100%**.
+
+**So the sentence this section opened with for eight days is no longer true.** A machine that has
+never been surveyed is no longer shut out of Restructure — it runs setup, confirms a few places, and
+has a profile. What it still has no route to is **routing**: the corpus and memory behind every
+count the filing lenses print.
+
+**What that leaves for §6**, and it is all of the hard part: the pass itself. Everything below this
+line — the PDFKit serial lane, the checkpoint that must never be mistaken for a corpus, pause and
+resume across a quit, throttling behind the user's own work — is unchanged and unbuilt. The setup
+dialog described next is **partly shipped**: its root picker and its Places chips exist; its
+*document survey* half does not, and that is the sheet that still has to be designed.
+
+**§5.5 step 6 shares this code.** Re-deriving the profile after a landing is the same walk with a
+different trigger, so whichever of the two lands second inherits a path that has already run for
+real.
 
 **What it is:** an OS-indexer-shaped pass. The user agrees once, in a dialog, and then it runs in the
 background — non-blocking, resumable across quits, throttled behind their own work. **It is
 acceptable for this to take a long time; it is not acceptable for it to make the app feel slow.**
 Every constraint below is that sentence taken literally.
 
-### The setup dialog — Fig. 25
+### The setup dialog — Fig. 25, and what of it already exists
 
 Asks only what a walk cannot compute, and nothing else:
 
@@ -786,16 +882,98 @@ the jurisdiction values that were confirmed, and — stated plainly — the Offi
 read and the folders left without content, because a summary that reports only what it managed reads
 as complete when it is not.
 
-### Size — large
+### Size — large, and smaller than it was
 
 Two new files in `Sync` (the run's state machine and its checkpoint, which is the file
-`corpus(id:in:)` must never read), one setup sheet in `FileExplorer`, and wiring in
-`FileSyncManager`, `RestructureLens` and `ScanLifecycle`. ~900 lines, and **none of it is
-derivation** — that shipped. The state machine is the work: pause, resume across a quit, and a
-checkpoint that cannot be mistaken for a corpus.
+`corpus(id:in:)` must never read), one sheet in `FileExplorer`, and wiring in `FileSyncManager`,
+`RestructureLens` and `ScanLifecycle`. **None of it is derivation, and as of 2026-08-20 none of it
+is the profile either** — both shipped. The state machine is the whole of the work: pause, resume
+across a quit, and a checkpoint that cannot be mistaken for a corpus. Call it ~700 lines.
 
 ---
 
+
+## 11. Organize reaches the menu bar — small
+
+**Moved here from `ROADMAP_V4.md` §10 on 2026-08-20**, renumbered on arrival; the 4.x file keeps a
+pointer and its remaining five menu-bar items, which are not Organize's.
+
+**Why:** `⌘3` is the whole of Organize's menu presence. Five lens sections and four verbs that exist
+only in a row's context menu — so every Organize action is mouse-only, unlisted in `⌘/`, and
+invisible to anyone learning the app from its menus.
+
+**What:** the verbs join **File**; the lens sections become one **View** submenu. **No top-level
+Organize menu** — and the reason is worth keeping, because Compare has one: Compare's menu items are
+bulk actions on the whole comparison, while Organize's are per-selection verbs on a row, and File is
+where per-selection verbs already live. The precedent does not transfer.
+
+**v5.0 adds four more verbs that need homes**, and they should be designed in with the rest rather
+than bolted on: `Plan…` (§5.4), `Set up…` (§5.2's scaffold), `Answer…` (§5.3) and
+**`Undo this reorganisation`** (§5.5). The last is the interesting one: it is *not* `⌘Z`, it must
+never be mistaken for it, and a menu item beside Undo that does something Undo does not is exactly
+how it would be. Put it in File, worded as its own sentence, never in Edit.
+
+---
+
+## 12. The two lens-workspace controls that are not what they look like — small
+
+**Moved here from `ROADMAP_V4.md` §9 on 2026-08-20** — two of that batch's four items live in
+`LensWorkspaceView`, which is Organize's own screen and one §5.1 is already editing. The other two
+are Storage's and stayed. **Their specifications stay in `ROADMAP.md`'s Interface section** — a spec
+kept in two places drifts in one of them — so this is the citation and the evidence that both still
+apply, re-checked at `e52076eb`.
+
+| Item | Still unbuilt because |
+|---|---|
+| **Drop the "Identical" badge from the majority row** | the badge still fires on the majority case — `LensWorkspaceView.swift:67` `.identical → "checkmark.seal.fill"`, `:78` `SemanticColor.success` |
+| **Make the stat pills the filter** | the pills are still inert and the real filter is still a separate `Picker("Filter", selection: $filter)` |
+
+**Cite the symbol, not the line.** The 4.x file pinned the picker at `:2680`; it is at `:2738` today
+and nothing moved but the code above it. A line number in a roadmap is a claim that rots on someone
+else's commit.
+
+**One constraint the stat-pill item must not lose:** *not every pill is a subset.* The reclaim
+figure, Organize's **reused** count and Storage's freshness marker are **scan-level facts, not
+filters**, and they must stay visibly inert — or the header teaches that clicking a pill sometimes
+does nothing, which is worse than a header that never invited the click.
+
+**Do these with §5.1**, not separately: it is the same file, the same review, and the same render-it-
+and-look-at-it pass.
+
+---
+
+## 13. `synccloud` parity for the Organize lenses — medium
+
+**Cited from `ROADMAP.md` 6**, scoped to Organize's five lenses; Storage's and Backup's halves of
+that item stay there, with the rest of the workspace they belong to.
+
+**Why:** the CLI does `scan`, `sync` and `providers` — the two-pane story, and nothing since. To
+File, Duplicates, Renames, Restructure and Rules are GUI-only, so none of them can be scripted,
+scheduled with `launchd`, or run over ssh.
+
+| Command | Shape |
+|---|---|
+| `synccloud file` | the To File lens. **Not `organize`** — that names the whole workspace and would put the lens-versus-workspace ambiguity back into the public surface |
+| `synccloud duplicates --dry-run --json` | report-only by default |
+| `synccloud renames --check` | report-only |
+| `synccloud restructure --json` | report-only, like the lens |
+
+**The engines are already pure** — `DuplicateFinder`, `FilingEngine`, `NameNormalizer` and the
+structure detectors are stateless over a walked tree — so this is command surface and output
+shaping, not new logic.
+
+**Build `restructure --json` with §5.2, and the argument is about testing rather than users.** The
+detectors are pure functions of the profile, so a CLI that prints them is the only way to run the
+whole set over a real tree without a Mac in front of you. **Every number in this file was produced
+that way** — in a throwaway Python re-implementation of the detector's rules, which agreed with the
+Swift on the day it was written and could silently drift from it any day after. A `--json`
+subcommand retires that re-implementation and makes the next audit a diff instead of a rewrite.
+
+**Everything here stops at report.** No `--apply`, no `--plan`, not in 5.0: §5.5's six invariants
+are all about a person reading a manifest before anything moves, and a flag that skips the reading
+skips the invariants.
+
+---
 
 ## Order
 
@@ -804,33 +982,45 @@ was shipped without, and the survey without which it has nothing to read — so 
 dependency's order. Carried over from `ROADMAP_V4.md` with its §3 and §1 steps removed; those items
 stayed with the 4.x line and are not blocked on anything here, nor anything here on them.
 
-**The build order, under the decisions block.** 1–5 are the release; 6 ships if it is done when 5
-is; 7 is after the tag.
+**The build order.** 1–6 are the release; 7 and 8 ship if they are ready; 9 is after the tag.
 
 1. **§5.0** — the kind in `StructureFinding.id` and `restructure.json` with its four sections.
    Small, and everything below keys on it; the stale *two divergent families* in
    `StructureDivergence`'s doc goes in the same commit.
-2. **§5.1 + §5.2** — the scoped read, the crowding strip with all three filters, the remaining
-   detectors one at a time (**§4.3 is one of them**), and the **backlog scaffold** with its To File
-   hand-off. Pure reporting off a survey already in memory, plus the one Apply that creates and
-   never moves — which makes it the right first landing to prove `enqueueFileOperation`, the ledger
-   and ⌘Z on before anything destructive exists.
-3. **§4.1, last surveyed** — small, self-contained, and the only item on this page that improves a
-   screen v4.0 ships. Schedulable against anything above or below it.
-4. **§5.4 up to `Export plan…`** — the whole plan surface, merges included, with the 6 Aug oracle
+2. **§5.1 + §5.2 + §12** — the scoped read, the crowding strip with all three filters, the
+   detectors one at a time (**§4.3 is one of them**; so are the two recovered on 2026-08-20), and
+   the **backlog scaffold** with its To File hand-off. §12's two controls are in the same file and
+   the same review, so they ride along rather than being scheduled separately. Pure reporting off a
+   profile already in memory, plus the one Apply that creates and never moves — which makes it the
+   right first landing to prove `enqueueFileOperation`, the ledger and ⌘Z before anything
+   destructive exists.
+3. **§13's `synccloud restructure --json`** — with 2, not after it. It is what lets the detector set
+   be run over a real tree without the app, and it retires the Python re-implementation every number
+   in this file came from.
+4. **§4.1, last surveyed** — small, self-contained, and the only item here that improves a screen
+   v4.0 already ships. Schedulable against anything above or below it.
+5. **§5.4 up to `Export plan…`** — the whole plan surface, merges included, with the 6 Aug oracle
    test green before the sheet is wired to anything that writes. Drafts persist from here.
-5. **§5.5 in its three stages** — renames and `create-dir`, then moves and merges, then the removal
+6. **§5.5 in its three stages** — renames and `create-dir`, then moves and merges, then the removal
    step (which also takes the 20 pre-existing empties from §5.2's filter). Every stage ends with
    step 6 — re-derive — and step 7 — replay onto the corpus, memory and store; the first stage is
    the one that proves those two on the real tree. `Undo this reorganisation` ships with stage one.
-6. **§5.6, Claude on the mapping** — last of the release, deliberately; a paid pass must not be the
-   only way to get a good answer. **§5.3, Ask findings**, sits beside it: not release-gating, its
-   store already exists, one finding on this tree.
-7. **§6, the first survey** — after the tag, and smaller than it was: its profile half is §5.5 step
-   6 with a dialog in front (see §6, "Two halves"). It cannot fire on this machine, which has a
-   profile; nothing in 1–6 is blocked on it.
+   **§11 lands with this**, because four of the verbs it gives menu homes to do not exist until
+   §5.4 and §5.5 do — and `Undo this reorganisation` is the one that most needs designing into the
+   menus rather than beside them.
+7. **§5.6, Claude on the mapping** — deliberately late; a paid pass must not be the only way to get
+   a good answer. **§5.3, Ask findings** sits beside it: not release-gating, its store already
+   exists, one finding on this tree.
+8. **§5.9, duplicated taxonomy, and §5.10's two access routes.** The detector is last of the eight
+   because it is the only one that can be wrong for a reason outside itself — it reads the duplicate
+   scan, so it can be *stale*. The palette entry and the row-menu verb are an afternoon each and
+   want §11's verbs to already exist.
+9. **§6, the document survey** — after the tag. **Its profile half shipped on 2026-08-20** and is no
+   longer part of this; what remains is the hours-long content pass the router wants, which nothing
+   in 1–8 reads or waits on. §13's other commands (`file`, `duplicates`, `renames`) go here too, or
+   earlier on their own merits.
 
-**What "ready for implementation" means for each of 1–5**: the item names its files, its store
+**What "ready for implementation" means for each of 1–6**: the item names its files, its store
 key, its proof, and the number it will print — and where the number was measured rather than
 designed, the measurement is dated. An item that fails that bar goes back to this file before it
 goes to a branch.
@@ -839,17 +1029,25 @@ goes to a branch.
 
 ## Open questions
 
-- **§6: stopgap or replacement?** Settled further than it was: the derivation is not a degraded
-  stopgap — role, anchors and axes agree at .997–1.000 and Restructure cannot tell the two profiles
-  apart. What stays hand-built is `naming`, `folderSemantics` and the jurisdiction *vocabulary*, and
-  the last of those is answered by asking rather than by mining. The open half is whether that is
-  enough to stop maintaining the offline builder at all, which only a second tree can answer.
-- **§6: should the survey offer itself unprompted on a large unsurveyed tree?** A machine with no
-  profile gets no routing and no Restructure, and nothing on screen says why until someone opens the
-  lens. Against that: an hours-long background pass that the user did not ask for is exactly the
-  thing the *"never make the app feel slow"* rule exists to protect, and the dialog needs three
-  answers it cannot guess. Recommendation: offer it in the lens and in Organize's overview, never
-  start it.
+- **§6: stopgap or replacement?** Settled further again by the walk shipping on 2026-08-20. The
+  derivation is not a degraded stopgap — role, anchors and axes agree at .997–1.000 and Restructure
+  cannot tell the two profiles apart — and the jurisdiction vocabulary, the one thing that could not
+  be mined, is now **asked** in setup: proposals used as-is agree on 83.2% of folders, confirmed
+  proposals on 100%. What stays hand-built is `naming` and `folderSemantics`, which nothing decodes.
+  **The open half is unchanged and still needs a second tree:** whether that is enough to stop
+  maintaining the offline builder at all.
+- ~~**§6: should the survey offer itself unprompted on a large unsurveyed tree?**~~ **Half of it is
+  answered by where the walk landed.** Setup asks, once, with the three answers it cannot guess in
+  front of the user — so a fresh machine no longer reaches Restructure with nothing and no
+  explanation. What is still open is the *document* survey, and the recommendation stands unchanged
+  for it: **offer it in the lens and in Organize's overview, never start it**, because an
+  hours-long background pass the user did not ask for is exactly what the *"never make the app feel
+  slow"* rule exists to protect.
+- **§5.9: what share of shared content makes two folders duplicated taxonomy?** The detector reads
+  `.sameText` groups, so it needs a threshold — two folders that share one document are not a
+  duplicated taxonomy and two that share all of them plainly are. Unmeasurable from the profile;
+  it needs a duplicate scan over the reference tree, which is why the item ships last and carries
+  no number until then.
 - **§6: what should the Organize overview ledger count while a survey is running?** Making
   Restructure runnable changes `countedLenses` and `pendingPasses`
   (`Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift:418`, `:468`), and a lens that
