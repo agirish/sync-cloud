@@ -264,10 +264,17 @@ import Sync
 
     // MARK: Treemap    // MARK: Treemap
 
-    /// Five tiles wide enough (≥ 68 pt) to show name + size labels. The palette assigns
-    /// index 3 the AMBER hue — the light tile whose hardcoded-white label was ~2.4:1 and now
-    /// must render near-black via `AccentLabel.prefersDarkText`. "Other" stays neutral gray
-    /// with a `.primary` label.
+    /// Five tiles wide enough (≥ 68 pt) to show name + size labels, and none narrow enough to
+    /// fold — so the ramp runs its full length across them.
+    ///
+    /// **Rewritten for the sequential ramp.** It used to read "the palette assigns index 3 the
+    /// AMBER hue", which was true of the rotating ten-hue palette and is meaningless now that
+    /// colour is the ranking. What it guards is unchanged and is why the fixture still has five
+    /// tiles: index 3 is the ramp's pale end, and its label must flip to near-black through
+    /// `AccentLabel.prefersDarkText` exactly as amber's did. The plan for the ramp claimed this
+    /// case away — "the pale end lands on the small tiles, which carry no labels" — and it does
+    /// not, because the fold floors the smallest tile at the width labels begin at. "Other" stays
+    /// neutral gray with a `.primary` label.
     @Test func treemapTileLabels() {
         let nodes = [
             TreemapNode(name: "Documents", path: "/d/Documents", bytes: 400),

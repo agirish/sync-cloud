@@ -677,14 +677,27 @@ genuinely small, neither has a dependency, and both were re-checked against the 
 and are still unbuilt. (It was four; see the note below the table.) **Their specifications stay in `ROADMAP.md`** — a spec kept in two places drifts in
 one of them — so what follows is only the citation and the evidence that the item still applies.
 
-| Item | Still unbuilt because | Evidence |
+| Item | State | Where |
 |---|---|---|
-| **Magnitude bars behind the largest-files list** | the ranked lists are plain rows | `StorageLensView.swift:357` — `case largest, stale, reclaim` |
-| **One sequential ramp for the treemap** | the palette is assigned **by index**, and the light entries still force a per-tile label-colour table | `TreemapView.swift:24` `palette[index % count]`, `:21` the luminance table |
+| **Magnitude bars behind the largest-files list** | **Shipped 2026-08-20** | `StorageMagnitude.swift`; the rules and a rendered measurement in `StorageMagnitudeTests` |
+| **One sequential ramp for the treemap** | **Shipped 2026-08-20** | `TreemapView.ramp(_:count:)`; `TreemapRampTests` |
 
-The treemap ramp is the one that **deletes** code rather than adding it: the contrast problem the
-label table exists to solve dissolves when the ramp's pale end lands on the small tiles, which carry
-no labels anyway.
+Three things the build settled that the specs above had wrong or unsaid:
+
+- **The ramp does not delete the contrast problem, and this section said it would.** The reasoning
+  was "the pale end lands on the small tiles, which carry no labels anyway" — but the fold floors
+  the smallest visible tile at `labelMinWidth`, which is *exactly* the width at which a tile starts
+  drawing its name, so the palest step is labelled. What was deleted is the fixed ten-entry
+  `labelPalette` **table**; the pairing itself moved to `Color.onFillLabel` applied to the fill each
+  tile actually took, which is shorter and correct for fills it has never seen.
+- **The ramp is built from the user's hue, and `.none` had to be special-cased.** `.none` resolves
+  to the *system* accent, which is a dynamic colour: sampling its components freezes it to whatever
+  appearance was current. It substitutes blue.
+- **Bars are on the size-ordered lists only.** `largest` and `reclaimCandidates` arrive largest-first;
+  `stale` arrives oldest-first, and a bar rising and falling against that order reads as a ranking it
+  has nothing to do with. The **share** figure is a fact about the file and appears on every row.
+  The spec's "share-of-folder percentage" is against `report.totalBytes`, and it rounds **away** from
+  zero — `<1%`, never `0%` for a file that is there.
 
 **Two of this batch's four moved to `ROADMAP_V5.md` §12 on 2026-08-20** — *Drop the "Identical"
 badge* and *Make the stat pills the filter*, both of which live in `LensWorkspaceView`, which is

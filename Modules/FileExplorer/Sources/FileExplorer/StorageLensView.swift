@@ -172,7 +172,8 @@ struct StorageLensView: View {
                     // the two to be read together.
                     if section == nil { treemapSection(report) }
                     ForEach(StorageSection.allCases.filter { section == nil || section == $0 }) { s in
-                        listSection(s, entries: s.entries(in: report).filter { query.matches($0) })
+                        listSection(s, entries: s.entries(in: report).filter { query.matches($0) },
+                                    report: report)
                     }
                 }
                 .padding(densityMetrics.cardListPadding)
@@ -195,7 +196,7 @@ struct StorageLensView: View {
                 sectionHeaderLabel(icon: "square.grid.2x2.fill", tint: glassHue.accentColor,
                                    title: "Where space concentrates",
                                    subtitle: "Top areas by total size")
-                TreemapView(nodes: report.treemap)
+                TreemapView(nodes: report.treemap, hue: glassHue)
             }
         }
     }
@@ -220,8 +221,14 @@ struct StorageLensView: View {
     ///   the first attempt — that still announces an unavailable control to VoiceOver and still
     ///   makes Full Keyboard Access step over the row, and the title, caption and count are only
     ///   reachable through it.
-    private func listSection(_ section: StorageSection, entries: [StorageEntry]) -> some View {
+    private func listSection(_ section: StorageSection, entries: [StorageEntry],
+                             report: StorageLensReport) -> some View {
         let canCollapse = self.section == nil
+        // The bar's yardstick is the section's own biggest file — `entries` here is already
+        // narrowed by the query, and measuring against that would rescale every bar as someone
+        // types. See `StorageMagnitude.fraction`.
+        let largestBytes = StorageMagnitude.showsBar(section)
+            ? (section.entries(in: report).map(\.bytes).max() ?? 0) : 0
         let isCollapsed = canCollapse && collapsed.contains(section)
         return VStack(alignment: .leading, spacing: 8) {
             if canCollapse {
@@ -259,6 +266,11 @@ struct StorageLensView: View {
                                 relativeFolder: displayFolder(entry.path),
                                 showAge: section == .stale,
                                 offloadStyle: section == .reclaim,
+                                barFraction: StorageMagnitude.fraction(bytes: entry.bytes,
+                                                                       largestBytes: largestBytes),
+                                shareText: StorageMagnitude.shareText(bytes: entry.bytes,
+                                                                      ofTotal: report.totalBytes),
+                                scannedName: scannedName,
                                 densityMetrics: densityMetrics,
                                 onReveal: { onReveal(entry.path) },
                                 onPreview: onQuickLook.map { ql in { ql(entry.path) } }
@@ -465,11 +477,34 @@ private struct StorageEntryRow: View {
     /// When true, the reveal control renders as a prominent "Offload…" button with the
     /// Finder-handoff explainer; otherwise it's a quiet reveal glyph.
     let offloadStyle: Bool
+    /// This file against the biggest one in its section, 0...1. Zero draws no bar — either the
+    /// section is not size-ordered (`StorageMagnitude.showsBar`) or the file has no bytes.
+    let barFraction: Double
+    /// This file as a share of everything the scan measured, already rounded and worded, or nil
+    /// when there is nothing truthful to say.
+    let shareText: String?
+    /// The scanned folder's name — what the share figure is a share *of*, for the tooltip and the
+    /// spoken label, where a bare "18%" says nothing.
+    let scannedName: String
     /// Row measurements per the appearance density setting (D4). Comfortable must render this row
     /// pixel-identical to the pre-density look.
     let densityMetrics: ListDensityMetrics
     let onReveal: () -> Void
     let onPreview: (() -> Void)?
+
+    /// Pointer over the row. Drives the two quiet glyphs together — a per-glyph hover would
+    /// reveal one at a time as the pointer crossed the pair.
+    @State private var isHovered = false
+    /// Which of the two glyphs has keyboard focus, if either. The second half of
+    /// `StorageMagnitude.controlsRevealed`: focus reveals, so Full Keyboard Access never rings a
+    /// control that is painting nothing.
+    @FocusState private var focusedControl: RowControl?
+
+    private enum RowControl: Hashable { case preview, reveal }
+
+    private var controlsRevealed: Bool {
+        StorageMagnitude.controlsRevealed(isHovered: isHovered, isFocused: focusedControl != nil)
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -503,6 +538,19 @@ private struct StorageEntryRow: View {
                 .scaledFont(.system(size: 12, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
+            // The share rides beside the size rather than under it: a second line here would
+            // change the row's height, and this row's height is what `densityMetrics` owns.
+            // Fixed-width so the sizes above it stay in a column — "<1%" and "100%" are the
+            // widest strings it can hold.
+            if let shareText {
+                Text(shareText)
+                    .scaledFont(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, alignment: .trailing)
+                    .help("\(shareText) of \(scannedName)")
+                    .accessibilityLabel("\(shareText) of \(scannedName)")
+            }
             if let onPreview {
                 Button(action: onPreview) {
                     Image(systemName: "eye").padding(4).contentShape(Rectangle())
@@ -510,6 +558,8 @@ private struct StorageEntryRow: View {
                 .buttonStyle(.hoverAffordance(.glyph, tint: rowAccent))
                 .padding(-4)
                 .controlSize(.small)
+                .focused($focusedControl, equals: .preview)
+                .opacity(controlsRevealed ? 1 : 0)
                 .help("Preview with Quick Look")
             }
             if offloadStyle {
@@ -527,6 +577,8 @@ private struct StorageEntryRow: View {
                 .buttonStyle(.hoverAffordance(.glyph, tint: rowAccent))
                 .padding(-4)
                 .controlSize(.small)
+                .focused($focusedControl, equals: .reveal)
+                .opacity(controlsRevealed ? 1 : 0)
                 .help("Reveal in Finder")
             }
         }
@@ -535,8 +587,34 @@ private struct StorageEntryRow: View {
         // clamp rather than substitute: comfortable stays exactly 8; compact tightens to the
         // metric's 6.
         .padding(.vertical, min(8, densityMetrics.cardRowVerticalPadding))
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Color.primary.opacity(0.04)))
+        .background { rowGround }
+        .onHover { isHovered = $0 }
+    }
+
+    /// The row's ground, and the magnitude bar drawn on it.
+    ///
+    /// A `GeometryReader` inside `.background` reads the row's laid-out width without proposing
+    /// anything back to it, so the bar can be a fraction of a height the row decided for itself.
+    ///
+    /// A nonzero bar never falls below a hairline — the same 3pt floor and for the same reason as
+    /// `TreemapView.tile`: a real file that rounds to no bar reads as absent rather than tiny.
+    /// It is drawn with the same corner radius as the ground and clipped to it, so a full-width
+    /// bar has square inner corners nowhere.
+    private var rowGround: some View {
+        GeometryReader { geo in
+            let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+            ZStack(alignment: .leading) {
+                shape.fill(Color.primary.opacity(0.04))
+                if barFraction > 0 {
+                    Rectangle()
+                        .fill(rowAccent.opacity(0.16))
+                        .frame(width: max(3, geo.size.width * barFraction))
+                }
+            }
+            .clipShape(shape)
+        }
+        // Decoration: the size and the share beside it are what carries this to VoiceOver.
+        .accessibilityHidden(true)
     }
 
     /// A coarse "N years/months/days ago" for the stale list, from the file's mtime.
