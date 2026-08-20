@@ -23,7 +23,7 @@ import SwiftUI
 /// from outside is a known dead end in this codebase — see `HoverAffordanceStyle`. SyncCloud draws
 /// nearly all of its own chrome, so this affects only a handful of controls, which keep the
 /// system's metrics while everything around them scales.
-public struct FontSize: Hashable, Identifiable, Sendable, Comparable {
+public struct FontSize: Hashable, Identifiable, Sendable {
 
     /// The percentage this size applies at and below the `knee` — 90 through 135, in whole
     /// numbers. **This is the stored value**, and it is an integer rather than a `Double` so the
@@ -121,28 +121,9 @@ public struct FontSize: Hashable, Identifiable, Sendable, Comparable {
         return size
     }
 
-    /// The persisted size, defaulting to `.medium` for a fresh install and for a stored value in
-    /// neither shape.
-    ///
-    /// Reads the legacy strings as well as the number, so this answers correctly whether or not
-    /// ``migrateLegacyValue(in:)`` has run yet. The order matters: `object(forKey:) as? Int` is
-    /// asked first and returns nil for a `String`, so the two branches cannot both claim a
-    /// value.
-    public static func resolved(_ defaults: UserDefaults = .standard) -> FontSize {
-        if let percent = defaults.object(forKey: defaultsKey) as? Int {
-            return FontSize(percent: percent)
-        }
-        if let raw = defaults.string(forKey: defaultsKey), let legacy = legacyRawValues[raw] {
-            return legacy
-        }
-        return .medium
-    }
-
     // MARK: - Identity and copy
 
     public var id: Int { percent }
-
-    public static func < (lhs: FontSize, rhs: FontSize) -> Bool { lhs.percent < rhs.percent }
 
     /// The name this size carries, or nil for a value between the presets.
     public var presetName: String? {
@@ -301,6 +282,18 @@ public extension View {
 /// Bridges the `@AppStorage` default into the environment. A modifier rather than a call at each
 /// root so the storage is observed once per window and the picker takes effect immediately.
 private struct PersistedAppFontSize: ViewModifier {
+    /// **The default is a constant, deliberately.**
+    ///
+    /// The obvious-looking improvement is to default it to a tolerant read so a legacy `String`
+    /// still resolves — `@AppStorage(...) var percent: Int` cannot see one and reports its own
+    /// default. That was tried and reverted: the only tolerant read available here is against
+    /// `UserDefaults.standard`, because SwiftUI publishes `defaultAppStorage` as a modifier and
+    /// not as a readable environment value. So a view tree pointed at a scratch suite by
+    /// `.defaultAppStorage(_:)` would have fallen back to whatever size the developer running the
+    /// tests had chosen — machine-dependent, and invisible until two machines disagreed.
+    ///
+    /// What actually closes the legacy case is ``FontSize/migrateLegacyValue(in:)`` at launch,
+    /// before anything reads the key, which `theAppMigratesTheStoredTextSizeAtLaunch` pins.
     @AppStorage(FontSize.defaultsKey) private var percent: Int = FontSize.medium.percent
 
     func body(content: Content) -> some View {

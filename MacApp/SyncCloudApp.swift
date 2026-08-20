@@ -143,7 +143,14 @@ struct SyncCloudApp: App {
             //
             // It is a no-op on every subsequent launch (an `Int` already present returns early),
             // so it stays rather than becoming a dated migration to remember to delete.
-            FontSize.migrateLegacyValue()
+            //
+            // Logged when it actually rewrites, and only then. A migration that silently changes
+            // what is on disk is the kind of thing a support question ("my text size reset") has
+            // no other way to answer — and the no-op case is every launch after the first, so
+            // logging that would be noise rather than evidence.
+            if let migrated = FontSize.migrateLegacyValue() {
+                Logger.shared.info("Text size migrated from the legacy \"\(migrated.presetName ?? "custom")\" value to \(migrated.percent)%")
+            }
 
             // The log line that reports which state this session is in is deliberately NOT here —
             // it is in the delegate's `applicationDidFinishLaunching`, for exactly the reason the

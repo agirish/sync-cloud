@@ -28,7 +28,8 @@ import AppKit
     private struct Row: View {
         @State var fontSize: FontSize
         @State var density: ListDensity
-        var body: some View { SizePresetRow(fontSize: $fontSize, density: $density) }
+        var style: SizePresetRow.Style = .named
+        var body: some View { SizePresetRow(fontSize: $fontSize, density: $density, style: style) }
     }
 
     /// The selected tile looks selected, and it moves when the selection does.
@@ -66,6 +67,37 @@ import AppKit
         }
         #expect(widths.first! < widths.last!,
                 "the row measured \(widths) across the range — it is not following the text size")
+    }
+
+    /// The specimen style is genuinely narrower than the named one — the whole reason it exists.
+    ///
+    /// **The words are what do not fit**, and this is the property Design can own: the exact width
+    /// the setup card offers belongs to `MacApp` and is measured there
+    /// (`theSetupTextSizeRowFitsTheCardAtEveryTextSize`). What can be asserted here is that
+    /// choosing `.specimen` actually buys width at every text size. If it ever stops doing so, the
+    /// style is costing a second code path for nothing and the setup form should use the words.
+    @MainActor
+    @Test func theSpecimenStyleIsNarrowerThanTheNamedOne() {
+        for size in FontSize.allCases {
+            let specimen = Self.idealWidth(size, style: .specimen)
+            let named = Self.idealWidth(size, style: .named)
+
+            #expect(specimen > 0 && named > 0, "a style laid out to nothing at \(size.percent)%")
+            #expect(specimen < named,
+                    """
+                    At \(size.percent)% the specimen row wants \(specimen)pt and the named row \
+                    \(named)pt — the setup form's style is buying no width over the words it \
+                    exists to avoid.
+                    """)
+        }
+    }
+
+    @MainActor
+    private static func idealWidth(_ size: FontSize, style: SizePresetRow.Style) -> CGFloat {
+        let host = NSHostingView(rootView:
+            Row(fontSize: size, density: .comfortable, style: style).appFontSize(size))
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.width
     }
 
     private static func inkCount(_ rep: NSBitmapImageRep?) -> Int {

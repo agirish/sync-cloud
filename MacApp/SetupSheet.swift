@@ -675,8 +675,13 @@ struct SetupSheet: View {
                 HStack {
                     Text("Text size").scaledFont(.callout)
                     Spacer(minLength: 12)
-                    SizePresetRow(fontSize: setupFontSize, density: setupDensity)
-                        .frame(width: 232)
+                    // **No fixed width.** It was framed at 232pt, which the row's own minimum
+                    // outgrows at 125% (235pt) and 135% (247pt) — and a preset row narrower than
+                    // its content does not shrink, it truncates: the tiles shipped reading
+                    // "Comfor…". Letting it take the trailing space means the only thing that has
+                    // to fit is the card, which `theSetupTextSizeRowFitsTheCardAtEveryTextSize`
+                    // measures.
+                    SizePresetRow(fontSize: setupFontSize, density: setupDensity, style: .specimen)
                 }
                 HStack {
                     Text("Appearance").scaledFont(.callout)

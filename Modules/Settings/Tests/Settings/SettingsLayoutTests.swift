@@ -1134,7 +1134,7 @@ import Testing
             @State private var fontSize = FontSize.medium
             @State private var density = ListDensity.comfortable
             var body: some View {
-                SizePresetRow(fontSize: $fontSize, density: $density)
+                SizePresetRow(fontSize: $fontSize, density: $density, style: .named)
             }
         }
         let host = NSHostingView(rootView: PresetRow().appFontSize(size))

@@ -55,10 +55,11 @@ public struct SizePreset: Hashable, Identifiable, Sendable {
 
     /// What row spacing this preset sets, in words.
     ///
-    /// **Not printed on the tile** — the tile draws a specimen instead, because the words do not
-    /// fit the narrowest settings column and mean nothing on the setup form (see `SizePresetRow`).
-    /// This is what the tile's accessibility label and tooltip say, which is where a name is worth
-    /// more than a picture.
+    /// Printed as the second line of a `.named` tile — where, the first line being the percentage,
+    /// it is what makes the two 100% tiles tell themselves apart — and NOT on a `.specimen` one,
+    /// which draws the result instead because on the setup form the words have neither the width
+    /// nor the meaning yet (see `SizePresetRow`). Both styles say it in their accessibility label
+    /// and tooltip, which is where a name is worth more than a picture on any surface.
     public var densityName: String { density.displayName }
 
     /// The caption under the whole row, describing where the two settings currently stand.

@@ -76,6 +76,74 @@ import SwiftUI
         }
     }
 
+    // MARK: - The slider's detent labels
+
+    /// The detent rail maps a percentage onto the track the same way the slider does.
+    ///
+    /// Pure arithmetic, which is the half that can be wrong silently: an inverted or mis-scaled
+    /// mapping puts every label under the wrong tick and still renders a tidy-looking row. The
+    /// remaining unknown is `knobInset` — half a slider knob, which SwiftUI does not expose — and
+    /// that one is settled by rendering the tab and looking, not by arithmetic.
+    @Test func theDetentRailMapsThePercentagesOntoTheTrack() {
+        #expect(FontSizeDetentLabels.position(FontSize.minimumPercent) == 0)
+        #expect(FontSizeDetentLabels.position(FontSize.maximumPercent) == 1)
+
+        let positions = FontSize.allCases.map { FontSizeDetentLabels.position($0.percent) }
+        #expect(positions == positions.sorted())
+        #expect(Set(positions).count == positions.count, "two detents share a position")
+
+        // Default sits at 10/45 of the way along, not at a third — the tell for an evenly-spaced
+        // layout quietly replacing the value-derived one. The four presets are NOT evenly spaced.
+        let expected = CGFloat(FontSize.medium.percent - FontSize.minimumPercent)
+            / CGFloat(FontSize.maximumPercent - FontSize.minimumPercent)
+        #expect(abs(FontSizeDetentLabels.position(FontSize.medium.percent) - expected) < 0.0001)
+    }
+
+    // MARK: - The specimen tile (the setup form's face)
+
+    /// The drawn stack never exceeds the fixed face, at any preset.
+    ///
+    /// **The defect this pins was invisible to every other test.** The specimen drew three rows at
+    /// a pinned 14pt face, which six comfortable bars at 135% overflow by 7.9pt — and SwiftUI does
+    /// not clip, it centres, so the bars bled over the tile border toward the percentage below.
+    /// The frame was exactly the size it claimed, so geometry saw nothing; only rendering it and
+    /// looking did.
+    @Test func theSpecimenNeverOverflowsItsFace() {
+        for preset in SizePreset.all {
+            let rows = SizePresetSpecimen.rowCount(for: preset)
+            #expect(rows >= 1, "\(preset.id) draws no rows at all")
+            #expect(rows <= SizePresetSpecimen.maximumRows)
+            let drawn = CGFloat(rows) * SizePresetSpecimen.rowHeight(for: preset)
+                + CGFloat(rows - 1) * SizePresetSpecimen.rowGap(for: preset)
+            #expect(drawn <= SizePresetSpecimen.faceHeight,
+                    """
+                    \(preset.id) draws \(rows) rows totalling \(drawn)pt into a \
+                    \(SizePresetSpecimen.faceHeight)pt face — it will bleed over the tile border.
+                    """)
+        }
+    }
+
+    /// A tighter row spacing has to *show* more rows in the same space — otherwise the picture is
+    /// decoration rather than a miniature of the outcome, and the two 100% tiles on the setup
+    /// form, which carry identical percentages and no words, become indistinguishable.
+    @Test func compactFitsMoreRowsThanComfortableAtTheSameTextSize() {
+        let compact = SizePreset(fontSize: .medium, density: .compact)
+        let comfortable = SizePreset(fontSize: .medium, density: .comfortable)
+        #expect(SizePresetSpecimen.rowCount(for: compact)
+                > SizePresetSpecimen.rowCount(for: comfortable),
+                """
+                Compact draws \(SizePresetSpecimen.rowCount(for: compact)) rows and comfortable \
+                \(SizePresetSpecimen.rowCount(for: comfortable)) — the two 100% tiles do not tell \
+                themselves apart, which is the one thing this face has to do.
+                """)
+    }
+
+    /// The bars really do thicken with the text size, or the tile is not showing a text size.
+    @Test func theBarsGrowWithTheTextSize() {
+        #expect(SizePresetSpecimen.barHeight(for: SizePreset(fontSize: .small, density: .comfortable))
+                < SizePresetSpecimen.barHeight(for: SizePreset(fontSize: .extraLarge, density: .comfortable)))
+    }
+
     /// What the tiles and the preview claim about row spacing has to be what row spacing does.
     ///
     /// The tile says the word and `SizeSpacingPreview` draws the consequence; both are only worth

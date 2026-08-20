@@ -64,28 +64,8 @@ import Testing
             #expect(stops.contains(preset.percent), "\(preset.percent)% is not a slider stop")
         }
     }
-
     // MARK: The stored value changed shape
 
-    @Test func resolvedReadsTheLegacyStringsAsWellAsTheNumber() {
-        // The whole migration hazard in one test: this key held "small"/"medium"/"large"/
-        // "extraLarge" for every release before this one, and a reader that only understood the
-        // number would answer "default" for a user who had chosen Larger.
-        let defaults = ScratchDefaults("FontSizeTests.resolvedLegacy")
-        #expect(FontSize.resolved(defaults) == .medium, "fresh install must be the default size")
-
-        for (raw, expected) in [("small", FontSize.small), ("medium", .medium),
-                                ("large", .large), ("extraLarge", .extraLarge)] {
-            defaults.set(raw, forKey: FontSize.defaultsKey)
-            #expect(FontSize.resolved(defaults) == expected, "legacy \(raw) must still resolve")
-        }
-
-        defaults.set(115, forKey: FontSize.defaultsKey)
-        #expect(FontSize.resolved(defaults) == FontSize(percent: 115))
-
-        defaults.set("gigantic", forKey: FontSize.defaultsKey)
-        #expect(FontSize.resolved(defaults) == .medium, "garbage must not trap or match")
-    }
 
     @Test func migrationRewritesLegacyStringsOnceAndLeavesNumbersAlone() {
         let defaults = ScratchDefaults("FontSizeTests.migrate")

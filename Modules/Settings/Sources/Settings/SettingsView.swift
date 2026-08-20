@@ -1133,6 +1133,38 @@ struct ReadabilitySettingsTab: View {
         Binding(get: { listDensity }, set: { listDensityRaw = $0.rawValue })
     }
 
+    private var smallAGlyph: some View {
+        Text("A").scaledFont(.system(size: 10)).foregroundStyle(.secondary)
+    }
+
+    private var largeAGlyph: some View {
+        Text("A").scaledFont(.system(size: 15)).foregroundStyle(.secondary)
+    }
+
+    /// The percentage beside the slider, in a frame sized by the WIDEST value it can ever show.
+    ///
+    /// The width used to be a flat 38pt, which is right at 100% and too narrow at 135% — the
+    /// readout wrapped onto a second line, mid-number, on the one screen whose job is to stop text
+    /// being unreadable. A hidden `135%` sets the frame instead: it scales with the setting like
+    /// everything else here, and because the reference string is the longest one, the number
+    /// underneath never reflows and the slider never jiggles as it changes.
+    private var readout: some View {
+        Text("\(FontSize.maximumPercent)%")
+            .scaledFont(.caption.weight(.semibold))
+            .monospacedDigit()
+            .hidden()
+            .overlay(alignment: .trailing) {
+                Text("\(fontSize.percent)%")
+                    .scaledFont(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize()
+                    // The slider already announces this number as its value; leaving the readout
+                    // in the tree makes VoiceOver say it twice for one control.
+                    .accessibilityHidden(true)
+            }
+    }
+
     /// The hairline that separates the presets from the two controls they are a shortcut for.
     /// Labelled, because an unlabelled rule inside one section reads as a section break.
     private var fineTuningRule: some View {
@@ -1141,6 +1173,9 @@ struct ReadabilitySettingsTab: View {
                 .scaledFont(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
+                // It is a group heading, not a label for the next control — saying so is what
+                // lets VoiceOver's heading navigation land on it.
+                .accessibilityAddTraits(.isHeader)
             VStack { Divider() }
         }
     }
@@ -1148,7 +1183,7 @@ struct ReadabilitySettingsTab: View {
     var body: some View {
         SettingsPage {
             SettingsSection("Size & spacing") {
-                SizePresetRow(fontSize: sizeBinding, density: densityBinding)
+                SizePresetRow(fontSize: sizeBinding, density: densityBinding, style: .named)
 
                 Text(SizePreset.caption(fontSize: fontSize, density: listDensity))
                     .scaledFont(.caption)
@@ -1166,9 +1201,7 @@ struct ReadabilitySettingsTab: View {
                 LabeledContent {
                     VStack(spacing: 0) {
                         HStack(spacing: 10) {
-                            Text("A")
-                                .scaledFont(.system(size: 10))
-                                .foregroundStyle(.secondary)
+                            smallAGlyph
                             Slider(
                                 value: Binding(
                                     get: { Double(fontSizePercent) },
@@ -1179,20 +1212,25 @@ struct ReadabilitySettingsTab: View {
                             )
                             .labelsHidden()
                             .accessibilityValue("\(fontSize.percent) percent")
-                            Text("A")
-                                .scaledFont(.system(size: 15))
-                                .foregroundStyle(.secondary)
-                            Text("\(fontSize.percent)%")
-                                .scaledFont(.caption.weight(.semibold))
-                                .monospacedDigit()
-                                .frame(width: 38, alignment: .trailing)
+                            largeAGlyph
+                            readout
                         }
-                        // Inset to sit under the track itself rather than the whole row: the two
-                        // "A"s and the readout flank the slider, and a label rail spanning the
-                        // full width would put every detent left of the tick it names.
-                        FontSizeDetentLabels(selected: fontSize)
-                            .padding(.leading, 20)
-                            .padding(.trailing, 58)
+                        // **The detent rail is flanked by the SAME views the slider row is**,
+                        // hidden. It used to carry hand-measured `.padding(.leading, 20)` and
+                        // `.trailing, 58)`, which are only right at one text size: the glyphs and
+                        // the readout beside the slider grow with the setting, so at 135% the
+                        // track had moved and narrowed while the rail had not, and the detent
+                        // labels sat away from the ticks they name.
+                        //
+                        // Reusing the views rather than restating their widths is the point —
+                        // there is one definition of each, so the two rows cannot come to disagree
+                        // about how wide the flanks are.
+                        HStack(spacing: 10) {
+                            smallAGlyph.hidden()
+                            FontSizeDetentLabels(selected: fontSize)
+                            largeAGlyph.hidden()
+                            readout.hidden()
+                        }
                     }
                 } label: {
                     Text("Text size")
