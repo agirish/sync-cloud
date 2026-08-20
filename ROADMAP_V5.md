@@ -52,18 +52,22 @@ ships, because git history is the record.
 constraints were read out of the code that day — the day part of §4.2 shipped, which is why §4.2
 carries measurements rather than a plan.
 
-An **illustrated companion** carries the figures this file can only describe:
-<https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>. **This file is the one that
-ships** — if it disagrees with the companion, the companion is the stale one. §5 has a **second
-companion**, its own eight-screen mockup set:
-<https://claude.ai/code/artifact/73b57ccc-56f2-4437-9f2f-a1e85c47a646>.
+An **illustrated companion** carries the figures this file can only describe —
+**Building Organize**, <https://claude.ai/code/artifact/929eb3d2-d381-4fa5-b456-a0a9c9313cea>,
+rebuilt on 2026-08-20 to match this file section for section. **This file is still the one that
+ships**; if the two disagree, the companion is the stale one.
+
+**The August 11 mockup set is superseded and has been marked so on its own page**
+(<https://claude.ai/code/artifact/73b57ccc-56f2-4437-9f2f-a1e85c47a646>). It is kept as a record
+rather than cited as a spec: four of its claims are now wrong — the mapping editor refusing merges,
+a 12-or-13-folder flagship family, the 52/434 crowding counts, and "8 years vouch for it" — and its
+banner lists them. What held up is listed there too.
 
 **Reviewed for implementation-readiness on 2026-08-16 (evening)**, against the code, the live
 profile and the 6 Aug manifest, with four decisions taken in that review; they are the block below,
-and every §4–§6 item was re-cut under them. Where a figure in either companion now disagrees with
-this file — the mapping editor's refusal of merges, §5.4's ledger, the Order — the file is right.
-The companions also still call this a 4.2 release; that is the move, not a disagreement about the
-work.
+and every §4–§6 item was re-cut under them. The companion was rebuilt on 2026-08-20
+under those decisions and under the Organize rescope, so the disagreements that note used to list
+are gone; the rule stands anyway, because the file moves first.
 
 ---
 
