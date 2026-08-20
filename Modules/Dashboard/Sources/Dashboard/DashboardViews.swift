@@ -27,7 +27,7 @@ public struct PaneHeader: View {
     public let providers: [CloudProvider]
     /// Switches this pane to the chosen provider id.
     public let onSelectProvider: (String) -> Void
-    /// Opens Settings ▸ Providers (the "Manage providers…" menu item).
+    /// Opens Settings ▸ Sources (the manage-sources menu item).
     public let onManageProviders: () -> Void
     /// Picks a folder and points this pane at it as a source. nil hides "Choose Folder…".
     public let onChooseFolder: (() -> Void)?

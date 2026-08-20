@@ -1,4 +1,5 @@
 import Foundation
+import Settings
 import Testing
 @testable import SyncCloud
 
@@ -302,6 +303,58 @@ import Testing
                 "the extractor is reading comments as copy")
         #expect(!literals.contains { $0.contains("no filing profile yet") },
                 "Logger lines should be exempt from the product-vocabulary rule")
+    }
+
+    /// Every "Settings ▸ X" the form prints names a tab that really exists.
+    ///
+    /// **The same drift the Help book was carrying, on a surface with even less traffic.** The
+    /// Providers tab was relabelled *Sources* when it started listing plain folders beside the
+    /// cloud accounts, the case kept its name so stored state and deep links survived — correctly —
+    /// and two Help articles went on naming a tab that is not on screen. The form points at four
+    /// tabs, and it is read once per install.
+    ///
+    /// Derived from `SettingsTab.displayName`, so the next relabel fails here rather than shipping.
+    @Test func everySettingsPathInTheFormNamesARealTab() throws {
+        let realNames = Set(SettingsView.SettingsTab.allCases.map(\.displayName))
+        var found = 0
+
+        for file in ["MacApp/SetupSheet.swift", "MacApp/SetupFlow.swift"] {
+            let url = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent(file)
+            let source = try #require(try? String(contentsOf: url, encoding: .utf8))
+            for literal in Self.userFacingLiterals(in: source) {
+                for named in Self.settingsDestinations(in: literal) {
+                    found += 1
+                    #expect(realNames.contains(named),
+                            "\(file) sends the user to Settings ▸ \(named), which is not a tab. Real tabs: \(realNames.sorted())")
+                }
+            }
+        }
+
+        #expect(found > 0, "no “Settings ▸ …” references were found in the form — this scan is vacuous")
+    }
+
+    /// The tab names in every "Settings ▸ X" in a string.
+    ///
+    /// Scanning stops at the first character that is neither a letter nor a space, and then only the
+    /// leading *capitalised* words are kept — so "Settings ▸ People — a first name is enough" yields
+    /// `People` rather than the rest of the sentence.
+    private static func settingsDestinations(in text: String) -> [String] {
+        var out: [String] = []
+        var rest = Substring(text)
+        while let marker = rest.range(of: "Settings ▸ ") {
+            let tail = rest[marker.upperBound...]
+            let run = tail.prefix { $0.isLetter || $0 == " " }
+            var name: [String] = []
+            for word in run.split(separator: " ").map(String.init) {
+                guard let first = word.first, first.isUppercase else { break }
+                name.append(word)
+            }
+            if !name.isEmpty { out.append(name.joined(separator: " ")) }
+            rest = tail
+        }
+        return out
     }
 
     /// String literals on lines that are neither comments nor `Logger` calls.

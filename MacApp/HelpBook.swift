@@ -139,13 +139,13 @@ enum HelpBook {
                 intro: "SyncCloud finds your cloud providers automatically, and any folder on this Mac can be a source too. Each pane names the one it's showing, right in its header — click that name to point the pane somewhere else.",
                 blocks: [
                     .paragraph("Providers are discovered from the system's cloud-storage folder — iCloud Drive, Dropbox, OneDrive, Google Drive, Box, and others show up on their own, each in its own brand color."),
-                    .paragraph("A plain folder works the same way. Add one under Settings ▸ Providers and it appears in every pane menu beside the clouds, with the same comparing, organizing and undo behind it."),
+                    .paragraph("A plain folder works the same way. Add one under Settings ▸ Sources and it appears in every pane menu beside the clouds, with the same comparing, organizing and undo behind it."),
                     .bullets([
                         "Click the provider name at the top of a pane and pick another from the menu.",
                         "Use the swap button to flip the left and right panes.",
                         "Compare two folders inside one provider by choosing it on both sides.",
                     ]),
-                    .tip("Don't see a source? Add a cloud provider or a folder in Settings ▸ Providers."),
+                    .tip("Don't see a source? Add a cloud provider or a folder in Settings ▸ Sources."),
                 ],
                 related: ["scan", "providers"]
             )),
@@ -257,16 +257,21 @@ enum HelpBook {
             )),
         ]),
         Section(title: "Settings and more", topics: [
-            Topic(id: "providers", title: "Providers and connections", systemImage: "externaldrive", article: Article(
-                intro: "Manage which cloud services SyncCloud shows. Add a custom folder, rename a provider, or hide the ones you don't use.",
+            // The id stays `providers` — it is a frozen identifier that cross-links and the
+            // settings deep link both resolve through, and it is not copy. The title is copy, and
+            // it follows the tab: that pane lists plain folders alongside the cloud accounts, which
+            // is why it stopped being called Providers.
+            Topic(id: "providers", title: "Sources and connections", systemImage: "externaldrive", article: Article(
+                intro: "Settings ▸ Sources is where SyncCloud lists everywhere it can work: the cloud accounts it found on this Mac, and any folder you add yourself. Rename them, hide the ones you don't use, or point one somewhere else.",
                 blocks: [
                     .bullets([
-                        "Discovered providers appear automatically; toggle any off to hide it.",
-                        "Add a custom provider by pointing SyncCloud at any folder.",
-                        "Rename a provider to whatever makes sense — the pane colors follow the name.",
+                        "Cloud accounts are discovered automatically from the system's cloud-storage folder; toggle any off to hide it from the pane menus. At least one source has to stay on.",
+                        "Add any folder on this Mac as a source — Compare and Organize work the same over it.",
+                        "Rename a source to whatever makes sense — the pane colors follow the name.",
+                        "One source can be marked primary during setup: that's the tree SyncCloud learns your folder conventions from.",
                     ]),
                 ],
-                related: ["choose-folders", "appearance"]
+                related: ["choose-folders", "setup", "appearance"]
             )),
             Topic(id: "sync-preferences", title: "Sync preferences", systemImage: "slider.horizontal.3", article: Article(
                 intro: "Control how SyncCloud decides and confirms. Each setting applies to the very next operation.",

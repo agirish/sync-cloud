@@ -1,3 +1,5 @@
+import Foundation
+import Settings
 import Testing
 @testable import SyncCloud
 
@@ -120,6 +122,86 @@ import Testing
         #expect(copy.contains("Open in New Tab"), "Help does not name the way tabs are discovered")
         #expect(copy.contains("⌘T"), "Help does not give the chord")
         #expect(copy.contains("pin it"), "Help does not mention pinning, which has no other teacher")
+    }
+
+    /// Every "Settings ▸ X" the Help book prints names a tab that really exists.
+    ///
+    /// **This drifted for a whole release and nothing looked.** The Providers tab was relabelled
+    /// **Sources** when it started listing plain folders beside the cloud accounts — the case kept
+    /// its name so the stored `settingsSelectedTab` and every deep link survived, which is correct,
+    /// and the copy was simply left behind. Two Help articles went on directing users to a tab whose
+    /// name is not on screen anywhere.
+    ///
+    /// Derived from `SettingsTab.displayName` rather than from a list of today's names, so the next
+    /// relabel fails here rather than shipping. Only the arrow form is matched, because that is the
+    /// spelling that names a *destination* — "cloud providers" as a plain noun is still correct
+    /// English about the things the tab lists.
+    @Test func everySettingsPathInHelpNamesARealTab() {
+        let realNames = Set(SettingsView.SettingsTab.allCases.map(\.displayName))
+        var found = 0
+
+        for topic in HelpBook.allTopics {
+            for text in Self.copy(of: topic) {
+                for named in Self.settingsDestinations(in: text) {
+                    found += 1
+                    #expect(realNames.contains(named),
+                            "“\(topic.title)” sends the user to Settings ▸ \(named), which is not a tab. Real tabs: \(realNames.sorted())")
+                }
+            }
+        }
+
+        #expect(found > 0, "no “Settings ▸ …” references were found at all — this scan is vacuous")
+    }
+
+    /// The positive control: the extractor finds a destination, and a wrong one is caught.
+    @Test func theSettingsPathScanCanActuallyFail() {
+        let realNames = Set(SettingsView.SettingsTab.allCases.map(\.displayName))
+        #expect(Self.settingsDestinations(in: "Add a folder in Settings ▸ Sources.") == ["Sources"])
+        #expect(Self.settingsDestinations(in: "Add a folder in Settings ▸ Providers.") == ["Providers"])
+        #expect(!realNames.contains("Providers"),
+                "“Providers” is a tab name again — this test's example is no longer a counter-example")
+        #expect(Self.settingsDestinations(in: "SyncCloud finds your cloud providers automatically").isEmpty,
+                "a plain noun is being read as a destination")
+    }
+
+    /// Every string a topic shows the reader.
+    private static func copy(of topic: HelpBook.Topic) -> [String] {
+        var out = [topic.title, topic.article.intro]
+        for block in topic.article.blocks {
+            switch block {
+            case .paragraph(let text), .tip(let text):
+                out.append(text)
+            case .bullets(let items):
+                out.append(contentsOf: items)
+            case .legend(let items):
+                out.append(contentsOf: items.flatMap { [$0.title, $0.detail] })
+            }
+        }
+        return out
+    }
+
+    /// The tab names in every "Settings ▸ X" in a string.
+    ///
+    /// Scanning stops at the first character that is neither a letter nor a space — so a closing
+    /// bracket, a full stop or a comma ends the name — and then only the leading *capitalised*
+    /// words are kept, so "Settings ▸ Sources and it appears in every pane menu" yields `Sources`
+    /// rather than the rest of the sentence.
+    private static func settingsDestinations(in text: String) -> [String] {
+        var out: [String] = []
+        var rest = Substring(text)
+        while let marker = rest.range(of: "Settings ▸ ") {
+            let tail = rest[marker.upperBound...]
+            let run = tail.prefix { $0.isLetter || $0 == " " }
+            let words = run.split(separator: " ").map(String.init)
+            var name: [String] = []
+            for word in words {
+                guard let first = word.first, first.isUppercase else { break }
+                name.append(word)
+            }
+            if !name.isEmpty { out.append(name.joined(separator: " ")) }
+            rest = tail
+        }
+        return out
     }
 
     /// Retired product vocabulary stays out of the copy. "Filing" became Organize's To File lens

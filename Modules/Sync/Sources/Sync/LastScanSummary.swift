@@ -15,7 +15,7 @@ public struct LastScanSummary: Codable, Equatable, Sendable {
     public let date: Date
     public let differenceCount: Int
     /// The comparison this describes. Provider **ids** rather than display names, which the user
-    /// can rename in Settings ▸ Providers, and absolute scanned paths rather than relative ones,
+    /// can rename in Settings ▸ Sources, and absolute scanned paths rather than relative ones,
     /// because the same relative path under two different roots is two different comparisons.
     public let leftProviderID: String
     public let leftPath: String
@@ -53,7 +53,7 @@ public struct LastScanSummary: Codable, Equatable, Sendable {
     /// Trailing separators removed, so the two sides can be produced by different expressions
     /// without a cosmetic difference reading as a different folder.
     ///
-    /// A provider path is whatever the user typed into Settings ▸ Providers, trailing slash and
+    /// A provider path is whatever the user typed into Settings ▸ Sources, trailing slash and
     /// all, and it reaches the scan and the pane through code that normalizes differently — the
     /// scan's `URL(fileURLWithPath:).path` drops a trailing slash and `PaneLogic.fullPath`'s
     /// `appendingPathComponent` does not. Without this, a root stored as `~/Docs/` would compare
