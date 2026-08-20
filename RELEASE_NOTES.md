@@ -5,7 +5,20 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v4.2
+## v4.2 — DRAFT, not released
+
+> **This section is a draft.** v4.2 has not been cut and this is not final copy.
+> Work is still landing, so entries will be added and existing ones may change or
+> be withdrawn. Covers `v4.1..main`. Claims below were checked against the `v4.1`
+> tag: fixes to work that landed *inside* this range earn no entry, because no user
+> of v4.1 was ever exposed to them. That rule takes out most of this range — the
+> setup form, the Readability tab, the toolbar Go-to field, the Organize menu and
+> File's row verbs all arrived here, so the review passes that followed each of them
+> are repairs to unreleased work.
+>
+> **Re-check the Known limitations before publishing.** They age in the direction
+> that makes them wrong: ⌘/ was listed here as opening nothing, and was fixed on the
+> tip while this was being written.
 
 **SyncCloud can set itself up.** Until now the filing engine needed a *folder
 profile* — the record of your tree that To File, Renames and Restructure all read —

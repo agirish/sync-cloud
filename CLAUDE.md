@@ -189,8 +189,22 @@ all, because nothing here said to write them; they exist in two places and both 
   (`### The window, and what the chrome claims`, added retroactively by `27fa9c14`). All three states
   are correct under this rule and none of them needs repairing.
 - `docs/releases.html` — **`main` only.** GitHub Pages serves `docs/` from `main`, so a section
-  landed solely on `v2.x` publishes nothing. Add the new article ahead of the last one, move the
-  `latest` badge onto it, and give the superseded release the theme tag every other one carries.
+  landed solely on `v2.x` publishes nothing. Add the new article ahead of the last one.
+
+  **The badge flips at the cut, not when the notes are written**, and that is the whole reason
+  the draft styles exist. Pages is live the moment the notes land, so an article carrying
+  `latest` announces a release nobody can install. Notes are normally drafted well before the
+  tag — v4.1 was, v4.2 was — so a draft lands as `<article class="rel draft">` with
+  `<span class="tag draft">In development</span>`, the previous release **keeps** `latest`, and
+  the footer reads `Changes so far:` pointing at `<tag>...main`, because the compare link cannot
+  name a tag that does not exist yet. `RELEASE_NOTES.md` gets the matching
+  `## <version> — DRAFT, not released` heading and a blockquote saying so.
+
+  Step 1 of **Cutting it** is where all four flip together, in the same commit as the version
+  bump: `draft` → `latest`, the DRAFT heading and its blockquote deleted, the footer back to
+  `Full changelog: <prev>...<new>`, and the superseded release given the theme tag every other
+  one carries. v4.2 shipped its notes with `latest` already on them and had to be corrected on a
+  live site; `586333f8` is the v4.1 cut that did it right, in one commit with the suffix drop.
 
 **Then audit every claim against the previous tag before publishing.** On v2.9 this killed **six of
 eighteen** drafted entries, and it is one command per claim — did the thing this describes exist at
@@ -243,8 +257,14 @@ Releases are cut as tags on the line that owns them — `v2.9` from `v2.x`, `v3.
 `v4.1` from `main`. Tag names are **two components**: `v2.9`, never `v2.9.0` (all 35 existing tags are `vMAJOR.MINOR`).
 Work in a worktree as always.
 
-1. **Drop the suffix.** In `project.yml`, `2.9-dev` → `2.9`. Leave `CFBundleVersion` alone: it is
-   already `209`, because the marker and the release share it.
+1. **Drop the suffix, and publish the notes with it.** In `project.yml`, `2.9-dev` → `2.9`. Leave
+   `CFBundleVersion` alone: it is already `209`, because the marker and the release share it. In
+   the same commit, take the notes out of their draft state — `RELEASE_NOTES.md`'s
+   `## <version> — DRAFT, not released` heading and blockquote go, and on `docs/releases.html`
+   the article loses `class="rel draft"`, its tag goes `draft`/"In development" → `latest`, the
+   previous release trades `latest` for a theme tag, and the footer goes from `Changes so far:
+   <prev>...main` to `Full changelog: <prev>...<new>`. See **Writing the notes** for why the
+   badge waits until here.
 2. **Regenerate and update the test marker.** Run `xcodegen`, and set `versionMarker` in
    `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` to the same string — that literal
    is what gives `theVersionLineFitsTheRailOnOneLine` something real to measure (see below).
