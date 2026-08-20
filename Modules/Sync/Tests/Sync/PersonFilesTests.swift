@@ -70,7 +70,7 @@ import Foundation
 
     // MARK: The two channels
 
-    @Test func herFoldersAreGroupedAndTheRestIsTheInterestingPart() throws {
+    @Test func ownFoldersAreGroupedAndTheRestIsTheInterestingPart() throws {
         let p = Self.profile([("Family", nil), ("Family/Aditi", "Aditi"),
                               ("Family/Aditi/School", "Aditi"), ("Shared", nil)])
         let c = Self.corpus(["Family/Aditi/a.pdf", "Family/Aditi/School/b.pdf",
@@ -80,9 +80,9 @@ import Foundation
 
         #expect(set.folderCount == 2)
         // Largest folder first: the reading order matches "where most of it is".
-        #expect(set.herFolders.first?.folder == "Family/Aditi/School")
+        #expect(set.ownFolders.first?.folder == "Family/Aditi/School")
         #expect(set.total == 4)
-        // The payoff row: hers by name, filed somewhere that is not hers.
+        // The payoff row: theirs by name, filed outside their folders.
         #expect(set.elsewhere.map(\.path) == ["Shared/Aditi - passport.pdf"])
         #expect(set.elsewhere.first?.evidence == .namedInFile)
     }
@@ -95,7 +95,7 @@ import Foundation
         let c = Self.corpus(["Family/Aditi/Aditi - passport.pdf"])
         let set = try PersonFiles.gather(personId: "aditi", corpus: c, profile: p, registry: Self.registry)
         #expect(set.elsewhere.isEmpty)
-        #expect(set.herFolders.first?.files.count == 1)
+        #expect(set.ownFolders.first?.files.count == 1)
     }
 
     @Test func foldersAreOrderedBySizeThenByNameForStability() throws {
@@ -108,8 +108,8 @@ import Foundation
         let c = Self.corpus(["F/Big/1.pdf", "F/Big/2.pdf", "F/Beta/1.pdf", "F/Alpha/1.pdf"])
         let set = try PersonFiles.gather(personId: "aditi", corpus: c, profile: p,
                                      registry: Self.registry)
-        #expect(set.herFolders.map(\.folder) == ["F/Big", "F/Alpha", "F/Beta"],
-                "largest first, then ties by name — got \(set.herFolders.map(\.folder))")
+        #expect(set.ownFolders.map(\.folder) == ["F/Big", "F/Alpha", "F/Beta"],
+                "largest first, then ties by name — got \(set.ownFolders.map(\.folder))")
     }
 
     // MARK: The discipline — a shared word never attributes on its own

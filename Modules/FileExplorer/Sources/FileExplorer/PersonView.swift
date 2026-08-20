@@ -6,12 +6,13 @@ import Sync
 ///
 /// **A find dims the tree to show where something sits; this gathers.** That is the whole reason
 /// it is a different surface from the pane search that opens it: the question is not "where is
-/// this string" but "what is hers", and the answer is spread across the source rather than
+/// this string" but "what is theirs", and the answer is spread across the source rather than
 /// standing in one place.
 ///
 /// Two groups in stage 1, and the order is by how much they are worth reading rather than by size.
-/// **In her folders** is the tree's own filing and dominates by volume — he could reach it by
-/// browsing. **Hers, filed elsewhere** is the payoff: those rows are candidate misfilings, and no
+/// **In <name>'s folders** is the tree's own filing and dominates by volume — he could reach it
+/// by browsing. **Theirs, filed elsewhere** is the payoff: those rows are candidate misfilings, and
+/// no
 /// amount of browsing produces them.
 ///
 /// Read-only. Nothing here writes a tag, and a row's action is Reveal — confirming a person and
@@ -83,7 +84,7 @@ public struct PersonView: View {
                         if files.total == 0 && files.review.isEmpty {
                             emptyState
                         } else {
-                            if !files.herFolders.isEmpty { herFoldersGroup(files) }
+                            if !files.ownFolders.isEmpty { ownFoldersGroup(files) }
                             if !files.elsewhere.isEmpty { elsewhereGroup(files) }
                             if !files.review.isEmpty { reviewGroup(files) }
                         }
@@ -106,17 +107,17 @@ public struct PersonView: View {
                 .scaledFont(.system(size: 13, weight: .semibold))
             // The count is the whole set, not the rows on screen — it is the answer to the
             // question, and the folder list below is deliberately truncated. Only once there IS
-            // an answer: a capsule saying "0 hers" mid-sweep would be a wrong answer, not a
+            // an answer: a capsule saying "0 files" mid-sweep would be a wrong answer, not a
             // pending one.
             if case .ready(let files) = phase {
-                Text("\(files.total) hers")
+                Text("\(files.total) file\(files.total == 1 ? "" : "s")")
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(accent)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(accent.opacity(0.14)))
-                // Separate from the count, because it is a different kind of number: "hers" is an
+                // Separate from the count, because it is a different kind of number: the count is an
                 // answer and this is an outstanding question. Folding them into one total would be
                 // the view asserting exactly what the queue exists to ask.
                 if !files.review.isEmpty {
@@ -146,16 +147,16 @@ public struct PersonView: View {
         .padding(.vertical, 9)
     }
 
-    // MARK: Her folders
+    // MARK: Their own folders
 
-    private func herFoldersGroup(_ files: PersonFileSet) -> some View {
-        let inFolders = files.herFolders.reduce(0) { $0 + $1.files.count }
+    private func ownFoldersGroup(_ files: PersonFileSet) -> some View {
+        let inFolders = files.ownFolders.reduce(0) { $0 + $1.files.count }
         return VStack(alignment: .leading, spacing: 7) {
             groupHeader(symbol: "house",
-                        title: "In her folders",
+                        title: "In \(displayName)’s folders",
                         subtitle: "The tree's own filing.",
                         amount: "\(inFolders) file\(inFolders == 1 ? "" : "s") · \(files.folderCount) folder\(files.folderCount == 1 ? "" : "s")")
-            ForEach(files.herFolders.prefix(Self.folderLimit), id: \.folder) { group in
+            ForEach(files.ownFolders.prefix(Self.folderLimit), id: \.folder) { group in
                 HStack(spacing: 10) {
                     Text(group.folder)
                         .scaledFont(.system(size: 11.5, design: .monospaced))
@@ -190,8 +191,8 @@ public struct PersonView: View {
     private func elsewhereGroup(_ files: PersonFileSet) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             groupHeader(symbol: "sparkles",
-                        title: "Hers, filed elsewhere",
-                        subtitle: "Candidate misfilings — named for her, filed somewhere that is not hers.",
+                        title: "Theirs, filed elsewhere",
+                        subtitle: "Candidate misfilings — named for them, filed outside their folders.",
                         amount: "\(files.elsewhere.count) file\(files.elsewhere.count == 1 ? "" : "s")")
             ForEach(files.elsewhere) { file in
                 HStack(spacing: 10) {
@@ -201,7 +202,7 @@ public struct PersonView: View {
                             .lineLimit(1)
                             .truncationMode(.head)
                         // Why this row is here, in the row. A group heading that said "named for
-                        // her" would leave each row asking which of her names did it.
+                        // them" would leave each row asking which of their names did it.
                         Text(file.matchedForm.map { "named in the file — “\($0)”" } ?? "named in the file")
                             .scaledFont(.system(size: 10.5))
                             .foregroundStyle(.secondary)

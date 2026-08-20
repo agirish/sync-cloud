@@ -138,7 +138,7 @@ import Foundation
         let c = Self.corpus([("Family/Muktha/Scan.pdf", ["muktha", "policy"])])
         let set = try Self.gather("muktha", corpus: c, profile: p)
         #expect(set.review.isEmpty)
-        #expect(set.herFolders.first?.files.count == 1)
+        #expect(set.ownFolders.first?.files.count == 1)
     }
 
     // MARK: - Verdicts

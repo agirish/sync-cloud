@@ -28,7 +28,7 @@ import Sync
                                       fullNames: ["Aditi Abhishek"])
     private static let girish = Person(id: "girish", displayName: "Girish",
                                        fullNames: ["Girish Krishnamurthy"])
-    private static let answer = PersonFileSet(personId: "aditi", herFolders: [], elsewhere: [])
+    private static let answer = PersonFileSet(personId: "aditi", ownFolders: [], elsewhere: [])
 
     private typealias Scope = ContentView.PersonScope
 

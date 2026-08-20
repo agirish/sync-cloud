@@ -21,7 +21,7 @@ import Design
     /// elsewhere group against one without put the first difference at y=140, not the y=180 the
     /// first cut assumed — so a 44–164 folder band overlapped the group below it and reported 660
     /// ink of "difference" in a region that is identical in both. Folders occupy 44–134;
-    /// "Hers, filed elsewhere" heads y≈155.
+    /// "Theirs, filed elsewhere" heads y≈155.
     private static let foldersZone = CGRect(x: 0, y: 44, width: 760, height: 90)
     private static let elsewhereZone = CGRect(x: 0, y: 155, width: 760, height: 180)
     /// The gathering / failed state's leading glyph and its two text lines.
@@ -37,12 +37,12 @@ import Design
     private static let stateTextZone = CGRect(x: 38, y: 44, width: 620, height: 44)
 
     private static func folder(_ path: String, _ n: Int) -> (folder: String, files: [PersonFile]) {
-        (folder: path, files: (0..<n).map { PersonFile(path: "\(path)/f\($0).pdf", evidence: .herFolder) })
+        (folder: path, files: (0..<n).map { PersonFile(path: "\(path)/f\($0).pdf", evidence: .ownFolder) })
     }
 
     private static var aditi: PersonFileSet {
         PersonFileSet(personId: "aditi",
-                      herFolders: [folder("Family/Aditi", 112), folder("Immigration/OCI/Aditi", 24)],
+                      ownFolders: [folder("Family/Aditi", 112), folder("Immigration/OCI/Aditi", 24)],
                       elsewhere: [
                         PersonFile(path: "Shared/Inbox/Aditi Abhishek - OCI Card.pdf",
                                    evidence: .namedInFile, matchedForm: "Aditi Abhishek")])
@@ -127,7 +127,7 @@ import Design
         // The payoff group is the reason to open this view, so its absence has to be real absence
         // rather than an empty heading — and its presence has to be what changes, not the folders
         // above it, which are identical in both fixtures.
-        let withNone = PersonFileSet(personId: "aditi", herFolders: Self.aditi.herFolders,
+        let withNone = PersonFileSet(personId: "aditi", ownFolders: Self.aditi.ownFolders,
                                      elsewhere: [])
         let bare = mount(withNone)
         let full = mount(Self.aditi)
@@ -153,10 +153,10 @@ import Design
             #expect(ink(host, Self.elsewhereZone) < 100,
                     "content painted below a sweep that has no answer yet in \(scheme)")
         }
-        // The header capsule is an answer, so mid-sweep there must be none — "0 hers" would be
+        // The header capsule is an answer, so mid-sweep there must be none — "0 files" would be
         // a wrong answer, not a pending one. An empty READY set is the fixture that isolates it:
         // same name, same ✕, and the capsule is the only thing that can differ.
-        let empty = PersonFileSet(personId: "aditi", herFolders: [], elsewhere: [])
+        let empty = PersonFileSet(personId: "aditi", ownFolders: [], elsewhere: [])
         #expect(differingPixels(mount(phase: .gathering), mount(empty), Self.headerZone) > 20,
                 "the header paints the same with and without an answer — the count capsule is showing mid-sweep")
     }
@@ -182,7 +182,7 @@ import Design
 
     @Test("A person with nothing gets an answer, not a blank panel")
     func theEmptyStateSaysSo() {
-        let empty = PersonFileSet(personId: "divit", herFolders: [], elsewhere: [])
+        let empty = PersonFileSet(personId: "divit", ownFolders: [], elsewhere: [])
         let host = mount(empty, name: "Divit")
         // Something is said — "Nothing filed under Divit." — and the groups are gone.
         #expect(ink(host, Self.foldersZone) > 150, "an empty result painted nothing at all")
@@ -199,9 +199,9 @@ import Design
         // counting only the visible rows passed it. Making the visible half identical is what
         // leaves the total as the only thing that can move the pixels.
         let visible = (0..<8).map { Self.folder("Area/\($0)", 10) }
-        let short = PersonFileSet(personId: "aditi", herFolders: visible, elsewhere: [])
+        let short = PersonFileSet(personId: "aditi", ownFolders: visible, elsewhere: [])
         let long = PersonFileSet(personId: "aditi",
-                                 herFolders: visible + (0..<5).map { Self.folder("Extra/\($0)", 1) },
+                                 ownFolders: visible + (0..<5).map { Self.folder("Extra/\($0)", 1) },
                                  elsewhere: [])
         #expect(differingPixels(mount(long), mount(short), Self.headerZone) > 20,
                 "the header painted the same count for 80 files and 85 — it is counting the visible rows")
@@ -238,7 +238,7 @@ import Design
 
     static var aditiWithReview: PersonFileSet {
         PersonFileSet(personId: "aditi",
-                      herFolders: [folder("Family/Aditi", 112), folder("Immigration/OCI/Aditi", 24)],
+                      ownFolders: [folder("Family/Aditi", 112), folder("Immigration/OCI/Aditi", 24)],
                       elsewhere: [
                         PersonFile(path: "Shared/Inbox/Aditi Abhishek - OCI Card.pdf",
                                    evidence: .namedInFile, matchedForm: "Aditi Abhishek")],
@@ -309,7 +309,7 @@ import Design
         }
     }
 
-    /// **The header says how many are hers and how many are still questions, separately.**
+    /// **The header says how many are theirs and how many are still questions, separately.**
     ///
     /// Folding them into one total would be the view asserting exactly what the queue exists to
     /// ask. The two fixtures share every claimed row, so the chip is the only thing that can move

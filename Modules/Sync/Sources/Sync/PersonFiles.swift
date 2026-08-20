@@ -2,15 +2,15 @@ import Foundation
 
 /// Why a document counts as someone's.
 ///
-/// Ordered by how much it is worth looking at, not by how strong it is. *In her folders* is the
-/// tree's own filing and dominates by volume; *named elsewhere* is the payoff, because those rows
+/// Ordered by how much it is worth looking at, not by how strong it is. *In their own folders* is
+/// the tree's own filing and dominates by volume; *named elsewhere* is the payoff, because those rows
 /// are candidate misfilings and no amount of browsing produces them.
 public enum PersonEvidence: String, Sendable, Equatable, CaseIterable {
-    /// The document sits under a folder whose `person` axis resolves to her.
-    case herFolder
-    /// Her name is in the file's own name, and she is not already the folder's person.
+    /// The document sits under a folder whose `person` axis resolves to them.
+    case ownFolder
+    /// Their name is in the file's own name, and they are not already the folder's person.
     case namedInFile
-    /// Page 1 named her — and named nobody else. **Never enough to claim a document**, which is why
+    /// Page 1 named them — and named nobody else. **Never enough to claim a document**, which is why
     /// this evidence only ever appears on a review row; see ``PersonFiles``.
     case namedOnPage
     /// He said so. The only evidence that is a decision rather than a computation, and the only one
@@ -20,10 +20,10 @@ public enum PersonEvidence: String, Sendable, Equatable, CaseIterable {
 
 /// Why a document is waiting for a verdict rather than being claimed or ignored.
 public enum PersonReviewReason: Sendable, Equatable {
-    /// Her name is in the filename, but only as a word other people answer to as well.
+    /// Their name is in the filename, but only as a word other people answer to as well.
     /// `sharedWith` is how many of them.
     case sharedWordInName(word: String, sharedWith: Int)
-    /// Page 1 named her, and named nobody else. The filename named no one at all.
+    /// Page 1 named them, and named nobody else. The filename named no one at all.
     case namedOnPageOnly(form: String)
 }
 
@@ -73,9 +73,9 @@ public enum PersonGatherPhase: Sendable, Equatable {
 /// Everything that is one person's, grouped by why.
 public struct PersonFileSet: Sendable, Equatable {
     public let personId: String
-    /// Files under a folder that is hers, grouped by that folder, largest first.
-    public let herFolders: [(folder: String, files: [PersonFile])]
-    /// Hers by name, filed somewhere that is not hers — the candidate misfilings.
+    /// Files under a folder that is theirs, grouped by that folder, largest first.
+    public let ownFolders: [(folder: String, files: [PersonFile])]
+    /// Theirs by name, filed outside their folders — the candidate misfilings.
     public let elsewhere: [PersonFile]
     /// Evidence too weak to claim a document on, waiting for a verdict.
     ///
@@ -84,26 +84,26 @@ public struct PersonFileSet: Sendable, Equatable {
     /// never returns.
     public let review: [PersonFile]
 
-    /// The answer to "how many are hers" — **the claimed rows only.** Review rows are questions,
+    /// The answer to "how many are theirs" — **the claimed rows only.** Review rows are questions,
     /// not answers, and counting them here would make the header assert something the queue exists
     /// to ask.
-    public var total: Int { herFolders.reduce(0) { $0 + $1.files.count } + elsewhere.count }
-    public var folderCount: Int { herFolders.count }
+    public var total: Int { ownFolders.reduce(0) { $0 + $1.files.count } + elsewhere.count }
+    public var folderCount: Int { ownFolders.count }
 
     /// Public so callers outside this module can build one — the app target's supersede tests
     /// need an answer to put in a slot, and `@testable` is not available to them across the
     /// package boundary.
     ///
     /// **The ordering is an invariant this initialiser cannot enforce.** ``PersonFiles/gather(personId:corpus:profile:registry:)``
-    /// hands over `herFolders` sorted largest-first (ties by name) and each `files` sorted by path,
+    /// hands over `ownFolders` sorted largest-first (ties by name) and each `files` sorted by path,
     /// and `PersonView` relies on it: the folder list is truncated with `prefix(8)`, so an unsorted
     /// set would silently show eight arbitrary folders while the header went on reporting the true
     /// total. Production only ever builds one through `gather`. A fixture that builds one directly
     /// and cares which rows are visible has to sort it the same way.
-    public init(personId: String, herFolders: [(folder: String, files: [PersonFile])],
+    public init(personId: String, ownFolders: [(folder: String, files: [PersonFile])],
                 elsewhere: [PersonFile], review: [PersonFile] = []) {
         self.personId = personId
-        self.herFolders = herFolders
+        self.ownFolders = ownFolders
         self.elsewhere = elsewhere
         self.review = review
     }
@@ -125,19 +125,19 @@ public struct PersonFileSet: Sendable, Equatable {
         guard review.contains(where: { $0.path == path }) else { return self }
         let remaining = review.filter { $0.path != path }
         guard isTheirs else {
-            return PersonFileSet(personId: personId, herFolders: herFolders,
+            return PersonFileSet(personId: personId, ownFolders: ownFolders,
                                  elsewhere: elsewhere, review: remaining)
         }
         let claimed = elsewhere + [PersonFile(path: path, evidence: .taggedByYou)]
-        return PersonFileSet(personId: personId, herFolders: herFolders,
+        return PersonFileSet(personId: personId, ownFolders: ownFolders,
                              elsewhere: claimed.sorted { $0.path < $1.path },
                              review: remaining)
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.personId == rhs.personId && lhs.elsewhere == rhs.elsewhere && lhs.review == rhs.review
-            && lhs.herFolders.count == rhs.herFolders.count
-            && zip(lhs.herFolders, rhs.herFolders).allSatisfy { $0.folder == $1.folder && $0.files == $1.files }
+            && lhs.ownFolders.count == rhs.ownFolders.count
+            && zip(lhs.ownFolders, rhs.ownFolders).allSatisfy { $0.folder == $1.folder && $0.files == $1.files }
     }
 }
 
@@ -146,7 +146,7 @@ public struct PersonFileSet: Sendable, Equatable {
 ///
 /// **Read-only and computed on demand.** Nothing here is written, and no verdict is persisted: this
 /// is the first of the staged channels (folder and filename), which is already the useful half —
-/// "in her folders" he could reach by browsing, and "hers, filed elsewhere" is what no browse
+/// "in their folders" he could reach by browsing, and "theirs, filed elsewhere" is what no browse
 /// produces. Page-1 membership and his own tags come later and are decisions rather than
 /// computations.
 ///
@@ -306,7 +306,7 @@ public enum PersonFiles {
             }
 
             if owner == personId {
-                byFolder[folder, default: []].append(PersonFile(path: path, evidence: .herFolder))
+                byFolder[folder, default: []].append(PersonFile(path: path, evidence: .ownFolder))
                 unseenConfirmations.remove(path)
                 continue
             }
@@ -392,7 +392,7 @@ public enum PersonFiles {
             if a.files.count != b.files.count { return a.files.count > b.files.count }
             return a.folder < b.folder
         }
-        return PersonFileSet(personId: personId, herFolders: groups,
+        return PersonFileSet(personId: personId, ownFolders: groups,
                              elsewhere: elsewhere.sorted { $0.path < $1.path },
                              review: review.sorted { $0.path < $1.path })
     }

@@ -320,7 +320,7 @@ struct PersonChannelReplayTests {
             totalReview += set.review.count
             out += String(format: "  %-9@  %5d in folders (%3d)  %4d elsewhere  %4d to review (%d name + %d page)\n",
                           person.id as NSString,
-                          set.herFolders.reduce(0) { $0 + $1.files.count }, set.folderCount,
+                          set.ownFolders.reduce(0) { $0 + $1.files.count }, set.folderCount,
                           set.elsewhere.count, set.review.count, byName, byPage)
         }
         out += "  TOTAL to review across the household: \(totalReview)\n"
