@@ -686,26 +686,32 @@ struct SyncCloudApp: App {
                     setupDismissedThisSession = false
                     showSetup = true
                 }
-                // The discoverability half of the shortcuts story: review-mode keys, the drag
-                // move modifier, and ⌥-breadcrumb navigation are otherwise invisible.
-                ShortcutsWindowCommand()
-
                 Divider()
 
-                // Surface the Activity Log window (it otherwise has no menu entry) and a jump to
-                // the on-disk log — the two things a user reaches for when troubleshooting or
-                // filing a report.
-                ActivityLogWindowCommand()
-                SyncHistoryWindowCommand()
+                // The jump to the on-disk log stays: it is a Finder reveal, not a window, so the
+                // Window menu is the wrong home for it and Help is where someone filing a report
+                // looks.
                 Button("Reveal Log File in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([Logger.shared.logFileURL])
                 }
-
-                Divider()
-
-                Button("About SyncCloud") {
-                    NSApp.orderFrontStandardAboutPanel(nil)
-                }
+            }
+            // The three auxiliary windows, in the Window menu — **which is where they already
+            // were.**
+            //
+            // Help carried a second copy of each ("Keyboard Shortcuts", "Open Activity Log",
+            // "Open Sync History") under a comment claiming the Activity Log "otherwise has no
+            // menu entry". Read off the running app, that is false: SwiftUI creates a Window-menu
+            // opener for every `Window` scene automatically, so each of the three was listed
+            // twice, in two menus, under two different names. A source scan cannot see this —
+            // one of the two entries is never written down — which is why it survived to v4.2.
+            //
+            // The automatic entries are suppressed at the scenes (`.commandsRemoved()`) and
+            // replaced here rather than simply left alone, because the automatic ones carry no
+            // key equivalent and ⌘L is a registered chord this app documents. Supplying them by
+            // hand also fixes their titles: the Window menu names windows, so "Activity Log", not
+            // "Open Activity Log".
+            CommandGroup(before: .windowArrangement) {
+                ActivityLogWindowCommand()      // ⌘L — the only one supplied by hand; see the scene
             }
         }
 
@@ -714,6 +720,9 @@ struct SyncCloudApp: App {
                 .appFontSizeFromSettings()
         }
         .windowResizability(.contentSize)
+        // Suppressed because this scene's menu item is supplied by hand in `.commands` above —
+        // see the note there. Without this the window appears in the Window menu twice.
+
 
         Window("Activity Log", id: "activity-log") {
             if isRunningTests {
@@ -730,6 +739,20 @@ struct SyncCloudApp: App {
         // own header row and insets it past the traffic lights.
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
+        // Suppressed because this scene's menu item is supplied by hand in `.commands` above —
+        // see the note there. Without this the window appears in the Window menu twice.
+        // **Only this scene is suppressed, and only because its item carries ⌘L.** SwiftUI
+        // creates a Window-menu opener for every `Window` scene; the automatic ones carry no key
+        // equivalent, so Activity Log's is replaced by hand in `.commands` above to keep the
+        // chord. Keyboard Shortcuts and Sync History keep theirs, which is why they are not
+        // supplied by hand.
+        //
+        // **Do not suppress all three.** Measured twice off the running app: with all three
+        // removed the window-list section comes back EMPTY — the main window's own "SyncCloud"
+        // opener goes with them, and closing the main window would leave no menu route back to
+        // it. With one removed the other three are intact. The mechanism is not documented;
+        // the behaviour is reproducible.
+        .commandsRemoved()
 
         // Durable Sync History (X2): its own window (not a bottom tab) so it doesn't collide with
         // the main content. Reads the shared `SyncHistoryStore` the manager records into, and
@@ -757,6 +780,9 @@ struct SyncCloudApp: App {
             }
         }
         .windowResizability(.contentMinSize)
+        // Suppressed because this scene's menu item is supplied by hand in `.commands` above —
+        // see the note there. Without this the window appears in the Window menu twice.
+
     }
 }
 

@@ -433,19 +433,19 @@ struct ActivityLogWindowCommand: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Open Activity Log") { openWindow(id: "activity-log") }
+        Button("Activity Log") { openWindow(id: "activity-log") }
             .keyboardShortcut(AppChord.activityLog.key, modifiers: AppChord.activityLog.modifiers)
     }
 }
 
-/// The Help ▸ Open Sync History item — the durable, exportable, reversible history window (X2).
+/// The Window ▸ Sync History item — the durable, exportable, reversible history window (X2).
 /// A separate View for the same reason as `ActivityLogWindowCommand`: `openWindow` is an
 /// Environment value the App struct doesn't carry.
 struct SyncHistoryWindowCommand: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Open Sync History") { openWindow(id: "sync-history") }
+        Button("Sync History") { openWindow(id: "sync-history") }
     }
 }
 
