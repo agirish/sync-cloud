@@ -47,6 +47,12 @@ for l in v2.x v3.x; do git ls-tree -r --name-only origin/$l -- <path>; done   # 
 diff <(git show origin/main:<f>) <(git show origin/v3.x:<f>)
 ```
 
+**What each line is OWED is tracked in [`docs/backports.md`](docs/backports.md)** — the confirmed
+gaps, the families checked and deliberately *not* owed, and the size of the surface nobody has
+audited. It is carried on all three lines, so a maintainer on `v2.x` or `v3.x` can read what that
+line is missing without going through `main`'s history. Record a decision there when you settle
+one, in either direction: "checked and not owed" saves the next audit as much time as "owed".
+
 **Never merge one line into another.** All three stay linear; move individual commits with
 `git cherry-pick`. A merge commit between lines defeats the split.
 
