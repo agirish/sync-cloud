@@ -3,8 +3,9 @@
 **Scope:** the 4.x line after v4.0 ships. **v4.2 is a navigation release.** The toolbar's ⌘K pill
 stops being a button and becomes a field you type into (**§7**), and Browse borrows what Finder has
 that it does not (**§3**) — tabs gave a pane somewhere to park, and this release is about reaching a
-place at all. Beside those sit window chrome that says which window is which (**§8**) and a batch of
-small repairs to how already-shipped surfaces read (**§9**). What v4.1 took is recorded as **§1**
+place at all. Beside those sit window chrome that says which window is which (**§8**), a batch of
+small repairs to how already-shipped surfaces read (**§9**), and the menu bar, which stopped growing
+at v4.0 and never took the surfaces shipped since (**§10**). What v4.1 took is recorded as **§1**
 (Browse tabs, shipped 2026-08-14, one behaviour still designed and unbuilt) and **§2** (pane-bar
 titles, shipped 2026-08-16). `main` only, with one stated exception: §2's code exists on `v2.x` too,
 and that item says what follows from it.
@@ -280,7 +281,7 @@ stands" below was re-read at `c604321e` rather than carried forward.
 | **Gallery view mode** | large | `PaneViewMode` has two cases; a third is free, thumbnails are the job. |
 | **Group by kind / date** | large | Sort is per-pane `KeyPathComparator`; grouping does not exist. |
 | **Drop files on a tab** | large | Needs row drag re-added. **The recorded reason for ranking it last is stale** — see below. |
-| **Tags / coloured labels** | large | Ranked *skip* on merit. Scheduled anyway; the objection is unanswered and is restated below. |
+| **Tags / coloured labels** | — | **Cut 2026-08-19.** Ranked *skip* on merit, scheduled anyway, and the objection was never answered. See below. |
 
 ### Two claims here had gone stale, and both change what an item costs
 
@@ -350,14 +351,21 @@ long.
 - **Drop files on a tab.** After ⌘C/⌘V, which establishes the move semantics this expresses as a
   gesture. Ships with the proof the removal was originally made to satisfy: that a click still opens
   a column.
-- **Tags and coloured labels.** **The objection against this has not been answered, and it should be
-  answered before the work starts rather than after.** The standing argument: Organize's rules and
-  the person registry already answer "what is this file about", and a parallel labelling system
-  competes with them — two places to say the same thing, drifting apart. The honest reconciliation is
-  probably that tags are for what the machinery *cannot* infer, a human judgement with no rule behind
-  it, and that they must therefore be visible to rules as a condition the way `personIs()` is, rather
-  than sitting beside them. If that integration is out of scope, this is a second filing system and
-  should stay unbuilt.
+- **Tags and coloured labels — CUT, 2026-08-19.** The standing argument: Organize's rules and the
+  person registry already answer "what is this file about", and a parallel labelling system competes
+  with them — two places to say the same thing, drifting apart. It stood unanswered through two
+  roadmaps and was scheduled anyway; asked directly, the answer was to cut it.
+
+  **The only version worth building was one this decision also declined.** Tags are for what the
+  machinery *cannot* infer — a human judgement with no rule behind it — so they had to be visible to
+  rules as a ninth `AutomationCondition` beside `folderNamed`, `kindIs`, `largerThanMB`,
+  `untouchedForDays`, `contentContains`, `mentionsAll` and `personIs`: an **input** to the filing
+  machinery rather than a rival to it. Without that integration this is a second filing system.
+
+  **Cutting costs nothing today** — no tag code exists — and it removes a cost that would otherwise
+  be paid after shipping, every time the two systems disagreed about the same file. Do not re-add
+  this from the ranked table above without answering the objection first; being on a list is how it
+  got scheduled the first time.
 
 ---
 
@@ -375,18 +383,30 @@ Nothing in this file depends on any of the moved sections.
 
 ---
 
-## 7. Go to, expanded in place — the ⌘K field
+## 7. Go to, expanded in place — the ⌘K field — **shipped, bar Go to Folder**
 
-**Why:** ⌘K is a button that opens a 620pt card over a dimmed window. The card is a place you go to
-in order to go somewhere, and it hides the tree you are navigating while you type the name of
-another folder in it. The pill in the title bar is already the control you click; it should be the
-control you type into.
+**Status, 2026-08-19.** Three of this section's four items shipped between `c77d96d3` and
+`ee46628f`; **Go to Folder (order step 4) is the one still open** — nothing parses a typed path yet,
+and there is no path case on `PaletteRoute`. The 620pt card is gone: `CommandPaletteView` was deleted
+in `7e8fff03`, and the live list it also contained now lives in `PaletteResultsList.swift`. Read the
+rest of this section as the record of a design that landed, not as a plan.
+
+**Two things the build settled differently from the text below.** The field's real ceiling is
+**340pt in a 960pt window** with the workspace bar's labels up, not the 440 this section assumed —
+which is why the field's width and the bar's rung are now one decision against one reserve
+(`WorkspaceBarMetrics`). And **⌘K on an already-open field selects the query rather than closing it**;
+esc is the close.
+
+**Why (as written before it shipped):** ⌘K is a button that opens a 620pt card over a dimmed window.
+The card is a place you go to in order to go somewhere, and it hides the tree you are navigating
+while you type the name of another folder in it. The pill in the title bar is already the control you
+click; it should be the control you type into.
 
 ### Context
 
 | Fact | Where | Consequence |
 |---|---|---|
-| **The card's real numbers**: 620pt wide, list capped at 420pt, field set at 19pt. | `CommandPaletteView.swift:47`, `:48`, `:148` | The list cap survives unchanged; 620 becomes the *ceiling* of a clamp, not a fixed width; 19 cannot live in a 32pt-tall toolbar row. |
+| **The card's real numbers**: 620pt wide, list capped at 420pt, field set at 19pt. | `CommandPaletteView.swift:47`, `:48`, `:148` — *file deleted in `7e8fff03`; cited as it read when the decision was taken* | The list cap survives unchanged; 620 becomes the *ceiling* of a clamp, not a fixed width; 19 cannot live in a 32pt-tall toolbar row. |
 | **The pill's width is already measured through `NSFont` and already charged into the toolbar's reserve**, with a deliberate 14pt `labelSafetyMargin`. | `CommandPaletteBar.swift` | The ladder this needs exists and is already fed by measurement rather than a table. The expanded width joins the same reserve. |
 | **A toolbar that does not fit does not truncate** — macOS folds the overflow behind a chevron. | same, and `WorkspaceBarMetrics` | Under-measuring has no symptom until the whole toolbar is behind a chevron. This is why the reserve arithmetic ships in the same commit as the field, never after it. |
 | **The palette became an `NSPanel` because as an in-window overlay its keystrokes fell through** to the tables in the panes — characters landed in the pane's find field. | `CommandPalettePanel.swift` | That argument covers the *list*, which floats over the columns. It does not cover the *field*: the toolbar is AppKit's own strip, above the content. |
@@ -590,18 +610,75 @@ stay visibly inert or the header teaches that clicking pills sometimes does noth
 
 ---
 
+## 10. The menu bar — the surfaces that never reached it
+
+**Why:** v4.0 built the machinery and it is good — `AppChord` as the one place a chord is written
+down, focused values published through a single `ShortcutValuePublisher` so an overlay can silence
+every chord at once. What has not happened is *growth*. The `.commands` block is byte-for-byte what
+v4.0 shipped: tabs came and went into it, v4.1 shipped, the Go to field shipped, and not one menu
+changed.
+
+Full mockups of all eight menus, drawn against the code, are at
+<https://claude.ai/code/artifact/23cda3a3-a408-430a-90fd-c0291bd3a94f>.
+
+### Two corrections this section carries
+
+- **The in-app clipboard already exists.** `FileSyncManager.clipboardNodes` / `clipboardIsCut`,
+  `handleCopyToClipboard(_:isCut:)` and `pasteItems(_:toPath:isCut:)` are built, wired to the row
+  menu, and spend through the same `copyItems`/`moveItems` as every transfer — grouped undo and
+  banner included. It is `NSPasteboard` that has no file support (all 8 sites `setString(path)`). So
+  menu items and chords for the clipboard that exists are **small**; Finder interop
+  (`NSFilePromiseProvider`) is the medium at order step 10, and they are separate work.
+- **⌥⌘V can never ship**, and neither can any ⌥ chord — `AppChordTests.noChordContainsOption` fails
+  them, because an ⌥ chord is the one kind that fires through the ⌥-hold reveal. Nothing is lost: the
+  clipboard already carries `isCut`, so **⌘X then ⌘V is move-here**, one chord fewer than Finder.
+
+### The six items
+
+| Item | Size | Read out of the code |
+|---|---|---|
+| **Edit ▸ Select All / Cut / Copy / Paste** | small | No `.keyboardShortcut` for a/x/c/v anywhere; `selectAll` appears only inside text-field editors. A file browser with no ⌘A. |
+| **The transfer verbs get a menu home** | small | ⌘←/⌘→/⇧⌘←/⇧⌘→ exist only as a focus-scoped `onKeyPress` in `KeyboardCopyIntent.swift` — absent from `AppChord`, from the menus and from the ⌘/ reference. |
+| **Auxiliary windows leave Help** | small | Activity Log, Sync History and Keyboard Shortcuts are Help items; the Window menu already exists (see §8's note about it listing "SyncCloud" twice). `.appInfo` is never replaced, so About likely renders twice. |
+| **Organize reaches the bar** | small | ⌘3 is its only menu presence. Five sections and four row-menu-only verbs. The verbs join File; the sections become one View submenu. **No top-level Organize menu** — Compare's items are bulk actions on the whole comparison, Organize's are per-selection verbs, so the precedent does not transfer. |
+| **View ▸ Text Size** | small | `FontSize` scales the whole app and persists; Settings is the only route to it. ⌘+ / ⌘− / ⌘0 are free. |
+| **The row menu's dozen verbs** | small | Open in New Tab, Quick Look, Reveal in Finder, Download, Copy to…, Move to…, Ignore in Comparison — working handlers, no menu-bar row. |
+
+### Three constraints, and one that killed a chord
+
+**Every new item reuses `DeleteSelectionCommand.chordBelongsToTextEditor`.** A menu key equivalent
+outranks the field editor, so ⌘X/⌘C/⌘V — and §3's ⌘↑/⌘↓ — would take the caret's own keys away from
+the pane search, the rename field and the differences search. That routing rule already exists for
+⌘⌫; write it once, in this step, and step 5 inherits it.
+
+**↩ renames cannot be a menu key equivalent.** The chord is right and the row belongs in File, but a
+registered bare ↩ outranks every default button — it would take the key that commits the destination
+picker, the palette, the rename field itself and every sheet. **Finder does not register it either**:
+its File ▸ Rename carries no key, and the list view handles ↩ itself. The row goes in the menu
+without a chord; the chord goes in the pane.
+
+**Get Info stays off the menu bar.** It wants Finder's ⌘I, which is the Info Inspector here, and the
+inspector already answers what Get Info answers without leaving the window. Finder's own panel stays
+on the row menu.
+
+One naming split to settle while in there: the same action is **Rescan** in the File menu and
+**Refresh** on the row menu — one handler, `handleRefresh()`, two words. Rescan is the better of the
+two; the row menu should take it.
+
+---
+
 ## Order
 
 **v4.2 is a navigation release, and §§3 and 7 are one piece of work rather than two.** The field is
 what makes Go to Folder possible and what makes the recents question urgent; the chords and the
 status bar are independent of it and of each other.
 
-**The build order.** 1–11 are the release; 12–15 are in scope by decision and are where to cut if it
-runs long — see the note under the list.
+**The build order.** **Decided 2026-08-19: 1–12 are v4.2; 13–15 become v4.3.** Three of the twelve
+have already shipped, so what is actually left is nine.
 
-1. **Persist recents in `FolderJumpStore`** (§3's second correction). A prerequisite, not a
-   follow-up: everything about the field opening on your last four folders is false without it.
-   Ships with its cap, its order, and its answer for a folder that has since gone.
+1. ~~**Persist recents in `FolderJumpStore`** (§3's second correction).~~ **Done, 2026-08-19**
+   (`55c7f92d`) — under `folderJumpRecentsByRoot`, with its cap, its order, and its answer for a
+   folder that has since gone. The first open after a launch is no longer empty.
 2. ~~**The two spikes** (§7).~~ **Done, 2026-08-18** — all four questions answered in §7, the
    fourth in this app rather than in a probe. The field is an `NSViewRepresentable` over
    `NSTextField`; SwiftUI has no way to focus a toolbar-hosted field, which is what ⌘K needs.
@@ -615,25 +692,29 @@ runs long — see the note under the list.
 5. **The chords and the status bar** (§3). ↩, ⌘↑/⌘↓, the status bar, and ⌘/ moving to it — the
    shortcuts reference gives the chord up rather than take a replacement.
    Independent of everything above; schedulable against anything.
-6. **The polish batch** (§9). Four small items, no dependencies.
-7. **Title-bar subtitle** (§8). Small, and the only item here that answers a question the app
+6. **The menu bar** (§10). Six small items, no dependencies between them. **Lead with
+   Edit ▸ Select All / Cut / Copy / Paste**: it establishes the text-editor routing rule that step
+   5's ⌘↑ and ⌘↓ also need, so doing it after means writing that rule twice.
+7. **The polish batch** (§9). Four small items, no dependencies.
+8. **Title-bar subtitle** (§8). Small, and the only item here that answers a question the app
    currently cannot answer at all.
-8. **Pins and recents sidebar** (§3). Reads the store step 1 made durable.
-9. **The pasteboard** (§3). ⌘C/⌘V + a paste-as-move whose chord is still to be chosen (**not ⌥⌘V** —
-   the ⌥ ban above) — the cross-cloud move, and the largest user-facing gain left.
-10. **§1's switch mirroring** — or delete it, having now run tabs for a release. It has been
+9. **Pins and recents sidebar** (§3). Reads the store step 1 made durable — already shipped, so this
+   is unblocked.
+10. **The pasteboard** (§3). ⌘C/⌘V to and from *Finder* + a paste-as-move whose chord is still to be
+    chosen (**not ⌥⌘V** — the ⌥ ban above). Note §10's correction: the **in-app** clipboard already
+    exists and works, so what is left here is `NSFilePromiseProvider`, not the whole feature.
+11. **§1's switch mirroring** — or delete it, having now run tabs for a release. It has been
     designed twice and carried twice; a third carry is the signal to drop it.
-11. **One-line pane headers** (§8). Medium, and it argues with a pinned constant and its test.
-12. **Gallery view** (§3) — thumbnail infrastructure.
-13. **Group by kind or date** (§3) — touches every row-rendering path.
-14. **Drop files on a tab** (§3) — after 9, with the proof that a click still opens a column.
-15. **Tags** (§3) — only with the rules integration that answers the standing objection.
+12. **One-line pane headers** (§8). Medium, and it argues with a pinned constant and its test.
+13. **Gallery view** (§3) — thumbnail infrastructure.
+14. **Group by kind or date** (§3) — touches every row-rendering path.
+15. **Drop files on a tab** (§3) — after 10, with the proof that a click still opens a column.
 
-**Where to cut, and why.** Steps 1–11 are already a complete, nameable release: they are the half
-that makes the app faster to move around in. 12–15 change what Browse can *display*, not how you get
+**Where it was cut, and why.** Steps 1–12 are a complete, nameable release: they are the half that
+makes the app faster to move around in. 13–15 change what Browse can *display*, not how you get
 anywhere, and any one of them is a release on its own — v4.0 was the largest the app has had at 284
-commits and it was *one* structural change plus its consequences. **The recommendation is 1–11 as
-v4.2 and 12–15 as v4.3**; the plan above is written so either call works without rewriting it.
+commits and it was *one* structural change plus its consequences. **Decided 2026-08-19: 1–12 as
+v4.2, 13–15 as v4.3**, with tags cut outright rather than deferred.
 
 ---
 
@@ -668,9 +749,10 @@ renders correctly at one tab if you do tick it), and its tick is **one app-wide 
   to name which pane it is describing, which is the problem the per-pane header already solves by
   being per-pane — and that header is the surface §8 is trying to make shorter. The two items are
   cheap separately and contradict each other if decided separately.
-- **§3: is tags actually wanted, or is it here because it was on a list?** It is the only item in
-  this file carrying a standing argument against it that has not been answered. Decide it on merit
-  before it is scheduled, not after.
+- **§3: is tags actually wanted, or is it here because it was on a list?** — **ANSWERED,
+  2026-08-19: it was here because it was on a list, and it is cut.** The objection stood
+  unanswered through two roadmaps; asked directly, the answer was to cut it rather than build a
+  second filing system. See §3.
 - **§7: does anything reach a route only the 620pt card could show?** The decisions block makes this
   a walk of the palette's route table before the card is deleted, rather than a question — recorded
   here so it is not lost if that walk finds something that needs a door of its own.
