@@ -653,12 +653,27 @@ ever does misfire in use, the fix is the guard, not a longer memory.
 
 ## 8. Window chrome: saying which window is which
 
-- **Name the compared pair in the title bar.** `window.subtitle` is set nowhere in `MacApp`. The
-  title bar is hidden, so two windows side by side are indistinguishable, Mission Control shows two
-  identical thumbnails, and the Window menu lists "SyncCloud" twice. A subtitle naming the pair —
-  `iCloud/Documents ⇄ Dropbox/Documents` — shown beside the tab strip **and** set as the real
-  `window.subtitle`, which is what those two surfaces read. On a single-source workspace it names
-  that source. Middle-truncates as the window narrows, matching the pane breadcrumb. **Small.**
+- **Name the compared pair in the title bar.** **Shipped 2026-08-20** — `MacApp/WindowSubtitle.swift`.
+  The Window menu now reads `SyncCloud (iCloud/Documents ⇄ Dropbox/Documents)`, and a lens names the
+  one source it is working rather than a second pane that is not on screen.
+
+  **What the bullet had backwards, measured rather than argued.** It said the pair should be "shown
+  beside the tab strip **and** set as the real `window.subtitle`, which is what those two surfaces
+  read" — implying `subtitle` is the mechanism and that a hidden titlebar makes an in-window copy
+  necessary. AppKit composes the window-list entry from **both** properties, as
+  `"<title> (<subtitle>)"`, so leaving the scene's own `Window("SyncCloud", …)` title alone and
+  setting only the subtitle produces the line above.
+  `WindowChromeBinderTests.theWindowListEntryComposesTitleAndSubtitle` is the measurement; the first
+  draft set `title` instead, on the reasoning that a `.hiddenTitleBar` window draws no subtitle so
+  nothing could be reading it, and that would have printed the pair twice in one entry.
+
+  **The in-window line is deferred, and not as a nicety.** The toolbar is the only window-level
+  chrome there is, and its width is a measured budget: `WorkspaceBarMetrics.reservedChrome` feeds
+  `testTheNarrowestWindowStillClearsTheFieldsFloor`, which §7 already records as "starts failing the
+  moment a fifth workspace lands, `reservedChrome` grows, or the window's minimum is lowered". A
+  fifth toolbar item **is** `reservedChrome` growing. That is the same budget conversation as the
+  item below and as v4.3's status bar, and settling it three times separately is how the ⌘K field
+  ends up under its floor. **Take it with one-line pane headers, not before.**
 - **One-line pane headers.** Fold each pane's two-row header to one — provider chip, breadcrumb,
   link glyph — and reveal the bar on hover or keyboard focus. Roughly 44pt back, three more file
   rows per pane, on every window, permanently. **Medium, and the constraint hardened since it was
