@@ -71,6 +71,36 @@ struct SetupDraft: Codable, Equatable, Sendable {
         return all
     }
 
+    /// The draft as a registry the folder walk can use, or nil when it holds nobody.
+    ///
+    /// **The walk needs a household before there is a roster to hold one** — that is the whole
+    /// reason People is asked before Folders — so the answers have to become a `PersonRegistry`
+    /// straight from the draft.
+    ///
+    /// **Ids are made unique here, because nothing downstream will do it.** `idCandidate` derives
+    /// from the display name, so two people in one draft can land on the same id — `Anne Marie` and
+    /// `Anne-Marie` both fold to `anne-marie` — and `PersonRegistry.init` collapses a repeated id
+    /// to last-one-wins. That is right there (an id must name one person) but it means the walk
+    /// would be handed a household with somebody quietly missing. `PeopleStore.add` disambiguates
+    /// for exactly this reason; a draft has no store to do it for it.
+    var registry: PersonRegistry? {
+        var used: Set<String> = []
+        let people: [Person] = everyone.map { drafted in
+            let base = Person.idCandidate(from: drafted.displayName)
+            var id = base
+            var suffix = 2
+            while used.contains(id) {
+                id = "\(base)-\(suffix)"
+                suffix += 1
+            }
+            used.insert(id)
+            return Person(id: id, displayName: drafted.displayName,
+                          relationship: drafted.relationship, fullNames: drafted.fullNames,
+                          aliases: drafted.aliases)
+        }
+        return people.isEmpty ? nil : PersonRegistry(people: people, source: .profileAxis)
+    }
+
     /// Writes the draft into a roster, adding what is missing and filling in what is thin.
     ///
     /// **Idempotent, because it is called more than once.** A machine with a profile applies on

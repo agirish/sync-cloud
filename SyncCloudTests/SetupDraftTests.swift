@@ -108,6 +108,46 @@ import Testing
         #expect(draft.everyone.map(\.displayName) == ["Shweta"])
     }
 
+    // MARK: - As a registry for the walk
+
+    /// The draft becomes the household the walk is built with.
+    @Test func theDraftBecomesARegistryTheWalkCanUse() throws {
+        var draft = SetupDraft()
+        draft.yourName = "Abhishek"
+        draft.others = [SetupDraft.DraftPerson(displayName: "Shweta")]
+
+        let registry = try #require(draft.registry)
+        #expect(Set(registry.people.map(\.displayName)) == ["Abhishek", "Shweta"])
+        #expect(registry.people.first?.relationship == "me", "you should lead, marked as you")
+    }
+
+    @Test func anEmptyDraftIsNoRegistryAtAll() {
+        #expect(SetupDraft().registry == nil, "an empty registry is not the same as none")
+    }
+
+    /// Two names that derive the same id both survive.
+    ///
+    /// **`PersonRegistry` collapses a repeated id to last-one-wins**, which is right there — an id
+    /// must name one person — and means a draft handing it duplicates would lose somebody silently
+    /// on the way into the walk. `Anne Marie` and `Anne-Marie` both fold to `anne-marie`.
+    @Test func twoNamesThatShareAnIdBothReachTheWalk() throws {
+        var draft = SetupDraft()
+        draft.others = [SetupDraft.DraftPerson(displayName: "Anne Marie"),
+                        SetupDraft.DraftPerson(displayName: "Anne-Marie")]
+
+        let registry = try #require(draft.registry)
+        #expect(registry.people.count == 2, "one of them was collapsed away before the walk saw it")
+        #expect(Set(registry.people.map(\.id)).count == 2, "the ids are still the same id")
+    }
+
+    /// The control: those two names really do derive one id.
+    ///
+    /// Without it the test above passes on any two names, and proves nothing about collisions.
+    @Test func thoseTwoNamesReallyDoCollide() {
+        #expect(Person.idCandidate(from: "Anne Marie") == Person.idCandidate(from: "Anne-Marie"),
+                "the fixture no longer collides, so the uniquing is untested")
+    }
+
     // MARK: - Applying it
 
     @MainActor

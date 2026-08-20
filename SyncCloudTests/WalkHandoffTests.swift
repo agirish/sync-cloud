@@ -170,6 +170,22 @@ import Testing
         return source
     }
 
+    /// Seeding the root does not walk the tree.
+    ///
+    /// **A source scan, because the cost is invisible in a test and obvious on a real tree.** The
+    /// root is seeded from the primary source, and `reconcilePrimary` moves the primary on every
+    /// source toggle — so seeding that walked would fire two full walks of a three-thousand-folder
+    /// tree per click on the Sources step, for proposals nobody had asked for yet. Each step asks
+    /// when it is reached instead.
+    @Test func seedingTheRootDoesNotStartAWalk() throws {
+        let source = try Self.setupSheetSource()
+        let start = try #require(source.range(of: "private func seedWalkRoot()"))
+        let body = String(source[start.lowerBound...].prefix(600))
+        #expect(!body.contains("proposePlaces()"), "seeding walks for places again")
+        #expect(!body.contains("proposePeople()"), "seeding walks for people again")
+        #expect(body.contains("invalidateProposals()"), "seeding no longer drops the old tree's work")
+    }
+
     /// The control: with no household handed over, the axis really is absent.
     ///
     /// Without this, the test above would pass on a builder that recorded every folder name as a

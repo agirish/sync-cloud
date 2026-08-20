@@ -160,6 +160,8 @@ struct SetupSheet: View {
     @State private var walkRoot: URL?
     /// Household names the walk proposed, with their evidence. Empty until a root is known.
     @State private var peopleCandidates: [PersonCandidate] = []
+    /// Whether the place walk has been asked for, so a step revisited does not walk again.
+    @State private var askedForPlaces = false
     /// Whether the proposal walk has been asked for, so it happens once per opening.
     @State private var askedForPeople = false
     /// What the walk proposed as places, with their evidence. Empty until a root is chosen.
@@ -275,7 +277,7 @@ struct SetupSheet: View {
             reconcilePrimary()
             if case .step(.you) = screen { nameFieldFocused = true }
             seedWalkRoot()
-            proposePeople()
+            proposeForCurrentStep()
             Logger.shared.info("Setup opened on \(screenName) — "
                                + "\(settings.availableProviders.count) source(s) discovered, "
                                + "roster \(roster == nil ? "not writable yet (no profile)" : "available")")
@@ -288,7 +290,14 @@ struct SetupSheet: View {
         // changing which source is primary on step 2 left the Folders step still aimed at the one
         // discovery happened to put first — the step would learn a tree the user had just moved
         // away from, and nothing on screen would disagree.
-        .onChange(of: primarySourceId) { _, _ in seedWalkRoot() }
+        .onChange(of: primarySourceId) { _, _ in
+            seedWalkRoot()
+            // Only if the user is standing on a step that needs it — otherwise the walk waits until
+            // they get there.
+            proposeForCurrentStep()
+        }
+        // Each step asks for what it needs when it is reached, once per root.
+        .onChange(of: screen) { _, _ in proposeForCurrentStep() }
     }
 
     /// The hues offered here — a spread across the palette, not the whole of it.
@@ -1133,12 +1142,9 @@ struct SetupSheet: View {
     /// The roster wins where there is one: it carries full names and aliases the draft's bare first
     /// names do not.
     private var walkRegistry: PersonRegistry? {
-        if let roster { return roster.registry }
-        let people = draft.everyone.map {
-            Person(id: Person.idCandidate(from: $0.displayName), displayName: $0.displayName,
-                   relationship: $0.relationship, fullNames: $0.fullNames, aliases: $0.aliases)
-        }
-        return people.isEmpty ? nil : PersonRegistry(people: people, source: .profileAxis)
+        // The roster wins where there is one: it carries the full names and aliases the draft's
+        // bare first names do not. Otherwise the draft is the household — see `SetupDraft.registry`.
+        roster?.registry ?? draft.registry
     }
 
     /// Asks the walk who might be in the household, once per opening.
@@ -1329,15 +1335,9 @@ struct SetupSheet: View {
         walkRoot = url
         rootChosenByHand = true
         // The proposals belong to the tree they came from, so a new root discards them rather than
-        // carrying a stale list — and any tick the user made on it. **Both lists**: the people
-        // proposals came from the old tree just as the places did, and only the places were cleared.
-        placeCandidates = []
-        confirmedPlaces = []
-        peopleCandidates = []
-        askedForPeople = false
-        walkPhase = .idle
-        proposePlaces()
-        proposePeople()
+        // carrying a stale list — and any tick the user made on it.
+        invalidateProposals()
+        proposeForCurrentStep()
     }
 
     /// Starts the walk root at the primary source, which is what the user just chose on Sources.
@@ -1349,19 +1349,40 @@ struct SetupSheet: View {
         let seeded = URL(fileURLWithPath: primary.path)
         guard seeded != walkRoot else { return }
         walkRoot = seeded
-        // The proposals belong to the tree they came from.
+        invalidateProposals()
+    }
+
+    /// Drops what the previous tree produced, without asking for the next lot.
+    ///
+    /// **Invalidate here, walk when the step is shown.** Seeding used to kick off both proposal
+    /// walks itself, and the seed is driven by the primary source — which `reconcilePrimary` moves
+    /// on every source toggle. So clicking through the Sources step fired two full walks of a
+    /// three-thousand-folder tree per click, in the background, while the user was still clicking.
+    /// Nothing failed; the disk simply churned and the step went sluggish for work no one had asked
+    /// for yet.
+    private func invalidateProposals() {
         placeCandidates = []
         confirmedPlaces = []
         peopleCandidates = []
         askedForPeople = false
+        askedForPlaces = false
         walkPhase = .idle
-        proposePlaces()
-        proposePeople()
+    }
+
+    /// Asks for whatever the screen now on show actually needs, and nothing else.
+    private func proposeForCurrentStep() {
+        guard case .step(let step) = screen else { return }
+        switch step {
+        case .people: proposePeople()
+        case .survey: proposePlaces()
+        case .you, .sources, .done: break
+        }
     }
 
     /// Asks the walk what might be a place, without committing to anything.
     private func proposePlaces() {
-        guard let root = walkRoot, let manager = syncManager else { return }
+        guard !askedForPlaces, let root = walkRoot, let manager = syncManager else { return }
+        askedForPlaces = true
         Task {
             let proposals = await manager.proposePlaces(root: root)
             placeCandidates = proposals
