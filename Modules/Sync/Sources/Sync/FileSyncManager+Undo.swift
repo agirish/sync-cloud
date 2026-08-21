@@ -582,10 +582,25 @@ extension FileSyncManager {
         return Task.detached(priority: .userInitiated) {
             let enriched: [CopyUndoItemState] = items.map { item in
                 (source: item.source, destination: item.destination, overwritten: item.overwritten,
-                 destinationIdentity: ItemIdentity.deepSnapshot(at: item.destination, fileManager: fm))
+                 destinationIdentity: FileSyncManager.recordedCopyIdentity(at: item.destination, fileManager: fm))
             }
             await resolver.resolve(enriched)
         }
+    }
+
+    /// The identity every copy-undo registration records for one landed copy: the DEEP snapshot,
+    /// plus the one warning that makes an eventual refusal diagnosable. A registration-time
+    /// `.indeterminate` is a PERMANENT refusal for that item — the handler will decline the ⌘Z
+    /// however often it is pressed — and the user used to first learn of it hours later from a
+    /// banner that cannot say why, with the refusal itself as the log's only line. The cause is
+    /// knowable NOW (the walk can name the descendant it could not read), so it is logged now.
+    nonisolated static func recordedCopyIdentity(at destination: URL, fileManager fm: FileManaging) -> ItemIdentity {
+        let read = ItemIdentity.deepSnapshotDetailingFailure(at: destination, fileManager: fm)
+        if read.identity == .indeterminate {
+            let child = read.unreadableDescendant.map { " — couldn't read \"\($0.path)\"" } ?? ""
+            Logger.shared.warning("Copy undo: the identity of \"\(destination.lastPathComponent)\" at \(destination.path) couldn't be read when its undo was registered\(child); a later ⌘Z of this copy will refuse rather than remove what it can't verify")
+        }
+        return read.identity
     }
 
     /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
@@ -896,7 +911,7 @@ extension FileSyncManager {
                                 // the redo→undo leg back the deep-edit blindness the first leg
                                 // just closed.
                                 nextState.append((source: param.source, destination: param.destination, overwritten: trashed,
-                                                  destinationIdentity: ItemIdentity.deepSnapshot(at: param.destination, fileManager: fm)))
+                                                  destinationIdentity: FileSyncManager.recordedCopyIdentity(at: param.destination, fileManager: fm)))
                             } catch {
                                 // A failed re-copy must stay out of the next undo state: undoing
                                 // a phantom copy would prompt to permanently delete a file that

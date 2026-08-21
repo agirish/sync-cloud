@@ -400,6 +400,12 @@ public struct DuplicateFinderOptions: Sendable {
         self.detectSameText = detectSameText
     }
 
+    /// NOTE: `ItemIdentity.deepIdentityIgnoredNames` deliberately does NOT reuse this set. This
+    /// one is a DISCOVERY filter — a false skip costs a missed duplicate — so it may skip whole
+    /// tooling trees (`.git`, `.build`, `node_modules`). The copy-undo's identity walk is a
+    /// DESTRUCTION guard — a false skip there lets ⌘Z trash the only copy of an edit made inside
+    /// such a tree — so it digests them and skips OS noise only. A name added or removed here
+    /// does not automatically apply there; argue it into each set on its own merits.
     public static let defaultIgnoredNames: Set<String> = [
         ".DS_Store", ".git", ".build", "node_modules", ".Trashes", "Thumbs.db", ".localized"
     ]

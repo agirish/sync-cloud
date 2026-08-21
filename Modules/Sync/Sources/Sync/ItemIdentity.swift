@@ -135,18 +135,19 @@ public extension ItemIdentity {
     /// does not fail the walk, and a link swapped for another target changes the identity (its
     /// own size and date move). Same convention `snapshot` states for the top-level item.
     ///
-    /// **What Finder and tooling scribble inside the copy is not part of its identity.** The walk
-    /// skips every entry carrying a `DuplicateFinderOptions.defaultIgnoredNames` component — the
-    /// named entry AND its whole subtree — which is the convention the duplicates gate already
-    /// walks under, adopted for the same lesson: counting `.DS_Store` "refused every folder ever
-    /// opened in Finder, forever". Digested here, the first Finder visit to a copied folder would
-    /// change its recorded identity and ⌘Z would refuse an untouched copy for as long as the undo
-    /// lived. An ignored entry is skipped BEFORE it is statted, so an unstatable `.DS_Store`
-    /// cannot refuse either. The deliberate residual: the listing's OUTCOME is decided before any
-    /// name is filtered, so a descendant that cannot be descended into still answers
-    /// `.indeterminate` even when it sits inside an ignored subtree — recorded at registration,
-    /// that is a permanent refusal for that item. Refusal is the safe direction, and it is stated
-    /// here rather than silent.
+    /// **What the OS scribbles inside the copy is not part of its identity — and nothing else is
+    /// exempt.** The walk skips every entry carrying a `deepIdentityIgnoredNames` component — the
+    /// named entry AND its whole subtree — because digesting Finder's droppings would mean the
+    /// first Finder visit to a copied folder changes its recorded identity and ⌘Z refuses an
+    /// untouched copy for as long as the undo lived. An ignored entry is skipped BEFORE it is
+    /// statted, so an unstatable `.DS_Store` cannot refuse either. That set is deliberately its
+    /// OWN, not the duplicates finder's broader one — see its doc for why `.git`, `.build` and
+    /// `node_modules` ARE digested here. The deliberate residual: the listing's OUTCOME is
+    /// decided before any name is filtered, so a descendant that cannot be descended into still
+    /// answers `.indeterminate` even when it sits inside an ignored subtree — recorded at
+    /// registration, that is a permanent refusal for that item. Refusal is the safe direction,
+    /// and it is stated here rather than silent (and, since the failing descendant is knowable,
+    /// logged at registration — see `FileSyncManager.recordedCopyIdentity`).
     ///
     /// **The digest is a function of the tree, not of the walk.** APFS promises no enumeration
     /// order, so the lines are sorted by the UTF-8 bytes of the relative path's precomposed form
@@ -174,16 +175,49 @@ public extension ItemIdentity {
         rel.precomposedStringWithCanonicalMapping
     }
 
+    /// The names `deepSnapshot` leaves out of a tree's identity — genuine OS noise only:
+    /// Finder's `.DS_Store` and `.localized`, Windows' `Thumbs.db`, the volume-root `.Trashes`.
+    ///
+    /// Deliberately its OWN set, NOT `DuplicateFinderOptions.defaultIgnoredNames`, which also
+    /// skips `.git`, `.build` and `node_modules`. The two sets answer different questions. The
+    /// duplicates finder is a DISCOVERY filter: a false skip there costs a missed duplicate.
+    /// This walk is a DESTRUCTION guard: a false skip here costs the only copy of an edit —
+    /// with `node_modules` skipped, an edit the user made inside the copy's `node_modules` (or
+    /// an amended commit inside `.git`) was invisible to the digest, ⌘Z read `.unchanged`, and
+    /// the edited copy was trashed. The extra entries cost only walk time, and the walk already
+    /// runs off the main actor, so digesting them buys safety for free at the UI. A matching
+    /// pointer sits at `defaultIgnoredNames`; a name added to either set must be argued into
+    /// the other on its own merits, never copied across.
+    static let deepIdentityIgnoredNames: Set<String> = [
+        ".DS_Store", ".localized", "Thumbs.db", ".Trashes"
+    ]
+
     static func deepSnapshot(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
+        deepSnapshotDetailingFailure(at: url, fileManager: fm).identity
+    }
+
+    /// `deepSnapshot` plus, when the answer is `.indeterminate`, the descendant that made it so —
+    /// where one can be named. A partial listing names its first unreadable descendant (the
+    /// `unreadableDescendants` array this walk used to discard); a child that vanished or lost
+    /// its size between list and stat names itself; a root that could not be read at all has no
+    /// child to name (nil). Callers that RECORD the identity log this detail at registration
+    /// time (`FileSyncManager.recordedCopyIdentity`), because a registration-time
+    /// `.indeterminate` is a permanent refusal the user otherwise first hears about from a ⌘Z
+    /// banner hours later that cannot say why.
+    static func deepSnapshotDetailingFailure(
+        at url: URL, fileManager fm: FileManaging
+    ) -> (identity: ItemIdentity, unreadableDescendant: URL?) {
         let shallow = snapshot(at: url, fileManager: fm)
-        guard case .directory = shallow else { return shallow }
+        guard case .directory = shallow else { return (shallow, nil) }
 
         // `options: []` is the recursive walk. `.listedWithUnreadableDescendants` is a real but
         // PARTIAL answer, and partial proves nothing about the part that was withheld — the same
         // refusal `folderDriftedInPlace` makes of it, and the safe direction: `.indeterminate`
         // REFUSES the undo rather than authorising it.
         let listing = fm.listing(of: url, options: [])
-        guard listing.outcome == .listed else { return .indeterminate }
+        guard listing.outcome == .listed else {
+            return (.indeterminate, listing.unreadableDescendants.first)
+        }
 
         let prefix = url.path.hasSuffix("/") ? url.path : url.path + "/"
         var lines: [String] = []
@@ -195,12 +229,14 @@ public extension ItemIdentity {
             // entry itself and everything below it, and it runs before the stat so an ignored
             // entry can neither shift the digest nor refuse the walk.
             if rel.split(separator: "/").contains(
-                where: { DuplicateFinderOptions.defaultIgnoredNames.contains(String($0)) }) {
+                where: { deepIdentityIgnoredNames.contains(String($0)) }) {
                 continue
             }
             // An entry the walk just listed but cannot stat means the tree is being modified (or
             // withheld) under our feet — nothing can be concluded, so nothing may be destroyed.
-            guard let attrs = try? fm.attributesOfItem(atPath: child.path) else { return .indeterminate }
+            guard let attrs = try? fm.attributesOfItem(atPath: child.path) else {
+                return (.indeterminate, child)
+            }
             let canonicalRel = canonicalDigestSpelling(ofRelativePath: rel)
             let type = attrs[.type] as? FileAttributeType
             if type == .typeDirectory {
@@ -209,7 +245,7 @@ public extension ItemIdentity {
             }
             let kind = type == .typeSymbolicLink ? "l" : "f"
             guard let size = (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int) else {
-                return .indeterminate
+                return (.indeterminate, child)
             }
             let millis = (attrs[.modificationDate] as? Date)
                 .map { String(Int64(($0.timeIntervalSince1970 * 1000).rounded())) } ?? "-"
@@ -220,11 +256,13 @@ public extension ItemIdentity {
         // and the property this buys is that two walks of one tree serialize identically.
         lines.sort { $0.utf8.lexicographicallyPrecedes($1.utf8) }
         // The scheme marker means a rule change makes old and new digests DIFFER (a refusal)
-        // rather than collide — same practice as `ContentFingerprint.scheme`. "tree-2": tree-1
-        // digested every entry; the ignored-names skip above changed what serializes.
-        let canonical = "tree-2\n" + lines.joined(separator: "\n")
+        // rather than collide — same practice as `ContentFingerprint.scheme`. "tree-3": tree-2
+        // skipped everything in the duplicates finder's ignored set; the walk now digests
+        // `.git`, `.build` and `node_modules` (they hold user work a ⌘Z must not destroy) and
+        // skips only `deepIdentityIgnoredNames`.
+        let canonical = "tree-3\n" + lines.joined(separator: "\n")
         let digest = SHA256.hash(data: Data(canonical.utf8))
-        return .directoryTree(contentDigest: digest.map { String(format: "%02x", $0) }.joined())
+        return (.directoryTree(contentDigest: digest.map { String(format: "%02x", $0) }.joined()), nil)
     }
 
     /// Compares a recorded identity against what is on disk now.

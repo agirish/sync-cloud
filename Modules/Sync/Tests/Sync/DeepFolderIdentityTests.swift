@@ -1,3 +1,4 @@
+import Events
 import Foundation
 import Testing
 @testable import Sync
@@ -26,8 +27,9 @@ import Testing
 /// copied root still answers `.unchanged` after the tampering — so the fixture provably exercises
 /// the gap the shallow identity cannot see, not a shape the old guard already caught.
 ///
-/// No `.serialized` and no log-window assertions: every assertion here reads this suite's own
-/// manager's banner or its own mock disk, so there is nothing a parallel neighbour could satisfy.
+/// No `.serialized`: every assertion here reads this suite's own manager's banner or its own mock
+/// disk — except the one registration-warning test, whose `Logger.shared` match is keyed on a
+/// per-run UUID path — so there is nothing a parallel neighbour could satisfy.
 @Suite struct DeepFolderIdentityTests {
 
     @MainActor
@@ -412,40 +414,52 @@ import Testing
                 "one logical name stored NFD by Foundation and NFC by a POSIX writer must be one identity")
     }
 
-    // MARK: 7 — Finder's droppings are not part of the identity
+    // MARK: 7 — OS noise is not part of the identity; tooling trees ARE
 
-    /// The seam, on a real tree: `.DS_Store`s appearing at two depths and a `node_modules`
-    /// subtree arriving wholesale leave the identity untouched — and a real edit still reads as
-    /// drift, so the skip has not widened into blindness. The convention and the constant are the
-    /// duplicates gate's own (`DuplicateFinderOptions.defaultIgnoredNames`), adopted for the same
-    /// lesson: counting `.DS_Store` "refused every folder ever opened in Finder, forever".
-    @Test func finderAndToolingMetadataInsideTheTreeDoesNotChangeTheDeepIdentity() throws {
+    /// The seam, on a real tree, holding both halves of the ignored-names rule.
+    ///
+    /// OS noise — `.DS_Store` at two depths, `Thumbs.db` — appearing after the recording leaves
+    /// the identity untouched: digesting Finder's droppings refused ⌘Z for every folder the user
+    /// so much as opened, forever. That is `ItemIdentity.deepIdentityIgnoredNames`, and it is
+    /// deliberately NOT the duplicates finder's `defaultIgnoredNames`: that set also skips
+    /// `.git`, `.build` and `node_modules`, which is right for a DISCOVERY filter (a false skip
+    /// costs a missed duplicate) and wrong for this DESTRUCTION guard — a `node_modules` skip
+    /// meant an edit the user made inside the copy's `node_modules` was trashed by ⌘Z under an
+    /// `.unchanged` verdict, taking the only instance of the edit. So the second half: an edit
+    /// INSIDE a tooling subtree the copy carried is drift, and the undo refuses.
+    @Test func osNoiseDoesNotChangeTheDeepIdentityButAnEditInsideAToolingTreeDoes() throws {
         let base = try makeCanonicalTempRoot(prefix: "DeepIdentityIgnored")
         defer { try? FileManager.default.removeItem(at: base) }
         let folder = base.appendingPathComponent("folder")
         let deep = folder.appendingPathComponent("a/b")
         try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
         try Data("payload".utf8).write(to: deep.appendingPathComponent("leaf.txt"))
+        // The copy CARRIES a dependency subtree — recorded as part of the tree it lands as.
+        let pkg = folder.appendingPathComponent("node_modules/pkg")
+        try FileManager.default.createDirectory(at: pkg, withIntermediateDirectories: true)
+        try Data("module.exports = {}".utf8).write(to: pkg.appendingPathComponent("index.js"))
 
         let recorded = ItemIdentity.deepSnapshot(at: folder, fileManager: FileManager.default)
         guard case .directoryTree = recorded else {
             Issue.record("expected a deep directory identity, got \(recorded)")
             return
         }
+        #expect(recorded.drift(at: folder, fileManager: FileManager.default) == .unchanged,
+                "an untouched tree — tooling subtree included — must not read as drift")
 
-        // Finder opens the copy (and a subfolder); a build tool drops a dependency subtree.
+        // Finder opens the copy (and a subfolder); a Windows client scribbles its thumbnail db.
         try Data("finder".utf8).write(to: folder.appendingPathComponent(".DS_Store"))
         try Data("finder".utf8).write(to: deep.appendingPathComponent(".DS_Store"))
-        let pkg = folder.appendingPathComponent("node_modules/pkg")
-        try FileManager.default.createDirectory(at: pkg, withIntermediateDirectories: true)
-        try Data("module.exports = {}".utf8).write(to: pkg.appendingPathComponent("index.js"))
+        try Data("windows".utf8).write(to: folder.appendingPathComponent("Thumbs.db"))
 
         #expect(recorded.drift(at: folder, fileManager: FileManager.default) == .unchanged,
-                "ignored names — and their whole subtrees — must not shift the identity: digesting them refuses ⌘Z for every folder Finder ever opened")
+                "OS noise must not shift the identity: digesting it refuses ⌘Z for every folder Finder ever opened")
 
-        try Data("payload-and-longer".utf8).write(to: deep.appendingPathComponent("leaf.txt"))
+        // The user edits INSIDE the tooling subtree. Under the old rule (the duplicates finder's
+        // set) this was invisible — .unchanged — and ⌘Z destroyed the edit with the copy.
+        try Data("module.exports = { edited: true }".utf8).write(to: pkg.appendingPathComponent("index.js"))
         #expect(recorded.drift(at: folder, fileManager: FileManager.default) == .changed,
-                "the skip must stay a skip: a real deep edit beside the ignored entries is still drift")
+                "an edit inside node_modules is the user's work like any other — .unchanged here is ⌘Z trashing the only copy of it")
     }
 
     /// The same convention end-to-end: Finder writes a `.DS_Store` deep inside the copy between
@@ -534,6 +548,40 @@ import Testing
 
         #expect(fm.virtualDisk["/undowait-dst/project"] == nil,
                 "an undo racing the identity walk must wait for it and then act — a silent no-op strands the copy and lies about the stack")
+    }
+    // MARK: 10 — a registration-time .indeterminate says why, when it is knowable
+
+    /// An unreadable descendant at REGISTRATION time is a permanent refusal for that item: hours
+    /// later ⌘Z shows a banner that cannot say why, and until this the log's only line was the
+    /// refusal itself. The registration must leave one warning naming the item — and the failing
+    /// descendant, which the listing reports and the walk used to discard.
+    ///
+    /// This is the suite's one assertion against `Logger.shared` (a process-global): the paths
+    /// carry a per-run UUID so no parallel neighbour can satisfy or pollute the match, per the
+    /// `LoggingGapTests` discipline.
+    @MainActor
+    @Test func anUnreadableDescendantAtRegistrationLogsWhyTheEventualUndoWillRefuse() async throws {
+        let manager = makeManager()
+        let fm = MockFileManager()
+        let root = "/logind-\(UUID().uuidString)"
+        try plantDeepSource(on: fm, under: root)
+        fm.unlistableDirectories = ["\(root)/project/src/deep"]
+
+        let walk = manager.registerCopyUndo(
+            items: [(source: URL(fileURLWithPath: "\(root)-src/project"),
+                     destination: URL(fileURLWithPath: "\(root)/project"), overwritten: nil)],
+            actionName: "Copy 1 Items", fileManager: fm)
+        await walk.value
+        // The warning rides the logger's FIFO; awaiting a later marker proves it has landed.
+        await Logger.shared.debug("deep-identity log flush \(root)").value
+
+        let entry = Logger.shared.entries.last {
+            $0.message.contains("\(root)/project") && $0.level == .warning
+        }
+        try #require(entry != nil,
+                     "a registration-time .indeterminate must log a warning naming the item — the ⌘Z refusal hours later is otherwise undiagnosable")
+        #expect(entry?.message.contains("\(root)/project/src/deep") == true,
+                "the failing descendant is known (the listing reports it) and must be named; got \(String(describing: entry?.message))")
     }
 }
 
