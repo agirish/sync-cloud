@@ -66,11 +66,25 @@ session. `main`'s fix restructures the card into `FilingWalkthroughCard` (focusa
 (`TidyView` vs `LensWorkspaceView` doc anchors, no `personIs`/`unrecognized` cases, `v2.x`'s
 provider/source vocabulary split — the card's caption reads `\(provider)`). The two new suites
 travel with the fix and need per-line adaptation too: `FilingWalkthroughCardKeyTests` borrows its
-window harness from `DifferencesTableBindingTests`, which is **absent on both lines** (the
-`LayoutPumpWait.pump` it relies on is present — the floor scan landed per line), and
-`BareKeyEquivalentScanTests`' count floor (`files.count > 150`) needs re-deriving against each
-line's smaller source tree. `.onKeyPress` itself and the `AutomationDryRunRow` initializer shape
-(`destinationAnchor`) are present on both lines — checked, so the port compiles in principle.
+window harness from `DifferencesTableBindingTests`, which is **present on both lines** — the file
+AND its `host(_:)` harness, `git show origin/<line>:…/DifferencesTableBindingTests.swift | grep -n
+'func host('` answers line 104 on `v3.x` and on `v2.x`, and the `LayoutPumpWait.pump` it relies on
+is present too (the floor scan landed per line). An earlier revision of this entry claimed the
+harness file was absent on both lines, overstating the port's cost; the claim had not been checked
+— re-verified 2026-08-21. `BareKeyEquivalentScanTests`' count floor (`files.count > 150`) still
+needs re-deriving against each line's smaller source tree. `.onKeyPress` itself and the
+`AutomationDryRunRow` initializer shape (`destinationAnchor`) are present on both lines — checked,
+so the port compiles in principle.
+
+**The port must take the fix's FIXED shape, not its first cut.** `d25dafef`'s original
+`.onKeyPress(keys:phases:)` handlers never inspected `press.modifiers` — that overload, unlike the
+single-key one, delivers modified presses, so ⌘⏎/⇧⏎ FILED the current item and ⌥→/⌃→ irreversibly
+SKIPPED it (measured through a real responder chain in `FilingWalkthroughCardKeyTests.
+aModifiedKeyDecidesNothing`). The modifier filter, the `.down`-phase esc handler, the retirement
+log lines in `FilingWalkthrough.cancel(because:)`, and `ReviewCardView`'s ⌫ modifier filter (the
+same defect, pre-existing in the donor file — both lines carry that card too) are all part of what
+the lines are owed; cherry-picking the walkthrough restructure without them re-ships the
+modifier-blind regression onto a maintenance line.
 
 ### 3. The folder-duplicate drift gate rebuilt on per-file snapshots — OPEN, filed 2026-08-21
 
