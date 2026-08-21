@@ -13,15 +13,28 @@ import Settings
 /// "finished" under a contended main actor.
 @Suite struct FileActionHandlerOperationTests {
 
-    /// A pasteboard of this suite's own, cleared per handler.
+    /// A pasteboard of this **test's** own, cleared as it is handed over.
     ///
     /// **`handleCopyToClipboard` writes to the system pasteboard as of v4.2**, so a handler built
     /// on `.general` here would replace whatever the developer had copied — and did: with the real
     /// pasteboard in play, `testPasteClipboardToNodeWithEmptyClipboardDoesNothing` pasted the
     /// preceding test's `clip.txt` into its temp directory and failed on a banner it never asked
     /// for. That failure is the reason the handler takes a pasteboard at all.
-    static func scratchPasteboard() -> NSPasteboard {
-        let board = NSPasteboard(name: NSPasteboard.Name("SyncCloudTests.fileActionHandler"))
+    ///
+    /// **`label` is what keeps that fix from being half a fix.** Moving off `.general` took the
+    /// developer's clipboard out of the blast radius and left twelve tests sharing one *named*
+    /// board — and swift-testing runs a suite's tests in **parallel**, so they overlap for as long
+    /// as their real file I/O and outcome polling take. A board is global state keyed by its name:
+    /// one test's `clearContents()` lands between another's copy and its paste (that paste then
+    /// resolves `.none` and copies nothing), or one test's copy lands after another's clear (that
+    /// test then pastes real files into its temp dir — which is the *same* failure quoted above,
+    /// reproduced with a different board). Naming the board after the test that owns it is what
+    /// makes the isolation real; `SystemClipboardTests` already does exactly this, one file over.
+    ///
+    /// `SystemClipboard.hasFiles`'s memo is keyed on `(name, changeCount)` for this reason too, so
+    /// distinct names keep the memo honest as well as the board.
+    static func scratchPasteboard(_ label: String) -> NSPasteboard {
+        let board = NSPasteboard(name: NSPasteboard.Name("SyncCloudTests.fileActionHandler.\(label)"))
         board.clearContents()
         return board
     }
@@ -82,7 +95,7 @@ import Settings
     @Test func testHandleCopyToClipboardStoresNodesAndCutFlag() {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testHandleCopyToClipboardStoresNodesAndCutFlag"))
         let node = FileNode(id: "/tmp/a.txt", name: "a.txt", isDirectory: false)
 
         handler.handleCopyToClipboard([node], isCut: false)
@@ -100,7 +113,7 @@ import Settings
     @Test func testPasteItemsToDirectoryNodeCopiesIntoIt() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testPasteItemsToDirectoryNodeCopiesIntoIt"))
         let src = try makeTempDir("paste-src")
         let dst = try makeTempDir("paste-dst")
         defer {
@@ -129,7 +142,7 @@ import Settings
     @Test func testPasteItemsToFileNodeCopiesIntoItsParentDirectory() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testPasteItemsToFileNodeCopiesIntoItsParentDirectory"))
         let src = try makeTempDir("pastefile-src")
         let dst = try makeTempDir("pastefile-dst")
         defer {
@@ -154,7 +167,7 @@ import Settings
     @Test func testPasteClipboardToNodeWithEmptyClipboardDoesNothing() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testPasteClipboardToNodeWithEmptyClipboardDoesNothing"))
         let dst = try makeTempDir("emptypaste")
         defer { try? FileManager.default.removeItem(at: dst) }
 
@@ -170,7 +183,7 @@ import Settings
     @Test func testPasteClipboardToPathWithEmptyClipboardDoesNothing() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testPasteClipboardToPathWithEmptyClipboardDoesNothing"))
         let dst = try makeTempDir("emptypaste-path")
         defer { try? FileManager.default.removeItem(at: dst) }
 
@@ -187,7 +200,7 @@ import Settings
     @Test func testPasteClipboardToNodeCopiesAndRetainsClipboard() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testPasteClipboardToNodeCopiesAndRetainsClipboard"))
         let src = try makeTempDir("clip-src")
         let dst = try makeTempDir("clip-dst")
         defer {
@@ -215,7 +228,7 @@ import Settings
     @Test func testPasteClipboardToPathCutMovesAndClearsClipboardAfterSuccess() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testPasteClipboardToPathCutMovesAndClearsClipboardAfterSuccess"))
         let src = try makeTempDir("clipcut-src")
         let dst = try makeTempDir("clipcut-dst")
         defer {
@@ -259,7 +272,7 @@ import Settings
             CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", path: right.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("runPaneMove-\(fromLeft)"))
 
         let sourceDir = fromLeft ? left : right
         let destDir = fromLeft ? right : left
@@ -304,7 +317,7 @@ import Settings
             CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", path: right.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testCopyItemsFromLeftCopiesToRightPane"))
         let file = try makeFile(in: left, named: "copy-me.txt")
         let node = FileNode(id: file.path, name: "copy-me.txt", isDirectory: false)
 
@@ -331,7 +344,7 @@ import Settings
             CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", path: left.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testMoveItemsWithUnknownDestinationProviderPresentsErrorForDestinationSide"))
         let file = try makeFile(in: left, named: "keep-me.txt")
         let node = FileNode(id: file.path, name: "keep-me.txt", isDirectory: false)
 
@@ -349,7 +362,7 @@ import Settings
     @Test func testMoveItemsWithUnknownProviderReturnsEmptyAndPresentsError() async throws {
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []),
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testMoveItemsWithUnknownProviderReturnsEmptyAndPresentsError"))
         let src = try makeTempDir("move-guard")
         defer { try? FileManager.default.removeItem(at: src) }
         let file = try makeFile(in: src, named: "keep-me.txt")
@@ -379,7 +392,7 @@ import Settings
             CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", path: right.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
-                                        pasteboard: Self.scratchPasteboard())
+                                        pasteboard: Self.scratchPasteboard("testMoveItemsWithMissingSourceFileShowsNoSuccessBanner"))
         let node = FileNode(id: left.appendingPathComponent("ghost.txt").path, name: "ghost.txt", isDirectory: false)
 
         let moved = await handler.moveItems([node], fromLeft: true, leftProviderId: "L", rightProviderId: "R")

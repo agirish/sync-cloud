@@ -1,3 +1,4 @@
+import Events
 import Foundation
 import Sync
 import Testing
@@ -60,6 +61,63 @@ import Testing
         let url = dir.appendingPathComponent("setup-draft.json")
         try "not json at all".write(to: url, atomically: true, encoding: .utf8)
         #expect(SetupDraftStore.read(at: url) == nil)
+    }
+
+    /// **Absent and unreadable both answer `nil`, and only one of them may do it quietly.**
+    ///
+    /// Returning `nil` is the whole of what the two states have in common, and it is what the two
+    /// tests above already pin — so a test of the *return* cannot tell them apart, and neither
+    /// could the code until v4.2: both were a bare `try?`. The difference is what it costs the
+    /// user. Absent is every launch before they answer anything. Unreadable means the answers they
+    /// *did* give are about to be asked for again, and this file is the only copy of them
+    /// (`clear(at:)` refuses to run until they have reached a roster). That is the one worth a line
+    /// in `~/sync-cloud.log`, and the line has to name the path or it cannot be looked at by hand.
+    ///
+    /// Read between two of this test's own markers rather than over the whole buffer:
+    /// `Logger.shared` is process-wide and `entries` is a rolled 1000-line window, so a bare
+    /// `contains` would let a rolled window pass the absence half for free. The opening marker is
+    /// `#require`d, which is the eviction guard.
+    ///
+    /// **Matched on this test's own scratch paths, not on the words the line uses**, and that is
+    /// what lets the suite stay unserialized. Two sibling tests here (`garbageIsIgnored…`,
+    /// `aForeignSchema…`) now log about a draft too, and a phrase match would let either of them
+    /// land inside this window and fail the absence half for a reason that is not this test's
+    /// subject. The scratch directory carries a UUID, so no other test in the process can produce
+    /// a line naming these files.
+    @MainActor
+    @Test func onlyAnUnreadableDraftSaysSoInTheLog() async throws {
+        let dir = try Self.scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        /// Everything logged between two fresh markers, with the read under test run between them.
+        func window(_ act: () -> Void) async throws -> ArraySlice<String> {
+            let token = UUID().uuidString.prefix(8)
+            await Logger.shared.debug("setup-draft window open \(token)").value
+            act()
+            await Logger.shared.debug("setup-draft window close \(token)").value
+            let messages = Logger.shared.entries.map(\.message)
+            let opened = try #require(messages.firstIndex(where: { $0.contains("open \(token)") }),
+                                      "the log window rolled past this test's own marker — this reading is vacuous")
+            let tail = messages[opened...]
+            let closed = try #require(tail.lastIndex(where: { $0.contains("close \(token)") }),
+                                      "the closing marker never landed — this reading is vacuous")
+            return tail[...closed]
+        }
+
+        // Absent: the ordinary case, on every launch before the user has answered anything.
+        let missing = dir.appendingPathComponent("nothing.json")
+        let quiet = try await window { _ = SetupDraftStore.read(at: missing) }
+        #expect(!quiet.contains(where: { $0.contains(missing.path) }),
+                "a draft that was never written logged a line — that fires on every launch and is how a log stops being read")
+
+        // Present and undecodable: the user's answers are being discarded.
+        let broken = dir.appendingPathComponent("setup-draft.json")
+        try "not json at all".write(to: broken, atomically: true, encoding: .utf8)
+        let noisy = try await window { _ = SetupDraftStore.read(at: broken) }
+        let line = try #require(noisy.last(where: { $0.contains(broken.path) }),
+                                "an unreadable draft threw away answers with nothing in the log naming the file")
+        #expect(line.lowercased().contains("could not") || line.lowercased().contains("cannot decode"),
+                "the line names the file but not what went wrong with it: \(line)")
     }
 
     @Test func clearingRemovesTheFileAndToleratesItsAbsence() throws {

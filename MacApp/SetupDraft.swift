@@ -188,9 +188,45 @@ enum SetupDraftStore {
     }
 
     /// The draft on disk, or nil when there is none this build can read.
+    ///
+    /// **Three states, and only one of them is silent.** This used to be a pair of `try?`s that
+    /// collapsed all three into the same bare `nil` — the same shape ``FolderJumpStore/storedMap``
+    /// draws a line through one module over, and for the same reason: *absent* and *unreadable* are
+    /// not the same state.
+    ///
+    /// - **Absent** — the ordinary case, and by far the commonest: there is no draft until the
+    ///   user has answered something. Silent, because a line per launch saying a file the app has
+    ///   not written yet is not there is how a log stops being read.
+    /// - **Present and unreadable** — permissions, a truncated write, a hand edit. This file is the
+    ///   **only** copy of the You and People answers (which is why ``clear(at:)`` refuses to run
+    ///   before they have reached a roster), so the user is about to be asked the form again and
+    ///   lose what they typed. That is worth a line naming the path, so the file can be looked at
+    ///   by hand.
+    /// - **Schema from another build** — already had its warning, and keeps it.
+    ///
+    /// The bytes are *not* stashed the way `FolderJumpStore` stashes pins, and the asymmetry is
+    /// deliberate: pins are curated over months and unrecoverable, whereas a draft is one form
+    /// away and is deleted the moment setup finishes. Saying where it is beats keeping a copy of it.
     static func read(at url: URL) -> SetupDraft? {
-        guard let data = try? Data(contentsOf: url),
-              let document = try? JSONDecoder().decode(Document.self, from: data) else { return nil }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            // `fileExists` rather than the error code, because the interesting distinction is
+            // "is there something here to lose", not which of several errors a read produced.
+            if FileManager.default.fileExists(atPath: url.path) {
+                Logger.shared.warning("Setup draft at \(url.path) could not be read "
+                                      + "(\(error.localizedDescription)) — setup will ask again, and "
+                                      + "the answers already given are only in that file")
+            }
+            return nil
+        }
+        guard let document = try? JSONDecoder().decode(Document.self, from: data) else {
+            Logger.shared.warning("Setup draft at \(url.path) is \(data.count) byte(s) this build "
+                                  + "cannot decode — setup will ask again, and the answers already "
+                                  + "given are only in that file")
+            return nil
+        }
         guard document.schemaVersion == currentSchema else {
             Logger.shared.warning("Setup draft has schema \(document.schemaVersion), not "
                                   + "\(currentSchema) — ignoring it and asking again")

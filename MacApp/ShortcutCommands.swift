@@ -303,8 +303,17 @@ struct TabBarSwitch {
 /// chords resolve through `paneSearchTargetIsLeft`, and a focus change between two `@FocusedValue`
 /// reads is exactly the drift `ShortcutValuePublisher` exists to prevent.
 ///
-/// `cut` and `copy` are `nil` with nothing selected; `paste` is `nil` when the clipboard is empty,
-/// which is what makes the menu item disable rather than becoming a silent no-op.
+/// `cut` and `copy` are `nil` with nothing selected; `paste` is `nil` when neither clipboard holds
+/// files.
+///
+/// **A `nil` here does not disable the menu item, and must not be made to.** `CutCommand`,
+/// `CopyCommand` and `PasteCommand` are never `.disabled` — see the reasoning on `CutCommand` and
+/// the guard `EditMenuTests.theEditItemsAreNeverDisabled` — because a menu item cannot know
+/// where the caret is when it renders, and greying Copy over an empty selection would grey it out
+/// while somebody is typing in the ⌘K field. So the item stays live, `TextEditingChord.route`
+/// picks the meaning at fire time, and `nil` makes the *file* half a no-op rather than making the
+/// item unavailable. This sentence used to say the opposite, which is one reading away from
+/// "fixing" these into `.disabled(…)` and taking ⌘C from every text field in the app.
 struct ClipboardActions {
     let cut: (() -> Void)?
     let copy: (() -> Void)?
