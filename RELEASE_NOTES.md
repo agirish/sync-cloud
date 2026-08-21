@@ -19,6 +19,12 @@ User-facing changes, newest first. For the full commit history see the
 > **Re-check the Known limitations before publishing.** They age in the direction
 > that makes them wrong: ⌘/ was listed here as opening nothing, and was fixed on the
 > tip while this was being written.
+>
+> **Browse's folder sidebar is built, on `main`, and deliberately NOT in this list.**
+> `5fb65b48` held it for v4.3 — `FolderSidebarModel.isEnabled` is false and the chord,
+> the menu item and the ⌘/ row are deleted rather than greyed — so the range contains
+> a feature nobody can reach. It had an entry here and `ac42c895` removed it. Do not
+> restore one from reading the commits; the switch is what decides, not the diff.
 
 **SyncCloud can set itself up.** Until now the filing engine needed a *folder
 profile* — the record of your tree that To File, Renames and Restructure all read —
@@ -41,8 +47,8 @@ section first.
 
 ### Setting up
 
-- **A fresh install is asked four questions rather than shown six pages of prose.** Your name
-  and the forms of it documents print; which of the discovered sources you actually
+- **A fresh install is asked four questions rather than shown six pages of prose.** Your
+  name and the forms of it documents print; which of the discovered sources you actually
   use and which is primary; who else is in the household; and which folder to learn
   from. The retired tour asked for nothing, so everything the filing engine needs was
   left to be discovered later across nine settings tabs.
@@ -64,8 +70,9 @@ section first.
   are.** `Family/Aditi` is a person because `Family` said so. Every rule that
   measured repetition instead was thrown out by the numbers rather than by review —
   on a document tree `Reference`, `Application` and `Statements` all outrank every
-  real person, because document-type words repeat harder than people do. It over-proposes on purpose, with the vouching folder on each chip: a
-  name you must think of unprompted costs more than a name you refuse with one click.
+  real person, because document-type words repeat harder than people do. It
+  over-proposes on purpose, with the vouching folder on each chip: a name you must think
+  of unprompted costs more than a name you refuse with one click.
 - **Answers are kept when there is nowhere yet to put them.** `people.json` lives
   *inside* a profile, so on the machine this form exists for, You and People have
   nowhere to write until the walk mints one. Those two rows say the answer is kept
@@ -88,8 +95,8 @@ section first.
 - **An unreadable pin list was destroyed by the next pin you made.** The folder-jump
   store — the pins behind the breadcrumb menu and ⌘K's Folders group — decoded with
   `try?`, so a blob it could not read left the store at empty, looking exactly like a
-  fresh install. Nothing was lost on that read. The loss came
-  on the **next write**: the first pin you made encoded that empty map over the key,
+  fresh install. Nothing was lost on that read. The loss came on the **next write**:
+  the first pin you made encoded that empty map over the key,
   and every pin you had curated went with it — which is why a test that checked only
   the decode would have passed throughout. The bytes are kept aside under
   `<key>.unreadable` now and the store carries on, so pinning still works and nothing
@@ -100,8 +107,9 @@ section first.
 ### The menu bar
 
 - **Cut, Copy, Paste and Select All reach your files.** Cut, Copy and *Paste here*
-  have worked from the row menu since before v4.0, and ⌘C over a selected file fell through to
-  AppKit's text Copy and did nothing you could see; Select All was missing outright,
+  have worked from the row menu since before v4.0, and ⌘C over a selected file fell
+  through to AppKit's text Copy and did nothing you could see; Select All was missing
+  outright,
   appearing nowhere in the app except inside text-field editors. The cost was never
   the pasteboard, it was the routing — all four are text-editing keys, and a menu key
   equivalent outranks the field editor — so the keystroke is handed back whenever the
@@ -139,10 +147,10 @@ section first.
   that pick owns the keyboard until you answer it. Space was not among them: it is a
   key handler on the file list rather than a menu item, so it never went through the
   publication that does the silencing, and nothing stopped it putting a preview over
-  the sheet you were in the middle of answering. The reasoning that missed it was that a focus-scoped
-  handler cannot fire while a sheet is up — but the picker is drawn over file panes
-  that are real AppKit tables, and a view drawn above one of those does not take the
-  keyboard from it. ↩, which is new here, is covered by the same rule.
+  the sheet you were in the middle of answering. The reasoning that missed it was that a
+  focus-scoped handler cannot fire while a sheet is up — but the picker is drawn over
+  file panes that are real AppKit tables, and a view drawn above one of those does not
+  take the keyboard from it. ↩, which is new here, is covered by the same rule.
 - **⌘← and ⌘→ are in the Compare menu.** The four directional transfers worked and
   were listed in the ⌘/ reference, but had no menu-bar route — and a menu item is
   what lets a chord be read as well as pressed. Their titles name the providers
@@ -191,10 +199,10 @@ section first.
 - **Storage's ranked lists draw a magnitude bar and a share.** Every size was set in
   the same weight at the same position, so a four-fold difference between two rows
   read as nothing until you compared the digits — in a section titled "the biggest
-  individual files". Each row's bar is scaled to its section's own largest file rather than to
-  what is still on screen, so typing a query does not silently rescale every bar; the
-  bars are on the size-ordered lists only, since on the oldest-first list a bar that
-  rose and fell would read as a ranking it has nothing to do with. The share rounds
+  individual files". Each row's bar is scaled to its section's own largest file rather
+  than to what is still on screen, so typing a query does not silently rescale every
+  bar; the bars are on the size-ordered lists only, since on the oldest-first list a bar
+  that rose and fell would read as a ranking it has nothing to do with. The share rounds
   away from zero, because "0%" claims the file is not there.
 - **The treemap is one ramp instead of ten hues.** Colour was assigned by index, so
   blue-for-Work meant nothing and the eye kept looking for a legend that could not
