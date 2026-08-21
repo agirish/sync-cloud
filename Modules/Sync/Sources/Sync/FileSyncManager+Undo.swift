@@ -17,6 +17,12 @@ extension FileSyncManager {
     /// let 200 files land in it, press ⌘Z, and on a Trash-less volume they were destroyed under a
     /// "removed 1 of 1" log line. And for files the comparison was size-only, so any same-length
     /// rewrite (2025→2026) compared equal and was trashed as though untouched.
+    ///
+    /// For a directory the identity recorded here is the DEEP one (`ItemIdentity.deepSnapshot`,
+    /// `.directoryTree`): this undo trashes, so it must also notice an edit made deep inside the
+    /// copy — which leaves the root's own date and child count identical and so slipped past the
+    /// shallow `.directory` identity that used to be recorded here. See `registerCopyUndo(items:)`
+    /// for the cost, and the move typealiases below for why THEY stay shallow.
     typealias CopyUndoItemState = (source: URL, destination: URL, overwritten: URL?, destinationIdentity: ItemIdentity)
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
     /// `MoveItemState` enriched with the identity the moved item had once the move completed, so
@@ -527,13 +533,25 @@ extension FileSyncManager {
     /// the items in a pre-resolved `AsyncValueResolver` so the resolver-based form below stays
     /// the single implementation. The resolver forms remain for the undo/redo chain, where the
     /// next state genuinely resolves later (inside the queued file operation).
-    /// Snapshots each copied item's byte size HERE, at registration time (a cheap synchronous
-    /// metadata stat, same trade as deleteItems' history records), so the undo handler can
-    /// refuse to trash a destination that is no longer the item this copy produced.
+    ///
+    /// Snapshots each copied item's identity HERE, at registration time, so the undo handler can
+    /// refuse to trash a destination that is no longer the item this copy produced — and it takes
+    /// the DEEP snapshot, because this undo DESTROYS. `deepSnapshot` digests every descendant, so
+    /// an edit made two levels down inside the copy — which leaves the root's own date and child
+    /// count identical, the exact case the shallow identity's doc admitted it "answers
+    /// `.unchanged` for" — changes the identity and the ⌘Z refuses instead of trashing the only
+    /// instance of the edit. The move registrations below stay SHALLOW on purpose; each says why
+    /// at its own snapshot.
+    ///
+    /// Cost: one stat-only recursive walk per copied folder (no bytes are read), at the moment
+    /// the copy just finished and the tree's metadata is warm. The duplicates path already
+    /// accepts the same trade for the same reason — `folderDriftedInPlace`: "one recursive walk
+    /// per folder copy, at the moment of a destructive click — the alternative is trashing the
+    /// last copy of 1,200 photos to save it."
     func registerCopyUndo(items: [CopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) {
         let enriched: [CopyUndoItemState] = items.map { item in
             (source: item.source, destination: item.destination, overwritten: item.overwritten,
-             destinationIdentity: ItemIdentity.snapshot(at: item.destination, fileManager: fm))
+             destinationIdentity: ItemIdentity.deepSnapshot(at: item.destination, fileManager: fm))
         }
         let resolver = AsyncValueResolver<[CopyUndoItemState]>()
         Task { await resolver.resolve(enriched) }
@@ -545,6 +563,15 @@ extension FileSyncManager {
         // Snapshots each moved item's identity HERE, at registration time — the move has already
         // happened, so the item this undo is responsible for is on disk — so the handler can
         // refuse to move back something that is no longer it.
+        //
+        // The SHALLOW snapshot, deliberately, where `registerCopyUndo` takes the deep one. The
+        // two undos do different things to the item: the copy-undo TRASHES it, so a deep edit it
+        // fails to notice is an edit destroyed; the move-undo MOVES it back, and an edit it fails
+        // to notice travels with the folder — nothing is lost. A deep identity here would turn
+        // that non-loss into a false refusal: edit any file inside a folder you moved and ⌘Z
+        // would decline to move the folder back, "protecting" content that was never in danger.
+        // The shallow check still catches what a move-back can genuinely clobber into being wrong
+        // — the destination replaced wholesale, or reshaped at depth 1.
         //
         // Read at `liveLocation` rather than at `to` itself, because for a NESTED
         // batch `to` is not where the item is by the time registration runs. `normalizeNames`
@@ -700,7 +727,10 @@ extension FileSyncManager {
                             }
                             // "Still the same item?" drift guard: if the destination is no longer
                             // the item this copy produced, refuse to trash it and keep it out of
-                            // the redo params.
+                            // the redo params. For a folder the recorded identity is DEEP
+                            // (`.directoryTree`), and `drift` re-walks at that same depth here —
+                            // so an edit buried levels down inside the copy refuses too, not just
+                            // a change to the root's own date or immediate children.
                             //
                             // Switched rather than `if let`-ed, which is the fix: the verdict has
                             // three values and the old shape could only express two, so the third
@@ -829,10 +859,14 @@ extension FileSyncManager {
                             try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                             do {
                                 let trashed = try FileSyncManager.safeCopyItem(at: param.source, to: param.destination, fileManager: fm)
-                                // Re-snapshot the size of the item this redo just produced — the
-                                // next undo must guard against drift from THIS copy, not the first.
+                                // Re-snapshot the item this redo just produced — the next undo
+                                // must guard against drift from THIS copy, not the first. DEEP,
+                                // like `registerCopyUndo(items:)`: this identity feeds the same
+                                // trash guard, and recording it shallow here would quietly hand
+                                // the redo→undo leg back the deep-edit blindness the first leg
+                                // just closed.
                                 nextState.append((source: param.source, destination: param.destination, overwritten: trashed,
-                                                  destinationIdentity: ItemIdentity.snapshot(at: param.destination, fileManager: fm)))
+                                                  destinationIdentity: ItemIdentity.deepSnapshot(at: param.destination, fileManager: fm)))
                             } catch {
                                 // A failed re-copy must stay out of the next undo state: undoing
                                 // a phantom copy would prompt to permanently delete a file that
@@ -1087,6 +1121,13 @@ extension FileSyncManager {
                         // landed would already disagree with itself two items later. The state the
                         // loop leaves behind is the state the redo will find, so that is the one to
                         // record.
+                        //
+                        // SHALLOW, deliberately, for the same reason as `registerMoveUndo(items:)`:
+                        // a redo MOVES rather than destroys, so a deep edit it misses travels with
+                        // the folder, while a deep identity here would falsely refuse the redo of
+                        // any folder edited inside since the undo — and the redo's own deepest-first
+                        // replay moves children out of the very directories it is about to compare,
+                        // which a recursive digest would read as drift this loop itself caused.
                         let reversedParams: [MoveRedoParam] = movedBackPairs.map { pair in
                             (from: pair.from, to: pair.to,
                              sourceIdentity: ItemIdentity.snapshot(at: pair.from, fileManager: fm))
@@ -1243,7 +1284,9 @@ extension FileSyncManager {
                                 let trashed = try FileSyncManager.safeMoveItem(at: param.from, to: param.to, fileManager: fm)
                                 // Snapshot HERE, where the state is produced — the resolver is
                                 // consumed at undo time, and a snapshot taken there would be
-                                // compared against itself.
+                                // compared against itself. Shallow, like every move-chain
+                                // identity: it feeds the next MOVE-undo's guard, which moves
+                                // rather than destroys (see `registerMoveUndo(items:)`).
                                 nextState.append((from: param.from, to: param.to, overwritten: trashed,
                                                   movedIdentity: ItemIdentity.snapshot(at: param.to, fileManager: fm)))
                             } catch {

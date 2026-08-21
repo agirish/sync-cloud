@@ -177,9 +177,12 @@ import Testing
         #expect(recorded.drift(at: file, fileManager: FileManager.default) == .unchanged)
     }
 
-    /// The documented limit, asserted so it is a known position rather than an assumption: a change
-    /// deep inside an untouched subtree leaves the folder's own date and child count identical, and
-    /// this seam answers `.unchanged`. Any caller needing more has to walk the tree.
+    /// The documented limit of the SHALLOW identity, asserted so it is a known position rather
+    /// than an assumption: a change deep inside an untouched subtree leaves the folder's own date
+    /// and child count identical, and `snapshot` answers `.unchanged`. A caller that cannot
+    /// afford that records `deepSnapshot` instead — the copy-undo does, and
+    /// `DeepFolderIdentityTests.aDeepEditIsNoticedByTheDeepIdentityWhereTheShallowOneIsBlind`
+    /// holds both depths against this same fixture shape.
     @Test func aChangeDeepInsideASubtreeIsNotNoticed() throws {
         let base = try makeCanonicalTempRoot(prefix: "IdentityDeep")
         defer { try? FileManager.default.removeItem(at: base) }

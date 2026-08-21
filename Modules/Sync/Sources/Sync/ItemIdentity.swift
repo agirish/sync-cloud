@@ -3,6 +3,7 @@
 //  SyncCloud
 //
 
+import CryptoKit
 import Foundation
 
 /// Enough of an item's on-disk state to tell later whether it is still the item an operation
@@ -17,9 +18,17 @@ import Foundation
 public enum ItemIdentity: Equatable, Sendable {
     /// A regular file. `modified` is nil only when the filesystem did not report one.
     case file(size: Int, modified: Date?)
-    /// A directory. `childCount` is its number of immediate children — see `compare` for exactly
-    /// what this can and cannot notice.
+    /// A directory, SHALLOWLY: `childCount` is its number of immediate children — see `compare`
+    /// for exactly what this can and cannot notice. A caller whose wrong answer destroys data
+    /// records `.directoryTree` instead, via `deepSnapshot`.
     case directory(modified: Date?, childCount: Int)
+    /// A directory described by its RECURSIVE content: `contentDigest` is a SHA-256 over every
+    /// descendant's (relative path, kind, size, modification date), so an edit at ANY depth —
+    /// including a same-count, same-parent-date rewrite three levels down — changes the identity.
+    /// `.directory` cannot see that case, and for the copy-undo "cannot see" meant "trashes the
+    /// only instance of the edit"; this case is what that guard records. Produced only by
+    /// `deepSnapshot`, and `drift` re-reads at the same depth it was recorded at.
+    case directoryTree(contentDigest: String)
     /// A symbolic link, described by its OWN size and date, not its target's.
     ///
     /// Spelled out rather than folded into `.file` because `attributesOfItem` does not follow
@@ -57,10 +66,11 @@ public extension ItemIdentity {
     /// file the cost is unchanged: one `attributesOfItem`, with the modification date riding along
     /// in the same call as the size.
     ///
-    /// That lands at registration time rather than undo time — `registerCopyUndo` snapshots every
-    /// copied item up front, on the main actor — so a copy of many large folders pays a listing
-    /// each. Taking folder identities lazily, or off the main actor, is a decision for the call
-    /// site; this type does not make it.
+    /// That lands at registration time rather than undo time — the registration sites snapshot
+    /// every item up front, on the main actor — so a batch of many large folders pays a listing
+    /// each (`registerCopyUndo` pays a RECURSIVE one, via `deepSnapshot`, which carries its own
+    /// cost note). Taking folder identities lazily, or off the main actor, is a decision for the
+    /// call site; this type does not make it.
     static func snapshot(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         guard let attrs = try? fm.attributesOfItem(atPath: url.path) else {
             // attributesOfItem throws for both "not there" and "there but unreadable", and those
@@ -98,6 +108,82 @@ public extension ItemIdentity {
         return .file(size: size, modified: attrs[.modificationDate] as? Date)
     }
 
+    /// Reads the item at `url`, describing a directory by its RECURSIVE content rather than by its
+    /// own date and immediate child count. For anything that is not a directory this is exactly
+    /// `snapshot`; for a directory it answers `.directoryTree` — or `.indeterminate` the moment
+    /// any part of the tree could not be read, because a partial walk cannot prove a tree is still
+    /// what it was.
+    ///
+    /// **Cost.** One recursive walk, stat-only — no file's bytes are ever read. The duplicates
+    /// path already accepts exactly this trade (`folderDriftedInPlace`: "one recursive walk per
+    /// folder copy, at the moment of a destructive click — the alternative is trashing the last
+    /// copy of 1,200 photos to save it"), and both moments this runs at are the same shape: at
+    /// copy-undo REGISTRATION the copy has just finished, so the tree's metadata is warm, and at
+    /// undo/redo VERIFICATION the user has just clicked something destructive.
+    ///
+    /// **What goes into the digest.** One line per descendant, holding its relative path, its
+    /// kind, and for files and symlinks its size and modification date (millisecond precision —
+    /// APFS keeps more, and a whole millisecond cannot be lost to Double rounding). Directory
+    /// entries carry path and kind only: their membership IS their content here, their dates
+    /// would re-state changes the children's own lines already carry, and a directory date that
+    /// moves with no line moving is exactly the perturbation the move-redo had to design around.
+    ///
+    /// **Symlinks are described as themselves, never followed** — `attributesOfItem` does not
+    /// traverse, and the enumerator does not descend into a linked directory — so a dangling link
+    /// does not fail the walk, and a link swapped for another target changes the identity (its
+    /// own size and date move). Same convention `snapshot` states for the top-level item.
+    ///
+    /// **The digest is a function of the tree, not of the walk.** APFS promises no enumeration
+    /// order, so the lines are sorted by the UTF-8 bytes of the relative path's precomposed form
+    /// before hashing — deterministic across enumeration orders, volumes, and the two moments
+    /// (registration and verification) whose answers must be comparable. Precomposed because APFS
+    /// and HFS+ lookups are normalization-insensitive, so one on-disk name must not hash two ways
+    /// depending on which spelling the enumerator reports.
+    static func deepSnapshot(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
+        let shallow = snapshot(at: url, fileManager: fm)
+        guard case .directory = shallow else { return shallow }
+
+        // `options: []` is the recursive walk. `.listedWithUnreadableDescendants` is a real but
+        // PARTIAL answer, and partial proves nothing about the part that was withheld — the same
+        // refusal `folderDriftedInPlace` makes of it, and the safe direction: `.indeterminate`
+        // REFUSES the undo rather than authorising it.
+        let listing = fm.listing(of: url, options: [])
+        guard listing.outcome == .listed else { return .indeterminate }
+
+        let prefix = url.path.hasSuffix("/") ? url.path : url.path + "/"
+        var lines: [String] = []
+        lines.reserveCapacity(listing.urls.count)
+        for child in listing.urls {
+            // An entry the walk just listed but cannot stat means the tree is being modified (or
+            // withheld) under our feet — nothing can be concluded, so nothing may be destroyed.
+            guard let attrs = try? fm.attributesOfItem(atPath: child.path) else { return .indeterminate }
+            let rel = child.path.hasPrefix(prefix)
+                ? String(child.path.dropFirst(prefix.count)) : child.path
+            let canonicalRel = rel.precomposedStringWithCanonicalMapping
+            let type = attrs[.type] as? FileAttributeType
+            if type == .typeDirectory {
+                lines.append("\(canonicalRel)\u{0}d")
+                continue
+            }
+            let kind = type == .typeSymbolicLink ? "l" : "f"
+            guard let size = (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int) else {
+                return .indeterminate
+            }
+            let millis = (attrs[.modificationDate] as? Date)
+                .map { String(Int64(($0.timeIntervalSince1970 * 1000).rounded())) } ?? "-"
+            lines.append("\(canonicalRel)\u{0}\(kind)\u{0}\(size)\u{0}\(millis)")
+        }
+        // Byte order of the canonical form, not Swift's `<`: String comparison is defined over
+        // canonical equivalence, which is deterministic but harder to reason about than bytes,
+        // and the property this buys is that two walks of one tree serialize identically.
+        lines.sort { $0.utf8.lexicographicallyPrecedes($1.utf8) }
+        // The scheme marker means a future rule change makes old and new digests DIFFER (a
+        // refusal) rather than collide — same practice as `ContentFingerprint.scheme`.
+        let canonical = "tree-1\n" + lines.joined(separator: "\n")
+        let digest = SHA256.hash(data: Data(canonical.utf8))
+        return .directoryTree(contentDigest: digest.map { String(format: "%02x", $0) }.joined())
+    }
+
     /// Compares a recorded identity against what is on disk now.
     ///
     /// **What this notices.** For a file: any size change, and any modification-date change —
@@ -105,20 +191,36 @@ public extension ItemIdentity {
     /// how an edited copy gets trashed by an undo. `attributesOfItem` already returns the date in
     /// the same call the size comes from, so the stronger check costs nothing.
     ///
-    /// **What this does not notice.** For a directory it compares the folder's own modification
-    /// date and its immediate child count. That covers a child being added, removed or replaced —
-    /// the reported hazard, where files land in a copied folder between the copy and the undo. It
-    /// does NOT cover an edit made deep inside an untouched subtree, which leaves both values
-    /// identical. Detecting that means walking the tree, and the honest position is that this
-    /// answers `.unchanged` for a case it did not really check. A caller that needs more must say
-    /// so; a caller that needs *any* guard is currently getting none.
+    /// **What a SHALLOW directory identity does not notice.** `.directory` compares the folder's
+    /// own modification date and its immediate child count. That covers a child being added,
+    /// removed or replaced — but NOT an edit made deep inside an untouched subtree, which leaves
+    /// both values identical, so for that pairing this answers `.unchanged` for a case it did not
+    /// really check. `.directoryTree` exists for the caller that cannot afford that: its digest
+    /// covers every descendant, so the deep edit IS checked. Which depth a guard gets is decided
+    /// where the identity is RECORDED — the copy-undo records deep because its wrong answer
+    /// trashes the only instance of an edit; the move paths record shallow deliberately, and say
+    /// why at their registration sites in `FileSyncManager+Undo.swift`.
+    ///
+    /// A recorded depth is also re-read at that depth (`drift` dispatches on the recorded case),
+    /// so the two sides of this comparison always describe the same question; a deep recording
+    /// compared against a path that is no longer a directory at all is an ordinary `.changed`.
     static func compare(recorded: ItemIdentity, current: ItemIdentity) -> DriftVerdict {
         if recorded == .indeterminate || current == .indeterminate { return .indeterminate }
         return recorded == current ? .unchanged : .changed
     }
 
-    /// `compare(recorded: self, current: snapshot(at:))` — the form a guard reads best in.
+    /// `compare(recorded: self, current: <re-read>)` — the form a guard reads best in. The
+    /// re-read happens at the depth the recording was taken at: a `.directoryTree` is compared
+    /// against a fresh `deepSnapshot`, everything else against a fresh `snapshot`, so a guard
+    /// cannot accidentally hold a deep recording to a shallow answer (which would read `.changed`
+    /// for every untouched folder — a guard that refuses everything is not a guard).
     func drift(at url: URL, fileManager fm: FileManaging) -> DriftVerdict {
-        ItemIdentity.compare(recorded: self, current: ItemIdentity.snapshot(at: url, fileManager: fm))
+        let current: ItemIdentity
+        if case .directoryTree = self {
+            current = ItemIdentity.deepSnapshot(at: url, fileManager: fm)
+        } else {
+            current = ItemIdentity.snapshot(at: url, fileManager: fm)
+        }
+        return ItemIdentity.compare(recorded: self, current: current)
     }
 }
