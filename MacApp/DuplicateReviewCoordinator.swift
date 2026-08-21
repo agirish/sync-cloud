@@ -362,6 +362,148 @@ struct DuplicateReviewCoordinator {
         refreshAction()
     }
 
+    /// What a fresh measurement of the reviewed pair says about it, from
+    /// ``assessReviewedPair(_:fileManager:)`` — one verdict shared by the pre-trash check and
+    /// `deleteItems`' removal gate, so the two can never check different things.
+    enum ReviewedPairVerdict: Sendable, Equatable {
+        /// Both copies are still what the scan grouped — safe to proceed.
+        case matches
+        /// The delete candidate is off the disk entirely: nothing to trash, nothing lost.
+        case deleteVanished
+        /// The KEEP side fails the gate. `missingBaseline` distinguishes "a folder review with no
+        /// recorded baseline" (nothing measured, nothing claimable) from a measured change.
+        case keepDrifted(missingBaseline: Bool)
+        /// The DELETE side fails the gate, same split.
+        case deleteDrifted(missingBaseline: Bool)
+    }
+
+    /// Measures both copies of `review` afresh and answers whether the pair is still the pair the
+    /// scan grouped.
+    ///
+    /// **Both copies, because the engine checks both and the right one is the dangerous half.**
+    /// The keeper is the file being kept; the right copy is the file being destroyed. A review is
+    /// designed to stay open — while it is, an external move or delete of the LEFT copy makes
+    /// this the last one, and a provider re-download or an edit of the RIGHT copy makes it the
+    /// only instance of its new content. Either way the pair is no longer the pair the scan
+    /// grouped. (`duplicateReviewActive` only compares the pane's focused PATH, not existence or
+    /// content.) This is the same gate the engine applies to the keeper and to every removal
+    /// candidate — `copyDriftedInPlace` for files, the shared `folderContentsMatchScan` re-walk
+    /// for folders — reached through `PaneLogic.duplicateCopyMatchesScan` so the two cannot
+    /// drift apart.
+    ///
+    /// The stat runs OFF the main actor: `attributesOfItem` is a synchronous stat, and against a
+    /// keeper on an unmounted cloud or SMB volume it blocks for as long as the mount takes to
+    /// answer — on the main actor that beachballs the whole window on a button click. Same rule
+    /// and same detach as `ContentView.restoreLastPaneFocusIfEnabled` ("cloud roots stat
+    /// slowly"). Only the Sendable facts cross back — the attributes dictionary itself never
+    /// leaves the task. One detached task for BOTH stats: two would double the worst case on a
+    /// slow mount, and the pair is one question.
+    nonisolated static func assessReviewedPair(
+        _ review: DuplicateCompareContext, fileManager fm: FileManaging
+    ) async -> ReviewedPairVerdict {
+        let keepPath = review.keepPath
+        let deletePath = review.deletePath
+        let measured = await Task.detached(priority: .userInitiated) { () -> (keep: CopyStat, delete: CopyStat) in
+            func stat(_ path: String) -> CopyStat {
+                let attrs = try? fm.attributesOfItem(atPath: path)
+                return CopyStat(
+                    exists: fm.fileExists(atPath: path),
+                    statSucceeded: attrs != nil,
+                    size: (attrs?[.size] as? NSNumber)?.intValue ?? (attrs?[.size] as? Int),
+                    date: attrs?[.modificationDate] as? Date)
+            }
+            return (stat(keepPath), stat(deletePath))
+        }.value
+        // Directory verdicts, from the engine's shared re-walk against the scan's recorded
+        // baseline — `folderContentsMatchScan` is the same routine `resolveDuplicateGroup`
+        // and the batch consult, so the review's directory gate can never be weaker than the
+        // card's. Stat facts cannot answer for a folder (its stat size is not its recursive
+        // content), which is why files carry nil here and directories carry a real verdict.
+        // The walk runs off the main actor (buildTree detaches itself); a vanished path gets
+        // no walk — the keep gate refuses on existence, and a vanished delete candidate is a
+        // verdict of its own.
+        let keepFolderMatches: Bool?
+        if review.keepIsDirectory {
+            keepFolderMatches = measured.keep.exists
+                ? await FileSyncManager.folderContentsMatchScan(
+                    path: keepPath, snapshot: review.keepContentSnapshot, fileManager: fm)
+                : false
+        } else {
+            keepFolderMatches = nil
+        }
+        let deleteFolderMatches: Bool?
+        if review.deleteIsDirectory {
+            deleteFolderMatches = measured.delete.exists
+                ? await FileSyncManager.folderContentsMatchScan(
+                    path: deletePath, snapshot: review.deleteContentSnapshot, fileManager: fm)
+                : false
+        } else {
+            deleteFolderMatches = nil
+        }
+        guard PaneLogic.duplicateCopyMatchesScan(
+            exists: measured.keep.exists,
+            isDirectory: review.keepIsDirectory,
+            statSucceeded: measured.keep.statSucceeded,
+            currentSize: measured.keep.size,
+            scannedSize: review.keepScannedSize,
+            currentDate: measured.keep.date,
+            scannedDate: review.keepScannedDate,
+            folderContentsMatchScan: keepFolderMatches
+        ) else {
+            return .keepDrifted(missingBaseline:
+                measured.keep.exists && review.keepIsDirectory && review.keepContentSnapshot == nil)
+        }
+        // **A vanished right copy is not drift.** There is nothing left to trash and nothing was
+        // lost — the same distinction `dropFullyRemovedGroups` draws in the engine.
+        guard measured.delete.exists else { return .deleteVanished }
+        guard PaneLogic.duplicateCopyMatchesScan(
+            exists: measured.delete.exists,
+            isDirectory: review.deleteIsDirectory,
+            statSucceeded: measured.delete.statSucceeded,
+            currentSize: measured.delete.size,
+            scannedSize: review.deleteScannedSize,
+            currentDate: measured.delete.date,
+            scannedDate: review.deleteScannedDate,
+            folderContentsMatchScan: deleteFolderMatches
+        ) else {
+            return .deleteDrifted(missingBaseline:
+                review.deleteIsDirectory && review.deleteContentSnapshot == nil)
+        }
+        return .matches
+    }
+
+    /// Posts the banner AND the log line for a refusing verdict — both sides, both wordings.
+    /// The delete side always logged its refusals; the keep side used to set a banner and write
+    /// NOTHING, so a refusal he could see on screen was absent from the log he audits. The two
+    /// refusals stay worded apart (the engine's resolve draws the same line): a folder review
+    /// carrying NO baseline was never fully read by the scan — nothing is known to have changed,
+    /// and a rescan of the same tree records nil again — so it must not be described as "no
+    /// longer what the scan saw". And "couldn't read all of it (unreadable, or nested too deep)"
+    /// rather than the old "part of it wasn't readable": the walk's depth cap and its
+    /// symlink-cycle guard record a nil baseline exactly like an unreadable descendant does, and
+    /// naming only the readable half over-claimed.
+    @MainActor
+    static func reportReviewRefusal(_ verdict: ReviewedPairVerdict,
+                                    review: DuplicateCompareContext,
+                                    syncManager: FileSyncManager) {
+        switch verdict {
+        case .keepDrifted(missingBaseline: true):
+            syncManager.banner = .warning("The left copy couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so the right copy can't be proven redundant. Review them manually.")
+            Logger.shared.warning("Refused to trash \(review.deletePath): the scan recorded no baseline for the left copy \(review.keepPath) (subtree unreadable, too deep, or a link cycle), so the right copy is not provably redundant")
+        case .keepDrifted(missingBaseline: false):
+            syncManager.banner = .warning("The left copy is no longer what the scan saw — rescan before trashing the right copy.")
+            Logger.shared.warning("Refused to trash \(review.deletePath): the left copy \(review.keepPath) is no longer what the scan saw, so the right copy may be its last intact instance")
+        case .deleteDrifted(missingBaseline: true):
+            syncManager.banner = .warning("The right copy couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so it can't be proven still a copy of the left one. Review it manually.")
+            Logger.shared.warning("Refused to trash \(review.deletePath): the scan recorded no baseline for it (subtree unreadable, too deep, or a link cycle), so it is not provably still a duplicate")
+        case .deleteDrifted(missingBaseline: false):
+            syncManager.banner = .warning("The right copy has changed since the scan — it is no longer a copy of the left one. Rescan before trashing it.")
+            Logger.shared.warning("Refused to trash \(review.deletePath): it changed since the scan, so it is no longer provably a duplicate")
+        case .matches, .deleteVanished:
+            break   // nothing to refuse
+        }
+    }
+
     /// Trashes the right copy of the reviewed duplicate (undoable), then returns to the Duplicates
     /// list, drops just that copy from its group in place — the group's figures update, or the group
     /// disappears when only the keeper is left, without re-walking the whole tree — and restores the
@@ -371,74 +513,18 @@ struct DuplicateReviewCoordinator {
             Logger.shared.info("User declined trashing the right duplicate copy \(review.deletePath)")
             return
         }
+        let sm = syncManager
         Task {
-            // **Both copies, because the engine checks both and the right one is the dangerous
-            // half.** The keeper is the file being kept; the right copy is the file being
-            // destroyed. A review is designed to stay open — while it is, an external move or
-            // delete of the LEFT copy makes this the last one, and a provider re-download or an
-            // edit of the RIGHT copy makes it the only instance of its new content. Either way the
-            // pair is no longer the pair the scan grouped. (`duplicateReviewActive` only compares
-            // the pane's focused PATH, not existence or content.) This is the same gate the
-            // engine applies to the keeper and to every removal candidate — `copyDriftedInPlace`
-            // for files, the shared `folderContentsMatchScan` re-walk for folders — reached
-            // through `PaneLogic.duplicateCopyMatchesScan` so the two cannot drift apart.
-            //
-            // The stat runs OFF the main actor. This `Task` inherits @MainActor isolation, and
-            // `attributesOfItem` is a synchronous stat: against a keeper on an unmounted cloud or
-            // SMB volume it blocks for as long as the mount takes to answer, which on the main
-            // actor beachballs the whole window on a button click. Same rule and same detach as
-            // `ContentView.restoreLastPaneFocusIfEnabled` ("cloud roots stat slowly"). Only the
-            // Sendable facts cross back — the attributes dictionary itself never leaves the task.
-            let fm = syncManager.fileManager
-            let keepPath = review.keepPath
-            let deletePath = review.deletePath
-            // One detached task for BOTH stats: two would double the worst case on a slow mount,
-            // and the pair is one question — is this still the pair the scan grouped?
-            let measured = await Task.detached(priority: .userInitiated) { () -> (keep: CopyStat, delete: CopyStat) in
-                func stat(_ path: String) -> CopyStat {
-                    let attrs = try? fm.attributesOfItem(atPath: path)
-                    return CopyStat(
-                        exists: fm.fileExists(atPath: path),
-                        statSucceeded: attrs != nil,
-                        size: (attrs?[.size] as? NSNumber)?.intValue ?? (attrs?[.size] as? Int),
-                        date: attrs?[.modificationDate] as? Date)
-                }
-                return (stat(keepPath), stat(deletePath))
-            }.value
-            // Directory verdicts, from the engine's shared re-walk against the scan's recorded
-            // baseline — `folderContentsMatchScan` is the same routine `resolveDuplicateGroup`
-            // and the batch consult, so the review's directory gate can never be weaker than the
-            // card's. Stat facts cannot answer for a folder (its stat size is not its recursive
-            // content), which is why files carry nil here and directories carry a real verdict.
-            // The walk runs off the main actor (buildTree detaches itself); a vanished path gets
-            // no walk — the keep gate refuses on existence, and a vanished delete candidate is
-            // handled as its own non-drift case below.
-            let keepFolderMatches: Bool?
-            if review.keepIsDirectory {
-                keepFolderMatches = measured.keep.exists
-                    ? await FileSyncManager.folderContentsMatchScan(
-                        path: keepPath, snapshot: review.keepContentSnapshot, fileManager: fm)
-                    : false
-            } else {
-                keepFolderMatches = nil
-            }
-            let deleteFolderMatches: Bool?
-            if review.deleteIsDirectory {
-                deleteFolderMatches = measured.delete.exists
-                    ? await FileSyncManager.folderContentsMatchScan(
-                        path: deletePath, snapshot: review.deleteContentSnapshot, fileManager: fm)
-                    : false
-            } else {
-                deleteFolderMatches = nil
-            }
-            // The stat — and, for a folder review, the two re-walks above — are the only
+            let fm = sm.fileManager
+            let verdict = await Self.assessReviewedPair(review, fileManager: fm)
+            // The assessment's stat — and, for a folder review, its two re-walks — are the only
             // suspensions between the user's click and the trash, and they exist precisely for
-            // the case where they are slow: an unmounted cloud or SMB keeper can
-            // take seconds to answer. Seconds in which the window is live — "Done" sits right
-            // beside the destructive button, and the Duplicates list is one tab away, so the user can end
-            // this review or open a DIFFERENT pair through `compareCopies` before the answer lands.
-            // Either way the review this task was started for is no longer the one on screen:
-            // trashing would delete a copy the user has stopped looking at, and the
+            // the case where they are slow: an unmounted cloud or SMB keeper can take seconds to
+            // answer. Seconds in which the window is live — "Done" sits right beside the
+            // destructive button, and the Duplicates list is one tab away, so the user can end
+            // this review or open a DIFFERENT pair through `compareCopies` before the answer
+            // lands. Either way the review this task was started for is no longer the one on
+            // screen: trashing would delete a copy the user has stopped looking at, and the
             // `.rightCopyTrashed` dispatch below would tear down the review that replaced it and
             // replay THIS review's saved compare state over it. Re-read the live binding (the
             // coordinator's closures always read current state) AFTER the last suspension, and
@@ -448,59 +534,39 @@ struct DuplicateReviewCoordinator {
                     "The duplicate review changed while the left copy was being checked — skipping the trash of \(review.deletePath)")
                 return
             }
-            guard PaneLogic.duplicateCopyMatchesScan(
-                exists: measured.keep.exists,
-                isDirectory: review.keepIsDirectory,
-                statSucceeded: measured.keep.statSucceeded,
-                currentSize: measured.keep.size,
-                scannedSize: review.keepScannedSize,
-                currentDate: measured.keep.date,
-                scannedDate: review.keepScannedDate,
-                folderContentsMatchScan: keepFolderMatches
-            ) else {
-                // Two refusals, worded apart (the engine's resolve draws the same line): a folder
-                // review carrying NO baseline was never fully read by the scan — nothing is known
-                // to have changed, and a rescan of the same unreadable tree records nil again —
-                // so it must not be described as "no longer what the scan saw".
-                syncManager.banner = .warning(
-                    measured.keep.exists && review.keepIsDirectory && review.keepContentSnapshot == nil
-                    ? "The left copy couldn't be fully checked against the scan — part of it wasn't readable, so the right copy can't be proven redundant. Review them manually."
-                    : "The left copy is no longer what the scan saw — rescan before trashing the right copy.")
+            switch verdict {
+            case .keepDrifted, .deleteDrifted:
+                Self.reportReviewRefusal(verdict, review: review, syncManager: sm)
                 return
-            }
-            // **A vanished right copy is not drift.** There is nothing left to trash and nothing
-            // was lost, so this says so and clears the review rather than warning about a change
-            // the user probably made deliberately — the same distinction `dropFullyRemovedGroups`
-            // draws in the engine.
-            guard measured.delete.exists else {
+            case .deleteVanished:
+                // **A vanished right copy is not drift.** There is nothing left to trash and
+                // nothing was lost, so this says so and clears the review rather than warning
+                // about a change the user probably made deliberately.
                 Logger.shared.info("The right duplicate copy \(review.deletePath) is already gone — nothing to trash")
-                syncManager.removeResolvedDuplicateCopy(atPath: review.deletePath)
+                sm.removeResolvedDuplicateCopy(atPath: review.deletePath)
                 dispatchReview(.rightCopyTrashed)
                 return
+            case .matches:
+                break
             }
-            guard PaneLogic.duplicateCopyMatchesScan(
-                exists: measured.delete.exists,
-                isDirectory: review.deleteIsDirectory,
-                statSucceeded: measured.delete.statSucceeded,
-                currentSize: measured.delete.size,
-                scannedSize: review.deleteScannedSize,
-                currentDate: measured.delete.date,
-                scannedDate: review.deleteScannedDate,
-                folderContentsMatchScan: deleteFolderMatches
-            ) else {
-                // Same nil-baseline split as the keep gate above: the delete candidate exists
-                // (the vanished case returned already), so a folder review with no snapshot is
-                // "couldn't be checked", not "has changed".
-                if review.deleteIsDirectory, review.deleteContentSnapshot == nil {
-                    syncManager.banner = .warning("The right copy couldn't be fully checked against the scan — part of it wasn't readable, so it can't be proven still a copy of the left one. Review it manually.")
-                    Logger.shared.warning("Refused to trash \(review.deletePath): the scan recorded no baseline for it (subtree not fully readable), so it is not provably still a duplicate")
-                } else {
-                    syncManager.banner = .warning("The right copy has changed since the scan — it is no longer a copy of the left one. Rescan before trashing it.")
-                    Logger.shared.warning("Refused to trash \(review.deletePath): it changed since the scan, so it is no longer provably a duplicate")
+            // The verdict above is the FIRST check, not the last: `deleteItems` routes through
+            // the serialized op queue (a long queued operation inserts its whole duration here),
+            // and on a Trash-less volume it holds a permanent-delete confirmation open for as
+            // long as the user leaves it. The removal gate re-runs the same assessment at the
+            // moment the removal starts and again after a confirmed permanent delete, refusing —
+            // with the same banner and log line — if the pair drifted in either window. A copy
+            // that merely vanished meanwhile is not refused; the delete then removes nothing and
+            // the `guard` below keeps the review up, as it always has for a no-op delete.
+            let outcome = await sm.deleteItems(at: [review.deletePath], removalGate: { _ in
+                let gateVerdict = await Self.assessReviewedPair(review, fileManager: fm)
+                switch gateVerdict {
+                case .matches, .deleteVanished:
+                    return []
+                case .keepDrifted, .deleteDrifted:
+                    await Self.reportReviewRefusal(gateVerdict, review: review, syncManager: sm)
+                    return [review.deletePath]
                 }
-                return
-            }
-            let outcome = await syncManager.deleteItems(at: [review.deletePath])
+            })
             guard outcome.removed > 0 else { return }
             // **Say which way it went.** `removed` folds together the two outcomes `DeleteOutcome`
             // exists to separate, and this line is in the log he audits: on a Trash-less volume —
@@ -531,7 +597,7 @@ private struct CopyStat: Sendable {
 /// A live "compare two duplicate copies" review handed off from the Duplicates lens to the Compare tab. Holds the
 /// two absolute (tilde-expanded) copy paths — keeper on the left, delete candidate on the right —
 /// plus the Compare setup to put back when the review ends.
-struct DuplicateCompareContext: Equatable {
+struct DuplicateCompareContext: Equatable, Sendable {
     let groupName: String
     let keepPath: String
     let deletePath: String
@@ -568,7 +634,7 @@ struct DuplicateCompareContext: Equatable {
 
 /// A Compare pane setup — both providers and both focused folders. Captured before a duplicate
 /// review overrides them and replayed when it ends.
-struct SavedCompareState: Equatable {
+struct SavedCompareState: Equatable, Sendable {
     let leftProviderId: String
     let rightProviderId: String
     let leftRelativePath: String

@@ -168,6 +168,31 @@ private func settleTheTrashTask() async {
     for _ in 0..<100 { try? await Task.sleep(nanoseconds: 20_000_000) }
 }
 
+/// A continuation-backed latch for parking an enqueued file operation WITHOUT blocking a
+/// cooperative-pool thread (the Sync package's flake notes document why a semaphore park on the
+/// pool is the wrong tool here).
+private actor ReviewTestLatch {
+    private var opened = false
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { continuations.append($0) }
+    }
+    func open() {
+        opened = true
+        for c in continuations { c.resume() }
+        continuations.removeAll()
+    }
+}
+
+/// A lock-guarded boolean for signalling out of a `@Sendable` closure.
+private final class ReviewTestFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    func set() { lock.lock(); value = true; lock.unlock() }
+}
+
 @MainActor
 private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     DuplicateCopy(
@@ -896,6 +921,157 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // No provider changed hands — refocusing must not touch the pin plumbing.
         #expect(harness.appliedPlans.isEmpty)
         #expect(harness.pendingSwapProviderChanges == 0)
+    }
+
+    // MARK: trashRightCopy — refusal logging, wording, and the queue-wait window
+
+    /// The shared logger's most recent line containing `fragment`, awaiting a flush marker first
+    /// so everything enqueued before it is visible (`Logger` appends asynchronously). Fixtures
+    /// here embed a UUID in every path, so a fragment built from one can never match another
+    /// suite's line.
+    private func loggedLine(containing fragment: String) async -> String? {
+        await Logger.shared.debug("review-coordinator flush marker").value
+        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+    }
+
+    /// **A keep-side refusal reaches the log, not just the banner.** The delete side always
+    /// logged both of its refusal variants; the keep side set a banner and wrote NOTHING — a
+    /// refusal visible on screen was absent from ~/sync-cloud.log, which he audits.
+    @Test func aKeepSideRefusalIsLoggedLikeTheDeleteSide() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-keep-log-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+
+        let harness = Harness()
+        harness.lensProviderRoot = root.path
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        // The KEEPER's contents drift during the open review.
+        try FileManager.default.removeItem(at: keep.appendingPathComponent("a.txt"))
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the keep-drift refusal surfaces") {
+            harness.syncManager.banner?.severity == .warning
+        }
+
+        let line = try #require(await loggedLine(containing: "Refused to trash \(review.deletePath)"),
+                                "the keep-side refusal wrote nothing to the log")
+        #expect(line.contains(review.keepPath), "the line must name the drifted left copy")
+        #expect(line.contains("no longer what the scan saw"))
+        #expect(FileManager.default.fileExists(atPath: copy.path))
+    }
+
+    /// **The delete-side nil-baseline branch, actually reached.** The existing no-baseline test
+    /// sets BOTH snapshots nil, so the keep gate refuses first and the delete-side wording was
+    /// never exercised: a keep-valid/delete-nil review must refuse with the right-copy wording —
+    /// and with the honest "unreadable, or nested too deep" phrasing, because the walk's depth
+    /// cap and symlink-cycle guard record a nil baseline exactly like an unreadable descendant.
+    @Test func aDeleteFolderWithNoBaselineRefusesWithTheRightCopyWording() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-delete-nil-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+
+        let harness = Harness()
+        harness.lensProviderRoot = root.path
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: DuplicateFinderOptions.defaultIgnoredNames,
+            fileManager: FileManager.default)
+        // Keep side fully checked; the DELETE side carries no baseline.
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: nil)
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the delete-side no-baseline refusal surfaces") {
+            harness.syncManager.banner?.severity == .warning
+        }
+
+        let message = try #require(harness.syncManager.banner?.message)
+        #expect(message.contains("right copy couldn't be fully checked"),
+                "the refusal is not the delete-side wording: “\(message)”")
+        #expect(message.contains("too deep"),
+                "the wording claims only unreadability, but the depth cap and cycle guard produce nil baselines too: “\(message)”")
+        #expect(!message.contains("left copy"),
+                "the keep-side wording fired for a keep side that was fully checked: “\(message)”")
+        let line = try #require(await loggedLine(containing: "Refused to trash \(review.deletePath)"))
+        #expect(line.contains("no baseline"))
+        #expect(FileManager.default.fileExists(atPath: copy.path), "the refusal itself must stand")
+        #expect(harness.duplicateReview == review, "the review stays up")
+    }
+
+    /// **Drift during the queue wait is refused at the last check.** `deleteItems` routes through
+    /// the serialized op queue, so a long operation queued ahead of the review's trash inserts
+    /// its whole duration between the pre-trash verdict and the removal — a file landing in the
+    /// right copy during that window used to be trashed on the stale verdict, destroying its only
+    /// instance under a banner saying the left copy is kept.
+    @Test func aRightCopyThatGainsAFileDuringTheQueueWaitIsRefused() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-queue-drift-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+
+        let harness = Harness()
+        harness.lensProviderRoot = root.path
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+
+        // A long operation is already on the queue when the trash is requested.
+        let latch = ReviewTestLatch()
+        let blockerRunning = ReviewTestFlag()
+        let blocker = Task { await harness.syncManager.enqueueFileOperation { @Sendable in
+            blockerRunning.set()
+            await latch.wait()
+        } }
+        await waitUntil("the blocking operation holds the queue") { blockerRunning.isSet }
+
+        harness.coordinator.trashRightCopy(review)
+        // The pre-trash verdict passes (nothing has drifted yet); the delete parks in the queue.
+        await waitUntil("the review's delete is queued behind the blocker") {
+            harness.syncManager.activeFileOperationsCount == 2
+        }
+        // The right copy gains a file IN the queue-wait window — after the pre-trash verdict.
+        try Data("the only copy of this".utf8).write(to: copy.appendingPathComponent("landed-late.txt"))
+        await latch.open()
+        await waitUntil("the drift refusal surfaces") {
+            harness.syncManager.banner?.severity == .warning
+        }
+        _ = await blocker.value
+
+        #expect(FileManager.default.fileExists(atPath: copy.path),
+                "a folder that gained content during the queue wait was trashed on a verdict from before the gain")
+        #expect(FileManager.default.fileExists(atPath: copy.appendingPathComponent("landed-late.txt").path))
+        #expect(harness.syncManager.banner?.message.contains("changed since the scan") == true)
+        #expect(harness.duplicateReview == review, "the review stays up so the user can rescan")
+        #expect(harness.workspace == .compare, "a refusal must not navigate")
     }
 
     // MARK: duplicateReviewActive

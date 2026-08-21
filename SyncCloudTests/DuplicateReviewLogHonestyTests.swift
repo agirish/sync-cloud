@@ -41,8 +41,11 @@ import Foundation
         // The premise: this really is the site that removes the right copy. Without it a rename of
         // the call would leave every assertion below quietly true of a file that no longer deletes
         // anything.
-        #expect(code.contains("deleteItems(at: [review.deletePath])"),
-                "the right copy is no longer removed here — this scan has lost its subject")
+        // The call now carries the last-moment `removalGate` (the drift re-check `deleteItems`
+        // runs when the queued operation starts and again after a confirmed permanent delete), so
+        // the pinned spelling includes it — a revert to the gateless call fails here on purpose.
+        #expect(code.contains("deleteItems(at: [review.deletePath], removalGate:"),
+                "the right copy is no longer removed here (or lost its removal gate) — this scan has lost its subject")
         // The branch, and both of its answers. An unconditional revert loses all three.
         #expect(code.contains("outcome.trashed > 0"),
                 "the log no longer asks how the copy left, so it reports one outcome for both")
