@@ -152,6 +152,39 @@ landed on first. No confirmed fix debt was found by this audit.
 
 ---
 
+## v4.2's four shipped items — triaged 2026-08-20
+
+Done **after** the fact rather than before it, which is the wrong order and is recorded that way:
+all four landed on `main` first, and this is the audit that should have preceded them. Symbol-level
+on both lines, not file-level — `ls-tree` says the file is there, only `git show origin/<line>:<f> |
+grep <symbol>` says the shape is.
+
+| Item | Verdict | The check that decided it |
+|---|---|---|
+| **Magnitude bars** (Storage rows) | **owed, both lines** | `struct StorageEntryRow`, `case largest, stale, reclaim`, `hoverAffordance`, `report.totalBytes` all present; the lens is reachable — `TidyView.swift` renders `StorageLensView` on both |
+| **Sequential treemap ramp** | **owed, both lines** | `TreemapView.swift` carries the *identical* `palette[index % count]` and `labelPalette` this replaces, and `Color.onFillLabel` is there to replace them with |
+| **Window subtitle** | **owed, both lines** | `paneLocation(isLeft:drawsColumns:)`, `layoutMode`, `resolvedViewMode(isLeft:)` and `windowStyle(.hiddenTitleBar)` all present |
+| **Pins and recents sidebar** | **not owed** | `FolderJumpStore.reachable` and `recentPaths` do not exist on either line, and neither has tabs at all (`PaneTabs*` absent) — so the store's API is different *and* ⌘-click-for-a-new-tab has nowhere to go |
+| **The system pasteboard** | **not owed as written** | `clipboardNodes` and `handleCopyToClipboard` are both there, which makes this look portable — but `FileSyncManager.copyItems(nodes:toPath:)`, which the paste path calls, **is not**. The cherry-pick does not compile. Porting it means writing that entry point on each line, which is a rewrite rather than a pick |
+
+**Two of the five look portable and are not, and both needed the symbol check rather than a
+reasoned guess.** The sidebar's store API and the pasteboard's copy entry point are the kind of
+absence a file-level survey reports as present.
+
+**What the three owed ones cost to land**, because "owed" is not "clean":
+
+- The treemap on both lines has **no fold** — no `TreemapView.fold`, no `labelMinWidth` — so the
+  ramp's own doc had to lose the sentence about the fold flooring the smallest tile, and the body
+  keeps this line's direct `nodes` iteration. The ramp itself ports unchanged.
+- `StorageLensView` here has **no section rail**, so `listSection` keeps its two-argument shape and
+  is handed the section's unfiltered list explicitly rather than through `StorageSection.entries(in:)`,
+  which is `main`'s. The yardstick rule is identical; only the plumbing to it differs.
+- `StorageSection` was **`private`** on these lines and is now internal, so `StorageMagnitude.showsBar`
+  can name it. Widening within a module changes nothing visible from outside it.
+- The render probe cannot narrow the page to one list without a rail, so it isolates a list by
+  **emptying the others** in the fixture — and the fixture's treemap had to go empty too, because a
+  page that always draws one has full-width chromatic ink that the bar-edge scan reads as a bar.
+
 ## The unaudited surface, honestly
 
 Neither line has been audited commit-by-commit. These are the sizes as of 2026-08-20, narrowing from
