@@ -290,7 +290,7 @@ import Events
                        Self.page("Xfinity Comcast internet service"))
         _ = await manager.resurveyFilingMemory(root: docs)
         #expect(manager.filingArtifactFingerprint != fingerprint)
-        #expect(!manager.filingArtifactFingerprint.isEmpty)
+        #expect(manager.filingArtifactFingerprint?.isEmpty == false)
     }
 
     /// The folder profile records what a folder *is*, mined from names. A survey has no business

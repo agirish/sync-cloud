@@ -824,7 +824,7 @@ private final class SpendProbe: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: dir) }
         try writeArtifacts(dir, id: "me", profileFolders: 10)
         let before = FilingProfileStore.fingerprint(id: "me", in: dir)
-        #expect(!before.isEmpty)
+        #expect(before?.isEmpty == false)
         #expect(FilingProfileStore.fingerprint(id: "me", in: dir) == before, "not stable across reads")
 
         try writeArtifacts(dir, id: "me", profileFolders: 11)   // re-surveyed
@@ -836,7 +836,7 @@ private final class SpendProbe: @unchecked Sendable {
     @Test func noArtifactsMeansAnEmptyFingerprint() {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fp-none-\(UUID().uuidString)")
-        #expect(FilingProfileStore.fingerprint(id: "me", in: dir).isEmpty)
+        #expect(FilingProfileStore.fingerprint(id: "me", in: dir) == "")
     }
 
     /// The fingerprint is key material: two otherwise identical questions asked against different

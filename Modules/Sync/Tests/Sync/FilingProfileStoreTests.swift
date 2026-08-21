@@ -194,6 +194,40 @@ import Testing
         #expect(FilingProfileStore.fingerprint(id: "abhishek", in: dir) != before)
     }
 
+    /// **An exists-but-unreadable people.json makes the fingerprint UNAVAILABLE, not silently
+    /// different.** Omitting the component minted a digest that can never recur once the file is
+    /// fixed — every paid verdict recorded under it becomes permanently unreachable, the exact
+    /// failure `PeopleStore.savedRevision`'s doc says must be prevented.
+    @Test func anUnreadablePeopleFileMakesTheFingerprintUnavailable() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fps-\(UUID().uuidString)")
+        let fm = FileManager.default
+        let people = dir.appendingPathComponent("abhishek/people.json")
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: people.path)
+            try? fm.removeItem(at: dir)
+        }
+        try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
+        try #"{"schemaVersion":1,"people":[{"id":"aditi","displayName":"Aditi"}]}"#
+            .write(to: people, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: people.path)
+
+        #expect(FilingProfileStore.fingerprint(id: "abhishek", in: dir) == nil,
+                "an unreadable component minted a digest instead of declaring it unavailable")
+    }
+
+    /// A genuinely absent people.json stays an ordinary state: the other artifacts still digest.
+    @Test func anAbsentPeopleFileStillYieldsAFingerprint() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("fps-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
+
+        let digest = FilingProfileStore.fingerprint(id: "abhishek", in: dir)
+        #expect(digest != nil, "an absent optional component made the fingerprint unavailable")
+        #expect(digest != "", "the present artifacts were not digested")
+    }
+
     @Test func theIdentifierHashMatchesTheBuilder() {
         #expect(FilingMemory.hash("1892", salt: "abc123") == "3437e15c04d360ef")
         #expect(FilingMemory.hash("kaiser", salt: "s") == "3529b1a559fe505a")
@@ -359,8 +393,8 @@ struct RealFilingProfileTests {
         let dir = try makeProfiles(activeId: "work", folderId: nil)
         defer { try? FileManager.default.removeItem(at: dir) }
         let loaded = try #require(FilingProfileStore.active(in: dir))
-        #expect(!FilingProfileStore.fingerprint(id: loaded.id, in: dir).isEmpty)
-        #expect(FilingProfileStore.fingerprint(id: loaded.profile.profileId, in: dir).isEmpty,
+        #expect(FilingProfileStore.fingerprint(id: loaded.id, in: dir)?.isEmpty == false)
+        #expect(FilingProfileStore.fingerprint(id: loaded.profile.profileId, in: dir) == "",
                 "the fixture stopped showing why the wrong id is wrong")
     }
 }

@@ -171,7 +171,10 @@ extension FileSyncManager {
         var keysByFile: [String: FilingVerdictKey] = [:]
         var cachedVerdicts: [String: FilingVerdict] = [:]
         var misses = eligible
-        if let identity {
+        // `artifacts` nil ⇒ the fingerprint is unavailable and the cache is off, read and write
+        // both — see the scan site in `FileSyncManager+Filing` for the full reasoning. On this
+        // tier the stakes are the sharpest: these are the paid answers.
+        if let identity, let artifacts = filingArtifactFingerprint {
             // Warmed off the main actor before `recordFilingVerdicts` reaches the synchronous
             // accessor, for the same reason the scan warms it: at the entry cap the file is
             // multi-megabyte, and decoding it on the main actor is a hitch the user sees.
@@ -182,7 +185,7 @@ extension FileSyncManager {
                     filePath: s.filePath, modificationDate: s.modificationDate, size: s.size,
                     model: identity, promptVersion: CloudFilingProtocol.promptVersion,
                     excludedRelativePaths: excludedByFile[s.filePath] ?? [],
-                    artifacts: filingArtifactFingerprint)
+                    artifacts: artifacts)
                 keysByFile[s.filePath] = key
                 if let hit = cache.verdict(for: key, providerRoot: root,
                                            existingRelative: existingRelative) {

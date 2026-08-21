@@ -179,14 +179,34 @@ public enum FilingProfileStore {
     /// Hashed from the bytes rather than derived from a field like the memory's salt, so it also
     /// moves when a profile is regenerated without the memory being rebuilt. One SHA-256 of a few
     /// megabytes, once per load, at launch.
-    public static func fingerprint(id: String, in directory: URL) -> String {
+    ///
+    /// **Nil when a component EXISTS but cannot be read — the fingerprint is unavailable, not
+    /// silently different.** Skipping an unreadable file minted a digest that can never recur
+    /// once the file is fixed, so every paid verdict recorded under it became permanently
+    /// unreachable — the exact failure ``PeopleStore/savedRevision``'s doc says must be
+    /// prevented. A caller holding nil must neither record a verdict under it nor serve one:
+    /// the scan sites treat it like a nil verdict identity, cache off for read and write both.
+    /// A genuinely absent component stays ordinary — the others digest without it.
+    public static func fingerprint(id: String, in directory: URL) -> String? {
         var hasher = SHA256()
         var any = false
         // `people.json` is part of the question too: the registry decides the person veto and the
         // person axis bonus, both of which move the shortlist the classifier is handed.
         for name in ["folder-profile.json", "filing-memory.json", "people.json"] {
-            guard let data = try? Data(contentsOf: directory.appendingPathComponent("\(id)/\(name)"))
-            else { continue }
+            let url = directory.appendingPathComponent("\(id)/\(name)")
+            guard let data = try? Data(contentsOf: url) else {
+                // Absent and there-but-unreadable are different answers, as everywhere in this
+                // store. `attributesOfItem` rather than `fileExists` so a dangling symlink still
+                // counts as present.
+                guard (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil else {
+                    Logger.shared.warning("Filing artifacts: \(name) exists but could not be read "
+                                          + "— the artifact fingerprint is unavailable, so no "
+                                          + "classification is cached or replayed until it can "
+                                          + "be. Fix \(url.path) and relaunch.")
+                    return nil
+                }
+                continue
+            }
             any = true
             hasher.update(data: name == "people.json" ? classifyingBytes(ofPeople: data) : data)
         }

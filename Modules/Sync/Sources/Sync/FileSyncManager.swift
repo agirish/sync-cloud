@@ -763,7 +763,13 @@ public class FileSyncManager: ObservableObject {
     public var filingDocumentIsAvailable: @Sendable (String) -> Bool = { FilingSurvey.isAvailable($0) }
     /// Digest of the artifacts above, mixed into every ``FilingVerdictKey`` so a re-survey does not
     /// replay answers composed against the old tree. See ``FilingProfileStore/fingerprint(id:in:)``.
-    public var filingArtifactFingerprint: String = ""
+    ///
+    /// **Nil means UNAVAILABLE — an artifact exists but could not be read — and turns the verdict
+    /// cache off for read and write both** at the two key-building sites, exactly like a nil
+    /// verdict identity: a verdict recorded under a digest minted without the unreadable
+    /// component can never be looked up again once the file is fixed. `""` is different — a tree
+    /// with no artifacts at all, a perfectly recurring digest.
+    public var filingArtifactFingerprint: String? = ""
     /// Loose PDFs that were READ and gave up nothing — scans with no text layer.
     ///
     /// Recorded rather than acted on: recovering their text means rendering a page and running it

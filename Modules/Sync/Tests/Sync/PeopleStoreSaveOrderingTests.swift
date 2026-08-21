@@ -131,7 +131,7 @@ import Testing
         store.add(displayName: "Muktha")
 
         let before = FilingProfileStore.fingerprint(id: "p", in: dir)
-        #expect(!before.isEmpty, "the fixture produced no fingerprint to compare")
+        #expect(before?.isEmpty == false, "the fixture produced no fingerprint to compare")
         let revision = store.savedRevision
 
         store.dismissSuggestion(PersonNameSuggestion(personId: store.people[0].id, form: "Mukta",

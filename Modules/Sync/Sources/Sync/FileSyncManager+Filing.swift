@@ -531,7 +531,12 @@ extension FileSyncManager {
                 var keysByFile: [String: FilingVerdictKey] = [:]
                 var cachedVerdicts: [String: FilingVerdict] = [:]
                 var misses = toClassify
-                if let identity {
+                // `artifacts` nil ⇒ the fingerprint is unavailable (an artifact exists but could
+                // not be read) and the cache is off for this scan exactly as a nil identity turns
+                // it off: no key can honestly describe the question being asked, so nothing is
+                // looked up and — because `keysByFile` stays empty — nothing is recorded under a
+                // digest that can never recur. See `FilingProfileStore.fingerprint(id:in:)`.
+                if let identity, let artifacts = filingArtifactFingerprint {
                     // Warmed even on the ignore-cache path, where the READ result is thrown away.
                     // `recordFilingVerdicts` below still has to merge into the existing cache, and
                     // it reaches the SYNCHRONOUS accessor — so skipping this put a decode of a
@@ -545,7 +550,7 @@ extension FileSyncManager {
                             filePath: f.id, modificationDate: f.modificationDate, size: f.fileSize ?? 0,
                             model: identity, promptVersion: CloudFilingProtocol.promptVersion,
                             excludedRelativePaths: excludedByFile[f.id] ?? [],
-                            artifacts: filingArtifactFingerprint)
+                            artifacts: artifacts)
                         keysByFile[f.id] = key
                         if let hit = cache?.verdict(for: key, providerRoot: providerRoot.path,
                                                     existingRelative: existingRelative) {
