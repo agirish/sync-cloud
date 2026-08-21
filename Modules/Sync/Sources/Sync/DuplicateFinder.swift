@@ -63,11 +63,17 @@ public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
     /// One directory entry as the scan's walk saw it.
     public enum Entry: Sendable, Equatable, Hashable {
         /// A regular file: byte size and modification date, both from the walk. Either changing —
-        /// or the entry changing kind — is drift.
+        /// or the entry changing kind — is drift. The mtime half inherits the volume's timestamp
+        /// granularity: FAT and some SMB mounts round to 1–2 s, so a rewrite landing inside that
+        /// window with the same byte count compares equal — the same fidelity, and the same
+        /// residual blindness, as the file-level drift check.
         case file(size: Int, modificationDate: Date?)
-        /// A symbolic link. The walk resolves size/mtime to the link's TARGET, so a retargeted
-        /// link (now vouching for different bytes) reads as drift, while an untouched one compares
-        /// equal — the same resolution on both walks is what keeps this stable.
+        /// A symbolic link. The walk resolves size/mtime to the link's TARGET, so a retarget is
+        /// caught exactly as far as those two readings move: a link repointed at a target whose
+        /// size or mtime differ reads as drift, while a retarget to a same-size, same-mtime target
+        /// compares equal — the entry never records the target PATH, so that case is invisible.
+        /// An untouched link always compares equal; the same resolution on both walks is what
+        /// keeps this stable.
         case symlink(size: Int, modificationDate: Date?)
         /// A subdirectory: presence only. Its contents are entries of their own, so comparing the
         /// directory's stat would only re-detect changes the file entries already catch — or
@@ -93,6 +99,9 @@ public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
     /// Returns nil when any subtree was not fully walked (`isUnexplored`): a partial walk cannot
     /// be a complete baseline, and downstream a nil snapshot refuses the destructive action —
     /// the same direction the finder takes by refusing such a folder a structural signature.
+    /// The refusal is worded as "couldn't be fully checked", not "changed": while the descendant
+    /// stays unreadable a rescan reproduces nil, so there is no change to claim and no rescan
+    /// that clears it.
     public init?(walkedChildren: [FileNode], ignoredNames: Set<String>) {
         var out: [String: Entry] = [:]
         guard Self.collect(walkedChildren, prefix: "", ignoredNames: ignoredNames, into: &out) else { return nil }

@@ -416,6 +416,37 @@ import Combine
         #expect(mockFM.virtualDisk["/b/Photos"] != nil)
     }
 
+    /// A folder copy with NO baseline refuses too — but with a banner that says the scan couldn't
+    /// check it, not that it changed. The scan records nil on a folder whose subtree held an
+    /// unreadable descendant, a rescan of the same tree records nil again, and the old "changed
+    /// since it was scanned — rescan" wording asserted a change nobody measured while pointing at
+    /// a rescan that could never clear it (the banner-honesty rule: never claim what wasn't
+    /// checked).
+    @MainActor
+    @Test func aFolderCopyWithNoBaselineRefusesWithoutClaimingChange() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
+        Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
+        let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
+                                     size: 400_000, itemCount: 4, snapshot: nil)
+        manager.duplicateGroups = [group]
+
+        #expect(await manager.resolveDuplicateGroup(group) == false)
+        #expect(mockFM.virtualDisk["/b/Photos"] != nil, "the refusal itself must stand")
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.banner?.message.contains("couldn't be fully checked") == true)
+        #expect(manager.banner?.message.contains("changed since") != true,
+                "no change was measured, so none may be claimed")
+
+        // The batch draws the same line when every refusal is a missing baseline.
+        manager.banner = nil
+        await manager.applyRecommendedDuplicates([group])
+        #expect(mockFM.virtualDisk["/b/Photos"] != nil)
+        #expect(manager.banner?.message.contains("couldn't be fully checked") == true)
+        #expect(manager.banner?.message.contains("changed since") != true)
+    }
+
     /// Nested folders are entries too — a subdirectory is present in the baseline in its own
     /// right (kind only; its files carry the sizes), so a nested tree that still matches resolves.
     @MainActor
@@ -1434,6 +1465,82 @@ import Combine
         #expect(FileManager.default.fileExists(atPath: redundantPath),
                 "the rewritten copy holds content nothing else has — it must stay on disk")
         #expect(manager.banner?.severity == .warning)
+    }
+
+    /// The KEEP side of the same gate, end to end. The test above rewrites the copy being
+    /// trashed; this one rewrites a file inside the KEEPER — the folder being kept — which is the
+    /// half whose loss makes a "redundant" copy the last intact instance of the scanned content.
+    /// Count, membership and byte totals are all unchanged, so only the per-entry mtime half of
+    /// `folderContentsMatchScan` can catch it, and only `driftedFolderInGroup`'s
+    /// keeper-inclusive scope routes the keeper through it at all.
+    @MainActor
+    @Test func aSameLengthRewriteInsideTheKeeperFolderIsRefused() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeFromTrash([aName, bName]) }
+        for folder in [aName, bName] {
+            try write(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
+            try write(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
+        }
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root)
+        let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
+        let redundantPath = try #require(group.recommendedRemovalPaths.first)
+
+        // Rewrite one file inside the KEEPER: same byte count, different content. The mtime is
+        // pinned explicitly for the same reason as above — deterministic drift, not filesystem
+        // timestamp granularity.
+        let rewritten = (group.keeper.path as NSString).appendingPathComponent("f1.txt")
+        try Data(repeating: 0x5A, count: 5000).write(to: URL(fileURLWithPath: rewritten))
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(500)],
+                                              ofItemAtPath: rewritten)
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == false, "the keeper drifted, so its copies are no longer provably redundant")
+        #expect(FileManager.default.fileExists(atPath: redundantPath),
+                "the copy is the last intact instance of the scanned content — it must stay on disk")
+        #expect(manager.banner?.severity == .warning)
+    }
+
+    /// **The re-walk's ignored-name skip, pinned from OUTSIDE the recording side.** The
+    /// convention-true snapshot test below compares the scan's baseline against the shared
+    /// re-walk, but both sides go through one builder — a mutation that changes the builder's
+    /// convention moves both sides together and still compares equal. Here the baseline is
+    /// recorded with NO ignored name on disk and the `.DS_Store` arrives AFTERWARDS (Finder
+    /// opening the folder mid-session — the ordinary way one appears), so only the re-walk's own
+    /// skip can keep the verdict true; nothing about the recording can compensate.
+    @MainActor
+    @Test func anIgnoredNameAddedAfterTheScanIsNotDrift() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for folder in ["A", "B"] {
+            try write(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
+        }
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root)
+        let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
+        let snapshot = try #require(group.keeper.contentSnapshot)
+        #expect(snapshot.entries.keys.sorted() == ["f.txt"],
+                "the baseline was recorded before any ignored name existed")
+
+        // Finder visits the folder after the scan.
+        try write(URL(fileURLWithPath: group.keeper.path).appendingPathComponent(".DS_Store"),
+                  bytes: 700, fill: 0x44)
+
+        #expect(await FileSyncManager.folderContentsMatchScan(
+            path: group.keeper.path, snapshot: snapshot, fileManager: FileManager.default),
+                "the re-walk must skip ignored names on its own — the baseline never saw this one")
+
+        // Control: a NON-ignored arrival through the same re-walk still reads as drift, so the
+        // pin above cannot pass by the comparison being inert.
+        try write(URL(fileURLWithPath: group.keeper.path).appendingPathComponent("new.txt"),
+                  bytes: 700, fill: 0x45)
+        #expect(await FileSyncManager.folderContentsMatchScan(
+            path: group.keeper.path, snapshot: snapshot, fileManager: FileManager.default) == false)
     }
 
     /// **The ignored-name offset must not MASK real drift either** — the other face of the

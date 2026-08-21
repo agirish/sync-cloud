@@ -719,6 +719,84 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.workspace == .compare, "a refusal must not navigate")
     }
 
+    /// The KEEP side of the same content gate. The keeper still EXISTS — so the existence half
+    /// that `aDriftedKeeperRefusesTheTrashAfterConfirmation` pins never fires — but its contents
+    /// moved during the open review: what would be kept is no longer what the scan grouped, so
+    /// trashing the right copy would destroy the last instance of the scanned content. Only the
+    /// directory verdict from the shared re-walk can refuse this.
+    @Test func aKeepFolderWhoseContentsDriftedDuringTheReviewIsRefused() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-keep-drift-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+
+        let harness = Harness()
+        harness.lensProviderRoot = root.path
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+
+        // The KEEPER loses its file after the scan's baseline — during the open review.
+        try FileManager.default.removeItem(at: keep.appendingPathComponent("a.txt"))
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the keep-drift refusal surfaces") {
+            harness.syncManager.banner?.severity == .warning
+        }
+
+        #expect(FileManager.default.fileExists(atPath: copy.path),
+                "the right copy is the last instance of the scanned content — it must stay")
+        #expect(harness.syncManager.banner?.message.contains("no longer what the scan saw") == true)
+        #expect(harness.duplicateReview == review, "the review stays up so the user can rescan")
+        #expect(harness.workspace == .compare, "a refusal must not navigate")
+    }
+
+    /// A folder review with NO recorded baseline still refuses — but the banner must say the scan
+    /// couldn't check the pair, not that something changed: the scan records a nil snapshot on a
+    /// folder whose subtree held an unreadable descendant, a rescan reproduces nil, and the old
+    /// wording claimed a change nobody measured while pointing at a rescan that could never clear
+    /// it.
+    @Test func aFolderReviewWithNoBaselineRefusesWithoutClaimingDrift() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-nil-baseline-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+
+        let harness = Harness()
+        harness.lensProviderRoot = root.path
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+        // Both paths exist and match on disk; only the baselines are missing (nil snapshots are
+        // installReview's default).
+        let review = harness.installReview()
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the no-baseline refusal surfaces") {
+            harness.syncManager.banner?.severity == .warning
+        }
+
+        #expect(FileManager.default.fileExists(atPath: copy.path), "the refusal itself must stand")
+        #expect(harness.syncManager.banner?.message.contains("couldn't be fully checked") == true)
+        #expect(harness.syncManager.banner?.message.contains("no longer what the scan saw") != true,
+                "no change was measured, so none may be claimed")
+        #expect(harness.duplicateReview == review, "the review stays up")
+    }
+
     // MARK: trashRightCopy — the user-interaction window the keeper stat opens
 
     /// Moving the keeper stat off the main actor (so an unmounted cloud volume can't beachball the

@@ -502,7 +502,9 @@ extension FileSyncManager {
     /// 200 files the two read paths agreed EXACTLY, 200 of 200. Size alone waves through every
     /// same-length rewrite — 2025 to 2026, a `sed -i` over fixed-width text — and the merge path
     /// in this same file had already rejected that reasoning ("Size alone let a same-length
-    /// in-place rewrite slip through"), which is why `MergeFileSnapshot` carries both.
+    /// in-place rewrite slip through"), which is why `MergeFileSnapshot` carries both. The mtime
+    /// comparison is only as fine as the volume's timestamps: FAT and some SMB mounts round to
+    /// 1–2 s, so a same-length rewrite landing inside that window still compares equal there.
     ///
     /// **Folders are checked too now, per file rather than in aggregate.** The gap was real: a
     /// folder group's entire resolve-time guarantee was once "a directory entry still exists at
@@ -555,10 +557,13 @@ extension FileSyncManager {
     /// catch via mtime. The snapshot compares (path, size, mtime) per file, so an extra file, a
     /// missing file, a kind change, and a same-length rewrite all read as drift.
     ///
-    /// Anything that cannot be re-walked completely — and a copy carrying NO snapshot, which a
-    /// real scan never produces for a grouped folder — counts as drifted, which refuses: a partial
-    /// walk cannot prove a folder is still what it was. That is the same direction the file check
-    /// takes for an unstattable path, and the safe one on both ends of a group.
+    /// Anything that cannot be re-walked completely — and a copy carrying NO snapshot — counts as
+    /// drifted, which refuses: a partial walk cannot prove a folder is still what it was. That is
+    /// the same direction the file check takes for an unstattable path, and the safe one on both
+    /// ends of a group. A nil snapshot is not only a hand-built copy's state: the scan records nil
+    /// on a folder whose subtree held an unexplored or unreadable descendant, so the callers word
+    /// that refusal as "couldn't be fully checked" rather than claiming a change nobody measured —
+    /// a rescan of the same unreadable tree records nil again.
     ///
     /// The cost is one recursive walk per folder copy, at the moment of a destructive click — the
     /// merge path has always re-walked here for the same reason, and the alternative is trashing
@@ -589,8 +594,11 @@ extension FileSyncManager {
     /// `path` with the conventions `snapshot` was recorded under and compares per entry; any
     /// walk failure, unreadable descendant, extra entry, missing entry, kind change, or
     /// size/mtime mismatch answers false — and so does a nil `snapshot`, because a copy without a
-    /// baseline cannot be proven unchanged. False refuses the destructive action; a rescan
-    /// records a fresh baseline.
+    /// baseline cannot be proven unchanged. False refuses the destructive action. The two false
+    /// cases are worded apart by the callers: a real mismatch is "changed since it was scanned"
+    /// and a rescan records a fresh baseline, while a nil snapshot means the scan itself could not
+    /// fully read the subtree — nothing is known to have changed, and a rescan of the same
+    /// unreadable tree records nil again.
     public nonisolated static func folderContentsMatchScan(
         path: String, snapshot: FolderContentSnapshot?, fileManager: FileManaging
     ) async -> Bool {
@@ -671,11 +679,26 @@ extension FileSyncManager {
         var driftedCopy = driftedRemovalCandidates(group).first
         if driftedCopy == nil { driftedCopy = await driftedFolderInGroup(group) }
         if let drifted = driftedCopy {
-            banner = .warning("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
-            Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” changed after the scan")
+            // Two refusals, told apart: a folder that carries NO baseline was never fully read by
+            // the scan, so "changed since it was scanned" would assert a change nobody measured —
+            // and send the user to a rescan that reproduces nil while the subtree stays unreadable.
+            // The refusal stands either way; only the claim changes. (Same honesty rule as the
+            // empty-batch banner in `applyRecommendedDuplicates`: name the cause only where the
+            // cause has been checked.)
+            if drifted.isDirectory, drifted.contentSnapshot == nil {
+                banner = .warning("“\(drifted.name)” couldn't be fully checked against the scan — part of it wasn't readable, so there's no baseline to prove it unchanged. Review it manually before removing.")
+                Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” has no scan baseline (its subtree wasn't fully readable at scan time)")
+            } else {
+                banner = .warning("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
+                Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” changed after the scan")
+            }
             return false
         }
         let bytes = group.reclaimableBytes
+        // The trash follows the checks with no other suspension between them: the folder re-walk
+        // just above IS the verdict, and nothing else runs before `deleteItems` claims the paths.
+        // The batch path holds itself to this same shape per group — see
+        // `applyRecommendedDuplicates`, which verifies group N immediately before trashing group N.
         let outcome = await deleteItems(at: paths, fileManager: fileManager)
         let removed = outcome.removed
         // Only drop the group and claim success if every copy actually left the disk — a declined,
@@ -720,59 +743,119 @@ extension FileSyncManager {
     /// name-only group can't talk this into trashing it.
     public func applyRecommendedDuplicates(_ scope: [DuplicateGroup]) async {
         let eligible = scope.filter { $0.isRecommendedForBatch }
-        // Both ends re-verified, for the same reason the per-group path checks both: the blind
-        // batch is exactly where a drifted copy would go unlooked-at.
-        var batch: [DuplicateGroup] = []
-        for group in eligible where keeperStillExists(group) && driftedRemovalCandidates(group).isEmpty {
-            if await driftedFolderInGroup(group) == nil { batch.append(group) }
+        // Both ends re-verified PER GROUP, immediately before that group's own trash — never
+        // check-all-then-trash-all. Each folder group's verdict is a fresh re-walk (~0.7 s per
+        // 40k-node folder), so a check-everything pass would put whole minutes between the first
+        // group's verdict and its trash on a large batch, with the main actor live in between:
+        // the user can edit group 1's files while group 40 is still being walked, and a
+        // minutes-old verdict would trash the edit anyway. Verify-then-trash per group keeps
+        // every verdict's window as narrow as `resolveDuplicateGroup`'s. The blind batch is
+        // exactly where a drifted copy would go unlooked-at, which is why the checks are here
+        // at all.
+        //
+        // One undo group for the whole batch, opened lazily the way `mergeDuplicateGroup`'s is:
+        // `deleteItems` registers one restore-undo per call, and the batch is now one call per
+        // group, so without the grouping "press ⌘Z to undo" would reverse only the LAST group.
+        // Lazy — opened just before the first delete that can register — so a batch refused in
+        // full never leaves an empty group on the stack (see the merge for why an empty group
+        // cannot safely be taken back).
+        var undoGroupOpen = false
+        func openUndoGroupIfNeeded() {
+            guard !undoGroupOpen, undoManager != nil else { return }
+            undoManager?.beginUndoGrouping()
+            undoGroupOpen = true
         }
-        let paths = batch.flatMap { $0.recommendedRemovalPaths }
-        guard !paths.isEmpty else {
+        defer { if undoGroupOpen { undoManager?.endUndoGrouping() } }
+
+        var attempted: [DuplicateGroup] = []          // passed the checks; their delete ran
+        var verifiedButEmpty: [DuplicateGroup] = []   // passed the checks; offered no paths
+        var refused = 0
+        var refusedForMissingBaseline = 0
+        // Which paths were on disk immediately before their group's delete. A copy that had
+        // already vanished externally still makes its group RESOLVE — every removal path is gone,
+        // so it correctly drops off the list — but this run freed nothing for it, and its recorded
+        // bytes were being added to the total the banner prints. Measured before the fix: two
+        // identical pairs with one copy already removed by something else reported "Reclaimed 5 KB
+        // from 2 groups — press ⌘Z to undo" for a run that trashed one 1 KB file.
+        //
+        // **The drift checks do not cover this, and the reason is `copyDriftedInPlace`'s first
+        // line.** It opens with `guard fileManager.fileExists(...) else { return false }` — a copy
+        // that is GONE is explicitly *not* drifted, so the group sails through the checks. (The
+        // `else { return true }` on the attribute read below it fires only for a file that exists
+        // and cannot be stat'ed, which is a different state.) Two earlier explanations of this
+        // were wrong in both directions — first that the drift filter caught it, then that it did
+        // not for an unrelated reason — so the guard above is the one to read.
+        var presentBefore = Set<String>()
+        var totalTrashed = 0
+        var totalPermanentlyDeleted = 0
+
+        for group in eligible {
+            guard keeperStillExists(group), driftedRemovalCandidates(group).isEmpty else {
+                refused += 1
+                continue
+            }
+            if let drifted = await driftedFolderInGroup(group) {
+                refused += 1
+                // Same two-refusal split as `resolveDuplicateGroup`: a folder with a nil baseline
+                // was never fully read by the scan — "couldn't be checked", not "changed".
+                if drifted.isDirectory, drifted.contentSnapshot == nil { refusedForMissingBaseline += 1 }
+                continue
+            }
+            let paths = group.recommendedRemovalPaths
+            guard !paths.isEmpty else {
+                verifiedButEmpty.append(group)
+                continue
+            }
+            let present = paths.filter { fileManager.fileExists(atPath: $0) }
+            presentBefore.formUnion(present)
+            if !present.isEmpty { openUndoGroupIfNeeded() }
+            // This group's own checks ran just above, so the verdict its trash acts on is
+            // milliseconds-to-seconds old — never staled by every other group's re-walk.
+            let outcome = await deleteItems(at: paths, fileManager: fileManager)
+            attempted.append(group)
+            totalTrashed += outcome.trashed
+            totalPermanentlyDeleted += outcome.permanentlyDeleted
+            // A delete cut short — its dialog's Cancel, a declined permanent-delete fallback, or
+            // a failure — stops the batch: a Cancel must not be answered by the NEXT group's
+            // delete opening a fresh dialog. Every group not yet attempted stays listed, covered
+            // by the same partial accounting below.
+            if outcome.removed < present.count { break }
+        }
+
+        guard !attempted.isEmpty else {
             // **"Nothing to remove" is not "something changed".** This said "rescan before removing
             // copies" for every empty batch, and drift is only one of the two ways to get one: a
-            // group that survived the checks above and still contributes no paths has every removal
+            // group that survived the checks and still contributes no paths has every removal
             // candidate FOLDER-PROTECTED — reachable by re-aiming the keeper of a folder-protected
             // group, as `dropFullyRemovedGroups` notes. Nothing changed there, so a rescan finds
             // exactly the same thing and the advice sends the user around a loop.
-            if batch.isEmpty, !eligible.isEmpty {
-                banner = .warning("These groups changed since they were scanned — rescan before removing copies.")
-            } else if !batch.isEmpty {
+            if verifiedButEmpty.isEmpty, !eligible.isEmpty {
+                // Every eligible group was refused by the checks. When every refusal was a folder
+                // with no baseline, "changed since they were scanned" asserts a change nobody
+                // measured — and a rescan reproduces the nil baseline, not a fresh one.
+                banner = .warning(refused == refusedForMissingBaseline
+                    ? "These groups couldn't be fully checked against the scan — review them individually before removing copies."
+                    : "These groups changed since they were scanned — rescan before removing copies.")
+            } else if !verifiedButEmpty.isEmpty {
                 // **Name the cause only where the cause has been checked.** Protection is the
                 // reachable reason and the useful thing to say — but an empty removal list is also
                 // exactly what a group carrying no redundant copies produces, and this method is
                 // `public` with a `DuplicateGroup` initializer that validates nothing, so what a
                 // "group" is belongs to the caller. Measured: a one-copy group, with nothing
                 // protected anywhere, was told every copy in it was protected.
-                let allProtected = batch.allSatisfy { group in
+                let allProtected = verifiedButEmpty.allSatisfy { group in
                     !group.redundantCopies.isEmpty
                         && group.redundantCopies.allSatisfy(\.isProtectedFromRemoval)
                 }
-                let subject = batch.count == 1 ? "this group" : "these groups"
+                let subject = verifiedButEmpty.count == 1 ? "this group" : "these groups"
                 banner = .warning(allProtected
                     ? "Nothing to remove — every copy in \(subject) is protected."
                     : "Nothing to remove — \(subject) offered no copies to remove.")
             }
             return
         }
-        // Which of those paths were on disk immediately before the delete. A copy that had already
-        // vanished externally still makes its group RESOLVE — every removal path is gone, so it
-        // correctly drops off the list — but this run freed nothing for it, and its recorded bytes
-        // were being added to the total the banner prints. Measured before the fix: two identical
-        // pairs with one copy already removed by something else reported "Reclaimed 5 KB from 2
-        // groups — press ⌘Z to undo" for a run that trashed one 1 KB file.
-        //
-        // **The drift filter above does not cover this, and the reason is its first line.**
-        // `copyDriftedInPlace` opens with `guard fileManager.fileExists(...) else { return false }`
-        // — a copy that is GONE is explicitly *not* drifted, so the group sails through the batch
-        // filter. (The `else { return true }` on the attribute read below it fires only for a file
-        // that exists and cannot be stat'ed, which is a different state.) Two earlier explanations
-        // of this line were wrong in both directions — first that the drift filter caught it, then
-        // that it did not for an unrelated reason — so the guard above is the one to read.
-        let presentBefore = Set(paths.filter { fileManager.fileExists(atPath: $0) })
-        let outcome = await deleteItems(at: paths, fileManager: fileManager)
-        let removed = outcome.removed
-        guard removed > 0 else { return }
-        let done = dropFullyRemovedGroups(from: batch)
+        guard totalTrashed + totalPermanentlyDeleted > 0 else { return }
+        let done = dropFullyRemovedGroups(from: attempted)
         // Group-level, because `reclaimableBytes` is a group-level figure the scan computed from the
         // whole removal set: a group that was PARTLY gone beforehand still credits its whole recorded
         // number, and re-deriving that per copy would change what the ordinary case reports too.
@@ -782,9 +865,13 @@ extension FileSyncManager {
         let bytes = credited.reduce(0) { $0 + $1.reclaimableBytes }
         Logger.shared.info("Duplicates: applied recommended removal to \(done.count) of \(eligible.count) group(s), reclaimed \(Self.formatBytes(bytes))")
         if currentError == nil {
-            if done.count == batch.count, batch.count == eligible.count {
-                banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s")" + (outcome.isUndoable ? " — press ⌘Z to undo" : ""),
-                                  undoable: outcome.isUndoable)
+            // One aggregate undoability across the per-group deletes, by `DeleteOutcome`'s own
+            // rule: any permanent delete anywhere in the batch poisons the offer, because the
+            // grouped restore-undos can only bring back the trashed subset.
+            let isUndoable = totalPermanentlyDeleted == 0 && totalTrashed > 0
+            if done.count == attempted.count, attempted.count == eligible.count {
+                banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s")" + (isUndoable ? " — press ⌘Z to undo" : ""),
+                                  undoable: isUndoable)
             } else {
                 // Partial (cancelled mid-batch, declined fallback, or skipped missing keepers):
                 // claim only what landed; the rest stay listed.
@@ -794,8 +881,8 @@ extension FileSyncManager {
                 // an instruction to reverse the WRONG one. That a warning is normally left standing
                 // is exactly why this needs saying: severity and undoability are separate, which is
                 // why `.warning` takes the parameter at all.
-                banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups — the rest stay listed." + (outcome.isUndoable ? " Press ⌘Z to undo" : ""),
-                                  undoable: outcome.isUndoable)
+                banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups — the rest stay listed." + (isUndoable ? " Press ⌘Z to undo" : ""),
+                                  undoable: isUndoable)
             }
         }
     }
@@ -1225,7 +1312,9 @@ extension FileSyncManager {
     /// date. Size alone let a same-length in-place rewrite of a plan-skipped file slip through the
     /// minutes-long hash/copy window — the rewrite's only copy would then be trashed. Any real
     /// write bumps the mtime (both fields come from the same tree walk, so an unchanged file
-    /// always compares equal).
+    /// always compares equal) — to within the volume's timestamp granularity: on FAT or a coarse
+    /// SMB mount (1–2 s ticks) a same-length rewrite inside one tick still compares equal, the
+    /// same residual blindness the resolve path's file and folder checks carry.
     struct MergeFileSnapshot: Sendable, Equatable {
         var size: Int
         var modificationDate: Date?

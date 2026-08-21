@@ -458,7 +458,14 @@ struct DuplicateReviewCoordinator {
                 scannedDate: review.keepScannedDate,
                 folderContentsMatchScan: keepFolderMatches
             ) else {
-                syncManager.banner = .warning("The left copy is no longer what the scan saw — rescan before trashing the right copy.")
+                // Two refusals, worded apart (the engine's resolve draws the same line): a folder
+                // review carrying NO baseline was never fully read by the scan — nothing is known
+                // to have changed, and a rescan of the same unreadable tree records nil again —
+                // so it must not be described as "no longer what the scan saw".
+                syncManager.banner = .warning(
+                    measured.keep.exists && review.keepIsDirectory && review.keepContentSnapshot == nil
+                    ? "The left copy couldn't be fully checked against the scan — part of it wasn't readable, so the right copy can't be proven redundant. Review them manually."
+                    : "The left copy is no longer what the scan saw — rescan before trashing the right copy.")
                 return
             }
             // **A vanished right copy is not drift.** There is nothing left to trash and nothing
@@ -481,8 +488,16 @@ struct DuplicateReviewCoordinator {
                 scannedDate: review.deleteScannedDate,
                 folderContentsMatchScan: deleteFolderMatches
             ) else {
-                syncManager.banner = .warning("The right copy has changed since the scan — it is no longer a copy of the left one. Rescan before trashing it.")
-                Logger.shared.warning("Refused to trash \(review.deletePath): it changed since the scan, so it is no longer provably a duplicate")
+                // Same nil-baseline split as the keep gate above: the delete candidate exists
+                // (the vanished case returned already), so a folder review with no snapshot is
+                // "couldn't be checked", not "has changed".
+                if review.deleteIsDirectory, review.deleteContentSnapshot == nil {
+                    syncManager.banner = .warning("The right copy couldn't be fully checked against the scan — part of it wasn't readable, so it can't be proven still a copy of the left one. Review it manually.")
+                    Logger.shared.warning("Refused to trash \(review.deletePath): the scan recorded no baseline for it (subtree not fully readable), so it is not provably still a duplicate")
+                } else {
+                    syncManager.banner = .warning("The right copy has changed since the scan — it is no longer a copy of the left one. Rescan before trashing it.")
+                    Logger.shared.warning("Refused to trash \(review.deletePath): it changed since the scan, so it is no longer provably a duplicate")
+                }
                 return
             }
             let outcome = await syncManager.deleteItems(at: [review.deletePath])
