@@ -127,8 +127,14 @@ struct ContentView: View {
     /// draw the same pane.
     @AppStorage("browseTabBarVisible") var tabBarVisible: Bool = false
     /// Browse's pinned-and-recent folders column. **On by default**: the store has always held
-    /// both lists and nothing but a menu ever showed them, so shipping this off would leave the
-    /// item exactly as discoverable as the menu it replaces.
+    /// both lists and nothing but a menu ever showed them, so shipping this off would have left the
+    /// item exactly as discoverable as the menu it replaced.
+    ///
+    /// **Read by nothing that can answer yes in v4.2.** The column is held for v4.3
+    /// (`FolderSidebarModel.isEnabled`), which gates `folderSidebarIsShowing` ahead of this value.
+    /// Kept, and kept defaulting to `true`, on purpose: it is somebody's answer to a question the
+    /// app asked for one afternoon, and re-defaulting it to `false` would bring the column back for
+    /// exactly the people who turned it off.
     @AppStorage("browseSidebarVisible") var browseSidebarVisible: Bool = true
     /// The sidebar's rows, resolved rather than recomputed in `body`.
     ///

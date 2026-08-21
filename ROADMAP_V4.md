@@ -451,7 +451,7 @@ a folder that has since gone — the same three questions the tab strip already 
   **⌃⌘S was the fourth chord to overflow the shortcuts reference**, and the first time a *single*
   row did it — `theReferenceFitsItsWindowWithoutScrolling` measured 743pt against a 720pt window.
   Raised to 780, then **brought back down to 740 when the row left again**: the panel measures 707pt
-  without it, so 740 leaves the same 33pt of margin the last two raises left. That is the first time
+  without it, so 740 leaves 33pt, comparable to the 34 and 37 the last two raises left. That is the first time
   this window has ever gone *down*, and it is the same rule in the other direction — the number is
   what the rows measure, not a high-water mark. v4.3 will trip it again; the measurement above is
   what it will cost.

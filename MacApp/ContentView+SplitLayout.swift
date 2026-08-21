@@ -233,6 +233,10 @@ extension ContentView {
             // answer to a search, and a sidebar that shrank when one opened would read as part of
             // it. This also keeps `browseLayout`'s "one structure whether or not a gather is up"
             // rule intact: the sidebar's presence changes nothing about the VStack beside it.
+            //
+            // **False throughout v4.2**: the column is held for v4.3 (`FolderSidebarModel.isEnabled`),
+            // so this branch and its divider never run. The placement above is the design v4.3
+            // starts from, which is why it is written down rather than deleted with the item.
             if folderSidebarIsShowing {
                 folderSidebar
                 Divider()

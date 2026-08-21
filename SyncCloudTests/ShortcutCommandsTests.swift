@@ -561,5 +561,18 @@ import Foundation
         #expect(height > 400, "the reference measured implausibly small — the fixture is broken")
         #expect(height <= ShortcutsReferenceView.windowSize.height,
                 "the reference needs \(height)pt but the window shows \(ShortcutsReferenceView.windowSize.height)pt — raise windowSize or trim rows")
+
+        // **And it must not be needlessly tall — the drift this test could not see until 2026-08-20.**
+        //
+        // Every previous failure here was the content outgrowing the window, so the fix was always
+        // "raise `windowSize`" and the number only ever went up. Then Browse's sidebar row was
+        // removed (the column is held for v4.3) and 780 was suddenly showing 707pt of rows over
+        // 73pt of nothing, with every check above green: a panel that is a third empty is a panel
+        // that looks like it lost its last group. One row measures ~36pt here, so a 60pt ceiling
+        // fails the moment a row leaves without the window following it, and leaves ~27pt of slack
+        // over today's 33pt margin for ordinary text reflow.
+        let slack = ShortcutsReferenceView.windowSize.height - height
+        #expect(slack <= 60,
+                "the window shows \(slack)pt of empty space below the last row (\(height)pt of rows in \(ShortcutsReferenceView.windowSize.height)pt) — lower windowSize to the rows it actually has")
     }
 }

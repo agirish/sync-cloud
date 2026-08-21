@@ -540,8 +540,9 @@ extension FocusedValues {
         set { self[TabBarVisibleKey.self] = newValue }
     }
 
-    /// View ▸ Sidebar. `nil` off Browse, which is the only workspace that has one — a plain
-    /// `Binding<Bool>` rather than `TabBarSwitch` because nothing ever forces it on.
+    /// What **View ▸ Sidebar** read while it existed. `nil` off Browse, which was the only
+    /// workspace with a column — a plain `Binding<Bool>` rather than `TabBarSwitch` because nothing
+    /// ever forces it on.
     ///
     /// **Nothing reads this while the sidebar is held for v4.3.** The item that did
     /// (`ToggleFolderSidebarCommand`) is deleted, and `shortcutFolderSidebar` below answers `nil`
@@ -701,7 +702,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.cycleTab, effectiveCycleTab)                 // ⇧⌘] / ⇧⌘[
             .focusedSceneValue(\.reopenClosedTab, effectiveReopenClosedTab)   // File ▸ Reopen Closed Tab
             .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
-            .focusedSceneValue(\.folderSidebarVisible, effectiveFolderSidebar) // ⌃⌘S
+            .focusedSceneValue(\.folderSidebarVisible, effectiveFolderSidebar) // no item, no chord: held for v4.3
             .focusedSceneValue(\.organizeLens, effectiveOrganizeLens)         // View ▸ Organize ▸ …
             .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
             .focusedSceneValue(\.paneRowVerbs, effectivePaneRowVerbs)         // File ▸ the row menu's verbs
@@ -830,8 +831,11 @@ extension ContentView {
     /// everywhere and the value it publishes is read by nothing — the menu item was deleted with
     /// the chord. Left in place as the one seam v4.3 re-attaches to.
     var shortcutFolderSidebar: Binding<Bool>? {
-        // `appliesTo`, not `isShowing`: the item is live on Browse with the sidebar switched OFF,
-        // because this item is how it gets switched on.
+        // **`appliesTo`, not `isShowing`, and that outlives the hold**: the item was live on Browse
+        // with the column switched off, because the item was how it got switched on. Asking
+        // `isShowing` here would have made the tick the only way to reach the tick. `appliesTo` now
+        // carries `isEnabled`, so this answers `nil` everywhere until v4.3 — the call is unchanged
+        // and the hold arrives through it rather than through a second condition written here.
         guard FolderSidebarModel.appliesTo(isBrowse: selectedWorkspace == .browse) else { return nil }
         return Binding(get: { browseSidebarVisible }, set: { browseSidebarVisible = $0 })
     }

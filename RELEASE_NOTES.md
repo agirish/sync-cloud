@@ -87,8 +87,8 @@ section first.
 
 - **An unreadable pin list was destroyed by the next pin you made.** The folder-jump
   store — the pins behind the breadcrumb menu and ⌘K's Folders group — decoded with
-  `try?`, so a blob it could not read left the store at empty,
-  looking exactly like a fresh install. Nothing was lost on that read. The loss came
+  `try?`, so a blob it could not read left the store at empty, looking exactly like a
+  fresh install. Nothing was lost on that read. The loss came
   on the **next write**: the first pin you made encoded that empty map over the key,
   and every pin you had curated went with it — which is why a test that checked only
   the decode would have passed throughout. The bytes are kept aside under

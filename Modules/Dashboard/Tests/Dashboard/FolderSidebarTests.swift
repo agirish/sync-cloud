@@ -265,19 +265,18 @@ import Design
     /// The defaulted spellings and not the injected ones: these are the calls `ContentView` and
     /// `shortcutFolderSidebar` make, so this is the check that the hold reaches the host rather
     /// than only the constant.
+    ///
+    /// **`preference: true` is the case that matters and it is why this is parameterised.**
+    /// `browseSidebarVisible` still exists and still defaults to `true`, so everyone who ran a
+    /// build while the item existed — and everyone who never touched it — has "yes" written in
+    /// their defaults. If the hold ever moved to the preference instead (re-defaulting it to
+    /// `false`, say), the column would come back for exactly those people and for nobody else,
+    /// which is the worst of both. That case is `(isBrowse: true, preference: true)` below rather
+    /// than a test of its own, because a second test asserting the same expression is one more
+    /// place to update and no more coverage.
     @Test(arguments: [true, false], [true, false])
     func nothingReachesTheColumn(isBrowse: Bool, preference: Bool) {
         #expect(!FolderSidebarModel.appliesTo(isBrowse: isBrowse))
         #expect(!FolderSidebarModel.isShowing(isBrowse: isBrowse, preference: preference))
-    }
-
-    /// **The preference is left alone, and that is the point of gating rather than deleting.**
-    ///
-    /// `browseSidebarVisible` still exists and still defaults to `true`; someone who ticked
-    /// View ▸ Sidebar while it existed still has `true` written in their defaults. If the gate ever
-    /// moved to the preference instead — defaulting it to `false`, say — the column would come back
-    /// for exactly those people and for nobody else, which is the worst of both.
-    @Test func aUserWhoAlreadyTickedItStillSeesNothing() {
-        #expect(!FolderSidebarModel.isShowing(isBrowse: true, preference: true))
     }
 }

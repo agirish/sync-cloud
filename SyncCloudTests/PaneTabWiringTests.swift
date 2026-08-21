@@ -1355,6 +1355,11 @@ import Sync
         // opens a remembered folder in a new tab, which is `openInNewTab` — a verb of this file.
         // The derivation reads it for exactly the reason it reads the other three; this test is
         // what noticed, by name, on the first full run after the sidebar landed.
+        //
+        // **It stays here while the sidebar is held for v4.3** (`FolderSidebarModel.isEnabled`).
+        // The call is unreachable, not gone, so the coverage this derivation gives it is what keeps
+        // the verb correct for the release that turns the column on — dropping the file from this
+        // list because "nothing runs it" would silently uncover it on the day it runs again.
         let wiringFiles = ["ContentView.swift", "ShortcutCommands.swift", "ContentView+PaneSearch.swift",
                            "ContentView+FolderSidebar.swift"]
         var derived: Set<String> = []

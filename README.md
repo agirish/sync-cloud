@@ -11,13 +11,14 @@
 </p>
 
 SyncCloud has four workspaces, and opens in **Browse** — the plain file browser: one provider's
-tree, full width, nothing proposed, for the moves you make by hand. **Compare** puts two folders side by side
-and shows exactly what differs — what's missing on each side, what's newer, what only *looks* the
-same — and lets you copy, move, or reconcile items with one click. **Organize** points a single
-provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**, **Restructure**, and
-**Rules** — that file loose documents into the right folders (optionally with on-device Apple
-Intelligence or Claude), find duplicates, fix cloud-hostile filenames, and straighten a tree that
-disagrees with its own habits. **Storage** is a read-only view of where your space actually goes.
+tree, full width, nothing proposed, for the moves you make by hand. **Compare** puts two folders
+side by side and shows exactly what differs — what's missing on each side, what's newer, what
+only *looks* the same — and lets you copy, move, or reconcile items with one click. **Organize**
+points a single provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**,
+**Restructure**, and **Rules** — that file loose documents into the right folders (optionally
+with on-device Apple Intelligence or Claude), find duplicates, fix cloud-hostile filenames, and
+straighten a tree that disagrees with its own habits. **Storage** is a read-only view of where
+your space actually goes.
 
 Deletes go to the Trash, overwrites are staged and swapped in atomically, and each run in the app is
 a single grouped **⌘Z** for as long as that session lasts. Permanent delete exists only as a

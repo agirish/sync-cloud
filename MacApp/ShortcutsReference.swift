@@ -174,9 +174,12 @@ struct ShortcutsReferenceView: View {
     ///
     /// **780 → 740 when that row left again** (2026-08-20): the sidebar is held for v4.3
     /// (`FolderSidebarModel.isEnabled`), and a row describing a column that cannot appear is the
-    /// thing `testNoRowAdvertisesDragAndDrop` exists to say this panel does not ship. Content
-    /// **measured 707pt** with the row gone, so 740 leaves 33pt — the same margin as the 34 and 37
-    /// the last two raises left. **The first time this window has come back down**, and it comes
+    /// same failure `testNoRowAdvertisesDragAndDrop` exists to catch — a row describing something
+    /// the app does not have. Content
+    /// **measured 707pt** with the row gone, so 740 leaves 33pt — comparable to the 34 and 37pt the
+    /// last two raises left, and now held there from both sides by
+    /// `theReferenceFitsItsWindowWithoutScrolling`, which fails on an empty band as well as on an
+    /// overflow. **The first time this window has come back down**, and it comes
     /// down for the reason it went up: the number is what the rows measure, not a high-water mark.
     /// Not 720 (its value before the row): the rows either side of that raise are not the rows here
     /// now, and 707 is measured where 686 is remembered. Whoever re-adds the row in v4.3 raises it
