@@ -615,6 +615,32 @@ import Foundation
         #expect(reread.tags.map(\.personId) == ["divit"])
     }
 
+    /// **An earlier episode's set-aside may be replaced only when it is the one thing blocking the
+    /// move.** The pre-move `removeItem(at: kept)` is confined to the collision arm; the reviewer
+    /// reverted it to an unconditional remove-then-single-move and every test still passed, which
+    /// means the narrowing was completely unpinned. This is the pin: a move that fails for any
+    /// OTHER reason — here a permissions refusal — must not have cost the earlier set-aside first.
+    @Test func aMoveThatFailsForAnotherReasonDoesNotCostAnEarlierSetAside() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        let earlier = Data("an earlier episode's rescued verdicts".utf8)
+        try earlier.write(to: kept)
+        let corrupt = Data("{ not json".utf8)
+        try corrupt.write(to: url)
+
+        let fm = MoveBlockedFileManager()
+        fm.movesToRefuse = 1
+        let store = PersonTagStore(directory: dir, profileId: "p", fileManager: fm)
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+
+        #expect(FileManager.default.contents(atPath: kept.path) == earlier,
+                "a move that failed for a reason other than collision cost the earlier set-aside")
+        #expect(FileManager.default.contents(atPath: url.path) == corrupt,
+                "the refused save landed on the unreadable file anyway")
+    }
+
     /// **A source that vanishes mid-session is the protection arriving by other means, not an
     /// obstruction.** With the guard armed, the user hand-deletes the corrupt file — the set-aside
     /// move then fails source-absent, an error the refusal arm was never meant for: there is
