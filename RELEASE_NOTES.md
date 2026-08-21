@@ -263,6 +263,16 @@ section first.
   somebody deciding whether to download; it is derived from the built bundle now.
 - New articles cover the setup form, the Organize workspace itself, each of its five
   sections, Readability, Intelligence, ⌘K and the household.
+- **The source switch stops naming a column the app does not have.** Settings ▸
+  Sources described the enable/disable switch as *"Show <name> in the pane sidebar"*,
+  and there has been no pane sidebar since 2026-07-14, when choosing a source moved
+  onto each pane header's own menu. The section caption above it said the same thing,
+  and "sidebar" was one of the keywords routing that setting in Settings search — the
+  only place the word appeared. What the switch actually controls is the list every
+  source picker is handed, so that is what it says now, phrased from the list rather
+  than from any one surface that can be removed out from under it. The setup form
+  drew the same switch and held its own copy of the sentence; the two are one string
+  now rather than two that agreed.
 
 ### People
 
