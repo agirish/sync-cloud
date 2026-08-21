@@ -32,9 +32,10 @@ The other half of the release is reach. The menu bar had not grown since tabs
 arrived — Organize's sections and verbs, the row menu's seven verbs, the four
 clipboard chords, the transfer chords and ↩-to-rename all had working handlers and
 no menu route. ⌘K stops being a card over a dimmed window and becomes a field in the
-toolbar you can type a path into. Browse gets a sidebar of the folders you pin and
-the ones you keep coming back to. And Storage stops asking you to read digits to see
-which of two files is bigger.
+toolbar you can type a path into. ⌘C and ⌘V stop being sealed inside the app and
+exchange files with Finder. Browse gets a sidebar of the folders you pin and the ones
+you keep coming back to. And Storage stops asking you to read digits to see which of
+two files is bigger.
 
 On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0
 section first.
@@ -83,6 +84,20 @@ section first.
   any time without persisting anything. A re-run opens on the rail, not on a welcome
   card addressed to somebody who has never seen the app.
 
+### Safety
+
+- **An unreadable pin list was destroyed by the next pin you made.** The folder-jump
+  store — the pins behind the breadcrumb menu, ⌘K's Folders group and now Browse's
+  sidebar — decoded with `try?`, so a blob it could not read left the store at empty,
+  looking exactly like a fresh install. Nothing was lost on that read. The loss came
+  on the **next write**: the first pin you made encoded that empty map over the key,
+  and every pin you had curated went with it — which is why a test that checked only
+  the decode would have passed throughout. The bytes are kept aside under
+  `<key>.unreadable` now and the store carries on, so pinning still works and nothing
+  is overwritten. Only the first stash is kept, since a later launch reads whatever
+  has been written since and letting that replace it would destroy the list one
+  launch later than the bug it replaces.
+
 ### The menu bar
 
 - **Cut, Copy, Paste and Select All reach your files.** Cut, Copy and *Paste here*
@@ -93,6 +108,15 @@ section first.
   equivalent outranks the field editor — so the keystroke is handed back whenever the
   caret owns it, and ⌘C still copies text in the pane search, a rename field, the
   differences search and the ⌘K field. ⌘X then ⌘V is a move.
+- **And the clipboard reaches Finder.** The file clipboard has worked between panes
+  since v3 — cut, copy, paste, with grouped undo and a banner — and it was sealed in:
+  ⌘C in a pane then ⌘V in Finder did nothing, and ⌘C in Finder then ⌘V in a pane did
+  nothing, because every pasteboard write in the app put the path down as *text*. A
+  copy now writes file URLs to the system pasteboard and a paste reads them, both
+  directions. It stays one clipboard rather than two: while the change count recorded
+  at the app's own ⌘C still matches the live one, SyncCloud's own list answers — that
+  list is what carries *cut*, so it is the only path that can move rather than copy —
+  and the moment anything else writes, the system's board wins.
 - **Organize has a menu.** Its five sections, ticked, then its four row verbs. Until
   now ⌘3 was the whole menu-bar presence of the largest feature area in v4. The
   sections route through the same call ⌘K's Organize rows use, so the workspace and
@@ -262,9 +286,6 @@ section first.
   is when it renders, so disabling Copy when no files are selected would grey it out
   while somebody is typing in the ⌘K field. The accepted cost is an enabled Paste
   that does nothing on an empty clipboard.
-- **The Sources step scrolls on a long list.** It draws a row per source and you may
-  add any number of folders, so no card height promises to hold it; every other step
-  is measured to fit.
 - **⌘K cannot switch to the source a typed path is in.** A path under a source the
   pane is not showing is listed and marked "In <source> — switch source first" rather
   than delivered. Doing it properly means suppressing the provider change's own
