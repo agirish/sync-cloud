@@ -64,29 +64,44 @@ import CoreGraphics
 
     @Test func theGateLineNamesWhicheverGateIsClosed() {
         typealias G = FolderSurveyGroundTruth
-        #expect(G.gateLine(liveProfile: true, displayAwake: true).hasPrefix("RAN"))
+        func gateLine(liveProfile: Bool, displayAwake: Bool) -> String {
+            G.gateLine(excluded: false, liveProfile: liveProfile, displayAwake: displayAwake)
+        }
+        // The exclusion outranks both, including the combination that would otherwise say RAN —
+        // which is the case that was actually reachable, and the only one CI ever takes.
+        for (profile, awake) in [(true, true), (true, false), (false, true), (false, false)] {
+            let line = G.gateLine(excluded: true, liveProfile: profile, displayAwake: awake)
+            #expect(line.hasPrefix("SKIPPED"), "an excluded reason reported \(line)")
+            #expect(line.contains("SYNCCLOUD_SKIP_MACHINE_PINNED"),
+                    "an excluded reason must name the variable that excluded it: \(line)")
+        }
+        #expect(gateLine(liveProfile: true, displayAwake: true).hasPrefix("RAN"))
         // The profile is reported first because it is the suite's first gate: with no profile the
         // display's state is not why the suite said nothing, and naming it would send the next
         // reader to wake a display that was never the problem.
-        #expect(G.gateLine(liveProfile: false, displayAwake: true).contains("no live folder profile"))
-        #expect(G.gateLine(liveProfile: false, displayAwake: false).contains("no live folder profile"))
-        #expect(G.gateLine(liveProfile: true, displayAwake: false).contains("display is asleep"))
-        for line in [G.gateLine(liveProfile: false, displayAwake: true),
-                     G.gateLine(liveProfile: true, displayAwake: false)] {
+        #expect(gateLine(liveProfile: false, displayAwake: true).contains("no live folder profile"))
+        #expect(gateLine(liveProfile: false, displayAwake: false).contains("no live folder profile"))
+        #expect(gateLine(liveProfile: true, displayAwake: false).contains("display is asleep"))
+        for line in [gateLine(liveProfile: false, displayAwake: true),
+                     gateLine(liveProfile: true, displayAwake: false)] {
             #expect(line.hasPrefix("SKIPPED"), "a closed gate reported \(line)")
         }
     }
 
     @Test func theRunSaysWhetherGroundTruthRan() {
+        // Read from the same gate the suite's own `.machinePinned(.liveProfile)` trait consults, so
+        // the report cannot say RAN for a suite that trait has disabled.
+        let excluded = MachinePinnedGate.isExcluded(.liveProfile)
         let liveProfile = LiveProfile.isAvailable
         let awake = FolderSurveyGroundTruth.displayIsAwake
-        let line = FolderSurveyGroundTruth.gateLine(liveProfile: liveProfile, displayAwake: awake)
+        let line = FolderSurveyGroundTruth.gateLine(excluded: excluded, liveProfile: liveProfile,
+                                                    displayAwake: awake)
         // stdout, because that is what a CI step log keeps. `Logger.shared.entries` is capped at
         // 1000 and shared across every suite in the package, so a line parked there is the one thing
         // this must not rely on — see mechanism 12.
         print("[ground-truth] \(line)")
-        #expect(line.hasPrefix("RAN") == (liveProfile && awake),
-                "the gate report says \(line) while the gates read liveProfile=\(liveProfile) displayAwake=\(awake)")
+        #expect(line.hasPrefix("RAN") == (!excluded && liveProfile && awake),
+                "the gate report says \(line) while the gates read excluded=\(excluded) liveProfile=\(liveProfile) displayAwake=\(awake)")
     }
 
     /// **An unreadable directory is `isUnexplored`, not an explored empty one.**
@@ -391,7 +406,16 @@ enum FolderSurveyGroundTruth {
     /// the combinations this machine does not happen to be in — a report that only ever reports the
     /// current state is a report nothing can check. Gates are named in the suite's own order, so the
     /// line always blames the one that actually stopped it.
-    static func gateLine(liveProfile: Bool, displayAwake: Bool) -> String {
+    static func gateLine(excluded: Bool, liveProfile: Bool, displayAwake: Bool) -> String {
+        // **Named first because it is the outermost gate**, and because it is the only one of the
+        // three that is true on CI every single time. `.machinePinned(.liveProfile)` is a
+        // `.disabled(if:)`, so when the reason is excluded the suite below produces no results at
+        // all — while the two gates under this one still read *true* on the self-hosted runner (same
+        // Mac, same user, profile right there). Without this the line said RAN on a run where the
+        // ground truth had not been near a real tree.
+        guard !excluded else {
+            return "SKIPPED — liveProfile is in SYNCCLOUD_SKIP_MACHINE_PINNED, so the suite is disabled here; the survey rules were not checked against a real tree"
+        }
         guard liveProfile else {
             return "SKIPPED — no live folder profile on this machine; the survey rules were not checked against a real tree"
         }
