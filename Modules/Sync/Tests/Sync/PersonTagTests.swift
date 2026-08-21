@@ -615,6 +615,32 @@ import Foundation
         #expect(reread.tags.map(\.personId) == ["divit"])
     }
 
+    /// **A source that vanishes mid-session is the protection arriving by other means, not an
+    /// obstruction.** With the guard armed, the user hand-deletes the corrupt file — the set-aside
+    /// move then fails source-absent, an error the refusal arm was never meant for: there is
+    /// nothing left to protect, so the move can never succeed, and a guard that stays armed
+    /// refuses every save for the rest of the session and silently loses every verdict at quit.
+    @Test func handDeletingTheCorruptFileMidSessionDoesNotLockOutEverySave() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        try Data("{ not json — and about to be hand-deleted".utf8).write(to: url)
+
+        let store = PersonTagStore(directory: dir, profileId: "p")   // the guard arms
+        try FileManager.default.removeItem(at: url)                  // the user deletes the file
+
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.map(\.personId) == ["divit"],
+                "the save was refused although there was nothing left to set aside")
+
+        // ...and it stays healed: the next save is ordinary, not another refusal.
+        store.record(personId: "aditi", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
+        let again = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(again.tags.map(\.personId).sorted() == ["aditi", "divit"],
+                "the guard stayed armed after the source was gone, and the next save was refused")
+    }
+
     /// A first launch has no file, and must stay exactly as quiet and ordinary as it is today:
     /// nothing set aside, nothing protected, the first verdict simply writes the file.
     @Test func aGenuinelyAbsentFileStillWritesNormally() throws {

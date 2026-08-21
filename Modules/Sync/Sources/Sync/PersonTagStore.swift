@@ -301,11 +301,31 @@ public final class PersonTagStore: ObservableObject {
                                           + "beside it. Nothing you recorded before now is lost — "
                                           + "it is in that file.")
                 } catch {
-                    Logger.shared.error("Couldn't set aside the unreadable person-tags.json "
-                                        + "(\(error.localizedDescription)) — NOT overwriting it; "
-                                        + "this session's verdicts stay in memory only, and the "
-                                        + "set-aside is attempted again on the next one")
-                    return
+                    // **A source that is no longer there is not an obstruction — it is the
+                    // protection having arrived by other means.** The user hand-deleting (or
+                    // moving) the unreadable file mid-session makes the move fail source-absent,
+                    // and that failure can never clear: retrying moves nothing, so a guard that
+                    // stays armed refuses every save for the rest of the session and silently
+                    // loses every verdict at quit. There is nothing left at the path to protect,
+                    // so the fresh write below cannot overwrite anything of the user's. Probed
+                    // with `attributesOfItem` rather than matched on the error code, because the
+                    // probe also keeps the dangling-symlink case refusing: the link is still a
+                    // directory entry, and `attributesOfItem` sees it where `fileExists` follows
+                    // it and answers false.
+                    if (try? fileManager.attributesOfItem(atPath: fileURL.path)) == nil {
+                        fileWasUnreadable = false
+                        Logger.shared.warning("The unreadable person-tags.json is no longer there "
+                                              + "— deleted or moved since it failed to read. "
+                                              + "Nothing is left to set aside, so a fresh file is "
+                                              + "written.")
+                    } else {
+                        Logger.shared.error("Couldn't set aside the unreadable person-tags.json "
+                                            + "(\(error.localizedDescription)) — NOT overwriting "
+                                            + "it; this session's verdicts stay in memory only, "
+                                            + "and the set-aside is attempted again on the next "
+                                            + "one")
+                        return
+                    }
                 }
             }
             let encoder = JSONEncoder()
