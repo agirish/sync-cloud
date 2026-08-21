@@ -2410,7 +2410,10 @@ public class FileSyncManager: ObservableObject {
                 if isMove {
                     self.registerMoveUndo(items: [(from: from, to: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM)
                 } else {
-                    self.registerCopyUndo(items: [(source: from, destination: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM)
+                    // Registration is synchronous; the awaited value is the detached identity
+                    // walk (see `registerCopyUndo(items:)`), so the sync does not report done
+                    // until its undo is fully armed. One file, so the walk is one stat.
+                    await self.registerCopyUndo(items: [(source: from, destination: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM).value
                 }
                 // Durable Sync History (X2). Size is free from the difference (source side);
                 // checksum is left nil at op time (see the bulk path's checksum note).

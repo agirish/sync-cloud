@@ -299,7 +299,12 @@ extension FileSyncManager {
             if isMove {
                 self.registerMoveUndo(items: transferred, actionName: "Move \(transferred.count) Items", fileManager: fm)
             } else {
-                self.registerCopyUndo(items: transferred.map { (source: $0.from, destination: $0.to, overwritten: $0.overwritten) }, actionName: "Copy \(transferred.count) Items", fileManager: fm)
+                // The registration is synchronous; what is awaited is the detached identity walk
+                // it returns (see `registerCopyUndo(items:)`), so this operation does not return
+                // until its undo is fully armed — the drift tests tamper the moment it does. The
+                // await suspends the main actor rather than blocking it: the walk itself never
+                // runs there.
+                await self.registerCopyUndo(items: transferred.map { (source: $0.from, destination: $0.to, overwritten: $0.overwritten) }, actionName: "Copy \(transferred.count) Items", fileManager: fm).value
             }
         }
 

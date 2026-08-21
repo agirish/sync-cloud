@@ -529,33 +529,63 @@ extension FileSyncManager {
         if banner?.isUndoable == true { banner = nil }
     }
 
-    /// Convenience for call sites whose undo state is fully known at registration time: wraps
-    /// the items in a pre-resolved `AsyncValueResolver` so the resolver-based form below stays
-    /// the single implementation. The resolver forms remain for the undo/redo chain, where the
-    /// next state genuinely resolves later (inside the queued file operation).
+    /// Convenience for call sites whose copied items are fully known at registration time: wraps
+    /// them in an `AsyncValueResolver` that a detached identity walk resolves, so the
+    /// resolver-based form below stays the single implementation. The resolver forms remain for
+    /// the undo/redo chain, where the next state genuinely resolves later (inside the queued
+    /// file operation).
     ///
-    /// Snapshots each copied item's identity HERE, at registration time, so the undo handler can
-    /// refuse to trash a destination that is no longer the item this copy produced — and it takes
-    /// the DEEP snapshot, because this undo DESTROYS. `deepSnapshot` digests every descendant, so
-    /// an edit made two levels down inside the copy — which leaves the root's own date and child
-    /// count identical, the exact case the shallow identity's doc admitted it "answers
-    /// `.unchanged` for" — changes the identity and the ⌘Z refuses instead of trashing the only
-    /// instance of the edit. The move registrations below stay SHALLOW on purpose; each says why
-    /// at its own snapshot.
+    /// Snapshots each copied item's identity for the undo handler, which refuses to trash a
+    /// destination that is no longer the item this copy produced — and it takes the DEEP
+    /// snapshot, because this undo DESTROYS. `deepSnapshot` digests every descendant, so an edit
+    /// made two levels down inside the copy — which leaves the root's own date and child count
+    /// identical, the exact case the shallow identity's doc admitted it "answers `.unchanged`
+    /// for" — changes the identity and the ⌘Z refuses instead of trashing the only instance of
+    /// the edit. The move registrations below stay SHALLOW on purpose; each says why at its own
+    /// snapshot.
+    ///
+    /// **The walk runs OFF the main actor, and the ordering that keeps that safe is spelled out
+    /// here because every caller leans on it.** The undo is registered with the undo manager
+    /// synchronously, before this returns — unchanged from when the walk was inline — and only
+    /// the IDENTITY arrives later, resolved by the detached task this returns. So a ⌘Z landing
+    /// before the walk finishes pops THIS undo, never the operation before it, and its handler
+    /// suspends in `stateResolver.get()` until the identity exists — a not-yet-resolved
+    /// registration can neither no-op nor compare against a half-recorded state. Inline, the
+    /// walk was the one main-actor stall in the whole chain: `FileSyncManager` is `@MainActor`,
+    /// so copying a big folder froze the UI for the length of its walk — measured 2026-08-21, a
+    /// 40,200-node tree (200 dirs × 200 files) costs ~1.8 s of recursive listing+stat on this
+    /// machine even cache-warm — and SMB or cold iCloud metadata turns that into minutes.
+    ///
+    /// **The returned task completes when the identity is recorded.** The copy/sync call sites
+    /// await it as the last step of the operation, which is what keeps "the operation returned"
+    /// implying "its undo is fully armed" — the property the drift tests (tamper the moment the
+    /// copy returns, then ⌘Z) are written against. A caller that discards it loses only that
+    /// determinism, never the guard.
+    ///
+    /// Residual, stated: the identity is read moments after the copy rather than in the same
+    /// main-actor turn, so an edit landing inside that gap is recorded as part of the copy and a
+    /// later ⌘Z will trash it. Out-of-process writers always had that window (the frozen UI
+    /// never stopped *them* mid-walk); the detached walk merely stops pretending the user was
+    /// locked out of it too.
     ///
     /// Cost: one stat-only recursive walk per copied folder (no bytes are read), at the moment
     /// the copy just finished and the tree's metadata is warm. The duplicates path already
     /// accepts the same trade for the same reason — `folderDriftedInPlace`: "one recursive walk
     /// per folder copy, at the moment of a destructive click — the alternative is trashing the
     /// last copy of 1,200 photos to save it."
-    func registerCopyUndo(items: [CopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) {
-        let enriched: [CopyUndoItemState] = items.map { item in
-            (source: item.source, destination: item.destination, overwritten: item.overwritten,
-             destinationIdentity: ItemIdentity.deepSnapshot(at: item.destination, fileManager: fm))
-        }
+    @discardableResult
+    func registerCopyUndo(items: [CopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
         let resolver = AsyncValueResolver<[CopyUndoItemState]>()
-        Task { await resolver.resolve(enriched) }
+        // Registered before the walk is even spawned: no suspension can separate the caller
+        // from the registration, which is the first half of the ordering guarantee above.
         registerCopyUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
+        return Task.detached(priority: .userInitiated) {
+            let enriched: [CopyUndoItemState] = items.map { item in
+                (source: item.source, destination: item.destination, overwritten: item.overwritten,
+                 destinationIdentity: ItemIdentity.deepSnapshot(at: item.destination, fileManager: fm))
+            }
+            await resolver.resolve(enriched)
+        }
     }
 
     /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.

@@ -67,10 +67,12 @@ public extension ItemIdentity {
     /// in the same call as the size.
     ///
     /// That lands at registration time rather than undo time — the registration sites snapshot
-    /// every item up front, on the main actor — so a batch of many large folders pays a listing
-    /// each (`registerCopyUndo` pays a RECURSIVE one, via `deepSnapshot`, which carries its own
-    /// cost note). Taking folder identities lazily, or off the main actor, is a decision for the
-    /// call site; this type does not make it.
+    /// every item up front — so a batch of many large folders pays a listing each. The MOVE
+    /// registrations take that shallow listing synchronously on the main actor;
+    /// `registerCopyUndo` pays a RECURSIVE one, via `deepSnapshot`, and pays it in a detached
+    /// walk precisely because recursive-on-main froze the UI for the length of the tree (see its
+    /// own cost note). Taking folder identities lazily, or off the main actor, is a decision for
+    /// the call site; this type does not make it.
     static func snapshot(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         guard let attrs = try? fm.attributesOfItem(atPath: url.path) else {
             // attributesOfItem throws for both "not there" and "there but unreadable", and those
@@ -133,12 +135,45 @@ public extension ItemIdentity {
     /// does not fail the walk, and a link swapped for another target changes the identity (its
     /// own size and date move). Same convention `snapshot` states for the top-level item.
     ///
+    /// **What Finder and tooling scribble inside the copy is not part of its identity.** The walk
+    /// skips every entry carrying a `DuplicateFinderOptions.defaultIgnoredNames` component — the
+    /// named entry AND its whole subtree — which is the convention the duplicates gate already
+    /// walks under, adopted for the same lesson: counting `.DS_Store` "refused every folder ever
+    /// opened in Finder, forever". Digested here, the first Finder visit to a copied folder would
+    /// change its recorded identity and ⌘Z would refuse an untouched copy for as long as the undo
+    /// lived. An ignored entry is skipped BEFORE it is statted, so an unstatable `.DS_Store`
+    /// cannot refuse either. The deliberate residual: the listing's OUTCOME is decided before any
+    /// name is filtered, so a descendant that cannot be descended into still answers
+    /// `.indeterminate` even when it sits inside an ignored subtree — recorded at registration,
+    /// that is a permanent refusal for that item. Refusal is the safe direction, and it is stated
+    /// here rather than silent.
+    ///
     /// **The digest is a function of the tree, not of the walk.** APFS promises no enumeration
     /// order, so the lines are sorted by the UTF-8 bytes of the relative path's precomposed form
     /// before hashing — deterministic across enumeration orders, volumes, and the two moments
     /// (registration and verification) whose answers must be comparable. Precomposed because APFS
     /// and HFS+ lookups are normalization-insensitive, so one on-disk name must not hash two ways
-    /// depending on which spelling the enumerator reports.
+    /// depending on which spelling the enumerator reports — the rule, and why it lives behind a
+    /// named seam, is at `canonicalDigestSpelling(ofRelativePath:)`.
+    /// The one spelling `deepSnapshot` digests a descendant's relative path under, whatever form
+    /// the walk reported it in. APFS and HFS+ lookups are normalization-insensitive but APFS
+    /// storage is normalization-preserving, so one logical name can genuinely sit on disk in
+    /// either Unicode form (a POSIX or SMB writer stores precomposed bytes; Foundation's path
+    /// APIs write decomposed) — and the digest must not hash it two ways.
+    ///
+    /// A named seam rather than an inline call so the rule is PINNABLE: through `listing(of:)`
+    /// every current pipeline happens to hand `deepSnapshot` the DECOMPOSED form regardless of
+    /// what is on disk — `URL(fileURLWithPath:)` and `appendingPathComponent` both convert
+    /// through the file-system representation, which decomposes (measured 2026-08-21, both
+    /// directions probed) — so no fixture reachable through `deepSnapshot`'s public face can
+    /// vary the spelling, and deleting this precomposition passed every end-to-end test. That
+    /// pipeline normalization is incidental and undocumented, which is exactly why the rule
+    /// stays and why `DeepFolderIdentityTests` asserts it here, at the seam, where a fixture can
+    /// reach it.
+    internal static func canonicalDigestSpelling(ofRelativePath rel: String) -> String {
+        rel.precomposedStringWithCanonicalMapping
+    }
+
     static func deepSnapshot(at url: URL, fileManager fm: FileManaging) -> ItemIdentity {
         let shallow = snapshot(at: url, fileManager: fm)
         guard case .directory = shallow else { return shallow }
@@ -154,12 +189,19 @@ public extension ItemIdentity {
         var lines: [String] = []
         lines.reserveCapacity(listing.urls.count)
         for child in listing.urls {
+            let rel = child.path.hasPrefix(prefix)
+                ? String(child.path.dropFirst(prefix.count)) : child.path
+            // The ignored-names skip, per the doc above: a component match covers both the named
+            // entry itself and everything below it, and it runs before the stat so an ignored
+            // entry can neither shift the digest nor refuse the walk.
+            if rel.split(separator: "/").contains(
+                where: { DuplicateFinderOptions.defaultIgnoredNames.contains(String($0)) }) {
+                continue
+            }
             // An entry the walk just listed but cannot stat means the tree is being modified (or
             // withheld) under our feet — nothing can be concluded, so nothing may be destroyed.
             guard let attrs = try? fm.attributesOfItem(atPath: child.path) else { return .indeterminate }
-            let rel = child.path.hasPrefix(prefix)
-                ? String(child.path.dropFirst(prefix.count)) : child.path
-            let canonicalRel = rel.precomposedStringWithCanonicalMapping
+            let canonicalRel = canonicalDigestSpelling(ofRelativePath: rel)
             let type = attrs[.type] as? FileAttributeType
             if type == .typeDirectory {
                 lines.append("\(canonicalRel)\u{0}d")
@@ -177,9 +219,10 @@ public extension ItemIdentity {
         // canonical equivalence, which is deterministic but harder to reason about than bytes,
         // and the property this buys is that two walks of one tree serialize identically.
         lines.sort { $0.utf8.lexicographicallyPrecedes($1.utf8) }
-        // The scheme marker means a future rule change makes old and new digests DIFFER (a
-        // refusal) rather than collide — same practice as `ContentFingerprint.scheme`.
-        let canonical = "tree-1\n" + lines.joined(separator: "\n")
+        // The scheme marker means a rule change makes old and new digests DIFFER (a refusal)
+        // rather than collide — same practice as `ContentFingerprint.scheme`. "tree-2": tree-1
+        // digested every entry; the ignored-names skip above changed what serializes.
+        let canonical = "tree-2\n" + lines.joined(separator: "\n")
         let digest = SHA256.hash(data: Data(canonical.utf8))
         return .directoryTree(contentDigest: digest.map { String(format: "%02x", $0) }.joined())
     }

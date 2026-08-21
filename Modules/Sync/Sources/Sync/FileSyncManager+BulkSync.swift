@@ -88,10 +88,15 @@ extension FileSyncManager {
         // unit in the Undo menu. Skip the empty case so no phantom group is opened.
         let runId = UUID()
         var historyRecords: [SyncHistoryRecord] = []
+        // Each copy registration hands back its detached identity walk; collected here and
+        // awaited only AFTER the undo grouping closes — an await inside the group would open the
+        // main actor mid-group, letting an interleaved operation register into OUR "Sync run"
+        // step. Bulk sync copies files, so each walk is a single stat.
+        var identityWalks: [Task<Void, Never>] = []
         if !result.successes.isEmpty { undoManager?.beginUndoGrouping() }
         for (diff, (trashed, from, to)) in result.successes {
             let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
-            registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
+            identityWalks.append(registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM))
             historyRecords.append(SyncHistoryRecord(
                 runId: runId,
                 action: .copy,
@@ -107,6 +112,9 @@ extension FileSyncManager {
             undoManager?.setActionName("Sync run")
             undoManager?.endUndoGrouping()
         }
+        // Outside the group (see the note at `identityWalks`): the run does not report complete
+        // until every undo it registered is fully armed.
+        for walk in identityWalks { await walk.value }
         recordSyncHistory(historyRecords)
         removeResolvedDifferences(matching: result.successes.map { $0.0 })
         // The failures stay in the list — only successes were removed — so mark them while they
@@ -467,13 +475,17 @@ extension FileSyncManager {
         // menu; the empty case opens no group.
         let runId = UUID()
         var historyRecords: [SyncHistoryRecord] = []
+        // Same shape as the Verify All path above: the copy registrations' detached identity
+        // walks are collected and awaited after the grouping closes, so nothing can interleave
+        // into the "Sync run" undo step while the main actor suspends.
+        var identityWalks: [Task<Void, Never>] = []
         if !result.successes.isEmpty { undoManager?.beginUndoGrouping() }
         for (diff, (trashed, from, to)) in result.successes {
             let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
             if isMove {
                 registerMoveUndo(items: [(from: from, to: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
             } else {
-                registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
+                identityWalks.append(registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM))
             }
             // Size is free from the difference (source side). Checksum is deliberately nil at op
             // time: hashing inline would slow a bulk run of hundreds of files — the "with
@@ -494,6 +506,9 @@ extension FileSyncManager {
             undoManager?.setActionName("Sync run")
             undoManager?.endUndoGrouping()
         }
+        // Outside the group (see the note at `identityWalks`): the run does not report complete
+        // until every undo it registered is fully armed.
+        for walk in identityWalks { await walk.value }
         recordSyncHistory(historyRecords)
         removeResolvedDifferences(matching: result.successes.map { $0.0 })
         // The failures stay in the list — only successes were removed — so mark them while they
