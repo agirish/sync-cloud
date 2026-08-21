@@ -48,6 +48,30 @@ package suites and a red app-target step.
 **This has a deadline.** `v3.x` sits at `3.2-dev`. Cutting v3.2 before this lands ships the
 ⌘Z-after-permanent-delete promise again, in a release, knowingly.
 
+### 2. The filing walkthrough's bare ⏎/→/esc key equivalents — OPEN, owed to BOTH lines
+
+Filed 2026-08-21, when the fix landed on `main` as `d25dafef`. The walkthrough's File and Skip
+buttons carry `.keyboardShortcut(.return, modifiers: [])` / `(.rightArrow, modifiers: [])`, and
+Cancel carries `.keyboardShortcut(.cancelAction)` — all window-level key equivalents, consulted
+**before** the first responder. So with the walkthrough up, a ⏎ typed into the lens header's
+search field moves the current file on disk, a → silently skips one with no back-step, a held ⏎
+approves file after file (equivalents fire on key-repeat), and an esc meant to clear the field
+discards the walkthrough's approvals. Confirmed present on both lines, symbol-level:
+`git show origin/<line>:Modules/FileExplorer/Sources/FileExplorer/AutomationsLens.swift |
+grep -c 'modifiers: \[\]'` answers `2` on `v3.x` and on `v2.x`.
+
+**Not a clean cherry-pick**, which is why it is written down rather than done in the landing
+session. `main`'s fix restructures the card into `FilingWalkthroughCard` (focusable anchor +
+`.onKeyPress`, `.down`-phase only), and `AutomationsLens.swift` has drifted on both lines
+(`TidyView` vs `LensWorkspaceView` doc anchors, no `personIs`/`unrecognized` cases, `v2.x`'s
+provider/source vocabulary split — the card's caption reads `\(provider)`). The two new suites
+travel with the fix and need per-line adaptation too: `FilingWalkthroughCardKeyTests` borrows its
+window harness from `DifferencesTableBindingTests`, which is **absent on both lines** (the
+`LayoutPumpWait.pump` it relies on is present — the floor scan landed per line), and
+`BareKeyEquivalentScanTests`' count floor (`files.count > 150`) needs re-deriving against each
+line's smaller source tree. `.onKeyPress` itself and the `AutomationDryRunRow` initializer shape
+(`destinationAnchor`) are present on both lines — checked, so the port compiles in principle.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -136,10 +160,17 @@ The two that needed checking rather than reasoning about:
 
 ## `v2.x` — owed
 
-### Nothing confirmed
+### The filing walkthrough's bare key equivalents
+
+Owed here exactly as to `v3.x` — see item 2 under `v3.x` above for the defect, the symbol checks
+(both answered on `v2.x` too) and why it is an adaptation rather than a pick. The extra cost on
+this line is the provider/source vocabulary split: the card's caption interpolates the provider
+name, so the port must keep this line's wording.
+
+### Nothing else confirmed
 
 Every safety family above is present on `v2.x`, and it is the line the `DeleteOutcome` family
-landed on first. No confirmed fix debt was found by this audit.
+landed on first. No other confirmed fix debt was found by this audit.
 
 ### Checked and NOT applicable
 
