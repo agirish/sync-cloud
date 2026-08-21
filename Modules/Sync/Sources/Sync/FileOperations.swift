@@ -596,8 +596,19 @@ extension FileSyncManager {
     ///   from the click being ignored. False for the internal callers (duplicate resolve/merge,
     ///   the review's trash), which interpret a zero return themselves and post their own,
     ///   better-scoped message — a low-level "already gone" would talk over them.
+    /// - Parameter removalGate: A last-moment re-verification hook for callers whose delete rests
+    ///   on a claim about the paths' CONTENT (the duplicates flows: "this copy is still the copy
+    ///   the scan grouped"). Called with the paths about to be removed and returns the subset to
+    ///   REFUSE — those are left on disk and counted in `DeleteOutcome.refusedByGate`. Invoked at
+    ///   the two points where user-paced time can invalidate a verdict formed before this call:
+    ///   once when the serialized operation actually STARTS (the op queue can hold this delete
+    ///   behind a minutes-long operation), and again after a confirmed permanent delete, before
+    ///   anything is destroyed unrecoverably (the confirmation dialog is open for as long as the
+    ///   user leaves it). The gate is the caller's own verifier, so it also owns saying which
+    ///   paths it refused and why; nil (every non-duplicates caller) changes nothing.
     public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default,
-                            reportsNothingToDo: Bool = false) async -> DeleteOutcome {
+                            reportsNothingToDo: Bool = false,
+                            removalGate: (@Sendable ([String]) async -> Set<String>)? = nil) async -> DeleteOutcome {
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): a delete landing mid-verify can remove a file as it's hashed.
         guard !isVerifyAllRunning else {
@@ -624,8 +635,8 @@ extension FileSyncManager {
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation { [weak self, progress, prunedPaths] () -> (errors: [Error], items: [(original: URL, trashed: URL?)], declined: Int) in
-            guard self != nil else { return ([], [], 0) }
+        let result = await enqueueFileOperation { [weak self, progress, prunedPaths] () -> (errors: [Error], items: [(original: URL, trashed: URL?)], declined: Int, refused: Int) in
+            guard self != nil else { return ([], [], 0, 0) }
             // Publish progress only once this operation actually starts (see copyItems above).
             if let progress {
                 await MainActor.run { [weak self] in self?.activeProgress = progress }
@@ -633,12 +644,30 @@ extension FileSyncManager {
             var taskErrors: [Error] = []
             var trashedItems: [(original: URL, trashed: URL?)] = []
             var trashFailures: [URL] = []
+            var refused = 0
+
+            // The queue wait is over and the removals are about to run: let the caller's gate
+            // re-verify its claim NOW, not when it formed it — a long operation queued ahead of
+            // this one puts its whole duration between the caller's checks and this point.
+            var gateRefusedPaths = Set<String>()
+            if let removalGate {
+                gateRefusedPaths = await removalGate(prunedPaths)
+                refused += prunedPaths.filter { gateRefusedPaths.contains($0) }.count
+            }
 
             for (index, path) in prunedPaths.enumerated() {
                 if progress?.isCancelled == true { break }
-                
+
                 await MainActor.run {
                     progress?.localizedAdditionalDescription = (path as NSString).lastPathComponent
+                }
+                if gateRefusedPaths.contains(path) {
+                    // Refused by the gate — leave it on disk. Progress still advances below so
+                    // the bar completes; the gate has already surfaced the refusal.
+                    await MainActor.run {
+                        progress?.completedUnitCount = Int64(index + 1)
+                    }
+                    continue
                 }
                 if fm.fileExists(atPath: path) {
                     let url = URL(fileURLWithPath: path)
@@ -670,9 +699,22 @@ extension FileSyncManager {
                 let confirmed = await MainActor.run {
                     confirmPermanentDelete(trashFailures.map { $0.lastPathComponent })
                 }
-                
+
                 if confirmed {
-                    for url in trashFailures {
+                    // The dialog was user-paced: minutes can sit between the trash attempts above
+                    // and this confirmation, and what follows is the UNRECOVERABLE branch. Re-run
+                    // the caller's gate over exactly the paths about to be destroyed, and refuse
+                    // the ones whose claim no longer holds — a stale verdict must never feed a
+                    // permanent delete.
+                    var toRemove = trashFailures
+                    if let removalGate {
+                        let refusedNow = await removalGate(toRemove.map { $0.path })
+                        if !refusedNow.isEmpty {
+                            refused += toRemove.filter { refusedNow.contains($0.path) }.count
+                            toRemove.removeAll { refusedNow.contains($0.path) }
+                        }
+                    }
+                    for url in toRemove {
                         do {
                             try fm.removeItem(at: url)
                             trashedItems.append((original: url, trashed: nil))
@@ -688,7 +730,7 @@ extension FileSyncManager {
                     declined = trashFailures.count
                 }
             }
-            return (taskErrors, trashedItems, declined)
+            return (taskErrors, trashedItems, declined, refused)
         }
         
         let items = result.items
@@ -739,7 +781,10 @@ extension FileSyncManager {
             banner = .warning(result.declined == 1
                 ? "Kept that item — it can't be moved to the Trash, and you chose not to delete it permanently"
                 : "Kept those \(result.declined) items — they can't be moved to the Trash, and you chose not to delete them permanently")
-        } else if reportsNothingToDo, items.isEmpty, !prunedPaths.isEmpty, progress?.isCancelled != true {
+        } else if reportsNothingToDo, items.isEmpty, result.refused == 0, !prunedPaths.isEmpty, progress?.isCancelled != true {
+            // `result.refused == 0` because a batch the gate refused wholesale is the OPPOSITE of
+            // "already gone" — the items are on disk, deliberately kept, and the gate has posted
+            // its own explanation.
             // Everything selected had already left the disk (deleted in Finder, or by a sync,
             // since the tree was walked), so the per-item `fileExists` pre-check skipped it all.
             // Both the banner and the error above are gated on non-empty results, so the user's
@@ -798,6 +843,7 @@ extension FileSyncManager {
         }
         return DeleteOutcome(trashed: successfullyTrashed.count,
                              permanentlyDeleted: items.count - successfullyTrashed.count,
-                             declined: result.declined)
+                             declined: result.declined,
+                             refusedByGate: result.refused)
     }
 }

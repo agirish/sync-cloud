@@ -29,11 +29,20 @@ public struct DeleteOutcome: Sendable, Equatable {
     public let permanentlyDeleted: Int
     /// Items left on disk: they could not be trashed and the user declined the permanent delete.
     public let declined: Int
+    /// Items left on disk because the caller's `removalGate` refused them at the last moment:
+    /// re-verification found they were no longer what the caller checked before calling — the
+    /// serialized queue and the permanent-delete dialog can both put user-paced time between a
+    /// caller's verify and the removal, and a verdict from before that window must not be acted
+    /// on after it. The gate itself surfaces WHICH paths were refused and why; this count lets
+    /// the caller's accounting distinguish "refused at the last check" from "failed".
+    public let refusedByGate: Int
 
-    public init(trashed: Int = 0, permanentlyDeleted: Int = 0, declined: Int = 0) {
+    public init(trashed: Int = 0, permanentlyDeleted: Int = 0, declined: Int = 0,
+                refusedByGate: Int = 0) {
         self.trashed = trashed
         self.permanentlyDeleted = permanentlyDeleted
         self.declined = declined
+        self.refusedByGate = refusedByGate
     }
 
     /// Items that actually left the disk, by either route — what the old `Int` return meant.

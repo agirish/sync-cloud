@@ -66,7 +66,12 @@ public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
         /// or the entry changing kind — is drift. The mtime half inherits the volume's timestamp
         /// granularity: FAT and some SMB mounts round to 1–2 s, so a rewrite landing inside that
         /// window with the same byte count compares equal — the same fidelity, and the same
-        /// residual blindness, as the file-level drift check.
+        /// residual blindness, as the file-level drift check. Two further residuals it shares
+        /// with that check (see `copyDriftedInPlace`): an mtime-preserving writer (`touch -r`,
+        /// `rsync --times`, some cloud daemons) restores the original mtime after rewriting the
+        /// bytes, so a same-length rewrite by one compares equal on ANY volume; and xattr/
+        /// Finder-tag edits move ctime only, so a copy whose sole change is metadata still reads
+        /// as unchanged.
         case file(size: Int, modificationDate: Date?)
         /// A symbolic link. The walk resolves size/mtime to the link's TARGET, so a retarget is
         /// caught exactly as far as those two readings move: a link repointed at a target whose
@@ -82,6 +87,17 @@ public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
     }
 
     /// Relative path under the folder copy's root → what the scan saw there.
+    ///
+    /// **Keys compare by canonical equivalence, so NFC/NFD sibling names collapse.** Swift's
+    /// `String` `==`/hash are canonical-equivalence-based, which means two directory entries whose
+    /// names differ only in Unicode normalization — possible on SMB/NFS mounts, where the server
+    /// preserves whatever bytes a client sent, unlike APFS/HFS+ — land on ONE dictionary key here,
+    /// last-wins. Both the scan's snapshot and the resolve-time re-walk collapse identically (same
+    /// walk, same sort, same dictionary), so the comparison stays self-consistent; the residual is
+    /// that a change to the collapsed-away sibling is invisible to the drift gate. A byte-
+    /// preserving key would have to abandon `String` keys (canonical equivalence is not opt-out —
+    /// `precomposedStringWithCanonicalMapping` on the way in changes nothing about `==`), which
+    /// changes this public shape for a case only exotic mounts can produce; documented instead.
     public let entries: [String: Entry]
     /// The names the scan's traversal skipped (subtrees included) — a re-walk must skip the same.
     public let ignoredNames: Set<String>
