@@ -81,7 +81,43 @@ public struct GoToResultsPanel: View {
         }
         .contentSurface(hue: .blue, tint: 0)
         .groundedGlassCard(level: glassLevel)
-        .shadow(color: .black.opacity(0.3), radius: 24, y: 6)
+        // **No drop shadow, and its absence is measured rather than assumed.**
+        //
+        // A `.shadow(color: .black.opacity(0.3), radius: 24, y: 6)` sat here until v4.3. It was
+        // correct when it was written: the panel was then created at `contentRect: host.frame`
+        // (`84580c99`), so the card floated inside a window the size of the whole app and had 24pt
+        // of transparent room on every side for a shadow to fall into. `963faf4b` shrank the window
+        // to exactly this list — which is what stopped the palette eating every click over the
+        // window — and in doing so took away the room. The line stayed.
+        //
+        // What it produced after that was not a faint shadow, it was an artifact. A shadow cannot
+        // paint outside its own window, so the blur was clipped to the window's **rectangle** and
+        // what survived was the part filling the gaps this card's **rounded** corners leave in that
+        // rectangle. Measured on the shipped v4.2 build, against the app content immediately
+        // outside the panel: all four corners were **14–26 luminance units darker**, and the
+        // luminance directly below the panel was flat 255 — dark notches at the corners, and no
+        // shadow anywhere a shadow belongs.
+        //
+        // `NSWindow.hasShadow` is not the way back. It is `false` on this panel and setting it
+        // `true` changes nothing: measured on the real code path, the four corner deltas were
+        // unchanged (−19.5/−13.9/−25.7/−23.9 against −19.0/−14.0/−25.7/−24.7) and the strip below
+        // the panel stayed flat. Five separate harness configurations agreed — plain `NSView` and
+        // `NSHostingView`, with and without `.nonactivatingPanel`, with and without
+        // `invalidateShadow()`.
+        //
+        // The two ways to make a shadow possible both cost more than it is worth, and each undoes
+        // a decision taken deliberately elsewhere in this file:
+        //
+        // - **Grow the window past its content.** That is the click sink `onHeight` exists to
+        //   prevent — the surplus is transparent, hit-tests to nothing, and AppKit hands the click
+        //   to the panel anyway, where nothing answers it. It is the bug `963faf4b` fixed.
+        // - **Inset the card inside the window.** The margin would be inside the panel, so no
+        //   clicks are lost — but the list would no longer share its side edges with the field it
+        //   hangs from, which is the whole reason `width` is the field's width.
+        //
+        // So the card carries its own edge instead: `groundedGlassCard` draws the material and the
+        // stroke that separate it from the tree behind. `theResultsPanelDeclaresNoShadow` keeps
+        // this from being re-added by someone reading the design intent rather than the geometry.
     }
 
     private var noResults: some View {
