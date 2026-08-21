@@ -254,7 +254,9 @@ public final class PersonTagStore: ObservableObject {
     }
 
     /// True when the file on disk could not be read or parsed at all, so the next save must not
-    /// land on top of it. Cleared once the bytes have been set aside — see `save`. The move there
+    /// land on top of it. Cleared only once the bytes have actually been set aside — a failed
+    /// set-aside leaves it armed, so every later save re-attempts the move and keeps refusing to
+    /// write until one succeeds; see `save`. The move there
     /// works where the read did not: `moveItem` renames the directory entry, which no file-level
     /// permission gates, and a symlink is moved as itself rather than through its target.
     private var fileWasUnreadable = false
@@ -264,17 +266,36 @@ public final class PersonTagStore: ObservableObject {
         do {
             try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
-            // **Once, on the first save after an unreadable read.** `moveItem` rather than a copy,
-            // so the working file this build is about to write cannot be mistaken for the original,
-            // and the flag is cleared whatever happens: a set-aside that fails must not be retried
-            // on every later verdict, and a second attempt would anyway be moving THIS build's file
-            // rather than the user's.
+            // **On the first save after an unreadable read — and again on every save until it
+            // works.** `moveItem` rather than a copy, so the working file this build is about to
+            // write cannot be mistaken for the original. The flag clears only on a SUCCESSFUL
+            // move: clearing it up front meant one failed set-aside disarmed the guard, and the
+            // next verdict's save ran unguarded and landed its atomic write on the user's
+            // still-in-place file — the exact loss this path exists to prevent, one save later.
+            // ("A second attempt would be moving this build's file" was only true after a move
+            // that worked.) Retrying is safe precisely because the armed flag is the invariant:
+            // while it is set, this method has never written `fileURL`, so every attempt moves
+            // the user's bytes and never this build's. The costs are accepted as the honest
+            // state — the error line below repeats once per verdict while the move keeps
+            // failing, and verdicts live only in memory until it stops.
             if fileWasUnreadable {
-                fileWasUnreadable = false
                 let kept = fileURL.appendingPathExtension("unreadable")
                 do {
-                    try? fileManager.removeItem(at: kept)
-                    try fileManager.moveItem(at: fileURL, to: kept)
+                    do {
+                        try fileManager.moveItem(at: fileURL, to: kept)
+                    } catch let collision as CocoaError
+                        where collision.code == .fileWriteFileExists {
+                        // Something already occupies the kept path — an EARLIER episode's
+                        // set-aside, necessarily, since this one has not succeeded yet. It is
+                        // removed only here, when it is the one thing blocking the move, so a
+                        // move that fails for any other reason cannot cost a set-aside an
+                        // earlier session did land. Replacing it is safe for the same invariant
+                        // as above: what moves in is still the user's original, and the more
+                        // current of the two records.
+                        try fileManager.removeItem(at: kept)
+                        try fileManager.moveItem(at: fileURL, to: kept)
+                    }
+                    fileWasUnreadable = false
                     Logger.shared.warning("person-tags.json could not be read, so it has been kept "
                                           + "as \(kept.lastPathComponent) and a fresh file written "
                                           + "beside it. Nothing you recorded before now is lost — "
@@ -282,7 +303,8 @@ public final class PersonTagStore: ObservableObject {
                 } catch {
                     Logger.shared.error("Couldn't set aside the unreadable person-tags.json "
                                         + "(\(error.localizedDescription)) — NOT overwriting it; "
-                                        + "this session's verdicts stay in memory only")
+                                        + "this session's verdicts stay in memory only, and the "
+                                        + "set-aside is attempted again on the next one")
                     return
                 }
             }

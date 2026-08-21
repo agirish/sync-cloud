@@ -554,6 +554,67 @@ import Foundation
         #expect(reread.tags.map(\.personId) == ["divit"])
     }
 
+    /// **A failed set-aside must stay armed, or the guard lasts exactly one verdict.** The catch
+    /// already refused to write when the move failed — but the flag was cleared *before* the move
+    /// was attempted, so the NEXT verdict's save ran unguarded and landed its atomic write on the
+    /// user's still-in-place file: the exact loss this suite exists to prevent, one save later.
+    @Test func aFailedSetAsideKeepsRefusingUntilTheMoveSucceeds() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        let corrupt = Data("{ not json — and the rename is about to fail too".utf8)
+        try corrupt.write(to: url)
+
+        let fm = MoveBlockedFileManager()
+        fm.movesToRefuse = 2
+        let store = PersonTagStore(directory: dir, profileId: "p", fileManager: fm)
+        #expect(store.tags.isEmpty)
+
+        // Save 1: the move fails. Nothing may land on the user's file.
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        #expect(FileManager.default.contents(atPath: url.path) == corrupt,
+                "a failed set-aside let the write land on the unreadable file")
+
+        // Save 2, the move still failing: the refusal must repeat — this is the observable form
+        // of "the flag is still armed". Under the cleared-up-front flag this is the save that
+        // overwrote.
+        store.record(personId: "aditi", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
+        #expect(FileManager.default.contents(atPath: url.path) == corrupt,
+                "one failed set-aside disarmed the guard, and the next verdict overwrote the file")
+
+        // The obstruction clears: save 3 sets the ORIGINAL bytes aside and writes fresh —
+        // carrying every verdict recorded while they could live only in memory.
+        store.record(personId: "muktha", key: .path("c.pdf"), verdict: .confirmed, path: "c.pdf")
+        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
+                "the set-aside does not hold the user's original bytes")
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.map(\.personId).sorted() == ["aditi", "divit", "muktha"],
+                "a verdict recorded while the set-aside was failing was lost")
+    }
+
+    /// A leftover at the kept path — an earlier session's set-aside — must not block the rescue
+    /// forever, and removing it is safe only because the armed flag means nothing has written the
+    /// live file yet: what replaces the leftover is still the user's original, and the more
+    /// current of the two records.
+    @Test func aLeftoverSetAsideFromAnEarlierEpisodeDoesNotBlockTheRescue() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        try Data("an earlier episode's set-aside".utf8).write(to: kept)
+        let corrupt = Data("{ not json".utf8)
+        try corrupt.write(to: url)
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+
+        #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
+                "the leftover blocked the set-aside, or survived in its place")
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.map(\.personId) == ["divit"])
+    }
+
     /// A first launch has no file, and must stay exactly as quiet and ordinary as it is today:
     /// nothing set aside, nothing protected, the first verdict simply writes the file.
     @Test func aGenuinelyAbsentFileStillWritesNormally() throws {
@@ -569,5 +630,24 @@ import Foundation
                 "an absent file was mistaken for one that exists but cannot be read")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
         #expect(reread.tags.map(\.personId) == ["divit"])
+    }
+}
+
+/// A `FileManager` whose renames can be made to fail — injected through the seam the store
+/// already takes. A real obstruction at the `.unreadable` path is not reliable (an existing file
+/// there is exactly what the collision handling clears, and permission games gate on the euid),
+/// so the refusal is thrown directly, the one spelling every filesystem shares.
+private final class MoveBlockedFileManager: FileManager {
+    /// How many more `moveItem` calls fail before the obstruction "clears". `FileManager` is
+    /// `Sendable`, which a mutable stored property contradicts; unsafe is honest here because the
+    /// store is `@MainActor` and the test drives it there too, so every access is one actor's.
+    nonisolated(unsafe) var movesToRefuse = 0
+
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        if movesToRefuse > 0 {
+            movesToRefuse -= 1
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
     }
 }
