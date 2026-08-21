@@ -133,6 +133,11 @@ public struct AutomationsLens: View {
     /// because this is the gate in front of `applyAutomationFiling`, which moves files.
     @State private var filing = FilingWalkthrough()
 
+    /// Bumped on every walkthrough decision so the card re-claims key focus for the next row —
+    /// a File/Skip click leaves a text field's editor holding first responder, and the card's
+    /// passive claim declines to take focus from one (see `FilingWalkthroughCard.focusNudge`).
+    @State private var filingFocusNudge = 0
+
     public init(
         syncManager: FileSyncManager,
         state: AutomationsLensState,
@@ -462,6 +467,10 @@ public struct AutomationsLens: View {
     /// reversible run. `advance` returns non-nil exactly at the end, so the apply happens in one
     /// place rather than being re-derived from the cursor by the caller.
     private func advanceFiling(approved: Bool) {
+        // Every decision is a gesture aimed at the card — a click on File/Skip (which leaves a
+        // text field's editor as first responder) or a key the already-focused card handled —
+        // so send key focus back to it for the next row (see `FilingWalkthroughCard.focusNudge`).
+        filingFocusNudge += 1
         guard let toFile = filing.advance(approved: approved) else { return }
         guard !toFile.isEmpty else { return }
         Task { await syncManager.applyAutomationFiling(rows: toFile) }
@@ -476,6 +485,7 @@ public struct AutomationsLens: View {
             providerName: provider,
             onQuickLook: onQuickLook,
             onReveal: onReveal,
+            focusNudge: filingFocusNudge,
             onDecision: { advanceFiling(approved: $0) },
             onCancel: { filing.cancel() }
         )
@@ -529,6 +539,17 @@ struct FilingWalkthroughCard: View {
     /// Quick Look / Reveal a matched file (absolute path). nil hides the affordance.
     let onQuickLook: ((String) -> Void)?
     let onReveal: ((String) -> Void)?
+    /// Bumped by the host for every File/Skip decision — the ACTIVE half of the card's focus
+    /// claim. A decision is always a gesture aimed squarely at the card: either a key the
+    /// already-focused card handled (re-claiming is then a no-op) or a CLICK on File/Skip — and
+    /// on macOS a click on a plain button does NOT dislodge a text field's field editor from
+    /// first responder, so the passive per-row claim in `.task(id:)` below, which rightly
+    /// declines to take focus from a text view, would keep declining on every advance and leave
+    /// ⏎/→/esc dead for the rest of the walkthrough (type in the lens header's search — it lives
+    /// outside the lens body and stays mounted — then drive the walkthrough by mouse). Same
+    /// host-driven recovery hatch as `ReviewCardView.focusNudge`, whose host bumps it on
+    /// review-table clicks for the same reason.
+    let focusNudge: Int
     /// The decision for the current row: true = File, false = Skip. The host owns the cursor.
     let onDecision: (Bool) -> Void
     /// Abandon the walkthrough (approvals discarded — see `FilingWalkthrough.cancel`).
@@ -600,6 +621,30 @@ struct FilingWalkthroughCard: View {
                     focused = true
                 }
             }
+        }
+        // The passive/active split. The `.task` claim above re-runs for every row REGARDLESS of
+        // what advanced it, so it must keep declining while a text view holds first responder —
+        // it cannot tell a click on File from a background re-run, and yanking focus mid-typing
+        // would redirect the user's next Return into a File. The two claims below are the ACTIVE
+        // half: each fires only for a gesture aimed squarely at the walkthrough, which is exactly
+        // the case where declining is wrong — a click on a plain button leaves the field editor
+        // as first responder, so without these a visit to the search field deadens ⏎/→/esc for
+        // the entire walkthrough. (ReviewCardView is the donor; its host bumps the nudge on
+        // review-table clicks.)
+        //
+        // Appearance is an unconditional claim because the card only ever mounts from a click on
+        // the results header's "File N…" button — `filing.start` has no other caller, and a dry
+        // run can only END a walkthrough, never start one — and `onChange` cannot cover a mount:
+        // a freshly inserted view was born with the current nudge and sees no change. Deferred
+        // one turn for the same dropped-write gotcha as the claim above.
+        .onAppear {
+            Task { @MainActor in focused = true }
+        }
+        // The per-decision claim: the host bumps `focusNudge` in `advanceFiling`, so a File/Skip
+        // click reclaims key focus for the NEXT row even though the click left the field editor
+        // holding it (see `focusNudge`).
+        .onChange(of: focusNudge) { _, _ in
+            Task { @MainActor in focused = true }
         }
     }
 

@@ -38,8 +38,35 @@ import Sync
         FilingWalkthroughCard(
             row: Self.row("a.pdf"), position: 1, total: 3, accent: .blue,
             providerName: "iCloud", onQuickLook: nil, onReveal: nil,
+            focusNudge: 0,
             onDecision: { recorder.decisions.append($0) },
             onCancel: { recorder.cancels += 1 })
+    }
+
+    /// Test-mutable stand-in for the host's `@State`: `NudgedHost` reads its nudge from here the
+    /// way `FilingWalkthroughCard` reads `AutomationsLens.filingFocusNudge`, so a test can play
+    /// the host's `advanceFiling` bump from outside the hierarchy.
+    @MainActor
+    private final class HostState: ObservableObject {
+        @Published var focusNudge = 0
+    }
+
+    /// The card next to a text field, wired the way `AutomationsLens.filingReviewState` wires it.
+    private struct NudgedHost: View {
+        @ObservedObject var state: HostState
+        let row: AutomationDryRunRow
+        let onDecision: (Bool) -> Void
+        var body: some View {
+            VStack {
+                TextField("Search", text: .constant("inv"))
+                FilingWalkthroughCard(
+                    row: row, position: 1, total: 3, accent: .blue,
+                    providerName: "iCloud", onQuickLook: nil, onReveal: nil,
+                    focusNudge: state.focusNudge,
+                    onDecision: onDecision,
+                    onCancel: {})
+            }
+        }
     }
 
     // MARK: Harness
@@ -148,6 +175,58 @@ import Sync
                 no back-step) — the exact defect the window-level `.keyboardShortcut`s shipped.
                 """)
         #expect(recorder.cancels == 0)
+    }
+
+    // MARK: The recovery hatch
+
+    /// **The focus-recovery hatch, as far as this harness can take it.** In the app the sequence
+    /// is: type in the lens header's search field (which lives OUTSIDE the lens body and stays
+    /// mounted through the walkthrough), then click "File N…" or the card's File/Skip. On macOS a
+    /// click on a plain button does NOT dislodge the field's editor — an NSTextView — from first
+    /// responder, and the card's passive `.task(id:)` claim rightly declines to take focus from a
+    /// text view, so without the host-driven `focusNudge` hatch ⏎/→/esc stay dead for the whole
+    /// walkthrough.
+    ///
+    /// **What this harness cannot reproduce is the decline itself.** The passive guard reads
+    /// `NSApp.keyWindow`, and this window is never ordered in and can never be key, so the guard
+    /// never engages under `swift test` — the "field editor blocks the passive claim" state is
+    /// unreachable offscreen, and a test of it would pass vacuously against any code. What it CAN
+    /// pin is the hatch's whole contract, against a real responder chain: with an NSTextField's
+    /// editor genuinely holding first responder, one nudge bump — what the host sends for every
+    /// File/Skip decision — must take key focus back from the editor and land it on the card,
+    /// proven the only non-vacuous way: ⏎ reaching the card's handler again.
+    @Test func aFocusNudgeReclaimsFocusFromATextFieldEditor() async throws {
+        let recorder = Recorder()
+        let hostState = HostState()
+        let (window, hostView) = host(NudgedHost(
+            state: hostState, row: Self.row("a.pdf"),
+            onDecision: { recorder.decisions.append($0) }))
+        // The positive half first: this hosting really delivers keys to the focused card, so the
+        // reclaim below is measured by key delivery rather than by responder identity alone.
+        guard await waitForCardFocus(in: window) else { return }
+        sendReturn(window)
+        try #require(recorder.decisions == [true],
+                     "the card never received keys in this harness — the reclaim below would be vacuous")
+
+        // Hand focus to the field, the way clicking into the search field would. From here the
+        // window's field editor (an NSText) is what actually holds first responder.
+        let field = try #require(firstTextField(in: hostView), "no NSTextField in the hierarchy")
+        try #require(window.makeFirstResponder(field), "the field refused first responder")
+        sendReturn(window)
+        try #require(recorder.decisions == [true],
+                     "⏎ reached the card while the field held focus — the card never lost it, so the nudge would prove nothing")
+
+        // The host's half of the hatch: bump the nudge, exactly what `advanceFiling` does for
+        // every decision. The card must claim key focus back from the field editor.
+        hostState.focusNudge += 1
+        let (reclaimed, pumps) = await LayoutPumpWait.pump(window, upTo: 10) {
+            window.firstResponder !== window && !(window.firstResponder is NSText)
+        }
+        #expect(reclaimed,
+                "the nudge never took key focus back from the field editor (\(pumps) pumps)")
+        sendReturn(window)
+        #expect(recorder.decisions == [true, true],
+                "focus left the field editor but ⏎ still didn't reach the card: \(recorder.decisions)")
     }
 
     private func firstTextField(in view: NSView) -> NSTextField? {
