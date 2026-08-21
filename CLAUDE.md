@@ -133,6 +133,26 @@ anywhere, which is what makes changing it safe:
 - the Settings rail — `Modules/Settings/Sources/Settings/SettingsLayout.swift`
 - the launch breadcrumb in `~/sync-cloud.log` — `MacApp/SyncCloudApp.swift`
 
+**Three places repeat the number instead of reading it, and every one of them must move in the same
+commit** — they are copies, so nothing fails when they drift:
+
+- the `versionMarker` literal in `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` (step 2)
+- the branch table at the top of **this file**, and the two spellings below it — the example block
+  just above and `main` sits at … under **The two numbers**
+- `MacApp/Info.plist`, which xcodegen regenerates
+
+The table is the one that gets missed: the v4.2 re-bump moved `project.yml` and the test literal but
+left all three lines' tables reading `4.1-dev` / `401`, which is what a session consults *before* a
+cut. This prints nothing when the table is right, and names the offender when it is not:
+
+```sh
+for l in main v3.x v2.x; do
+  m=$(git show origin/$l:project.yml | grep -o '"[0-9.]*-dev"' | tr -d '"')
+  r=$(git show origin/main:CLAUDE.md | grep "^| \`$l\`" | grep -o '`[0-9.]*-dev`' | tr -d '`')
+  [ "$m" = "$r" ] || echo "$l: table says $r, project.yml says $m"
+done
+```
+
 ### The two numbers
 
 **Marketing version.** Between releases each branch tip carries a **pre-release marker** for the
