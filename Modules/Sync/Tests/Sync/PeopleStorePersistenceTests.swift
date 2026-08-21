@@ -121,6 +121,10 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: dir) }
         // No people.json at all — the seeded-roster case, where the file appears on first edit.
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        // Genuinely absent must stay indistinguishable from a first launch: no protection, no
+        // load-time warning (the init warns exactly when this flag is set), and the save lands.
+        #expect(store.rosterIsUnreadable == false,
+                "an absent file was mistaken for one that exists but cannot be read")
         store.add(displayName: "Aditi")
 
         let saved = try read(dir)
@@ -249,6 +253,58 @@ import Foundation
 
         let after = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
         #expect(after == before, "the duplicated person's first record was deleted from people.json")
+    }
+
+    // MARK: - A roster the process cannot even READ is never overwritten
+
+    /// **The read layer has the same two states as the parse layer, and it lost them.** A file
+    /// that exists but cannot be opened — mode 000, an ACL, an I/O error — came back from
+    /// `contents(atPath:)` as nil, exactly like no file at all, so the unreadable guard never
+    /// armed. The save's atomic rename needs permission on the *directory*, not the file, so the
+    /// first edit then succeeded precisely where the read had failed and replaced the household
+    /// with the folder-name seed.
+    @Test func aRosterTheProcessCannotOpenIsNotOverwrittenByAnEdit() throws {
+        let dir = try makeDirectory()
+        let url = dir.appendingPathComponent("p/people.json")
+        let fm = FileManager.default
+        defer {
+            // Give the bytes back before the sweep, or the temp dir outlives the test.
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            try? fm.removeItem(at: dir)
+        }
+        try write(Self.handWritten, to: dir)
+        let before = try Data(contentsOf: url)
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        #expect(store.rosterIsUnreadable,
+                "a file that exists but cannot be opened holds a household this session cannot see")
+        store.add(displayName: "Shweta")
+
+        try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        let after = try Data(contentsOf: url)
+        #expect(after == before,
+                "the household was overwritten because a failed read was mistaken for no file")
+    }
+
+    /// The same hole through the other door: `people.json` symlinked somewhere that does not
+    /// resolve right now — a volume that is not mounted. The read fails, and the atomic write
+    /// would replace the *link itself* with a plain file, orphaning the roster it points at.
+    @Test func aDanglingSymlinkAtTheRosterPathIsNotReplacedByAnEdit() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/people.json")
+        let target = "/Volumes/NoSuchVolume/people.json"
+        try FileManager.default.createSymbolicLink(at: url,
+                                                   withDestinationURL: URL(fileURLWithPath: target))
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        #expect(store.rosterIsUnreadable,
+                "a link whose target is missing is not the same as no roster at all")
+        store.add(displayName: "Shweta")
+
+        let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)
+        #expect(dest == target, "the symlink was replaced by a plain file the app wrote")
     }
 
     /// "any file at all", every ordinary edit would stop saving and the two tests above would still

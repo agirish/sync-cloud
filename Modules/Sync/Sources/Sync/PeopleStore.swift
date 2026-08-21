@@ -97,7 +97,9 @@ public final class PeopleStore: ObservableObject {
     }
 
     /// True when `people.json` holds **structured data this build could not decode** — a hand-edit
-    /// that broke one `Person` entry, or a schema a newer build wrote.
+    /// that broke one `Person` entry, or a schema a newer build wrote — or when the file **exists
+    /// but could not be read at all**: mode 000, an ACL, an I/O error, a symlink whose target is
+    /// on a volume that is not mounted.
     ///
     /// **This is the difference between "no roster yet" and "a roster I cannot read", and until it
     /// existed the two were the same state.** A failed decode falls back to a registry seeded from
@@ -113,7 +115,10 @@ public final class PeopleStore: ObservableObject {
     /// roster to protect, and refusing every edit until the user hand-repairs a corrupt file would
     /// trade a rare loss for a permanent lockout. The line is whether there is structured content
     /// to lose: valid JSON that did not decode is a household this build merely failed to
-    /// understand, and rewriting it is the loss this flag exists to prevent.
+    /// understand, and rewriting it is the loss this flag exists to prevent. A file whose bytes
+    /// could not be fetched at all sits on the protected side of that line, because the question
+    /// "is there content to lose?" cannot be answered without them — and the failure that blocked
+    /// the read rarely blocks the write, since an atomic save needs only directory permission.
     @Published public private(set) var rosterIsUnreadable = false
 
     /// Ids `people.json` listed more than once, sorted and unique — empty for every ordinary roster.
@@ -165,12 +170,25 @@ public final class PeopleStore: ObservableObject {
     /// and this counter can go back to meaning exactly what it says.
     @Published public private(set) var savedRevision: Int = 0
 
-    /// Decides the above from two independent facts: did the registry come from the file (`source`
-    /// is `.file` only on a successful decode), and is there JSON in the file at all.
+    /// Decides the above from three independent facts: did the registry come from the file
+    /// (`source` is `.file` only on a successful decode), could the file be read at all, and is
+    /// there JSON in it.
     private static func rosterIsUnreadable(at url: URL, loaded: PersonRegistry,
                                            fileManager: FileManager) -> Bool {
         guard loaded.source != .file else { return false }        // decoded, nothing to protect from
-        guard let data = fileManager.contents(atPath: url.path) else { return false }   // no file
+        guard let data = fileManager.contents(atPath: url.path) else {
+            // **"Absent" and "there but unreadable" are different answers**, and a nil here alone
+            // conflates them. A `people.json` that exists and cannot be opened — mode 000, an ACL,
+            // an I/O error — would otherwise look like a fresh profile, and `save()`'s atomic
+            // rename needs permission on the *directory* rather than the file, so the first edit
+            // would succeed exactly where this read failed and replace the household with the seed.
+            // `attributesOfItem` rather than `fileExists`, because only the former sees a symlink
+            // that does not resolve: `fileExists` follows links and answers false for one whose
+            // target is on an unmounted volume — and the atomic write then replaces the link
+            // itself. The is-it-JSON line below cannot run without the bytes, so whatever is here
+            // is protected without it: unreadable contents cannot be shown to hold no roster.
+            return (try? fileManager.attributesOfItem(atPath: url.path)) != nil
+        }
         return (try? JSONSerialization.jsonObject(with: data)) != nil
     }
 
