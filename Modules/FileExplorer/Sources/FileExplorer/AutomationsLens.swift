@@ -467,79 +467,18 @@ public struct AutomationsLens: View {
         Task { await syncManager.applyAutomationFiling(rows: toFile) }
     }
 
-    @ViewBuilder
     private func filingReviewState(_ row: AutomationDryRunRow) -> some View {
-        let isCollision: Bool = { if case .needsAttention = row.verdict { return true } else { return false } }()
-        VStack(spacing: 16) {
-            Text("File \(filing.displayPosition) of \(filing.queue.count)")
-                .scaledFont(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.secondary)
-            VStack(spacing: 10) {
-                Image(nsImage: FileIconCache.icon(name: row.fileName, isDirectory: false))
-                    .resizable().frame(width: 44, height: 44)
-                Text(row.fileName)
-                    .scaledFont(.system(size: 14, weight: .semibold))
-                    .lineLimit(1).truncationMode(.middle)
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.right").scaledFont(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
-                    Image(systemName: "folder.fill").scaledFont(.system(size: 11)).foregroundStyle(accent)
-                    Text(row.destinationLabel ?? "its destination")
-                        .scaledFont(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(accent)
-                        .lineLimit(1).truncationMode(.middle)
-                }
-                if isCollision {
-                    Text("A file with this name is already there — it’ll be kept as a copy.")
-                        .scaledFont(.system(size: 11)).foregroundStyle(SemanticColor.warning)
-                        .multilineTextAlignment(.center)
-                }
-                // Inspection before deciding: Quick Look the file or see it in Finder — the same
-                // Preview/Reveal pair Organize's cards offer, since "File or skip?" is exactly the
-                // moment the user needs to check what the file actually is.
-                if onQuickLook != nil || onReveal != nil {
-                    HStack(spacing: 9) {
-                        if let onQuickLook {
-                            Button(action: { onQuickLook(row.id) }) { Label("Preview", systemImage: "eye") }
-                                .controlSize(.small)
-                                .help("Quick Look this file before deciding")
-                        }
-                        if let onReveal {
-                            Button(action: { onReveal(row.id) }) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
-                                .controlSize(.small)
-                                .help("Show this file in Finder")
-                        }
-                    }
-                    .padding(.top, 2)
-                }
-            }
-            .padding(.horizontal, 22).padding(.vertical, 18)
-            .frame(maxWidth: 380)
-            .lensCard()
-            HStack(spacing: 10) {
-                Button(action: { advanceFiling(approved: false) }) {
-                    Label("Skip", systemImage: "arrow.uturn.forward").frame(minWidth: 66)
-                }
-                .controlSize(.large)
-                .keyboardShortcut(.rightArrow, modifiers: [])
-                .shortcutKeycap("→")
-                Button(action: { advanceFiling(approved: true) }) {
-                    Label("File", systemImage: "tray.and.arrow.down.fill").frame(minWidth: 66)
-                }
-                .buttonStyle(.borderedProminent)
-                .chromeHover()
-                .controlSize(.large)
-                .keyboardShortcut(.return, modifiers: [])
-                .shortcutKeycap("⏎")
-            }
-            Button("Cancel") { filing.cancel() }
-                .keyboardShortcut(.cancelAction)
-                .shortcutKeycap("esc")
-                .controlSize(.small)
-                .padding(.top, 2)
-            Text("Organize moves real files into \(provider). The whole run undoes with ⌘Z.")
-                .scaledFont(.system(size: 11)).foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-        }
+        FilingWalkthroughCard(
+            row: row,
+            position: filing.displayPosition,
+            total: filing.queue.count,
+            accent: accent,
+            providerName: provider,
+            onQuickLook: onQuickLook,
+            onReveal: onReveal,
+            onDecision: { advanceFiling(approved: $0) },
+            onCancel: { filing.cancel() }
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(30)
     }
@@ -564,6 +503,149 @@ public struct AutomationsLens: View {
         let id: UUID
         let name: String
         var rows: [AutomationDryRunRow]
+    }
+}
+
+// MARK: - Filing walkthrough card
+
+/// The per-file "File or skip?" confirmation the walkthrough shows for each match. Internal (not
+/// private in `AutomationsLens`) so the key-handling tests can host it directly.
+///
+/// The card is the walkthrough's key-event anchor: focusable so ⏎/→/esc work the moment the
+/// walkthrough starts, deliberately NOT window-level `.keyboardShortcut`s — a key equivalent is
+/// consulted before the first responder, and these shipped as `.keyboardShortcut(.return,
+/// modifiers: [])` / `.keyboardShortcut(.rightArrow, modifiers: [])`, so a ⏎ typed into the lens
+/// header's search field (or the Settings overlay) MOVED the current file on disk, and → silently
+/// skipped it, with no back-step to undo the skip. Same anchor-plus-`.onKeyPress` shape as
+/// `ReviewCardView`, which is where the rule is measured and written down.
+struct FilingWalkthroughCard: View {
+    let row: AutomationDryRunRow
+    /// One-based "File N of M" position and total, precomputed by the host's `FilingWalkthrough`.
+    let position: Int
+    let total: Int
+    let accent: Color
+    /// Already-resolved display name ("this provider" fallback applied by the host).
+    let providerName: String
+    /// Quick Look / Reveal a matched file (absolute path). nil hides the affordance.
+    let onQuickLook: ((String) -> Void)?
+    let onReveal: ((String) -> Void)?
+    /// The decision for the current row: true = File, false = Skip. The host owns the cursor.
+    let onDecision: (Bool) -> Void
+    /// Abandon the walkthrough (approvals discarded — see `FilingWalkthrough.cancel`).
+    let onCancel: () -> Void
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("File \(position) of \(total)")
+                .scaledFont(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+            fileCard
+            HStack(spacing: 10) {
+                Button(action: { onDecision(false) }) {
+                    Label("Skip", systemImage: "arrow.uturn.forward").frame(minWidth: 66)
+                }
+                .controlSize(.large)
+                .shortcutKeycap("→")
+                Button(action: { onDecision(true) }) {
+                    Label("File", systemImage: "tray.and.arrow.down.fill").frame(minWidth: 66)
+                }
+                .buttonStyle(.borderedProminent)
+                .chromeHover()
+                .controlSize(.large)
+                .shortcutKeycap("⏎")
+            }
+            Button("Cancel") { onCancel() }
+                .shortcutKeycap("esc")
+                .controlSize(.small)
+                .padding(.top, 2)
+            Text("Organize moves real files into \(providerName). The whole run undoes with ⌘Z.")
+                .scaledFont(.system(size: 11)).foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focused)
+        // `.down` only, no `.repeat`, on BOTH decisions. ⏎ moves a real file and → skips one that
+        // no back-step can revisit, so a held-a-beat-too-long key must decide exactly ONE file —
+        // auto-repeat marching through the queue was half of the key-equivalent bug this card
+        // replaced. (Same rule, same reason, as ReviewCardView's ⌫-skip.)
+        .onKeyPress(keys: [.return], phases: .down) { _ in
+            onDecision(true)
+            return .handled
+        }
+        .onKeyPress(keys: [.rightArrow], phases: .down) { _ in
+            onDecision(false)
+            return .handled
+        }
+        // esc rides the same anchor rather than `.keyboardShortcut(.cancelAction)` — that too is a
+        // window-level equivalent, and it would discard the walkthrough's approvals on an esc the
+        // user typed to clear the search field.
+        .onKeyPress(.escape) {
+            onCancel()
+            return .handled
+        }
+        .task(id: row.id) {
+            // Deferred one turn: a FocusState write in the same transaction that inserts the
+            // view can be silently dropped (same gotcha as ReviewCardView, the header search
+            // field). Re-run per row so focus lost mid-walkthrough (Quick Look's panel) is
+            // reclaimed at the next advance.
+            Task { @MainActor in
+                // Don't yank key focus mid-typing: claiming it while the user is in a text field
+                // (the lens header's search, the Settings overlay) would redirect their next
+                // Return into a File. Field editors are NSTextView, so this covers every AppKit
+                // text-input surface.
+                if !(NSApp.keyWindow?.firstResponder is NSTextView) {
+                    focused = true
+                }
+            }
+        }
+    }
+
+    private var fileCard: some View {
+        let isCollision: Bool = { if case .needsAttention = row.verdict { return true } else { return false } }()
+        return VStack(spacing: 10) {
+            Image(nsImage: FileIconCache.icon(name: row.fileName, isDirectory: false))
+                .resizable().frame(width: 44, height: 44)
+            Text(row.fileName)
+                .scaledFont(.system(size: 14, weight: .semibold))
+                .lineLimit(1).truncationMode(.middle)
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.right").scaledFont(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
+                Image(systemName: "folder.fill").scaledFont(.system(size: 11)).foregroundStyle(accent)
+                Text(row.destinationLabel ?? "its destination")
+                    .scaledFont(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(accent)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            if isCollision {
+                Text("A file with this name is already there — it’ll be kept as a copy.")
+                    .scaledFont(.system(size: 11)).foregroundStyle(SemanticColor.warning)
+                    .multilineTextAlignment(.center)
+            }
+            // Inspection before deciding: Quick Look the file or see it in Finder — the same
+            // Preview/Reveal pair Organize's cards offer, since "File or skip?" is exactly the
+            // moment the user needs to check what the file actually is.
+            if onQuickLook != nil || onReveal != nil {
+                HStack(spacing: 9) {
+                    if let onQuickLook {
+                        Button(action: { onQuickLook(row.id) }) { Label("Preview", systemImage: "eye") }
+                            .controlSize(.small)
+                            .help("Quick Look this file before deciding")
+                    }
+                    if let onReveal {
+                        Button(action: { onReveal(row.id) }) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
+                            .controlSize(.small)
+                            .help("Show this file in Finder")
+                    }
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(.horizontal, 22).padding(.vertical, 18)
+        .frame(maxWidth: 380)
+        .lensCard()
     }
 }
 
