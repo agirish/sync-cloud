@@ -1519,3 +1519,58 @@ A change to the palette's anchor path is the one case where this deserves a real
 drives `refreshAnchor` through a nil anchor, so a genuine regression there fails it every time
 rather than under load.
 
+
+### 15. A readiness window the fixture starts before the code it is timing — FIXED
+
+**Symptom.** `CommandPalettePanelTests.theAnchorKeepsLookingAcrossRunloopTurnsRatherThanSpending
+EveryRetryAtOnce` fails on its **first** expectation, the one that only sets the scene:
+
+```
+✘ … CommandPalettePanelTests.swift:1022: Expectation failed: (state.listWidth → 420.0) == (0 → 0.0)
+```
+
+Read quickly this looks like the anchor path misbehaving. It is the opposite: the anchor found the
+field *immediately*, which is the one thing the test needs not to happen yet.
+
+**Mechanism.** The fixture modelled "an anchor with nothing to give for the first 100 ms" as a
+deadline computed **before** `present`:
+
+```swift
+let ready = Date().addingTimeInterval(0.1)
+let state = present(controller, over: host, anchor: { Date() >= ready ? field : nil })
+```
+
+`present` consults the anchor synchronously, so the window is a race against `present`'s own
+duration — and `present` raises a panel, parents it to the host and lays a SwiftUI list out. On a
+loaded machine that costs more than 100 ms, the first call already answers the field,
+`state.listWidth` is 420 before a single retry is scheduled, and the retry path under test is never
+entered at all. The assertion that fires is the **non-vacuity guard**, doing its job.
+
+**What makes it fire.** Load, same as mechanism 14 next door — but the failure is a fixture defect
+rather than a wait that needs widening, so it is fixable rather than triageable. Observed on CI
+2026-08-21 in a `workflow_dispatch` run on `main`'s tip while the same test passed **alone in
+2.4 s**.
+
+**Fixed** by starting the window at the **first consultation** instead of before `present`:
+
+```swift
+var firstAsked: Date?
+let state = present(controller, over: host, anchor: {
+    let now = Date()
+    guard let first = firstAsked else { firstAsked = now; return nil }
+    return now.timeIntervalSince(first) >= 0.1 ? field : nil
+})
+```
+
+The first call is now deterministically nil whatever `present` costs, and the 100 ms is measured
+across the retries — which is what the test was always trying to say.
+
+**Both directions were measured**, by injecting `Thread.sleep(forTimeInterval: 0.3)` ahead of
+`present` to stand in for the loaded machine. With the old clock that reproduces CI's message
+character for character; with the new clock the suite passes. The guard still bites: reverting
+`refreshAnchor`'s `asyncAfter` to `main.async` fails the test at its *second* expectation
+(`(state.listWidth → 0.0) != (0 → 0.0)`), which is the shipped defect this test exists for.
+
+**The general shape, worth more than this instance.** A fixture that computes a deadline and then
+runs the code it is timing has made the code's own duration part of the threshold. Start the clock
+from inside the thing being measured, or the test is timing the machine.

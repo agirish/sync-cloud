@@ -1016,9 +1016,21 @@ import Sync
         let host = makeHost()
         let controller = CommandPalettePanelController()
         defer { teardown(host, controller) }
-        let ready = Date().addingTimeInterval(0.1)
         let field = CGRect(x: host.frame.minX + 60, y: host.frame.minY + 120, width: 420, height: 28)
-        let state = present(controller, over: host, anchor: { Date() >= ready ? field : nil })
+        // **The 100 ms starts at the first consultation, not before `present`.** Written as a
+        // `ready` date computed up front, the window is a race against however long `present`
+        // itself takes — and on a loaded machine `present` wins: the first anchor call already
+        // sees the field, `listWidth` is 420 before the retry path is exercised at all, and the
+        // guard below fails for the one reason that says nothing about the behaviour. That is how
+        // it went red on CI 2026-08-21 (`(state.listWidth -> 420.0) == (0 -> 0.0)`) while passing
+        // alone in 2.4s. Starting the window at the first call makes that call deterministically
+        // nil and measures the 100 ms across the retries, which is what is under test.
+        var firstAsked: Date?
+        let state = present(controller, over: host, anchor: {
+            let now = Date()
+            guard let first = firstAsked else { firstAsked = now; return nil }
+            return now.timeIntervalSince(first) >= 0.1 ? field : nil
+        })
         #expect(state.listWidth == 0, "anchored to a field that did not exist yet")
         // Bounded, and generously: the budget under test is ~0.6s, and a wait that cannot end is
         // how a regression here becomes a hung suite rather than a failing one.
