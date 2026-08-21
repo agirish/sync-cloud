@@ -1,4 +1,5 @@
 import Testing
+import Events
 import Foundation
 import Sync
 @testable import FileExplorer
@@ -56,7 +57,7 @@ import Sync
         _ = walk.advance(approved: true)
         _ = walk.advance(approved: true)
 
-        walk.cancel()
+        walk.cancel(because: .dismissed)
 
         // The card promises nothing moves until the last decision; a cancel must honour that even
         // with approvals already banked.
@@ -136,5 +137,77 @@ import Sync
         let toFile = walk.advance(approved: true)
 
         #expect(toFile?.map(\.fileName) == ["new.pdf"])
+    }
+}
+
+/// Every retirement of an in-progress walkthrough writes ONE log line naming its cause. From the
+/// user's side a dismissal and a new-preview retirement look identical — the card just vanishes —
+/// and neither used to leave a trace, so "my walkthrough disappeared" was undiagnosable from
+/// `~/sync-cloud.log`.
+///
+/// `@MainActor` because `Logger.shared.entries` is main-actor state, and `.serialized` because the
+/// three tests assert on (and one asserts the ABSENCE of) the same process-wide log stream —
+/// in-suite parallelism would let one test's retirement line land inside another's window.
+/// `Logger.shared.warning`/`info` are async (they return the flush `Task`); every reading below
+/// awaits its closing marker's task, which drains the FIFO queue behind it, before touching
+/// `entries` — the pattern `DuplicateReviewCoordinatorTests` measured out.
+@MainActor
+@Suite(.serialized) struct FilingWalkthroughLogTests {
+
+    private func row(_ name: String) -> AutomationDryRunRow {
+        AutomationDryRunRow(id: "/inbox/\(name)", fileName: name, ruleID: UUID(), ruleName: "Rule",
+                            verdict: .wouldFile(destination: "Docs"),
+                            destinationDir: URL(fileURLWithPath: "/root/Docs"), destinationLabel: "Docs",
+                            destinationAnchor: URL(fileURLWithPath: "/root"))
+    }
+
+    /// Everything logged between two fresh markers, with the call under test run between them.
+    /// The opener is `#require`d as the eviction guard — `entries` is a rolled 1000-line window.
+    private func window(_ act: () -> Void) async throws -> ArraySlice<String> {
+        let marker = UUID().uuidString.prefix(8)
+        await Logger.shared.debug("walkthrough log window open \(marker)").value
+        act()
+        await Logger.shared.debug("walkthrough log window close \(marker)").value
+        let messages = Logger.shared.entries.map(\.message)
+        let opened = try #require(messages.firstIndex(where: { $0.contains("open \(marker)") }),
+                                  "the log window rolled past this test's own marker, so this reading is vacuous")
+        let tail = messages[opened...]
+        let closed = try #require(tail.lastIndex(where: { $0.contains("close \(marker)") }),
+                                  "the closing marker never landed — this reading is vacuous")
+        return tail[...closed]
+    }
+
+    @Test func aDismissalSaysWhereItStoppedAndWhatItDiscarded() async throws {
+        var walk = FilingWalkthrough()
+        walk.start([row("a.pdf"), row("b.pdf"), row("c.pdf")])
+        _ = walk.advance(approved: true)   // "File 2 of 3", one approval banked
+
+        let logged = try await window { walk.cancel(because: .dismissed) }
+        #expect(logged.contains(where: {
+            $0.contains("Filing walkthrough dismissed (esc or Cancel) at file 2 of 3 — 1 approval(s) discarded, nothing filed")
+        }), "no dismissal line in \(Array(logged))")
+    }
+
+    @Test func aNewPreviewRetirementNamesThePreviewAsTheCause() async throws {
+        var walk = FilingWalkthrough()
+        walk.start([row("a.pdf"), row("b.pdf"), row("c.pdf")])
+        _ = walk.advance(approved: false)
+
+        let logged = try await window { walk.dryRunRunningChanged(to: true) }
+        #expect(logged.contains(where: {
+            $0.contains("Filing walkthrough retired by a new rules preview at file 2 of 3 — 0 approval(s) discarded, nothing filed")
+        }), "no retirement line in \(Array(logged))")
+    }
+
+    /// A cancel with nothing running is a state reset, not a loss — logging it would fabricate
+    /// disappearances (the dry-run rising edge fires whether or not a walkthrough exists).
+    @Test func retiringNothingWritesNothing() async throws {
+        var walk = FilingWalkthrough()
+        let logged = try await window {
+            walk.cancel(because: .dismissed)
+            walk.dryRunRunningChanged(to: true)
+        }
+        #expect(!logged.contains(where: { $0.contains("Filing walkthrough") }),
+                "an idle cancel wrote a retirement line: \(Array(logged))")
     }
 }

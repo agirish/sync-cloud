@@ -1,3 +1,4 @@
+import Events
 import Sync
 
 /// The per-file "ask each time" filing cursor: which rows are being stepped through, where the
@@ -64,9 +65,32 @@ struct FilingWalkthrough: Equatable {
         return result
     }
 
+    /// Why an in-progress walkthrough went away — every retirement writes one log line naming its
+    /// cause, because from the user's side both look the same ("my walkthrough vanished") and
+    /// neither used to leave a trace in `~/sync-cloud.log`.
+    enum RetirementCause {
+        /// The user dismissed it — esc, or the Cancel button (one closure serves both).
+        case dismissed
+        /// A new rules preview started underneath it ("Preview all" mid-review) and the queue's
+        /// rows belong to the superseded report — see `dryRunRunningChanged`.
+        case newDryRun
+
+        fileprivate var described: String {
+            switch self {
+            case .dismissed: return "dismissed (esc or Cancel)"
+            case .newDryRun: return "retired by a new rules preview"
+            }
+        }
+    }
+
     /// Abandons the walkthrough. Approvals are discarded, so a cancel files nothing at all — the
-    /// promise the review card makes by not moving anything until the last decision.
-    mutating func cancel() {
+    /// promise the review card makes by not moving anything until the last decision. No default
+    /// for `cause` on purpose: a future call site must say why, or the vanish goes dark again.
+    mutating func cancel(because cause: RetirementCause) {
+        if isRunning {
+            Logger.shared.info("Filing walkthrough \(cause.described) at file \(displayPosition) "
+                + "of \(queue.count) — \(approved.count) approval(s) discarded, nothing filed")
+        }
         self = FilingWalkthrough()
     }
 
@@ -84,6 +108,6 @@ struct FilingWalkthrough: Equatable {
     /// clearing there would wipe a walkthrough the user had legitimately started meanwhile.
     mutating func dryRunRunningChanged(to isRunningDryRun: Bool) {
         guard isRunningDryRun else { return }
-        cancel()
+        cancel(because: .newDryRun)
     }
 }

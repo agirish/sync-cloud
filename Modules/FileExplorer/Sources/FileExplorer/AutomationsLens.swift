@@ -483,11 +483,13 @@ public struct AutomationsLens: View {
             total: filing.queue.count,
             accent: accent,
             providerName: provider,
-            onQuickLook: onQuickLook,
-            onReveal: onReveal,
+            // Preview/Reveal recover the card's key focus without spending a decision — see
+            // `FilingWalkthroughCard.recoveringFocus` and `focusNudge`.
+            onQuickLook: FilingWalkthroughCard.recoveringFocus(via: { filingFocusNudge += 1 }, onQuickLook),
+            onReveal: FilingWalkthroughCard.recoveringFocus(via: { filingFocusNudge += 1 }, onReveal),
             focusNudge: filingFocusNudge,
             onDecision: { advanceFiling(approved: $0) },
-            onCancel: { filing.cancel() }
+            onCancel: { filing.cancel(because: .dismissed) }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(30)
@@ -539,16 +541,17 @@ struct FilingWalkthroughCard: View {
     /// Quick Look / Reveal a matched file (absolute path). nil hides the affordance.
     let onQuickLook: ((String) -> Void)?
     let onReveal: ((String) -> Void)?
-    /// Bumped by the host for every File/Skip decision — the ACTIVE half of the card's focus
-    /// claim. A decision is always a gesture aimed squarely at the card: either a key the
-    /// already-focused card handled (re-claiming is then a no-op) or a CLICK on File/Skip — and
-    /// on macOS a click on a plain button does NOT dislodge a text field's field editor from
-    /// first responder, so the passive per-row claim in `.task(id:)` below, which rightly
-    /// declines to take focus from a text view, would keep declining on every advance and leave
-    /// ⏎/→/esc dead for the rest of the walkthrough (type in the lens header's search — it lives
-    /// outside the lens body and stays mounted — then drive the walkthrough by mouse). Same
-    /// host-driven recovery hatch as `ReviewCardView.focusNudge`, whose host bumps it on
-    /// review-table clicks for the same reason.
+    /// Bumped by the host for every gesture aimed squarely at the card — each File/Skip decision
+    /// (`advanceFiling`), and the non-destructive Preview/Reveal inspections (via
+    /// `recoveringFocus`). A decision is either a key the already-focused card handled
+    /// (re-claiming is then a no-op) or a CLICK on one of the card's buttons — and on macOS a
+    /// click on a plain button does NOT dislodge a text field's field editor from first
+    /// responder, so without this hatch a visit to the lens header's search field (it lives
+    /// outside the lens body and stays mounted) would leave ⏎/→/esc dead for the rest of the
+    /// walkthrough. Same host-driven recovery hatch as `ReviewCardView.focusNudge`, whose host
+    /// bumps it on review-table clicks for the same reason. (Unlike ReviewCardView there is no
+    /// passive per-row claim to fall back on — see the comment at `.onAppear` below for why one
+    /// would be dead code here.)
     let focusNudge: Int
     /// The decision for the current row: true = File, false = Skip. The host owns the cursor.
     let onDecision: (Bool) -> Void
@@ -556,6 +559,23 @@ struct FilingWalkthroughCard: View {
     let onCancel: () -> Void
 
     @FocusState private var focused: Bool
+
+    /// Wraps a non-destructive inspection gesture (Preview / Reveal) so it FIRST bumps the host's
+    /// focus nudge, then runs. Those clicks are gestures aimed squarely at the card, yet before
+    /// this the only gesture that recovered key focus was an irreversible File/Skip — a user who
+    /// had clicked into the header's search field had to SPEND a decision to get ⏎/→/esc back.
+    /// `nil` in, `nil` out, so the host's "closure absent hides the affordance" contract survives
+    /// the wrap. Static and internal so the tests can prove the bump-then-run order and the reclaim
+    /// end-to-end — the buttons themselves cannot be clicked under `swift test` (see
+    /// `PaneBackgroundDeselectMountedTests.testSyntheticClicksCannotDriveThisHarness`).
+    static func recoveringFocus(via bumpNudge: @escaping () -> Void,
+                                _ inner: ((String) -> Void)?) -> ((String) -> Void)? {
+        guard let inner else { return nil }
+        return { path in
+            bumpNudge()
+            inner(path)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -588,55 +608,71 @@ struct FilingWalkthroughCard: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        // `.down` only, no `.repeat`, on BOTH decisions. ⏎ moves a real file and → skips one that
+        // A tap anywhere on the card is a gesture aimed at the walkthrough, so it recovers key
+        // focus — the cheap way back after clicking into the header's search field, one that
+        // spends no File/Skip. `.contentShape` first: an unfilled shape has no hit area, so
+        // without it the tap would only register on the card's painted pixels. The buttons sit
+        // above this gesture and keep their own hits.
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Task { @MainActor in focused = true }
+        }
+        // `.down` only, no `.repeat`, on ALL THREE keys. ⏎ moves a real file and → skips one that
         // no back-step can revisit, so a held-a-beat-too-long key must decide exactly ONE file —
         // auto-repeat marching through the queue was half of the key-equivalent bug this card
-        // replaced. (Same rule, same reason, as ReviewCardView's ⌫-skip.)
-        .onKeyPress(keys: [.return], phases: .down) { _ in
+        // replaced — and esc keeps the same phase rule for uniformity. (Same rule, same reason,
+        // as ReviewCardView's ⌫-skip.)
+        //
+        // `press.modifiers.isEmpty` on all three: the `onKeyPress(keys:phases:)` overload — unlike
+        // the single-key `onKeyPress(_:)` one — delivers MODIFIED presses too, so without the check
+        // ⌘⏎/⇧⏎ filed the current item and ⌥→/⌃→ irreversibly skipped it (measured in
+        // FilingWalkthroughCardKeyTests). The keycaps advertise plain keystrokes; a chord is
+        // `.ignored` so whoever owns it still sees it.
+        //
+        // `guard focused` on the two DECISION keys: with Full Keyboard Access the card's buttons
+        // become focusable, and a ⏎ aimed at the focused Cancel button would otherwise bubble to
+        // this ancestor handler and FILE the item (a focused macOS button activates on Space, not
+        // Return). When focus sits on a descendant rather than the card itself, deciding is not
+        // what the keystroke meant — `.ignored` hands it back. UNVERIFIABLE under `swift test`
+        // (no assistive client, so FKA button focus cannot be reproduced; the harness only proves
+        // the guard does not break the card-focused path). Manual check when touching this: turn
+        // on Full Keyboard Access, Tab to the walkthrough's Cancel button, press ⏎ — nothing may
+        // be filed. esc is deliberately NOT gated on `focused`: cancelling from a focused button
+        // is harmless and is what esc means there anyway.
+        .onKeyPress(keys: [.return], phases: .down) { press in
+            guard press.modifiers.isEmpty, focused else { return .ignored }
             onDecision(true)
             return .handled
         }
-        .onKeyPress(keys: [.rightArrow], phases: .down) { _ in
+        .onKeyPress(keys: [.rightArrow], phases: .down) { press in
+            guard press.modifiers.isEmpty, focused else { return .ignored }
             onDecision(false)
             return .handled
         }
         // esc rides the same anchor rather than `.keyboardShortcut(.cancelAction)` — that too is a
         // window-level equivalent, and it would discard the walkthrough's approvals on an esc the
         // user typed to clear the search field.
-        .onKeyPress(.escape) {
+        .onKeyPress(keys: [.escape], phases: .down) { press in
+            guard press.modifiers.isEmpty else { return .ignored }
             onCancel()
             return .handled
         }
-        .task(id: row.id) {
-            // Deferred one turn: a FocusState write in the same transaction that inserts the
-            // view can be silently dropped (same gotcha as ReviewCardView, the header search
-            // field). Re-run per row so focus lost mid-walkthrough (Quick Look's panel) is
-            // reclaimed at the next advance.
-            Task { @MainActor in
-                // Don't yank key focus mid-typing: claiming it while the user is in a text field
-                // (the lens header's search, the Settings overlay) would redirect their next
-                // Return into a File. Field editors are NSTextView, so this covers every AppKit
-                // text-input surface.
-                if !(NSApp.keyWindow?.firstResponder is NSTextView) {
-                    focused = true
-                }
-            }
-        }
-        // The passive/active split. The `.task` claim above re-runs for every row REGARDLESS of
-        // what advanced it, so it must keep declining while a text view holds first responder —
-        // it cannot tell a click on File from a background re-run, and yanking focus mid-typing
-        // would redirect the user's next Return into a File. The two claims below are the ACTIVE
-        // half: each fires only for a gesture aimed squarely at the walkthrough, which is exactly
-        // the case where declining is wrong — a click on a plain button leaves the field editor
-        // as first responder, so without these a visit to the search field deadens ⏎/→/esc for
-        // the entire walkthrough. (ReviewCardView is the donor; its host bumps the nudge on
-        // review-table clicks.)
+        // The card's focus claims, and a deliberate divergence from the ReviewCardView donor:
+        // there is NO passive per-row (`.task(id:)`) claim here, because it would be dead code.
+        // In ReviewCardView an advance can arrive from an async copy outcome with no nudge bump,
+        // so its guarded per-row claim ("don't yank focus while an NSTextView holds it") is live.
+        // Here every row change comes through `advanceFiling`, which unconditionally bumps
+        // `focusNudge` — so the unconditional `onChange` claim below fires in the same update as
+        // any per-row claim would, and a guarded claim beside it could never decline anything:
+        // its "don't yank mid-typing" promise was void. One claim per cause, each unconditional,
+        // each for a gesture aimed squarely at the walkthrough:
         //
-        // Appearance is an unconditional claim because the card only ever mounts from a click on
-        // the results header's "File N…" button — `filing.start` has no other caller, and a dry
-        // run can only END a walkthrough, never start one — and `onChange` cannot cover a mount:
-        // a freshly inserted view was born with the current nudge and sees no change. Deferred
-        // one turn for the same dropped-write gotcha as the claim above.
+        // Appearance — the card only ever mounts from a click on the results header's "File N…"
+        // button (`filing.start` has no other caller, and a dry run can only END a walkthrough,
+        // never start one), and `onChange` cannot cover a mount: a freshly inserted view was born
+        // with the current nudge and sees no change. Deferred one turn because a FocusState write
+        // in the same transaction that inserts the view can be silently dropped (same gotcha as
+        // ReviewCardView, the header search field).
         .onAppear {
             Task { @MainActor in focused = true }
         }

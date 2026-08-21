@@ -103,8 +103,14 @@ struct ReviewCardView: View {
             return .handled
         }
         // .down only, no .repeat: Skip is synchronous and decided rows are unrevisitable, so
-        // a held-a-beat-too-long ⌫ must not mass-skip the queue.
-        .onKeyPress(keys: [.delete], phases: .down) { _ in
+        // a held-a-beat-too-long ⌫ must not mass-skip the queue. And `press.modifiers.isEmpty`,
+        // because the `onKeyPress(keys:phases:)` overload — unlike the single-key one the other
+        // three keys use — delivers MODIFIED presses too: without the check, ⌘⌫ (Finder's
+        // "delete immediately", delete-to-start-of-line in text land) and ⌥⌫ (delete word)
+        // skipped the current row (measured in ReviewCardKeyTests). The hint row advertises a
+        // plain keystroke; a chord is `.ignored` so whoever owns it still sees it.
+        .onKeyPress(keys: [.delete], phases: .down) { press in
+            guard press.modifiers.isEmpty else { return .ignored }
             if !isActing { onSkip(item) }
             return .handled
         }
