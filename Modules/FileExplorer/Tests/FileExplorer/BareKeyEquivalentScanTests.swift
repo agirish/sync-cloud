@@ -78,10 +78,15 @@ import Testing
             .joined(separator: "\n")
     }
 
-    /// `.keyboardShortcut(<anything>, modifiers: [])` — any key, spanning line breaks. `[^)]*`
-    /// cannot cross the call's own closing paren, so the `modifiers:` it finds is this call's.
+    /// `.keyboardShortcut(<anything>, modifiers: <empty>)` — any key, spanning line breaks, with
+    /// the empty set spelled any of the three literal ways: `[]`, `EventModifiers()`, `.init()`.
+    /// `[^)]*` cannot cross the call's own closing paren, so the `modifiers:` it finds is this
+    /// call's. KNOWN HOLE, out of a regex's reach: an empty set behind a name
+    /// (`let noMods: EventModifiers = []` … `modifiers: noMods`) — resolving a reference needs a
+    /// compiler, not a pattern. The lens-file ban below does not share the hole (it bans the call
+    /// outright), which is one more reason it exists.
     private static let bareEquivalent = try! NSRegularExpression(
-        pattern: #"\.keyboardShortcut\(\s*[^)]*modifiers:\s*\[\s*\]"#)
+        pattern: #"\.keyboardShortcut\(\s*[^)]*modifiers:\s*(\[\s*\]|EventModifiers\(\s*\)|\.init\(\s*\))"#)
 
     @Test func noModuleSourceRegistersABareKeyEquivalent() throws {
         var offenders: [String] = []
@@ -104,10 +109,59 @@ import Testing
                 and fires on key-repeat. Give the surface a focusable anchor and `.onKeyPress` \
                 instead (see ReviewCardView / FilingWalkthroughCard). Do not allowlist it here.
                 """)
-        // The positive control: modified `.keyboardShortcut`s (⌘-anything, `.cancelAction`,
-        // `.defaultAction`) are legitimate and common. If the sweep stops seeing ANY of them the
-        // API moved out from under the regex, and this test is green because it is blind.
+        // The positive control: `.keyboardShortcut` remains in real use (⌘-anything on menu-ish
+        // verbs, `.defaultAction`/`.cancelAction` on modal sheets and alerts). If the sweep stops
+        // seeing ANY of them the API moved out from under the regex, and this test is green
+        // because it is blind.
+        //
+        // A HOLE this scan cannot close, stated rather than blessed: `.defaultAction` IS bare ⏎
+        // at window level and `.cancelAction` IS bare esc — the exact shapes the walkthrough fix
+        // removed — but the repo's dozen uses sit on modal sheets/alerts, where nothing else can
+        // hold key focus and they are the platform convention. A regex cannot tell a sheet from
+        // an always-mounted surface, so they pass here, and re-adding one to a mounted lens would
+        // ship green THROUGH THIS TEST. That known hazard is what
+        // `noLensFileRegistersAnyKeyEquivalentAtAll` below covers.
         #expect(keyboardShortcutSeen,
                 "no `.keyboardShortcut(` anywhere in Modules — the scan is measuring nothing")
+    }
+
+    /// **A lens file registers NO key equivalents — not `.keyboardShortcut(` in any spelling,
+    /// not `.defaultAction`, not `.cancelAction`.**
+    ///
+    /// Lenses are always-mounted surfaces: `AutomationsLens` keeps its filing walkthrough on
+    /// screen while the header's search field takes typing, which is exactly the situation where
+    /// a window-level equivalent eats keystrokes aimed at a field — `.cancelAction` on the
+    /// walkthrough's Cancel button discarded the user's approvals on an esc typed to clear the
+    /// search (removed in `d25dafef`). The repo-wide scan above cannot ban `.defaultAction` /
+    /// `.cancelAction` because modal sheets use them legitimately; a file-scoped ban with NO
+    /// allowlist can be honest where the repo-wide one cannot. A modal presented FROM a lens that
+    /// genuinely wants them belongs in its own file (as `AutomationRuleEditor` already is).
+    @Test func noLensFileRegistersAnyKeyEquivalentAtAll() throws {
+        let lensFiles = try Self.sweptSources().filter {
+            $0.url.deletingLastPathComponent().lastPathComponent == "FileExplorer"
+                && $0.url.lastPathComponent.contains("Lens")
+        }
+        // Non-vacuity: the always-mounted lens surfaces live in files named *Lens* under
+        // FileExplorer's Sources (AutomationsLens, OrganizeLens, LensWorkspaceView, …). The known
+        // hazard must be in the net, and the net must be more than it.
+        try #require(lensFiles.contains { $0.url.lastPathComponent == "AutomationsLens.swift" },
+                     "AutomationsLens.swift — the file the walkthrough lives in — was not swept")
+        try #require(lensFiles.count >= 5,
+                     "only \(lensFiles.count) lens file(s) swept — the naming pattern moved?")
+        var offenders: [String] = []
+        for (url, text) in lensFiles {
+            let code = Self.codeOnly(text)
+            for banned in [".keyboardShortcut(", ".defaultAction", ".cancelAction"]
+            where code.contains(banned) {
+                offenders.append("\(url.lastPathComponent) contains `\(banned)`")
+            }
+        }
+        #expect(offenders.isEmpty, """
+                \(offenders.joined(separator: ", ")). A lens is an always-mounted surface — any \
+                key equivalent registered from one eats that key typed into every field in the \
+                window (`.defaultAction` is bare ⏎, `.cancelAction` is bare esc). Use a focusable \
+                anchor and `.onKeyPress` (see FilingWalkthroughCard), or move the modal that \
+                wants these into its own file. Do not allowlist here.
+                """)
     }
 }
