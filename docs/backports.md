@@ -48,16 +48,6 @@ package suites and a red app-target step.
 **This has a deadline.** `v3.x` sits at `3.2-dev`. Cutting v3.2 before this lands ships the
 ⌘Z-after-permanent-delete promise again, in a release, knowingly.
 
-### 2. `theFloorIsOnlyLoweredByItsOwnTests` — OPEN, small
-
-The repo-wide scan that keeps every real wait on `LayoutPumpWait`'s default floor exists **only on
-`v2.x`** (`2f5ca5b5`). `v3.x` and `main` have `LayoutPumpWaitPollTests.swift` and the `poll` floor,
-but nothing standing over it.
-
-Not mechanical either: the guard is a substring scan for `floor: `, so on `v3.x`/`main` it would
-immediately flag `ShortcutRevealTrackerTests`, which legitimately declares its own parameter. It
-needs a permit entry or package scoping first. **Owed to `main` as well as `v3.x`.**
-
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -70,6 +60,28 @@ Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise th
 | storage snapshots amended away | `unreadable` in `StorageLensStore.swift` |
 | undo/redo moving an item it cannot identify | `liveLocation` |
 | the `poll`/`pump` wait floors | `static func poll` |
+
+### Settled after being filed as owed
+
+**`theFloorIsOnlyLoweredByItsOwnTests` — present on all three lines.** Checked 2026-08-21; this
+stood above as owed item 2 until then, on the strength of a `v2.x`-only sighting. The scan that
+keeps every real wait on `LayoutPumpWait`'s default floor landed once per line, in its own commit
+each — `2f5ca5b5` on `v2.x`, `2cd1eb22` on `main`, `4846ac32` on `v3.x`. `git branch -r --contains`
+names exactly one line apiece, which is why three separate landings read as none at all from a
+single line's history. Nothing is owed.
+
+**The permit sets differ by line, and that is correct rather than drift.** The guard is a substring
+scan for `floor: `, so it has to name the files allowed to lower one. `v3.x` and `main` permit
+three — `LayoutPumpWaitTests.swift`, `LayoutPumpWaitPollTests.swift` and
+`ShortcutRevealTrackerTests.swift`; `v2.x` permits one, because the other two are **absent** on that
+line. Do not level them up to match: the scan asserts `permittedSeen == permitted`, so naming a file
+that does not exist turns the guard red rather than strengthening it. The old entry called this out
+before the fact — it predicted `ShortcutRevealTrackerTests` would need a permit entry, and a permit
+entry is precisely what landed.
+
+Non-vacuity holds on every line too, which is the half worth re-checking if these files move: the
+walk requires `scanned` > 100 on `v2.x` and > 200 on the other two, against 315 / 357 / 522 test
+files respectively, and each permitted file really does carry a `floor: ` for the scan to see.
 
 ### Main-only by rule, so never owed
 
