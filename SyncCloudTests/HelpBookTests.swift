@@ -438,25 +438,56 @@ import Testing
     ///
     /// It said **15** while the deployment target had moved to 26 — a claim that costs somebody a
     /// download and a failed launch to disprove, and one nothing else in the app would ever
-    /// contradict. Derived from the built bundle's `LSMinimumSystemVersion` rather than from a
-    /// number typed here, so the next bump of `deploymentTarget` fails this test instead of
-    /// ageing quietly the way the last one did.
+    /// contradict.
     ///
     /// `Bundle.main` is the app itself here: `SyncCloudTests` is hosted by `SyncCloud.app`, which
     /// is why this can be asked at all. Under `swift test` it could not.
+    ///
+    /// **What this asserts changed in v4.2, and the reason is worth keeping.** The book used to
+    /// carry the number as a literal and this test compared it against the bundle — a real check,
+    /// because the two sides were independent. `HelpBook.minimumSystemRequirement` now *reads* the
+    /// bundle, so that comparison would be the bundle against itself and could never fail. What is
+    /// left for it to catch is the two ways a derived string can still be wrong, and both are real:
+    /// the **fallback** firing (a bundle with no `LSMinimumSystemVersion`, which would publish
+    /// "a recent version of macOS" to every reader), and the **formatting** — `26.0` must reach the
+    /// page as `26`, and a `15.4` must keep its `.4`.
     @Test func theStatedSystemRequirementMatchesTheBuild() throws {
         let raw = try #require(Bundle.main.infoDictionary?["LSMinimumSystemVersion"] as? String,
                                "the host bundle carries no LSMinimumSystemVersion — this test cannot see the truth")
-        let built = try #require(Int(raw.prefix { $0.isNumber }))
+        let expected = raw.hasSuffix(".0") ? String(raw.dropLast(2)) : raw
 
         let about = try #require(HelpBook.topic(id: "about"))
         let copy = about.article.blocks.map(String.init(describing:)).joined(separator: " ")
-        let range = try #require(copy.range(of: "Requires macOS "),
-                                 "the About topic no longer states a system requirement at all")
-        let claimed = try #require(Int(copy[range.upperBound...].prefix { $0.isNumber }))
+        #expect(copy.contains("Requires macOS \(expected) or later."),
+                "the About topic does not state the built requirement (macOS \(expected)) — it says: \(copy)")
+        // Named separately, because this is the failure with no other symptom: the fallback is
+        // grammatical, plausible, and tells the reader nothing.
+        #expect(!copy.contains("a recent version of macOS"),
+                "the requirement fell back to the vague form inside the real app bundle")
+    }
 
-        #expect(claimed == built,
-                "Help says “Requires macOS \(claimed)” and the app is built against \(built)")
+    /// The requirement is derived, and **cannot be typed back in.**
+    ///
+    /// Deriving it closes the trap only for as long as nobody writes the sentence out again — and
+    /// writing it out is the obvious edit, because the literal reads perfectly well and the number
+    /// is right on the day it is typed. That is exactly how it came to say **15** for two majors.
+    ///
+    /// Scanned over comment-stripped source so the doc comment on `minimumSystemRequirement`, which
+    /// quotes the old literal in order to explain it, is not itself the failure. Scoped to
+    /// `HelpBook.swift` rather than the whole of `MacApp/` for the reason `macAppSources()` gives
+    /// about `!contains`: the property's own `return` legitimately contains the phrase, so the
+    /// haystack has to be the one file where exactly one occurrence is expected.
+    @Test func theRequirementIsNotWrittenOutAsALiteral() throws {
+        let path = macAppDirectory().appendingPathComponent("HelpBook.swift")
+        let source = sourceCodeOnly(try #require(try? String(contentsOf: path, encoding: .utf8),
+                                                 "cannot read HelpBook.swift — this scan would be vacuous"))
+        try #require(source.count > 10_000, "HelpBook.swift read as \(source.count) characters")
+        // The one legitimate occurrence is the interpolation inside `minimumSystemRequirement`.
+        let occurrences = source.components(separatedBy: "Requires macOS ").count - 1
+        #expect(occurrences == 1,
+                "“Requires macOS ” appears \(occurrences) times in HelpBook.swift — the only one allowed is the interpolation in minimumSystemRequirement")
+        #expect(source.contains("Requires macOS \\(shown) or later."),
+                "the surviving occurrence is not the interpolated one — the number has been typed back in")
     }
 
     /// Retired product vocabulary stays out of the copy. "Filing" became Organize's To File lens

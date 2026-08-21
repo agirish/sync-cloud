@@ -13,6 +13,34 @@ import FileExplorer
 /// is the view half's, for the one wrapping layout the related chips need — nothing in ``HelpBook``
 /// itself reads it, which is what keeps the data testable without a view.
 enum HelpBook {
+
+    /// *Requires macOS N or later.* — **read off the bundle, never typed.**
+    ///
+    /// This bullet was the literal `"Requires macOS 15 or later."` until v4.2, and it stayed that
+    /// way across **two** major bumps: it is the one claim in the book a reader consults *before*
+    /// downloading, and nothing about a wrong answer fails — the app simply refuses to launch on a
+    /// Mac the book told them was fine. The v4.2 pass corrected the number to 26, which fixes this
+    /// install and re-arms the identical trap for v5: a literal that is right today is exactly what
+    /// the last one was.
+    ///
+    /// So the number comes from `LSMinimumSystemVersion`, which Xcode writes into the built
+    /// `Info.plist` from `project.yml`'s `deploymentTarget`. Raising the deployment target now
+    /// moves this sentence with it, in the same edit, with nobody remembering to.
+    ///
+    /// **The fallback is vague on purpose.** With no key to read — which is every host that is not
+    /// the app bundle — this says nothing about a version rather than guessing at one. A stale
+    /// number reads as authoritative; "a recent version" reads as what it is, and the app-target
+    /// test below is what keeps the real bundle off that path.
+    static var minimumSystemRequirement: String {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "LSMinimumSystemVersion") as? String,
+              !raw.isEmpty else {
+            return "Requires a recent version of macOS."
+        }
+        // "26.0" is not how anyone says it; "15.4" is. Only a trailing `.0` goes.
+        let shown = raw.hasSuffix(".0") ? String(raw.dropLast(2)) : raw
+        return "Requires macOS \(shown) or later."
+    }
+
     /// One rendered piece of an article. The renderer owns layout; the data owns words.
     enum Block: Equatable {
         /// A paragraph of running text.
@@ -490,7 +518,7 @@ enum HelpBook {
                     .bullets([
                         "SyncCloud ▸ About SyncCloud gives the version and the build number; the foot of the Settings rail carries the version on its own.",
                         "The CLI mirrors the app's scan and sync for the terminal.",
-                        "Requires macOS 26 or later.",
+                        minimumSystemRequirement,
                     ]),
                 ],
                 related: ["what-is-synccloud", "activity-log"]
