@@ -17,6 +17,13 @@ public final class PersonTagStore: ObservableObject {
     /// Every verdict on disk. Published so the person view re-renders the instant a row is judged.
     @Published public private(set) var tags: [PersonTag] = []
 
+    /// Bumped **after** each successful write of `person-tags.json`, and never otherwise — the
+    /// signal ``PeopleStore/savedRevision`` gives the roster, for the same reason: `$tags` says
+    /// the array changed, not that the file did. The two diverge for a whole session when the
+    /// unreadable guard is armed and the set-aside keeps failing — every save refuses, and
+    /// without this there was nothing `record` could consult before claiming a verdict durable.
+    @Published public private(set) var savedRevision: Int = 0
+
     private let directory: URL
     private let profileId: String
     private let fileManager: FileManager
@@ -121,9 +128,18 @@ public final class PersonTagStore: ObservableObject {
                 && !other.recordedPath.isEmpty && other.recordedPath == path
                 && Self.isDifferentKind(other.key, key)
         }
+        let before = savedRevision
         save()
+        // The line may only claim what happened. While the set-aside is failing, `save` refuses
+        // to write and the verdict is held in memory — a session of refused saves used to log a
+        // run of success-looking lines right up to the quit that lost them all (the finding-1
+        // lockout logged nothing but these). Modeled on `PeopleStore.dismissSuggestion`, which
+        // conditions its claim on `savedRevision` the same way. A memory-only store makes no
+        // durability claim either way, so it stays unqualified.
+        let persisted = !isPersistent || savedRevision != before
         Logger.shared.info("People: \(path) is \(verdict == .rejected ? "NOT " : "")\(personId)'s "
-                           + "— \(keyKind(key))")
+                           + "— \(keyKind(key))"
+                           + (persisted ? "" : " — NOT saved: held in memory only this session"))
     }
 
     /// Whether two keys identify a document in different ways — a path against a fingerprint.
@@ -211,11 +227,16 @@ public final class PersonTagStore: ObservableObject {
             // unmounted volume — and the write then replaces the link itself. Genuinely absent
             // stays silent, because a first launch has nothing to warn about.
             guard (try? fileManager.attributesOfItem(atPath: fileURL.path)) != nil else { return }
+            // Like `PeopleStore`'s unreadable-roster warning, this says to relaunch: the store is
+            // built once per launch, so fixing the file mid-session does not re-read it — the
+            // first save still moves it aside.
             Logger.shared.warning("Couldn't open person-tags.json "
                                   + "(\(error.localizedDescription)) — verdicts are unavailable "
                                   + "this session. The file is kept: the first verdict you record "
                                   + "moves it aside as a dated person-tags.json.unreadable-… file "
-                                  + "rather than overwriting it.")
+                                  + "rather than overwriting it. Fix \(fileURL.path) and relaunch "
+                                  + "before recording anything to use it again — this session "
+                                  + "will still move it aside rather than re-read it.")
             fileWasUnreadable = true
             return
         }
@@ -229,7 +250,9 @@ public final class PersonTagStore: ObservableObject {
             Logger.shared.warning("Couldn't read person-tags.json — verdicts are unavailable this "
                                   + "session. The file is kept: the first verdict you record moves "
                                   + "it aside as a dated person-tags.json.unreadable-… file rather "
-                                  + "than overwriting it.")
+                                  + "than overwriting it. Fix \(fileURL.path) and relaunch before "
+                                  + "recording anything to use it again — this session will still "
+                                  + "move it aside rather than re-read it.")
             fileWasUnreadable = true
             return
         }
@@ -294,10 +317,13 @@ public final class PersonTagStore: ObservableObject {
                 do {
                     try fileManager.moveItem(at: fileURL, to: kept)
                     fileWasUnreadable = false
+                    // "Will be", not "has been": the fresh write is still ahead of this line, and
+                    // it can throw — a past-tense claim here contradicted the failure line below
+                    // whenever it did. The set-aside itself is the fact this line is entitled to.
                     Logger.shared.warning("person-tags.json could not be read, so it has been kept "
-                                          + "as \(kept.lastPathComponent) and a fresh file written "
-                                          + "beside it. Nothing you recorded before now is lost — "
-                                          + "it is in that file.")
+                                          + "as \(kept.lastPathComponent); a fresh file will be "
+                                          + "written beside it. Nothing you recorded before now is "
+                                          + "lost — it is in that file.")
                 } catch {
                     // **A source that is no longer there is not an obstruction — it is the
                     // protection having arrived by other means.** The user hand-deleting (or
@@ -335,6 +361,7 @@ public final class PersonTagStore: ObservableObject {
             let data = try encoder.encode(PersonTagFile(schemaVersion: loadedSchema, tags: all,
                                                         unreadable: unreadable))
             try data.write(to: fileURL, options: .atomic)
+            savedRevision &+= 1
         } catch {
             Logger.shared.warning("Couldn't save person-tags.json — the verdict is in memory only "
                                   + "this session: \(error.localizedDescription)")

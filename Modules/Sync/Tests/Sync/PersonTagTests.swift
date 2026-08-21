@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Events
 @testable import Sync
 
 /// `person-tags.json` — the file, its forward compatibility, and the store that writes it.
@@ -737,6 +738,49 @@ import Foundation
         let again = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
         #expect(again.tags.map(\.personId).sorted() == ["aditi", "divit"],
                 "the guard stayed armed after the source was gone, and the next save was refused")
+    }
+
+    /// **The verdict line may only claim what happened.** While persistence is refusing — the
+    /// unreadable guard armed and the set-aside failing — `record` still logged its ordinary
+    /// "People: X is Y's" line, so a session whose every save was refused read like a run of
+    /// durable records right up to the quit that lost them all.
+    @Test func aRefusedSaveIsSaidOutLoudInTheVerdictLine() async throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        try Data("{ not json — and the rename will keep failing".utf8).write(to: url)
+
+        let fm = MoveBlockedFileManager()
+        fm.movesToRefuse = 99                                       // persistence never recovers
+        let store = PersonTagStore(directory: dir, profileId: "p", fileManager: fm)
+        let path = "honesty-\(UUID().uuidString).pdf"
+        store.record(personId: "divit", key: .path(path), verdict: .confirmed, path: path)
+
+        await Logger.shared.debug("person-tag honesty flush marker").value
+        let entry = try #require(Logger.shared.entries.last {
+            $0.message.hasPrefix("People: \(path) is divit's")
+        }, "the verdict line was not logged at all")
+        #expect(entry.message.contains("NOT saved"),
+                "a refused save logged a success-looking verdict line: \(entry.message)")
+        #expect(store.savedRevision == 0, "a refused save bumped the saved-revision signal")
+    }
+
+    /// The counterpart: an ordinary landed save keeps the line unqualified.
+    @Test func aLandedSaveKeepsTheVerdictLineUnqualified() async throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        let path = "honesty-\(UUID().uuidString).pdf"
+        store.record(personId: "divit", key: .path(path), verdict: .confirmed, path: path)
+
+        await Logger.shared.debug("person-tag honesty flush marker".description).value
+        let entry = try #require(Logger.shared.entries.last {
+            $0.message.hasPrefix("People: \(path) is divit's")
+        })
+        #expect(!entry.message.contains("NOT saved"),
+                "a landed save was reported as refused: \(entry.message)")
+        #expect(store.savedRevision == 1, "a landed save did not bump the saved-revision signal")
     }
 
     /// A first launch has no file, and must stay exactly as quiet and ordinary as it is today:
