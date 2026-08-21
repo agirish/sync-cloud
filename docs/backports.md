@@ -99,6 +99,21 @@ The first (P1-4) defect is user-visible on any Finder-touched folder, which argu
 the scope argues for doing it deliberately. Symbols to check when settling: `FolderContentSnapshot`,
 `folderContentsMatchScan`, `contentSnapshot` on `DuplicateCopy`.
 
+### 4. The copy-undo's shallow folder identity — OPEN, owed to BOTH lines
+
+Filed 2026-08-21, when the deep identity landed on `main` (*Give the copy-undo a deep folder
+identity so ⌘Z cannot trash an edited copy*). Both lines carry the defect, symbol-checked:
+`ItemIdentity.swift` on `v3.x` and `v2.x` has only the shallow `case directory(modified:childCount:)`
+— own mtime plus immediate child count — so an edit deep inside a copied folder leaves the identity
+`.unchanged` and ⌘Z of the copy trashes the only instance of the edit. `main`'s fix adds
+`.directoryTree(contentDigest:)` backed by a recursive stat-only walk (`deepSnapshot`).
+
+**A scope call, not a pick, for the same reason as item 1**: the undo file is where the
+`DeleteOutcome` family lives, and `v3.x` is already recorded above as deliberately deferring that
+family — a deep identity that refuses an undo cannot say *why* honestly on a line that cannot tell
+a trashed item from a permanently deleted one. Settle item 1 first; this rides the same file.
+Symbols to check when settling: `deepSnapshot`, `.directoryTree` in `ItemIdentity.swift`.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -200,6 +215,13 @@ Owed here exactly as to `v3.x` — see item 3 under **`v3.x` — owed** for the 
 symbol checks, and why it is a scope call rather than a cherry-pick. `v2.x` carries
 `folderDriftedInPlace` and the existence-only directory verdict too, and its "provider" vocabulary
 means the `MacApp/` half will need adaptation, not a pick.
+
+### The copy-undo's shallow folder identity — OPEN, filed 2026-08-21
+
+Owed here exactly as to `v3.x` — see item 4 under **`v3.x` — owed**. `v2.x` carries the shallow
+`case directory(modified:childCount:)` too (symbol-checked). Unlike `v3.x` this line has the
+`DeleteOutcome` family, so the port is closer to a pick here — but the undo file has drifted, so
+verify `deepSnapshot`'s seams before assuming.
 
 ### Nothing else confirmed
 
