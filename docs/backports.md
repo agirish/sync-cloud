@@ -72,6 +72,33 @@ window harness from `DifferencesTableBindingTests`, which is **absent on both li
 line's smaller source tree. `.onKeyPress` itself and the `AutomationDryRunRow` initializer shape
 (`destinationAnchor`) are present on both lines — checked, so the port compiles in principle.
 
+### 3. The folder-duplicate drift gate rebuilt on per-file snapshots — OPEN, filed 2026-08-21
+
+Fixed on `main`, 2026-08-21, as two commits — *Judge folder duplicate drift per file, against a
+snapshot the scan records* (engine) and *Give the Compare review's directory gate the shared
+folder re-walk* (review); both maintenance lines
+carry all three defects, symbol-checked (`folderDriftedInPlace` present on both; the Compare gate's
+`guard !isDirectory else { return true }` present on both):
+
+- `folderDriftedInPlace` compares the scan's ignored-names-skipping rollup against a RAW re-walk,
+  so any folder holding a `.DS_Store` (or a symlink) is **permanently refused** — "changed since it
+  was scanned", reproduced by every rescan — and `applyRecommendedDuplicates` silently drops such
+  groups. The same constant offset can mask a real loss.
+- Count+bytes equality cannot see a **same-length rewrite**, so a "redundant" folder holding the
+  only copy of the edit is trashed.
+- The Compare review's directory verdict is **existence-only** (`duplicateCopyMatchesScan`), under
+  a comment claiming "the engine's own folder gap is tracked separately" — stale on both lines,
+  since both carry `folderDriftedInPlace`. The review is the folder-ONLY flow.
+
+**Not the usual cherry-pick.** The fix adds `FolderContentSnapshot` to `DuplicateCopy` and fields
+to `DuplicateCompareContext`, records snapshots in `DuplicateFinder.findGroups`, and makes
+`driftedFolderInGroup` async — a public-shape change in the Sync package plus a `MacApp/` caller
+moving with it (the 2026-08-16 lesson: grep `MacApp/` after any public signature change). On
+`v2.x` the vocabulary split ("provider"/"source") means the coordinator will not pick clean.
+The first (P1-4) defect is user-visible on any Finder-touched folder, which argues for taking it;
+the scope argues for doing it deliberately. Symbols to check when settling: `FolderContentSnapshot`,
+`folderContentsMatchScan`, `contentSnapshot` on `DuplicateCopy`.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -167,10 +194,17 @@ Owed here exactly as to `v3.x` — see item 2 under `v3.x` above for the defect,
 this line is the provider/source vocabulary split: the card's caption interpolates the provider
 name, so the port must keep this line's wording.
 
+### The folder-duplicate drift gate — OPEN, filed 2026-08-21
+
+Owed here exactly as to `v3.x` — see item 3 under **`v3.x` — owed** for the three defects, the
+symbol checks, and why it is a scope call rather than a cherry-pick. `v2.x` carries
+`folderDriftedInPlace` and the existence-only directory verdict too, and its "provider" vocabulary
+means the `MacApp/` half will need adaptation, not a pick.
+
 ### Nothing else confirmed
 
 Every safety family above is present on `v2.x`, and it is the line the `DeleteOutcome` family
-landed on first. No other confirmed fix debt was found by this audit.
+landed on first. No other confirmed fix debt was found by the 2026-08-16 audit or this one.
 
 ### Checked and NOT applicable
 

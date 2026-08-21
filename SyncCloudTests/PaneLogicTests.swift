@@ -571,13 +571,24 @@ import Sync
             exists: true, isDirectory: false, statSucceeded: true, currentSize: 100, scannedSize: 100))
     }
 
-    @Test func testKeeperGateFolderIsExistenceOnly() {
-        // A folder's stat size isn't its recursive content size (the engine's carve-out),
-        // so folders never size-refuse — existence decides.
+    @Test func testKeeperGateFolderVerdictComesFromTheSharedReWalk() {
+        // A folder's stat size isn't its recursive content size, so stat facts still never
+        // decide a directory — but "existence decides", which this rule used to be, meant the
+        // folder-ONLY review flow had NO content check at all. The directory verdict is the
+        // engine's shared re-walk against the scan's baseline, computed by the coordinator
+        // off-main and handed in here as a fact.
+        #expect(!PaneLogic.duplicateCopyMatchesScan(
+            exists: true, isDirectory: true, statSucceeded: true, currentSize: 100, scannedSize: 100,
+            folderContentsMatchScan: false),
+            "a drifted folder passed the gate — the review would trash content nothing else has")
+        // A matching re-walk passes, whatever the stat said: stat facts are for files.
         #expect(PaneLogic.duplicateCopyMatchesScan(
-            exists: true, isDirectory: true, statSucceeded: true, currentSize: 555, scannedSize: 100))
-        #expect(PaneLogic.duplicateCopyMatchesScan(
-            exists: true, isDirectory: true, statSucceeded: false, currentSize: nil, scannedSize: 100))
+            exists: true, isDirectory: true, statSucceeded: false, currentSize: 555, scannedSize: 100,
+            folderContentsMatchScan: true))
+        // No verdict at all refuses — a directory must never pass on existence alone again.
+        #expect(!PaneLogic.duplicateCopyMatchesScan(
+            exists: true, isDirectory: true, statSucceeded: true, currentSize: 100, scannedSize: 100),
+            "a directory with no re-walk verdict passed on existence alone")
     }
 
     @Test func testKeeperGateStatEdgeCasesMatchEngine() {

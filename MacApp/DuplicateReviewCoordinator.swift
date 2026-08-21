@@ -137,6 +137,8 @@ struct DuplicateReviewCoordinator {
             keepScannedDate: keep.modificationDate,
             deleteIsDirectory: delete.isDirectory, deleteScannedSize: delete.size,
             deleteScannedDate: delete.modificationDate,
+            keepContentSnapshot: keep.contentSnapshot,
+            deleteContentSnapshot: delete.contentSnapshot,
             keeperRelativePath: keepRel, redundantRelativePath: deleteRel, restore: restore)
 
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
@@ -376,8 +378,9 @@ struct DuplicateReviewCoordinator {
             // delete of the LEFT copy makes this the last one, and a provider re-download or an
             // edit of the RIGHT copy makes it the only instance of its new content. Either way the
             // pair is no longer the pair the scan grouped. (`duplicateReviewActive` only compares
-            // the pane's focused PATH, not existence or content.) This is the same gate
-            // `copyDriftedInPlace` applies to the keeper and to every removal candidate, reached
+            // the pane's focused PATH, not existence or content.) This is the same gate the
+            // engine applies to the keeper and to every removal candidate — `copyDriftedInPlace`
+            // for files, the shared `folderContentsMatchScan` re-walk for folders — reached
             // through `PaneLogic.duplicateCopyMatchesScan` so the two cannot drift apart.
             //
             // The stat runs OFF the main actor. This `Task` inherits @MainActor isolation, and
@@ -402,8 +405,35 @@ struct DuplicateReviewCoordinator {
                 }
                 return (stat(keepPath), stat(deletePath))
             }.value
-            // That stat is the ONLY suspension between the user's click and the trash, and it
-            // exists precisely for the case where it is slow: an unmounted cloud or SMB keeper can
+            // Directory verdicts, from the engine's shared re-walk against the scan's recorded
+            // baseline — `folderContentsMatchScan` is the same routine `resolveDuplicateGroup`
+            // and the batch consult, so the review's directory gate can never be weaker than the
+            // card's. Stat facts cannot answer for a folder (its stat size is not its recursive
+            // content), which is why files carry nil here and directories carry a real verdict.
+            // The walk runs off the main actor (buildTree detaches itself); a vanished path gets
+            // no walk — the keep gate refuses on existence, and a vanished delete candidate is
+            // handled as its own non-drift case below.
+            let keepFolderMatches: Bool?
+            if review.keepIsDirectory {
+                keepFolderMatches = measured.keep.exists
+                    ? await FileSyncManager.folderContentsMatchScan(
+                        path: keepPath, snapshot: review.keepContentSnapshot, fileManager: fm)
+                    : false
+            } else {
+                keepFolderMatches = nil
+            }
+            let deleteFolderMatches: Bool?
+            if review.deleteIsDirectory {
+                deleteFolderMatches = measured.delete.exists
+                    ? await FileSyncManager.folderContentsMatchScan(
+                        path: deletePath, snapshot: review.deleteContentSnapshot, fileManager: fm)
+                    : false
+            } else {
+                deleteFolderMatches = nil
+            }
+            // The stat — and, for a folder review, the two re-walks above — are the only
+            // suspensions between the user's click and the trash, and they exist precisely for
+            // the case where they are slow: an unmounted cloud or SMB keeper can
             // take seconds to answer. Seconds in which the window is live — "Done" sits right
             // beside the destructive button, and the Duplicates list is one tab away, so the user can end
             // this review or open a DIFFERENT pair through `compareCopies` before the answer lands.
@@ -411,7 +441,8 @@ struct DuplicateReviewCoordinator {
             // trashing would delete a copy the user has stopped looking at, and the
             // `.rightCopyTrashed` dispatch below would tear down the review that replaced it and
             // replay THIS review's saved compare state over it. Re-read the live binding (the
-            // coordinator's closures always read current state) and abandon the trash if it moved.
+            // coordinator's closures always read current state) AFTER the last suspension, and
+            // abandon the trash if it moved.
             guard duplicateReview == review else {
                 Logger.shared.info(
                     "The duplicate review changed while the left copy was being checked — skipping the trash of \(review.deletePath)")
@@ -424,7 +455,8 @@ struct DuplicateReviewCoordinator {
                 currentSize: measured.keep.size,
                 scannedSize: review.keepScannedSize,
                 currentDate: measured.keep.date,
-                scannedDate: review.keepScannedDate
+                scannedDate: review.keepScannedDate,
+                folderContentsMatchScan: keepFolderMatches
             ) else {
                 syncManager.banner = .warning("The left copy is no longer what the scan saw — rescan before trashing the right copy.")
                 return
@@ -446,7 +478,8 @@ struct DuplicateReviewCoordinator {
                 currentSize: measured.delete.size,
                 scannedSize: review.deleteScannedSize,
                 currentDate: measured.delete.date,
-                scannedDate: review.deleteScannedDate
+                scannedDate: review.deleteScannedDate,
+                folderContentsMatchScan: deleteFolderMatches
             ) else {
                 syncManager.banner = .warning("The right copy has changed since the scan — it is no longer a copy of the left one. Rescan before trashing it.")
                 Logger.shared.warning("Refused to trash \(review.deletePath): it changed since the scan, so it is no longer provably a duplicate")
@@ -501,6 +534,14 @@ struct DuplicateCompareContext: Equatable {
     let deleteIsDirectory: Bool
     let deleteScannedSize: Int
     let deleteScannedDate: Date?
+    /// The scan's per-entry baseline for each copy that is a FOLDER (nil for files). The Compare
+    /// review is the folder-ONLY flow — the card offers it for every directory group — and stat
+    /// facts cannot answer for a directory (its stat size is not its recursive content), so the
+    /// directory half of the gate re-walks against these through the engine's shared
+    /// `FileSyncManager.folderContentsMatchScan`. A folder review carrying nil here refuses,
+    /// same as the engine refuses a copy with no recorded baseline.
+    let keepContentSnapshot: FolderContentSnapshot?
+    let deleteContentSnapshot: FolderContentSnapshot?
     /// The two copies as provider-root-relative paths — used to re-focus the panes when the user
     /// returns to Compare after a lens detour reset the shared left pane to the rail's root.
     let keeperRelativePath: String

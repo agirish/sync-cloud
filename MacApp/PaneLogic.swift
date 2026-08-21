@@ -742,8 +742,20 @@ enum PaneLogic {
     /// `statSucceeded: false` (the attributes read threw) refuses for a file, exactly like the
     /// engine's failed-attributes guard; `currentSize` nil with a successful stat (never happens
     /// on the real FS) falls back to the existence check rather than over-refuse — also like
-    /// the engine. Folders keep the existence-only check here: a folder's stat size is not its
-    /// recursive content size, and the engine's own folder gap is tracked separately.
+    /// the engine.
+    ///
+    /// **A directory is answered by `folderContentsMatchScan` — the engine's shared re-walk
+    /// verdict — and by nothing else.** Stat facts still never decide a folder (its stat size is
+    /// not its recursive content size), but the existence-only rule that used to stand here meant
+    /// the review had NO content check for directories at all, while the Compare review is the
+    /// folder-ONLY flow: the card offers it for every directory group. The excuse the old rule
+    /// leaned on ("the engine's own folder gap is tracked separately") went stale the day the
+    /// engine's gap was closed — the engine re-walks every folder it trashes against the scan's
+    /// recorded ``FolderContentSnapshot``, and this gate consults the SAME
+    /// `FileSyncManager.folderContentsMatchScan` routine, so the review cannot be the weaker
+    /// door. The verdict arrives pre-computed (the coordinator runs the re-walk off the main
+    /// actor, like its stats) to keep this function pure; nil — no re-walk performed, or no
+    /// baseline to walk against — refuses, the safe direction on both ends of a review.
     static func duplicateCopyMatchesScan(
         exists: Bool,
         isDirectory: Bool,
@@ -751,10 +763,11 @@ enum PaneLogic {
         currentSize: Int?,
         scannedSize: Int,
         currentDate: Date? = nil,
-        scannedDate: Date? = nil
+        scannedDate: Date? = nil,
+        folderContentsMatchScan: Bool? = nil
     ) -> Bool {
         guard exists else { return false }
-        guard !isDirectory else { return true }
+        guard !isDirectory else { return folderContentsMatchScan ?? false }
         guard statSucceeded else { return false }
         if let currentSize, currentSize != scannedSize { return false }
         if let scannedDate, let currentDate, scannedDate != currentDate { return false }

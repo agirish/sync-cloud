@@ -92,8 +92,12 @@ private final class Harness {
     }
 
     /// A review as `compareCopies` would set it up, with panes "pinned" to the lens provider.
+    /// Snapshots default to nil, which the fixed gate REFUSES for a folder review — tests that
+    /// drive the trash to completion capture real baselines and pass them in.
     func installReview(
         keepRel: String = "Docs", deleteRel: String = "Backup/Docs",
+        keepSnapshot: FolderContentSnapshot? = nil,
+        deleteSnapshot: FolderContentSnapshot? = nil,
         restore: SavedCompareState? = nil
     ) -> DuplicateCompareContext {
         let review = DuplicateCompareContext(
@@ -104,6 +108,8 @@ private final class Harness {
             keepScannedSize: 1234,
             keepScannedDate: nil,
             deleteIsDirectory: true, deleteScannedSize: 1234, deleteScannedDate: nil,
+            keepContentSnapshot: keepSnapshot,
+            deleteContentSnapshot: deleteSnapshot,
             keeperRelativePath: keepRel,
             redundantRelativePath: deleteRel,
             restore: restore ?? SavedCompareState(
@@ -383,6 +389,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
                 keepIsDirectory: true, keepScannedSize: 1234,
                 keepScannedDate: nil,
                 deleteIsDirectory: true, deleteScannedSize: 1234, deleteScannedDate: nil,
+                keepContentSnapshot: nil, deleteContentSnapshot: nil,
                 keeperRelativePath: "Docs", redundantRelativePath: "Backup/Docs",
                 restore: SavedCompareState(leftProviderId: "was-left-\(token)",
                                            rightProviderId: "was-right-\(token)",
@@ -455,6 +462,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             keepIsDirectory: true, keepScannedSize: 1234,
             keepScannedDate: nil,
             deleteIsDirectory: true, deleteScannedSize: 1234, deleteScannedDate: nil,
+            keepContentSnapshot: nil, deleteContentSnapshot: nil,
             keeperRelativePath: "Docs", redundantRelativePath: "Backup/Docs",
             // Both panes were already on this source before the review, so the review pinned
             // nothing: there is no leftover on either side.
@@ -630,7 +638,14 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         let harness = Harness()
         harness.lensProviderRoot = root.path
-        let review = harness.installReview()   // keepPath = <root>/Docs, deletePath = <root>/Backup/Docs
+        // A folder review carries the scan's per-entry baselines; the directory half of the gate
+        // re-walks against them, and nil would (correctly) refuse the trash.
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
         // The Duplicates list still holds the group this review came from.
         harness.syncManager.duplicateGroups = [
             DuplicateGroup(
@@ -659,6 +674,49 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.duplicateGroups.isEmpty)
         // And the pre-review Compare setup came back (the pinned right pane released).
         #expect(harness.rightId == "dropbox")
+    }
+
+    /// **The review is the folder-ONLY flow, and its directory gate must see content.** The card
+    /// offers Compare for every directory group, a review is designed to stay open, and while it
+    /// is, the right folder can gain a file (a download landing, a provider sync) — trashing it
+    /// then destroys the only instance of that file, under a banner saying the left copy is kept.
+    /// The stat facts cannot catch this (a folder's stat size is not its contents), so the gate's
+    /// directory verdict comes from the engine's shared re-walk against the scan's baseline.
+    @Test func aRightFolderThatGainedAFileDuringTheReviewIsRefused() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-drift-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+
+        let harness = Harness()
+        harness.lensProviderRoot = root.path
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+
+        // The right copy gains a file AFTER the scan's baseline — during the open review.
+        try Data("the only copy of this".utf8).write(to: copy.appendingPathComponent("new-edit.txt"))
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the drift refusal surfaces") {
+            harness.syncManager.banner?.severity == .warning
+        }
+
+        #expect(FileManager.default.fileExists(atPath: copy.path),
+                "a folder that gained content nothing else has was trashed by the review")
+        #expect(harness.syncManager.banner?.message.contains("changed since the scan") == true)
+        #expect(harness.duplicateReview == review, "the review stays up so the user can rescan")
+        #expect(harness.workspace == .compare, "a refusal must not navigate")
     }
 
     // MARK: trashRightCopy — the user-interaction window the keeper stat opens

@@ -472,8 +472,12 @@ extension FileSyncManager {
     /// changes the size (and mtime), so a size mismatch means the keeper's content drifted and its
     /// copies are no longer provably identical to it. (Size is used rather than mtime because the
     /// scan reads mtime via URL resource values, which need not compare equal to a re-stat through
-    /// the file-manager seam; size is exact and can never false-fail an unchanged file.) Folders
-    /// keep the existence-only check — a folder's stat size isn't its recursive content size.
+    /// the file-manager seam; size is exact and can never false-fail an unchanged file.) A FOLDER
+    /// keeper is existence-only *here* — its stat size isn't its recursive content size — and gets
+    /// its content check from `driftedFolderInGroup`, which `resolveDuplicateGroup` and the batch
+    /// run alongside this and which covers the keeper as well as the removal candidates. (The
+    /// merge path deliberately has neither — see `copyDriftedInPlace` — its keeper is *meant* to
+    /// change, and its own trash step re-walks the source.)
     private func keeperStillExists(_ group: DuplicateGroup) -> Bool {
         let keeper = group.keeper
         guard fileManager.fileExists(atPath: keeper.path) else { return false }
