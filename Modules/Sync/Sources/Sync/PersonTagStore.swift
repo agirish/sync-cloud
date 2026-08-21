@@ -214,8 +214,8 @@ public final class PersonTagStore: ObservableObject {
             Logger.shared.warning("Couldn't open person-tags.json "
                                   + "(\(error.localizedDescription)) — verdicts are unavailable "
                                   + "this session. The file is kept: the first verdict you record "
-                                  + "moves it aside as person-tags.json.unreadable rather than "
-                                  + "overwriting it.")
+                                  + "moves it aside as a dated person-tags.json.unreadable-… file "
+                                  + "rather than overwriting it.")
             fileWasUnreadable = true
             return
         }
@@ -228,8 +228,8 @@ public final class PersonTagStore: ObservableObject {
             // file is recoverable, and the app still works.
             Logger.shared.warning("Couldn't read person-tags.json — verdicts are unavailable this "
                                   + "session. The file is kept: the first verdict you record moves "
-                                  + "it aside as person-tags.json.unreadable rather than "
-                                  + "overwriting it.")
+                                  + "it aside as a dated person-tags.json.unreadable-… file rather "
+                                  + "than overwriting it.")
             fileWasUnreadable = true
             return
         }
@@ -279,22 +279,20 @@ public final class PersonTagStore: ObservableObject {
             // state — the error line below repeats once per verdict while the move keeps
             // failing, and verdicts live only in memory until it stops.
             if fileWasUnreadable {
-                let kept = fileURL.appendingPathExtension("unreadable")
+                // The kept name is unique PER EPISODE — see `setAsideDestination`. An earlier
+                // episode's set-aside is the ONLY copy of that episode's rescued verdicts (it is
+                // never re-ingested), so nothing here may ever delete one: the old single-slot
+                // name made a second unreadable episode's collision handling do exactly that,
+                // under a comment claiming what moved in was "the more current of the two
+                // records" — which is not a defence when the earlier record was never read back.
+                // With per-episode names there is no collision to handle and no remove to
+                // justify; the pathological same-instant case is disambiguated inside the
+                // helper, and anything that still lands at the chosen path between the probe and
+                // the move falls into the refusal below and is retried on the next save.
+                let kept = Self.setAsideDestination(for: fileURL, at: Date(),
+                                                    fileManager: fileManager)
                 do {
-                    do {
-                        try fileManager.moveItem(at: fileURL, to: kept)
-                    } catch let collision as CocoaError
-                        where collision.code == .fileWriteFileExists {
-                        // Something already occupies the kept path — an EARLIER episode's
-                        // set-aside, necessarily, since this one has not succeeded yet. It is
-                        // removed only here, when it is the one thing blocking the move, so a
-                        // move that fails for any other reason cannot cost a set-aside an
-                        // earlier session did land. Replacing it is safe for the same invariant
-                        // as above: what moves in is still the user's original, and the more
-                        // current of the two records.
-                        try fileManager.removeItem(at: kept)
-                        try fileManager.moveItem(at: fileURL, to: kept)
-                    }
+                    try fileManager.moveItem(at: fileURL, to: kept)
                     fileWasUnreadable = false
                     Logger.shared.warning("person-tags.json could not be read, so it has been kept "
                                           + "as \(kept.lastPathComponent) and a fresh file written "
@@ -341,6 +339,30 @@ public final class PersonTagStore: ObservableObject {
             Logger.shared.warning("Couldn't save person-tags.json — the verdict is in memory only "
                                   + "this session: \(error.localizedDescription)")
         }
+    }
+
+    /// Where this episode's set-aside goes: `person-tags.json.unreadable-<stamp>`, a name unique
+    /// per episode so a later episode can never land on — and destroy — an earlier one.
+    ///
+    /// The stamp is ``FilingArtifactStamp``'s (the format every filing artifact dates itself
+    /// with), colons swapped for dots because this one lives in a file NAME. Second precision
+    /// means two episodes in one second would collide, so an occupied candidate gets a numeric
+    /// disambiguator instead — probed with `attributesOfItem` rather than `fileExists`, which
+    /// follows symlinks and would call a dangling-link occupant free. Static and internal so a
+    /// test can pin the disambiguation with a frozen date; `save()` passes `Date()`.
+    static func setAsideDestination(for fileURL: URL, at now: Date,
+                                    fileManager: FileManager) -> URL {
+        let stamp = FilingArtifactStamp.string(from: now)
+            .replacingOccurrences(of: ":", with: ".")
+        let dir = fileURL.deletingLastPathComponent()
+        let base = fileURL.lastPathComponent + ".unreadable-" + stamp
+        var candidate = dir.appendingPathComponent(base)
+        var n = 2
+        while (try? fileManager.attributesOfItem(atPath: candidate.path)) != nil {
+            candidate = dir.appendingPathComponent(base + "-\(n)")
+            n += 1
+        }
+        return candidate
     }
 }
 

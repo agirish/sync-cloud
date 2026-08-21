@@ -458,6 +458,15 @@ import Foundation
         return dir
     }
 
+    /// Every set-aside beside the store, sorted by name. The kept name is unique per episode, so
+    /// tests discover the files rather than assuming a single fixed slot.
+    private func setAsides(in dir: URL) -> [URL] {
+        let p = dir.appendingPathComponent("p")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: p.path)) ?? []
+        return names.filter { $0.hasPrefix("person-tags.json.unreadable") }.sorted()
+            .map { p.appendingPathComponent($0) }
+    }
+
     @Test func aVerdictDoesNotOverwriteAFileThisBuildCouldNotRead() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -471,7 +480,7 @@ import Foundation
         store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         // The bytes are still recoverable — beside the live file, not under it.
-        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
         #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
                 "the unreadable file was destroyed by the next verdict")
         // ...and the app kept working: the new verdict is on disk and readable.
@@ -492,8 +501,10 @@ import Foundation
         store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
         store.record(personId: "aditi", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
 
-        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
-        #expect(FileManager.default.contents(atPath: kept.path) == corrupt)
+        // One episode, one set-aside — the second save neither rewrites it nor adds another.
+        let kept = setAsides(in: dir)
+        #expect(kept.count == 1, "one unreadable episode produced \(kept.count) set-aside(s)")
+        #expect(kept.first.flatMap { FileManager.default.contents(atPath: $0.path) } == corrupt)
     }
 
     // MARK: - A file the process cannot even READ gets the same promise
@@ -506,12 +517,13 @@ import Foundation
     @Test func aVerdictDoesNotOverwriteAFileTheProcessCannotOpen() throws {
         let dir = try makeDir()
         let url = dir.appendingPathComponent("p/person-tags.json")
-        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
         let fm = FileManager.default
         defer {
             // Give the bytes back before the sweep, wherever they ended up.
             try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
-            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
+            for aside in setAsides(in: dir) {
+                try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: aside.path)
+            }
             try? fm.removeItem(at: dir)
         }
         // A perfectly good file — real prior verdicts, not corruption. Only the read fails.
@@ -524,6 +536,7 @@ import Foundation
         store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         // The set-aside keeps the mode with the bytes; open it up to compare them.
+        let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
         try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
         #expect(fm.contents(atPath: kept.path) == original,
                 "the verdicts were overwritten because a failed read was mistaken for no file")
@@ -547,7 +560,7 @@ import Foundation
         store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         // The link survives, moved aside — still pointing where the user aimed it.
-        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
         let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: kept.path)
         #expect(dest == target, "the symlink was destroyed instead of being set aside")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
@@ -585,7 +598,7 @@ import Foundation
         // The obstruction clears: save 3 sets the ORIGINAL bytes aside and writes fresh —
         // carrying every verdict recorded while they could live only in memory.
         store.record(personId: "muktha", key: .path("c.pdf"), verdict: .confirmed, path: "c.pdf")
-        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
         #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
                 "the set-aside does not hold the user's original bytes")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
@@ -593,33 +606,92 @@ import Foundation
                 "a verdict recorded while the set-aside was failing was lost")
     }
 
-    /// A leftover at the kept path — an earlier session's set-aside — must not block the rescue
-    /// forever, and removing it is safe only because the armed flag means nothing has written the
-    /// live file yet: what replaces the leftover is still the user's original, and the more
-    /// current of the two records.
-    @Test func aLeftoverSetAsideFromAnEarlierEpisodeDoesNotBlockTheRescue() throws {
+    /// A leftover set-aside from an earlier session — including one under the old fixed
+    /// `person-tags.json.unreadable` name a previous build wrote — must neither block the rescue
+    /// nor be destroyed by it: the kept name is unique per episode, so this episode's move lands
+    /// beside the leftover rather than on it.
+    @Test func aLeftoverSetAsideFromAnEarlierEpisodeNeitherBlocksNorIsDestroyed() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("p/person-tags.json")
-        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
-        try Data("an earlier episode's set-aside".utf8).write(to: kept)
+        let legacy = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        let earlier = Data("an earlier episode's set-aside".utf8)
+        try earlier.write(to: legacy)
         let corrupt = Data("{ not json".utf8)
         try corrupt.write(to: url)
 
         let store = PersonTagStore(directory: dir, profileId: "p")
         store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
-        #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
-                "the leftover blocked the set-aside, or survived in its place")
+        #expect(FileManager.default.contents(atPath: legacy.path) == earlier,
+                "the earlier episode's set-aside was destroyed by this one")
+        let keptBytes = setAsides(in: dir).compactMap { FileManager.default.contents(atPath: $0.path) }
+        #expect(keptBytes.contains(corrupt), "the leftover blocked this episode's set-aside")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
         #expect(reread.tags.map(\.personId) == ["divit"])
     }
 
-    /// **An earlier episode's set-aside may be replaced only when it is the one thing blocking the
-    /// move.** The pre-move `removeItem(at: kept)` is confined to the collision arm; the reviewer
-    /// reverted it to an unconditional remove-then-single-move and every test still passed, which
-    /// means the narrowing was completely unpinned. This is the pin: a move that fails for any
-    /// OTHER reason — here a permissions refusal — must not have cost the earlier set-aside first.
+    /// The pathological same-instant case: two episodes composing their kept name from the same
+    /// second must get distinct names, not a collision. Pinned with a frozen date because the
+    /// two-episode test above only exercises the disambiguator when both rescues land inside one
+    /// second — usually, but not deterministically.
+    @Test func sameInstantEpisodesGetDistinctSetAsideNames() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        let now = Date(timeIntervalSince1970: 1_766_000_000)
+
+        let first = PersonTagStore.setAsideDestination(for: url, at: now, fileManager: .default)
+        #expect(first.lastPathComponent.hasPrefix("person-tags.json.unreadable-"))
+        try Data("episode one".utf8).write(to: first)
+
+        let second = PersonTagStore.setAsideDestination(for: url, at: now, fileManager: .default)
+        #expect(second != first, "a same-instant episode was aimed at the occupied kept path")
+        try Data("episode two".utf8).write(to: second)
+
+        let third = PersonTagStore.setAsideDestination(for: url, at: now, fileManager: .default)
+        #expect(third != first && third != second)
+    }
+
+    /// **A second unreadable episode must not destroy the only copy of the first episode's
+    /// rescue.** Episode 1 sets the original aside and never re-ingests it — the set-aside IS the
+    /// only copy of those verdicts. Under a single-slot kept name, episode 2's collision handling
+    /// permanently deleted it; the in-code justification ("what moves in is still the user's
+    /// original" / "the more current of the two records") was factually wrong for this shape,
+    /// because "more current" does not mean "supersedes" when the earlier record was never read
+    /// back.
+    @Test func aSecondUnreadableEpisodeDoesNotDestroyTheFirstEpisodesRescue() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+
+        // Episode 1: an unreadable file, rescued by the first verdict's save.
+        let episode1 = Data("{ episode one — the only copy of these bytes".utf8)
+        try episode1.write(to: url)
+        let store1 = PersonTagStore(directory: dir, profileId: "p")
+        store1.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+
+        // Episode 2: the fresh file corrupts too, and a later session rescues again.
+        let episode2 = Data("{ episode two — corrupted again".utf8)
+        try episode2.write(to: url)
+        let store2 = PersonTagStore(directory: dir, profileId: "p")
+        store2.record(personId: "aditi", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
+
+        let keptBytes = setAsides(in: dir).compactMap { FileManager.default.contents(atPath: $0.path) }
+        #expect(keptBytes.contains(episode1),
+                "episode 2's set-aside destroyed the only copy of episode 1's rescue")
+        #expect(keptBytes.contains(episode2), "episode 2's own bytes were not set aside")
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.map(\.personId) == ["aditi"])
+    }
+
+    /// **A failed set-aside move must not have removed anything first.** The single-slot era
+    /// confined its pre-move `removeItem(at: kept)` to the collision arm, and the reviewer showed
+    /// that narrowing was completely unpinned: reverting it to an unconditional remove-then-move
+    /// passed every test. Per-episode names have since removed the collision arm entirely — no
+    /// remove exists at all — and this pin is what keeps one from coming back: a move that fails
+    /// (here a permissions refusal) must leave an earlier set-aside's bytes untouched, whatever
+    /// name it sits under.
     @Test func aMoveThatFailsForAnotherReasonDoesNotCostAnEarlierSetAside() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -677,8 +749,7 @@ import Foundation
         let store = PersonTagStore(directory: dir, profileId: "p")
         store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
-        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
-        #expect(!FileManager.default.fileExists(atPath: kept.path),
+        #expect(setAsides(in: dir).isEmpty,
                 "an absent file was mistaken for one that exists but cannot be read")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
         #expect(reread.tags.map(\.personId) == ["divit"])
@@ -686,9 +757,9 @@ import Foundation
 }
 
 /// A `FileManager` whose renames can be made to fail — injected through the seam the store
-/// already takes. A real obstruction at the `.unreadable` path is not reliable (an existing file
-/// there is exactly what the collision handling clears, and permission games gate on the euid),
-/// so the refusal is thrown directly, the one spelling every filesystem shares.
+/// already takes. A real obstruction at the kept path is not reliable (the per-episode name
+/// steps around an existing file, and permission games gate on the euid), so the refusal is
+/// thrown directly, the one spelling every filesystem shares.
 private final class MoveBlockedFileManager: FileManager {
     /// How many more `moveItem` calls fail before the obstruction "clears". `FileManager` is
     /// `Sendable`, which a mutable stored property contradicts; unsafe is honest here because the
