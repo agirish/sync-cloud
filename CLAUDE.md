@@ -8,7 +8,7 @@ on `main`:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
-| `main` | the **v4 line** — where the next release is built | `4.2-dev` / `402` | **allowed** |
+| `main` | the **v4 line** — where the next release is built | `4.3-dev` / `403` | **allowed** |
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
 | `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
 
@@ -125,8 +125,8 @@ wrong for two years. The steps below exist so that cannot recur.
 
 ```yaml
 # main's values; v3.x carries "3.2-dev" / "302", v2.x carries "2.10-dev" / "210"
-CFBundleShortVersionString: "4.2-dev"   # the marketing version — what people see
-CFBundleVersion: "402"                  # the build number — what Launch Services orders by
+CFBundleShortVersionString: "4.3-dev"   # the marketing version — what people see
+CFBundleVersion: "403"                  # the build number — what Launch Services orders by
 ```
 
 `MacApp/Info.plist` is **generated from it by xcodegen and tracked in git**, so it changes in the
@@ -162,7 +162,7 @@ done
 ### The two numbers
 
 **Marketing version.** Between releases each branch tip carries a **pre-release marker** for the
-version it is heading toward, suffixed `-dev`: `main` sits at `4.2-dev`, `v3.x` at `3.2-dev`,
+version it is heading toward, suffixed `-dev`: `main` sits at `4.3-dev`, `v3.x` at `3.2-dev`,
 `v2.x` at `2.10-dev`. The suffix says "this build is no release" without implying a distributed beta
 programme. A release drops the suffix, and the tip is re-bumped straight afterwards, so a plain
 number like `2.9` is only ever what the tagged commit itself carries.
