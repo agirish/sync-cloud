@@ -118,18 +118,38 @@ import AppKit
         return out + String(chord.key.character).lowercased()
     }
 
-    /// **View ▸ Sidebar is registered, and carries the chord it advertises.**
+    /// **There is no View ▸ Sidebar, anywhere in the bar** — the column is held for v4.3
+    /// (`FolderSidebarModel.isEnabled`), and the item and its chord were deleted rather than
+    /// disabled.
     ///
-    /// The item is `nil`-disabled off Browse, which a source scan reads as present and a running
-    /// app reads as *there*; what a scan cannot say is that it kept its key equivalent — a `Toggle`
-    /// whose `.keyboardShortcut` were dropped would still compile, still appear, and still be the
-    /// only route to a sidebar the ⌘/ reference documents a chord for.
-    @Test func theSidebarSwitchIsInViewWithItsChord() throws {
-        let view = try Self.menu("View")
-        let item = try #require(view.items.first { $0.title == "Sidebar" },
-                                "View has no Sidebar item: \(Self.titles(view))")
-        #expect(item.keyEquivalent == "s")
-        #expect(item.keyEquivalentModifierMask == [.control, .command])
+    /// This test used to assert the opposite, and the swap is the point: a menu item is built from
+    /// a `Commands` declaration whether or not anything answers it, so switching the column off in
+    /// `Dashboard` would have left the tick, the chord and the greyed row exactly where they were —
+    /// ⌃⌘S doing nothing, in the place a Mac user reaches for a sidebar. Re-adding
+    /// `ToggleFolderSidebarCommand` compiles and reads correctly in review; this is what says no.
+    ///
+    /// Both halves, because either alone can come back: an item retitled "Pinned Folders" passes a
+    /// title check and still takes Finder's chord.
+    @Test func theSidebarSwitchIsGoneFromEveryMenu() throws {
+        var titles: [String] = []
+        var chorded: [String] = []
+        func walk(_ menu: NSMenu) {
+            for item in menu.items {
+                titles.append(item.title)
+                if item.keyEquivalent.lowercased() == "s",
+                   item.keyEquivalentModifierMask == [.control, .command] {
+                    chorded.append(item.title)
+                }
+                if let sub = item.submenu { walk(sub) }
+            }
+        }
+        walk(try #require(NSApp.mainMenu, "the app built no menu bar — this check would be vacuous"))
+        // The walk can see a switch that IS there, or every absence below is an absence of reading.
+        #expect(titles.contains("Tab Bar"), "the walk cannot see View ▸ Tab Bar — it is not reading the bar")
+
+        #expect(!titles.contains { $0.localizedCaseInsensitiveContains("sidebar") },
+                "a menu item names a sidebar: \(titles.filter { $0.localizedCaseInsensitiveContains("sidebar") })")
+        #expect(chorded.isEmpty, "⌃⌘S is registered by \(chorded) — it is the held sidebar's chord")
     }
 
     /// Help keeps what is genuinely help, and nothing that is a window.

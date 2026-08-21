@@ -81,24 +81,54 @@ public enum FolderSidebarModel {
         }
     }
 
-    /// **Where the sidebar can exist at all** — Browse, and nowhere else.
+    /// **Held out of v4.2 — the one switch, and the only reason this column does not exist.**
+    ///
+    /// Decided 2026-08-20, after the feature was built and reviewed: it ships in v4.3 as a
+    /// Finder-shaped sidebar (sections, reordering, folders dropped onto it) rather than in v4.2 as
+    /// two ungrouped lists, and a half of that is worse to have shipped than to have withheld —
+    /// `⌃⌘S` would mean one thing for one release and another for the next. See `ROADMAP_V4.md`'s
+    /// v4.3 table.
+    ///
+    /// **Off means unreachable, not merely unticked.** `appliesTo` is the choke point every other
+    /// question here runs through, so `false` takes the column, the row refresh and the menu
+    /// binding together; the menu item and its chord are *deleted* rather than gated, because a
+    /// disabled item is still an item and ⌃⌘S would still have had a row in the ⌘/ reference.
+    /// `browseSidebarVisible` is left alone on purpose — someone who ticked the item while it
+    /// existed keeps their answer for when v4.3 asks again.
+    ///
+    /// **Re-enabling is this line plus its surfaces**: `AppChord.folderSidebar`,
+    /// `ToggleFolderSidebarCommand` and its `View` menu line, and the ⌃⌘S row in
+    /// `ShortcutsReference` — all four removed in the same commit as this, and all four named in
+    /// the v4.3 entry.
+    public static let isEnabled = false
+
+    /// **Where the sidebar can exist at all** — Browse, and nowhere else, and not while
+    /// ``isEnabled`` is false.
     ///
     /// Gated on the workspace rather than on `layoutMode`: the lens workspaces are single-source
     /// too, and their pane is the 220pt-clamped rail, which has no room for a 180pt column beside
-    /// it. This is the question the *menu item* asks, so it stays live on Browse with the sidebar
-    /// switched off — that item is how you switch it on.
+    /// it. This was also the question the *menu item* asked, which is why the hold is written here
+    /// rather than at the view: one answer, and nothing downstream can disagree with it.
     ///
     /// `Workspace` is not visible from this module, so the caller supplies the verdict rather than
     /// the value; the point of having it here is that the two questions below are written once.
-    public static func appliesTo(isBrowse: Bool) -> Bool { isBrowse }
+    ///
+    /// - Parameter enabled: defaults to ``isEnabled``, which is what every caller in the app uses.
+    ///   Injectable for the same reason `opensInNewTab(_:)` takes its modifiers: with the hold on,
+    ///   a test that could only ask the shipped question would be asking `false && x`, and the
+    ///   Browse-only rule this line exists for would go unasserted until v4.3 turned it back on.
+    public static func appliesTo(isBrowse: Bool, enabled: Bool = FolderSidebarModel.isEnabled) -> Bool {
+        enabled && isBrowse
+    }
 
     /// **Whether the column is on screen**, which is a different question from the one above and
     /// the one that decides whether resolving its rows is worth a `stat` of the provider root.
     ///
     /// Both callers must agree or the sidebar draws rows nobody refreshed — or refreshes rows
     /// nobody draws. Written once for that reason.
-    public static func isShowing(isBrowse: Bool, preference: Bool) -> Bool {
-        appliesTo(isBrowse: isBrowse) && preference
+    public static func isShowing(isBrowse: Bool, preference: Bool,
+                                 enabled: Bool = FolderSidebarModel.isEnabled) -> Bool {
+        appliesTo(isBrowse: isBrowse, enabled: enabled) && preference
     }
 
     /// The rows of one group, in order — the view's `ForEach` and the tests read the same list.

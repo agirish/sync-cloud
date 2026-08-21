@@ -5,6 +5,14 @@ import Design
 
 /// **Browse's remembered-folders sidebar** — the host half. The column itself is
 /// `Dashboard.FolderSidebarView`; what lives here is where its rows come from and what a click does.
+///
+/// **None of it runs in v4.2.** The sidebar is held for v4.3, where it arrives Finder-shaped
+/// instead of as two ungrouped lists; `FolderSidebarModel.isEnabled` is `false`, so
+/// `folderSidebarIsShowing` answers `false` everywhere, `browseLayout` draws no column and
+/// `refreshFolderSidebarRows` returns before it can `stat` anything. Kept intact, and kept correct,
+/// because v4.3 starts from it rather than from a revert — see `ROADMAP_V4.md`'s v4.3 table for
+/// what it is expected to grow into, and `FolderSidebarModel.isEnabled` for the four surfaces that
+/// were deleted rather than gated.
 extension ContentView {
 
     /// The provider root the sidebar's two lists are keyed by — Browse's pane is the left one.

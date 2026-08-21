@@ -208,7 +208,8 @@ file's own reasoning: a design carried twice without being built is usually a de
 It was carried instead. What that answers is the question the recommendation rested on — the
 unmirrored switch has *not* proved to be a non-issue in use — so the item survives on evidence rather
 than on inertia, which is the distinction the "third carry" rule exists to force. It is listed as
-v4.3 item 7 below.
+**v4.3 item 4** below — this said item 7 until 2026-08-20, from a numbering two edits ago, and 7 is
+now Gallery view.
 
 **What that means for whoever picks it up: it is deferred on a QUESTION, not on merit.** The
 recommendation below is already made; what is missing is the answer to the two questions after it,
@@ -299,7 +300,7 @@ stands" below was re-read at `c604321e` rather than carried forward.
 | **↩ renames** | — | **Shipped 2026-08-20** (`88d95ed9`) — a pane key handler beside Space, sharing File ▸ Rename's own closure so the two cannot drift. Never a menu equivalent: a bare ↩ there would take the key that commits the destination picker, the ⌘K field and every sheet. |
 | **⌘↑ enclosing folder, ⌘↓ open** | small | **Deferred to v4.3, 2026-08-20 — the chords are free, the meaning is not.** A pane has TWO positions and the two candidates move different ones: `handleFocus` (what the row menu calls "Open") **re-scopes the pane**, while `drill`/`popLast` walk the **column stack** the breadcrumb shows. Pairing them across axes — Open re-scoping while Up pops a column — makes two chords that look like opposites move different things, which is the confusion this codebase already has a history of. Columns is the default mode, so a stack-based pair works where most people are and is dead in Tree; a scope-based pair works in both and resets the breadcrumb rather than walking it. **Decide the axis first; the implementation is small either way.** |
 | **Go to Folder** | small | **Shipped 2026-08-19** — `PalettePath`, no sheet. Cross-source paths refuse and name the source; switching to it is deferred to v4.3, see below. |
-| **Pins + recents sidebar** | medium | **Shipped 2026-08-20** — `Dashboard/FolderSidebar.swift`, Browse only, View ▸ Sidebar (⌃⌘S). |
+| **Pins + recents sidebar** | medium | **Built 2026-08-20 and held for v4.3 the same day** — `Dashboard/FolderSidebar.swift` ships inert (`FolderSidebarModel.isEnabled == false`); the chord, the menu item and the ⌘/ row are deleted, so v4.2 has no sidebar by any route. See below, and v4.3's item 6. |
 | **⌘C / ⌘V / ⌥⌘V** ⚠️ | medium | No file pasteboard. All eight `NSPasteboard` sites copy a path *as text*. **⌥⌘V is barred by the ⌥ ban above — spelling unresolved.** |
 | **Gallery view mode** | large | `PaneViewMode` has two cases; a third is free, thumbnails are the job. |
 | **Group by kind / date** | large | Sort is per-pane `KeyPathComparator`; grouping does not exist. |
@@ -409,16 +410,35 @@ a folder that has since gone — the same three questions the tab strip already 
 
 ### The two mediums
 
-- **Pins and recents, as a sidebar.** **Shipped 2026-08-20.** Browse only, 180pt, leading; click to
-  switch (`focusOn`, so it re-scopes the pane rather than walking the column stack the breadcrumb
-  shows), ⌘-click for a new tab, right-click to pin or unpin. Folders only, as required — no
-  provider row. View ▸ Sidebar, ⌃⌘S, Finder's own chord and free here.
+- **Pins and recents, as a sidebar.** **Built 2026-08-20 — and held for v4.3 the same day, with
+  him.** Browse only, 180pt, leading; click to switch (`focusOn`, so it re-scopes the pane rather
+  than walking the column stack the breadcrumb shows), ⌘-click for a new tab, right-click to pin or
+  unpin. Folders only, as required — no provider row.
 
-  Three things the build added to the design:
+  **What was built is two ungrouped lists; what "sidebar" promises on this platform is a place.**
+  Finder's has named sections you can collapse and reorder, folders you drag *in* to make permanent,
+  and rows you can drop a file onto to file it without going there. Shipping the first as the answer
+  to the second spends the word "Sidebar" and ⌃⌘S on it — and a v4.3 that then reorganised the
+  column would be changing what a chord means one release after teaching it. So it goes out whole in
+  v4.3 or not at all; v4.2 ships it **unreachable**, not merely unticked.
+
+  **The hold is one constant and four deletions**, all named at `FolderSidebarModel.isEnabled`:
+  `appliesTo` answers `false` (so the column, the row refresh and the menu binding go together), and
+  `AppChord.folderSidebar`, `ToggleFolderSidebarCommand`, its `View`-menu line and the ⌃⌘S row in
+  `ShortcutsReference` are removed rather than disabled — a greyed item is still an item, and a
+  registry chord still earns a ⌘/ row. `browseSidebarVisible` is deliberately left alone, so someone
+  who ticked the item while it existed keeps their answer for when v4.3 asks again. The absence is
+  asserted where each surface lives: `TheSidebarIsHeldForV43` (the rule),
+  `WindowMenuTests.theSidebarSwitchIsGoneFromEveryMenu` (the running app's menu bar, both the title
+  and the key equivalent) and `TheSidebarHasNoChordAndNoRow` (the registry and the ⌘/ panel).
+
+  Three things the build added to the design, and they are v4.3's starting point rather than
+  history — the code they describe is still there and still correct:
 
   - **Browse only, gated on the workspace and not on `layoutMode`.** The lens workspaces are
     single-source too, and their pane is the 220pt-clamped rail — no room for a 180pt column beside
-    it. The menu item is `nil`-disabled everywhere else, like every other view switch.
+    it. The menu item was `nil`-disabled everywhere else, like every other view switch — that item
+    is now deleted with the rest of the surface, and the workspace gate is what v4.3 re-attaches to.
   - **A colliding leaf name is qualified, and a top-level one by the provider.** Two `Legal` folders
     is the case the ⌘K palette had to be rebuilt twice to see. **Found by rendering it**: the first
     cut qualified `Clients/Legal` and left a root-level `Legal` bare, because a top-level folder's
@@ -430,7 +450,11 @@ a folder that has since gone — the same three questions the tab strip already 
 
   **⌃⌘S was the fourth chord to overflow the shortcuts reference**, and the first time a *single*
   row did it — `theReferenceFitsItsWindowWithoutScrolling` measured 743pt against a 720pt window.
-  Raised to 780. That test is still the only thing that notices.
+  Raised to 780, then **brought back down to 740 when the row left again**: the panel measures 707pt
+  without it, so 740 leaves the same 33pt of margin the last two raises left. That is the first time
+  this window has ever gone *down*, and it is the same rule in the other direction — the number is
+  what the rows measure, not a high-water mark. v4.3 will trip it again; the measurement above is
+  what it will cost.
 - **⌘C / ⌘V / ⌥⌘V.** **Shipped 2026-08-20**, minus the third chord — see below.
   `Dashboard/SystemClipboard.swift`. ⌘C in a pane now also writes file URLs to
   `NSPasteboard.general`, so ⌘V in Finder pastes the files; files copied in any other app paste into
@@ -904,8 +928,10 @@ have already shipped, so what is actually left is nine.
    `ROADMAP_V5.md` §12.
 8. **Title-bar subtitle** (§8). Small, and the only item here that answers a question the app
    currently cannot answer at all.
-9. **Pins and recents sidebar** (§3). Reads the store step 1 made durable — already shipped, so this
-   is unblocked.
+9. ~~**Pins and recents sidebar** (§3). Reads the store step 1 made durable — already shipped, so
+   this is unblocked.~~ **Built, then held for v4.3 on 2026-08-20** — struck rather than deleted
+   because the code is on `main` and inert, not reverted. See §3 for the reason and v4.3's item 6
+   for what turning it on commits whoever picks it up to.
 10. **The pasteboard** (§3). ⌘C/⌘V to and from *Finder* + a paste-as-move whose chord is still to be
     chosen (**not ⌥⌘V** — the ⌥ ban above). Note §10's correction: the **in-app** clipboard already
     exists and works, so what is left here is `NSFilePromiseProvider`, not the whole feature.
@@ -939,16 +965,28 @@ below is a pointer to a section above that carries the detail.
 more items** that came out of the round-2 visual review of the running build rather than out of this
 file — five Storage-lens fixes, two Duplicates ones, and Compare's Path column retiring into
 parent-directory headers. They are not repeated here because a spec kept in two places drifts in one
-of them; what is repeated is only the five below, which this file defers and that page therefore has
-to carry too. **Sixteen items in total: thirteen for v4.3, three beyond it.** If the two ever
-disagree, the code is the tiebreak and both are wrong until re-read. The list is short on purpose. Two
-things arrived here by different routes and it matters which:
+of them; what is repeated is only the six below, which this file defers and that page therefore has
+to carry too. **Seventeen items in total: fourteen for v4.3, three beyond it.** If the two ever
+disagree, the code is the tiebreak and both are wrong until re-read.
+
+**Item 6 is the one that page does not carry yet, and it is why the count moved.** The sidebar was
+taken *off* it on 2026-08-20 as one of the five items v4.2 absorbed — correctly, on the morning's
+facts — and held back for v4.3 the same afternoon. Until the page is corrected this file is the only
+place it is written down, which is the drift the split is supposed to avoid, arrived at from the
+direction nobody guards: not two copies disagreeing, but one copy deleted because the other said the
+work was done. The list is short on purpose. Things arrived here by three different routes and it
+matters which:
 
 - **Deferred on merit** — ranked last because they change what Browse can *display* rather than how
   you get anywhere. These were always v4.3's content.
 - **Deferred on a question** — small work, blocked on a decision nobody has taken. These are the
   ones that rot: an item filed as "small" with an unanswered question behind it looks schedulable
   and is not.
+- **Built, then held** — the newest route, and the only one whose code is already on `main`. Item 6
+  was finished, reviewed and then switched off for v4.2 because what it shipped was a smaller thing
+  than its name promised. These do not rot the way a deferred item does — they rot the other way, by
+  looking done. An inert feature has no user to notice it decaying and no test to fail if the app
+  moves around it, which is why its hold is asserted rather than assumed.
 
 | | Item | Size | Why it is here |
 |---|---|---|---|
@@ -957,23 +995,28 @@ things arrived here by different routes and it matters which:
 | 3 | **Switching to the source a typed path is in** (§3) | small | **On a mechanism, not a question.** Go to Folder refuses a cross-source path and names the source; switching to it needs `adoptProviderForTab`'s counter to suppress the provider change's own `resetNavigation()`, or the pane lands at its root with the folder silently dropped. Expect the reload ordering to be the whole of the work. |
 | 4 | **Mirroring tab *switches* on linked panes** (§1) | medium | **On a question, and the oldest thing on this list.** Designed twice, carried three times — most recently on 2026-08-20, deliberately and against this file's own recommendation to delete it. Pairing with mirrored closes is the recommended design; the two questions it does not answer (what a switch does when its paired tab's folder has gone, and what happens once a paired tab is closed) are in §1 and are why this is not a follow-up commit. **If it is carried a fourth time, delete it instead** — the argument for keeping it was that the problem is real in use, and a fourth carry would be evidence against that. |
 | 5 | **One-line pane headers** (§8) | medium | **On a decision that has now been taken twice, and the second one is why it is here.** Built and measured 2026-08-20: 23pt back and one file row, not §8's 44pt and three; unusable below ~560pt; and folding the lens rail breaks the 83.5 line it shares with `LensHeaderCard`. **Browse-only is the only safe shape.** §8 carries every number. Take §8's in-window subtitle line with it — same width budget, and settling it twice is how the ⌘K field ends up under its floor. |
-| 6 | **Gallery view** (§3) | large | **On merit.** A third `PaneViewMode` case is free; thumbnails — generation, a cache that survives a quit, eviction, a placeholder that does not flash — are the whole job. Argue it from the scans folders, the only trees where a filename genuinely fails to identify the file. |
-| 7 | **Group by kind or date** (§3) | large | **On merit.** Sorting exists; grouping is a different shape — sections, headers, counts, collapse state, and a sort *within* each group — and it touches every row-rendering path in the pane. |
-| 8 | **Drop files on a tab** (§3) | large | **On merit, and it has a prerequisite.** Do it after v4.2's pasteboard, which sets the move semantics this expresses as a gesture. Needs row drag re-added, and the proof that a click still opens a column — the check the removal was originally made to satisfy. |
+| 6 | **Browse's folder sidebar — switch it on, and make it Finder's** (§3) | medium | **Built and held.** The column, its rows, its refresh, its render tests and its host wiring are all on `main` and all inert (`FolderSidebarModel.isEnabled`); switching it on is that constant plus the four surfaces named beside it. **That part is an afternoon and it is not the item.** The item is the difference between two ungrouped lists and what a Mac user means by a sidebar: named sections that collapse and reorder, a folder dragged *in* to become permanent, and a row you can drop a file onto to file it without navigating there. **Shares 8's prerequisite** — dropping onto a row and dragging a folder in both need pane row drag re-added, so take these two together or take 8 first. |
+| 7 | **Gallery view** (§3) | large | **On merit.** A third `PaneViewMode` case is free; thumbnails — generation, a cache that survives a quit, eviction, a placeholder that does not flash — are the whole job. Argue it from the scans folders, the only trees where a filename genuinely fails to identify the file. |
+| 8 | **Group by kind or date** (§3) | large | **On merit.** Sorting exists; grouping is a different shape — sections, headers, counts, collapse state, and a sort *within* each group — and it touches every row-rendering path in the pane. |
+| 9 | **Drop files on a tab** (§3) | large | **On merit, and it has a prerequisite.** Do it after v4.2's pasteboard, which sets the move semantics this expresses as a gesture. Needs row drag re-added, and the proof that a click still opens a column — the check the removal was originally made to satisfy. |
 
 **Ordering.** 1–3 first: each is small, and two of them are one decision away from being finished
-rather than started. Then 4 and 5, the two mediums — 4 is the only one here with a *design* still
-open, and 5 is the only one that arrives with its measurements already taken. Then 6–8, which are
-independent of each other and of everything above.
+rather than started. Then 4, 5 and 6, the three mediums — 4 is the only one here with a *design*
+still open, 5 is the only one that arrives with its measurements already taken, and 6 is the only one
+whose code is already written and switched off. Then 7–9, which are independent of each other and of
+everything above — except that **6 and 9 share a prerequisite**, and doing 9 first makes 6 cheaper.
 
 **What is NOT here, and stays not here.** Tags was cut on 2026-08-19 rather than deferred — the
 objection stood unanswered through two roadmaps and the integration that would have earned it a
 place was declined. Do not re-add it from §3's table without answering the objection first; being
 on a list is how it got scheduled the first time.
 
-**A caution about size.** Three of these eight are large, and any one of them is a release on its own
-by the measure this file already applies to v4.2. If v4.3 takes 1–5 plus *one* of 6–8, it is a
+**A caution about size.** Three of these nine are large, and any one of them is a release on its own
+by the measure this file already applies to v4.2. If v4.3 takes 1–6 plus *one* of 7–9, it is a
 coherent release; taking all three of the larges is how a version number stops meaning anything.
+**Item 6 is the one with a deadline of a sort**: it is the only thing on this list that a user could
+have read about in a draft release note, and inert code is cheapest to finish while the person who
+wrote it can still be asked why.
 
 ---
 

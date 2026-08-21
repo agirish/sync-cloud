@@ -1,5 +1,6 @@
 @testable import SyncCloud
 import Dashboard
+import Design
 import Testing
 import Foundation
 
@@ -64,5 +65,35 @@ import Foundation
         let layout = try #require(try? String(contentsOf: url, encoding: .utf8))
         #expect(layout.contains("if folderSidebarIsShowing"),
                 "browseLayout draws the sidebar on its own condition rather than the shared rule")
+    }
+}
+
+/// **The hold's other two surfaces: the chord registry and the ⌘/ reference.**
+///
+/// The menu bar itself is asserted in `WindowMenuTests.theSidebarSwitchIsGoneFromEveryMenu`, which
+/// walks the running app's bar — one walker, in the suite that owns it. What is left here is the
+/// pair that would let ⌃⌘S be *documented* again even with no item registering it: the registry is
+/// what the ⌘/ panel is generated from, and the panel is where a person goes to find out what the
+/// app can do.
+@Suite struct TheSidebarHasNoChordAndNoRow {
+
+    @Test func theChordIsNotInTheRegistry() {
+        #expect(!AppChord.registry.contains { $0.display == "⌃⌘S" },
+                "⌃⌘S is back in the registry — every registry chord gets a ⌘/ row and a menu item, and the sidebar has neither")
+    }
+
+    /// No row names it, by chord or in prose. Written against the rows and not the source, for the
+    /// reason `testNoRowAdvertisesDragAndDrop` gives: every other check on this panel pins its
+    /// *shape*, so a row describing a feature the app does not have stays green in all of them.
+    @Test func theShortcutsReferenceDescribesNoSidebar() {
+        let rows = ShortcutsReference.groups.flatMap(\.items)
+        #expect(rows.count > 10, "the reference is implausibly short — this scan would be near-vacuous")
+        for item in rows {
+            #expect(!item.keys.replacingOccurrences(of: " ", with: "").contains("⌃⌘S"),
+                    "a row still lists ⌃⌘S: “\(item.action)”")
+            let action = item.action.lowercased()
+            #expect(!action.contains("sidebar"), "a row still describes a sidebar: “\(item.action)”")
+            #expect(!action.contains("pinned and recent"), "a row still describes the held column: “\(item.action)”")
+        }
     }
 }

@@ -81,8 +81,6 @@ enum ShortcutsReference {
             Item(keys: "⇧⌘ N", action: "New folder in the focused pane's current folder"),
             Item(keys: "⇧⌘ .", action: "Show or hide hidden files"),
             Item(keys: "⇧⌘ P", action: "Show or hide the Columns preview"),
-            // Browse only — the sidebar is that workspace's, and the menu item dims elsewhere.
-            Item(keys: "⌃⌘ S", action: "In Browse, show or hide the pinned and recent folders"),
             Item(keys: "⌘ ⌫", action: "Delete the selected items, after confirming"),
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
@@ -171,9 +169,19 @@ struct ShortcutsReferenceView: View {
     /// **720 → 780 when Browse's sidebar arrived** (⌃⌘S, §3). One row, in Panes beside the two
     /// other show/hide rungs it belongs with, and the content went to **743pt** — the fourth time
     /// the test has caught this and the first time a *single* row did it, which is the margin
-    /// telling the truth about how little was left. 780 leaves 37pt, comparable to the 34 the last
-    /// raise left, and still clears a 13" display's usable height.
-    static let windowSize = CGSize(width: 880, height: 780)
+    /// telling the truth about how little was left. 780 left 37pt, comparable to the 34 the raise
+    /// before it left, and still cleared a 13" display's usable height.
+    ///
+    /// **780 → 740 when that row left again** (2026-08-20): the sidebar is held for v4.3
+    /// (`FolderSidebarModel.isEnabled`), and a row describing a column that cannot appear is the
+    /// thing `testNoRowAdvertisesDragAndDrop` exists to say this panel does not ship. Content
+    /// **measured 707pt** with the row gone, so 740 leaves 33pt — the same margin as the 34 and 37
+    /// the last two raises left. **The first time this window has come back down**, and it comes
+    /// down for the reason it went up: the number is what the rows measure, not a high-water mark.
+    /// Not 720 (its value before the row): the rows either side of that raise are not the rows here
+    /// now, and 707 is measured where 686 is remembered. Whoever re-adds the row in v4.3 raises it
+    /// again, and `theReferenceFitsItsWindowWithoutScrolling` is what will say so.
+    static let windowSize = CGSize(width: 880, height: 740)
 
     var body: some View {
         ScrollView {

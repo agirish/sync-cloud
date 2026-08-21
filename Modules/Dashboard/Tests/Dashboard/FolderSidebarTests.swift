@@ -221,23 +221,63 @@ import Design
 /// **Where the sidebar exists, and where it is showing.** Two questions that read alike and are
 /// not the same one — a menu item that asked the second could never be used to switch the column
 /// on, and a refresh that asked the first would `stat` a provider root on every workspace.
+///
+/// Every case below passes `enabled:` rather than relying on the default, because the default is
+/// `false` while the column is held for v4.3 and `false && anything` would assert nothing about
+/// either rule. `TheSidebarIsHeldForV43` asserts the hold itself.
 @Suite struct FolderSidebarVisibilityTests {
 
     @Test func theSidebarBelongsToBrowseAlone() {
-        #expect(FolderSidebarModel.appliesTo(isBrowse: true))
-        #expect(!FolderSidebarModel.appliesTo(isBrowse: false))
+        #expect(FolderSidebarModel.appliesTo(isBrowse: true, enabled: true))
+        #expect(!FolderSidebarModel.appliesTo(isBrowse: false, enabled: true))
     }
 
     /// **The item stays live on Browse with the column switched off**, because it is what switches
     /// it on. This is the assertion that stops the two rules being collapsed into one.
     @Test func theToggleIsStillAvailableWhileTheColumnIsHidden() {
-        #expect(FolderSidebarModel.appliesTo(isBrowse: true))
-        #expect(!FolderSidebarModel.isShowing(isBrowse: true, preference: false))
+        #expect(FolderSidebarModel.appliesTo(isBrowse: true, enabled: true))
+        #expect(!FolderSidebarModel.isShowing(isBrowse: true, preference: false, enabled: true))
     }
 
     @Test func theColumnShowsOnlyOnBrowseAndOnlyWhenAskedFor() {
-        #expect(FolderSidebarModel.isShowing(isBrowse: true, preference: true))
-        #expect(!FolderSidebarModel.isShowing(isBrowse: false, preference: true))
-        #expect(!FolderSidebarModel.isShowing(isBrowse: false, preference: false))
+        #expect(FolderSidebarModel.isShowing(isBrowse: true, preference: true, enabled: true))
+        #expect(!FolderSidebarModel.isShowing(isBrowse: false, preference: true, enabled: true))
+        #expect(!FolderSidebarModel.isShowing(isBrowse: false, preference: false, enabled: true))
+    }
+}
+
+/// **The v4.2 hold, asserted where it is decided.**
+///
+/// The column, its menu item and its chord were all built and reviewed, and then held for v4.3 so
+/// it can arrive as a Finder-shaped sidebar rather than as two ungrouped lists. What makes that a
+/// hold rather than a preference is that **no answer the app can give reaches the column** — which
+/// is one line of production code and therefore one line away from being undone by someone tidying
+/// up an "unused" constant.
+@Suite struct TheSidebarIsHeldForV43 {
+
+    @Test func theHoldIsOn() {
+        #expect(FolderSidebarModel.isEnabled == false,
+                "the sidebar is scheduled for v4.3 — turning this on ships half of it, and the menu item and ⌃⌘S it needs are not there to be found")
+    }
+
+    /// **Every question the app actually asks, in every combination, answers no.**
+    ///
+    /// The defaulted spellings and not the injected ones: these are the calls `ContentView` and
+    /// `shortcutFolderSidebar` make, so this is the check that the hold reaches the host rather
+    /// than only the constant.
+    @Test(arguments: [true, false], [true, false])
+    func nothingReachesTheColumn(isBrowse: Bool, preference: Bool) {
+        #expect(!FolderSidebarModel.appliesTo(isBrowse: isBrowse))
+        #expect(!FolderSidebarModel.isShowing(isBrowse: isBrowse, preference: preference))
+    }
+
+    /// **The preference is left alone, and that is the point of gating rather than deleting.**
+    ///
+    /// `browseSidebarVisible` still exists and still defaults to `true`; someone who ticked
+    /// View ▸ Sidebar while it existed still has `true` written in their defaults. If the gate ever
+    /// moved to the preference instead — defaulting it to `false`, say — the column would come back
+    /// for exactly those people and for nobody else, which is the worst of both.
+    @Test func aUserWhoAlreadyTickedItStillSeesNothing() {
+        #expect(!FolderSidebarModel.isShowing(isBrowse: true, preference: true))
     }
 }

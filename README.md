@@ -11,8 +11,7 @@
 </p>
 
 SyncCloud has four workspaces, and opens in **Browse** — the plain file browser: one provider's
-tree, full width, nothing proposed, for the moves you make by hand, with a sidebar (⌃⌘S) of the
-folders you pin and the ones you keep coming back to. **Compare** puts two folders side by side
+tree, full width, nothing proposed, for the moves you make by hand. **Compare** puts two folders side by side
 and shows exactly what differs — what's missing on each side, what's newer, what only *looks* the
 same — and lets you copy, move, or reconcile items with one click. **Organize** points a single
 provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**, **Restructure**, and

@@ -596,10 +596,11 @@ struct SyncCloudApp: App {
             CommandGroup(after: .sidebar) {
                 WorkspaceCommands()
                 Divider()
-                // First of the switches, and above the divider's other side deliberately: it is
-                // the only one that changes the window's *structure* rather than what a pane
-                // shows, and ⌃⌘S is where a Mac user reaches for a sidebar.
-                ToggleFolderSidebarCommand()    // ⌃⌘S
+                // **No Sidebar item, and no ⌃⌘S.** It was first here — the only switch that changes
+                // the window's *structure* rather than what a pane shows — until the column was held
+                // for v4.3 (`FolderSidebarModel.isEnabled`). Deleted rather than disabled: a greyed
+                // item is still an item, and it is the tick the user reaches for when a column they
+                // cannot see is the thing they are looking for.
                 ToggleTabBarCommand()           // ⇧⌘T
                 ToggleHiddenFilesCommand()      // ⇧⌘.
                 TogglePreviewColumnCommand()    // ⇧⌘P

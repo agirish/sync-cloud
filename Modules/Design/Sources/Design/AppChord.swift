@@ -130,12 +130,15 @@ public extension AppChord {
     /// ⌥-hold reveal (see `foldAllDifferences`).
     static let tabBar = AppChord("t", [.shift, .command])
 
-    /// View ▸ Sidebar — Browse's remembered-folders column.
-    ///
-    /// ⌃⌘S, which is Finder's own Show/Hide Sidebar, and free here: `switchPaneFocus` is the only
-    /// other ⌃ chord in the registry and it is ⌃⇥. ⌘S is not available and was never a candidate —
-    /// it means Save everywhere on the platform, in an app whose every action is already on disk.
-    static let folderSidebar = AppChord("s", [.control, .command])
+    // **No chord for Browse's folder sidebar, and that is deliberate.** ⌃⌘S was declared here and
+    // registered on `View ▸ Sidebar` until 2026-08-20, when the column was held back for v4.3
+    // (`FolderSidebarModel.isEnabled`). A declared chord is not free: the registry drives the ⌘/
+    // reference, so leaving it would have published a keystroke for a column that cannot appear.
+    //
+    // The choice it recorded is worth keeping for whoever re-adds it: **⌃⌘S**, which is Finder's
+    // own Show/Hide Sidebar and free here — `switchPaneFocus` is the only other ⌃ chord in the
+    // registry and it is ⌃⇥. ⌘S is not available and was never a candidate: it means Save
+    // everywhere on the platform, in an app whose every action is already on disk.
 
     // Differences
     /// ⌘← / ⌘→ copy the differences selection across; ⇧ makes it a move.
@@ -208,7 +211,7 @@ public extension AppChord {
         selectAll, cut, copy, paste,
         findInPane, paneBack, paneForward, rescan, newFolder, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
-        newTab, closeTab, nextTab, previousTab, tabBar, folderSidebar,
+        newTab, closeTab, nextTab, previousTab, tabBar,
         reviewDifferences, verifyDifferences, differencesList, foldAllDifferences,
         copyToLeft, copyToRight, moveToLeft, moveToRight,
     ]

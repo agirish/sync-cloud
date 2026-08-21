@@ -33,9 +33,8 @@ arrived — Organize's sections and verbs, the row menu's seven verbs, the four
 clipboard chords, the transfer chords and ↩-to-rename all had working handlers and
 no menu route. ⌘K stops being a card over a dimmed window and becomes a field in the
 toolbar you can type a path into. ⌘C and ⌘V stop being sealed inside the app and
-exchange files with Finder. Browse gets a sidebar of the folders you pin and the ones
-you keep coming back to. And Storage stops asking you to read digits to see which of
-two files is bigger.
+exchange files with Finder. And Storage stops asking you to read digits to see which
+of two files is bigger.
 
 On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0
 section first.
@@ -87,8 +86,8 @@ section first.
 ### Safety
 
 - **An unreadable pin list was destroyed by the next pin you made.** The folder-jump
-  store — the pins behind the breadcrumb menu, ⌘K's Folders group and now Browse's
-  sidebar — decoded with `try?`, so a blob it could not read left the store at empty,
+  store — the pins behind the breadcrumb menu and ⌘K's Folders group — decoded with
+  `try?`, so a blob it could not read left the store at empty,
   looking exactly like a fresh install. Nothing was lost on that read. The loss came
   on the **next write**: the first pin you made encoded that empty map over the key,
   and every pin you had curated went with it — which is why a test that checked only
@@ -187,17 +186,8 @@ section first.
   awake". Those folders are now listed and marked *Not available*, the highlight
   lands past them, and ↩ cannot run one.
 
-### Browse and Storage
+### Storage
 
-- **Browse gets a folder sidebar.** `FolderJumpStore` has held two lists since v3 —
-  the folders you pin and the last eight you visited under a root — and the only ways
-  to see them were the pane header's jump menu and ⌘K. Browse is one pane at full
-  width and has the room to keep them out: 180pt on the leading edge, **View ▸
-  Sidebar** or ⌃⌘S, Browse only. Click switches the pane, ⌘-click opens the folder in
-  a new tab, right-click pins or unpins. Two folders called `Legal` are told apart by
-  their parent, and a top-level one by its provider. A folder on a drive that is not
-  awake stays listed and refuses, rather than being dropped — a sleeping disk must not
-  cost you your pins.
 - **Storage's ranked lists draw a magnitude bar and a share.** Every size was set in
   the same weight at the same position, so a four-fold difference between two rows
   read as nothing until you compared the digits — in a section titled "the biggest

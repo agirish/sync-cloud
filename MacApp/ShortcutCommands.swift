@@ -542,6 +542,13 @@ extension FocusedValues {
 
     /// View ▸ Sidebar. `nil` off Browse, which is the only workspace that has one — a plain
     /// `Binding<Bool>` rather than `TabBarSwitch` because nothing ever forces it on.
+    ///
+    /// **Nothing reads this while the sidebar is held for v4.3.** The item that did
+    /// (`ToggleFolderSidebarCommand`) is deleted, and `shortcutFolderSidebar` below answers `nil`
+    /// on every workspace, so the channel is live and carries nothing. Kept rather than removed
+    /// because it is the seam the item is re-attached to, and because the publisher's suspension
+    /// rule for it is asserted by `ShortcutCommandsTests` — deleting the channel would delete the
+    /// only tests that say a destination pick silences this switch with the rest.
     var folderSidebarVisible: Binding<Bool>? {
         get { self[FolderSidebarVisibleKey.self] }
         set { self[FolderSidebarVisibleKey.self] = newValue }
@@ -614,7 +621,8 @@ struct ShortcutValuePublisher: ViewModifier {
     let cycleTab: ((Bool) -> Void)?
     let reopenClosedTab: (() -> Void)?
     let tabBar: TabBarSwitch?
-    /// `nil` off Browse — the only workspace with a sidebar. See ``ToggleFolderSidebarCommand``.
+    /// `nil` off Browse — the only workspace with a sidebar, and `nil` there too while the column
+    /// is held for v4.3 (`FolderSidebarModel.isEnabled`). Its menu item is deleted, not disabled.
     let folderSidebar: Binding<Bool>?
     let organizeLens: OrganizeLensSwitch?
     let organizeVerbs: OrganizeVerbs?
@@ -813,10 +821,14 @@ extension ContentView {
     /// The condition is `PaneTabStripVisibility.forcesTabBarSwitch`, which is defined as the
     /// visibility rule with the switch's own term removed — so the two cannot drift again. Inlining
     /// the disjunction here is what let them drift the first time.
-    /// View ▸ Sidebar's binding, and `nil` on every workspace but Browse.
+    /// View ▸ Sidebar's binding, and `nil` on every workspace but Browse — **and `nil` on Browse
+    /// too, for as long as the column is held for v4.3.**
     ///
     /// The gate is the workspace and not `layoutMode`: the lens workspaces are single-source too,
     /// and their pane is the 220pt-clamped rail, which has no room for a 180pt column beside it.
+    /// `appliesTo` now answers `FolderSidebarModel.isEnabled && isBrowse`, so this returns `nil`
+    /// everywhere and the value it publishes is read by nothing — the menu item was deleted with
+    /// the chord. Left in place as the one seam v4.3 re-attaches to.
     var shortcutFolderSidebar: Binding<Bool>? {
         // `appliesTo`, not `isShowing`: the item is live on Browse with the sidebar switched OFF,
         // because this item is how it gets switched on.
@@ -1463,22 +1475,6 @@ struct OrganizeVerbCommands: View {
             .disabled(verbs?.fixName == nil)
         Button("Always Allow This Name") { verbs?.keepName?() }
             .disabled(verbs?.keepName == nil)
-    }
-}
-
-/// View ▸ Sidebar — Browse's pinned-and-recent folders column.
-///
-/// A noun with a tick, like every other view switch here, and `nil` (disabled, unticked) on every
-/// workspace but Browse: Compare's two panes and the lens rail have no room for it and no version
-/// of it, so an item that stayed live there would toggle a preference with nothing on screen to
-/// show for it.
-struct ToggleFolderSidebarCommand: View {
-    @FocusedValue(\.folderSidebarVisible) private var sidebarVisible
-
-    var body: some View {
-        Toggle("Sidebar", isOn: sidebarVisible ?? .constant(false))
-            .keyboardShortcut(AppChord.folderSidebar.key, modifiers: AppChord.folderSidebar.modifiers)
-            .disabled(sidebarVisible == nil)
     }
 }
 
