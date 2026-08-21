@@ -72,13 +72,27 @@ public enum StorageLensStore {
     enum Read {
         /// No file. Nothing to lose, and a scan writes the first one.
         case absent
-        /// A file that could not be decoded, or one written under another schema.
+        /// A file that could not be opened at all (mode 000, an ACL, an I/O error, a dangling
+        /// symlink), one that could not be decoded, or one written under another schema.
         case unreadable
         case loaded([StorageLensSnapshot])
     }
 
     static func read(from url: URL) -> Read {
-        guard let data = try? Data(contentsOf: url) else { return .absent }
+        guard let data = try? Data(contentsOf: url) else {
+            // **"Absent" and "there but unreadable" are different answers**, and a `try?` alone
+            // conflates them — the same read-layer hole this file fixed at the parse layer. A
+            // file that exists but cannot be opened — mode 000, an ACL, an I/O error — read as a
+            // first scan, so `saveInBackground` merged into `[]` and overwrote one snapshot over
+            // up to twelve roots. `attributesOfItem` rather than `fileExists`, because only the
+            // former sees a symlink that does not resolve: `fileExists` follows links and answers
+            // false for one whose target is on an unmounted volume — and the write then replaces
+            // the link itself.
+            guard (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil else {
+                return .unreadable
+            }
+            return .absent
+        }
         guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return .unreadable }
         guard payload.schema == currentSchema else { return .unreadable }
         return .loaded(payload.snapshots.sorted { $0.completedAt > $1.completedAt })

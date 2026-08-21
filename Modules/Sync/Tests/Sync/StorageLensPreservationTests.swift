@@ -60,6 +60,64 @@ import Testing
                 == future, "a newer build's file was overwritten")
     }
 
+    /// **The read layer has the same two states as the parse layer, and it lost them** — in the
+    /// same file that fixed the parse layer. A file that EXISTS but cannot be opened — mode 000,
+    /// an ACL, an I/O error — failed the `try?` read exactly like no file at all and answered
+    /// `.absent`, so `saveInBackground` merged into `[]` and overwrote one snapshot over up to
+    /// twelve roots.
+    @Test func aFileTheProcessCannotOpenReadsAsUnreadableNotAbsent() throws {
+        let url = try storeURL("mode000")
+        let fm = FileManager.default
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            try? fm.removeItem(at: url.deletingLastPathComponent())
+        }
+        try Data("{\"schema\":1,\"snapshots\":[]}".utf8).write(to: url)
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+
+        guard case .unreadable = StorageLensStore.read(from: url) else {
+            Issue.record("an exists-but-unreadable file did not read as .unreadable")
+            return
+        }
+    }
+
+    /// A genuinely absent file still reads `.absent` — a first scan stays quiet and ordinary.
+    @Test func aGenuinelyAbsentFileStillReadsAsAbsent() throws {
+        let url = try storeURL("absent")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        guard case .absent = StorageLensStore.read(from: url) else {
+            Issue.record("an absent file did not read as .absent")
+            return
+        }
+    }
+
+    /// The end-to-end consequence: a new analysis must not replace a file the process cannot
+    /// open — the same promise `anUnreadableFileIsKeptRatherThanReplaced` makes for corrupt bytes.
+    @Test func aNewAnalysisDoesNotReplaceAFileTheProcessCannotOpen() throws {
+        let url = try storeURL("mode000save")
+        let fm = FileManager.default
+        let kept = url.appendingPathExtension("unreadable")
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
+            try? fm.removeItem(at: url.deletingLastPathComponent())
+        }
+        // A perfectly good file holding another root's snapshot — only the read fails.
+        StorageLensStore.saveInBackground(snapshot("/a"), to: url)
+        StorageLensStore.waitForPendingWrites()
+        let original = try #require(fm.contents(atPath: url.path))
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+
+        StorageLensStore.saveInBackground(snapshot("/b"), to: url)
+        StorageLensStore.waitForPendingWrites()
+
+        // The set-aside keeps the mode with the bytes; open it up to compare them.
+        try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
+        #expect(fm.contents(atPath: kept.path) == original,
+                "the unopenable snapshots were overwritten — a failed read mistaken for no file")
+        #expect(StorageLensStore.load(from: url).map(\.root) == ["/b"])
+    }
+
     /// **"Forget this root" may not empty a file it could not read.**
     @Test func forgettingOneRootDoesNotForgetAllOfAnUnreadableFile() throws {
         let url = try storeURL("clear")
