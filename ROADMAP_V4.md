@@ -202,6 +202,19 @@ The 🔗 link now carries into **opening** a tab: right-click ▸ Open in New Ta
 has. Switching between tabs does **not** mirror, so two panes that grew their tabs together
 diverge at the first ⇧⌘] — which is the state the link exists to prevent.
 
+**Carried to v4.3, deliberately, on 2026-08-20 — and this is the third carry.** The choice was put
+as delete-or-build after a full release of running linked Compare, with deletion recommended on this
+file's own reasoning: a design carried twice without being built is usually a design nobody wants.
+It was carried instead. What that answers is the question the recommendation rested on — the
+unmirrored switch has *not* proved to be a non-issue in use — so the item survives on evidence rather
+than on inertia, which is the distinction the "third carry" rule exists to force. It is listed as
+v4.3 item 7 below.
+
+**What that means for whoever picks it up: it is deferred on a QUESTION, not on merit.** The
+recommendation below is already made; what is missing is the answer to the two questions after it,
+and neither is discoverable from the code. Do not treat this as schedulable small work — that is
+exactly the failure mode the v4.3 list names.
+
 Deferred rather than skipped, because it needs a **pairing rule** and the cheap one is wrong:
 
 - **By index** — switch the sibling to the same position. One line, and it silently desyncs: a
@@ -872,8 +885,10 @@ have already shipped, so what is actually left is nine.
 10. **The pasteboard** (§3). ⌘C/⌘V to and from *Finder* + a paste-as-move whose chord is still to be
     chosen (**not ⌥⌘V** — the ⌥ ban above). Note §10's correction: the **in-app** clipboard already
     exists and works, so what is left here is `NSFilePromiseProvider`, not the whole feature.
-11. **§1's switch mirroring** — or delete it, having now run tabs for a release. It has been
-    designed twice and carried twice; a third carry is the signal to drop it.
+11. ~~**§1's switch mirroring** — or delete it, having now run tabs for a release.~~ **Carried to
+    v4.3 on 2026-08-20**, as its item 4. The delete-or-build choice was put and answered in favour
+    of keeping it, which is what makes this a decision rather than the third silent carry the
+    bullet was warning about. See §1 for what the carry commits whoever picks it up to.
 12. **One-line pane headers** (§8). Medium, and it argues with a pinned constant and its test.
 13. **Gallery view** (§3) — thumbnail infrastructure.
 14. **Group by kind or date** (§3) — touches every row-rendering path.
@@ -904,20 +919,23 @@ things arrived here by different routes and it matters which:
 | 1 | **⌘↑ / ⌘↓** (§3) | small | **On a question.** A pane has two positions and the two candidate meanings move different ones — see §3's entry for the axis choice. The implementation is small once the axis is decided. |
 | 2 | **The status bar** (§3) | small | **On a question.** Placement: per-pane, window-wide, or following focus — see §3's table. **Settle it with §8's one-line headers**, which spends room at the same place. Also: a cloud-only *count* is a walk, not a read. |
 | 3 | **Switching to the source a typed path is in** (§3) | small | **On a mechanism, not a question.** Go to Folder refuses a cross-source path and names the source; switching to it needs `adoptProviderForTab`'s counter to suppress the provider change's own `resetNavigation()`, or the pane lands at its root with the folder silently dropped. Expect the reload ordering to be the whole of the work. |
-| 4 | **Gallery view** (§3) | large | **On merit.** A third `PaneViewMode` case is free; thumbnails — generation, a cache that survives a quit, eviction, a placeholder that does not flash — are the whole job. Argue it from the scans folders, the only trees where a filename genuinely fails to identify the file. |
-| 5 | **Group by kind or date** (§3) | large | **On merit.** Sorting exists; grouping is a different shape — sections, headers, counts, collapse state, and a sort *within* each group — and it touches every row-rendering path in the pane. |
-| 6 | **Drop files on a tab** (§3) | large | **On merit, and it has a prerequisite.** Do it after v4.2's pasteboard, which sets the move semantics this expresses as a gesture. Needs row drag re-added, and the proof that a click still opens a column — the check the removal was originally made to satisfy. |
+| 4 | **Mirroring tab *switches* on linked panes** (§1) | medium | **On a question, and the oldest thing on this list.** Designed twice, carried three times — most recently on 2026-08-20, deliberately and against this file's own recommendation to delete it. Pairing with mirrored closes is the recommended design; the two questions it does not answer (what a switch does when its paired tab's folder has gone, and what happens once a paired tab is closed) are in §1 and are why this is not a follow-up commit. **If it is carried a fourth time, delete it instead** — the argument for keeping it was that the problem is real in use, and a fourth carry would be evidence against that. |
+| 5 | **Gallery view** (§3) | large | **On merit.** A third `PaneViewMode` case is free; thumbnails — generation, a cache that survives a quit, eviction, a placeholder that does not flash — are the whole job. Argue it from the scans folders, the only trees where a filename genuinely fails to identify the file. |
+| 6 | **Group by kind or date** (§3) | large | **On merit.** Sorting exists; grouping is a different shape — sections, headers, counts, collapse state, and a sort *within* each group — and it touches every row-rendering path in the pane. |
+| 7 | **Drop files on a tab** (§3) | large | **On merit, and it has a prerequisite.** Do it after v4.2's pasteboard, which sets the move semantics this expresses as a gesture. Needs row drag re-added, and the proof that a click still opens a column — the check the removal was originally made to satisfy. |
 
 **Ordering.** 1–3 first: each is small, and two of them are one decision away from being finished
-rather than started. Then 4–6, which are independent of each other and of everything above.
+rather than started. Then 4, which is medium and is the only one here with a *design* still open —
+take it before the larges, because it is the one that goes stale. Then 5–7, which are independent of
+each other and of everything above.
 
 **What is NOT here, and stays not here.** Tags was cut on 2026-08-19 rather than deferred — the
 objection stood unanswered through two roadmaps and the integration that would have earned it a
 place was declined. Do not re-add it from §3's table without answering the objection first; being
 on a list is how it got scheduled the first time.
 
-**A caution about size.** Three of these six are large, and any one of them is a release on its own
-by the measure this file already applies to v4.2. If v4.3 takes 1–3 plus *one* of 4–6, it is a
+**A caution about size.** Three of these seven are large, and any one of them is a release on its own
+by the measure this file already applies to v4.2. If v4.3 takes 1–4 plus *one* of 5–7, it is a
 coherent release; taking all three of the larges is how a version number stops meaning anything.
 
 ---
