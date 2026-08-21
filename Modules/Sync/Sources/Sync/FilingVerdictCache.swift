@@ -311,18 +311,48 @@ public enum FilingVerdictStore {
         return support.appendingPathComponent("SyncCloud/filing-verdicts.json")
     }
 
-    /// Reads the cache at `url`. **Every failure returns an empty cache**, deliberately: a missing,
-    /// unreadable, or wrong-schema file means the next scan re-asks and pays, which is the same
-    /// outcome as never having cached at all. There is nothing here worth risking a thrown error or
-    /// a half-decoded state for — unlike the remembered-rules store, whose contents cannot be
-    /// reconstructed and which therefore refuses to proceed on an unreadable read.
+    /// Reads the cache at `url`. **Every failure returns an empty cache** — the next scan re-asks
+    /// and pays, which is the same outcome as never having cached at all — **but a file that is
+    /// there and unreadable is moved aside first, not left for the next save to destroy.** The
+    /// "re-asks and pays" doc used to cover the destruction too, and it was written before the
+    /// absent-vs-unreadable law: at the entry cap this file holds ~10MB of PAID answers, and a
+    /// transient read failure — mode 000, an ACL, an I/O hiccup — emptied the in-memory cache,
+    /// whose next save then overwrote every one of them. Re-asking is acceptable; deleting the
+    /// bytes is not. Absent stays silent and empty: a first launch has nothing to protect.
+    ///
+    /// Same shape as ``StorageLensStore``'s set-aside; the residual is also the same — if the
+    /// move itself fails, the next save can still land on the file, and the log says so.
     public static func load(from url: URL) -> FilingVerdictCache {
-        guard let data = try? Data(contentsOf: url) else { return FilingVerdictCache() }
+        guard let data = try? Data(contentsOf: url) else {
+            // `attributesOfItem` rather than `fileExists`, because only the former sees a symlink
+            // that does not resolve.
+            if (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil {
+                setAsideUnreadable(url, why: "could not be opened")
+            }
+            return FilingVerdictCache()
+        }
         guard let cache = try? JSONDecoder().decode(FilingVerdictCache.self, from: data) else {
-            Logger.shared.warning("Filing verdict cache at \(url.lastPathComponent) could not be read — starting a fresh one")
+            setAsideUnreadable(url, why: "could not be decoded")
             return FilingVerdictCache()
         }
         return cache
+    }
+
+    /// Moves the unreadable cache aside so no queued snapshot write can land on the paid verdicts.
+    private static func setAsideUnreadable(_ url: URL, why: String) {
+        let kept = url.appendingPathExtension("unreadable")
+        do {
+            try? FileManager.default.removeItem(at: kept)
+            try FileManager.default.moveItem(at: url, to: kept)
+            Logger.shared.warning("Filing verdict cache at \(url.lastPathComponent) \(why) — it "
+                                  + "has been kept as \(kept.lastPathComponent) and a fresh cache "
+                                  + "starts beside it. The next scan re-asks (and, on the paid "
+                                  + "tier, pays), but nothing was overwritten.")
+        } catch {
+            Logger.shared.error("Filing verdict cache at \(url.lastPathComponent) \(why) and could "
+                                + "not be moved aside (\(error.localizedDescription)) — the next "
+                                + "save may overwrite it.")
+        }
     }
 
     /// Serializes writes. Every writer hands its whole snapshot of the memoized cache here, so the

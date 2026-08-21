@@ -158,6 +158,53 @@ private final class SpendProbe: @unchecked Sendable {
         #expect(FilingVerdictStore.load(from: url).count == 0)          // unreadable
     }
 
+    /// **A transient read failure must not cost the paid verdicts.** `load` answered an empty
+    /// cache for a file that EXISTS but cannot be opened — mode 000, an ACL, an I/O error — and
+    /// the next save then wrote that emptiness over up to ~10MB of answers that were paid for.
+    /// "Re-asks and pays" was documented as deliberate, but it was written before the
+    /// absent-vs-unreadable law: re-asking is acceptable, destroying the bytes is not.
+    @Test func anUnopenableCacheFileIsKeptRatherThanOverwritten() throws {
+        let url = try cacheURL("mode000")
+        let fm = FileManager.default
+        let kept = url.appendingPathExtension("unreadable")
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
+            try? fm.removeItem(at: url.deletingLastPathComponent())
+        }
+        var cache = FilingVerdictCache()
+        cache.record(verdict, for: key("/root/f.pdf"), providerRoot: "/root",
+                     existingRelative: ["Documents", "Documents/Vehicles"], now: Date())
+        #expect(FilingVerdictStore.save(cache, to: url))
+        let original = try #require(fm.contents(atPath: url.path))
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+
+        #expect(FilingVerdictStore.load(from: url).count == 0)   // still degrades to empty
+
+        // ...but the paid verdicts were moved aside, where the next save cannot land on them.
+        try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
+        #expect(fm.contents(atPath: kept.path) == original,
+                "the paid verdicts were left where the next save overwrites them")
+        #expect(FilingVerdictStore.save(FilingVerdictCache(), to: url))
+        try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
+        #expect(fm.contents(atPath: kept.path) == original,
+                "the save after the failed load destroyed the set-aside")
+    }
+
+    /// The same promise for bytes that open but do not decode — a truncated write, a bad merge.
+    @Test func aCorruptCacheFileIsKeptRatherThanOverwritten() throws {
+        let url = try cacheURL("corrupt-kept")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let corrupt = Data("{not json — half a 10MB write".utf8)
+        try corrupt.write(to: url)
+
+        #expect(FilingVerdictStore.load(from: url).count == 0)
+
+        let kept = url.appendingPathExtension("unreadable")
+        #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
+                "the corrupt cache was left where the next save overwrites it")
+    }
+
     @Test func aForeignSchemaLoadsAsEmpty() throws {
         let url = try cacheURL("schema")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
