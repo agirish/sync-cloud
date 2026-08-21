@@ -311,6 +311,11 @@ import Combine
     /// compare the two — the exemption the keeper check has always had, now expressed as a
     /// CONTENT comparison rather than as no comparison at all. Untested, this is one wrong line
     /// away from refusing EVERY folder duplicate group.
+    ///
+    /// The mock fixtures in this block hand-build both the group AND its recorded snapshot, in
+    /// the mock walk's own convention (the injected-manager tree walk reads no sizes or dates,
+    /// so entries carry size 0 / nil mtime). They pin the count/kind semantics; the real-tree
+    /// section below is what holds the scan's and the re-walk's conventions to each other.
     @MainActor
     @Test func aFolderCopyIsNotRefusedForItsStatSize() async throws {
         let mockFM = MockFileManager()
@@ -318,7 +323,8 @@ import Combine
         Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
         Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
         let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 400_000, itemCount: 4)
+                                     size: 400_000, itemCount: 4,
+                                     snapshot: Self.mockFolderSnapshot(files: 4))
         manager.duplicateGroups = [group]
 
         let ok = await manager.resolveDuplicateGroup(group)
@@ -339,7 +345,8 @@ import Combine
         Self.plantFolder(mockFM, at: "/a/Photos", files: 3, bytesEach: 100_000)
         Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
         let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 400_000, itemCount: 4)
+                                     size: 400_000, itemCount: 4,
+                                     snapshot: Self.mockFolderSnapshot(files: 4))
         manager.duplicateGroups = [group]
 
         let ok = await manager.resolveDuplicateGroup(group)
@@ -359,23 +366,32 @@ import Combine
         Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
         Self.plantFolder(mockFM, at: "/b/Photos", files: 5, bytesEach: 100_000)
         let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 400_000, itemCount: 4)
+                                     size: 400_000, itemCount: 4,
+                                     snapshot: Self.mockFolderSnapshot(files: 4))
         manager.duplicateGroups = [group]
 
         #expect(await manager.resolveDuplicateGroup(group) == false)
         #expect(mockFM.virtualDisk["/b/Photos"] != nil)
     }
 
-    /// **A same-count, different-bytes edit is caught too** — swap one file for another of a
-    /// different size and the count alone would wave it through.
+    /// **A same-count, different-name swap is caught** — one file replaced by another under a
+    /// new name leaves the entry count intact, and the per-entry baseline still sees both the
+    /// missing path and the extra one. (Byte drift under an UNCHANGED name is pinned by the
+    /// real-tree rewrite test below — the injected-manager walk reads no sizes, so a mock cannot
+    /// express it honestly.)
     @MainActor
-    @Test func aFolderWhoseBytesChangedIsRefused() async throws {
+    @Test func aFolderWhoseFileWasSwappedForAnotherNameIsRefused() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 90_000)
+        Self.plantFolder(mockFM, at: "/a/Photos", files: 4, bytesEach: 100_000)
         Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
+        // Same count, different membership: p0 replaced by a newcomer after the scan.
+        mockFM.virtualDisk.removeValue(forKey: "/b/Photos/p0.jpg")
+        mockFM.virtualDisk["/b/Photos/new.jpg"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100_000], contents: nil)
         let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 400_000, itemCount: 4)
+                                     size: 400_000, itemCount: 4,
+                                     snapshot: Self.mockFolderSnapshot(files: 4))
         manager.duplicateGroups = [group]
 
         #expect(await manager.resolveDuplicateGroup(group) == false)
@@ -392,15 +408,16 @@ import Combine
         Self.plantFolder(mockFM, at: "/b/Photos", files: 4, bytesEach: 100_000)
         mockFM.unlistableDirectories.insert("/a/Photos")
         let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 400_000, itemCount: 4)
+                                     size: 400_000, itemCount: 4,
+                                     snapshot: Self.mockFolderSnapshot(files: 4))
         manager.duplicateGroups = [group]
 
         #expect(await manager.resolveDuplicateGroup(group) == false)
         #expect(mockFM.virtualDisk["/b/Photos"] != nil)
     }
 
-    /// Nested folders count as entries too — `itemCount` is every descendant, files and folders
-    /// alike, which is what the scan's own rollup records.
+    /// Nested folders are entries too — a subdirectory is present in the baseline in its own
+    /// right (kind only; its files carry the sizes), so a nested tree that still matches resolves.
     @MainActor
     @Test func aFolderWithSubfoldersCountsThemAsEntries() async throws {
         let mockFM = MockFileManager()
@@ -416,8 +433,13 @@ import Combine
             }
         }
         // 3 entries: the 2019 folder plus its two files.
+        var entries: [String: FolderContentSnapshot.Entry] = ["2019": .directory]
+        for i in 0..<2 { entries["2019/p\(i).jpg"] = .file(size: 0, modificationDate: nil) }
         let group = Self.folderGroup(keeper: "/a/Photos", redundant: "/b/Photos",
-                                     size: 100_000, itemCount: 3)
+                                     size: 100_000, itemCount: 3,
+                                     snapshot: FolderContentSnapshot(
+                                        entries: entries,
+                                        ignoredNames: DuplicateFinderOptions.defaultIgnoredNames))
         manager.duplicateGroups = [group]
 
         #expect(await manager.resolveDuplicateGroup(group) == true,
@@ -434,14 +456,25 @@ import Combine
         }
     }
 
+    /// The scan-recorded baseline for a `plantFolder` fixture, in the mock walk's own convention:
+    /// the injected-manager tree walk reads no sizes or dates, so every file entry is
+    /// (size 0, mtime nil) — exactly what a resolve-time re-walk of the same mock disk produces.
+    static func mockFolderSnapshot(files: Int) -> FolderContentSnapshot {
+        var entries: [String: FolderContentSnapshot.Entry] = [:]
+        for i in 0..<files { entries["p\(i).jpg"] = .file(size: 0, modificationDate: nil) }
+        return FolderContentSnapshot(entries: entries,
+                                     ignoredNames: DuplicateFinderOptions.defaultIgnoredNames)
+    }
+
     static func folderGroup(keeper: String, redundant: String,
-                            size: Int, itemCount: Int) -> DuplicateGroup {
+                            size: Int, itemCount: Int,
+                            snapshot: FolderContentSnapshot? = nil) -> DuplicateGroup {
         let k = DuplicateCopy(id: keeper, name: "Photos", isDirectory: true, size: size,
                               itemCount: itemCount, modificationDate: nil, uniqueItemCount: 0,
-                              depth: 2, isRecommendedKeeper: true)
+                              depth: 2, isRecommendedKeeper: true, contentSnapshot: snapshot)
         let r = DuplicateCopy(id: redundant, name: "Photos", isDirectory: true, size: size,
                               itemCount: itemCount, modificationDate: nil, uniqueItemCount: 0,
-                              depth: 2, isRecommendedKeeper: false)
+                              depth: 2, isRecommendedKeeper: false, contentSnapshot: snapshot)
         return DuplicateGroup(matchType: .identical, name: "Photos", isDirectory: true,
                               copies: [k, r], reclaimableBytes: size)
     }
@@ -1318,6 +1351,194 @@ import Combine
         #expect(manager.duplicateGroups.isEmpty)
         #expect(manager.duplicateScanRoot == nil)
         #expect(manager.hasFoundDuplicates == false)
+    }
+
+    // MARK: Folder drift, end to end on a real tree
+    //
+    // The mock-backed folder tests above hand-build their groups, which is exactly how the
+    // scan/re-walk convention mismatch survived them: a fixture that writes down both sides of
+    // the comparison can never disagree with itself. These run the REAL pipeline — scan a real
+    // temp tree, then resolve — so the baseline the scan records and the walk the resolve-time
+    // check performs are the production ones, and a convention drift between them fails here.
+
+    /// Removes what a resolve trashed from the real ~/.Trash — these tests run the production
+    /// delete path, so a successful resolve lands the redundant folder there (same cleanup shape
+    /// as `mergeFoldsUniqueFilesThenTrashesRedundant`).
+    private func removeFromTrash(_ names: [String]) {
+        let trash = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
+        for n in names { try? FileManager.default.removeItem(at: trash.appendingPathComponent(n)) }
+    }
+
+    /// **A `.DS_Store` is not drift.** The scan skips `options.ignoredNames` when it measures a
+    /// folder, so a re-walk that counts them disagrees with the baseline by a constant offset —
+    /// and every folder the user ever opened in Finder is then refused with "changed since it was
+    /// scanned", permanently, because rescanning reproduces the same mismatch. The one UI built to
+    /// review folder copies was unusable on exactly the folders it exists for.
+    @MainActor
+    @Test func aFolderPairHoldingAFinderDSStoreStillResolves() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeFromTrash([aName, bName]) }
+        for folder in [aName, bName] {
+            try write(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
+            try write(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
+            try write(root.appendingPathComponent("\(folder)/.DS_Store"), bytes: 800, fill: 0x44)
+        }
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root)
+        let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }),
+                                 "two folders identical up to an ignored name must still group")
+        let redundantPath = try #require(group.recommendedRemovalPaths.first)
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == true, "a folder that merely holds a .DS_Store was refused as 'changed since it was scanned'")
+        #expect(!FileManager.default.fileExists(atPath: redundantPath))
+        #expect(FileManager.default.fileExists(atPath: group.keeper.path))
+    }
+
+    /// **A same-length rewrite is drift.** Count and total bytes are both unchanged — `sed -i`
+    /// over fixed-width text, one 5,000-byte export replaced by another — so a count+bytes
+    /// equality waves it through and trashes the only instance of the new content. The file-level
+    /// check compares size AND mtime for exactly this reason; the folder path owes its contents
+    /// the same fidelity, per file.
+    @MainActor
+    @Test func aSameLengthRewriteInsideAFolderCopyIsRefused() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeFromTrash([aName, bName]) }
+        for folder in [aName, bName] {
+            try write(root.appendingPathComponent("\(folder)/f1.txt"), bytes: 5000, fill: 0x41)
+            try write(root.appendingPathComponent("\(folder)/f2.txt"), bytes: 6000, fill: 0x42)
+        }
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root)
+        let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
+        let redundantPath = try #require(group.recommendedRemovalPaths.first)
+
+        // Rewrite one file inside the copy about to be trashed: same byte count, different
+        // content. The mtime moves on its own; pinned explicitly so the drift is deterministic
+        // rather than riding on filesystem timestamp granularity.
+        let rewritten = (redundantPath as NSString).appendingPathComponent("f1.txt")
+        try Data(repeating: 0x5A, count: 5000).write(to: URL(fileURLWithPath: rewritten))
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(500)],
+                                              ofItemAtPath: rewritten)
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == false, "a same-length rewrite left count and bytes unchanged and the only copy of the edit was trashed")
+        #expect(FileManager.default.fileExists(atPath: redundantPath),
+                "the rewritten copy holds content nothing else has — it must stay on disk")
+        #expect(manager.banner?.severity == .warning)
+    }
+
+    /// **The ignored-name offset must not MASK real drift either** — the other face of the
+    /// `.DS_Store` bug. A copy loses one real file after the scan while an ignored name of the
+    /// same size sits in it: raw count and raw bytes both match the scan's rollup exactly, so the
+    /// count+bytes check reads a genuinely changed folder as intact.
+    @MainActor
+    @Test func anIgnoredNameCannotMaskALostFile() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        let aName = "CleanA-\(UUID().uuidString)", bName = "MaskB-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeFromTrash([aName, bName]) }
+        for folder in [aName, bName] {
+            for i in 1...4 {
+                try write(root.appendingPathComponent("\(folder)/f\(i).txt"), bytes: 5000, fill: 0x41)
+            }
+        }
+        // Only the B copy holds the ignored name, sized exactly like the file it will "replace".
+        try write(root.appendingPathComponent("\(bName)/.DS_Store"), bytes: 5000, fill: 0x44)
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root)
+        let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
+        let maskedPath = try #require(group.copies.first(where: { ($0.path as NSString).lastPathComponent == bName })?.path)
+
+        // The masked copy loses a real file: raw count is back to 4 (3 files + .DS_Store) and raw
+        // bytes back to 20,000 — byte-for-byte the numbers the scan recorded.
+        try FileManager.default.removeItem(atPath: (maskedPath as NSString).appendingPathComponent("f1.txt"))
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == false, "an ignored name's size offset masked a lost file and the group resolved anyway")
+        #expect(FileManager.default.fileExists(atPath: group.keeper.path))
+        #expect(group.recommendedRemovalPaths.allSatisfy { FileManager.default.fileExists(atPath: $0) },
+                "nothing may be trashed while either end of the group has drifted")
+    }
+
+    /// **The scan's symlink convention and the re-walk's must be the same convention.** The scan
+    /// counts a link as one entry contributing zero bytes; a re-walk that stats the link itself
+    /// adds the link's own byte count and refuses a folder that never changed — same permanent
+    /// false refusal as the `.DS_Store` case, reproduced on every rescan.
+    @MainActor
+    @Test func aSymlinkInsideAFolderPairDoesNotFalselyDrift() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        let aName = "KeepA-\(UUID().uuidString)", bName = "CopyB-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { removeFromTrash([aName, bName]) }
+        for folder in [aName, bName] {
+            try write(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
+            try FileManager.default.createSymbolicLink(
+                atPath: root.appendingPathComponent("\(folder)/link.txt").path,
+                withDestinationPath: "f.txt")
+        }
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root)
+        let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }),
+                                 "two folders identical link-for-link must group")
+        let redundantPath = try #require(group.recommendedRemovalPaths.first)
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == true, "an unchanged folder was refused because the re-walk stats symlinks by a different convention than the scan")
+        #expect(!FileManager.default.fileExists(atPath: redundantPath))
+    }
+
+    /// The scan records the baseline in its own conventions: ignored names are absent from the
+    /// entries, symlinks are recorded as links (target-resolved size), files carry real sizes and
+    /// dates — and an immediate re-walk through the shared routine reproduces it exactly, which
+    /// is the property the whole gate stands on.
+    @MainActor
+    @Test func theScanRecordsAConventionTrueSnapshotOnFolderCopies() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for folder in ["A", "B"] {
+            try write(root.appendingPathComponent("\(folder)/f.txt"), bytes: 5000, fill: 0x41)
+            try write(root.appendingPathComponent("\(folder)/.DS_Store"), bytes: 700, fill: 0x44)
+            try FileManager.default.createSymbolicLink(
+                atPath: root.appendingPathComponent("\(folder)/link.txt").path,
+                withDestinationPath: "f.txt")
+        }
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root)
+        let group = try #require(manager.duplicateGroups.first(where: { $0.isDirectory && $0.matchType == .identical }))
+        let snapshot = try #require(group.keeper.contentSnapshot,
+                                    "a scanned folder copy must carry its baseline")
+
+        #expect(Set(snapshot.entries.keys) == ["f.txt", "link.txt"],
+                "ignored names must be absent; files and links present")
+        guard case .file(let size, let mtime)? = snapshot.entries["f.txt"] else {
+            Issue.record("f.txt recorded as \(String(describing: snapshot.entries["f.txt"]))"); return
+        }
+        #expect(size == 5000)
+        #expect(mtime != nil, "a real file always carries a date — nil here would blind the mtime half of the gate")
+        guard case .symlink? = snapshot.entries["link.txt"] else {
+            Issue.record("link.txt recorded as \(String(describing: snapshot.entries["link.txt"]))"); return
+        }
+        // The shared re-walk reproduces the scan's snapshot on an unchanged folder — and sees
+        // through it: the redundant copy carries its own equivalent baseline.
+        #expect(await FileSyncManager.folderContentsMatchScan(
+            path: group.keeper.path, snapshot: snapshot, fileManager: FileManager.default))
+        // No baseline, no verdict: nil refuses rather than trusting an unmeasured folder.
+        #expect(await FileSyncManager.folderContentsMatchScan(
+            path: group.keeper.path, snapshot: nil, fileManager: FileManager.default) == false)
     }
 
     @MainActor

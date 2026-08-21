@@ -500,20 +500,20 @@ extension FileSyncManager {
     /// in this same file had already rejected that reasoning ("Size alone let a same-length
     /// in-place rewrite slip through"), which is why `MergeFileSnapshot` carries both.
     ///
-    /// **Folders are checked too now, and the reason they were not is worth recording as wrong.**
-    /// The gap was real: a folder group's entire resolve-time guarantee was "a directory entry
-    /// still exists at this path", so scanning two 3,000-file folders as identical, moving 1,200
-    /// photos out of one and pressing Move to Trash took the last intact copy of those 1,200.
+    /// **Folders are checked too now, per file rather than in aggregate.** The gap was real: a
+    /// folder group's entire resolve-time guarantee was once "a directory entry still exists at
+    /// this path", so scanning two 3,000-file folders as identical, moving 1,200 photos out of one
+    /// and pressing Move to Trash took the last intact copy of those 1,200.
     ///
-    /// It was deferred on the grounds that "the scan records no baseline a resolve-time check can
-    /// compare against" — true of `modificationDate`, which folder copies do arrive with as nil,
-    /// and FALSE of the two fields that matter. `size` is recursive bytes and `itemCount` is a
-    /// recursive count of descendants, both recorded by the scan. The stated risk was that a
-    /// re-walk could not reproduce their definition exactly and every group would refuse for the
-    /// opposite reason — so that was measured before anything was written, against six real
-    /// folders of ~/Documents including a hidden one and a 1,544-entry tree: the scan's rollup and
-    /// a plain recursive re-walk agree EXACTLY on both numbers, 6 of 6. See
-    /// ``folderDriftedInPlace(_:)``.
+    /// The first folder check compared the scan's recursive count+bytes rollup against a raw
+    /// re-walk, and the "every group would refuse for the opposite reason" risk it had dismissed
+    /// was exactly what shipped: the scan skips `ignoredNames` and counts a symlink as one
+    /// zero-byte entry, so a `.DS_Store` — every folder ever opened in Finder — was refused
+    /// forever, the offset could mask a real loss, and a same-length rewrite was invisible to
+    /// count and bytes alike. The scan now records a per-file baseline
+    /// (``FolderContentSnapshot``) on each folder copy, and the check re-walks with the scan's own
+    /// conventions and compares (path, size, mtime) per entry — the fidelity `MergeFileSnapshot`
+    /// already gave the merge path. See ``folderDriftedInPlace(_:)``.
     private func copyDriftedInPlace(_ copy: DuplicateCopy) -> Bool {
         guard fileManager.fileExists(atPath: copy.path) else { return false }
         // Directories are answered by ``folderDriftedInPlace(_:)``, and only on the paths that
@@ -537,33 +537,64 @@ extension FileSyncManager {
         return false
     }
 
-    /// Whether a FOLDER copy still holds what the scan measured — recursive entry count and
-    /// recursive bytes, both recorded on `DuplicateCopy` and both reproducible by a re-walk.
+    /// Whether a FOLDER copy still holds what the scan measured — per entry, against the
+    /// ``FolderContentSnapshot`` the scan recorded on the copy, via the one shared re-walk
+    /// (``folderContentsMatchScan(path:snapshot:fileManager:)``) the Compare review's gate also
+    /// consults, so the two destructive doors can never drift apart in what they check.
     ///
-    /// **Equality, not a floor, and it is safe in both directions for one reason:** a folder group
-    /// only exists when the scan walked the whole subtree. `DuplicateFinder` refuses a structural
-    /// signature for any directory holding an unexplored node, so a group whose members were
-    /// partly unwalked was never formed — which is what makes the recorded numbers a complete
-    /// description rather than a sample.
+    /// **Per entry, because the aggregate this used to compare lied in both directions.** It
+    /// summed a RAW listing (ignored names counted, symlinks statted for their own bytes) against
+    /// the scan's convention-bound rollup, so a folder holding a `.DS_Store` was refused as
+    /// "changed since it was scanned" forever — rescanning reproduced the mismatch — while the
+    /// same constant offset could exactly mask a real loss. And even a convention-true count+bytes
+    /// cannot see a same-length rewrite, which the file-level check above was already fixed to
+    /// catch via mtime. The snapshot compares (path, size, mtime) per file, so an extra file, a
+    /// missing file, a kind change, and a same-length rewrite all read as drift.
     ///
-    /// Anything that cannot be walked completely counts as drifted, which refuses: a partial
-    /// listing cannot prove a folder is still what it was, and `.listedWithUnreadableDescendants`
-    /// is exactly a partial listing. That is the same direction the file check takes for an
-    /// unstattable path, and the safe one on both ends of a group.
+    /// Anything that cannot be re-walked completely — and a copy carrying NO snapshot, which a
+    /// real scan never produces for a grouped folder — counts as drifted, which refuses: a partial
+    /// walk cannot prove a folder is still what it was. That is the same direction the file check
+    /// takes for an unstattable path, and the safe one on both ends of a group.
     ///
     /// The cost is one recursive walk per folder copy, at the moment of a destructive click — the
     /// merge path has always re-walked here for the same reason, and the alternative is trashing
     /// the last copy of 1,200 photos to save it.
-    private func folderDriftedInPlace(_ copy: DuplicateCopy) -> Bool {
-        let listing = fileManager.listing(of: URL(fileURLWithPath: copy.path), options: [])
-        guard listing.outcome == .listed else { return true }
-        var bytes = 0
-        for url in listing.urls {
-            guard let attrs = try? fileManager.attributesOfItem(atPath: url.path) else { return true }
-            guard (attrs[.type] as? FileAttributeType) != .typeDirectory else { continue }
-            bytes += (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int) ?? 0
-        }
-        return listing.urls.count != copy.itemCount || bytes != copy.size
+    private func folderDriftedInPlace(_ copy: DuplicateCopy) async -> Bool {
+        !(await Self.folderContentsMatchScan(path: copy.path, snapshot: copy.contentSnapshot,
+                                             fileManager: fileManager))
+    }
+
+    /// Re-walks `path` and answers what the scan would see there now, with the scan's OWN
+    /// traversal conventions: the same tree walk (`buildTree`, off the main actor), the same
+    /// ignored names skipped, the same symlink handling. Nil when the walk could not cover the
+    /// whole subtree — a partial walk is not a baseline and not a verdict.
+    ///
+    /// Public alongside ``folderContentsMatchScan(path:snapshot:fileManager:)`` so the app target
+    /// can both build and compare snapshots; the engine's own baselines are recorded by the scan.
+    public nonisolated static func folderContentSnapshot(
+        ofPath path: String, ignoredNames: Set<String>, fileManager: FileManaging
+    ) async -> FolderContentSnapshot? {
+        let tree = await buildTree(url: URL(fileURLWithPath: path), sortOption: .name,
+                                   fileManager: fileManager, maxDepth: nil)
+        return FolderContentSnapshot(walkedChildren: tree, ignoredNames: ignoredNames)
+    }
+
+    /// **The one folder drift gate**, shared by every path that destroys a folder copy over a
+    /// scan-time claim: the engine's per-group and batch resolves (via `folderDriftedInPlace`)
+    /// and the Compare review's "Trash right copy" (via `DuplicateReviewCoordinator`). Re-walks
+    /// `path` with the conventions `snapshot` was recorded under and compares per entry; any
+    /// walk failure, unreadable descendant, extra entry, missing entry, kind change, or
+    /// size/mtime mismatch answers false — and so does a nil `snapshot`, because a copy without a
+    /// baseline cannot be proven unchanged. False refuses the destructive action; a rescan
+    /// records a fresh baseline.
+    public nonisolated static func folderContentsMatchScan(
+        path: String, snapshot: FolderContentSnapshot?, fileManager: FileManaging
+    ) async -> Bool {
+        guard let snapshot else { return false }
+        guard let current = await folderContentSnapshot(ofPath: path,
+                                                        ignoredNames: snapshot.ignoredNames,
+                                                        fileManager: fileManager) else { return false }
+        return current.entries == snapshot.entries
     }
 
     /// The first folder in `group` — keeper or removal candidate — whose contents no longer match
@@ -573,14 +604,17 @@ extension FileSyncManager {
     /// loss is what makes a "redundant" copy the last one; the candidates are the copies being
     /// destroyed, so their gain is content nothing else has. The merge path deliberately does not
     /// come here — see `copyDriftedInPlace`.
-    private func driftedFolderInGroup(_ group: DuplicateGroup) -> DuplicateCopy? {
+    private func driftedFolderInGroup(_ group: DuplicateGroup) async -> DuplicateCopy? {
         let removalPaths = Set(group.recommendedRemovalPaths)
         let considered = group.copies.filter {
             $0.isDirectory && ($0.path == group.keeper.path || removalPaths.contains($0.path))
         }
         // A copy that has simply VANISHED is not drift — there is nothing left to trash, and
         // `dropFullyRemovedGroups` accounts for it. Same carve-out the file rule makes.
-        return considered.first { fileManager.fileExists(atPath: $0.path) && folderDriftedInPlace($0) }
+        for copy in considered where fileManager.fileExists(atPath: copy.path) {
+            if await folderDriftedInPlace(copy) { return copy }
+        }
+        return nil
     }
 
     /// The copies this group would TRASH that no longer hold the bytes the scan grouped.
@@ -630,7 +664,9 @@ extension FileSyncManager {
             banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before removing its copies.")
             return false
         }
-        if let drifted = driftedRemovalCandidates(group).first ?? driftedFolderInGroup(group) {
+        var driftedCopy = driftedRemovalCandidates(group).first
+        if driftedCopy == nil { driftedCopy = await driftedFolderInGroup(group) }
+        if let drifted = driftedCopy {
             banner = .warning("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
             Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” changed after the scan")
             return false
@@ -682,8 +718,9 @@ extension FileSyncManager {
         let eligible = scope.filter { $0.isRecommendedForBatch }
         // Both ends re-verified, for the same reason the per-group path checks both: the blind
         // batch is exactly where a drifted copy would go unlooked-at.
-        let batch = eligible.filter {
-            keeperStillExists($0) && driftedRemovalCandidates($0).isEmpty && driftedFolderInGroup($0) == nil
+        var batch: [DuplicateGroup] = []
+        for group in eligible where keeperStillExists(group) && driftedRemovalCandidates(group).isEmpty {
+            if await driftedFolderInGroup(group) == nil { batch.append(group) }
         }
         let paths = batch.flatMap { $0.recommendedRemovalPaths }
         guard !paths.isEmpty else {

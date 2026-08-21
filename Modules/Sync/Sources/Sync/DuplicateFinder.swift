@@ -44,6 +44,83 @@ public enum DuplicateMatchType: Sendable, Equatable, Hashable {
     }
 }
 
+/// What the duplicate scan measured about ONE folder copy's contents, per entry — the baseline a
+/// destructive action re-walks against before trashing that copy (or trusting it as the keeper).
+///
+/// **Per entry, because the aggregate lied in both directions.** The scan's rollup (recursive
+/// count + recursive bytes) was compared against a RAW re-walk: the scan skips
+/// `DuplicateFinderOptions.ignoredNames` and counts a symlink as one zero-byte entry, while a raw
+/// listing counts a `.DS_Store` and stats a link's own bytes — so every folder ever opened in
+/// Finder was refused as "changed since it was scanned", permanently, and the constant offset
+/// could equally mask a real loss. And even a convention-true aggregate cannot see a same-length
+/// rewrite, which leaves count and bytes both unchanged while replacing the only copy of the new
+/// content. Size AND mtime per relative path is the same fidelity `MergeFileSnapshot` gives the
+/// merge path's trash step, for the same reason.
+///
+/// The snapshot carries its own `ignoredNames` so the resolve-time re-walk skips exactly the set
+/// the scan skipped — the two sides of the comparison share one convention by construction.
+public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
+    /// One directory entry as the scan's walk saw it.
+    public enum Entry: Sendable, Equatable, Hashable {
+        /// A regular file: byte size and modification date, both from the walk. Either changing —
+        /// or the entry changing kind — is drift.
+        case file(size: Int, modificationDate: Date?)
+        /// A symbolic link. The walk resolves size/mtime to the link's TARGET, so a retargeted
+        /// link (now vouching for different bytes) reads as drift, while an untouched one compares
+        /// equal — the same resolution on both walks is what keeps this stable.
+        case symlink(size: Int, modificationDate: Date?)
+        /// A subdirectory: presence only. Its contents are entries of their own, so comparing the
+        /// directory's stat would only re-detect changes the file entries already catch — or
+        /// falsely refuse on metadata the entries do not cover.
+        case directory
+    }
+
+    /// Relative path under the folder copy's root → what the scan saw there.
+    public let entries: [String: Entry]
+    /// The names the scan's traversal skipped (subtrees included) — a re-walk must skip the same.
+    public let ignoredNames: Set<String>
+
+    public init(entries: [String: Entry], ignoredNames: Set<String>) {
+        self.entries = entries
+        self.ignoredNames = ignoredNames
+    }
+
+    /// Builds a snapshot from an already-walked tree, mirroring ``DuplicateFinder``'s traversal
+    /// conventions exactly: ignored names are skipped with their subtrees, symlinks are recorded
+    /// but never descended into (even directory links, whose followed subtree the walk itself
+    /// explores), and sizes/mtimes are the walk's own readings.
+    ///
+    /// Returns nil when any subtree was not fully walked (`isUnexplored`): a partial walk cannot
+    /// be a complete baseline, and downstream a nil snapshot refuses the destructive action —
+    /// the same direction the finder takes by refusing such a folder a structural signature.
+    public init?(walkedChildren: [FileNode], ignoredNames: Set<String>) {
+        var out: [String: Entry] = [:]
+        guard Self.collect(walkedChildren, prefix: "", ignoredNames: ignoredNames, into: &out) else { return nil }
+        self.entries = out
+        self.ignoredNames = ignoredNames
+    }
+
+    private static func collect(_ nodes: [FileNode], prefix: String,
+                                ignoredNames: Set<String>, into out: inout [String: Entry]) -> Bool {
+        for n in nodes {
+            if ignoredNames.contains(n.name) { continue }
+            let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
+            if n.isSymbolicLink == true {
+                out[rel] = .symlink(size: n.fileSize ?? 0, modificationDate: n.modificationDate)
+                continue
+            }
+            if n.isDirectory {
+                guard n.isUnexplored != true else { return false }
+                out[rel] = .directory
+                guard collect(n.children ?? [], prefix: rel, ignoredNames: ignoredNames, into: &out) else { return false }
+            } else {
+                out[rel] = .file(size: n.fileSize ?? 0, modificationDate: n.modificationDate)
+            }
+        }
+        return true
+    }
+}
+
 /// One copy within a duplicate group.
 public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
     /// Absolute filesystem path — the copy's identity.
@@ -76,6 +153,13 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
     /// folder's own file straight back on the removal list.
     public let isProtectedFromRemoval: Bool
 
+    /// The scan's per-entry baseline for a FOLDER copy (nil for files, and for hand-built copies
+    /// that never went through a scan). Every destructive path re-walks against it before
+    /// trashing: nil refuses, because a folder with no recorded baseline cannot be shown to still
+    /// be what the scan grouped. Session-only, like the group it belongs to — scan results are
+    /// never persisted, so the field costs no migration.
+    public let contentSnapshot: FolderContentSnapshot?
+
     /// A non-keeper copy that holds nothing the keeper lacks — safe to remove outright.
     public var isFullyRedundant: Bool { !isRecommendedKeeper && uniqueItemCount == 0 }
 
@@ -90,7 +174,8 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
         depth: Int,
         isRecommendedKeeper: Bool,
         contentUnverified: Bool = false,
-        isProtectedFromRemoval: Bool = false
+        isProtectedFromRemoval: Bool = false,
+        contentSnapshot: FolderContentSnapshot? = nil
     ) {
         self.id = id
         self.name = name
@@ -103,6 +188,7 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
         self.isRecommendedKeeper = isRecommendedKeeper
         self.contentUnverified = contentUnverified
         self.isProtectedFromRemoval = isProtectedFromRemoval
+        self.contentSnapshot = contentSnapshot
     }
 }
 
@@ -243,7 +329,8 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
                       itemCount: c.itemCount, modificationDate: c.modificationDate,
                       uniqueItemCount: c.uniqueItemCount, depth: c.depth,
                       isRecommendedKeeper: isKeeper, contentUnverified: c.contentUnverified,
-                      isProtectedFromRemoval: c.isProtectedFromRemoval)
+                      isProtectedFromRemoval: c.isProtectedFromRemoval,
+                      contentSnapshot: c.contentSnapshot)
     }
 
     /// Recomputes reclaimable bytes after one copy is removed, per the finder's own rules: identical
@@ -401,6 +488,26 @@ public enum DuplicateFinder {
         for node in tree {
             _ = collect(node, depth: 0, fileHashes: fileHashes, options: options, files: &files, dirs: &dirs)
         }
+        // The walked node for every directory that could become a folder copy, so the two folder
+        // passes can record a ``FolderContentSnapshot`` on each copy they emit. Snapshots are
+        // built LAZILY, per emitted copy, rather than rolled up in `collect`: a rollup would hold
+        // every descendant's entry once per ancestor level for the whole scan, while group members
+        // number in the dozens. The index mirrors `collect`'s own reach — ignored names and
+        // symlinked directories are skipped, so anything absent here was never a candidate.
+        var dirNodesByPath: [String: FileNode] = [:]
+        func indexDirs(_ nodes: [FileNode]) {
+            for n in nodes where n.isDirectory {
+                if options.ignoredNames.contains(n.name) || n.isSymbolicLink == true { continue }
+                dirNodesByPath[n.id] = n
+                indexDirs(n.children ?? [])
+            }
+        }
+        indexDirs(tree)
+        let snapshotForDir: (String) -> FolderContentSnapshot? = { path in
+            guard let node = dirNodesByPath[path] else { return nil }
+            return FolderContentSnapshot(walkedChildren: node.children ?? [],
+                                         ignoredNames: options.ignoredNames)
+        }
         // Hard-linked files (link count > 1) leave duplicate candidacy ENTIRELY, before any
         // pass: a directory entry is not the bytes, so every offer the single-path copy model
         // could make about one is a lie — trashing one link frees nothing (a sibling entry, in
@@ -429,8 +536,10 @@ public enum DuplicateFinder {
         // as an anchor, and must never offer to remove it.
         var identicalFileKeepers: Set<String> = []
 
-        groups += identicalFolderGroups(dirs, options: options, coveredRoots: &coveredRoots, keeperRoots: &folderKeeperRoots)
-        groups += overlappingAndNameOnlyGroups(dirs, options: options, coveredRoots: &coveredRoots)
+        groups += identicalFolderGroups(dirs, options: options, snapshotForDir: snapshotForDir,
+                                        coveredRoots: &coveredRoots, keeperRoots: &folderKeeperRoots)
+        groups += overlappingAndNameOnlyGroups(dirs, options: options, snapshotForDir: snapshotForDir,
+                                               coveredRoots: &coveredRoots)
         groups += identicalFileGroups(files, options: options, coveredRoots: coveredRoots, keeperRoots: folderKeeperRoots, groupedFilePaths: &groupedFilePaths, keepers: &identicalFileKeepers)
         // BEFORE versions, deliberately. A provider's second download often lands beside the first
         // under a name the version stemmer reduces to the same stem — `DE429D.pdf` next to
@@ -555,6 +664,7 @@ public enum DuplicateFinder {
     private static func identicalFolderGroups(
         _ dirs: [NodeInfo],
         options: DuplicateFinderOptions,
+        snapshotForDir: (String) -> FolderContentSnapshot?,
         coveredRoots: inout Set<String>,
         keeperRoots: inout Set<String>
     ) -> [DuplicateGroup] {
@@ -583,7 +693,8 @@ public enum DuplicateFinder {
             let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
             let keeper = ordered[0]
             let copies = ordered.enumerated().map { idx, info in
-                makeCopy(info, keeper: keeper, isKeeper: idx == 0)
+                makeCopy(info, keeper: keeper, isKeeper: idx == 0,
+                         contentSnapshot: snapshotForDir(info.path))
             }
             let reclaimable = copies.dropFirst().reduce(0) { $0 + $1.size }
             groups.append(DuplicateGroup(
@@ -607,6 +718,7 @@ public enum DuplicateFinder {
     private static func overlappingAndNameOnlyGroups(
         _ dirs: [NodeInfo],
         options: DuplicateFinderOptions,
+        snapshotForDir: (String) -> FolderContentSnapshot?,
         coveredRoots: inout Set<String>
     ) -> [DuplicateGroup] {
         // Candidates: non-covered folders with known content, bucketed by name.
@@ -637,8 +749,12 @@ public enum DuplicateFinder {
             let fractions = ordered.dropFirst().map { sharedFraction(of: $0, against: keeper) }
             let avgShared = fractions.isEmpty ? 0 : fractions.reduce(0, +) / Double(fractions.count)
 
+            // Snapshots on these copies too: the Compare review offers its trash gate for EVERY
+            // directory group kind, not just identical ones, and its directory verdict comes from
+            // the recorded baseline.
             let copies = ordered.enumerated().map { idx, info in
-                makeCopy(info, keeper: keeper, isKeeper: idx == 0)
+                makeCopy(info, keeper: keeper, isKeeper: idx == 0,
+                         contentSnapshot: snapshotForDir(info.path))
             }
 
             if avgShared >= options.overlapThreshold {
@@ -1051,7 +1167,8 @@ public enum DuplicateFinder {
     ///     file path handed to `protectedRoots` would protect nothing — silently.
     private static func makeCopy(_ info: NodeInfo, keeper: NodeInfo, isKeeper: Bool,
                                  protectedRoots: Set<String> = [],
-                                 protectedPaths: Set<String> = []) -> DuplicateCopy {
+                                 protectedPaths: Set<String> = [],
+                                 contentSnapshot: FolderContentSnapshot? = nil) -> DuplicateCopy {
         let unique = isKeeper ? 0 : info.contentHashes.subtracting(keeper.contentHashes).count
         // Unverified content: a file whose hash is missing or an unknown-content placeholder, or
         // a folder without a full structural signature (some descendant wasn't walked) or with an
@@ -1075,7 +1192,8 @@ public enum DuplicateFinder {
             isRecommendedKeeper: isKeeper,
             contentUnverified: unverified,
             isProtectedFromRemoval: isCovered(info.path, by: protectedRoots)
-                || protectedPaths.contains(info.path)
+                || protectedPaths.contains(info.path),
+            contentSnapshot: contentSnapshot
         )
     }
 
