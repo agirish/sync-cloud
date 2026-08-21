@@ -197,9 +197,14 @@ import Settings
 @MainActor
 @Suite struct SystemClipboardHandoffTests {
 
-    /// This suite's own board, never `.general` — see the handler's `pasteboard` parameter.
-    private func board() -> NSPasteboard {
-        let board = NSPasteboard(name: NSPasteboard.Name("SyncCloudTests.handoff"))
+    /// A board of this **test's** own, never `.general` — see the handler's `pasteboard` parameter.
+    ///
+    /// **Per test, not per suite**, and that was found the hard way: one shared name plus tests that
+    /// `await` is a race, because swift-testing is free to run a sibling while this one is suspended
+    /// and `clearContents()` at the top of each is no defence against a sibling *writing*. Two new
+    /// tests failed naming another test's file, which is the tell.
+    private func board(_ label: String) -> NSPasteboard {
+        let board = NSPasteboard(name: NSPasteboard.Name("SyncCloudTests.handoff.\(label)"))
         board.clearContents()
         return board
     }
@@ -251,7 +256,7 @@ import Settings
         let file = dir.appendingPathComponent("report.pdf")
         try Data("x".utf8).write(to: file)
 
-        let pasteboard = board()
+        let pasteboard = board("out")
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "report.pdf", isDirectory: false)],
@@ -271,7 +276,7 @@ import Settings
         let file = dir.appendingPathComponent("moved.txt")
         try Data("x".utf8).write(to: file)
 
-        let pasteboard = board()
+        let pasteboard = board("cut")
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "moved.txt", isDirectory: false)],
@@ -293,7 +298,7 @@ import Settings
         let file = source.appendingPathComponent("from-finder.txt")
         try Data("hello".utf8).write(to: file)
 
-        let pasteboard = board()
+        let pasteboard = board("in-dst")
         // Written straight to the board, standing in for the other app — not through the handler,
         // which would also fill the in-app list and test the wrong branch.
         SystemClipboard.write(paths: [file.path], to: pasteboard)
@@ -325,7 +330,7 @@ import Settings
         let file = source.appendingPathComponent("cut-me.txt")
         try Data("hello".utf8).write(to: file)
 
-        let pasteboard = board()
+        let pasteboard = board("own-dst")
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "cut-me.txt", isDirectory: false)],
@@ -351,7 +356,7 @@ import Settings
         let file = dir.appendingPathComponent("theirs.txt")
         try Data("x".utf8).write(to: file)
 
-        let pasteboard = board()
+        let pasteboard = board("empty-copy")
         SystemClipboard.write(paths: [file.path], to: pasteboard)
         let before = pasteboard.changeCount
 
@@ -361,6 +366,73 @@ import Settings
 
         #expect(pasteboard.changeCount == before, "an empty copy wrote to the pasteboard")
         #expect(SystemClipboard.fileURLs(from: pasteboard).map(\.path) == [file.path])
+    }
+
+    /// **A second ⌘V after a cut has nothing to offer, and says so by being unavailable.**
+    ///
+    /// The cut's paths went to the pasteboard too, and after the move they name files that are not
+    /// there. `hasFiles` reads what the pasteboard says rather than what is on disk — a `stat` per
+    /// URL per render is not affordable — so without clearing it, ⌘V and "Paste here" would stay
+    /// enabled over a paste that finds nothing and writes a log line.
+    @Test func aCutThatCompletesLeavesNothingPastable() async throws {
+        let source = try tempDir("stale-src")
+        let destination = try tempDir("stale-dst")
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: destination)
+        }
+        let file = source.appendingPathComponent("gone.txt")
+        try Data("x".utf8).write(to: file)
+
+        let pasteboard = board("stale-dst")
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        handler.handleCopyToClipboard([FileNode(id: file.path, name: "gone.txt", isDirectory: false)],
+                                      isCut: true)
+        handler.pasteClipboard(toPath: destination.path)
+        let landed = destination.appendingPathComponent("gone.txt").path
+        await waitUntil { FileManager.default.fileExists(atPath: landed) }
+        await settle(manager)
+        try #require(FileManager.default.fileExists(atPath: landed), "the move never happened")
+
+        #expect(SystemClipboard.fileURLs(from: pasteboard).isEmpty,
+                "the pasteboard still names the file the cut moved away")
+        #expect(ClipboardSource.current(pasteboard: pasteboard,
+                                        hasInAppItems: !manager.clipboardNodes.isEmpty,
+                                        ownChangeCount: manager.clipboardPasteboardChangeCount) == ClipboardSource.none,
+                "Paste is still offered after the cut it would have pasted has completed")
+    }
+
+    /// And it clears **only what it owns**: a copy made elsewhere between the cut and its paste is
+    /// somebody else's clipboard, and finishing our move must not take it.
+    @Test func aCompletedCutDoesNotClearSomebodyElsesClipboard() async throws {
+        let source = try tempDir("owned-src")
+        let destination = try tempDir("owned-dst")
+        let theirs = try tempDir("owned-theirs")
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: destination)
+            try? FileManager.default.removeItem(at: theirs)
+        }
+        let file = source.appendingPathComponent("mine.txt")
+        try Data("x".utf8).write(to: file)
+        let theirFile = theirs.appendingPathComponent("theirs.txt")
+        try Data("x".utf8).write(to: theirFile)
+
+        let pasteboard = board("owned-theirs")
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
+        handler.handleCopyToClipboard([FileNode(id: file.path, name: "mine.txt", isDirectory: false)],
+                                      isCut: true)
+        // Somebody else copies, so the app no longer owns the board — but the in-app list still
+        // holds the cut, and pasting it is still a move of those files.
+        SystemClipboard.write(paths: [theirFile.path], to: pasteboard)
+        handler.pasteItems(manager.clipboardNodes, toPath: destination.path, isCut: true)
+        await waitUntil { FileManager.default.fileExists(atPath: destination.appendingPathComponent("mine.txt").path) }
+        await settle(manager)
+
+        #expect(SystemClipboard.fileURLs(from: pasteboard).map(\.path) == [theirFile.path],
+                "finishing our move threw away a copy made in another app")
     }
 
     /// Text copied elsewhere after a copy here pastes **nothing**, rather than falling back to the
@@ -375,7 +447,7 @@ import Settings
         let file = source.appendingPathComponent("not-this.txt")
         try Data("x".utf8).write(to: file)
 
-        let pasteboard = board()
+        let pasteboard = board("text-dst")
         let manager = FileSyncManager()
         let handler = FileActionHandler(syncManager: manager, settings: settings(), pasteboard: pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "not-this.txt", isDirectory: false)],

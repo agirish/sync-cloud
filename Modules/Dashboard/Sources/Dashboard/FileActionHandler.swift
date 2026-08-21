@@ -274,6 +274,19 @@ public class FileActionHandler {
                 syncManager.clipboardNodes.removeAll { successfullyMovedIds.contains($0.id) }
                 if syncManager.clipboardNodes.isEmpty {
                     syncManager.clipboardIsCut = false
+                    // **And the pasteboard with it, while we still own it.** A cut's paths are on
+                    // the system pasteboard too, and after the move they name files that are no
+                    // longer there. `hasFiles` reads what the pasteboard *says*, not what is on
+                    // disk — checking would be a `stat` per URL per render — so leaving them would
+                    // keep ⌘V and "Paste here" enabled over a paste that finds nothing and logs.
+                    // A control that cannot act does not offer to.
+                    //
+                    // Guarded on ownership for the obvious reason: if anything has copied since,
+                    // the board is theirs and clearing it would throw their copy away.
+                    if syncManager.clipboardPasteboardChangeCount == pasteboard.changeCount {
+                        pasteboard.clearContents()
+                        syncManager.clipboardPasteboardChangeCount = pasteboard.changeCount
+                    }
                 }
                 setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName)
             } else {
