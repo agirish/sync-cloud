@@ -949,8 +949,8 @@ struct SetupSheet: View {
                 .labelsHidden()
                 .disabled(isEnabled && !settings.canDisable(provider.id))
                 .help(isEnabled && !settings.canDisable(provider.id)
-                      ? "At least one source must remain enabled."
-                      : "Show \(provider.displayName) in the pane sidebar.")
+                      ? SettingsManager.ProviderToggleHelp.lastRemaining
+                      : SettingsManager.ProviderToggleHelp.offer(provider.displayName))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)

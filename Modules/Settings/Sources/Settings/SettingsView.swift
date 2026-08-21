@@ -1521,8 +1521,8 @@ struct ProviderSettingsSection: View {
                     .disabled(isEnabled && !settings.canDisable(provider.id))
                     .help(
                         isEnabled && !settings.canDisable(provider.id)
-                            ? "At least one source must remain enabled."
-                            : "Offer \(provider.displayName) in the pane header's source menu, and anywhere else a source is picked."
+                            ? SettingsManager.ProviderToggleHelp.lastRemaining
+                            : SettingsManager.ProviderToggleHelp.offer(provider.displayName)
                     )
 
                 disclosureButton

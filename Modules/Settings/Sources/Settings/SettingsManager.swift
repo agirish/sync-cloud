@@ -747,6 +747,31 @@ public class SettingsManager: ObservableObject {
         !isEnabled(providerId) || enabledProviders.count > 1
     }
 
+    /// The enable/disable switch's tooltip, in the two states ``canDisable(_:)`` picks between.
+    ///
+    /// **Hoisted because that switch is drawn twice** — the Settings source row and the setup
+    /// sheet's source row — and until now each held its own copy of both sentences. They drifted
+    /// exactly the way two copies do: both spent months promising to "Show <name> in the pane
+    /// sidebar", a window column `7293d946` deleted on 2026-07-14, and repairing the one a reader
+    /// happened to open would have left the other still saying it. Nothing catches that, because
+    /// nothing in the app ever reads a help string back.
+    ///
+    /// Living in `Settings` rather than in `MacApp` is what makes it reachable from both: the
+    /// setup sheet already imports this module for `SettingsManager` itself.
+    public enum ProviderToggleHelp {
+        /// Why the switch is disabled: this is the last enabled source, and `canDisable` refuses.
+        public static let lastRemaining = "At least one source must remain enabled."
+
+        /// What switching it on does. Phrased from `enabledProviders`, which is the list every
+        /// source picker is handed — each pane header's source menu (`ProviderMenu` in
+        /// `DashboardViews`), the lens source bar, and the command palette's source rows — rather
+        /// than from any one of those surfaces, so removing or adding a picker cannot falsify it
+        /// the way naming the sidebar did.
+        public static func offer(_ displayName: String) -> String {
+            "Offer \(displayName) in the pane header's source menu, and anywhere else a source is picked."
+        }
+    }
+
     /// Switches a discovered provider on or off for pane selection, persisting the choice.
     /// Disabling the last enabled provider is ignored (see `canDisable`).
     public func setEnabled(_ enabled: Bool, for providerId: String) {
