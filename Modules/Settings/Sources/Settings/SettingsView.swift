@@ -490,7 +490,7 @@ enum SettingsSearchIndex {
         .init(tab: .providers, title: "Synchronized path",
               keywords: ["path", "location", "root", "folder", "directory", "sync path", "browse"]),
         .init(tab: .providers, title: "Enable or disable a source",
-              keywords: ["enable", "disable", "show", "hide", "sidebar", "toggle provider",
+              keywords: ["enable", "disable", "show", "hide", "toggle provider",
                          "toggle source"]),
 
         // People. Indexed by what it is *about* as much as by its label: someone looking for this
@@ -1319,7 +1319,7 @@ struct ProvidersSettingsTab: View {
     var body: some View {
         SettingsPage {
             SettingsSection(
-                caption: "Cloud accounts are discovered from ~/Library/CloudStorage. Disabled sources stay configured but are hidden from the pane sidebar. At least one source must remain enabled."
+                caption: "Cloud accounts are discovered from ~/Library/CloudStorage. Disabled sources stay configured but are not offered anywhere a source is picked. At least one source must remain enabled."
             ) {
                 HStack {
                     Text("Cloud providers")
@@ -1522,7 +1522,7 @@ struct ProviderSettingsSection: View {
                     .help(
                         isEnabled && !settings.canDisable(provider.id)
                             ? "At least one source must remain enabled."
-                            : "Show \(provider.displayName) in the pane sidebar."
+                            : "Offer \(provider.displayName) in the pane header's source menu, and anywhere else a source is picked."
                     )
 
                 disclosureButton
