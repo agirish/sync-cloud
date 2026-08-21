@@ -495,4 +495,79 @@ import Foundation
         let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
         #expect(FileManager.default.contents(atPath: kept.path) == corrupt)
     }
+
+    // MARK: - A file the process cannot even READ gets the same promise
+
+    /// **The read layer has the same two states as the parse layer, and it lost them.** A file
+    /// that exists but cannot be opened — mode 000, an ACL, an I/O error — failed the `try?` read
+    /// exactly like no file at all, so `fileWasUnreadable` never armed, and the first verdict's
+    /// atomic write (which needs permission on the *directory*, not the file) landed straight on
+    /// top of every verdict the user had recorded.
+    @Test func aVerdictDoesNotOverwriteAFileTheProcessCannotOpen() throws {
+        let dir = try makeDir()
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        let fm = FileManager.default
+        defer {
+            // Give the bytes back before the sweep, wherever they ended up.
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
+            try? fm.removeItem(at: dir)
+        }
+        // A perfectly good file — real prior verdicts, not corruption. Only the read fails.
+        let original = Data(PersonTagTests.literal.utf8)
+        try original.write(to: url)
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        #expect(store.tags.isEmpty)
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+
+        // The set-aside keeps the mode with the bytes; open it up to compare them.
+        try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
+        #expect(fm.contents(atPath: kept.path) == original,
+                "the verdicts were overwritten because a failed read was mistaken for no file")
+        // ...and the app kept working: the new verdict is on disk and readable.
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.map(\.personId) == ["divit"])
+    }
+
+    /// The same hole through the other door: the store path symlinked somewhere that does not
+    /// resolve right now — a volume that is not mounted. The read fails, and the write would
+    /// replace the *link itself* with a plain file, orphaning the verdicts it points at.
+    @Test func aDanglingSymlinkAtTheStorePathIsSetAsideNotReplaced() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        let target = "/Volumes/NoSuchVolume/person-tags.json"
+        try FileManager.default.createSymbolicLink(at: url,
+                                                   withDestinationURL: URL(fileURLWithPath: target))
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+
+        // The link survives, moved aside — still pointing where the user aimed it.
+        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: kept.path)
+        #expect(dest == target, "the symlink was destroyed instead of being set aside")
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.map(\.personId) == ["divit"])
+    }
+
+    /// A first launch has no file, and must stay exactly as quiet and ordinary as it is today:
+    /// nothing set aside, nothing protected, the first verdict simply writes the file.
+    @Test func aGenuinelyAbsentFileStillWritesNormally() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+
+        let kept = dir.appendingPathComponent("p/person-tags.json.unreadable")
+        #expect(!FileManager.default.fileExists(atPath: kept.path),
+                "an absent file was mistaken for one that exists but cannot be read")
+        let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
+        #expect(reread.tags.map(\.personId) == ["divit"])
+    }
 }

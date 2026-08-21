@@ -196,7 +196,29 @@ public final class PersonTagStore: ObservableObject {
     // MARK: - Persistence
 
     private func load() {
-        guard isPersistent, let data = try? Data(contentsOf: fileURL) else { return }
+        guard isPersistent else { return }
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            // **"Absent" and "there but unreadable" are different answers**, and the `try?` this
+            // used to be conflated them. A file that exists but cannot be opened — mode 000, an
+            // ACL, an I/O error — read as a first launch, so the set-aside below never armed, and
+            // the first verdict's atomic write (which needs permission on the *directory*, not the
+            // file) landed straight on top of every verdict already recorded. `attributesOfItem`
+            // rather than `fileExists`, because only the former sees a symlink that does not
+            // resolve: `fileExists` follows links and answers false for one whose target is on an
+            // unmounted volume — and the write then replaces the link itself. Genuinely absent
+            // stays silent, because a first launch has nothing to warn about.
+            guard (try? fileManager.attributesOfItem(atPath: fileURL.path)) != nil else { return }
+            Logger.shared.warning("Couldn't open person-tags.json "
+                                  + "(\(error.localizedDescription)) — verdicts are unavailable "
+                                  + "this session. The file is kept: the first verdict you record "
+                                  + "moves it aside as person-tags.json.unreadable rather than "
+                                  + "overwriting it.")
+            fileWasUnreadable = true
+            return
+        }
         guard let file = try? JSONDecoder().decode(PersonTagFile.self, from: data) else {
             // The container decodes tag-by-tag, so reaching here means the *file* is not JSON at
             // all. A corrupt file the user can inspect is recoverable and one this build has
@@ -231,8 +253,10 @@ public final class PersonTagStore: ObservableObject {
         }
     }
 
-    /// True when the file on disk could not be parsed at all, so the next save must not land on
-    /// top of it. Cleared once the bytes have been set aside — see `save`.
+    /// True when the file on disk could not be read or parsed at all, so the next save must not
+    /// land on top of it. Cleared once the bytes have been set aside — see `save`. The move there
+    /// works where the read did not: `moveItem` renames the directory entry, which no file-level
+    /// permission gates, and a symlink is moved as itself rather than through its target.
     private var fileWasUnreadable = false
 
     private func save() {
