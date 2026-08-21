@@ -318,7 +318,7 @@ enum SettingsSearchIndex {
         .init(tab: .providers, title: "Synchronized path",
               keywords: ["path", "location", "root", "folder", "directory", "sync path", "browse"]),
         .init(tab: .providers, title: "Enable or disable a provider",
-              keywords: ["enable", "disable", "show", "hide", "sidebar", "toggle provider"]),
+              keywords: ["enable", "disable", "show", "hide", "toggle provider"]),
 
         // Sync
         .init(tab: .sync, title: "When a file already exists",
@@ -890,7 +890,7 @@ struct ProvidersSettingsTab: View {
     var body: some View {
         SettingsPage {
             SettingsSection(
-                caption: "Providers are discovered from ~/Library/CloudStorage. Disabled providers stay configured but are hidden from the pane sidebar. At least one provider must remain enabled."
+                caption: "Providers are discovered from ~/Library/CloudStorage. Disabled providers stay configured but are not offered anywhere a provider is picked. At least one provider must remain enabled."
             ) {
                 HStack {
                     Text("Discovered providers")
@@ -983,7 +983,7 @@ struct ProviderSettingsSection: View {
                     .help(
                         isEnabled && !settings.canDisable(provider.id)
                             ? "At least one provider must remain enabled."
-                            : "Show \(provider.displayName) in the pane sidebar."
+                            : "Offer \(provider.displayName) in the pane header's provider menu, and anywhere else a provider is picked."
                     )
             }
             .padding(.vertical, 2)
