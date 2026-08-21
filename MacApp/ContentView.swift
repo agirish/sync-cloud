@@ -470,6 +470,10 @@ struct ContentView: View {
             // starts overflowing the window it is centered in.
             .frame(minWidth: 600, minHeight: 560)
             .toolbar { mainToolbar }
+            // Names the window on the two surfaces that read `NSWindow.title` whether or not a
+            // title bar is drawn — the Window menu and Mission Control. Zero-sized, in the
+            // background, because it is a binding to AppKit and not a view.
+            .background(WindowChromeBinder(subtitle: windowSubtitleText).frame(width: 0, height: 0))
         .overlay {
             // The picker wins the precedence: it is a direct answer to an action the user just
             // took on a file, where Settings and Help are ambient panels they can reopen.
@@ -803,6 +807,29 @@ struct ContentView: View {
     }
 
     /// Provider display names for the two panes, disambiguated when both panes show the same provider.
+    /// What this window is on, for `NSWindow.title` — both sides on Compare, the single source
+    /// elsewhere.
+    ///
+    /// Reads the provider's `displayName` directly rather than going through `paneNames`, which
+    /// substitutes "Left"/"Right" for an unresolved provider and appends "(left)"/"(right)" when
+    /// both sides are the same cloud. Both are right for a pane header and wrong here: a window
+    /// called "Left" says less than one called "SyncCloud", and the two paths already distinguish
+    /// two tabs on one provider.
+    ///
+    /// Each side's location is resolved **through its own view mode**, the same way `paneContext`
+    /// does it: a Tree pane's location is its scope, and its parked column stack is not part of
+    /// where it is.
+    var windowSubtitleText: String? {
+        func source(isLeft: Bool) -> WindowSubtitle.Source {
+            let id = isLeft ? leftProviderId : rightProviderId
+            return WindowSubtitle.Source(
+                provider: settings.availableProviders.first(where: { $0.id == id })?.displayName,
+                relativePath: syncManager.paneLocation(isLeft: isLeft,
+                                                       drawsColumns: resolvedViewMode(isLeft: isLeft) == .columns))
+        }
+        return WindowSubtitle.text(mode: layoutMode, left: source(isLeft: true), right: source(isLeft: false))
+    }
+
     var paneNames: PaneProviderNames {
         PaneProviderNames(
             leftName: settings.availableProviders.first(where: { $0.id == leftProviderId })?.displayName,
