@@ -110,4 +110,92 @@ import Foundation
                 "a genuinely reversible merge stopped offering its undo")
         #expect(manager.banner?.isUndoable == true)
     }
+
+    /// Parks the FIRST `attributesOfItem` of one exact path — the folded file's destination in
+    /// the keeper, which nothing in the merge stats except its copy-undo identity walk — so the
+    /// test can hold that walk provably unresolved while asking whether the merge already claims
+    /// to be done. Bounded park, recorded timeout, per the `ParkGate`/`FirstStatGate` contract.
+    private final class DestinationStatGate: FileManager, @unchecked Sendable {
+        let targetPath: String
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        // In a box rather than as stored vars: `FileManager` already conforms to `Sendable`, so
+        // the compiler rejects mutable stored properties on a subclass outright.
+        private let state = LockedBox((gated: false, timedOut: false))
+
+        init(targetPath: String) {
+            self.targetPath = targetPath
+            super.init()
+        }
+
+        var releasedByTimeout: Bool { state.withLock { $0.timedOut } }
+
+        override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+            if path == targetPath {
+                let first = state.withLock { value -> Bool in
+                    if value.gated { return false }
+                    value.gated = true
+                    return true
+                }
+                if first {
+                    entered.signal()
+                    if release.wait(timeout: .now() + 10) == .timedOut {
+                        state.withLock { $0.timedOut = true }
+                    }
+                }
+            }
+            return try super.attributesOfItem(atPath: path)
+        }
+    }
+
+    /// The dc865114 ordering claim — "the copy/sync call sites await [the identity walk], which
+    /// keeps 'the operation returned' implying 'its undo is fully armed'" — was FALSE for the
+    /// merge, its fourth caller: it discarded the returned task, so a merge could post
+    /// "Press ⌘Z to undo" before the identities it promises to check existed. The guard itself
+    /// held either way (the handler suspends in the resolver), but the determinism the drift
+    /// tests are written against — tamper the moment the operation returns, then ⌘Z — did not.
+    ///
+    /// Held deterministically: the folded file's destination stat is parked, so the walk cannot
+    /// resolve; a merge that reports done while it is parked is the defect.
+    @MainActor
+    @Test func aMergeDoesNotReportDoneBeforeItsCopyUndoIdentityIsRecorded() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeUndoArm")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rName = "Redundant-\(UUID().uuidString)"
+        let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
+        defer { try? FileManager.default.removeItem(at: trashed) }
+        let pair = try makePair(base, redundantName: rName)
+
+        let gate = DestinationStatGate(targetPath: pair.keeper.appendingPathComponent("unique.txt").path)
+        let manager = FileSyncManager(fileManager: gate)
+        manager.undoManager = UndoManager()
+        manager.duplicateGroups = [pair.group]
+
+        let done = LockedBox(false)
+        let mergeTask = Task { @MainActor () -> Bool in
+            let ok = await manager.mergeDuplicateGroup(pair.group)
+            done.withLock { $0 = true }
+            return ok
+        }
+
+        await awaitSignal(gate.entered,
+                          "the merge's identity walk never statted the folded file — the gate cannot have held it")
+        // Give the merge every chance to (wrongly) finish while its walk is parked. On the fixed
+        // code completion here is impossible — the merge awaits the walk — so this is a bounded
+        // grace period, not a timing guess about the passing direction.
+        var polls = 0
+        while polls < 60, !done.withLock({ $0 }) {
+            polls += 1
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(done.withLock { $0 } == false,
+                "the merge reported done — and posted its ⌘Z banner — while an identity walk it registered was still unresolved")
+
+        gate.release.signal()
+        let ok = await mergeTask.value
+        try #require(!gate.releasedByTimeout,
+                     "the walk resumed by timeout, not by this test — the park was never actually held")
+        #expect(ok == true, "once the walk resolves, the merge completes normally")
+        #expect(manager.banner?.message.contains("⌘Z") == true)
+    }
 }

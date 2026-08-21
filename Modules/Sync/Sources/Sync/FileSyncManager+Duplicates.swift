@@ -949,6 +949,10 @@ extension FileSyncManager {
             undoGroupOpen = true
         }
         defer { if undoGroupOpen { undoManager?.endUndoGrouping() } }
+        // Each fold's copy-undo registration hands back the task wrapping its identity walk;
+        // collected here and awaited after the loop (group closed first), so the merge does not
+        // return — and no banner offers ⌘Z — before every undo it registered is fully armed.
+        var identityWalks: [Task<Void, Never>] = []
         let keeperPath = group.keeper.path
         let keeperURL = URL(fileURLWithPath: keeperPath)
         let fm = fileManager
@@ -1041,7 +1045,13 @@ extension FileSyncManager {
 
             if !outcome.copied.isEmpty {
                 openUndoGroupIfNeeded()
-                registerCopyUndo(items: outcome.copied, actionName: "Merge \(group.name)", fileManager: fm)
+                // The returned walk is COLLECTED, not discarded (it used to be, which made the
+                // merge the one registerCopyUndo caller for which "the operation returned ⇒ its
+                // undo is armed" did not hold — the success banner could offer ⌘Z before the
+                // identities it checks existed). Awaited after the loop, once the undo group has
+                // closed, mirroring the bulk-sync shape.
+                identityWalks.append(
+                    registerCopyUndo(items: outcome.copied, actionName: "Merge \(group.name)", fileManager: fm))
                 totalFolded += outcome.copied.count
             }
             if outcome.cancelled {
@@ -1086,6 +1096,15 @@ extension FileSyncManager {
             if trashOutcome.removed == 0 { allTrashed = false }   // trash declined/failed — don't claim the group done
             if trashOutcome.permanentlyDeleted > 0 { anyPermanentlyDeleted = true }
         }
+
+        // Nothing registers after the loop, so the undo group can close here — and must, before
+        // the walks are awaited: an await inside the group opens the main actor mid-group,
+        // letting an interleaved operation register into the merge's step (the bulk-sync rule).
+        // The scope `defer` above then no-ops. Awaiting restores the registerCopyUndo contract
+        // this site alone was breaking: every banner below, ⌘Z-offering or not, now posts only
+        // after the identities the undo checks exist.
+        if undoGroupOpen { undoManager?.endUndoGrouping(); undoGroupOpen = false }
+        for walk in identityWalks { await walk.value }
 
         // Only drop the group and claim success when every redundant copy actually left the disk
         // and no error surfaced — otherwise keep the group (retry skips what already landed) and

@@ -526,29 +526,46 @@ import Testing
     /// so a ⌘Z racing the walk pops this undo and its handler waits for the identity instead of
     /// no-oping (or worse, undoing the operation before it). The returned walk task is
     /// deliberately dropped here — this test is the caller that cannot await.
+    ///
+    /// The race is HELD, not hoped for: `FirstAttributesGate` parks the walk in its very first
+    /// stat, so the ⌘Z provably lands while the identity is unresolved. The previous version
+    /// relied on scheduler luck — the walk usually won, the test then exercised the resolved
+    /// fast path, and it passed either way, which is no pin at all.
     @MainActor
     @Test func anUndoInvokedBeforeTheIdentityWalkResolvesWaitsForItInsteadOfNoOping() async throws {
         let manager = makeManager()
-        let fm = MockFileManager()
-        try fm.createDirectory(at: URL(fileURLWithPath: "/undowait-dst"), withIntermediateDirectories: true)
-        fm.virtualDisk["/undowait-dst/project"] =
+        let mock = MockFileManager()
+        try mock.createDirectory(at: URL(fileURLWithPath: "/undowait-dst"), withIntermediateDirectories: true)
+        mock.virtualDisk["/undowait-dst/project"] =
             MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["notes.md"])
-        fm.virtualDisk["/undowait-dst/project/notes.md"] = file(4)
+        mock.virtualDisk["/undowait-dst/project/notes.md"] = file(4)
+        let fm = FirstAttributesGate(inner: mock)
 
         _ = manager.registerCopyUndo(
             items: [(source: URL(fileURLWithPath: "/undowait-src/project"),
                      destination: URL(fileURLWithPath: "/undowait-dst/project"), overwritten: nil)],
             actionName: "Copy 1 Items", fileManager: fm)
-        // No await between registration and ⌘Z: this is the racing user.
+        // The walk is now provably mid-flight: parked in its opening stat, identity unresolved.
+        await awaitSignal(fm.entered, "the identity walk never reached its first stat — the gate cannot have held the race")
+        // No await between registration and ⌘Z: this is the racing user, deterministically ahead
+        // of the resolution.
         manager.undoManager?.undo()
+        await waitUntil("the undo op is in flight") { manager.activeFileOperationsCount == 1 }
+        #expect(mock.virtualDisk["/undowait-dst/project"] != nil,
+                "the handler must be suspended in the resolver while the walk is held — acting here would mean comparing against a half-recorded state")
+
+        fm.release.signal()
         await waitUntil("the undo waits for the identity and then removes the copy") {
-            fm.virtualDisk["/undowait-dst/project"] == nil
+            mock.virtualDisk["/undowait-dst/project"] == nil
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        #expect(fm.virtualDisk["/undowait-dst/project"] == nil,
+        try #require(!fm.releasedByTimeout,
+                     "the walk resumed by timeout, not by this test — the race was never actually held")
+        #expect(mock.virtualDisk["/undowait-dst/project"] == nil,
                 "an undo racing the identity walk must wait for it and then act — a silent no-op strands the copy and lies about the stack")
     }
+
     // MARK: 8 — the registration window is per ITEM, not per batch
 
     /// THE batch-window bug: `registerCopyUndo` used to walk every item only after the WHOLE
@@ -713,6 +730,67 @@ import Testing
                      "a registration-time .indeterminate must log a warning naming the item — the ⌘Z refusal hours later is otherwise undiagnosable")
         #expect(entry?.message.contains("\(root)/project/src/deep") == true,
                 "the failing descendant is known (the listing reports it) and must be named; got \(String(describing: entry?.message))")
+    }
+}
+
+/// Parks the walk's FIRST `attributesOfItem` — the opening stat of `deepSnapshot` — so a test
+/// can provably interleave with a registration walk mid-flight. The mirror of `FirstStatGate`
+/// (which gates `fileExists` over the real filesystem), over the mock disk; same bounded-park,
+/// recorded-timeout contract: check `releasedByTimeout` after the work completes.
+private final class FirstAttributesGate: FileManaging, @unchecked Sendable {
+    private let inner: MockFileManager
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var gated = false
+    private var timedOut = false
+
+    init(inner: MockFileManager) { self.inner = inner }
+
+    /// True if the parked stat gave up waiting instead of being released — a held race that
+    /// silently un-held itself, which the test must surface rather than pass through.
+    var releasedByTimeout: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return timedOut
+    }
+
+    private func gateIfFirst() {
+        lock.lock(); let first = !gated; if first { gated = true }; lock.unlock()
+        guard first else { return }
+        entered.signal()
+        if release.wait(timeout: .now() + 10) == .timedOut {
+            lock.lock(); timedOut = true; lock.unlock()
+        }
+    }
+
+    func fileExists(atPath path: String) -> Bool { inner.fileExists(atPath: path) }
+    func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+        inner.fileExists(atPath: path, isDirectory: isDirectory)
+    }
+    func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        gateIfFirst()
+        return try inner.attributesOfItem(atPath: path)
+    }
+    func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+        try inner.setAttributes(attributes, ofItemAtPath: path)
+    }
+    func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
+                         attributes: [FileAttributeKey: Any]?) throws {
+        try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
+    }
+    func copyItem(at srcURL: URL, to dstURL: URL) throws { try inner.copyItem(at: srcURL, to: dstURL) }
+    func moveItem(at srcURL: URL, to dstURL: URL) throws { try inner.moveItem(at: srcURL, to: dstURL) }
+    func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+        try inner.trashItem(at: url, resultingItemURL: outResultingURL)
+    }
+    func removeItem(at URL: URL) throws { try inner.removeItem(at: URL) }
+    func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
+        try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
+    }
+    func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
+                    options mask: FileManager.DirectoryEnumerationOptions,
+                    errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+        inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
     }
 }
 
