@@ -8,7 +8,7 @@ on `main`:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
-| `main` | the **v4 line** — where the next release is built | `4.1-dev` / `401` | **allowed** |
+| `main` | the **v4 line** — where the next release is built | `4.2-dev` / `402` | **allowed** |
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
 | `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
 
@@ -125,8 +125,8 @@ wrong for two years. The steps below exist so that cannot recur.
 
 ```yaml
 # main's values; v3.x carries "3.2-dev" / "302", v2.x carries "2.10-dev" / "210"
-CFBundleShortVersionString: "4.1-dev"   # the marketing version — what people see
-CFBundleVersion: "401"                  # the build number — what Launch Services orders by
+CFBundleShortVersionString: "4.2-dev"   # the marketing version — what people see
+CFBundleVersion: "402"                  # the build number — what Launch Services orders by
 ```
 
 `MacApp/Info.plist` is **generated from it by xcodegen and tracked in git**, so it changes in the
@@ -142,7 +142,7 @@ anywhere, which is what makes changing it safe:
 ### The two numbers
 
 **Marketing version.** Between releases each branch tip carries a **pre-release marker** for the
-version it is heading toward, suffixed `-dev`: `main` sits at `4.1-dev`, `v3.x` at `3.2-dev`,
+version it is heading toward, suffixed `-dev`: `main` sits at `4.2-dev`, `v3.x` at `3.2-dev`,
 `v2.x` at `2.10-dev`. The suffix says "this build is no release" without implying a distributed beta
 programme. A release drops the suffix, and the tip is re-bumped straight afterwards, so a plain
 number like `2.9` is only ever what the tagged commit itself carries.
@@ -187,7 +187,9 @@ all, because nothing here said to write them; they exist in two places and both 
   finding. As of 2026-08-17 `v2.x` and `v3.x` are byte-identical to each other and agree with `main`
   from `## v3.0` down; `main` additionally has `v4.0`, `v4.1`, and four bullets inside `## v3.1`
   (`### The window, and what the chrome claims`, added retroactively by `27fa9c14`). All three states
-  are correct under this rule and none of them needs repairing.
+  are correct under this rule and none of them needs repairing. `main` also carries whatever release
+  is currently in draft — `## v4.2 — DRAFT, not released` as of 2026-08-21 — which is likewise not
+  drift; a draft section belongs only to the line that will cut it.
 - `docs/releases.html` — **`main` only.** GitHub Pages serves `docs/` from `main`, so a section
   landed solely on `v2.x` publishes nothing. Add the new article ahead of the last one.
 
@@ -254,7 +256,8 @@ worse than saying nothing.
 ### Cutting it
 
 Releases are cut as tags on the line that owns them — `v2.9` from `v2.x`, `v3.2` from `v3.x`,
-`v4.1` from `main`. Tag names are **two components**: `v2.9`, never `v2.9.0` (all 35 existing tags are `vMAJOR.MINOR`).
+`v4.1` from `main`. Tag names are **two components**: `v2.9`, never `v2.9.0` — every existing tag is `vMAJOR.MINOR`,
+and `git tag | grep -v '^v[0-9]*\.[0-9]*$'` should stay empty.
 Work in a worktree as always.
 
 1. **Drop the suffix, and publish the notes with it.** In `project.yml`, `2.9-dev` → `2.9`. Leave
@@ -355,3 +358,9 @@ Refactors must be provably behavior-preserving: build the pre-change binary at `
 stdout / exit codes / resulting file trees against the new binary on a controlled fixture. State
 the verification in the commit body. He runs this against real cloud data and audits commits, so
 silent behavior changes are costly.
+
+**Before blaming a commit for a red suite, read [`docs/flaky-tests.md`](docs/flaky-tests.md).** It
+carries the known flake mechanisms with the tell for each, and it is the difference between fixing a
+regression and re-diagnosing a machine. It is carried on all three lines, but **the numbering is
+per-line and the counts differ** — cite a mechanism by its title, never by its number, because "#8"
+means different things on `main`, `v3.x` and `v2.x`.
