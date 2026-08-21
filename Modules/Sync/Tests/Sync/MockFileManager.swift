@@ -35,6 +35,13 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// The returned existence reflects state *before* the callback runs, matching a real stat.
     public var onFileExists: ((String) -> Void)?
 
+    /// Invoked (under the lock) after each successful `attributesOfItem` lookup, with the queried
+    /// path — the walk-progress seam. A test that interleaves an EDIT with an identity walk needs
+    /// to know the walk has already READ a file's pre-edit state; the stat IS that read, which
+    /// neither `onFileExists` nor `onEnumerate` can witness. The callback must not touch the
+    /// virtual disk (it runs under the recursive lock); setting a flag in a `LockedBox` is safe.
+    public var onAttributesOfItem: ((String) -> Void)?
+
     /// Invoked once per `enumerator(at:…)` call, with the directory being listed. A listing is the
     /// unit of cost for a tree walk, so this is what a test asserting a walk's *budget* counts —
     /// counting entries or `fileExists` calls instead would measure the fixture's shape rather than
@@ -84,6 +91,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             if !stub.isDirectory, attrs[.size] == nil {
                 attrs[.size] = NSNumber(value: 0)
             }
+            onAttributesOfItem?(path)
             return attrs
         }
     }

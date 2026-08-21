@@ -88,15 +88,21 @@ extension FileSyncManager {
         // unit in the Undo menu. Skip the empty case so no phantom group is opened.
         let runId = UUID()
         var historyRecords: [SyncHistoryRecord] = []
-        // Each copy registration hands back its detached identity walk; collected here and
-        // awaited only AFTER the undo grouping closes — an await inside the group would open the
-        // main actor mid-group, letting an interleaved operation register into OUR "Sync run"
-        // step. Bulk sync copies files, so each walk is a single stat.
+        // Each item's identity walk was started inside `performBulkSyncIO`, the moment its own
+        // copy landed; each registration hands back the task that wraps its walk, collected here
+        // and awaited only AFTER the undo grouping closes — an await inside the group would open
+        // the main actor mid-group, letting an interleaved operation register into OUR "Sync
+        // run" step. Bulk sync copies files, so each walk is a single stat.
         var identityWalks: [Task<Void, Never>] = []
         if !result.successes.isEmpty { undoManager?.beginUndoGrouping() }
-        for (diff, (trashed, from, to)) in result.successes {
+        for (diff, (trashed, from, to), identityWalk) in result.successes {
             let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
-            identityWalks.append(registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM))
+            // The nil-coalescing is defensive only: this run copies (isMove is never true here),
+            // so the IO loop started a walk for every success.
+            identityWalks.append(registerCopyUndo(
+                pendingItems: [(source: from, destination: to, overwritten: trashed,
+                                identity: identityWalk ?? Self.startCopyIdentityWalk(at: to, fileManager: activeFM))],
+                actionName: actionName, fileManager: activeFM))
             historyRecords.append(SyncHistoryRecord(
                 runId: runId,
                 action: .copy,
@@ -192,6 +198,14 @@ extension FileSyncManager {
     /// Runs the copy/move I/O for a prepared bulk work list on the parallel scaffolding,
     /// collecting per-difference successes and failures. Shared by `syncAll` and
     /// `bulkCopyDifferencesLeftToRight`.
+    ///
+    /// Each COPY success also carries its identity walk (`startCopyIdentityWalk`), started right
+    /// here, the moment that item's own copy landed — not at registration time, which comes only
+    /// after the ENTIRE run (minutes on slow volumes). Post-run, a walk would record an edit the
+    /// user made inside an already-landed copy while the rest of the run ground on as that
+    /// copy's BASELINE, and ⌘Z would trash the edit as `.unchanged`. Per item, the edit
+    /// postdates the recording and refuses. Moves carry nil: their undo records shallow, at
+    /// registration, deliberately (see `registerMoveUndo`).
     private nonisolated static func performBulkSyncIO(
         workList: [(FileDifference, URL, URL, Bool)],
         concurrency: Int,
@@ -199,7 +213,7 @@ extension FileSyncManager {
         completedBase: Int = 0,
         fileManager: FileManaging,
         reportCompleted: @escaping @MainActor @Sendable (Int) -> Void
-    ) async -> (successes: [(FileDifference, (URL?, URL, URL))], failures: [(FileDifference, Error)]) {
+    ) async -> (successes: [(FileDifference, (URL?, URL, URL), Task<ItemIdentity, Never>?)], failures: [(FileDifference, Error)]) {
         let collector = BulkSyncResultsCollector()
         await processInParallel(
             items: workList,
@@ -211,7 +225,9 @@ extension FileSyncManager {
             let (diff, fromURL, toURL, isMove) = item
             do {
                 let syncResult = try performFileSyncIO(from: fromURL, to: toURL, isMove: isMove, fileManager: fileManager)
-                await collector.addSuccess(diff, (syncResult.trashed, syncResult.from, syncResult.to))
+                let identityWalk = isMove ? nil
+                    : FileSyncManager.startCopyIdentityWalk(at: syncResult.to, fileManager: fileManager)
+                await collector.addSuccess(diff, (syncResult.trashed, syncResult.from, syncResult.to), identityWalk)
             } catch {
                 await collector.addFailure(diff, error)
             }
@@ -475,17 +491,22 @@ extension FileSyncManager {
         // menu; the empty case opens no group.
         let runId = UUID()
         var historyRecords: [SyncHistoryRecord] = []
-        // Same shape as the Verify All path above: the copy registrations' detached identity
-        // walks are collected and awaited after the grouping closes, so nothing can interleave
-        // into the "Sync run" undo step while the main actor suspends.
+        // Same shape as the Verify All path above: each copy's identity walk was started inside
+        // `performBulkSyncIO` the moment its own copy landed; the registrations' wrapper tasks
+        // are collected and awaited after the grouping closes, so nothing can interleave into
+        // the "Sync run" undo step while the main actor suspends.
         var identityWalks: [Task<Void, Never>] = []
         if !result.successes.isEmpty { undoManager?.beginUndoGrouping() }
-        for (diff, (trashed, from, to)) in result.successes {
+        for (diff, (trashed, from, to), identityWalk) in result.successes {
             let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
             if isMove {
                 registerMoveUndo(items: [(from: from, to: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
             } else {
-                identityWalks.append(registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM))
+                // Defensive fallback only: the IO loop starts a walk for every copy success.
+                identityWalks.append(registerCopyUndo(
+                    pendingItems: [(source: from, destination: to, overwritten: trashed,
+                                    identity: identityWalk ?? Self.startCopyIdentityWalk(at: to, fileManager: activeFM))],
+                    actionName: actionName, fileManager: activeFM))
             }
             // Size is free from the difference (source side). Checksum is deliberately nil at op
             // time: hashing inline would slow a bulk run of hundreds of files — the "with
@@ -603,15 +624,15 @@ private actor CompletedCounter {
 }
 
 private actor BulkSyncResultsCollector {
-    private var successes: [(FileDifference, (URL?, URL, URL))] = []
+    private var successes: [(FileDifference, (URL?, URL, URL), Task<ItemIdentity, Never>?)] = []
     private var failures: [(FileDifference, Error)] = []
-    func addSuccess(_ diff: FileDifference, _ result: (URL?, URL, URL)) {
-        successes.append((diff, result))
+    func addSuccess(_ diff: FileDifference, _ result: (URL?, URL, URL), _ identityWalk: Task<ItemIdentity, Never>?) {
+        successes.append((diff, result, identityWalk))
     }
     func addFailure(_ diff: FileDifference, _ error: Error) {
         failures.append((diff, error))
     }
-    func get() -> (successes: [(FileDifference, (URL?, URL, URL))], failures: [(FileDifference, Error)]) {
+    func get() -> (successes: [(FileDifference, (URL?, URL, URL), Task<ItemIdentity, Never>?)], failures: [(FileDifference, Error)]) {
         (successes, failures)
     }
 }

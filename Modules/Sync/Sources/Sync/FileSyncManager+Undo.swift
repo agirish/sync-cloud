@@ -24,6 +24,15 @@ extension FileSyncManager {
     /// shallow `.directory` identity that used to be recorded here. See `registerCopyUndo(items:)`
     /// for the cost, and the move typealiases below for why THEY stay shallow.
     typealias CopyUndoItemState = (source: URL, destination: URL, overwritten: URL?, destinationIdentity: ItemIdentity)
+    /// A copied item whose identity walk the CALL SITE already started — the moment the item's
+    /// OWN copy landed, inside its batch loop — rather than when the whole batch finished.
+    /// `identity` is that walk's task (`startCopyIdentityWalk`); it resolves to exactly what
+    /// `CopyUndoItemState.destinationIdentity` records. This is what keeps the copy-to-recording
+    /// window per ITEM: a batch blocks mid-run on user prompts (collision and name checks await
+    /// the main actor per item) and on slow-volume I/O, so a post-batch walk would record an edit
+    /// the user made during that tail as the copy's baseline — and a later ⌘Z would trash it as
+    /// `.unchanged`. See `registerCopyUndo(pendingItems:)`.
+    typealias PendingCopyItemState = (source: URL, destination: URL, overwritten: URL?, identity: Task<ItemIdentity, Never>)
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
     /// `MoveItemState` enriched with the identity the moved item had once the move completed, so
     /// the undo can verify that what sits at `to` now is still what it put there.
@@ -562,11 +571,15 @@ extension FileSyncManager {
     /// copy returns, then ⌘Z) are written against. A caller that discards it loses only that
     /// determinism, never the guard.
     ///
-    /// Residual, stated: the identity is read moments after the copy rather than in the same
-    /// main-actor turn, so an edit landing inside that gap is recorded as part of the copy and a
-    /// later ⌘Z will trash it. Out-of-process writers always had that window (the frozen UI
-    /// never stopped *them* mid-walk); the detached walk merely stops pretending the user was
-    /// locked out of it too.
+    /// Residual, stated — and this convenience is for SINGLE-item call sites only (`syncFile`),
+    /// where the copy-to-recording gap really is milliseconds: the identity is read moments
+    /// after the copy rather than in the same main-actor turn, so an edit landing inside that
+    /// gap is recorded as part of the copy and a later ⌘Z will trash it. Out-of-process writers
+    /// always had that window. A BATCH must not funnel through here: this walk starts only when
+    /// the whole batch is done, and a batch blocks mid-run on user prompts and slow-volume I/O
+    /// — user-unbounded time during which an edit inside an already-landed copy would become
+    /// that copy's baseline. Batch loops start each item's walk as its own copy lands
+    /// (`startCopyIdentityWalk`) and register through `registerCopyUndo(pendingItems:)`.
     ///
     /// Cost: one stat-only recursive walk per copied folder (no bytes are read), at the moment
     /// the copy just finished and the tree's metadata is warm. The duplicates path already
@@ -585,6 +598,41 @@ extension FileSyncManager {
                  destinationIdentity: FileSyncManager.recordedCopyIdentity(at: item.destination, fileManager: fm))
             }
             await resolver.resolve(enriched)
+        }
+    }
+
+    /// Batch registration over identity walks the call site already started, one per item, the
+    /// moment that item's own copy landed (`PendingCopyItemState`). The registration contract is
+    /// identical to `registerCopyUndo(items:)` — the undo is registered synchronously before the
+    /// first suspension, the handler suspends in the resolver until every identity exists, and
+    /// the returned task completes when the state is recorded (callers await it as the
+    /// operation's last step). Only WHEN each identity is read differs, and that is the point:
+    /// per item at copy-land time, not per batch at loop-end time.
+    @discardableResult
+    func registerCopyUndo(pendingItems: [PendingCopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
+        let resolver = AsyncValueResolver<[CopyUndoItemState]>()
+        registerCopyUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
+        return Task.detached(priority: .userInitiated) {
+            var enriched: [CopyUndoItemState] = []
+            enriched.reserveCapacity(pendingItems.count)
+            for item in pendingItems {
+                enriched.append((source: item.source, destination: item.destination,
+                                 overwritten: item.overwritten,
+                                 destinationIdentity: await item.identity.value))
+            }
+            await resolver.resolve(enriched)
+        }
+    }
+
+    /// Starts the detached identity walk for ONE landed copy. Batch call sites call this the
+    /// moment each item's own copy returns — inside the transfer/bulk loops — so the
+    /// copy-to-recording window stays milliseconds even when the rest of the batch then blocks
+    /// on a user prompt or hours of I/O; an edit the user makes during that tail reads as drift
+    /// (⌘Z refuses) instead of being recorded as the copy's baseline. The task feeds
+    /// `registerCopyUndo(pendingItems:)`.
+    nonisolated static func startCopyIdentityWalk(at destination: URL, fileManager fm: FileManaging) -> Task<ItemIdentity, Never> {
+        Task.detached(priority: .userInitiated) {
+            recordedCopyIdentity(at: destination, fileManager: fm)
         }
     }
 
@@ -909,7 +957,11 @@ extension FileSyncManager {
                                 // like `registerCopyUndo(items:)`: this identity feeds the same
                                 // trash guard, and recording it shallow here would quietly hand
                                 // the redo→undo leg back the deep-edit blindness the first leg
-                                // just closed.
+                                // just closed — pinned by `aDeepEditAfterARedoRefusesTheSecondUndo`
+                                // (this line mutated to `snapshot` passed the whole suite before
+                                // that test: every copy-redo fixture was a file, for which the
+                                // two snapshots are definitionally identical). Taken inline,
+                                // right after the item's own copy, so the window is per item.
                                 nextState.append((source: param.source, destination: param.destination, overwritten: trashed,
                                                   destinationIdentity: FileSyncManager.recordedCopyIdentity(at: param.destination, fileManager: fm)))
                             } catch {

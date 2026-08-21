@@ -549,6 +549,137 @@ import Testing
         #expect(fm.virtualDisk["/undowait-dst/project"] == nil,
                 "an undo racing the identity walk must wait for it and then act — a silent no-op strands the copy and lies about the stack")
     }
+    // MARK: 8 — the registration window is per ITEM, not per batch
+
+    /// THE batch-window bug: `registerCopyUndo` used to walk every item only after the WHOLE
+    /// transfer loop returned, and that loop blocks mid-batch on user prompts — so the window
+    /// between "this item's copy landed" and "its identity was recorded" was user-unbounded.
+    /// Copy folders A and B; A lands; B's collision prompt sits open while the user edits a file
+    /// deep inside A's landed copy; prompt answered; the post-batch walk then records the
+    /// POST-EDIT state as A's baseline — and ⌘Z reads `.unchanged` and trashes the edited copy.
+    ///
+    /// Each item's walk must start the moment ITS OWN copy lands, inside the loop. The fixture
+    /// holds the ordering deterministically: the collision resolver (the open prompt) waits —
+    /// bounded — until the walk has statted the deep file's pre-edit state, then applies the
+    /// edit. On the fixed code that wait completes in milliseconds; on the old shape no walk can
+    /// run while the prompt is open (registration needs the loop to finish, and the loop is
+    /// blocked in this very resolver), so the wait times out and the `#require` names the defect.
+    @MainActor
+    @Test func anEditDuringALaterItemsCollisionPromptRefusesTheUndoOfTheEarlierItem() async throws {
+        let manager = makeManager()
+        let fm = MockFileManager()
+        try plantDeepSource(on: fm, under: "/promptwin-src")
+        // The second item: a plain file that COLLIDES at the destination, holding the batch open
+        // at a prompt AFTER the folder's copy has already landed. Name chosen longer than the
+        // folder's so `pruneNestedNodes`' length sort keeps the folder first.
+        fm.virtualDisk["/promptwin-src/zz-collide.txt"] = file(5)
+        try fm.createDirectory(at: URL(fileURLWithPath: "/promptwin-dst"), withIntermediateDirectories: true)
+        fm.virtualDisk["/promptwin-dst/zz-collide.txt"] = file(7)
+
+        let deepCopyPath = "/promptwin-dst/project/src/deep/notes.md"
+        let walkReadTheDeepFile = LockedBox(false)
+        fm.onAttributesOfItem = { path in
+            if path == deepCopyPath { walkReadTheDeepFile.withLock { $0 = true } }
+        }
+        let promptFired = LockedBox(false)
+        let walkRanDuringPrompt = LockedBox(false)
+        manager.collisionResolver = { _ in
+            promptFired.withLock { $0 = true }
+            // The user, mid-batch: the folder's copy has landed; they edit a file deep inside it
+            // while this prompt sits open. Bounded spin (wall clock — the walk runs on a detached
+            // thread and needs no main-actor turns) until the walk has READ the pre-edit state,
+            // so the edit deterministically postdates the recording.
+            let deadline = Date().addingTimeInterval(5)
+            while !walkReadTheDeepFile.withLock({ $0 }) && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.005)
+            }
+            walkRanDuringPrompt.withLock { $0 = walkReadTheDeepFile.withLock { $0 } }
+            fm.virtualDisk[deepCopyPath] = MockFileManager.FileStub(
+                isDirectory: false,
+                attributes: [FileAttributeKey.size: 999,
+                             FileAttributeKey.modificationDate: Date(timeIntervalSince1970: 9_999)],
+                contents: nil)
+            return .replace
+        }
+
+        let nodes = [FileNode(id: "/promptwin-src/project", name: "project", isDirectory: true),
+                     FileNode(id: "/promptwin-src/zz-collide.txt", name: "zz-collide.txt", isDirectory: false)]
+        _ = await manager.copyItems(nodes: nodes, toPath: "/promptwin-dst", fileManager: fm)
+
+        try #require(promptFired.withLock { $0 },
+                     "fixture check: the collision prompt (and so the mid-batch edit) must have fired")
+        try #require(walkRanDuringPrompt.withLock { $0 },
+                     "the copy-to-recording window is per BATCH, not per item: no identity walk read the landed copy while a later item's prompt held the loop open — an edit made now becomes the recorded baseline and ⌘Z will trash it")
+        try #require(fm.virtualDisk[deepCopyPath]?.attributes?[FileAttributeKey.size] as? Int == 999,
+                     "fixture check: the mid-prompt edit must be on the mock disk")
+        manager.banner = nil
+
+        manager.undoManager?.undo()
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(manager.banner?.severity == .warning,
+                "the undo must refuse the edited copy; banner: \(String(describing: manager.banner?.message))")
+        #expect(manager.banner?.message.contains("changed since") == true,
+                "got \(String(describing: manager.banner?.message))")
+        #expect(fm.virtualDisk["/promptwin-dst/project"] != nil,
+                "the copy edited during the prompt must survive ⌘Z — trashing it takes the only instance of the edit")
+        #expect(fm.virtualDisk[deepCopyPath]?.attributes?[FileAttributeKey.size] as? Int == 999,
+                "the edited deep file must be left exactly as the user wrote it")
+        #expect(fm.virtualDisk["/promptwin-dst/zz-collide.txt"]?.attributes?[FileAttributeKey.size] as? Int == 7,
+                "the unedited item still undoes: its replaced original is restored")
+    }
+
+    // MARK: 9 — the redo→undo leg records at the same depth
+
+    /// Copy → undo → redo → edit DEEP inside the re-copy → undo again: the second undo must
+    /// refuse. The redo re-registers the next undo's identity itself (inside its own loop), and
+    /// nothing else pinned that it records DEEP: mutating its `deepSnapshot` back to `snapshot`
+    /// passed the entire suite, because every copy-redo test used file fixtures — for a FILE the
+    /// two snapshots are definitionally identical. This is the folder pin for that leg.
+    @MainActor
+    @Test func aDeepEditAfterARedoRefusesTheSecondUndo() async throws {
+        let manager = makeManager()
+        let fm = MockFileManager()
+        try plantDeepSource(on: fm, under: "/redodeep-src")
+        try await copyDeepTree(manager: manager, fm: fm, from: "/redodeep-src", to: "/redodeep-dst")
+
+        manager.undoManager?.undo()
+        await waitUntil("the first undo removes the copy") { fm.virtualDisk["/redodeep-dst/project"] == nil }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        try #require(fm.virtualDisk["/redodeep-dst/project"] == nil,
+                     "fixture check: the first undo must have removed the untouched copy")
+
+        manager.undoManager?.redo()
+        await waitUntil("the redo re-copies the tree") {
+            fm.virtualDisk["/redodeep-dst/project/src/deep/notes.md"] != nil
+        }
+        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
+        try #require(fm.virtualDisk["/redodeep-dst/project/src/deep/notes.md"] != nil,
+                     "fixture check: the redo must have re-copied the whole tree")
+
+        // The user edits deep inside the RE-copy; nothing at its root moves — the exact edit the
+        // shallow identity cannot see, same precondition discipline as the first-leg tests.
+        let shallowAfterRedo = try shallowIdentity(fm, root: "/redodeep-dst/project")
+        fm.virtualDisk["/redodeep-dst/project/src/deep/notes.md"] =
+            file(999, modified: Date(timeIntervalSince1970: 9_999))
+        try #require(shallowAfterRedo.drift(at: URL(fileURLWithPath: "/redodeep-dst/project"),
+                                            fileManager: fm) == .unchanged,
+                     "fixture check: this edit must be exactly the one the shallow identity cannot see")
+        manager.banner = nil
+
+        manager.undoManager?.undo()
+        await waitUntil("second undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(manager.banner?.severity == .warning,
+                "the second undo must refuse, not proceed; banner: \(String(describing: manager.banner?.message))")
+        #expect(manager.banner?.message.contains("changed since") == true,
+                "got \(String(describing: manager.banner?.message))")
+        #expect(fm.virtualDisk["/redodeep-dst/project"] != nil,
+                "the re-copy must still be on disk — the redo leg recorded shallow and the deep edit slipped through")
+        #expect(fm.virtualDisk["/redodeep-dst/project/src/deep/notes.md"]?.attributes?[FileAttributeKey.size] as? Int == 999,
+                "the edited deep file must be left exactly as the user wrote it")
+    }
+
     // MARK: 10 — a registration-time .indeterminate says why, when it is knowable
 
     /// An unreadable descendant at REGISTRATION time is a permanent refusal for that item: hours

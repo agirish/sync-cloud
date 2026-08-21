@@ -192,12 +192,12 @@ extension FileSyncManager {
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], alreadyThere: Int) in
-            guard self != nil else { return ([], [], 0) }
+        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<ItemIdentity, Never>], alreadyThere: Int) in
+            guard self != nil else { return ([], [], [], 0) }
             // One stat, before any I/O: a missing destination root fails the whole operation
             // rather than being recreated by the per-item intermediate-directory pass below.
             guard !destinationRootPath.isEmpty, fm.fileExists(atPath: destinationRootPath) else {
-                return ([FileOperationError.destinationRootUnavailable], [], 0)
+                return ([FileOperationError.destinationRootUnavailable], [], [], 0)
             }
             // Publish progress only once this operation actually starts; setting it at enqueue
             // time would clobber the progress of an operation still running ahead in the queue.
@@ -206,6 +206,20 @@ extension FileSyncManager {
             }
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
+            // One identity walk per COPIED item (parallel to `targetItems`; unused and empty for
+            // moves), started the moment that item's own copy lands. Started HERE, inside the
+            // loop, because the loop blocks mid-batch on user prompts — `resolveCollision` and
+            // `checkName` await the main actor per item — and on slow-volume I/O, so a walk that
+            // starts only at registration time (after the whole batch) would record an edit the
+            // user made inside an already-landed copy during that tail as the copy's BASELINE:
+            // ⌘Z would then read `.unchanged` and trash the edit. Per-item, the edit postdates
+            // the recording and reads as drift, which refuses. Registration below stays
+            // synchronous and merely awaits these.
+            var identityWalks: [Task<ItemIdentity, Never>] = []
+            // Earlier copies' walk indices by aggressively folded destination path (precomposed
+            // + lowercased), for the duplicate-destination restart below. Aggressive on purpose:
+            // it only NOMINATES candidates — the volume-gated check at the hit decides.
+            var copyWalkIndicesByFoldedDestination: [String: [Int]] = [:]
             // Items skipped because the move's target WAS its source. Counted rather than
             // re-derived afterwards: the loop's target can be rewritten by the provider-name
             // check, so only the loop knows which comparison actually decided the skip.
@@ -284,6 +298,36 @@ extension FileSyncManager {
                         ? try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm)
                         : try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
                     targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
+                    if !isMove {
+                        // A batch can land one destination TWICE — two same-named sources
+                        // through the replace prompt, under one spelling or two ("F.txt" then
+                        // "f.txt" on a folding volume). The copy that just landed replaced the
+                        // EARLIER item's output, so the earlier walk now describes an item this
+                        // batch itself superseded — not user drift. Left stale, the undo would
+                        // refuse the earlier registration (`.changed`) and strand its pre-batch
+                        // backup: the handler's duplicate-registration guard is built on both
+                        // registrations recording the FINAL state (pinned by
+                        // `copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce`, which is
+                        // what caught this). Restart the superseded walks so they do; the
+                        // discarded walk's result is never read.
+                        let foldedTarget = targetURL.path.precomposedStringWithCanonicalMapping.lowercased()
+                        for i in copyWalkIndicesByFoldedDestination[foldedTarget] ?? [] {
+                            let earlier = targetItems[i].to
+                            // One on-disk name: exact after precomposing (APFS lookups are
+                            // normalization-insensitive on every volume), or a case variant on
+                            // a volume that folds case — the undo handler's own foldedKey gate.
+                            let sameOnDiskName = earlier.path.precomposedStringWithCanonicalMapping
+                                == targetURL.path.precomposedStringWithCanonicalMapping
+                                || !Self.volumeSupportsCaseSensitiveNames(for: targetURL)
+                            if sameOnDiskName {
+                                identityWalks[i] = Self.startCopyIdentityWalk(at: earlier, fileManager: fm)
+                            }
+                        }
+                        // `identityWalks` runs parallel to `targetItems` for copies (each append
+                        // below pairs the one above), so the new walk's index is the count now.
+                        copyWalkIndicesByFoldedDestination[foldedTarget, default: []].append(identityWalks.count)
+                        identityWalks.append(Self.startCopyIdentityWalk(at: targetURL, fileManager: fm))
+                    }
                 } catch {
                     taskErrors.append(error)
                 }
@@ -291,7 +335,7 @@ extension FileSyncManager {
                     progress?.completedUnitCount = Int64(index + 1)
                 }
             }
-            return (taskErrors, targetItems, alreadyThere)
+            return (taskErrors, targetItems, identityWalks, alreadyThere)
         }
 
         let transferred = result.transferred
@@ -299,12 +343,22 @@ extension FileSyncManager {
             if isMove {
                 self.registerMoveUndo(items: transferred, actionName: "Move \(transferred.count) Items", fileManager: fm)
             } else {
-                // The registration is synchronous; what is awaited is the detached identity walk
-                // it returns (see `registerCopyUndo(items:)`), so this operation does not return
-                // until its undo is fully armed — the drift tests tamper the moment it does. The
-                // await suspends the main actor rather than blocking it: the walk itself never
-                // runs there.
-                await self.registerCopyUndo(items: transferred.map { (source: $0.from, destination: $0.to, overwritten: $0.overwritten) }, actionName: "Copy \(transferred.count) Items", fileManager: fm).value
+                // Each item's identity walk was started the moment ITS copy landed, inside the
+                // loop above; the registration here is synchronous and what is awaited is the
+                // collection task wrapping those walks, so this operation does not return until
+                // its undo is fully armed — the drift tests tamper the moment it does. The await
+                // suspends the main actor rather than blocking it: the walks never run there.
+                //
+                // Deliberate: the await also holds `activeProgress` (cleared just below) through
+                // this identity tail — the operation does not report complete until every undo
+                // it registered is armed. `activeFileOperationsCount` already reads 0 during the
+                // tail (the op decremented on return), so the quit guard would not hold the app
+                // for it; that is harmless — the walks are read-only, and an unarmed undo dies
+                // with the process anyway.
+                let pending: [PendingCopyItemState] = zip(transferred, result.identityWalks).map {
+                    (source: $0.0.from, destination: $0.0.to, overwritten: $0.0.overwritten, identity: $0.1)
+                }
+                await self.registerCopyUndo(pendingItems: pending, actionName: "Copy \(transferred.count) Items", fileManager: fm).value
             }
         }
 
