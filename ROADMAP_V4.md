@@ -932,7 +932,16 @@ v4.2, 13–15 as v4.3**, with tags cut outright rather than deferred.
 ## v4.3 — what it holds, and why each thing is in it
 
 **Assembled 2026-08-20 from what this file already defers**, not from a fresh survey: every entry
-below is a pointer to a section above that carries the detail. The list is short on purpose. Two
+below is a pointer to a section above that carries the detail.
+
+**This table is not the whole of v4.3, and it does not try to be.** The
+[v4.3 plan](https://claude.ai/code/artifact/23cda3a3-a408-430a-90fd-c0291bd3a94f) carries **eight
+more items** that came out of the round-2 visual review of the running build rather than out of this
+file — five Storage-lens fixes, two Duplicates ones, and Compare's Path column retiring into
+parent-directory headers. They are not repeated here because a spec kept in two places drifts in one
+of them; what is repeated is only the five below, which this file defers and that page therefore has
+to carry too. **Sixteen items in total: thirteen for v4.3, three beyond it.** If the two ever
+disagree, the code is the tiebreak and both are wrong until re-read. The list is short on purpose. Two
 things arrived here by different routes and it matters which:
 
 - **Deferred on merit** — ranked last because they change what Browse can *display* rather than how
