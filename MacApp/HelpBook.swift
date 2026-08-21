@@ -10,6 +10,35 @@ import Design
 /// changes, update the matching topic and the pin test together. Deliberately no Sync/Events
 /// dependency: this is words about the app, not the app's logic.
 enum HelpBook {
+
+    /// *Requires macOS N or later.* — **read off the bundle, never typed.**
+    ///
+    /// This bullet was the literal `"Requires macOS 15 or later."`. On this line that number is
+    /// right, and on `v3.x` — same file, same sentence, `deploymentTarget: "26.0"` — it was wrong
+    /// for the whole life of the line: the book told a reader on macOS 15 that a build requiring
+    /// 26 would run. Nothing fails when it is wrong, because nothing else in the app states a
+    /// system requirement; the reader finds out by downloading a build that will not launch, and
+    /// it is the one claim in the book they consult *before* downloading.
+    ///
+    /// So the number comes from `LSMinimumSystemVersion`, which Xcode writes into the built
+    /// `Info.plist` from `project.yml`'s `deploymentTarget`. Raising the deployment target now
+    /// moves this sentence with it, in the same edit, with nobody remembering to — which is the
+    /// half that matters here, since a correct literal on this line is exactly what `v3.x` had
+    /// before its target moved out from under it.
+    ///
+    /// **The fallback is vague on purpose.** With no key to read this says nothing about a version
+    /// rather than guessing at one: a stale number reads as authoritative, "a recent version" reads
+    /// as what it is.
+    static var minimumSystemRequirement: String {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "LSMinimumSystemVersion") as? String,
+              !raw.isEmpty else {
+            return "Requires a recent version of macOS."
+        }
+        // "26.0" is not how anyone says it; "15.4" is. Only a trailing `.0` goes.
+        let shown = raw.hasSuffix(".0") ? String(raw.dropLast(2)) : raw
+        return "Requires macOS \(shown) or later."
+    }
+
     /// One rendered piece of an article. The renderer owns layout; the data owns words.
     enum Block: Equatable {
         /// A paragraph of running text.
@@ -306,7 +335,7 @@ enum HelpBook {
                     .bullets([
                         "See the version and build in Help ▸ About SyncCloud.",
                         "The CLI mirrors the app's scan and sync for the terminal.",
-                        "Requires macOS 15 or later.",
+                        minimumSystemRequirement,
                     ]),
                 ],
                 related: ["what-is-synccloud"]

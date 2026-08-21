@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SyncCloud
 
@@ -119,5 +120,30 @@ import Testing
         let dropHits = HelpBook.filteredSections(matching: "dropping")
             .flatMap(\.topics).map(\.id)
         #expect(dropHits.isEmpty, "Help topics still mention dropping: \(dropHits)")
+    }
+
+    /// The macOS version Help claims is the one the app is actually built against.
+    ///
+    /// **The claim is right on this line and was wrong on `v3.x`** — same file, same sentence,
+    /// `deploymentTarget: "26.0"` against a book saying 15 — which is what a typed number does when
+    /// the target moves out from under it. `HelpBook.minimumSystemRequirement` reads the bundle now,
+    /// so this asserts the two ways a derived string can still be wrong: the **fallback** firing
+    /// (which would publish "a recent version of macOS" to every reader), and the **formatting**,
+    /// where `15.0` must reach the page as `15` and a `15.4` must keep its `.4`.
+    ///
+    /// `Bundle.main` is the app itself here: `SyncCloudTests` is hosted by `SyncCloud.app`, which is
+    /// why this can be asked at all. Under `swift test` it could not.
+    @Test func theStatedSystemRequirementMatchesTheBuild() throws {
+        let raw = try #require(Bundle.main.infoDictionary?["LSMinimumSystemVersion"] as? String,
+                               "the host bundle carries no LSMinimumSystemVersion — this test cannot see the truth")
+        let expected = raw.hasSuffix(".0") ? String(raw.dropLast(2)) : raw
+
+        let about = try #require(HelpBook.sections.flatMap(\.topics).first { $0.id == "about" },
+                                 "the About topic is gone, so nothing states a system requirement")
+        let copy = about.article.blocks.map(String.init(describing:)).joined(separator: " ")
+        #expect(copy.contains("Requires macOS \(expected) or later."),
+                "the About topic does not state the built requirement (macOS \(expected)) — it says: \(copy)")
+        #expect(!copy.contains("a recent version of macOS"),
+                "the requirement fell back to the vague form inside the real app bundle")
     }
 }
