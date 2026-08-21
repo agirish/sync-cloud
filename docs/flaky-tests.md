@@ -1476,3 +1476,46 @@ to stage the race. A guarded rename is worth a seam.
 
 **Do not race a concurrent session.** Check `git worktree list` and recent commits touching the
 file first. Two sessions rewriting one test harness is worse than the flake.
+
+---
+
+### 14. A palette wait that has to outlast a 36-hop retry budget
+
+**Symptom.** `CommandPalettePanelTests.aFieldThatGoesAwayTakesItsListOffTheScreen` fails at its
+second `waitUntil` — *"the list came off the screen once its field was unmeasurable"* — and the two
+`#expect`s after it cascade, because they read a panel that has not been hidden yet:
+
+```
+✘ … CommandPalettePanelTests.swift:1062: Expectation failed: condition()
+✘ … panel.ignoresMouseEvents → false
+✘ … controller.isPresented → false
+```
+
+**Mechanism.** The behaviour under test is `refreshAnchor` giving up: with the anchor answering nil
+it re-tries `CommandPalettePanelController.anchorAttempts` (36) times, one display frame apart
+(`anchorRetryInterval`, 1/60s), and only then calls `hide()`. So the test is waiting on roughly
+**0.6 s of `DispatchQueue.main.asyncAfter` hops** before the thing it asserts can possibly happen —
+and those hops are wall-clock scheduled, not main-actor turns.
+
+That spacing is deliberate and must not be "optimised": `main.async` runs every retry inside one
+runloop drain, which is the bug `6282ad7d` and `main-queue-async-is-not-a-retry` exist to record.
+The budget is load-bearing, so the wait over it has to be generous instead.
+
+**What makes it fire.** Anything competing for the machine while the app-target step runs — another
+worktree's package suite, a concurrent `xcodebuild`, a local full-suite run. Observed 2026-08-20 at
+load average 5.79 with a second session running `Modules/Dashboard` from another worktree; the same
+test then passed **in isolation in 1.3 s** and passed again in a full 806-test run once that suite
+finished. Mechanism 10's family, reached by a different route: there the gates park on a shared
+pool, here a fixed frame budget stretches past the waiter's.
+
+**Before blaming a commit.** Two questions, in this order:
+
+1. **Did it fail alone?** `-only-testing:SyncCloudTests/CommandPalettePanelTests` runs in seconds. A
+   pass there and a failure in the full run is this mechanism, not a defect.
+2. **Was the machine busy?** `uptime` and `pgrep -fl swiftpm-testing` — a second worktree's suite is
+   the usual answer, and it will not appear anywhere in the failing run's own log.
+
+A change to the palette's anchor path is the one case where this deserves a real look; the fixture
+drives `refreshAnchor` through a nil anchor, so a genuine regression there fails it every time
+rather than under load.
+
