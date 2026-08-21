@@ -135,6 +135,15 @@ section first.
   does not register it either. It fires only while the file list has focus, runs the
   same closure File ▸ Rename runs, and falls through untouched when no single row is
   selected.
+- **Space no longer opens Quick Look on top of the destination picker.** While a
+  *Copy to…* or *Move to…* pick is up, every chord the menu bar mirrors is suspended —
+  that pick owns the keyboard until you answer it. Space was not among them: it is a
+  key handler on the file list rather than a menu item, so it never went through the
+  publication that does the silencing, and nothing stopped it putting a preview over
+  the sheet you were in the middle of answering. The reasoning that missed it was that a focus-scoped
+  handler cannot fire while a sheet is up — but the picker is drawn over file panes
+  that are real AppKit tables, and a view drawn above one of those does not take the
+  keyboard from it. ↩, which is new here, is covered by the same rule.
 - **⌘← and ⌘→ are in the Compare menu.** The four directional transfers worked and
   were listed in the ⌘/ reference, but had no menu-bar route — and a menu item is
   what lets a chord be read as well as pressed. Their titles name the providers
