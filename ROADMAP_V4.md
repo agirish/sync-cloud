@@ -723,21 +723,45 @@ ever does misfire in use, the fix is the guard, not a longer memory.
   draft set `title` instead, on the reasoning that a `.hiddenTitleBar` window draws no subtitle so
   nothing could be reading it, and that would have printed the pair twice in one entry.
 
-  **The in-window line is deferred, and not as a nicety.** The toolbar is the only window-level
+  **The in-window line is deferred to v4.3 with the item below**, and not as a nicety. The toolbar is the only window-level
   chrome there is, and its width is a measured budget: `WorkspaceBarMetrics.reservedChrome` feeds
   `testTheNarrowestWindowStillClearsTheFieldsFloor`, which §7 already records as "starts failing the
   moment a fifth workspace lands, `reservedChrome` grows, or the window's minimum is lowered". A
   fifth toolbar item **is** `reservedChrome` growing. That is the same budget conversation as the
   item below and as v4.3's status bar, and settling it three times separately is how the ⌘K field
   ends up under its floor. **Take it with one-line pane headers, not before.**
-- **One-line pane headers.** Fold each pane's two-row header to one — provider chip, breadcrumb,
-  link glyph — and reveal the bar on hover or keyboard focus. Roughly 44pt back, three more file
-  rows per pane, on every window, permanently. **Medium, and the constraint hardened since it was
-  first proposed:** the header is pinned at 81pt so its bottom edge shares the 83.5 rule with
-  Organize's `LensHeaderCard` (`LiquidGlassStyle.swift:410`, `:403`), and `PaneHeaderHeightTests`
-  guards it from the other side. Two further rules: the fold must respect the user's own
-  `PaneBarArrangement` rather than a hardcoded cluster, and an expanded ⌘F field **cannot** hide on
-  hover-out — a field someone is typing into is not chrome.
+- **One-line pane headers.** **Carried to v4.3 on 2026-08-20, after building it and measuring it.**
+  It is v4.3 item 5. The prototype was not landed — there is nothing to revert — but the numbers
+  below cost a session to get and are the whole reason the item moved, so they are recorded here
+  rather than left in a chat log. Renders and the full argument:
+  [the mockup artifact](https://claude.ai/code/artifact/1818e984-9352-4644-90b4-5536cbb56532).
+
+  **Three of this bullet's own claims did not survive the build:**
+
+  - **It gives back 23pt, not 44 — one file row, not three.** The folded header measures **58pt**
+    against today's 81. The 44 assumed the provider capsule shrinks with the fold; nothing makes it.
+    12pt padding + a 34pt capsule + 12pt padding = 58, at any width where it fits at all. Counted on
+    a real render at a 900pt pane: **ten rows becomes eleven.**
+  - **It cannot be "on every window".** At a 250pt pane — a normal Compare pane; the rail's floor is
+    220 — the bar alone needs **159pt** of a 222pt track (`PaneBarLadder.width(forRung:)` at its
+    terminal rung). Everything else gives way at once: the provider capsule collapses to a bare
+    chevron with **no name**, and the breadcrumb to two bare separators with **no folders**. Today's
+    two-row header at that same width still reads `iCloud › Documents › Reports`. The header's own
+    rule — the name is the identity anchor, the logo yields first — is broken outright.
+  - **The folded height does not hold still**: 58pt wide, **46pt** narrow, because the capsule's
+    ladder drops the logo. That 12pt drift is exactly what pinning `headerHeight` eliminated (it
+    measured 80/80/68 before the pin, breaking the shared line by 13pt at the narrow end).
+
+  **And the 83.5 rule binds harder than "a test guards it".** The rail sits *directly beside*
+  `LensHeaderCard` on every lens workspace, and that card carries two rows of real content — lens
+  name and actions; scanned-folder chip, stat pills and count — so it cannot fold with the rail.
+  Folding the rail breaks a line that is on screen, not merely a constant.
+
+  Which leaves **Browse** as the only surface where the fold is safe: full width by construction and
+  the one workspace with no lens card beside it. That is what v4.3 should build, if it builds this.
+  One more measured detail for whoever does: between roughly 900 and 1200pt the fold costs the pane
+  bar its **word labels** (`iconAndText` is the shipped default) because the breadcrumb takes the
+  middle of the track; at 1200pt and above they come back and the fold costs nothing at all.
 
 ---
 
@@ -889,7 +913,10 @@ have already shipped, so what is actually left is nine.
     v4.3 on 2026-08-20**, as its item 4. The delete-or-build choice was put and answered in favour
     of keeping it, which is what makes this a decision rather than the third silent carry the
     bullet was warning about. See §1 for what the carry commits whoever picks it up to.
-12. **One-line pane headers** (§8). Medium, and it argues with a pinned constant and its test.
+12. ~~**One-line pane headers** (§8). Medium, and it argues with a pinned constant and its test.~~
+    **Carried to v4.3 on 2026-08-20**, as its item 5 — built, measured, and moved on the numbers
+    rather than on the argument. It did not merely argue with the pinned constant; it lost. §8
+    carries all of it. **With this, v4.2 is feature-complete.**
 13. **Gallery view** (§3) — thumbnail infrastructure.
 14. **Group by kind or date** (§3) — touches every row-rendering path.
 15. **Drop files on a tab** (§3) — after 10, with the proof that a click still opens a column.
@@ -920,22 +947,23 @@ things arrived here by different routes and it matters which:
 | 2 | **The status bar** (§3) | small | **On a question.** Placement: per-pane, window-wide, or following focus — see §3's table. **Settle it with §8's one-line headers**, which spends room at the same place. Also: a cloud-only *count* is a walk, not a read. |
 | 3 | **Switching to the source a typed path is in** (§3) | small | **On a mechanism, not a question.** Go to Folder refuses a cross-source path and names the source; switching to it needs `adoptProviderForTab`'s counter to suppress the provider change's own `resetNavigation()`, or the pane lands at its root with the folder silently dropped. Expect the reload ordering to be the whole of the work. |
 | 4 | **Mirroring tab *switches* on linked panes** (§1) | medium | **On a question, and the oldest thing on this list.** Designed twice, carried three times — most recently on 2026-08-20, deliberately and against this file's own recommendation to delete it. Pairing with mirrored closes is the recommended design; the two questions it does not answer (what a switch does when its paired tab's folder has gone, and what happens once a paired tab is closed) are in §1 and are why this is not a follow-up commit. **If it is carried a fourth time, delete it instead** — the argument for keeping it was that the problem is real in use, and a fourth carry would be evidence against that. |
-| 5 | **Gallery view** (§3) | large | **On merit.** A third `PaneViewMode` case is free; thumbnails — generation, a cache that survives a quit, eviction, a placeholder that does not flash — are the whole job. Argue it from the scans folders, the only trees where a filename genuinely fails to identify the file. |
-| 6 | **Group by kind or date** (§3) | large | **On merit.** Sorting exists; grouping is a different shape — sections, headers, counts, collapse state, and a sort *within* each group — and it touches every row-rendering path in the pane. |
-| 7 | **Drop files on a tab** (§3) | large | **On merit, and it has a prerequisite.** Do it after v4.2's pasteboard, which sets the move semantics this expresses as a gesture. Needs row drag re-added, and the proof that a click still opens a column — the check the removal was originally made to satisfy. |
+| 5 | **One-line pane headers** (§8) | medium | **On a decision that has now been taken twice, and the second one is why it is here.** Built and measured 2026-08-20: 23pt back and one file row, not §8's 44pt and three; unusable below ~560pt; and folding the lens rail breaks the 83.5 line it shares with `LensHeaderCard`. **Browse-only is the only safe shape.** §8 carries every number. Take §8's in-window subtitle line with it — same width budget, and settling it twice is how the ⌘K field ends up under its floor. |
+| 6 | **Gallery view** (§3) | large | **On merit.** A third `PaneViewMode` case is free; thumbnails — generation, a cache that survives a quit, eviction, a placeholder that does not flash — are the whole job. Argue it from the scans folders, the only trees where a filename genuinely fails to identify the file. |
+| 7 | **Group by kind or date** (§3) | large | **On merit.** Sorting exists; grouping is a different shape — sections, headers, counts, collapse state, and a sort *within* each group — and it touches every row-rendering path in the pane. |
+| 8 | **Drop files on a tab** (§3) | large | **On merit, and it has a prerequisite.** Do it after v4.2's pasteboard, which sets the move semantics this expresses as a gesture. Needs row drag re-added, and the proof that a click still opens a column — the check the removal was originally made to satisfy. |
 
 **Ordering.** 1–3 first: each is small, and two of them are one decision away from being finished
-rather than started. Then 4, which is medium and is the only one here with a *design* still open —
-take it before the larges, because it is the one that goes stale. Then 5–7, which are independent of
-each other and of everything above.
+rather than started. Then 4 and 5, the two mediums — 4 is the only one here with a *design* still
+open, and 5 is the only one that arrives with its measurements already taken. Then 6–8, which are
+independent of each other and of everything above.
 
 **What is NOT here, and stays not here.** Tags was cut on 2026-08-19 rather than deferred — the
 objection stood unanswered through two roadmaps and the integration that would have earned it a
 place was declined. Do not re-add it from §3's table without answering the objection first; being
 on a list is how it got scheduled the first time.
 
-**A caution about size.** Three of these seven are large, and any one of them is a release on its own
-by the measure this file already applies to v4.2. If v4.3 takes 1–4 plus *one* of 5–7, it is a
+**A caution about size.** Three of these eight are large, and any one of them is a release on its own
+by the measure this file already applies to v4.2. If v4.3 takes 1–5 plus *one* of 6–8, it is a
 coherent release; taking all three of the larges is how a version number stops meaning anything.
 
 ---
