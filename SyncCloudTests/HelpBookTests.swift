@@ -387,6 +387,59 @@ import Testing
         #expect(checked > 4, "only \(checked) menu paths were found — this scan has gone vacuous")
     }
 
+    /// The **reverse** walk: every menu the app actually has is written about somewhere in the book.
+    ///
+    /// ``everyMenuPathInHelpNamesARealMenuItem`` catches a path that has gone stale. Nothing caught
+    /// a menu that was never written about at all — and a path that is never written is a path
+    /// that can never be wrong, so the forward walk stayed green while the gap grew.
+    ///
+    /// **v4.2 gave the app an Edit menu and the book did not mention it.** Cut, Copy, Paste and
+    /// Select All became file verbs that reach Finder in both directions, `⌘X` then `⌘V`
+    /// became a move, and the word "clipboard" appeared in no article, in any section, for the whole
+    /// release. Every other guard here was green: the topic count was right, every link resolved,
+    /// every path named a real item.
+    ///
+    /// Derived from `NSApp.mainMenu` rather than from a list written here, so a menu added later is
+    /// covered on the day it appears rather than the day somebody remembers to extend a list.
+    ///
+    /// **The match is on "<Menu> ▸ ", never on the bare word**, and that is the whole reason this
+    /// is not vacuous. "File", "Edit", "View", "Go" and "Window" are ordinary English — a
+    /// substring scan for them is satisfied by "a file", "edit the name" and "the window" without one
+    /// sentence about a menu anywhere. The arrow appears only in a menu path.
+    @MainActor
+    @Test func everyMenuInTheBarIsDescribedInTheBook() throws {
+        let mainMenu = try #require(NSApp.mainMenu)
+        let book = HelpBook.allTopics.flatMap { Self.copy(of: $0) }.joined(separator: "\n")
+
+        let ours = mainMenu.items.filter { !$0.title.isEmpty && $0.submenu != nil }
+        #expect(ours.count > 5, "only \(ours.count) menus were found — this scan has gone vacuous")
+
+        for menu in ours {
+            // Folded to a Bool BEFORE `#expect` sees it: the macro prints the values of its
+            // subexpressions, and `book` is the whole Help text — every article, on failure, ahead
+            // of the one sentence naming which menu is undocumented.
+            let described = book.contains("\(menu.title) ▸ ")
+            #expect(described,
+                    "the app has a \(menu.title) menu and no article names a \(menu.title) ▸ … path")
+        }
+    }
+
+    /// The positive control for the reverse walk, and it is about the *bare word*, not the menu.
+    ///
+    /// A scan that looked for "Edit" alone would have been satisfied by the Renames article the
+    /// whole time it was wrong. The arrow is what makes the difference, so that is what is asserted.
+    @Test func theMenuCoverageScanCanActuallyFail() {
+        let book = HelpBook.allTopics.flatMap { Self.copy(of: $0) }.joined(separator: "\n")
+        let inventedMenu = book.contains("Bookmarks ▸ ")
+        #expect(!inventedMenu, "the book names a Bookmarks menu, which this app has never had")
+        // The real Edit coverage is a path, not a loose word — delete the clipboard article and
+        // this fails while a bare-word scan would not.
+        let editIsAPath = book.contains("Edit ▸ ")
+        let editIsALooseWord = book.contains("Edit") || book.contains("edit")
+        #expect(editIsAPath, "no article names an Edit ▸ … path")
+        #expect(editIsALooseWord, "the loose word is present too — which is exactly why it proves nothing")
+    }
+
     /// The positive control: a real path is extracted and matched, and a plausible wrong one is
     /// caught. `View ▸ Organize` is the specific mistake this test was written after — the five
     /// sections were a submenu there for one afternoon.

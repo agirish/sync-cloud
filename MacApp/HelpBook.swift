@@ -199,8 +199,11 @@ enum HelpBook {
                 intro: "Storage maps a folder's biggest areas, ranks its largest and longest-untouched files, and flags large idle ones worth keeping online-only.",
                 blocks: [
                     .bullets([
-                        "Analyze a folder to get a treemap of where its bytes actually are.",
+                        "Analyze a folder to get a treemap of where its bytes actually are. It is a single ramp in your accent color ordered by size — the deepest tile is the biggest — so the color is the ranking, with no legend to learn.",
                         "The ranked lists show the largest files, the ones untouched longest, and the large-and-idle overlap worth reclaiming.",
+                        "The two size-ordered lists draw a magnitude bar beside each size, measured against that section’s own largest file, so a four-fold difference reads as one without comparing digits. It stays put while you search: filtering removes rows rather than rescaling the ones left.",
+                        "The oldest-first list has no bar — there it would fall and rise against an order it has nothing to do with. The share figure is on every row of all three, since how much of the scan a file accounts for is true however the list is sorted.",
+                        "A file too small to round to a whole percent reads “<1%” rather than “0%”, which would claim it is not there at all.",
                         "Reopening Storage shows your last analysis, with its age beside it — re-analyze for current numbers.",
                     ]),
                     .tip("Storage never moves, deletes, or evicts anything. “Offload” reveals a file in Finder so you can decide there — the reading is the whole feature."),
@@ -239,10 +242,27 @@ enum HelpBook {
                         "Bulk-sync every difference in one direction from the toolbar.",
                         "The Compare menu carries the same four transfers, with Review and Verify below them.",
                         "File ▸ Copy to… and Move to… are a different offer: they open a folder picker rather than sending the selection to the other pane, so they are the way to put something somewhere neither pane is showing.",
+                        "For anywhere else — including Finder — use the clipboard: ⌘C or ⌘X in a pane, then ⌘V where you want them.",
                     ]),
                     .tip("A transfer that would overwrite a newer file, or remove the last copy, always asks first. Tune these prompts in Settings ▸ Sync."),
                 ],
-                related: ["reading-differences", "undo-redo", "staying-safe"]
+                related: ["clipboard", "reading-differences", "undo-redo", "staying-safe"]
+            )),
+            Topic(id: "clipboard", title: "Cut, copy and paste", systemImage: "doc.on.clipboard", article: Article(
+                intro: "Edit ▸ Cut, Copy and Paste work on files, in any pane, and they exchange files with Finder in both directions. ⌘X then ⌘V is a move; ⌘C then ⌘V is a copy.",
+                blocks: [
+                    .bullets([
+                        "Select rows in a pane and press ⌘C, or ⌘X to take them. ⌘V pastes into whichever pane has focus — so selecting on the left, pressing ⌃⇥, then ⌘V carries the files across. Cut and copy read the selection wherever it is; paste always aims at the focused pane’s current folder.",
+                        "⌘C here and ⌘V in Finder puts the files down where you are in Finder, and ⌘C in Finder then ⌘V here brings them the other way. Whichever clipboard was written last is the one that answers.",
+                        "A cut pasted into Finder copies rather than moves. Only SyncCloud’s own clipboard records that you cut, and the Mac’s pasteboard carries no flag for it — in Finder that is ⌥⌘V, a decision made at the receiving end.",
+                        "Once a cut has been pasted the clipboard lets go of what moved, so ⌘V is not left armed over files that are no longer where it would look for them.",
+                        "⌘A selects everything in the focused pane’s current folder. In a tree that is the top-level rows: selecting a folder already covers what is inside it, because every verb here treats a folder as its contents.",
+                        "All three are on a row’s right-click menu as well — “Cut”, “Copy” and “Paste here” — and “Paste here” is on the empty space below the rows too, which is where you want it when nothing is selected.",
+                        "A paste spends through the same copy or move as any other transfer — one undo step for the whole paste, the same banner, and the same prompt before anything is overwritten.",
+                    ]),
+                    .tip("Cut, Copy, Paste and Select All are never greyed out, because with a caret in a field they still mean text: ⌘C copies the words in the pane search, a rename box, the differences search or the ⌘K field. The price is that Paste stays available over an empty clipboard, where it does nothing."),
+                ],
+                related: ["copy-move", "browse-workspace", "undo-redo"]
             )),
             Topic(id: "guided-review", title: "Guided review", systemImage: "checklist", article: Article(
                 intro: "Guided review steps through the differences one at a time so you can decide each on its own — ideal for a first big reconcile.",
@@ -443,7 +463,7 @@ enum HelpBook {
                 related: ["file-loose-items", "automation-rules", "staying-safe"]
             )),
             Topic(id: "command-palette", title: "Go to anything (⌘K)", systemImage: "magnifyingglass", article: Article(
-                intro: "⌘K opens Go to: one field that reaches anywhere the app can go — including places that aren't on screen at all. It's in the Go menu, first, because it's the only item there that can reach a destination you're not already near.",
+                intro: "⌘K grows the Go to pill at the right of the toolbar into a field, with its results hanging underneath — so the tree you are navigating stays on screen while you type the name of the folder you want. It reaches anywhere the app can go, including places that aren’t on screen at all, and Go ▸ Go to… is the same field, first in that menu because it’s the only item there that can reach a destination you’re not already near.",
                 blocks: [
                     .bullets([
                         "Places — the four workspaces, and each of Organize's five sections.",
@@ -453,6 +473,12 @@ enum HelpBook {
                         "Actions — Rescan, New Folder…, Choose Folder…, Find in Pane…, Settings…, Keyboard Shortcuts, Activity Log.",
                     ]),
                     .paragraph("It answers to your words rather than the menu's: “keys” finds Keyboard Shortcuts, “preferences” finds Settings…, “search” finds Find in Pane…, and “refresh” finds Rescan — not one of which is the item's own name."),
+                    .bullets([
+                        "Your recent folders are kept between launches, so the first ⌘K of the day opens on the folder you were in yesterday rather than on nothing.",
+                        "A path it can’t deliver says which of four things is in the way rather than doing nothing: “Not in any source”, “In Dropbox — switch source first”, “Backup SSD is not mounted”, or “No folder at that path”. Only the last is a claim that nothing is there.",
+                        "Folders on a drive that isn’t awake are still listed, marked “Not available” — an empty ⌘K would otherwise read as “you have no recents”. The highlight skips past them and ↩ won’t run one.",
+                        "⌘K with the field already open selects what you typed, the way it does in every Mac search field, so the next keystroke replaces it rather than closing the field.",
+                    ]),
                     .tip("Everything here already exists as a menu item or an on-screen control — Go to is a second way to reach them, never the only way. A row it can't act on says so rather than doing nothing."),
                 ],
                 related: ["keyboard-shortcuts", "browse-workspace", "organize-workspace"]
@@ -466,10 +492,11 @@ enum HelpBook {
                         "The full reference is a window of its own: Window ▸ Keyboard Shortcuts, or ask for it by name in ⌘K.",
                         "⌘1 – ⌘4 switch workspaces; ⌘→ / ⌘← copy the selected differences, and ⇧ makes it a move.",
                         "Space opens Quick Look; ⌥-click a breadcrumb navigates both panes at once.",
+                        "⌘X, ⌘C and ⌘V are the file clipboard, and they reach Finder; ⌘A selects the folder the focused pane is in; ↩ renames the selected row.",
                     ]),
-                    .paragraph("The menu bar carries the rest, a menu per place. File holds the folder and tab items, the verbs that act on the selected row, and Delete — its Ignore in Comparison appears only while you are comparing, because ignoring is a statement about a comparison and Browse and Storage have none. Go holds ⌘K and the per-pane Back and Forward. Compare holds the four transfers plus Review and Verify. Organize holds its five sections and its four verbs, and View holds the four workspaces and the show/hide switches."),
+                    .paragraph("The menu bar carries the rest, a menu per place. File holds the folder and tab items, the verbs that act on the selected row, and Delete — its Ignore in Comparison appears only while you are comparing, because ignoring is a statement about a comparison and Browse and Storage have none. Edit holds the file clipboard — Cut, Copy, Paste and Select All — with Find in Pane… under them. Go holds ⌘K and the per-pane Back and Forward. Compare holds the four transfers plus Review and Verify. Organize holds its five sections and its four verbs, and View holds the four workspaces and the show/hide switches — View ▸ Hidden Files and View ▸ Info Inspector among them."),
                 ],
-                related: ["command-palette", "copy-move", "guided-review"]
+                related: ["command-palette", "copy-move", "clipboard"]
             )),
         ]),
         Section(title: "Help and safety", topics: [
