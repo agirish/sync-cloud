@@ -1358,9 +1358,31 @@ Check the filter is not circular before using it — here it is not, because the
 refusal's *wording* and the copy's *name*, never the root itself.
 
 **Audit the fragments rather than assuming.** Grepping every `loggedLine(containing:)` fragment in
-the package against the sources found this to be the only over-shared one; the rest are single-site
-or carry a test-injected token. That audit is the cheap step and it is what tells you whether you
-need the authorship filter at all.
+the package against the sources found this to be the only over-shared *literal*; the rest are
+single-site or carry a test-injected token. That audit is the cheap step and it is what tells you
+whether you need the authorship filter at all.
+
+**But that grep only sees literals, and it missed two live cases the same day it was written.** A
+fragment computed at RUNTIME — a file name, an id, anything derived from fixture state — never
+appears in a source grep, so the question has to be asked of the value instead: *can another episode
+in this process produce this same string?* Both misses were file names, and they failed that test in
+different ways.
+
+- `FilingVerdictSetAsideMessageTests` matched on the set-aside's name,
+  `<cache>.unreadable-<stamp>`. `UnreadableSetAside.destination` stamps to the **second** and
+  uniquifies only against the directory it writes into — which is all a file needs — so two episodes
+  in different temp roots a millisecond apart produce the byte-identical name. Concurrent siblings in
+  the suite then satisfied each other's assertions; `theTwoCallersDoNotMakeTheSamePromise` compared a
+  sentence with itself.
+- `StorageLensPreservationTests.storeURL` put the test's name in the **directory** and called every
+  file `storage-lens.json`. All seven lines `StorageLensStore` writes name the file by
+  `lastPathComponent` alone, so the fragment identified the file's *kind*. Measured the silent way:
+  delete the call under test outright, so the test performs no action at all, and it still **passed**
+  — carried entirely by a sibling's line.
+
+Neither line carries a directory, so authorship could not be recovered from the text; the fix in both
+was to make the fixture's own file name unique. **Where the test owns the name, that beats every
+filter** — it makes the fragment identify the episode instead of the artifact.
 
 **Verify a log fix in parallel.** `--no-parallel` cannot see any of this, and CI runs the package
 target parallel. A serial-only green is what let the first landing go out red.
