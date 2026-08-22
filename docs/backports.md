@@ -48,7 +48,7 @@ package suites and a red app-target step.
 **This has a deadline.** `v3.x` sits at `3.2-dev`. Cutting v3.2 before this lands ships the
 ⌘Z-after-permanent-delete promise again, in a release, knowingly.
 
-### 2. The filing walkthrough's bare ⏎/→/esc key equivalents — OPEN, owed to BOTH lines
+### 2. The filing walkthrough's bare ⏎/→/esc key equivalents, and the review card's unguarded ⏎/⌫ — OPEN, owed to BOTH lines
 
 Filed 2026-08-21, when the fix landed on `main` as `d25dafef`. The walkthrough's File and Skip
 buttons carry `.keyboardShortcut(.return, modifiers: [])` / `(.rightArrow, modifiers: [])`, and
@@ -66,11 +66,168 @@ session. `main`'s fix restructures the card into `FilingWalkthroughCard` (focusa
 (`TidyView` vs `LensWorkspaceView` doc anchors, no `personIs`/`unrecognized` cases, `v2.x`'s
 provider/source vocabulary split — the card's caption reads `\(provider)`). The two new suites
 travel with the fix and need per-line adaptation too: `FilingWalkthroughCardKeyTests` borrows its
-window harness from `DifferencesTableBindingTests`, which is **absent on both lines** (the
-`LayoutPumpWait.pump` it relies on is present — the floor scan landed per line), and
-`BareKeyEquivalentScanTests`' count floor (`files.count > 150`) needs re-deriving against each
-line's smaller source tree. `.onKeyPress` itself and the `AutomationDryRunRow` initializer shape
-(`destinationAnchor`) are present on both lines — checked, so the port compiles in principle.
+window harness from `DifferencesTableBindingTests`, which is **present on both lines** — the file
+AND its `host(_:)` harness, `git show origin/<line>:…/DifferencesTableBindingTests.swift | grep -n
+'func host('` answers line 104 on `v3.x` and on `v2.x`, and the `LayoutPumpWait.pump` it relies on
+is present too (the floor scan landed per line). An earlier revision of this entry claimed the
+harness file was absent on both lines, overstating the port's cost; the claim had not been checked
+— re-verified 2026-08-21. `BareKeyEquivalentScanTests`' count floor (`files.count > 150`) still
+needs re-deriving against each line's smaller source tree. `.onKeyPress` itself and the
+`AutomationDryRunRow` initializer shape (`destinationAnchor`) are present on both lines — checked,
+so the port compiles in principle.
+
+**The port must take the fix's FIXED shape, not its first cut.** `d25dafef`'s original
+`.onKeyPress(keys:phases:)` handlers never inspected `press.modifiers`, so ⌘⏎/⇧⏎ FILED the current
+item and ⌥→/⌃→ irreversibly SKIPPED it (measured through a real responder chain in
+`FilingWalkthroughCardKeyTests.aModifiedKeyDecidesNothing`). The modifier filter, the `.down`-phase
+esc handler, and the retirement log lines in `FilingWalkthrough.cancel(because:)` are all part of
+what the lines are owed; cherry-picking the walkthrough restructure without them re-ships the
+modifier-blind regression onto a maintenance line.
+
+**No `onKeyPress` overload filters modifiers, and none suppresses key-repeat.** An earlier revision
+of this entry said the `keys:phases:` overload "unlike the single-key one, delivers modified
+presses". That is false, it was never measured, and it was the most expensive sentence in this
+file: a maintainer reading it concludes their line's single-key `.onKeyPress(.return)` is already
+safe and skips the half of this debt that moves bytes. Settled 2026-08-21 on the suites'
+real-window `sendEvent` harness — the single-key overload behaves identically to `keys:phases:` in
+both respects, and differs in exactly one: it does not fire on `.up`. Raw readings, invocations per
+event: `return` plain / ⌘ / ⇧ / ⌥ / ⌃ / capsLock / `isARepeat` → **all fire**; three repeats → 3
+invocations; `keyUp` → none.
+
+The reading that produced the false version came from ⌘esc, ⌃esc and ⌘. being **swallowed by
+AppKit as `cancelOperation:` before the responder chain** — those reach NEITHER overload, while
+`escape` plain / ⇧ / ⌥ / fn / capsLock all do, and ⌘-space does too. That is a per-key routing
+effect, not a property of an overload. Anything that must not run for a chord guards on
+`KeyPress.isPlainKeystroke` whichever overload it is written with; only `keys:phases:` can also
+refuse auto-repeat. `Modules/Design/Sources/Design/IntentModifiers.swift` says the same thing at
+its `isPlainKeystroke` doc, and this file contradicted it in the same tree.
+
+**`ReviewCardView` is owed BOTH halves, and the byte-moving one used to be missing from this
+entry** — it named only "⌫ modifier filter". Verified at
+`git show origin/<line>:Modules/FileExplorer/Sources/FileExplorer/ReviewCardView.swift`, identical
+on `v3.x` and `v2.x`:
+
+```swift
+.onKeyPress(.return) {                                  // ← line 99 on both lines
+    if !isActing && !isVerifying { onPrimary(item) }
+    return .handled
+}
+.onKeyPress(keys: [.delete], phases: .down) { _ in      // ← line 107 on both lines
+    if !isActing { onSkip(item) }
+    return .handled
+}
+```
+
+So both maintenance lines currently ship, on the card whose ⏎ runs a real copy or move:
+
+- **⌘⏎ / ⇧⏎ / ⌥⏎ / ⌃⏎ each run the primary copy or move.** ⌘⏎ and ⇧⏎ measured on `main`'s card
+  under this exact spelling — two modified presses, two `onPrimary` calls; ⌥ and ⌃ from the
+  overload measurement above, where every intent modifier is delivered.
+- **A held ⏎ launches 4 copies of one row** before `isActing` closes — it closes only when the
+  host's async outcome lands, so auto-repeat gets there first. The ⌫ handler is `.down`-only and
+  so does not repeat, but it takes `_ in` and inspects nothing, so ⌘⌫ (Finder's "delete
+  immediately") and ⌥⌫ (delete word) each SKIP a row no back-step can revisit.
+- **The keypad's Enter is dead**, silently, with the hint row advertising ⏎: keyCode 76 sends
+  U+0003, and a handler keyed on `.return` matches U+000D only.
+- **Neither key is gated on `focused`.** With Full Keyboard Access on, the card's Skip / Quick Look
+  / Verify buttons are focusable, and `.onKeyPress` fires for a key delivered anywhere in its
+  SUBTREE — measured 2026-08-21 by driving a `@FocusState` onto a descendant: the ancestor handler
+  ran with `focused == false`. So a ⏎ aimed at a focused Skip button runs the copy. This was true
+  on `main` too until 2026-08-21; `main` has it now and the lines do not.
+
+**The review-card half cannot cherry-pick clean either, and for a different reason than the
+walkthrough half above: it depends on two files neither line has.**
+`KeyPress.isPlainKeystroke` lives in `Modules/Design/Sources/Design/IntentModifiers.swift`
+and `KeyEquivalent.keypadEnter` in `Modules/Design/Sources/Design/KeypadEnter.swift`; both are
+**absent from `v3.x` and `v2.x`** — `git show origin/<line>:<path>` fails, and `git grep -l
+keypadEnter origin/<line> -- Modules` finds nothing. Take those two files first, then the card.
+Do not substitute `press.modifiers.isEmpty` for the guard: `.numericPad` + `.function` ride on
+every keypad Enter and `.capsLock` on every event while the lock is engaged, so that spelling
+refuses the keycap the fix exists to accept and kills the keys outright for anyone with Caps Lock
+on. `ReviewCardKeyTests` travels with the port and needs the same per-line adaptation as the
+walkthrough's two suites.
+
+**Separately, and verified while checking the above: `v2.x`'s `ReviewCardView` has no
+`.accessibilityHint` and its `ReviewCardModel` has no `keyHintSpeech` at all** (`grep -c` answers
+0 on `v2.x`, 1 on `v3.x`). So on `v2.x` a VoiceOver user gets the card's label and no statement of
+what any of its keys do. Small, self-contained, and independent of everything above.
+
+### 3. The folder-duplicate drift gate rebuilt on per-file snapshots — OPEN, filed 2026-08-21
+
+Fixed on `main`, 2026-08-21, as two commits — *Judge folder duplicate drift per file, against a
+snapshot the scan records* (engine) and *Give the Compare review's directory gate the shared
+folder re-walk* (review); both maintenance lines
+carry all three defects, symbol-checked (`folderDriftedInPlace` present on both; the Compare gate's
+`guard !isDirectory else { return true }` present on both):
+
+- `folderDriftedInPlace` compares the scan's ignored-names-skipping rollup against a RAW re-walk,
+  so any folder holding a `.DS_Store` (or a symlink) is **permanently refused** — "changed since it
+  was scanned", reproduced by every rescan — and `applyRecommendedDuplicates` silently drops such
+  groups. The same constant offset can mask a real loss.
+- Count+bytes equality cannot see a **same-length rewrite**, so a "redundant" folder holding the
+  only copy of the edit is trashed.
+- The Compare review's directory verdict is **existence-only** (`duplicateCopyMatchesScan`), under
+  a comment claiming "the engine's own folder gap is tracked separately" — stale on both lines,
+  since both carry `folderDriftedInPlace`. The review is the folder-ONLY flow.
+
+**Not the usual cherry-pick.** The fix adds `FolderContentSnapshot` to `DuplicateCopy` and fields
+to `DuplicateCompareContext`, records snapshots in `DuplicateFinder.findGroups`, and makes
+`driftedFolderInGroup` async — a public-shape change in the Sync package plus a `MacApp/` caller
+moving with it (the 2026-08-16 lesson: grep `MacApp/` after any public signature change). On
+`v2.x` the vocabulary split ("provider"/"source") means the coordinator will not pick clean.
+The first (P1-4) defect is user-visible on any Finder-touched folder, which argues for taking it;
+the scope argues for doing it deliberately. Symbols to check when settling: `FolderContentSnapshot`,
+`folderContentsMatchScan`, `contentSnapshot` on `DuplicateCopy`.
+
+### 4. The copy-undo's shallow folder identity — OPEN, owed to BOTH lines
+
+Filed 2026-08-21, when the deep identity landed on `main` (*Give the copy-undo a deep folder
+identity so ⌘Z cannot trash an edited copy*). Both lines carry the defect, symbol-checked:
+`ItemIdentity.swift` on `v3.x` and `v2.x` has only the shallow `case directory(modified:childCount:)`
+— own mtime plus immediate child count — so an edit deep inside a copied folder leaves the identity
+`.unchanged` and ⌘Z of the copy trashes the only instance of the edit. `main`'s fix adds
+`.directoryTree(contentDigest:)` backed by a recursive stat-only walk (`deepSnapshot`).
+
+**A scope call, not a pick, for the same reason as item 1**: the undo file is where the
+`DeleteOutcome` family lives, and `v3.x` is already recorded above as deliberately deferring that
+family — a deep identity that refuses an undo cannot say *why* honestly on a line that cannot tell
+a trashed item from a permanently deleted one. Settle item 1 first; this rides the same file.
+Symbols to check when settling: `deepSnapshot`, `.directoryTree` in `ItemIdentity.swift`.
+
+### 5. The classifier's cloud guard knows only iCloud — OPEN, owed to BOTH lines, filed 2026-08-22
+
+Both lines download cloud-only Dropbox, OneDrive, Google Drive and Box files behind the user's back
+during filing classification. `MacApp/ContentSignalExtractor.swift` guards `extractTextSync` with its
+own `private static func isEvictediCloudFile` (`v3.x:74`, `v2.x:122`, byte-identical), which is
+spelled purely from iCloud's `isUbiquitousItem` / `ubiquitousItemDownloadingStatus`. A dataless file
+under `~/Library/CloudStorage` is not a ubiquitous item, so the guard answers "not evicted", the
+extractor opens it, and **opening it is what makes the provider fetch it**. `main` replaced the copy
+with `FilingSurvey.isAvailable`, which tests `SF_DATALESS` first — the provider-agnostic signal every
+File Provider sets — and keeps the iCloud check only for the `.downloaded`-but-stale case.
+
+**The blocker previously assumed here is not real, and that is the point of this entry.**
+`FilingSurvey.swift` is indeed absent on both lines, so this cannot be a cherry-pick — but the
+predicate the fix actually depends on is already present on both:
+`MaterializationStatus.isCloudOnly(atPath:)` (`MaterializationStatus.swift`, all three lines), and
+`ContentSignalExtractor.swift` already carries `import Sync`. The fix is one added line inside the
+existing private function:
+
+```swift
+if MaterializationStatus.isCloudOnly(atPath: url.path) { return true }
+```
+
+**What is genuinely missing is the test seam, and it should be ported with the fix.** `SF_DATALESS`
+is an `SF_` flag that `chflags` refuses to anyone but root, so a dataless file cannot be staged and
+the only honest test substitutes the syscall. `main` added `MaterializationStatus.StatFlags` (a
+`@Sendable (String) -> UInt32?`) plus a defaulted `statFlags:` parameter for exactly this, and
+`Modules/Sync/Tests/Sync/FilingSurveyAvailabilityTests.swift` drives it. Both maintenance lines have
+`isCloudOnly(atPath:)` with **no** seam, so a fix landed without it would be untestable in the
+direction that matters. Adding a defaulted parameter is additive and source-compatible — allowed on
+a maintenance line.
+
+Oldest-first: land on `v2.x`, cherry-pick to `v3.x`. Verify with `xcodebuild test` on the app
+target, not `build` — `MacApp/` is in no SPM package. Symbols to check when settling:
+`isEvictediCloudFile`, `MaterializationStatus.StatFlags`, `realStatFlags`.
 
 ### Checked and NOT owed
 
@@ -160,17 +317,46 @@ The two that needed checking rather than reasoning about:
 
 ## `v2.x` — owed
 
-### The filing walkthrough's bare key equivalents
+### The filing walkthrough's bare key equivalents, and the review card's unguarded ⏎/⌫
 
-Owed here exactly as to `v3.x` — see item 2 under `v3.x` above for the defect, the symbol checks
-(both answered on `v2.x` too) and why it is an adaptation rather than a pick. The extra cost on
-this line is the provider/source vocabulary split: the card's caption interpolates the provider
-name, so the port must keep this line's wording.
+Owed here exactly as to `v3.x` — see item 2 under `v3.x` above for both defects, the symbol checks
+(every one answered on `v2.x` too, and `ReviewCardView.swift`'s two handlers are byte-identical
+between the lines) and why it is an adaptation rather than a pick. Two extra costs on this line:
+
+- the provider/source vocabulary split — the walkthrough card's caption interpolates the provider
+  name, so the port must keep this line's wording;
+- `v2.x`'s `ReviewCardView` has **no `.accessibilityHint`** and its `ReviewCardModel` has no
+  `keyHintSpeech` at all (`grep -c` answers 0 here, 1 on `v3.x`), so the review card announces its
+  label and nothing about its keys. Independent of the key fix and much smaller; take it while the
+  file is open.
+
+### The folder-duplicate drift gate — OPEN, filed 2026-08-21
+
+Owed here exactly as to `v3.x` — see item 3 under **`v3.x` — owed** for the three defects, the
+symbol checks, and why it is a scope call rather than a cherry-pick. `v2.x` carries
+`folderDriftedInPlace` and the existence-only directory verdict too, and its "provider" vocabulary
+means the `MacApp/` half will need adaptation, not a pick.
+
+### The copy-undo's shallow folder identity — OPEN, filed 2026-08-21
+
+Owed here exactly as to `v3.x` — see item 4 under **`v3.x` — owed**. `v2.x` carries the shallow
+`case directory(modified:childCount:)` too (symbol-checked). Unlike `v3.x` this line has the
+`DeleteOutcome` family, so the port is closer to a pick here — but the undo file has drifted, so
+verify `deepSnapshot`'s seams before assuming.
+
+### The classifier's cloud guard knows only iCloud — OPEN, filed 2026-08-22
+
+Owed here exactly as to `v3.x`, and **this is the line to fix first** — see item 5 under
+**`v3.x` — owed** for the mechanism, the symbol checks and the seam that has to come with it.
+`v2.x` carries the byte-identical `isEvictediCloudFile` at `MacApp/ContentSignalExtractor.swift:122`
+and the same seamless `MaterializationStatus.isCloudOnly(atPath:)`. No vocabulary adaptation is
+needed: the change is inside a private function and touches no user-facing copy.
 
 ### Nothing else confirmed
 
 Every safety family above is present on `v2.x`, and it is the line the `DeleteOutcome` family
-landed on first. No other confirmed fix debt was found by this audit.
+landed on first. Apart from the entry just above, no other confirmed fix debt was found by
+the 2026-08-16 audit or this one.
 
 ### Checked and NOT applicable
 
