@@ -143,6 +143,40 @@ import Events
                 "the audit log does not record what actually happened: “\(line ?? "nil")”")
     }
 
+    /// **A declined permanent delete is the user's own choice, and no path named it.**
+    /// `deleteItems` posts an accurate banner for it — "Kept that item — it can't be moved to the
+    /// Trash, and you chose not to delete it permanently" — and the merge's tail then overwrote it
+    /// with "Merged part of “X” — some copies were left in place. Review and retry.", which is
+    /// wrong twice over: everything WAS folded, and nothing was left behind by accident.
+    @MainActor
+    @Test func aDeclinedPermanentDeleteIsNamedRatherThanOverwritten() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeDeclined")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rName = "Redundant-\(UUID().uuidString)"
+        let pair = try makePair(base, redundantName: rName)
+
+        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        manager.undoManager = UndoManager()
+        manager.permanentDeleteConfirmer = { _ in false }   // the user declines
+        manager.duplicateGroups = [pair.group]
+
+        let ok = await manager.mergeDuplicateGroup(pair.group)
+
+        #expect(ok == false, "the merge claimed success over a copy that is still on disk")
+        #expect(FileManager.default.fileExists(atPath: pair.redundant.path),
+                "the decline destroyed the copy anyway")
+        #expect(FileManager.default.fileExists(atPath: pair.keeper.appendingPathComponent("unique.txt").path),
+                "the fold did not happen, so this is not the case under test")
+
+        let message = manager.banner?.message ?? ""
+        #expect(message.contains("Review and retry") == false,
+                "the decline was reported as an accident to review: “\(message)”")
+        #expect(message.contains("chose not to delete"),
+                "no banner names the decline: “\(message)”")
+        #expect(message.contains("folded 1 file"),
+                "the banner does not say the fold succeeded: “\(message)”")
+    }
+
     /// A Trash-less volume for ONE named path only, so a single merge can produce both outcomes.
     private final class TrashlessForOne: FileManager, @unchecked Sendable {
         let refusedPath: String

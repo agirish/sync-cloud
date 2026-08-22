@@ -1022,8 +1022,28 @@ extension FileSyncManager {
                                                                           refusals: refusals))
         // Fold the gate's refusals into the batch accounting — the gate logged each one already.
         let gateRefused = refusals.all
+        // **A group refused by the POST-confirmation gate can already have been acted on.** Both
+        // gate invocations share one refusals object, and the second runs after the first pass has
+        // trashed everything it could: a group whose remaining copy is refused there was counted
+        // into `refused` and then described by the partial banner as having been "left alone",
+        // which is false of the copies of it that are already in the Trash. `dropFullyRemovedGroups`
+        // keeps it listed correctly; only the banner over-claimed. The disk is the ground truth,
+        // the same rule that method follows.
+        let survivorsByID = Dictionary(survivors.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let refusedAfterPartialRemovalIDs = Set(gateRefused.keys.filter { id in
+            guard let group = survivorsByID[id] else { return false }
+            return group.recommendedRemovalPaths.contains {
+                presentBefore.contains($0) && !fileManager.fileExists(atPath: $0)
+            }
+        })
         refused += gateRefused.count
-        refusedForMissingBaseline += gateRefused.values.filter { $0 == .missingBaseline }.count
+        refusedForMissingBaseline += gateRefused.filter {
+            $0.value == .missingBaseline && !refusedAfterPartialRemovalIDs.contains($0.key)
+        }.count
+        let refusedAfterPartialRemoval = refusedAfterPartialRemovalIDs.count
+        if refusedAfterPartialRemoval > 0 {
+            Logger.shared.info("Duplicates: \(refusedAfterPartialRemoval) group(s) were refused at the last check after part of them had already been removed — they stay listed, and the copies already trashed stay trashed")
+        }
 
         guard outcome.removed > 0 else {
             // Nothing left the disk. A decline posted `deleteItems`' own "Kept those items"
@@ -1070,7 +1090,11 @@ extension FileSyncManager {
                 // is exactly why this needs saying: severity and undoability are separate, which is
                 // why `.warning` takes the parameter at all.
                 var clauses: [String] = []
-                let drifted = refused - refusedForMissingBaseline
+                let drifted = refused - refusedForMissingBaseline - refusedAfterPartialRemoval
+                if refusedAfterPartialRemoval > 0 {
+                    // Deliberately NOT "left alone": part of this group is already in the Trash.
+                    clauses.append("\(refusedAfterPartialRemoval) group\(refusedAfterPartialRemoval == 1 ? " was" : "s were") refused at the last check after part of \(refusedAfterPartialRemoval == 1 ? "it" : "them") had already been removed")
+                }
                 if drifted > 0 {
                     clauses.append("\(drifted) group\(drifted == 1 ? "" : "s") changed since the scan and \(drifted == 1 ? "was" : "were") left alone")
                 }
@@ -1106,17 +1130,32 @@ extension FileSyncManager {
 
     /// Collects the merge gate's refusals across `deleteItems`' (up to two) invocations, for the
     /// banner once the delete returns. Lock-guarded because the gate closure is `@Sendable`; the
-    /// body itself runs on the main actor. Names, not paths: the merge's banners name copies.
+    /// body itself runs on the main actor.
+    ///
+    /// **Identity is the PATH; the name is only what gets displayed.** This de-duplicated on the
+    /// basename, and overlapping-group copies frequently share one — that is generally *why* they
+    /// grouped — so two refused folds named `Photos` collapsed into a single recorded refusal. The
+    /// sibling `DuplicateRemovalRefusals` keys on `DuplicateGroup.ID` and never had this. (Today's
+    /// only consumer reads `all.first`, so nothing visible undercounts yet; the de-duplication is
+    /// wrong at the point it happens, which is where it is worth fixing.)
     final class MergeRemovalRefusals: @unchecked Sendable {
         private let lock = NSLock()
-        private var names: [String] = []
-        func record(_ name: String) {
+        private var recorded: [(name: String, path: String)] = []
+        func record(_ name: String, path: String) {
             lock.lock(); defer { lock.unlock() }
-            if !names.contains(name) { names.append(name) }
+            let key = FileSyncManager.canonicalRemovalPath(path)
+            guard !recorded.contains(where: { FileSyncManager.canonicalRemovalPath($0.path) == key }) else { return }
+            recorded.append((name: name, path: path))
         }
+        /// The refused copies' display names, in the order they were refused — one entry per
+        /// refused FOLD, same-named or not.
         var all: [String] {
             lock.lock(); defer { lock.unlock() }
-            return names
+            return recorded.map(\.name)
+        }
+        var paths: [String] {
+            lock.lock(); defer { lock.unlock() }
+            return recorded.map(\.path)
         }
     }
 
@@ -1163,7 +1202,7 @@ extension FileSyncManager {
             attributed.formUnion(asked)
             if keeperGone {
                 Logger.shared.warning("Duplicates merge: refused to trash “\(fold.name)” (\(fold.url.path)) at the last check before removal — the keeper “\(group.keeper.name)” (\(group.keeper.path)) is no longer at its scanned location, so the folded files are no longer provably anywhere else")
-                refusals.record(fold.name)
+                refusals.record(fold.name, path: fold.url.path)
                 refused.formUnion(asked)
                 continue
             }
@@ -1177,7 +1216,7 @@ extension FileSyncManager {
             let missing = fold.keeperDestinations.filter { !fm.fileExists(atPath: $0) }
             if let first = missing.first {
                 Logger.shared.warning("Duplicates merge: refused to trash “\(fold.name)” (\(fold.url.path)) at the last check before removal — the keeper “\(group.keeper.name)” (\(group.keeper.path)) no longer holds \(missing.count) of the \(fold.keeperDestinations.count) file(s) this fold rests on (first: \(first)), so those bytes are provably nowhere else")
-                refusals.record(fold.name)
+                refusals.record(fold.name, path: fold.url.path)
                 refused.formUnion(asked)
                 continue
             }
@@ -1185,7 +1224,7 @@ extension FileSyncManager {
                 await Self.buildTree(url: fold.url, sortOption: .name, fileManager: fm, maxDepth: nil))
             if Self.mergeSourceDrifted(planned: fold.plannedSnapshot, current: current) {
                 Logger.shared.warning("Duplicates merge: refused to trash “\(fold.name)” (\(fold.url.path)) at the last check before removal — it changed after the merge was planned, so it holds content the fold neither verified nor copied")
-                refusals.record(fold.name)
+                refusals.record(fold.name, path: fold.url.path)
                 refused.formUnion(asked)
             }
         }
@@ -1460,6 +1499,13 @@ extension FileSyncManager {
         // This path had neither: `mergeSourceDrifted` above ran before `deleteItems` even enqueued,
         // and the unrecoverable branch re-verified nothing at all.
         let gateRefusals = MergeRemovalRefusals()
+        // Copies the user was asked about on a Trash-less volume and chose NOT to destroy. Carried
+        // because `deleteItems` posts its own, accurate explanation for this
+        // ("Kept those N items — … you chose not to delete them permanently") and the merge's
+        // banner then overwrote it with "Merged part of “X” — some copies were left in place.
+        // Review and retry." — which is wrong twice: everything WAS folded, and nothing was left
+        // by accident. No path named the decline at all.
+        var declinedCopies = 0
         var trashedForUndo: (originals: [URL], backups: [URL?])?
         // **A Cancel must not START a destructive step that had not begun.** Deferring the trash
         // out of the loop made this call unconditional, so a fold that completed BEFORE the user
@@ -1488,6 +1534,7 @@ extension FileSyncManager {
                     trashedForUndo = (originals, backups)
                 })
             if outcome.permanentlyDeleted > 0 { anyPermanentlyDeleted = true }
+            declinedCopies = outcome.declined
             // The disk is the ground truth for "did this copy leave", the same rule
             // `dropFullyRemovedGroups` follows: a gate refusal, a decline, a cancelled dialog and a
             // failure all leave a real folder behind, however the call accounted for it.
@@ -1583,6 +1630,9 @@ extension FileSyncManager {
                                   undoable: totalFolded > 0)
             } else if let drifted = driftedCopies.first {
                 banner = .warning("“\(drifted)” changed since it was scanned — it was left in place. Rescan before merging.")
+            } else if declinedCopies > 0 {
+                // The fold itself succeeded; the copies are still here because the user said so.
+                banner = .warning("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name), but \(declinedCopies == 1 ? "the redundant copy can't" : "\(declinedCopies) redundant copies can't") be moved to the Trash and you chose not to delete \(declinedCopies == 1 ? "it" : "them") permanently. \(declinedCopies == 1 ? "It stays" : "They stay") on disk and the group stays listed.")
             } else if totalFolded > 0 {
                 banner = .warning("Merged part of “\(group.name)” — some copies were left in place. Review and retry.")
             }

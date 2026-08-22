@@ -149,6 +149,72 @@ import Events
                 "the refusal does not name the culprit's path: “\(line ?? "nil")”")
     }
 
+    // MARK: A refusal that arrives AFTER part of the group was removed is not "left alone"
+
+    /// Both gate invocations share one `DuplicateRemovalRefusals`, and the second runs after the
+    /// first pass has trashed everything it could. A group whose remaining copy is refused there
+    /// was counted into `refused` and then described by the partial banner as having been "left
+    /// alone" — false of the copies of it already in the Trash.
+    ///
+    /// The fixture: one group, two redundant copies. `/b/x` (shortest, so it is attempted first)
+    /// hits a Trash-less failure; `/ccc/x` trashes. The user is then asked to confirm the
+    /// permanent delete of `/b/x`, and while the sheet is up the KEEPER goes away — so the
+    /// post-confirmation gate refuses the group, with one of its copies already trashed.
+    @MainActor
+    @Test func aGroupRefusedAfterPartOfItWasRemovedIsNotReportedAsLeftAlone() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        mockFM.virtualDisk["/a/x"] = stub(size: 1000)
+        mockFM.virtualDisk["/b/x"] = stub(size: 1000)
+        mockFM.virtualDisk["/ccc/x"] = stub(size: 1000)
+        let k = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
+                              modificationDate: Date(timeIntervalSince1970: 1_000), uniqueItemCount: 0,
+                              depth: 0, isRecommendedKeeper: true)
+        let r1 = DuplicateCopy(id: "/b/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
+                               modificationDate: Date(timeIntervalSince1970: 1_000), uniqueItemCount: 0,
+                               depth: 0, isRecommendedKeeper: false)
+        let r2 = DuplicateCopy(id: "/ccc/x", name: "x", isDirectory: false, size: 1000, itemCount: 1,
+                               modificationDate: Date(timeIntervalSince1970: 1_000), uniqueItemCount: 0,
+                               depth: 0, isRecommendedKeeper: false)
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [k, r1, r2], reclaimableBytes: 2000)
+        manager.duplicateGroups = [g]
+        // Non-transient, so it escalates to the permanent-delete prompt rather than being retried.
+        mockFM.trashErrorOnce = NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
+        manager.permanentDeleteConfirmer = { _ in
+            mockFM.virtualDisk["/a/x"] = nil     // the keeper leaves while the sheet is open
+            return true
+        }
+
+        await manager.applyRecommendedDuplicates([g])
+
+        // The premise: one copy really did go, the other really was refused.
+        try #require(mockFM.virtualDisk["/ccc/x"] == nil, "no copy was trashed — this is not the partial case")
+        try #require(mockFM.virtualDisk["/b/x"] != nil, "the refused copy was destroyed anyway")
+
+        let message = manager.banner?.message ?? ""
+        #expect(message.contains("left alone") == false,
+                "a group with a copy already in the Trash was reported as left alone: “\(message)”")
+        #expect(message.contains("after part of it had already been removed"),
+                "the banner does not say what actually happened: “\(message)”")
+        #expect(await loggedLine(containing: "after part of them had already been removed") != nil)
+    }
+
+    // MARK: The merge's refusals are identified by path, not basename
+
+    /// Overlapping-group copies frequently share a basename — that is generally *why* they
+    /// grouped — so de-duplicating on the name collapsed two refused folds into one.
+    @Test func mergeRefusalsAreDeDuplicatedByPathNotByName() {
+        let refusals = FileSyncManager.MergeRemovalRefusals()
+        refusals.record("Photos", path: "/Volumes/A/Photos")
+        refusals.record("Photos", path: "/Volumes/B/Photos")
+        refusals.record("Photos", path: "/Volumes/A/Photos/")   // the same fold, another spelling
+
+        #expect(refusals.all == ["Photos", "Photos"],
+                "two distinct refused folds sharing a name collapsed into one: \(refusals.all)")
+        #expect(refusals.paths == ["/Volumes/A/Photos", "/Volumes/B/Photos"])
+    }
+
     /// The keeper refusal was not logged at all — banner only — so the single resolve's most
     /// common refusal left no trace in `~/sync-cloud.log`.
     @MainActor
