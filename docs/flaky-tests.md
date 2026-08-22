@@ -1085,13 +1085,65 @@ Renumber it, or better, land it under its name and leave the numbers to fall whe
 then this gap was recorded only in the message of `cfaa320a`, where nobody reading the register
 would find it.
 
+#### The uncapped on-disk log — a better substrate, and why it is not a free win
+
+**Measured on `main`, 2026-08-22, and it applies here unchanged because the parts it rests on are
+the same on this line.**
+
+Everything above operates inside `entries`, so every remedy it offers is shaped by that array's
+1000-line cap. The log has a second copy with no cap: `Logger.shared.logFileURL`. Two properties
+make it the better substrate for these assertions, and neither is obvious — the append happens **at
+the call site**, synchronously inside the `nonisolated log(level:message:)` and *before* the flush
+task is returned (`logWriter.append(entry.formattedString + "\n")`), so the file preserves call
+order and needs no flush marker to become visible; and the 1000-line trim lives in
+`flushPendingEntries()` and touches `entries` alone, so the file never rolls. Under a test runner it
+is a per-process temp file (`sync-cloud-tests-<pid>.log`, see `defaultLogFileURL()`), so it is
+scoped to the run and does not touch `~/sync-cloud.log`. All three of those are true on this line —
+checked, not assumed.
+
+**But moving to it makes the shared-fragment collision worse, not better.** The haystack stops being
+the last 1000 lines and becomes the entire run. Switching substrate closes eviction and *widens*
+rule 4.
+
+**And windowing does not close it either, because a window bounds time, not authorship.** Bound the
+assertion strictly between its own markers and a *foreign suite's* line still lands inside the
+window and wins a `last {}`. Rule 4 prescribes `.serialized` for the same-suite case and otherwise
+sends you to "pick a fragment no other suite writes" — sound advice that does not always have a move
+available, because **the production code decides the wording, not the test**. On `main` the sentence
+that forced this is written by seven call sites in `FileSyncManager+Duplicates.swift`; there was no
+unique fragment to pick.
+
+**So: filter by authorship.** Those refusals each name a path, and a fixture root is a per-test UUID
+temp directory, so the fixture's own root is a witness that the line is *yours*:
+
+```swift
+let line = mine.last { $0.contains("<the shared sentence>") && $0.contains(base.path) }
+```
+
+Check the filter is not circular before using it — on `main` it is not, because the assertions read
+the refusal's *wording* and the copy's *name*, never the root itself.
+
+**Audit the fragments rather than assuming.** Grepping every `loggedLine(containing:)` fragment in
+the package against the sources is the cheap step, and it is what tells you whether you need the
+authorship filter at all; on `main` exactly one fragment was over-shared.
+
+**Verify a log fix in parallel.** `--no-parallel` cannot see any of this, and CI runs the package
+target parallel. A serial-only green is what let a red landing go out on `main`.
+
+**The reference implementation is `logLines(tag:during:)` in
+`Modules/Sync/Tests/Sync/TestSupport.swift` on `main`, and it is not on this line** — this line's
+`TestSupport.swift` has no on-disk reader. Nothing here is owed a port on its own; the entry is
+carried so that a session on this line reaching for the disk log finds the trap already written
+down rather than paying for it again.
+
 **See.** `flushPendingEntries()` in `Modules/Events/Sources/Events/Logger.swift` for the cap and
 `entries` for the shared array; mechanism 3 for the parallel-suites premise this rests on, and for
-the foreign-line half that rule 2 also closes. First measured on `main`, in `f87d9e11` — *Account for a rollback and a widening
-the log could not explain* — where a presence assertion reported a missing line, twice in parallel
-runs, for a line that had been written. That commit is not on this line and neither is the test it
-cost, but the cap and the parallel suites are, and `UndoDriftIdentityTests` reached the same
-conclusion here independently.
+the foreign-line half — which rule 2 closes only *before and after* the window, never inside it;
+see the subsection just above. First measured on `main`, in `f87d9e11` — *Account for a rollback
+and a widening the log could not explain* — where a presence assertion reported a missing line,
+twice in parallel runs, for a line that had been written. That commit is not on this line and
+neither is the test it cost, but the cap and the parallel suites are, and `UndoDriftIdentityTests`
+reached the same conclusion here independently.
 
 ### 11. The build failed before any test ran
 
