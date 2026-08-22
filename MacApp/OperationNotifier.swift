@@ -25,9 +25,16 @@ enum OperationNotifier {
         }
     }
 
-    static func postIfEnabled(for banner: OperationBanner) {
-        let enabled = UserDefaults.standard.bool(forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
-        guard shouldNotify(enabled: enabled, appIsActive: NSApp.isActive) else { return }
+    /// `defaults`, `appIsActive` and `post` are injectable for the tests alone — the test host IS
+    /// the running app, so a test that wrote `.standard` would be writing the user's live General
+    /// settings, and `UNUserNotificationCenter` cannot be observed headless. Production callers
+    /// pass nothing and get exactly the previous behavior.
+    static func postIfEnabled(for banner: OperationBanner,
+                              defaults: UserDefaults = .standard,
+                              appIsActive: Bool = NSApp.isActive,
+                              post: (UNNotificationRequest) -> Void = OperationNotifier.postToNotificationCenter) {
+        let enabled = defaults.bool(forKey: GeneralSettings.notifyOnBackgroundCompletionKey)
+        guard shouldNotify(enabled: enabled, appIsActive: appIsActive) else { return }
 
         let content = UNMutableNotificationContent()
         content.title = title(for: banner.severity)
@@ -37,7 +44,10 @@ enum OperationNotifier {
         // call sites), so it should surface as its own notification. The per-publish UUID gives
         // every request a distinct identifier, so the system never coalesces two genuinely
         // different outcomes into one.
-        let request = UNNotificationRequest(identifier: banner.id.uuidString, content: content, trigger: nil)
+        post(UNNotificationRequest(identifier: banner.id.uuidString, content: content, trigger: nil))
+    }
+
+    private static func postToNotificationCenter(_ request: UNNotificationRequest) {
         // The completion handler is the only signal this feature has. `add` fails silently when the
         // user has revoked notification permission in System Settings — and this feature exists
         // precisely for when the app is in the BACKGROUND, so a dropped notification is a dropped
