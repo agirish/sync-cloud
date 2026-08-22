@@ -20,6 +20,10 @@ extension FileSyncManager {
         /// The destination root is empty or no longer on disk (provider unmounted or removed).
         /// Recreating it would land files in a dead local tree the provider never syncs.
         case destinationRootUnavailable
+        /// The file at the source path is no longer the one a preview matched — an automation
+        /// apply refusing to move a stranger. Distinct from a failure: nothing went wrong with the
+        /// filesystem, and the item is deliberately left where it is.
+        case sourceChangedSincePreview
 
         var errorDescription: String? {
             switch self {
@@ -35,6 +39,8 @@ extension FileSyncManager {
                 return "\"\(itemName)\" is not inside the source pane's folder. Rescan and try again."
             case .destinationRootUnavailable:
                 return "The destination folder is no longer available. Rescan before copying or moving items."
+            case .sourceChangedSincePreview:
+                return "This file changed since the preview, so it is no longer the one that rule matched. Preview again to see what it would do now."
             }
         }
     }

@@ -133,6 +133,16 @@ public struct AutomationsLens: View {
     /// because this is the gate in front of `applyAutomationFiling`, which moves files.
     @State private var filing = FilingWalkthrough()
 
+    /// The rule whose Delete has been clicked and not yet confirmed.
+    ///
+    /// **Deleting a rule is the one destructive control in this lens that nothing takes back.**
+    /// Everything else here is reversible — a toggle re-toggles, an edit re-edits, and filing
+    /// registers a move undo — while `removeAutomationRule` drops the rule and persists the list,
+    /// with no ⌘Z and nothing on disk to recover it from. A rule is hand-built: its conditions,
+    /// its destination template and its ordering are work, and the button sits in the same row as
+    /// Edit and Preview.
+    @State private var rulePendingDeletion: AutomationRule?
+
     /// Bumped on every walkthrough decision so the card re-claims key focus for the next row —
     /// a File/Skip click leaves a text field's editor holding first responder, and the card's
     /// passive claim declines to take focus from one (see `FilingWalkthroughCard.focusNudge`).
@@ -184,6 +194,22 @@ public struct AutomationsLens: View {
         // same rule to its lenses' session state on scan start.
         .onChange(of: syncManager.automationDryRunLifecycle.isRunning) { _, isRunning in
             filing.dryRunRunningChanged(to: isRunning)
+        }
+        .confirmationDialog(
+            "Delete “\(rulePendingDeletion?.name ?? "")”?",
+            isPresented: Binding(get: { rulePendingDeletion != nil },
+                                 set: { if !$0 { rulePendingDeletion = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Rule", role: .destructive) {
+                if let rule = rulePendingDeletion {
+                    syncManager.removeAutomationRule(id: rule.id)
+                }
+                rulePendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { rulePendingDeletion = nil }
+        } message: {
+            Text("This can't be undone. The rule's conditions and destination are removed from this Mac.")
         }
         .sheet(item: $editingRule) { rule in
             AutomationRuleEditor(
@@ -319,7 +345,7 @@ public struct AutomationsLens: View {
                                 onToggle: { syncManager.setAutomationRule(id: rule.id, enabled: $0) },
                                 onPreview: { runPreview(only: rule.id) },
                                 onEdit: { editingRule = rule },
-                                onDelete: { syncManager.removeAutomationRule(id: rule.id) }
+                                onDelete: { rulePendingDeletion = rule }
                             )
                         }
                     }

@@ -133,9 +133,32 @@ public struct AutomationDryRunRow: Sendable, Equatable, Identifiable {
     /// that forgot it — the compiler asks instead.
     public let destinationAnchor: URL
 
+    /// What the file was when the preview read it, so applying can tell it is still that file.
+    ///
+    /// **A preview is not applied at the moment it is taken.** The report sits on screen while the
+    /// user reads it — and the walkthrough has them step through it row by row — so minutes can
+    /// pass between "this is what would happen" and the move. `applyAutomationFiling` gated on
+    /// `fileExists(atPath:)`, and a path is not a file: anything that took `row.id`'s place in the
+    /// meantime got moved instead, out of the folder the user was looking at and into a
+    /// destination chosen for a document it is not.
+    ///
+    /// Read with ``ItemIdentity/snapshot(at:fileManager:)`` rather than assembled from the walk's
+    /// `FileNode`, deliberately. The walk populates `modificationDate` from
+    /// `resourceValues(.contentModificationDateKey)` while `snapshot` reads
+    /// `attributesOfItem[.modificationDate]`; an identity built from one and compared against the
+    /// other would rest on two APIs agreeing about a `Date`, and where they did not the apply
+    /// would refuse every row and look like a filesystem problem.
+    ///
+    /// **Optional, and nil means "not recorded" — apply proceeds as it did before.** Every
+    /// production row records one (`FileSyncManager.previewAutomations`, pinned by
+    /// `everyPreviewedRowCarriesTheIdentityItWasReadWith`); nil exists for rows built by hand in
+    /// tests that are about something else entirely, and refusing those would have made this
+    /// change about rewriting fixtures rather than about the guard.
+    public let sourceIdentity: ItemIdentity?
+
     public init(id: String, fileName: String, ruleID: UUID, ruleName: String,
                 verdict: AutomationVerdict, destinationDir: URL? = nil, destinationLabel: String? = nil,
-                destinationAnchor: URL) {
+                destinationAnchor: URL, sourceIdentity: ItemIdentity? = nil) {
         self.id = id
         self.fileName = fileName
         self.ruleID = ruleID
@@ -144,6 +167,7 @@ public struct AutomationDryRunRow: Sendable, Equatable, Identifiable {
         self.destinationDir = destinationDir
         self.destinationLabel = destinationLabel
         self.destinationAnchor = destinationAnchor
+        self.sourceIdentity = sourceIdentity
     }
 }
 

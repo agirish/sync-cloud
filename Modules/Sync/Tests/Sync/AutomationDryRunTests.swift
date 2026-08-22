@@ -356,4 +356,123 @@ import Testing
         #expect(m.banner?.severity == .warning)
         #expect(m.banner?.message.contains("outside") == true)
     }
+
+    // MARK: - A preview is not applied at the moment it is taken
+
+    /// **Every previewed row records what the file was**, which is the premise the guard below
+    /// rests on. Without this the refusal could quietly stop applying to production rows — a nil
+    /// identity means "not recorded" and proceeds — and nothing would say so.
+    @Test func everyPreviewedRowCarriesTheIdentityItWasReadWith() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("invoice_acme.pdf", in: dir, modified: now)
+        try write("invoice_beta.pdf", in: dir, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "PDFs", conditions: [.kindIs(.pdf)],
+                           destinationTemplate: "Documents/Invoices/{year}")
+        ])
+        await m.runAutomationDryRun(root: dir, providerName: "iCloud", now: now)
+
+        let report = try #require(m.automationDryRun)
+        #expect(!report.rows.isEmpty, "fixture: nothing was previewed")
+        for row in report.rows {
+            let identity = try #require(row.sourceIdentity,
+                                        "a previewed row carries no identity, so apply cannot check it")
+            #expect(identity != .absent, "the preview read the file as not there")
+            #expect(identity != .indeterminate, "the preview could not read the file it matched")
+        }
+    }
+
+    /// **A file that changed since the preview is left where it is.**
+    ///
+    /// The apply gated on `fileExists(atPath:)`, and a path is not a file. Between the preview and
+    /// the click — which the walkthrough stretches over as many rows as the user has — anything
+    /// taking that path got moved instead: out of the folder they were looking at, into a
+    /// destination chosen for a document it is not, and being a move, with nothing left behind.
+    @Test func aFileReplacedSinceThePreviewIsNotFiled() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("invoice_acme.pdf", in: dir, modified: now)
+        try write("invoice_beta.pdf", in: dir, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "PDFs", conditions: [.kindIs(.pdf)],
+                           destinationTemplate: "Documents/Invoices/{year}")
+        ])
+        await m.runAutomationDryRun(root: dir, providerName: "iCloud", now: now)
+        let actionable = try #require(m.automationDryRun).rows.filter { $0.destinationDir != nil }
+        #expect(actionable.count == 2, "fixture: both PDFs should be filable")
+
+        // A different document takes one of the paths — same name, different contents.
+        let replaced = dir.appendingPathComponent("invoice_acme.pdf")
+        try Data(String(repeating: "different", count: 40).utf8).write(to: replaced)
+
+        let outcome = await m.applyAutomationFiling(rows: actionable)
+
+        #expect(FileManager.default.fileExists(atPath: replaced.path),
+                "the replacement was filed — it is not the document that rule matched")
+        #expect(outcome.filed == 1, "the untouched file is still the rule's to file")
+        #expect(outcome.failed == 0, "a refusal is not a failure; nothing went wrong with the disk")
+    }
+
+    /// And it is SAID — in the banner and the log. A refusal nobody is told about leaves a smaller
+    /// number that reads as "there was less to do", which is the same silence the guard replaces.
+    @Test func aRefusedAutomationFilingSaysSo() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("invoice_acme.pdf", in: dir, modified: now)
+        try write("invoice_beta.pdf", in: dir, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "PDFs", conditions: [.kindIs(.pdf)],
+                           destinationTemplate: "Documents/Invoices/{year}")
+        ])
+        await m.runAutomationDryRun(root: dir, providerName: "iCloud", now: now)
+        let actionable = try #require(m.automationDryRun).rows.filter { $0.destinationDir != nil }
+        try Data(String(repeating: "different", count: 40).utf8)
+            .write(to: dir.appendingPathComponent("invoice_acme.pdf"))
+
+        let tag = "automation-refusal-\(UUID().uuidString)"
+        let lines = try await logLines(tag: tag) {
+            _ = await m.applyAutomationFiling(rows: actionable)
+        }
+        #expect(lines.contains { $0.contains("REFUSED to move") && $0.contains("invoice_acme.pdf") },
+                "the log did not say why a file was left behind")
+        let message = try #require(m.banner?.message)
+        #expect(message.contains("changed since the preview"),
+                "the banner counted one filed and said nothing about the one it refused: \(message)")
+    }
+
+    /// The other direction, so the guard cannot become "never file": an untouched preview still
+    /// files everything it matched, and says nothing about changes.
+    @Test func anUntouchedPreviewStillFilesEverything() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("invoice_acme.pdf", in: dir, modified: now)
+        try write("invoice_beta.pdf", in: dir, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "PDFs", conditions: [.kindIs(.pdf)],
+                           destinationTemplate: "Documents/Invoices/{year}")
+        ])
+        await m.runAutomationDryRun(root: dir, providerName: "iCloud", now: now)
+        let actionable = try #require(m.automationDryRun).rows.filter { $0.destinationDir != nil }
+
+        let outcome = await m.applyAutomationFiling(rows: actionable)
+        #expect(outcome.filed == 2)
+        #expect(outcome.failed == 0)
+        #expect(m.banner?.message.contains("changed since the preview") != true,
+                "an untouched run reported a refusal")
+    }
+
+    /// A row built without an identity — every hand-made fixture in the suite — files as it always
+    /// did. The escape hatch is deliberate and this is what keeps it honest about being one.
+    @Test func aRowWithNoRecordedIdentityFilesAsBefore() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("invoice_acme.pdf", in: dir, modified: now)
+        let m = makeManager(rules: [])
+        let dest = dir.appendingPathComponent("Documents/Invoices")
+        let row = AutomationDryRunRow(
+            id: dir.appendingPathComponent("invoice_acme.pdf").path, fileName: "invoice_acme.pdf",
+            ruleID: UUID(), ruleName: "PDFs", verdict: .wouldFile(destination: "Documents/Invoices"),
+            destinationDir: dest, destinationLabel: "Documents/Invoices",
+            destinationAnchor: dir)
+        #expect(row.sourceIdentity == nil, "fixture: this row is the no-identity case")
+
+        let outcome = await m.applyAutomationFiling(rows: [row])
+        #expect(outcome.filed == 1)
+    }
 }

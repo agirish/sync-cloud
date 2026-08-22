@@ -371,7 +371,13 @@ extension FileSyncManager {
                 id: file.id, fileName: file.name,
                 ruleID: rule.id, ruleName: rule.name, verdict: resolution.verdict,
                 destinationDir: resolution.destinationDir, destinationLabel: resolution.label,
-                destinationAnchor: destinationAnchor
+                destinationAnchor: destinationAnchor,
+                // One `attributesOfItem` per loose file, taken here so the apply can tell this
+                // file from whatever may hold its path later. Read through `snapshot` rather than
+                // built from `file`'s walked metadata — see the field's own note for why the two
+                // must come from the same API.
+                sourceIdentity: ItemIdentity.snapshot(at: URL(fileURLWithPath: file.id),
+                                                      fileManager: fileManager)
             ))
         }
 
@@ -462,6 +468,7 @@ extension FileSyncManager {
         var filedPaths: Set<String> = []
         var failures = 0
         var rootUnavailable = 0
+        var refusedChanged = 0
         let runId = UUID()
 
         for row in actionable {
@@ -472,6 +479,20 @@ extension FileSyncManager {
             let outcome: AutomationMoveOutcome = await enqueueFileOperation {
                 do {
                     guard fm.fileExists(atPath: src.path) else { return .failed(rootUnavailable: false) }
+                    // **And it has to still BE the file the preview matched.** The report is read,
+                    // and stepped through, minutes after it is taken; the existence check above
+                    // says only that the path is occupied. A file that replaced this one was moved
+                    // out of the folder the user was looking at, into a destination the rule chose
+                    // for a document it is not — and, being a move, with nothing left behind.
+                    //
+                    // nil identity ⇒ not recorded ⇒ behave exactly as before, for rows this
+                    // process did not preview.
+                    if let recorded = row.sourceIdentity {
+                        let verdict = recorded.drift(at: src, fileManager: fm)
+                        guard verdict == .unchanged else {
+                            throw FileOperationError.sourceChangedSincePreview
+                        }
+                    }
                     // One stat, before any I/O — the guard `performFiling` has and this path never
                     // did. `createDirectory(withIntermediateDirectories:)` below builds the WHOLE
                     // path, so a provider that has unmounted or been removed since the preview is
@@ -490,6 +511,14 @@ extension FileSyncManager {
                     }
                     let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
                     return .moved(to: dst, overwritten: overwritten)
+                } catch FileOperationError.sourceChangedSincePreview {
+                    // Its own line, and not phrased as a failure to move: nothing went wrong with
+                    // the filesystem, and "failed" would send the user looking for a permissions
+                    // problem. The file that is there now is left exactly where it is.
+                    logger.warning("Automation filing: REFUSED to move “\(name)” — it changed since "
+                                   + "the preview, so it is no longer the file that rule matched; "
+                                   + "leaving it in place at \(src.path)")
+                    return .refusedChanged
                 } catch {
                     logger.warning("Automation filing: moving “\(name)” into \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
                     return .failed(rootUnavailable: (error as? FileOperationError) == .destinationRootUnavailable)
@@ -507,19 +536,34 @@ extension FileSyncManager {
             case .failed(let wasRootUnavailable):
                 failures += 1
                 if wasRootUnavailable { rootUnavailable += 1 }
+            case .refusedChanged:
+                // Counted apart from `failures` on purpose. It is not an error, and folding it in
+                // would put "N failed" in front of a user whose disk is fine — the same reason
+                // `rootUnavailable` is tracked separately one case up.
+                refusedChanged += 1
             }
         }
 
+        // Said in both banner branches below, because a refusal the user is not told about is the
+        // defect this guard was added for wearing a different hat: the file stays where it was and
+        // the run reports a smaller number, which reads as "there was less to do".
+        let changedNote = refusedChanged == 0 ? ""
+            : " \(refusedChanged) changed since the preview and \(refusedChanged == 1 ? "was" : "were") left in place."
+
         guard !moves.isEmpty else {
-            if failures > 0 {
+            if failures > 0 || refusedChanged > 0 {
                 // A vanished provider is a condition the user can act on ("plug it back in, then
                 // preview again"), so it gets to say so rather than being flattened into the
                 // generic count — which is what would otherwise report a whole run that refused to
                 // write anywhere as an ordinary I/O hiccup.
+                let couldnt = failures > 0
+                    ? "Couldn't file \(failures) file\(failures == 1 ? "" : "s")."
+                    : "Nothing was filed."
                 banner = rootUnavailable > 0
-                    ? .warning("Couldn't file \(failures) file\(failures == 1 ? "" : "s"). "
-                               + FileOperationError.destinationRootUnavailable.localizedDescription)
-                    : .warning("Couldn't file \(failures) file\(failures == 1 ? "" : "s").")
+                    ? .warning(couldnt + " "
+                               + FileOperationError.destinationRootUnavailable.localizedDescription
+                               + changedNote)
+                    : .warning(couldnt + changedNote)
             }
             return (0, failures)
         }
@@ -541,10 +585,13 @@ extension FileSyncManager {
         }
 
         let n = moves.count
-        logger.info("Automation filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) failed" : "")")
-        banner = failures > 0
-            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed."
+        logger.info("Automation filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) failed" : "")"
+                    + (refusedChanged > 0 ? ", \(refusedChanged) refused as changed since the preview" : ""))
+        banner = failures > 0 || refusedChanged > 0
+            ? .warning("Filed \(n) file\(n == 1 ? "" : "s")."
+                       + (failures > 0 ? " \(failures) couldn't be filed." : "")
                        + (rootUnavailable > 0 ? " " + FileOperationError.destinationRootUnavailable.localizedDescription : "")
+                       + changedNote
                        + " Press ⌘Z to undo", undoable: true)
             : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
         return (n, failures)
@@ -560,6 +607,10 @@ private enum AutomationMoveOutcome: Sendable {
     /// `rootUnavailable` separates the one failure the user can act on — the provider is gone —
     /// from a generic I/O error, so the banner can name it.
     case failed(rootUnavailable: Bool)
+    /// Not moved because the file at that path is no longer the one the preview matched. Its own
+    /// case rather than a `failed`: counting it as a failure would report a filesystem problem
+    /// for a refusal that is the guard working, and send the user checking permissions.
+    case refusedChanged
 }
 
 /// A set of keys that each admit exactly one claim, for "warn once per session" gates.
