@@ -907,6 +907,12 @@ extension FileSyncManager {
         //     so neither the queue wait nor the dialog can stale a verdict into a wrong trash.
         //     A group that drifts in either window is refused (and logged) by the gate; its
         //     copies stay on disk and it stays listed.
+        //   - **The residual that shape carries, named:** the gate runs ONCE over the whole
+        //     surviving list, not once per group immediately before that group's own trash, so a
+        //     group late in a large batch is removed some way after the walk that cleared it. It
+        //     is accepted, and `deleteItems`' `removalGate` parameter carries the reasoning —
+        //     everything between the gate and the removals is machine-paced inside one serialized
+        //     operation, while the two windows the gate exists for are user-unbounded.
         var survivors: [DuplicateGroup] = []          // passed phase 1 and offer paths
         var verifiedButEmpty: [DuplicateGroup] = []   // passed phase 1; offered no paths
         var refused = 0
@@ -1064,6 +1070,99 @@ extension FileSyncManager {
 
     // MARK: Overlapping merge
 
+    /// One redundant copy a merge has finished folding into the keeper and now proposes to trash,
+    /// carried from the fold to the trash so the removal gate can re-prove the claim behind it:
+    /// this copy, as `planMerge` snapshotted it, is the copy whose every file the keeper now has.
+    struct MergeFoldRecord: Sendable {
+        let name: String
+        let url: URL
+        let plannedSnapshot: [String: MergeFileSnapshot]
+    }
+
+    /// Collects the merge gate's refusals across `deleteItems`' (up to two) invocations, for the
+    /// banner once the delete returns. Lock-guarded because the gate closure is `@Sendable`; the
+    /// body itself runs on the main actor. Names, not paths: the merge's banners name copies.
+    final class MergeRemovalRefusals: @unchecked Sendable {
+        private let lock = NSLock()
+        private var names: [String] = []
+        func record(_ name: String) {
+            lock.lock(); defer { lock.unlock() }
+            if !names.contains(name) { names.append(name) }
+        }
+        var all: [String] {
+            lock.lock(); defer { lock.unlock() }
+            return names
+        }
+    }
+
+    /// The merge's `removalGate` body: re-runs `mergeSourceDrifted` — the same verdict the loop
+    /// formed before enqueuing the delete — for every fold among `paths`, plus the keeper check,
+    /// and returns the paths whose claim no longer holds.
+    ///
+    /// The merge's trash was the one destructive duplicates path with no gate at all. Its own
+    /// drift re-walk runs *before* `deleteItems` enqueues, so both windows the resolve and batch
+    /// paths cover were wide open here: the serialized queue wait, and the user-paced
+    /// permanent-delete confirmation with nothing re-verified before the unrecoverable branch.
+    ///
+    /// The keeper is checked too, and it is not redundant with the fold's own snapshot: every byte
+    /// this copy is being trashed for now lives in the keeper, so a keeper that left its scanned
+    /// location between the fold and the removal turns the copy back into the only instance.
+    /// Refusals are logged per copy, in the shape the duplicates gate logs its own — he audits
+    /// `~/sync-cloud.log`, and a copy the app was about to trash and then kept must say why.
+    func refuseDriftedMergeSources(_ paths: [String], group: DuplicateGroup,
+                                   folds: [MergeFoldRecord],
+                                   refusals: MergeRemovalRefusals) async -> Set<String> {
+        // Keyed on `canonicalRemovalPath` and answered in the caller's own spelling, for the
+        // reason `refuseDriftedDuplicateRemovals` states: the post-confirmation pass is fed URL
+        // round-tripped paths, and an unmatched refusal fails open.
+        var askedByKey: [String: Set<String>] = [:]
+        for p in paths { askedByKey[Self.canonicalRemovalPath(p), default: []].insert(p) }
+        var refused = Set<String>()
+        var attributed = Set<String>()
+        let fm = fileManager
+        let keeperGone = !keeperStillExists(group)
+        for fold in folds {
+            let asked = askedByKey[Self.canonicalRemovalPath(fold.url.path)] ?? []
+            guard !asked.isEmpty else { continue }
+            attributed.formUnion(asked)
+            if keeperGone {
+                Logger.shared.warning("Duplicates merge: refused to trash “\(fold.name)” (\(fold.url.path)) at the last check before removal — the keeper “\(group.keeper.name)” (\(group.keeper.path)) is no longer at its scanned location, so the folded files are no longer provably anywhere else")
+                refusals.record(fold.name)
+                refused.formUnion(asked)
+                continue
+            }
+            // A copy that has simply VANISHED is not drift — there is nothing left to trash, and
+            // the caller reads the disk afterwards. Same carve-out the duplicates rules make.
+            guard fm.fileExists(atPath: fold.url.path) else { continue }
+            let current = Self.fileSnapshotsByRelativePath(
+                await Self.buildTree(url: fold.url, sortOption: .name, fileManager: fm, maxDepth: nil))
+            if Self.mergeSourceDrifted(planned: fold.plannedSnapshot, current: current) {
+                Logger.shared.warning("Duplicates merge: refused to trash “\(fold.name)” (\(fold.url.path)) at the last check before removal — it changed after the merge was planned, so it holds content the fold neither verified nor copied")
+                refusals.record(fold.name)
+                refused.formUnion(asked)
+            }
+        }
+        // Fail CLOSED, same rule and same reachability as the duplicates gate's: a path this gate
+        // cannot attribute to a fold has been re-verified by nothing.
+        let unattributed = Set(paths).subtracting(attributed)
+        if !unattributed.isEmpty {
+            Logger.shared.warning("Duplicates merge: refused \(unattributed.count) path(s) at the last check before removal because they belong to none of the folds being verified — \(unattributed.sorted().joined(separator: ", "))")
+            refused.formUnion(unattributed)
+        }
+        return refused
+    }
+
+    /// The gate closure `mergeDuplicateGroup` hands to `deleteItems`. `self` is captured weakly: a
+    /// manager torn down mid-delete refuses nothing rather than crashing the queue.
+    private func mergeRemovalGate(group: DuplicateGroup, folds: [MergeFoldRecord],
+                                  refusals: MergeRemovalRefusals)
+        -> @Sendable ([String]) async -> Set<String> {
+        { [weak self] about in
+            guard let self else { return [] }
+            return await self.refuseDriftedMergeSources(about, group: group, folds: folds, refusals: refusals)
+        }
+    }
+
     /// Additively merges an overlapping group's redundant copies into its keeper: copies every
     /// file the keeper doesn't already have into it, then moves the now-fully-contained copy to
     /// the Trash. Safe by construction — a file is skipped only if its content is *provably*
@@ -1106,49 +1205,63 @@ extension FileSyncManager {
             // Clear only if still ours: a queued operation may have published its own by now.
             if activeProgress === progress { activeProgress = nil }
         }
-        // Fold the whole merge into ONE undo step, the way syncAll groups a bulk run. Without it a
-        // merge registered 2N groups — one `registerCopyUndo` per redundant copy plus one delete
-        // group each — so the success banner's "Press ⌘Z to undo" reversed only the last trash and
-        // left the user guessing how many more presses the rest needed. The grouping reuses the
-        // existing per-step reversals; no new mutation path.
+        // **The whole merge is ONE undo step, and NOTHING is registered until the awaiting is
+        // over.** Both halves matter and they used to fight each other.
         //
-        // Opened LAZILY, at the first registration, and closed by the `defer` below. Opening it up
-        // front would leave an empty group whenever a merge registers nothing (refused early, every
-        // copy already gone), and there is no safe way to take an empty group back: calling undo()
-        // to discard it reverses the user's PREVIOUS action if the platform dropped the empty group
-        // itself. Never creating one sidesteps the question.
+        // The step: without a grouping a merge registered 2N steps — one `registerCopyUndo` per
+        // redundant copy plus one delete group each — so "Press ⌘Z to undo" reversed only the last
+        // trash and left the user guessing how many more presses the rest needed.
         //
-        // **KNOWN HAZARD — this group is held open across suspension points.** NSUndoManager
-        // grouping is manager-global: while this group is open across the per-copy awaits (the
-        // planning walks, the queued copy operation, the drift re-walk, and `deleteItems`, which
-        // can hold a modal permanent-delete dialog), any unrelated operation that completes and
-        // registers its undo in one of those windows nests INSIDE the merge's group, and "undo
-        // the merge" also reverses it. `applyRecommendedDuplicates` removed its equivalent by
-        // collapsing to ONE `deleteItems` call whose single registration is the whole step; the
-        // merge cannot take that shape cheaply — it must interleave `registerCopyUndo` (per
-        // folded copy) with each copy's own trash registration inside `deleteItems`, and pulling
-        // those registrations out to a synchronous tail would mean `deleteItems` handing its
-        // restore registration back to the caller (an undo-API change beyond this path). Fixing
-        // it means restructuring the merge so every registration lands in one synchronous stretch
-        // with no await between `beginUndoGrouping` and `endUndoGrouping`, the way the bulk-sync
-        // run does (`FileSyncManager+BulkSync.swift`).
-        var undoGroupOpen = false
-        func openUndoGroupIfNeeded() {
-            guard !undoGroupOpen, undoManager != nil else { return }
-            undoManager?.beginUndoGrouping()
-            undoGroupOpen = true
-        }
-        defer { if undoGroupOpen { undoManager?.endUndoGrouping() } }
-        // Each fold's copy-undo registration hands back the task wrapping its identity walk;
-        // collected here and awaited after the loop (group closed first), so the merge does not
-        // return — and no banner offers ⌘Z — before every undo it registered is fully armed.
-        var identityWalks: [Task<Void, Never>] = []
+        // The hazard the grouping brought with it: NSUndoManager grouping is manager-GLOBAL, so a
+        // group held open across a suspension swallows whatever anything else registers in that
+        // window — and this merge's group was open across the planning walks, the queued copy, the
+        // drift re-walk and a `deleteItems` that can hold a modal permanent-delete dialog. "Undo
+        // the merge" then reversed an unrelated operation too, and this is the one duplicates path
+        // whose ⌘Z reversal DELETES files out of the keeper.
+        //
+        // Both are had by recording the run and registering it afterwards, the shape
+        // `FileSyncManager+BulkSync.swift` states and `applyRecommendedDuplicates` was rebuilt
+        // around:
+        //
+        //   * every fold's copies land in `foldedItems`, each with the identity walk that was
+        //     started the moment that copy landed (`startCopyIdentityWalk`) — a batch must not use
+        //     `registerCopyUndo(items:)`, whose walk begins at registration, because registration
+        //     is now the END of the merge and an edit made anywhere in between would be recorded
+        //     as the copy's own baseline;
+        //   * the trash is ONE `deleteItems` for every fold that completed, after the loop, and it
+        //     hands its restore registration back (`restoreUndoHandback`) instead of registering
+        //     mid-await;
+        //   * the tail then opens the group, registers the copy-undo and the restore, names it and
+        //     closes it, with NO await anywhere between `beginUndoGrouping` and `endUndoGrouping`.
+        //     A synchronous main-actor stretch cannot be interleaved by construction, which is
+        //     what makes this a fix rather than a smaller window.
+        //
+        // The group is still only opened when there is something to put in it: an empty group
+        // cannot be taken back (calling undo() to discard it reverses the user's PREVIOUS action
+        // if the platform dropped the empty group itself), so it is never created.
+        //
+        // What the reshuffle costs, stated: the redundant copies now all stay on disk until the
+        // loop ends, so a merge's peak disk use is the keeper plus every copy (it was the keeper
+        // plus the copies not yet folded), and a run that is cancelled or fails mid-copy trashes
+        // only the folds that fully completed BEFORE that point — the same set as before, just
+        // trashed later. In exchange a Trash-less volume raises ONE permanent-delete confirmation
+        // instead of one per copy.
+        // Every copy this merge folded in, flat across the folds: they share one action name, so
+        // one registration covers them all and the undo reverses them as a unit.
+        var foldedItems: [PendingCopyItemState] = []
         let keeperPath = group.keeper.path
         let keeperURL = URL(fileURLWithPath: keeperPath)
         let fm = fileManager
         var totalFolded = 0
         var allTrashed = true
         var cancelled = false
+        // A fold whose copy phase failed. It used to `return false` on the spot, which was only
+        // safe while the earlier folds had already been trashed and registered inside the loop;
+        // now the registration tail is the single exit, so the failure is carried to it.
+        var copyFailed = false
+        // The folds that completed AND still matched their plan: exactly what the one trash below
+        // is allowed to remove, and what the removal gate re-verifies at the last moment.
+        var readyToTrash: [MergeFoldRecord] = []
         // Set when any redundant copy left by permanent delete rather than the Trash — the merge
         // is then not reversible, whatever else succeeded.
         var anyPermanentlyDeleted = false
@@ -1198,9 +1311,9 @@ extension FileSyncManager {
             let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
             let progressRef = ProgressRef(progress)   // NSProgress is thread-safe; the ref is the Sendable wrapper
 
-            let outcome: (copied: [CopyItemState], failed: Bool, cancelled: Bool) = await enqueueFileOperation {
+            let outcome: (copied: [PendingCopyItemState], failed: Bool, cancelled: Bool) = await enqueueFileOperation {
                 func reservedKey(_ path: String) -> String { keeperCaseSensitive ? path : path.lowercased() }
-                var copied: [CopyItemState] = []
+                var copied: [PendingCopyItemState] = []
                 var failed = false
                 var cancelledMidCopy = false
                 var reserved = Set<String>()
@@ -1221,7 +1334,15 @@ extension FileSyncManager {
                         }
                         reserved.insert(reservedKey(dst.path))
                         let overwritten = try FileSyncManager.safeCopyItem(at: step.src, to: dst, fileManager: fm)
-                        copied.append((source: step.src, destination: dst, overwritten: overwritten))
+                        // The identity walk starts HERE, the moment this file's own copy landed —
+                        // not at registration, which the restructure moved to the end of the whole
+                        // merge. `registerCopyUndo(items:)`'s walk-at-registration convenience is
+                        // documented for single-item call sites for exactly this reason: a batch
+                        // that blocks on user prompts and slow-volume I/O in between would record
+                        // an edit made during that tail as the copy's own baseline, and a later ⌘Z
+                        // would trash it.
+                        copied.append((source: step.src, destination: dst, overwritten: overwritten,
+                                       identity: FileSyncManager.startCopyIdentityWalk(at: dst, fileManager: fm)))
                     } catch {
                         // Record the underlying cause: the user-facing alert only says "some files
                         // couldn't be merged", so without this the reason is unrecoverable.
@@ -1234,14 +1355,9 @@ extension FileSyncManager {
             }
 
             if !outcome.copied.isEmpty {
-                openUndoGroupIfNeeded()
-                // The returned walk is COLLECTED, not discarded (it used to be, which made the
-                // merge the one registerCopyUndo caller for which "the operation returned ⇒ its
-                // undo is armed" did not hold — the success banner could offer ⌘Z before the
-                // identities it checks existed). Awaited after the loop, once the undo group has
-                // closed, mirroring the bulk-sync shape.
-                identityWalks.append(
-                    registerCopyUndo(items: outcome.copied, actionName: "Merge \(group.name)", fileManager: fm))
+                // Recorded, not registered: the registration is the tail's, and it happens with no
+                // undo group open in between. Their identity walks are already running.
+                foldedItems.append(contentsOf: outcome.copied)
                 totalFolded += outcome.copied.count
             }
             if outcome.cancelled {
@@ -1253,9 +1369,14 @@ extension FileSyncManager {
             if outcome.failed {
                 // Leave the redundant copy in place so nothing is trashed after a partial copy;
                 // the group stays so the user can retry (already-copied files are skipped next time).
+                // Falls through to the tail rather than returning here: the copies that DID land in
+                // this run — this fold's and every earlier one's — have no undo registered yet, and
+                // an early return would leave them in the keeper with nothing to reverse them.
                 present(.syncFailed(item: redundant.name, path: redundant.path,
                                     reason: "Some files couldn't be merged; the folder was left in place."))
-                return false
+                copyFailed = true
+                allTrashed = false
+                break
             }
 
             // The plan is a point-in-time snapshot, and minutes of hashing/copying may have passed.
@@ -1272,29 +1393,82 @@ extension FileSyncManager {
                 continue
             }
 
-            // Every file in the redundant copy is now present in the keeper → safe to trash it.
-            // Its restore-undo joins the merge's group so one ⌘Z takes the whole fold back — but
-            // only when it reached the Trash. A copy destroyed permanently registers no restore,
-            // and the group still holds this fold's `registerCopyUndo`, whose reversal DELETES the
-            // copied items. So "Press ⌘Z to undo" would walk the user from a merge that cannot be
-            // taken back to a prompt that removes the folded files from the keeper, with the
-            // originals already gone. Track it and stop making the offer.
-            openUndoGroupIfNeeded()
-            // `trashOutcome`, not `outcome`: the copy phase above already binds that name for its
-            // own result in this scope.
-            let trashOutcome = await deleteItems(at: [redundant.path], fileManager: fm)
-            if trashOutcome.removed == 0 { allTrashed = false }   // trash declined/failed — don't claim the group done
-            if trashOutcome.permanentlyDeleted > 0 { anyPermanentlyDeleted = true }
+            // Every file in the redundant copy is now present in the keeper → safe to trash it,
+            // once the loop is done. The trash itself is the single `deleteItems` below; what is
+            // recorded here is the claim it rests on — this copy, as the plan snapshotted it — so
+            // the removal gate can re-prove it at the last moment.
+            readyToTrash.append(MergeFoldRecord(name: redundant.name, url: rURL,
+                                                plannedSnapshot: plan.sourceSnapshot))
         }
 
-        // Nothing registers after the loop, so the undo group can close here — and must, before
-        // the walks are awaited: an await inside the group opens the main actor mid-group,
-        // letting an interleaved operation register into the merge's step (the bulk-sync rule).
-        // The scope `defer` above then no-ops. Awaiting restores the registerCopyUndo contract
-        // this site alone was breaking: every banner below, ⌘Z-offering or not, now posts only
-        // after the identities the undo checks exist.
-        if undoGroupOpen { undoManager?.endUndoGrouping(); undoGroupOpen = false }
-        for walk in identityWalks { await walk.value }
+        // ONE trash for every fold that completed, gated. The gate is the whole reason this can be
+        // deferred at all: it re-walks each copy against its own plan snapshot at the moment the
+        // serialized removal STARTS, and again after a confirmed permanent delete — the two windows
+        // a check made up in the loop cannot cover (the op queue can put a minutes-long operation
+        // in between, and the confirmation dialog sits open for as long as the user leaves it).
+        // This path had neither: `mergeSourceDrifted` above ran before `deleteItems` even enqueued,
+        // and the unrecoverable branch re-verified nothing at all.
+        let gateRefusals = MergeRemovalRefusals()
+        var trashedForUndo: (originals: [URL], backups: [URL?])?
+        if !readyToTrash.isEmpty {
+            let outcome = await deleteItems(
+                at: readyToTrash.map { $0.url.path }, fileManager: fm,
+                removalGate: mergeRemovalGate(group: group, folds: readyToTrash, refusals: gateRefusals),
+                restoreUndoHandback: { originals, backups in
+                    trashedForUndo = (originals, backups)
+                })
+            if outcome.permanentlyDeleted > 0 { anyPermanentlyDeleted = true }
+            // The disk is the ground truth for "did this copy leave", the same rule
+            // `dropFullyRemovedGroups` follows: a gate refusal, a decline, a cancelled dialog and a
+            // failure all leave a real folder behind, however the call accounted for it.
+            for fold in readyToTrash where fm.fileExists(atPath: fold.url.path) { allTrashed = false }
+            // A gate refusal reads to the user exactly like the pre-check's drift refusal, because
+            // it is the same verdict taken later; the gate has already logged the specifics.
+            driftedCopies.append(contentsOf: gateRefusals.all)
+        }
+
+        // **The registration tail — synchronous, start to finish.** No `await` may appear between
+        // `beginUndoGrouping` and `endUndoGrouping`: the main actor cannot be interleaved inside a
+        // synchronous stretch, so nothing else can register into the merge's step. The identity
+        // walks are awaited AFTER the group closes.
+        var identityWalk: Task<Void, Never>?
+        if !foldedItems.isEmpty || trashedForUndo != nil {
+            let actionName = "Merge \(group.name)"
+            // Grouped only when there is a manager to group in. Without one (headless/CLI) the
+            // registrations are no-ops, but the handback still has to be ANSWERED — the trash
+            // happened, and dropping the pairs on the floor is the one way to lose an undo the
+            // caller took responsibility for.
+            let grouped = undoManager != nil
+            if grouped { undoManager?.beginUndoGrouping() }
+            if !foldedItems.isEmpty {
+                identityWalk = registerCopyUndo(pendingItems: foldedItems, actionName: actionName, fileManager: fm)
+            }
+            // Registered AFTER the copy-undo, so ⌘Z pops it FIRST: the redundant copies come back
+            // out of the Trash before anything is removed from the keeper. The other order would,
+            // if the restore then failed, have already deleted the folded files with the originals
+            // still gone. Only the copies that reached the Trash are here — a permanently deleted
+            // one registers nothing, which is what `anyPermanentlyDeleted` withdraws the ⌘Z offer
+            // for below: the group would still hold the copy-undo, whose reversal DELETES the
+            // folded items out of the keeper, and the originals would be gone.
+            if let trashedForUndo {
+                registerRestoreItems(urls: trashedForUndo.originals, trashedItems: trashedForUndo.backups,
+                                     actionName: actionName, fileManager: fm)
+            }
+            // No `setActionName` here, and that is measured rather than assumed: every registrar
+            // above names the step after the `actionName` it was handed, and here both were handed
+            // the SAME one, so a call adding it back is inert (mutation-checked — deleting it left
+            // `oneUndoReversesAWholeTwoCopyMergeAndNothingElse` green). Bulk sync does need one
+            // because its per-file registrations carry per-file names. What the step used to read
+            // in the Edit menu — "Delete N Items", the name of `deleteItems`' own registration —
+            // is fixed by the handback, which put the naming back in this method's hands.
+            if grouped { undoManager?.endUndoGrouping() }
+        }
+
+        // Outside the group, for the reason stated at the tail. Awaiting keeps the
+        // `registerCopyUndo` contract this site alone used to break: every banner below,
+        // ⌘Z-offering or not, posts only after the identities the undo checks exist.
+        await identityWalk?.value
+        if copyFailed { return false }   // the alert is the feedback; no merge banner over it
 
         // Only drop the group and claim success when every redundant copy actually left the disk
         // and no error surfaced — otherwise keep the group (retry skips what already landed) and

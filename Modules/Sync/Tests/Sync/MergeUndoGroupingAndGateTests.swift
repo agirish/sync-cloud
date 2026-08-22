@@ -1,0 +1,400 @@
+import Testing
+import Foundation
+import Events
+@testable import Sync
+
+/// The two things the merge path was still missing after the duplicates round hardened its
+/// siblings.
+///
+/// **The undo group was held open across suspensions.** `mergeDuplicateGroup` opened one
+/// `beginUndoGrouping` at its first registration and closed it after the whole loop — across the
+/// planning walks, the queued copy operation, the drift re-walk and a `deleteItems` that can hold a
+/// modal permanent-delete dialog. NSUndoManager grouping is manager-GLOBAL, so anything else
+/// registering an undo in one of those windows nested inside the merge's step, and ⌘Z then reversed
+/// more than the banner claimed — on the one duplicates path whose reversal DELETES files out of
+/// the keeper.
+///
+/// **The trash had no removal gate.** `mergeSourceDrifted` ran before `deleteItems` was even
+/// enqueued, so neither window the gate exists for was covered here: the serialized queue wait, and
+/// the user-paced permanent-delete confirmation with nothing re-verified before the unrecoverable
+/// branch.
+///
+/// A real `FileManager` subclass rather than the mock disk, for the reason `MergeCancelMidCopyTests`
+/// documents: the merge hashes real bytes to plan, and only the `fileManager is FileManager` fast
+/// path yields the sizes it plans from.
+@Suite struct MergeUndoGroupingAndGateTests {
+
+    /// A real `FileManager` whose Trash always refuses — the Trash-less volume, without needing one.
+    private final class TrashlessVolume: FileManager, @unchecked Sendable {
+        override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
+        }
+    }
+
+    /// A real `FileManager` that takes a measurable moment to trash, so the merge really is
+    /// SUSPENDED for a stretch a main-actor sampler can observe. Bounded and single: one 0.3 s
+    /// sleep, on the one pool thread running this operation's body, released unconditionally —
+    /// nothing else in the test parks, so it cannot starve the releases anything is waiting on.
+    private final class SlowTrash: FileManager, @unchecked Sendable {
+        override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            Thread.sleep(forTimeInterval: 0.3)
+            try super.trashItem(at: url, resultingItemURL: resultingItemURL)
+        }
+    }
+
+    /// Records the file-mutating calls the undo makes, in order, so the ORDER of the merge's two
+    /// undo registrations is observable. Real behaviour throughout — every override calls `super`.
+    private final class OpRecorder: FileManager, @unchecked Sendable {
+        let calls = LockedBox<[String]>([])
+        override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            calls.withLock { $0.append("trash:\(url.lastPathComponent)") }
+            try super.trashItem(at: url, resultingItemURL: resultingItemURL)
+        }
+        override func moveItem(at src: URL, to dst: URL) throws {
+            calls.withLock { $0.append("move:\(dst.lastPathComponent)") }
+            try super.moveItem(at: src, to: dst)
+        }
+        override func removeItem(at url: URL) throws {
+            calls.withLock { $0.append("remove:\(url.lastPathComponent)") }
+            try super.removeItem(at: url)
+        }
+    }
+
+    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: fill, count: bytes).write(to: url)
+    }
+
+    /// The overlapping group the merge folds: a keeper, and `redundantNames.count` redundant copies
+    /// that each share one file with it and hold one unique file of their own.
+    private func makeGroup(_ base: URL, redundantNames: [String]) throws -> (keeper: URL, redundant: [URL], group: DuplicateGroup) {
+        let keeper = base.appendingPathComponent("Keeper")
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        var copies: [DuplicateCopy] = [
+            DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 4000, itemCount: 1,
+                          modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+        ]
+        var redundant: [URL] = []
+        for (i, name) in redundantNames.enumerated() {
+            let r = base.appendingPathComponent(name)
+            try write(r.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+            try write(r.appendingPathComponent("unique\(i).txt"), bytes: 4000, fill: UInt8(0x60 + i))
+            redundant.append(r)
+            copies.append(DuplicateCopy(id: r.path, name: name, isDirectory: true, size: 8000, itemCount: 2,
+                                        modificationDate: nil, uniqueItemCount: 1, depth: 0,
+                                        isRecommendedKeeper: false))
+        }
+        return (keeper, redundant,
+                DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
+                               isDirectory: true, copies: copies, reclaimableBytes: 4000))
+    }
+
+    @MainActor
+    private func loggedLine(containing fragment: String) async -> String? {
+        await Logger.shared.debug("merge-gate flush marker").value
+        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+    }
+
+    /// Spins the main runloop briefly so NSUndoManager's event-scoped group closes — same helper and
+    /// same reason as `DuplicateBatchRedesignTests`.
+    @MainActor
+    private func closeTheUndoEventGroup() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+
+    // MARK: FINDING 1 — no undo group across a suspension
+
+    /// **The invariant, stated the only way it can be observed: from the main actor.** A
+    /// `beginUndoGrouping`/`endUndoGrouping` pair with no `await` between them cannot be seen open
+    /// by any other main-actor task, because a synchronous stretch is not interleavable. So
+    /// sampling `groupingLevel` from the main actor throughout the merge must never see it above
+    /// zero — and if the merge ever again holds a group across an await, this catches it with the
+    /// grouping still open.
+    ///
+    /// `groupsByEvent = false` so the sampler measures THIS code's grouping and not NSUndoManager's
+    /// own per-event group, which opens on the first registration and would read 1 for reasons that
+    /// have nothing to do with the hazard.
+    @MainActor
+    @Test func noUndoGroupIsEverOpenWhileTheMergeIsSuspended() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGrouping")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rName = "Redundant-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(
+            at: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")) }
+        let fixture = try makeGroup(base, redundantNames: [rName])
+
+        let manager = FileSyncManager(fileManager: SlowTrash())
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+        manager.duplicateGroups = [fixture.group]
+
+        let finished = LockedBox<Bool>(false)
+        let merge = Task { @MainActor in
+            let ok = await manager.mergeDuplicateGroup(fixture.group)
+            finished.withLock { $0 = true }
+            return ok
+        }
+
+        // Sample from the main actor for as long as the merge runs. Bounded by a deadline as well
+        // as by the flag, so a wedged merge fails the test instead of hanging it.
+        var maxLevel = 0
+        var samples = 0
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        while !finished.withLock({ $0 }) && ContinuousClock.now < deadline {
+            maxLevel = max(maxLevel, undo.groupingLevel)
+            samples += 1
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
+        let ok = await merge.value
+
+        #expect(ok == true, "the merge did not complete, so the samples below describe nothing")
+        #expect(samples > 20,
+                "only \(samples) samples were taken — too few to have observed the merge's suspensions, so a zero reading proves nothing")
+        #expect(maxLevel == 0,
+                "an undo group was open (level \(maxLevel)) while the merge was suspended — anything else registering an undo in that window nests into the merge's step")
+        // The premise: this run really did suspend in the places the hazard lived — it copied and
+        // it trashed.
+        #expect(FileManager.default.fileExists(atPath: fixture.keeper.appendingPathComponent("unique0.txt").path))
+        #expect(FileManager.default.fileExists(atPath: fixture.redundant[0].path) == false)
+    }
+
+    /// The other direction, and what the grouping is FOR: a merge that folded two copies is still
+    /// ONE ⌘Z. Without it, deleting the grouping outright would pass the test above.
+    @MainActor
+    @Test func oneUndoReversesAWholeTwoCopyMergeAndNothingElse() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeOneUndo")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let names = ["RedA-\(UUID().uuidString)", "RedB-\(UUID().uuidString)"]
+        let trash = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
+        defer { for n in names { try? FileManager.default.removeItem(at: trash.appendingPathComponent(n)) } }
+        let fixture = try makeGroup(base, redundantNames: names)
+
+        let manager = FileSyncManager(fileManager: FileManager.default)
+        manager.undoManager = UndoManager()
+        // An unrelated delete FIRST, so its step sits below the merge's on the stack.
+        let bystander = base.appendingPathComponent("bystander.txt")
+        try write(bystander, bytes: 10, fill: 0x41)
+        await manager.deleteItems(at: [bystander.path], fileManager: FileManager.default)
+        try #require(FileManager.default.fileExists(atPath: bystander.path) == false)
+        closeTheUndoEventGroup()
+
+        manager.duplicateGroups = [fixture.group]
+        let ok = await manager.mergeDuplicateGroup(fixture.group)
+        try #require(ok == true)
+        for r in fixture.redundant {
+            try #require(FileManager.default.fileExists(atPath: r.path) == false)
+        }
+        #expect(manager.undoManager?.undoActionName == "Merge Keeper",
+                "the merge's step is named after its last registration rather than after the merge: “\(manager.undoManager?.undoActionName ?? "nil")”")
+        closeTheUndoEventGroup()
+
+        manager.undoManager?.undo()
+        await waitUntil("one undo restores both redundant copies") {
+            fixture.redundant.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+        }
+        await waitUntil("one undo removes both folded files from the keeper") {
+            !FileManager.default.fileExists(atPath: fixture.keeper.appendingPathComponent("unique0.txt").path)
+                && !FileManager.default.fileExists(atPath: fixture.keeper.appendingPathComponent("unique1.txt").path)
+        }
+        await waitUntil("the undo's operations drain") { manager.activeFileOperationsCount == 0 }
+        // …and ONLY the merge: the unrelated delete before it is still undoable, not undone.
+        #expect(FileManager.default.fileExists(atPath: bystander.path) == false,
+                "one ⌘Z after the merge also reversed an unrelated earlier delete — the merge's step leaked beyond the merge")
+        #expect(manager.undoManager?.canUndo == true,
+                "the unrelated delete's own undo step disappeared with the merge's")
+    }
+
+    /// **The order inside that one step, which is a safety property and not a detail.** Undoing a
+    /// merge does two opposite things: it puts the redundant copies back, and it DELETES the folded
+    /// files out of the keeper. Whichever is registered last is popped first, so the registrations
+    /// must run restore-first at undo time — if the restore fails (its location reoccupied, its
+    /// Trash backup gone), the folded files must still be in the keeper rather than already
+    /// deleted with the originals unrecoverable.
+    ///
+    /// This is also the pin on the `restoreUndoHandback` itself: without it `deleteItems` registers
+    /// the restore where it happens — BEFORE the merge's copy-undo — and the ⌘Z then removes from
+    /// the keeper first. (Verified as a mutation: disabling the handback flips the two indices
+    /// below and nothing else in this suite notices, because NSUndoManager's own per-event group
+    /// makes both shapes reverse in one press.)
+    @MainActor
+    @Test func undoingAMergePutsTheCopiesBackBeforeItRemovesAnythingFromTheKeeper() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeUndoOrder")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rName = "Red-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(
+            at: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")) }
+        let fixture = try makeGroup(base, redundantNames: [rName])
+
+        let recorder = OpRecorder()
+        let manager = FileSyncManager(fileManager: recorder)
+        manager.undoManager = UndoManager()
+        manager.duplicateGroups = [fixture.group]
+        try #require(await manager.mergeDuplicateGroup(fixture.group) == true)
+        recorder.calls.withLock { $0.removeAll() }
+        closeTheUndoEventGroup()
+
+        manager.undoManager?.undo()
+        await waitUntil("the undo restores the copy") {
+            FileManager.default.fileExists(atPath: fixture.redundant[0].path)
+        }
+        await waitUntil("the undo removes the folded file from the keeper") {
+            !FileManager.default.fileExists(atPath: fixture.keeper.appendingPathComponent("unique0.txt").path)
+        }
+        await waitUntil("the undo's operations drain") { manager.activeFileOperationsCount == 0 }
+
+        let calls = recorder.calls.withLock { $0 }
+        let restoredAt = try #require(calls.firstIndex { $0.contains(rName) },
+                                      "the undo never touched the redundant copy: \(calls)")
+        let removedAt = try #require(calls.firstIndex { $0.contains("unique0.txt") },
+                                     "the undo never removed the folded file: \(calls)")
+        #expect(restoredAt < removedAt,
+                "the ⌘Z deleted the folded file out of the keeper BEFORE restoring the original — a failed restore then leaves neither: \(calls)")
+    }
+
+    // MARK: FINDING 2 — the merge's trash is gated
+
+    /// **The headline.** The user leaves the permanent-delete confirmation open, something rewrites
+    /// the redundant copy in that window, and the merge must NOT destroy it: what is about to be
+    /// removed unrecoverably is no longer the folder whose every file the fold proved was in the
+    /// keeper. Red before the gate — the merge called `deleteItems` with none, so nothing looked
+    /// at the copy again after the dialog closed.
+    @MainActor
+    @Test func aCopyThatDriftsWhileTheConfirmationIsOpenIsNotPermanentlyDeleted() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGateConfirm")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rName = "Redundant-\(UUID().uuidString)"
+        let fixture = try makeGroup(base, redundantNames: [rName])
+        let redundant = fixture.redundant[0]
+
+        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        manager.undoManager = UndoManager()
+        manager.duplicateGroups = [fixture.group]
+        let confirmed = LockedBox<Int>(0)
+        manager.permanentDeleteConfirmer = { _ in
+            // The user's own pace, and what it costs: while the sheet was up, something wrote a
+            // new file into the copy. Nothing has verified it since the fold.
+            try? Data(repeating: 0x7A, count: 512)
+                .write(to: redundant.appendingPathComponent("arrived-while-you-decided.txt"))
+            confirmed.withLock { $0 += 1 }
+            return true
+        }
+
+        let ok = await manager.mergeDuplicateGroup(fixture.group)
+
+        #expect(confirmed.withLock { $0 } == 1, "the run never reached the permanent-delete confirmation")
+        #expect(FileManager.default.fileExists(atPath: redundant.path),
+                "the copy was destroyed unrecoverably after drifting while the confirmation was open")
+        #expect(FileManager.default.fileExists(
+            atPath: redundant.appendingPathComponent("arrived-while-you-decided.txt").path),
+                "the file written during the dialog is gone — it was destroyed with the folder")
+        #expect(ok == false, "the merge claimed success over a copy it refused to remove")
+        #expect(manager.banner?.message.contains("changed since it was scanned") == true,
+                "the refusal was not surfaced: “\(manager.banner?.message ?? "nil")”")
+        let line = await loggedLine(containing: "at the last check before removal")
+        #expect(line?.contains(rName) == true,
+                "the gate's refusal was not logged with the copy it kept: “\(line ?? "nil")”")
+    }
+
+    // MARK: The merge gate's own verdicts
+
+    @MainActor
+    @Test func theMergeGateRefusesACopyThatChangedSinceItWasPlanned() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGateUnit")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fixture = try makeGroup(base, redundantNames: ["Red"])
+        let redundant = fixture.redundant[0]
+        let manager = FileSyncManager(fileManager: FileManager.default)
+
+        let planned = FileSyncManager.fileSnapshotsByRelativePath(
+            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
+                                            fileManager: FileManager.default, maxDepth: nil))
+        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned)
+
+        // The control first, so a gate that refuses everything cannot pass this.
+        let clean = await manager.refuseDriftedMergeSources(
+            [redundant.path], group: fixture.group, folds: [fold],
+            refusals: FileSyncManager.MergeRemovalRefusals())
+        #expect(clean.isEmpty, "an unchanged copy was refused — the fixture makes the pin below vacuous")
+
+        try Data(repeating: 0x01, count: 32).write(to: redundant.appendingPathComponent("new.txt"))
+        let refusals = FileSyncManager.MergeRemovalRefusals()
+        let refused = await manager.refuseDriftedMergeSources(
+            [redundant.path], group: fixture.group, folds: [fold], refusals: refusals)
+
+        #expect(refused == [redundant.path],
+                "a copy that gained a file after the plan was not refused: \(refused)")
+        #expect(refusals.all == ["Red"])
+    }
+
+    /// The keeper is the other half of the merge's claim: every byte the copy is being trashed for
+    /// now lives there. A keeper that left its scanned location turns the copy back into the only
+    /// instance, so the gate refuses even though the copy itself never moved.
+    @MainActor
+    @Test func theMergeGateRefusesEveryFoldWhenTheKeeperLeftItsScannedLocation() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGateKeeper")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fixture = try makeGroup(base, redundantNames: ["Red"])
+        let redundant = fixture.redundant[0]
+        let manager = FileSyncManager(fileManager: FileManager.default)
+        let planned = FileSyncManager.fileSnapshotsByRelativePath(
+            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
+                                            fileManager: FileManager.default, maxDepth: nil))
+        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned)
+
+        try FileManager.default.removeItem(at: fixture.keeper)
+        let refused = await manager.refuseDriftedMergeSources(
+            [redundant.path], group: fixture.group, folds: [fold],
+            refusals: FileSyncManager.MergeRemovalRefusals())
+
+        #expect(refused == [redundant.path],
+                "the copy was cleared for the Trash with the keeper gone — the folded files are provably nowhere")
+    }
+
+    /// Fail CLOSED, the same rule the duplicates gate now follows: a path this gate cannot
+    /// attribute to a fold has been re-verified by nothing at all.
+    @MainActor
+    @Test func theMergeGateRefusesAPathItCannotAttributeToAFold() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGateStray")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fixture = try makeGroup(base, redundantNames: ["Red"])
+        let redundant = fixture.redundant[0]
+        let manager = FileSyncManager(fileManager: FileManager.default)
+        let planned = FileSyncManager.fileSnapshotsByRelativePath(
+            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
+                                            fileManager: FileManager.default, maxDepth: nil))
+        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned)
+
+        let stray = base.appendingPathComponent("stray.txt").path
+        let refused = await manager.refuseDriftedMergeSources(
+            [redundant.path, stray], group: fixture.group, folds: [fold],
+            refusals: FileSyncManager.MergeRemovalRefusals())
+
+        #expect(refused == [stray], "a path belonging to no fold was waved through unverified: \(refused)")
+    }
+
+    /// The gate must recognize a fold however the caller spelled its path — `deleteItems` feeds the
+    /// post-confirmation pass URL round-tripped strings. Same contract as
+    /// `RemovalGatePathMatchingTests` pins for the duplicates gate, on the merge's own.
+    @MainActor
+    @Test func theMergeGateVerifiesAFoldGivenInAnotherSpelling() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGateSpelling")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fixture = try makeGroup(base, redundantNames: ["Red"])
+        let redundant = fixture.redundant[0]
+        let manager = FileSyncManager(fileManager: FileManager.default)
+        let planned = FileSyncManager.fileSnapshotsByRelativePath(
+            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
+                                            fileManager: FileManager.default, maxDepth: nil))
+        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned)
+        try Data(repeating: 0x01, count: 32).write(to: redundant.appendingPathComponent("new.txt"))
+
+        let spelled = redundant.path + "/"
+        let refused = await manager.refuseDriftedMergeSources(
+            [spelled], group: fixture.group, folds: [fold],
+            refusals: FileSyncManager.MergeRemovalRefusals())
+
+        #expect(refused == [spelled],
+                "a drifted fold asked about in a trailing-slash spelling was not verified: \(refused)")
+    }
+}

@@ -626,9 +626,47 @@ extension FileSyncManager {
     ///   anything is destroyed unrecoverably (the confirmation dialog is open for as long as the
     ///   user leaves it). The gate is the caller's own verifier, so it also owns saying which
     ///   paths it refused and why; nil (every non-duplicates caller) changes nothing.
+    ///
+    ///   **Once per invocation, over the WHOLE list — not once per path immediately before its own
+    ///   removal.** Stated because it is the difference between what this guarantees and what it
+    ///   could be read as guaranteeing: a path late in a large batch is removed some way after the
+    ///   verdict that cleared it, and for the duplicates gate that verdict costs a folder re-walk
+    ///   (~0.7 s per 40k-node folder), so a big batch's first group can be seconds old by the time
+    ///   its own `trashItem` runs.
+    ///
+    ///   That residual is ACCEPTED, and the line is drawn where it is for a reason: everything
+    ///   between the gate call and the removals is machine-paced — one `fileExists` and one
+    ///   `trashItem` per path, inside a single serialized operation, with no user interaction and
+    ///   nothing else able to run on the queue. The two windows this hook exists for are
+    ///   user-UNBOUNDED (a queued operation of arbitrary length, a modal sheet left open over
+    ///   lunch), which is a different order of exposure, not a longer one of the same kind.
+    ///   Re-verifying per path would close the machine-paced remainder at the cost of running each
+    ///   group's whole verification once per removal path in it — and the verification is itself
+    ///   the slow thing, so a batch would spend more elapsed time inside the gate than the ageing
+    ///   it removes. `theRemovalGateRunsAtOperationStartAndRefusedPathsStay` pins this shape so a
+    ///   change to it is a deliberate one.
+    ///
+    ///   The merge is the exception worth knowing: its folds are one group's redundant copies, so
+    ///   its list is short and its per-fold verification is one walk of that copy.
+    /// - Parameter restoreUndoHandback: Takes the restore-undo registration away from this method
+    ///   and hands the caller the `(original, Trash backup)` pairs instead — the exact arguments
+    ///   `registerRestoreItems` would have been given, already filtered to the items that really
+    ///   reached the Trash. For ONE caller and one reason: a merge must reverse as a single ⌘Z,
+    ///   which means its copy-undo and its restore-undo have to be registered inside one
+    ///   `beginUndoGrouping`/`endUndoGrouping` pair — and that pair may not be held open across an
+    ///   await (NSUndoManager grouping is manager-global, so anything else registering in the
+    ///   window nests into the merge's step). The only way to have both is for this method to stop
+    ///   registering mid-await and let the caller register both, synchronously, once it is done
+    ///   awaiting. `nil` — every other caller — keeps registering here exactly as before.
+    ///
+    ///   The pairs are inert data: `registerRestoreItems` records no snapshot at registration
+    ///   time, so deferring it changes nothing about what the undo will do. What the caller owes
+    ///   in exchange is that it register them, in the same main-actor turn this returns in, or the
+    ///   trash it just did has no undo at all.
     public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default,
                             reportsNothingToDo: Bool = false,
-                            removalGate: (@Sendable ([String]) async -> Set<String>)? = nil) async -> DeleteOutcome {
+                            removalGate: (@Sendable ([String]) async -> Set<String>)? = nil,
+                            restoreUndoHandback: (([URL], [URL?]) -> Void)? = nil) async -> DeleteOutcome {
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): a delete landing mid-verify can remove a file as it's hashed.
         guard !isVerifyAllRunning else {
@@ -767,7 +805,12 @@ extension FileSyncManager {
         let successfullyTrashed = items.compactMap { $0.trashed != nil ? $0 : nil }
         if !successfullyTrashed.isEmpty {
             let urls = successfullyTrashed.map { $0.original }
-            self.registerRestoreItems(urls: urls, trashedItems: successfullyTrashed.map { $0.trashed }, actionName: "Delete \(successfullyTrashed.count) Items", fileManager: fm)
+            let backups = successfullyTrashed.map { $0.trashed }
+            if let restoreUndoHandback {
+                restoreUndoHandback(urls, backups)
+            } else {
+                self.registerRestoreItems(urls: urls, trashedItems: backups, actionName: "Delete \(successfullyTrashed.count) Items", fileManager: fm)
+            }
         }
         
         // Show the success banner for whatever was removed, INDEPENDENTLY of any failure below: a
@@ -862,10 +905,17 @@ extension FileSyncManager {
             // so any surviving pairing is stale and must die: the name gate cannot tell the
             // two groups apart. All-permanent registers nothing, so the previous pairing's
             // group is still the top and stays valid.
-            if !successfullyTrashed.isEmpty && successfullyTrashed.count != items.count {
+            //
+            // A HANDBACK is the same situation for a different reason: the group that will top the
+            // stack has not been registered yet (that is the caller's next synchronous step), so
+            // `undoActionName` here still names the PREVIOUS action — arming the pairing would
+            // attach these records to it. Unpair, and kill any pairing the caller's imminent group
+            // would otherwise shadow.
+            let handedBack = restoreUndoHandback != nil && !successfullyTrashed.isEmpty
+            if handedBack || (!successfullyTrashed.isEmpty && successfullyTrashed.count != items.count) {
                 invalidateRunUndoPairing()
             }
-            recordSyncHistory(records, pairedWithUndo: successfullyTrashed.count == items.count)
+            recordSyncHistory(records, pairedWithUndo: !handedBack && successfullyTrashed.count == items.count)
         }
 
         if let progress, self.activeProgress === progress {
