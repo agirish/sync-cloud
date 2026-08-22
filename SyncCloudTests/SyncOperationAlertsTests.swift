@@ -183,9 +183,63 @@ import Sync
     }
 
     @MainActor
+    // MARK: Permanent-delete confirmation — the app's only unrecoverable action
+
+    /// **The one dialog must name what it destroys.** The `count > 1` branch rendered
+    /// "…permanently delete these N items?" and discarded `itemNames` entirely, so once the
+    /// duplicates batch redesign made ONE dialog cover every group, a 12-group batch asked about
+    /// "these 37 items" with nothing identifying them. `DuplicateBatchRedesignTests` asserted on
+    /// the ARGUMENT under the comment "the one dialog must name everything it is about to
+    /// destroy" — which is why the absence survived: the argument was right and the rendering
+    /// threw it away. This pins the rendering.
+    @Test func permanentDeleteBodyNamesEveryItemByPath() {
+        let paths = [NSHomeDirectory() + "/Pictures/2019/IMG_0421.jpg",
+                     NSHomeDirectory() + "/Desktop/Old/IMG_0421.jpg"]
+        let body = SyncOperationAlerts.permanentDeleteInformativeText(itemPaths: paths)
+        for path in paths {
+            #expect(body.contains(SyncOperationAlerts.displayPath(path)),
+                    "the body does not name \(path): “\(body)”")
+        }
+        // Same-named copies are the duplicates flows' ordinary case, so the two lines must differ.
+        let bullets = body.split(separator: "\n").filter { $0.contains("•") }
+        #expect(Set(bullets).count == 2,
+                "two same-named copies rendered identically — the alert cannot tell them apart: “\(body)”")
+        #expect(body.contains("can't be moved to the Trash"))
+        #expect(body.contains("You can't undo this action."))
+    }
+
+    /// A single item is named in the message line by basename (the headline reads naturally) and
+    /// located in the body, because a basename alone gives no folder context.
+    @Test func permanentDeleteOfOneItemNamesItAndLocatesIt() {
+        let path = NSHomeDirectory() + "/Desktop/Old/IMG_0421.jpg"
+        #expect(SyncOperationAlerts.permanentDeleteMessage(itemPaths: [path])
+                == "Are you sure you want to permanently delete \"IMG_0421.jpg\"?")
+        let body = SyncOperationAlerts.permanentDeleteInformativeText(itemPaths: [path])
+        #expect(body.contains(SyncOperationAlerts.displayPath(path)), "“\(body)”")
+        #expect(body.contains("This item will be deleted immediately"), "“\(body)”")
+    }
+
+    /// Large counts stay readable: the same cap, bullet and "and N more" spellings
+    /// `SyncRunUndoPreview.confirmationDetail` uses for its itemization.
+    @Test func permanentDeleteBodyCapsALongListAndSaysHowManyItHid() {
+        let paths = (1...37).map { NSHomeDirectory() + "/Pictures/copy-\($0).jpg" }
+        #expect(SyncOperationAlerts.permanentDeleteMessage(itemPaths: paths)
+                == "Are you sure you want to permanently delete these 37 items?")
+        let body = SyncOperationAlerts.permanentDeleteInformativeText(itemPaths: paths)
+        #expect(body.split(separator: "\n").filter { $0.contains("•") }.count == 8,
+                "the body listed a different number of items than the cap: “\(body)”")
+        #expect(body.contains("and 29 more"), "“\(body)”")
+        #expect(body.contains(SyncOperationAlerts.displayPath(paths[0])))
+        #expect(body.contains(SyncOperationAlerts.displayPath(paths[36])) == false,
+                "the cap did not apply")
+    }
+
+    /// `@MainActor` because `confirmPermanentDelete` is: the suite as a whole is nonisolated, and
+    /// this call only ever typechecked by inference luck.
+    @MainActor
     @Test func permanentDeleteOfNothingIsRefusedWithoutAnAlert() {
         // The empty-list guard runs before any AppKit call, so this is reachable headlessly —
         // and it is the guard that keeps a no-selection delete from presenting a modal.
-        #expect(!SyncOperationAlerts.confirmPermanentDelete(itemNames: []))
+        #expect(!SyncOperationAlerts.confirmPermanentDelete(itemPaths: []))
     }
 }

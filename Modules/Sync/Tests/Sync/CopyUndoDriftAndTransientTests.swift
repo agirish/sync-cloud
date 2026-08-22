@@ -128,8 +128,8 @@ import Events
         mockFM.virtualDisk["/dst/f.txt"] = file(5)      // the pre-batch original
 
         // Installed BEFORE the copy: the undo registration captures the confirmer.
-        var promptedNames: [String] = []
-        manager.permanentDeleteConfirmer = { names in promptedNames = names; return true }
+        var promptedPaths: [String] = []
+        manager.permanentDeleteConfirmer = { paths in promptedPaths = paths; return true }
 
         // One batch, two same-named sources: the replace resolver registers /dst/f.txt twice.
         await manager.copyItems(nodes: [FileNode(id: "/srcA/f.txt", name: "f.txt", isDirectory: false),
@@ -142,7 +142,7 @@ import Events
         manager.undoManager?.undo()
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
 
-        #expect(promptedNames == ["f.txt"])              // named once, not per registration
+        #expect(promptedPaths == ["/dst/f.txt"])         // named once, not per registration — and by PATH
         // The pre-batch original survived its restore — item B must not have unlinked it.
         #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 5)
     }

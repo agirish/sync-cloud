@@ -268,22 +268,50 @@ struct SyncOperationAlerts {
         return isConfirmed(alert.runModal())
     }
 
+    /// Message line of the permanent-delete confirmation. `itemPaths` are ABSOLUTE paths — see
+    /// `permanentDeleteInformativeText`. Pure (no AppKit) so the wording is unit-testable.
+    nonisolated static func permanentDeleteMessage(itemPaths: [String]) -> String {
+        if itemPaths.count == 1, let first = itemPaths.first {
+            return "Are you sure you want to permanently delete \"\((first as NSString).lastPathComponent)\"?"
+        }
+        return "Are you sure you want to permanently delete these \(itemPaths.count) items?"
+    }
+
+    /// Body of the permanent-delete confirmation: **what is about to be destroyed, by path**, then
+    /// the warning.
+    ///
+    /// This is the app's only unrecoverable action and it used to name nothing. The `count > 1`
+    /// branch rendered "…permanently delete these N items?" and discarded the list outright, so
+    /// after the duplicates batch redesign made ONE dialog cover every group, a 12-group batch
+    /// asked about "these 37 items" with no way to see what they were. The `count == 1` branch
+    /// named a basename only, which for the duplicates flows is the one thing that cannot
+    /// disambiguate: two copies in a group are usually same-named — that is *why* they grouped.
+    ///
+    /// Paths are home-abbreviated and capped the way `SyncRunUndoPreview.confirmationDetail` caps
+    /// its itemization, with the same bullet and "and N more" spellings, because both are alert
+    /// bodies listing files the user is about to let the app act on.
+    nonisolated static func permanentDeleteInformativeText(itemPaths: [String], maxLines: Int = 8) -> String {
+        var lines = itemPaths.prefix(max(0, maxLines)).map { "  •  \(displayPath($0))" }
+        if itemPaths.count > maxLines { lines.append("  …  and \(itemPaths.count - maxLines) more") }
+        lines.append("")
+        lines.append(itemPaths.count == 1
+            ? "This item will be deleted immediately because it can't be moved to the Trash. You can't undo this action."
+            : "These items will be deleted immediately because they can't be moved to the Trash. You can't undo this action.")
+        return lines.joined(separator: "\n")
+    }
+
     /// Presents a fallback permanent deletion confirmation if moving to Trash fails (e.g., on network drives).
-    /// - Parameter itemNames: The names of the files/folders
+    /// - Parameter itemPaths: The ABSOLUTE paths of the files/folders about to be destroyed. Paths,
+    ///   not names: the alert has to be able to tell two same-named copies apart, and the callers
+    ///   (the duplicates flows above all) routinely ask about exactly that.
     /// - Returns: True if confirmed for immediate permanent deletion.
-    static func confirmPermanentDelete(itemNames: [String]) -> Bool {
-        guard !itemNames.isEmpty else { return false }
+    static func confirmPermanentDelete(itemPaths: [String]) -> Bool {
+        guard !itemPaths.isEmpty else { return false }
 
         let alert = NSAlert()
         alert.alertStyle = .critical
-
-        if itemNames.count == 1, let first = itemNames.first {
-            alert.messageText = "Are you sure you want to permanently delete \"\(first)\"?"
-        } else {
-            alert.messageText = "Are you sure you want to permanently delete these \(itemNames.count) items?"
-        }
-
-        alert.informativeText = "These items will be deleted immediately because they cannot be moved to the Trash. You can't undo this action."
+        alert.messageText = permanentDeleteMessage(itemPaths: itemPaths)
+        alert.informativeText = permanentDeleteInformativeText(itemPaths: itemPaths)
 
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")

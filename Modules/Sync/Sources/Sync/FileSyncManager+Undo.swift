@@ -873,12 +873,12 @@ extension FileSyncManager {
                             // The prompt lists each on-disk file ONCE: a duplicate-registered
                             // path (both attempts failed trash) must not read as two files.
                             var promptedFolded = Set<String>()
-                            let promptNames = confirmableFailures.compactMap { item -> String? in
+                            let promptPaths = confirmableFailures.compactMap { item -> String? in
                                 promptedFolded.insert(foldedKey(item.destination)).inserted
-                                    ? item.destination.lastPathComponent : nil
+                                    ? item.destination.path : nil
                             }
                             let confirmed = await MainActor.run {
-                                confirmPermanentDelete(promptNames)
+                                confirmPermanentDelete(promptPaths)
                             }
                             guard confirmed else {
                                 await redoParamResolver.resolve(undoneCopies)
@@ -1440,7 +1440,7 @@ extension FileSyncManager {
                     }
                     // The folder was created empty, but the user may have filled it since —
                     // permanent removal gets the same confirmation as everywhere else.
-                    let confirmed = await MainActor.run { confirmPermanentDelete([url.lastPathComponent]) }
+                    let confirmed = await MainActor.run { confirmPermanentDelete([url.path]) }
                     if confirmed {
                         // Report the outcome either way. `try?` swallowed both: a failure left the
                         // folder on disk after the user had confirmed its deletion, with nothing

@@ -259,8 +259,8 @@ struct SyncCloudApp: App {
             guard GeneralSettings.shouldConfirmBeforeTransfer() else { return true }
             return SyncOperationAlerts.confirmTransfer(summary)
         }
-        manager.permanentDeleteConfirmer = { itemNames in
-            SyncOperationAlerts.confirmPermanentDelete(itemNames: itemNames)
+        manager.permanentDeleteConfirmer = { itemPaths in
+            SyncOperationAlerts.confirmPermanentDelete(itemPaths: itemPaths)
         }
         // Cloud (Claude) Filing spend guardrail: before a cloud classify commits, show the pre-flight
         // cost estimate and this month's budget, and let the user (or the monthly cap) decline. A

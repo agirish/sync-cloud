@@ -760,7 +760,7 @@ extension FileSyncManager {
             var declined = 0
             if !trashFailures.isEmpty {
                 let confirmed = await MainActor.run {
-                    confirmPermanentDelete(trashFailures.map { $0.lastPathComponent })
+                    confirmPermanentDelete(trashFailures.map { $0.path })
                 }
 
                 if confirmed {

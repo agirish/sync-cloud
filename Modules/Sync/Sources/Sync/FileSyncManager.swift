@@ -81,7 +81,10 @@ public class FileSyncManager: ObservableObject {
     /// traded). Published so the header re-renders as scans land.
     @Published public internal(set) var lastScanDate: Date?
 
-    /// Confirms permanently deleting items that could not be moved to Trash (e.g. network volumes).
+    /// Confirms permanently deleting items that could not be moved to Trash (e.g. network volumes),
+    /// given their **absolute paths**. Paths rather than basenames because this is the app's only
+    /// unrecoverable action and its dialog has to be able to tell two same-named items apart — the
+    /// duplicates flows ask about exactly that, since a group's copies usually share a name.
     /// Defaults to `false` so an unwired manager never destroys data; the app wires an
     /// NSAlert-backed confirmation at construction.
     public var permanentDeleteConfirmer: @MainActor ([String]) -> Bool = { _ in

@@ -126,8 +126,8 @@ import Events
         mockFM.shouldFailTrash = true
         let manager = makeManager(mockFM)
         let asked = LockedBox<[[String]]>([])
-        manager.permanentDeleteConfirmer = { names in
-            asked.withLock { $0.append(names) }
+        manager.permanentDeleteConfirmer = { paths in
+            asked.withLock { $0.append(paths) }
             return true
         }
         mockFM.virtualDisk["/a/x"] = stub(size: 1000)
@@ -143,8 +143,15 @@ import Events
         let invocations = asked.withLock { $0 }
         #expect(invocations.count == 1,
                 "the batch asked \(invocations.count) times — one dialog per group is the shape the redesign removed")
-        #expect(Set(invocations.first ?? []) == ["x", "y"],
-                "the one dialog must name everything it is about to destroy")
+        // **What this asserts, precisely: the ARGUMENT.** It used to be written as "the one dialog
+        // must name everything it is about to destroy", which the shipped alert did not do — the
+        // `count > 1` branch discarded the list — so the user-visible property was absent while
+        // this passed. That property is rendered in the app target and is pinned there, by
+        // `SyncOperationAlertsTests.permanentDeleteBodyNamesEveryItemByPath`; the Sync package
+        // cannot see it. What belongs here is the engine's half of the contract: the confirmer is
+        // handed every path, spelled fully enough for the alert to tell same-named copies apart.
+        #expect(Set(invocations.first ?? []) == ["/b/x", "/b/y"],
+                "the engine did not hand the confirmer the full paths of everything it is about to destroy")
         #expect(mockFM.virtualDisk["/b/x"] == nil)
         #expect(mockFM.virtualDisk["/b/y"] == nil)
         // Permanent deletes poison the undo offer, exactly as before.
