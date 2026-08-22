@@ -302,7 +302,7 @@ public final class PersonTagStore: ObservableObject {
             // state — the error line below repeats once per verdict while the move keeps
             // failing, and verdicts live only in memory until it stops.
             if fileWasUnreadable {
-                // The kept name is unique PER EPISODE — see `setAsideDestination`. An earlier
+                // The kept name is unique PER EPISODE — see ``UnreadableSetAside``. An earlier
                 // episode's set-aside is the ONLY copy of that episode's rescued verdicts (it is
                 // never re-ingested), so nothing here may ever delete one: the old single-slot
                 // name made a second unreadable episode's collision handling do exactly that,
@@ -312,8 +312,8 @@ public final class PersonTagStore: ObservableObject {
                 // justify; the pathological same-instant case is disambiguated inside the
                 // helper, and anything that still lands at the chosen path between the probe and
                 // the move falls into the refusal below and is retried on the next save.
-                let kept = Self.setAsideDestination(for: fileURL, at: Date(),
-                                                    fileManager: fileManager)
+                let kept = UnreadableSetAside.destination(for: fileURL, at: Date(),
+                                                         fileManager: fileManager)
                 do {
                     try fileManager.moveItem(at: fileURL, to: kept)
                     fileWasUnreadable = false
@@ -366,30 +366,6 @@ public final class PersonTagStore: ObservableObject {
             Logger.shared.warning("Couldn't save person-tags.json — the verdict is in memory only "
                                   + "this session: \(error.localizedDescription)")
         }
-    }
-
-    /// Where this episode's set-aside goes: `person-tags.json.unreadable-<stamp>`, a name unique
-    /// per episode so a later episode can never land on — and destroy — an earlier one.
-    ///
-    /// The stamp is ``FilingArtifactStamp``'s (the format every filing artifact dates itself
-    /// with), colons swapped for dots because this one lives in a file NAME. Second precision
-    /// means two episodes in one second would collide, so an occupied candidate gets a numeric
-    /// disambiguator instead — probed with `attributesOfItem` rather than `fileExists`, which
-    /// follows symlinks and would call a dangling-link occupant free. Static and internal so a
-    /// test can pin the disambiguation with a frozen date; `save()` passes `Date()`.
-    static func setAsideDestination(for fileURL: URL, at now: Date,
-                                    fileManager: FileManager) -> URL {
-        let stamp = FilingArtifactStamp.string(from: now)
-            .replacingOccurrences(of: ":", with: ".")
-        let dir = fileURL.deletingLastPathComponent()
-        let base = fileURL.lastPathComponent + ".unreadable-" + stamp
-        var candidate = dir.appendingPathComponent(base)
-        var n = 2
-        while (try? fileManager.attributesOfItem(atPath: candidate.path)) != nil {
-            candidate = dir.appendingPathComponent(base + "-\(n)")
-            n += 1
-        }
-        return candidate
     }
 }
 

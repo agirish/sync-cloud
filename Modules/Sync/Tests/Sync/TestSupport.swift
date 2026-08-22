@@ -139,6 +139,37 @@ func makeCanonicalTempRoot(prefix: String) throws -> URL {
     return URL(fileURLWithPath: canonical ?? raw.path, isDirectory: true)
 }
 
+/// Every set-aside a store has written beside `url`, sorted by name.
+///
+/// The kept name is unique PER EPISODE (``UnreadableSetAside``), so a test discovers the rescued
+/// files rather than assuming the single fixed slot the three stores used to share — assuming it
+/// is what let a second episode's `removeItem` delete the first episode's only copy.
+func setAsidesBeside(_ url: URL) -> [URL] {
+    let dir = url.deletingLastPathComponent()
+    let prefix = url.lastPathComponent + ".unreadable"
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+    return names.filter { $0.hasPrefix(prefix) }.sorted().map { dir.appendingPathComponent($0) }
+}
+
+/// Fails `moveItem` a fixed number of times, then lets it through — the seam for "the set-aside
+/// rename itself failed", which no arrangement of real permissions can produce while leaving the
+/// directory writable enough for the destructive write the guard has to refuse.
+///
+/// Shared by the person-tag and verdict-cache set-aside suites: both drive the same guard, and a
+/// second copy of this double is exactly the drift this module has paid for before.
+final class MoveBlockedFileManager: FileManager, @unchecked Sendable {
+    /// How many more `moveItem` calls fail before the obstruction "clears".
+    nonisolated(unsafe) var movesToRefuse = 0
+
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        if movesToRefuse > 0 {
+            movesToRefuse -= 1
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
+    }
+}
+
 /// Parks the FIRST stat the checksummer makes on a semaphore, signalling `entered` — so a
 /// test can hold a checksum pass (`autoVerifySameSizePairs`, `verifyAllWithChecksum`) mid-hash
 /// while it runs a file operation, then release the hash and observe what the pass commits.

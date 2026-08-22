@@ -459,13 +459,10 @@ import Events
         return dir
     }
 
-    /// Every set-aside beside the store, sorted by name. The kept name is unique per episode, so
-    /// tests discover the files rather than assuming a single fixed slot.
+    /// Every set-aside beside the store, sorted by name — ``setAsidesBeside(_:)``. The kept name is
+    /// unique per episode, so tests discover the files rather than assuming a single fixed slot.
     private func setAsides(in dir: URL) -> [URL] {
-        let p = dir.appendingPathComponent("p")
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: p.path)) ?? []
-        return names.filter { $0.hasPrefix("person-tags.json.unreadable") }.sorted()
-            .map { p.appendingPathComponent($0) }
+        setAsidesBeside(dir.appendingPathComponent("p/person-tags.json"))
     }
 
     @Test func aVerdictDoesNotOverwriteAFileThisBuildCouldNotRead() throws {
@@ -642,15 +639,15 @@ import Events
         let url = dir.appendingPathComponent("p/person-tags.json")
         let now = Date(timeIntervalSince1970: 1_766_000_000)
 
-        let first = PersonTagStore.setAsideDestination(for: url, at: now, fileManager: .default)
+        let first = UnreadableSetAside.destination(for: url, at: now, fileManager: .default)
         #expect(first.lastPathComponent.hasPrefix("person-tags.json.unreadable-"))
         try Data("episode one".utf8).write(to: first)
 
-        let second = PersonTagStore.setAsideDestination(for: url, at: now, fileManager: .default)
+        let second = UnreadableSetAside.destination(for: url, at: now, fileManager: .default)
         #expect(second != first, "a same-instant episode was aimed at the occupied kept path")
         try Data("episode two".utf8).write(to: second)
 
-        let third = PersonTagStore.setAsideDestination(for: url, at: now, fileManager: .default)
+        let third = UnreadableSetAside.destination(for: url, at: now, fileManager: .default)
         #expect(third != first && third != second)
     }
 
@@ -797,24 +794,5 @@ import Events
                 "an absent file was mistaken for one that exists but cannot be read")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
         #expect(reread.tags.map(\.personId) == ["divit"])
-    }
-}
-
-/// A `FileManager` whose renames can be made to fail — injected through the seam the store
-/// already takes. A real obstruction at the kept path is not reliable (the per-episode name
-/// steps around an existing file, and permission games gate on the euid), so the refusal is
-/// thrown directly, the one spelling every filesystem shares.
-private final class MoveBlockedFileManager: FileManager {
-    /// How many more `moveItem` calls fail before the obstruction "clears". `FileManager` is
-    /// `Sendable`, which a mutable stored property contradicts; unsafe is honest here because the
-    /// store is `@MainActor` and the test drives it there too, so every access is one actor's.
-    nonisolated(unsafe) var movesToRefuse = 0
-
-    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
-        if movesToRefuse > 0 {
-            movesToRefuse -= 1
-            throw CocoaError(.fileWriteNoPermission)
-        }
-        try super.moveItem(at: srcURL, to: dstURL)
     }
 }

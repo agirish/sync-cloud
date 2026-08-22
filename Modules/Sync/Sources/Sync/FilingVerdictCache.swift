@@ -339,10 +339,18 @@ public enum FilingVerdictStore {
     }
 
     /// Moves the unreadable cache aside so no queued snapshot write can land on the paid verdicts.
+    ///
+    /// **The kept name is unique PER EPISODE — see ``UnreadableSetAside``, and nothing here
+    /// deletes anything.** This used to move to one fixed slot (`filing-verdicts.json.unreadable`)
+    /// after an unconditional `removeItem` on it. An earlier episode's set-aside is the ONLY copy
+    /// of that episode's paid answers — it is never re-ingested — so that remove permanently
+    /// deleted up to ~10MB of verdicts the user had paid for the moment a second file went
+    /// unreadable. It also ran BEFORE the move, so a move that then failed left neither the
+    /// earlier rescue nor a protected current file: strictly worse than not attempting. With
+    /// per-episode names there is no collision to handle and no remove to justify.
     private static func setAsideUnreadable(_ url: URL, why: String) {
-        let kept = url.appendingPathExtension("unreadable")
+        let kept = UnreadableSetAside.destination(for: url, at: Date(), fileManager: .default)
         do {
-            try? FileManager.default.removeItem(at: kept)
             try FileManager.default.moveItem(at: url, to: kept)
             Logger.shared.warning("Filing verdict cache at \(url.lastPathComponent) \(why) — it "
                                   + "has been kept as \(kept.lastPathComponent) and a fresh cache "

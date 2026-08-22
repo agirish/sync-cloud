@@ -166,10 +166,11 @@ private final class SpendProbe: @unchecked Sendable {
     @Test func anUnopenableCacheFileIsKeptRatherThanOverwritten() throws {
         let url = try cacheURL("mode000")
         let fm = FileManager.default
-        let kept = url.appendingPathExtension("unreadable")
         defer {
             try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
-            try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
+            for aside in setAsidesBeside(url) {
+                try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: aside.path)
+            }
             try? fm.removeItem(at: url.deletingLastPathComponent())
         }
         var cache = FilingVerdictCache()
@@ -182,6 +183,8 @@ private final class SpendProbe: @unchecked Sendable {
         #expect(FilingVerdictStore.load(from: url).count == 0)   // still degrades to empty
 
         // ...but the paid verdicts were moved aside, where the next save cannot land on them.
+        // The kept name is per-episode (``UnreadableSetAside``), so it is discovered, not assumed.
+        let kept = try #require(setAsidesBeside(url).first, "no set-aside was written")
         try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
         #expect(fm.contents(atPath: kept.path) == original,
                 "the paid verdicts were left where the next save overwrites them")
@@ -189,6 +192,7 @@ private final class SpendProbe: @unchecked Sendable {
         try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: kept.path)
         #expect(fm.contents(atPath: kept.path) == original,
                 "the save after the failed load destroyed the set-aside")
+        #expect(setAsidesBeside(url).count == 1, "one episode produced more than one set-aside")
     }
 
     /// The same promise for bytes that open but do not decode — a truncated write, a bad merge.
@@ -200,7 +204,7 @@ private final class SpendProbe: @unchecked Sendable {
 
         #expect(FilingVerdictStore.load(from: url).count == 0)
 
-        let kept = url.appendingPathExtension("unreadable")
+        let kept = try #require(setAsidesBeside(url).first, "no set-aside was written")
         #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
                 "the corrupt cache was left where the next save overwrites it")
     }
