@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import UserNotifications
 @testable import SyncCloud
 import Settings
@@ -83,9 +84,15 @@ import Sync
     }
 }
 
-/// One MacApp file, with the same non-vacuity guard `macAppSources()` carries.
+/// One MacApp file, with the same non-vacuity guard `macAppSources()` carries. Locates `MacApp/`
+/// from this file itself rather than through `macAppDirectory()` — the helper suites that carry
+/// that function are newer than the maintenance lines this test cherry-picks to, and a
+/// self-contained reader is what keeps the suite byte-identical across all three.
 func macAppFile(_ name: String) throws -> String {
-    let url = macAppDirectory().appendingPathComponent(name)
+    let url = URL(fileURLWithPath: #filePath)   // …/SyncCloudTests/OperationNotifierTests.swift
+        .deletingLastPathComponent()            // …/SyncCloudTests
+        .deletingLastPathComponent()            // repo root
+        .appendingPathComponent("MacApp/\(name)")
     let text = try #require(try? String(contentsOf: url, encoding: .utf8),
                             "cannot read MacApp/\(name) — the scan would be vacuous")
     try #require(text.count > 500, "MacApp/\(name) read as \(text.count) characters — truncated?")

@@ -45,7 +45,9 @@ import Foundation
         var names: Set<String> = []
         for match in body.matches(of: /func ([a-zA-Z0-9_]+)\s*\(/) { names.insert(String(match.1)) }
         for match in body.matches(of: /var ([a-zA-Z0-9_]+)\s*:/) { names.insert(String(match.1)) }
-        try #require(names.count > 20, "only \(names.count) requirements parsed — the parser is broken, not the protocol")
+        // The floor is set below EVERY line's protocol size (main >30, v3.x ~25, v2.x 18): it
+        // exists to catch a broken parser (which yields 0–2), not to pin a line's verb count.
+        try #require(names.count > 12, "only \(names.count) requirements parsed — the parser is broken, not the protocol")
         return names
     }
 
@@ -64,7 +66,7 @@ import Foundation
     @Test func everyConsumedDelegateMemberIsARequirementNotAnExtensionDefault() throws {
         let requirements = try Self.protocolRequirements()
         let consumed = try Self.delegateMemberReferences(in: "FileTreeView.swift")
-        try #require(consumed.count > 20, "only \(consumed.count) delegate references found — the scan is broken")
+        try #require(consumed.count > 12, "only \(consumed.count) delegate references found — the scan is broken")
 
         let extensionOnly = consumed.subtracting(requirements)
         #expect(extensionOnly.isEmpty,
