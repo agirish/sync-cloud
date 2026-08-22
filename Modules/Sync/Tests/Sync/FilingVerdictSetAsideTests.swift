@@ -1,3 +1,4 @@
+import Events
 import Foundation
 import Testing
 @testable import Sync
@@ -18,6 +19,7 @@ import Testing
 /// own doc admitted this ("the next save can still land on the file"), which is the finding rather
 /// than a justification — `PersonTagStore` keeps its guard armed until the move actually works.
 @Suite struct FilingVerdictSetAsideTests {
+
 
     private func cacheURL(_ name: String) throws -> URL {
         let dir = try makeCanonicalTempRoot(prefix: "VerdictSetAside-\(name)")
@@ -191,4 +193,116 @@ import Testing
         #expect(FilingVerdictStore.load(from: url).count == 1)
     }
 
+}
+
+// MARK: - The set-aside's own sentence
+
+/// **Each half of the sentence is said by whoever can actually know it.**
+///
+/// `StorageLensStore.setAsideUnreadable` was changed on this branch to stop promising the caller's
+/// outcome, with the reason written at its call site: "each says its own half rather than this one
+/// promising a 'fresh file' that a forget never produces". `FilingVerdictStore` still carried the
+/// unsplit version — "a fresh cache starts beside it" — from BOTH callers.
+///
+/// From `save` that is true; a fresh cache follows immediately. From `load` nothing is written, and
+/// if the launch never records a verdict nothing ever is: the user is sent to look beside the kept
+/// file for something that is not there, at exactly the moment they are trying to work out what
+/// happened to ~12 MB of paid answers.
+@Suite struct FilingVerdictSetAsideMessageTests {
+
+    @MainActor
+    private func loggedLine(containing fragment: String) async -> String? {
+        await Logger.shared.debug("verdict-message flush marker").value
+        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+    }
+
+    /// The part of the line AFTER "…has been kept as <name>." — the clause that says what happens
+    /// next, which is the caller's fact and not the set-aside's.
+    private func tail(of line: String, keptName: String) -> String {
+        guard let r = line.range(of: keptName) else { return line }
+        return String(line[r.upperBound...])
+    }
+
+    /// A set-aside made from `load`, with the file it left behind and the line it wrote.
+    @MainActor
+    private func loadEpisode() async throws -> (kept: URL, line: String, wroteFile: Bool) {
+        let dir = try makeCanonicalTempRoot(prefix: "VerdictMsg-load")
+        let url = dir.appendingPathComponent("filing-verdicts.json")
+        try Data("{ not json — half a 12MB write".utf8).write(to: url)
+        #expect(FilingVerdictStore.load(from: url).count == 0)
+        let kept = try #require(setAsidesBeside(url).first, "no set-aside was written")
+        let line = try #require(await loggedLine(containing: kept.lastPathComponent),
+                                "the set-aside was not logged at all")
+        return (kept, line, FileManager.default.fileExists(atPath: url.path))
+    }
+
+    /// A set-aside made from `save`, which really does write a fresh cache beside the kept file.
+    /// The load's own attempt is blocked so the rescue happens on the save path.
+    @MainActor
+    private func saveEpisode() async throws -> (kept: URL, line: String, wroteFile: Bool) {
+        let dir = try makeCanonicalTempRoot(prefix: "VerdictMsg-save")
+        let url = dir.appendingPathComponent("filing-verdicts.json")
+        try Data("{ not json".utf8).write(to: url)
+        let blocked = MoveBlockedFileManager()
+        blocked.movesToRefuse = 1
+        _ = FilingVerdictStore.load(from: url, fileManager: blocked)
+        #expect(FileManager.default.contents(atPath: url.path) != nil,
+                "fixture: the load's set-aside was supposed to be blocked")
+        #expect(FilingVerdictStore.save(FilingVerdictCache(), to: url))
+        let kept = try #require(setAsidesBeside(url).first, "the save did not rescue the file")
+        let line = try #require(await loggedLine(containing: kept.lastPathComponent),
+                                "the set-aside was not logged at all")
+        return (kept, line, FileManager.default.fileExists(atPath: url.path))
+    }
+
+    /// **The two callers leave the user in different places, so they must not say the same thing.**
+    ///
+    /// Stated as a difference between the two lines rather than as a search for a phrase: a guard
+    /// that pins the old wording is satisfied by re-spelling the same false promise, which is
+    /// exactly what a first attempt at this test did — it passed with `load` claiming "A fresh
+    /// cache is written beside it."
+    @Test @MainActor func theTwoCallersDoNotMakeTheSamePromise() async throws {
+        let load = try await loadEpisode()
+        defer { try? FileManager.default.removeItem(at: load.kept.deletingLastPathComponent()) }
+        let save = try await saveEpisode()
+        defer { try? FileManager.default.removeItem(at: save.kept.deletingLastPathComponent()) }
+
+        // The facts the sentences have to match, measured rather than assumed.
+        #expect(load.wroteFile == false, "fixture: a load wrote a file, so there is nothing to fix")
+        #expect(save.wroteFile, "fixture: the save wrote no fresh cache, so there is no promise")
+
+        let loadTail = tail(of: load.line, keptName: load.kept.lastPathComponent)
+        let saveTail = tail(of: save.line, keptName: save.kept.lastPathComponent)
+        #expect(loadTail != saveTail,
+                """
+                both callers say the same thing about what happens next, and only one of them \
+                writes anything — load left: “\(loadTail)”
+                """)
+    }
+
+    /// And the half that matters most, stated on the fact rather than on a phrase: after a `load`
+    /// nothing is at the path, so the line may not send the user looking for a new file beside the
+    /// kept one. Any wording of that promise needs the word.
+    @Test @MainActor func aLoadThatWritesNothingPromisesNoNewFile() async throws {
+        let load = try await loadEpisode()
+        defer { try? FileManager.default.removeItem(at: load.kept.deletingLastPathComponent()) }
+        #expect(load.wroteFile == false, "fixture: a load wrote a file")
+
+        let tail = tail(of: load.line, keptName: load.kept.lastPathComponent).lowercased()
+        #expect(!tail.contains("fresh"),
+                """
+                the load claimed a fresh cache beside the kept file. Nothing was written, and if \
+                this launch records no verdict nothing ever will be — “\(tail)”
+                """)
+    }
+
+    /// The other direction, so the fix cannot become "never say anything": from `save` a fresh
+    /// cache really does follow, and the line is required to say so.
+    @Test @MainActor func aSaveThatWritesOneDoesSaySo() async throws {
+        let save = try await saveEpisode()
+        defer { try? FileManager.default.removeItem(at: save.kept.deletingLastPathComponent()) }
+        #expect(save.wroteFile, "fixture: the save wrote no fresh cache")
+        #expect(tail(of: save.line, keptName: save.kept.lastPathComponent).contains("fresh cache"),
+                "the save stopped saying that a fresh cache was written beside the kept file")
+    }
 }

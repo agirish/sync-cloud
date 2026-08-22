@@ -332,19 +332,26 @@ public enum FilingVerdictStore {
             // that does not resolve.
             if (try? fileManager.attributesOfItem(atPath: url.path)) != nil {
                 arm(url, why: "could not be opened")
-                _ = setAsideUnreadable(url, fileManager: fileManager)
+                _ = setAsideUnreadable(url, fileManager: fileManager, next: loadWritesNothing)
             }
             return FilingVerdictCache()
         }
         guard let cache = try? JSONDecoder().decode(FilingVerdictCache.self, from: data) else {
             arm(url, why: "could not be decoded")
-            _ = setAsideUnreadable(url, fileManager: fileManager)
+            _ = setAsideUnreadable(url, fileManager: fileManager, next: loadWritesNothing)
             return FilingVerdictCache()
         }
         return cache
     }
 
     /// Moves the unreadable cache aside so no queued snapshot write can land on the paid verdicts.
+    ///
+    /// **This line claims only the set-aside itself; `next` is the caller's half.** It used to end
+    /// "and a fresh cache starts beside it" from BOTH callers, and from `load` that is not true —
+    /// nothing is written then, and if the launch records no verdict nothing ever is. The user is
+    /// then sent to look beside the kept file for something that is not there, at the moment they
+    /// are trying to work out what happened to ~12 MB of paid answers. Same split, same reason, as
+    /// ``StorageLensStore``'s set-aside, whose forget path writes no file at all.
     ///
     /// **The kept name is unique PER EPISODE — see ``UnreadableSetAside``, and nothing here
     /// deletes anything.** This used to move to one fixed slot (`filing-verdicts.json.unreadable`)
@@ -355,16 +362,17 @@ public enum FilingVerdictStore {
     /// earlier rescue nor a protected current file: strictly worse than not attempting. With
     /// per-episode names there is no collision to handle and no remove to justify.
     @discardableResult
-    private static func setAsideUnreadable(_ url: URL, fileManager: FileManager) -> Bool {
+    private static func setAsideUnreadable(_ url: URL, fileManager: FileManager,
+                                           next: String) -> Bool {
         let why = reasonArmed(url) ?? "could not be read"
         let kept = UnreadableSetAside.destination(for: url, at: Date(), fileManager: fileManager)
         do {
             try fileManager.moveItem(at: url, to: kept)
             disarm(url)
             Logger.shared.warning("Filing verdict cache at \(url.lastPathComponent) \(why) — it "
-                                  + "has been kept as \(kept.lastPathComponent) and a fresh cache "
-                                  + "starts beside it. The next scan re-asks (and, on the paid "
-                                  + "tier, pays), but nothing was overwritten.")
+                                  + "has been kept as \(kept.lastPathComponent). \(next) The next "
+                                  + "scan re-asks (and, on the paid tier, pays), but nothing was "
+                                  + "overwritten.")
             return true
         } catch {
             // **A source that is no longer there is not an obstruction — it is the protection
@@ -380,7 +388,7 @@ public enum FilingVerdictStore {
                 Logger.shared.warning("The unreadable Filing verdict cache at "
                                       + "\(url.lastPathComponent) is no longer there — deleted or "
                                       + "moved since it failed to read. Nothing is left to set "
-                                      + "aside, so a fresh cache is written.")
+                                      + "aside. \(next)")
                 return true
             }
             Logger.shared.error("Filing verdict cache at \(url.lastPathComponent) \(why) and could "
@@ -390,6 +398,16 @@ public enum FilingVerdictStore {
             return false
         }
     }
+
+    /// What follows a set-aside made from ``load(from:fileManager:)``: nothing, yet.
+    ///
+    /// **A load writes no file**, and if this launch records no verdict none is ever written — so
+    /// the line must not send the user looking beside the kept file for a fresh cache. It says
+    /// where the answers went and when a replacement appears, which are the two things somebody
+    /// staring at a suddenly-empty cache needs.
+    private static let loadWritesNothing =
+        "Nothing has been written in its place — this launch starts with an empty cache in memory, "
+        + "and a file is written only once it records a verdict."
 
     // MARK: - The armed guard
 
@@ -474,7 +492,9 @@ public enum FilingVerdictStore {
         // moves the user's bytes and never this build's. The cost is the honest state — the error
         // line repeats once per save while the move keeps failing, and this launch's verdicts live
         // in memory (`FileSyncManager` holds the authoritative copy) until it stops.
-        if reasonArmed(url) != nil, !setAsideUnreadable(url, fileManager: fileManager) {
+        if reasonArmed(url) != nil,
+           !setAsideUnreadable(url, fileManager: fileManager,
+                               next: "A fresh cache is written beside it.") {
             return false
         }
         do {
