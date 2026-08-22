@@ -165,9 +165,16 @@ import Design
     ///
     /// Resigning before every frame makes the band absent from every frame of every mount, so what
     /// these comparisons see is what the code drew. It does not paper over instability either: the
-    /// mount stays byte-identical for 300 further layout passes under it (it moved by 4511 without
-    /// it), and a re-claim between frames would show up as `settled` never going quiet rather than
-    /// as a quietly passing equality.
+    /// mount stays byte-identical across **400** further layout passes under it (it moved by 4511
+    /// without it), and a re-claim between frames would show up as `settled` never going quiet
+    /// rather than as a quietly passing equality.
+    ///
+    /// **400 is a fixed loop count, deliberately.** This comment said 300 and
+    /// `docs/flaky-tests.md` said 311 for the same measurement, because both were taken from a
+    /// time-bounded `LayoutPumpWait.pump(upTo:)` — whose pass count is whatever the machine got
+    /// through, so two runs disagree by construction. Re-derived 2026-08-21 as an explicit
+    /// `for i in 1...400` comparing each frame's `bitmapData` to the settled baseline; first
+    /// drift: none. A pass count taken from a deadline is a reading about the machine.
     private func snapshot(_ m: Mounted, _ band: CGRect? = nil) -> NSBitmapImageRep? {
         m.window.makeFirstResponder(nil)
         m.host.layoutSubtreeIfNeeded()

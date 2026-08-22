@@ -48,7 +48,7 @@ package suites and a red app-target step.
 **This has a deadline.** `v3.x` sits at `3.2-dev`. Cutting v3.2 before this lands ships the
 ⌘Z-after-permanent-delete promise again, in a release, knowingly.
 
-### 2. The filing walkthrough's bare ⏎/→/esc key equivalents — OPEN, owed to BOTH lines
+### 2. The filing walkthrough's bare ⏎/→/esc key equivalents, and the review card's unguarded ⏎/⌫ — OPEN, owed to BOTH lines
 
 Filed 2026-08-21, when the fix landed on `main` as `d25dafef`. The walkthrough's File and Skip
 buttons carry `.keyboardShortcut(.return, modifiers: [])` / `(.rightArrow, modifiers: [])`, and
@@ -77,14 +77,80 @@ needs re-deriving against each line's smaller source tree. `.onKeyPress` itself 
 so the port compiles in principle.
 
 **The port must take the fix's FIXED shape, not its first cut.** `d25dafef`'s original
-`.onKeyPress(keys:phases:)` handlers never inspected `press.modifiers` — that overload, unlike the
-single-key one, delivers modified presses, so ⌘⏎/⇧⏎ FILED the current item and ⌥→/⌃→ irreversibly
-SKIPPED it (measured through a real responder chain in `FilingWalkthroughCardKeyTests.
-aModifiedKeyDecidesNothing`). The modifier filter, the `.down`-phase esc handler, the retirement
-log lines in `FilingWalkthrough.cancel(because:)`, and `ReviewCardView`'s ⌫ modifier filter (the
-same defect, pre-existing in the donor file — both lines carry that card too) are all part of what
-the lines are owed; cherry-picking the walkthrough restructure without them re-ships the
+`.onKeyPress(keys:phases:)` handlers never inspected `press.modifiers`, so ⌘⏎/⇧⏎ FILED the current
+item and ⌥→/⌃→ irreversibly SKIPPED it (measured through a real responder chain in
+`FilingWalkthroughCardKeyTests.aModifiedKeyDecidesNothing`). The modifier filter, the `.down`-phase
+esc handler, and the retirement log lines in `FilingWalkthrough.cancel(because:)` are all part of
+what the lines are owed; cherry-picking the walkthrough restructure without them re-ships the
 modifier-blind regression onto a maintenance line.
+
+**No `onKeyPress` overload filters modifiers, and none suppresses key-repeat.** An earlier revision
+of this entry said the `keys:phases:` overload "unlike the single-key one, delivers modified
+presses". That is false, it was never measured, and it was the most expensive sentence in this
+file: a maintainer reading it concludes their line's single-key `.onKeyPress(.return)` is already
+safe and skips the half of this debt that moves bytes. Settled 2026-08-21 on the suites'
+real-window `sendEvent` harness — the single-key overload behaves identically to `keys:phases:` in
+both respects, and differs in exactly one: it does not fire on `.up`. Raw readings, invocations per
+event: `return` plain / ⌘ / ⇧ / ⌥ / ⌃ / capsLock / `isARepeat` → **all fire**; three repeats → 3
+invocations; `keyUp` → none.
+
+The reading that produced the false version came from ⌘esc, ⌃esc and ⌘. being **swallowed by
+AppKit as `cancelOperation:` before the responder chain** — those reach NEITHER overload, while
+`escape` plain / ⇧ / ⌥ / fn / capsLock all do, and ⌘-space does too. That is a per-key routing
+effect, not a property of an overload. Anything that must not run for a chord guards on
+`KeyPress.isPlainKeystroke` whichever overload it is written with; only `keys:phases:` can also
+refuse auto-repeat. `Modules/Design/Sources/Design/IntentModifiers.swift` says the same thing at
+its `isPlainKeystroke` doc, and this file contradicted it in the same tree.
+
+**`ReviewCardView` is owed BOTH halves, and the byte-moving one used to be missing from this
+entry** — it named only "⌫ modifier filter". Verified at
+`git show origin/<line>:Modules/FileExplorer/Sources/FileExplorer/ReviewCardView.swift`, identical
+on `v3.x` and `v2.x`:
+
+```swift
+.onKeyPress(.return) {                                  // ← line 99 on both lines
+    if !isActing && !isVerifying { onPrimary(item) }
+    return .handled
+}
+.onKeyPress(keys: [.delete], phases: .down) { _ in      // ← line 107 on both lines
+    if !isActing { onSkip(item) }
+    return .handled
+}
+```
+
+So both maintenance lines currently ship, on the card whose ⏎ runs a real copy or move:
+
+- **⌘⏎ / ⇧⏎ / ⌥⏎ / ⌃⏎ each run the primary copy or move.** ⌘⏎ and ⇧⏎ measured on `main`'s card
+  under this exact spelling — two modified presses, two `onPrimary` calls; ⌥ and ⌃ from the
+  overload measurement above, where every intent modifier is delivered.
+- **A held ⏎ launches 4 copies of one row** before `isActing` closes — it closes only when the
+  host's async outcome lands, so auto-repeat gets there first. The ⌫ handler is `.down`-only and
+  so does not repeat, but it takes `_ in` and inspects nothing, so ⌘⌫ (Finder's "delete
+  immediately") and ⌥⌫ (delete word) each SKIP a row no back-step can revisit.
+- **The keypad's Enter is dead**, silently, with the hint row advertising ⏎: keyCode 76 sends
+  U+0003, and a handler keyed on `.return` matches U+000D only.
+- **Neither key is gated on `focused`.** With Full Keyboard Access on, the card's Skip / Quick Look
+  / Verify buttons are focusable, and `.onKeyPress` fires for a key delivered anywhere in its
+  SUBTREE — measured 2026-08-21 by driving a `@FocusState` onto a descendant: the ancestor handler
+  ran with `focused == false`. So a ⏎ aimed at a focused Skip button runs the copy. This was true
+  on `main` too until 2026-08-21; `main` has it now and the lines do not.
+
+**The review-card half cannot cherry-pick clean either, and for a different reason than the
+walkthrough half above: it depends on two files neither line has.**
+`KeyPress.isPlainKeystroke` lives in `Modules/Design/Sources/Design/IntentModifiers.swift`
+and `KeyEquivalent.keypadEnter` in `Modules/Design/Sources/Design/KeypadEnter.swift`; both are
+**absent from `v3.x` and `v2.x`** — `git show origin/<line>:<path>` fails, and `git grep -l
+keypadEnter origin/<line> -- Modules` finds nothing. Take those two files first, then the card.
+Do not substitute `press.modifiers.isEmpty` for the guard: `.numericPad` + `.function` ride on
+every keypad Enter and `.capsLock` on every event while the lock is engaged, so that spelling
+refuses the keycap the fix exists to accept and kills the keys outright for anyone with Caps Lock
+on. `ReviewCardKeyTests` travels with the port and needs the same per-line adaptation as the
+walkthrough's two suites.
+
+**Separately, and verified while checking the above: `v2.x`'s `ReviewCardView` has no
+`.accessibilityHint` and its `ReviewCardModel` has no `keyHintSpeech` at all** (`grep -c` answers
+0 on `v2.x`, 1 on `v3.x`). So on `v2.x` a VoiceOver user gets the card's label and no statement of
+what any of its keys do. Small, self-contained, and independent of everything above.
 
 ### 3. The folder-duplicate drift gate rebuilt on per-file snapshots — OPEN, filed 2026-08-21
 
@@ -216,12 +282,18 @@ The two that needed checking rather than reasoning about:
 
 ## `v2.x` — owed
 
-### The filing walkthrough's bare key equivalents
+### The filing walkthrough's bare key equivalents, and the review card's unguarded ⏎/⌫
 
-Owed here exactly as to `v3.x` — see item 2 under `v3.x` above for the defect, the symbol checks
-(both answered on `v2.x` too) and why it is an adaptation rather than a pick. The extra cost on
-this line is the provider/source vocabulary split: the card's caption interpolates the provider
-name, so the port must keep this line's wording.
+Owed here exactly as to `v3.x` — see item 2 under `v3.x` above for both defects, the symbol checks
+(every one answered on `v2.x` too, and `ReviewCardView.swift`'s two handlers are byte-identical
+between the lines) and why it is an adaptation rather than a pick. Two extra costs on this line:
+
+- the provider/source vocabulary split — the walkthrough card's caption interpolates the provider
+  name, so the port must keep this line's wording;
+- `v2.x`'s `ReviewCardView` has **no `.accessibilityHint`** and its `ReviewCardModel` has no
+  `keyHintSpeech` at all (`grep -c` answers 0 here, 1 on `v3.x`), so the review card announces its
+  label and nothing about its keys. Independent of the key fix and much smaller; take it while the
+  file is open.
 
 ### The folder-duplicate drift gate — OPEN, filed 2026-08-21
 

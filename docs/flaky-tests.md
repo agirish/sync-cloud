@@ -111,17 +111,46 @@ genuinely cannot read "not started" as "finished". Both were mutation-tested by 
 item back into the redo params, and both fail without the sleep — in ~0.03s, where the sleeps had
 been charging half a second for the same verdict.
 
-**A pump that never pumps — `RunLoop.main.run(until:)` under `swift test`, 2026-08-21.**
+**A pump that never pumps — `RunLoop.main.run(until:)` with no window in the process, 2026-08-21.**
 `MergeUndoGroupingAndGateTests` and `DuplicateBatchRedesignTests` each carried a
 `closeTheUndoEventGroup()` helper — `RunLoop.main.run(until: Date().addingTimeInterval(0.02))` —
 whose stated job was to turn the runloop so NSUndoManager's event-scoped group closes before the
-next registration. Measured in the test process: **the call returns in ~2 µs and `groupingLevel`
-still reads 1 on the very next line.** `run(until:)` exits immediately when no input source is
-attached to the main runloop, which is its state under `swift test`. So it was not merely a fixed
-sleep of the wrong length; it was not a sleep at all, and it closed nothing. What actually closes
-the group in those tests is the next ordinary `await` — one 10 ms `Task.sleep` takes the level
-from 1 to 0, because handing the main thread back lets the main queue be serviced. The separation
-both suites depended on was being supplied by whichever suspension happened to follow the helper.
+next registration. Measured in the Sync test process: **the call returns in ~2 µs and
+`groupingLevel` still reads 1 on the very next line.** So it was not merely a fixed sleep of the
+wrong length; it was not a sleep at all, and it closed nothing. What actually closes the group in
+those tests is the next ordinary `await` — one 10 ms `Task.sleep` takes the level from 1 to 0,
+because handing the main thread back lets the main queue be serviced. The separation both suites
+depended on was being supplied by whichever suspension happened to follow the helper.
+
+**The mechanism is WINDOW PRESENCE, not `swift test`,** and an earlier revision of this paragraph
+said the latter. `run(until:)` returns as soon as the main runloop has no input source attached to
+it; a mounted `NSWindow` attaches one, and nothing else in these processes does. Same call, three
+readings each. The Sync row is this entry's original measurement; the two FileExplorer rows are
+what re-measuring it in a target that DOES mount windows produced, 2026-08-21:
+
+| Where | Elapsed for a 0.02s deadline |
+|---|---|
+| Sync target, no window | 1.79e-4 s, 1.63e-6 s, 4.2e-7 s |
+| FileExplorer target, no window | 2.1e-4 s, 2.0e-6 s, 0.0 s |
+| **FileExplorer target, ONE `NSWindow` mounted** | **0.0247 s, 0.0227 s, 0.0220 s** |
+
+Forty spins with a window cost 0.998 s — it really blocks. So the generalisation condemned code
+that is fine: `PaneTreeCarryBackWiringTests:88,152,159,228,234,236`,
+`PaneColumnCarryOverRenderTests:131,134` and `CountPillResetObservationTests:105` all spin
+`run(until:)` in suites that mount windows (3, 1 and 1 `NSWindow(` respectively), and they pump.
+
+**The converse is a real cross-suite hazard, and it is the one to carry away.** Whether such a
+loop pumps depends on whether ANY window is mounted in the process when it runs — not on whether
+the suite that wrote it mounts one, because Swift Testing interleaves suites on the same main
+actor. Measured in one serialized run: the *identical* windowless call read ~2 µs when it ran
+alone, and 0.023–0.028 s when an earlier test in the same run had left a window open — the coupling
+demonstrated in the harmless direction. It runs the other way for free: a suite that mounts a
+window and then CLOSES it turns a neighbour's `run(until:)` from a real pump into a no-op, with no
+failure anywhere, because a loop that waits for a duration cannot report that it waited for
+nothing. That is the same lesson as the helper above, one step out: **a wait that must
+pump has to assert what it was pumping for.** This is the same family as "Process-wide state, and
+suites running in parallel" and as "Text-field focus is arbitrated process-wide, so any suite can
+evict another's field editor" — one more thing a suite can silently take away from a neighbour.
 
 Replaced by a shared `closeTheUndoEventGroup(_:)` in `TestSupport.swift` that polls
 `groupingLevel` and **fails, naming the level and the poll count**, if it never reaches zero. The
@@ -1637,8 +1666,17 @@ taken in the same, field-editor-free state:
 m.window.makeFirstResponder(nil)   // in LensHeaderReadoutTests.snapshot(_:_:)
 ```
 
-**Both directions measured.** Under the fix a settled mount is byte-identical after **311 further
+**Both directions measured.** Under the fix a settled mount is byte-identical across **400 further
 layout passes** (it shed 4511 without it), and a foreign steal moves **0 pixels across 40 pumps**.
+
+**That 400 is a fixed loop count, and the previous number was not.** This line read 311 while
+`LensHeaderReadoutTests.snapshot`'s own comment read 300 for the same measurement. Neither was
+wrong-as-typed: both came from a time-bounded `LayoutPumpWait.pump(upTo:)` whose pass count is
+whatever the machine got through, so two runs disagree by construction and there is nothing to
+reconcile between them. Re-derived 2026-08-21 as an explicit `for i in 1...400` comparing each
+frame's `bitmapData` against the settled baseline — first drift: none. Both places now say 400,
+and the number means something a rerun can reproduce. **A pass count taken from a deadline is a
+reading about the machine; only a fixed count is a reading about the code.**
 The assertion still bites: forcing `RenameBacklogSearch.matches(_:RiskyName)` to `true` — the
 shipped defect the test exists for — fails it at **8478 px**, which is what the no-query control
 measures for those two names. Full package: 1444 tests in 204 suites, green twice, same count as
