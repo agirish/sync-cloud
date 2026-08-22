@@ -89,14 +89,6 @@ import Events
                                isDirectory: true, copies: copies, reclaimableBytes: 4000))
     }
 
-    @MainActor
-    /// Reads the DISK log, not `Logger.shared.entries` — the in-memory array is capped at 1000 and
-    /// a parallel run evicts this suite's line before the assertion gets to it. See
-    /// `loggedLineOnDisk(containing:)`.
-    private func loggedLine(containing fragment: String) async -> String? {
-        await loggedLineOnDisk(containing: fragment)
-    }
-
     // MARK: FINDING 1 — no undo group across a suspension
 
     /// **The invariant, stated the only way it can be observed: from the main actor.** A
@@ -283,7 +275,15 @@ import Events
             return true
         }
 
-        let ok = await manager.mergeDuplicateGroup(fixture.group)
+        // Windowed: "at the last check before removal" is written by SEVEN call sites, three of
+        // which do not contain "no longer", and this suite's own siblings write them too. A
+        // last-match read over a per-process log picks whichever ran most recently — which is how
+        // this passed under one full-suite ordering and failed under another AND in isolation.
+        let tag = UUID().uuidString
+        var ok = true
+        let mine = try await logLines(tag: tag) {
+            ok = await manager.mergeDuplicateGroup(fixture.group)
+        }
 
         #expect(confirmed.withLock { $0 } == 1, "the run never reached the permanent-delete confirmation")
         #expect(FileManager.default.fileExists(atPath: redundant.path),
@@ -294,7 +294,12 @@ import Events
         #expect(ok == false, "the merge claimed success over a copy it refused to remove")
         #expect(manager.banner?.message.contains("changed since it was scanned") == true,
                 "the refusal was not surfaced: “\(manager.banner?.message ?? "nil")”")
-        let line = await loggedLine(containing: "at the last check before removal")
+        // ...and filtered to THIS fixture's own temp root. The window bounds time, not authorship:
+        // in a parallel run another suite's refusal lands inside it and wins the last-match. `base`
+        // carries a per-test UUID and appears in every path the refusal names, so it identifies the
+        // writer. Neither assertion below is circular on it — they read the wording and the copy's
+        // name, not the root.
+        let line = mine.last { $0.contains("at the last check before removal") && $0.contains(base.path) }
         #expect(line?.contains(rName) == true,
                 "the gate's refusal was not logged with the copy it kept: “\(line ?? "nil")”")
     }
@@ -437,7 +442,15 @@ import Events
             return true
         }
 
-        let ok = await manager.mergeDuplicateGroup(fixture.group)
+        // Windowed: "at the last check before removal" is written by SEVEN call sites, three of
+        // which do not contain "no longer", and this suite's own siblings write them too. A
+        // last-match read over a per-process log picks whichever ran most recently — which is how
+        // this passed under one full-suite ordering and failed under another AND in isolation.
+        let tag = UUID().uuidString
+        var ok = true
+        let mine = try await logLines(tag: tag) {
+            ok = await manager.mergeDuplicateGroup(fixture.group)
+        }
 
         #expect(confirmed.withLock { $0 } == 1, "the run never reached the permanent-delete confirmation")
         #expect(FileManager.default.fileExists(atPath: fixture.keeper.path),
@@ -447,7 +460,12 @@ import Events
         #expect(FileManager.default.fileExists(atPath: redundant.appendingPathComponent("unique0.txt").path),
                 "the only remaining instance of the folded file is gone")
         #expect(ok == false, "the merge claimed success over a copy it refused to remove")
-        let line = await loggedLine(containing: "at the last check before removal")
+        // ...and filtered to THIS fixture's own temp root. The window bounds time, not authorship:
+        // in a parallel run another suite's refusal lands inside it and wins the last-match. `base`
+        // carries a per-test UUID and appears in every path the refusal names, so it identifies the
+        // writer. Neither assertion below is circular on it — they read the wording and the copy's
+        // name, not the root.
+        let line = mine.last { $0.contains("at the last check before removal") && $0.contains(base.path) }
         #expect(line?.contains("no longer") == true,
                 "the keeper-side refusal was not logged: “\(line ?? "nil")”")
     }
