@@ -709,7 +709,47 @@ struct FilingWalkthroughCard: View {
         .onChange(of: focusNudge) { _, _ in
             Task { @MainActor in focused = true }
         }
+        // The card-level accessibility the `ReviewCardView` donor has and this card was missing.
+        // Without a containing element VoiceOver reads "File 1 of 3", the filename and the
+        // destination as three unrelated siblings, so the one question the walkthrough asks —
+        // WHICH file am I deciding about — has no single element that answers it.
+        //
+        // `.contain` and not `.combine`: the card holds real controls (Skip, File, Cancel,
+        // Preview, Reveal) and `.combine` would flatten them into the label, taking away the
+        // buttons the decision is actually made with.
+        //
+        // The hint is unconditional, exactly as the donor's is and for the same reason: the
+        // keycaps are drawn by `shortcutKeycap`, which renders them only while the reveal is
+        // active. Whether SwiftUI drops a hidden keycap from the accessibility tree is not
+        // something this project can verify — there is no assistive client under `swift test`, so
+        // a test of it would pass vacuously either way — so the guarantee is made here, where it
+        // does not depend on the answer. (`shortcutKeycap`'s own per-button hint is already
+        // ungated by the reveal, which covers the buttons; this covers the card.)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Self.cardSpeech(fileName: row.fileName,
+                                            destination: row.destinationLabel,
+                                            position: position, total: total))
+        .accessibilityHint(Self.keyHintSpeech)
     }
+
+    /// What the walkthrough card tells VoiceOver it is deciding about.
+    ///
+    /// A function with a test rather than an interpolation at the call site, following
+    /// `ReviewCardModel.keyHintSpeech`: the donor's first version of its own hint announced
+    /// "Return copys" on every Copy review, in the one channel the hint exists to serve, and
+    /// nothing on screen showed it.
+    ///
+    /// The destination is part of the label because it is half the decision — "File or skip?"
+    /// cannot be answered from the filename alone — and it falls back to the same wording the
+    /// card draws when a row has no resolved destination, rather than to silence.
+    static func cardSpeech(fileName: String, destination: String?,
+                           position: Int, total: Int) -> String {
+        "File \(position) of \(total), \(fileName), to \(destination ?? "its destination")"
+    }
+
+    /// What the walkthrough card tells VoiceOver its keys do. Infinitives, like the donor's.
+    static let keyHintSpeech =
+        "Return to file, Right Arrow to skip, Escape to cancel the walkthrough"
 
     private var fileCard: some View {
         let isCollision: Bool = { if case .needsAttention = row.verdict { return true } else { return false } }()

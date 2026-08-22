@@ -268,11 +268,20 @@ import Sync
     /// **A modified key is not a decision.** ⌘⏎ / ⇧⏎ are "open"/"add to selection" chords all over
     /// macOS, and ⌥→ / ⌃→ are word-wise and Space-switch navigation — none of them is the plain
     /// keystroke the keycaps advertise, and ⏎ files a real file while → skips one no back-step can
-    /// revisit. The `onKeyPress(keys:phases:)` overload does NOT filter modifiers the way the
-    /// single-key `onKeyPress(.escape)` overload does, so the handlers must check
-    /// `press.modifiers` themselves — the first cut of this card did not, which was a regression:
-    /// the `.keyboardShortcut(…, modifiers: [])` equivalents it replaced matched unmodified keys
-    /// only.
+    /// revisit. **NO `onKeyPress` overload filters modifiers** — not `keys:phases:` and not the
+    /// single-key `onKeyPress(_:)` — so the handlers must check `press.modifiers` themselves. The
+    /// first cut of this card did not, which was a regression: the
+    /// `.keyboardShortcut(…, modifiers: [])` equivalents it replaced matched unmodified keys only.
+    ///
+    /// An earlier revision of this comment said the `keys:phases:` overload differed from the
+    /// single-key one here. It does not, and the correction matters because this comment is what
+    /// a future author reads before touching these handlers: measured on this very harness, the
+    /// single-key overload fires for ⏎ with ⌘/⇧/⌥/⌃/caps-lock and fires on key-repeat too, and
+    /// `ReviewCardView` shipped both defects under it. The two overloads differ in exactly one
+    /// respect — the single-key one does not fire on `.up`. The reading that produced the false
+    /// version came from ⌘esc, ⌃esc and ⌘. never arriving at all: AppKit takes those as
+    /// `cancelOperation:` ahead of the responder chain, so NEITHER overload sees them. That is a
+    /// per-key routing effect, not a property of an overload.
     @Test func aModifiedKeyDecidesNothing() async {
         let recorder = Recorder()
         let (window, _) = host(card(into: recorder))
@@ -541,5 +550,66 @@ import Sync
                 "the lens no longer wires Preview through recoveringFocus — clicking Preview stops recovering key focus")
         #expect(text.contains("onReveal: FilingWalkthroughCard.recoveringFocus(via: { filingFocusNudge += 1 }, onReveal)"),
                 "the lens no longer wires Reveal through recoveringFocus — clicking Reveal stops recovering key focus")
+    }
+}
+
+/// **What the walkthrough card says to VoiceOver.**
+///
+/// Same reasoning as `ReviewCardKeyHintSpeechTests`, and the same reason it is the STRING that is
+/// tested rather than the tree: there is no assistive client under `swift test`, so an assertion
+/// on the rendered accessibility tree would pass whatever the card announces. The strings are the
+/// only place any of this is checkable at all — which is exactly why the card went without a
+/// container label for as long as it did, with every suite green.
+@Suite struct FilingWalkthroughCardSpeechTests {
+
+    /// The label answers the question the card asks: which file, where to, and where in the queue.
+    /// All four facts, because a label that silently lost one still reads as a sentence.
+    @Test func theCardLabelNamesTheFileTheDestinationAndThePosition() {
+        let label = FilingWalkthroughCard.cardSpeech(
+            fileName: "Invoice 2026-03.pdf", destination: "Documents/Finance", position: 2, total: 7)
+        for fact in ["Invoice 2026-03.pdf", "Documents/Finance", "2", "7"] {
+            #expect(label.contains(fact), "\(fact) is missing from: \(label)")
+        }
+    }
+
+    /// **A row with no resolved destination still says something.** `destinationLabel` is optional
+    /// on `AutomationDryRunRow` and the card DRAWS "its destination" in that case — so the spoken
+    /// label must not go silent, or trail off, where the visible one does not. An `Optional`
+    /// interpolated straight into the string would have announced "to nil" here.
+    @Test func anUnresolvedDestinationFallsBackToWhatTheCardDraws() {
+        let label = FilingWalkthroughCard.cardSpeech(
+            fileName: "scan.pdf", destination: nil, position: 1, total: 1)
+        #expect(label.contains("to its destination"), "got: \(label)")
+        #expect(!label.contains("nil"), "the Optional leaked into the spoken label: \(label)")
+    }
+
+    /// All three keys are named, and as infinitives — the donor's hint shipped "Return copys"
+    /// because it conjugated, and nothing on screen showed it.
+    @Test func everyWalkthroughKeyIsNamed() {
+        let hint = FilingWalkthroughCard.keyHintSpeech
+        for key in ["Return", "Right Arrow", "Escape"] {
+            #expect(hint.contains(key), "\(key) is missing from: \(hint)")
+        }
+        #expect(hint.contains("Return to file"), "got: \(hint)")
+    }
+
+    /// The card really installs both, at the card level. Source-level for the same reason
+    /// `theLensWiresBothInspectionGesturesThroughTheRecovery` above is: the tree is unreadable
+    /// here, so without this the two strings could be correct and unused — which is the state the
+    /// card was actually in.
+    @Test func theCardInstallsTheContainerLabelAndHint() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // …/Modules/FileExplorer/Tests/FileExplorer
+            .deletingLastPathComponent()   // …/Modules/FileExplorer/Tests
+            .deletingLastPathComponent()   // …/Modules/FileExplorer
+            .appendingPathComponent("Sources/FileExplorer/AutomationsLens.swift")
+        let text = try #require(try? String(contentsOf: source, encoding: .utf8),
+                                "cannot read \(source.path) — is the file gone or renamed?")
+        // `.contain` specifically: `.combine` would fold the card's Skip/File/Cancel/Preview/Reveal
+        // buttons into the label and take the controls away from VoiceOver entirely.
+        #expect(text.contains(".accessibilityElement(children: .contain)\n        .accessibilityLabel(Self.cardSpeech("),
+                "the walkthrough card no longer wraps itself in a containing accessibility element with cardSpeech as its label")
+        #expect(text.contains(".accessibilityHint(Self.keyHintSpeech)"),
+                "the walkthrough card no longer carries its unconditional key hint")
     }
 }

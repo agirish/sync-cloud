@@ -152,6 +152,12 @@ import Testing
     /// list decides it by what the file IS, and it defaults to *in*: a new view is covered the day
     /// it is added, and taking it out costs an entry and a reason here.
     ///
+    /// **The membership test was itself still a path SHAPE until 2026-08-21**, and that sentence
+    /// was false for anything below the top level of `Sources/FileExplorer/` — see
+    /// `isFileExplorerSource` for what walked through, and
+    /// `aFileInASubdirectoryOfSourcesIsStillInTheNet` for why a claim about a net needs a plant
+    /// that tries it rather than prose asserting it.
+    ///
     /// Deliberately NOT extended past `FileExplorer/Sources/FileExplorer` in the same change: the
     /// other modules' uses (`Dashboard`, `Settings`, `MacApp`) have not been read one by one, and
     /// a net whose exemptions were guessed is the failure this is fixing. The repo-wide
@@ -170,12 +176,35 @@ import Testing
             "modal sheet: a lone Done button carrying .defaultAction",
     ]
 
+    /// Is this file part of `FileExplorer`'s shipped source tree — at ANY depth under it?
+    ///
+    /// **The depth is the point, and the first version got it wrong.** It asked whether the file's
+    /// PARENT directory is named `FileExplorer`, which nets only files sitting directly in
+    /// `Sources/FileExplorer/`. Measured 2026-08-21: planting
+    /// `Sources/FileExplorer/Sub/EvilAlwaysMountedCard.swift` carrying
+    /// `.keyboardShortcut(.defaultAction)` — the re-shipped P1-6 shape — left all four tests in
+    /// this suite GREEN, with no exemption written and no reason recorded. That falsified this
+    /// file's own two claims: that the net "defaults to *in*: a new view is covered the day it is
+    /// added", and that "the exemptions are the only way out". `theExemptionsAreTheOnlyWayOut` was
+    /// blind in exactly the same place, because it repeated the same filter.
+    ///
+    /// Latent when it was found — no module's `Sources/*` tree has a subdirectory today — which is
+    /// the whole reason to fix it now: the day someone adds one, the file that gets a subdirectory
+    /// is far more likely to be a big lens being broken up than a leaf, and nothing would announce
+    /// that it had left the net.
+    ///
+    /// One predicate, called from all three places that used to spell the filter out, so a future
+    /// correction cannot land in two of them.
+    static func isFileExplorerSource(_ url: URL) -> Bool {
+        let components = url.pathComponents
+        guard let sources = components.lastIndex(of: "Sources"), sources + 1 < components.count
+        else { return false }
+        return components[sources + 1] == "FileExplorer"
+    }
+
     /// Every Swift file under `FileExplorer/Sources/FileExplorer` that is not exempt.
     private static func bannedFromKeyEquivalents() throws -> [(url: URL, text: String)] {
-        let all = try sweptSources().filter {
-            $0.url.deletingLastPathComponent().lastPathComponent == "FileExplorer"
-                && $0.url.pathComponents.contains("Sources")
-        }
+        let all = try sweptSources().filter { isFileExplorerSource($0.url) }
         // Non-vacuity, and the reason the glob failed: the net must hold the known hazards BY
         // NAME. Each of these is an always-mounted surface, and the last four are the ones the
         // `*Lens*` glob missed.
@@ -191,14 +220,22 @@ import Testing
 
     private static let bannedSpellings = [".keyboardShortcut(", ".defaultAction", ".cancelAction"]
 
-    @Test func noAlwaysMountedSurfaceRegistersAnyKeyEquivalentAtAll() throws {
-        var offenders: [String] = []
-        for (url, text) in try Self.bannedFromKeyEquivalents() {
-            let code = Self.codeOnly(text)
-            for banned in Self.bannedSpellings where code.contains(banned) {
-                offenders.append("\(url.lastPathComponent) contains `\(banned)`")
+    /// The ban itself, over whatever set of files it is handed — so the test below can run it on
+    /// the real tree and `aFileInASubdirectoryOfSourcesIsStillInTheNet` can run the very same code
+    /// over a planted file, rather than re-implementing it and proving nothing about this path.
+    private static func offenders(in files: [(url: URL, text: String)]) -> [String] {
+        var found: [String] = []
+        for (url, text) in files {
+            let code = codeOnly(text)
+            for banned in bannedSpellings where code.contains(banned) {
+                found.append("\(url.lastPathComponent) contains `\(banned)`")
             }
         }
+        return found
+    }
+
+    @Test func noAlwaysMountedSurfaceRegistersAnyKeyEquivalentAtAll() throws {
+        let offenders = Self.offenders(in: try Self.bannedFromKeyEquivalents())
         #expect(offenders.isEmpty, """
                 \(offenders.joined(separator: ", ")). These files ship always-mounted surfaces — \
                 any key equivalent registered from one eats that key typed into every field in the \
@@ -215,10 +252,7 @@ import Testing
     /// list now lies), or the key equivalent is removed and the entry stays, quietly holding a
     /// file out of the net forever. Both are findings.
     @Test func everyExemptionNamesALiveFileThatStillRegistersOne() throws {
-        let all = try Self.sweptSources().filter {
-            $0.url.deletingLastPathComponent().lastPathComponent == "FileExplorer"
-                && $0.url.pathComponents.contains("Sources")
-        }
+        let all = try Self.sweptSources().filter { Self.isFileExplorerSource($0.url) }
         for (name, reason) in Self.exemptFromTheKeyEquivalentBan {
             let file = try #require(all.first { $0.url.lastPathComponent == name },
                                     "exemption for \(name) (\(reason)) names no file under FileExplorer/Sources")
@@ -234,6 +268,16 @@ import Testing
     /// keeps the two tests above from being mutually vacuous: take one exempt file out of the
     /// exemption map and it must be reported as an offender — proving the ban really is applied
     /// to every non-exempt file rather than to a shrinking hand-picked set.
+    ///
+    /// **This test cannot see membership, only exemption** — it consults the same
+    /// `isFileExplorerSource` the net does, so a file the predicate does not count is invisible to
+    /// both, and this test says nothing about it. That was not a theoretical gap: until 2026-08-21
+    /// the predicate netted only the top level of `Sources/FileExplorer/`, and a planted
+    /// `Sub/EvilAlwaysMountedCard.swift` carrying `.keyboardShortcut(.defaultAction)` left this
+    /// test green alongside the other three (measured, both directions — with the predicate fixed
+    /// the same plant fails this test AND `noAlwaysMountedSurface…`). Membership is pinned
+    /// separately, by `aFileInASubdirectoryOfSourcesIsStillInTheNet`; "the net is total" above is
+    /// a claim about the exemption map, not about the predicate.
     @Test func theExemptionsAreTheOnlyWayOut() throws {
         // Measured, 2026-08-21, each mutation restored afterwards:
         //   • `.keyboardShortcut(.defaultAction)` added to ReviewCardView — under the previous
@@ -251,8 +295,7 @@ import Testing
         // With the suite green the first set is empty, so this says: the exemptions account for
         // ALL of them, and nothing is escaping the ban some third way.
         let registering = try Self.sweptSources().filter { file in
-            guard file.url.deletingLastPathComponent().lastPathComponent == "FileExplorer",
-                  file.url.pathComponents.contains("Sources") else { return false }
+            guard Self.isFileExplorerSource(file.url) else { return false }
             let code = Self.codeOnly(file.text)
             return Self.bannedSpellings.contains { code.contains($0) }
         }.map { $0.url.lastPathComponent }
@@ -260,6 +303,56 @@ import Testing
                 files registering a key equivalent: \(Set(registering).sorted()); \
                 exempted: \(exemptNames.sorted()). These must agree exactly — a difference either \
                 way means the exemption list has drifted from the code.
+                """)
+    }
+
+    /// **Depth does not buy a way out of the net.** The claims above — "it defaults to *in*: a new
+    /// view is covered the day it is added" and "the exemptions are the only way out" — were false
+    /// for any file below the first level of `Sources/FileExplorer/`, because the membership test
+    /// asked what the file's PARENT directory was called. Measured 2026-08-21: a real
+    /// `Sources/FileExplorer/Sub/EvilAlwaysMountedCard.swift` carrying
+    /// `.keyboardShortcut(.defaultAction)` passed all four tests here green.
+    ///
+    /// The plant is a synthesized entry rather than a file written into the source tree: the tree
+    /// is what every other scan in this package reads, and a test that mutates it races them and
+    /// can leave debris behind if it dies mid-run. What matters is that the plant goes through the
+    /// REAL code — `isFileExplorerSource`, the exemption map, and `offenders(in:)` are the same
+    /// three the shipping test calls, so a regression in any of them fails here too.
+    ///
+    /// Non-vacuity is asserted both ways: the same plant moved one directory sideways (into
+    /// `Sources/Design/Sub/`, another module's tree) must NOT be netted, or this test would pass
+    /// for a filter that nets everything.
+    @Test func aFileInASubdirectoryOfSourcesIsStillInTheNet() throws {
+        let modules = Self.modulesDir
+        let planted = modules.appendingPathComponent(
+            "FileExplorer/Sources/FileExplorer/Sub/EvilAlwaysMountedCard.swift")
+        let elsewhere = modules.appendingPathComponent(
+            "Design/Sources/Design/Sub/EvilAlwaysMountedCard.swift")
+        // The re-shipped P1-6 shape: bare ⏎ at window level, on a card that is always mounted.
+        let body = """
+            struct EvilAlwaysMountedCard: View {
+                var body: some View {
+                    Button("File") {}.keyboardShortcut(.defaultAction)
+                }
+            }
+            """
+
+        #expect(Self.isFileExplorerSource(planted), """
+                a file at \(planted.path) is not counted as a FileExplorer source. Anything under \
+                Sources/FileExplorer is shipped code and belongs in the net whatever depth it \
+                sits at — a filter keyed on the immediate parent directory's name is what let \
+                this shape through before.
+                """)
+        #expect(!Self.isFileExplorerSource(elsewhere),
+                "\(elsewhere.path) is another module's tree and must not be netted")
+
+        let netted = [(url: planted, text: body)].filter { Self.isFileExplorerSource($0.url) }
+            .filter { Self.exemptFromTheKeyEquivalentBan[$0.url.lastPathComponent] == nil }
+        #expect(Self.offenders(in: netted) == ["EvilAlwaysMountedCard.swift contains `.keyboardShortcut(`",
+                                               "EvilAlwaysMountedCard.swift contains `.defaultAction`"], """
+                the planted subdirectory card was not reported: \(Self.offenders(in: netted)). \
+                A `.keyboardShortcut(.defaultAction)` on an always-mounted surface is bare ⏎ at \
+                window level — it eats Return typed into every field in the window.
                 """)
     }
 }
