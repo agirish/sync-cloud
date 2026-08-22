@@ -951,9 +951,50 @@ public class FileSyncManager: ObservableObject {
     private var rejectedIdentifierCache: (rejections: [PersonTag], salt: String,
                                           value: [String: Set<String>])?
 
+    /// Re-derives ``filingArtifactFingerprint`` from the folder the roster was actually written
+    /// to, after ``PeopleStore/savedRevision`` says the bytes landed.
+    ///
+    /// **The id comes from the store, not from `filingFolderProfile?.profileId`.** That field is
+    /// the one *inside* `folder-profile.json`, and `FilingArtifacts.attach` deliberately does not
+    /// build anything from it — see `FilingProfileStore.active`, which warns when it disagrees
+    /// with the folder and lets the folder win. A profile folder `work/` whose json says
+    /// `"profileId": "abhishek"` therefore digested `abhishek/`, a directory holding none of the
+    /// three artifacts, and `fingerprint` answers `""` for that.
+    ///
+    /// `""` is not nil, so both cache gates (`FileSyncManager+Filing`,
+    /// `FileSyncManager+FilingRefine`) stayed OPEN: every verdict for the rest of the session was
+    /// recorded under `artifacts: ""` — billed, and unreachable at the next launch, when the digest
+    /// is read correctly again. Worse in reverse, a `""`-keyed verdict from one artifact set can be
+    /// served against another. That is the failure the `String?` change was made to prevent,
+    /// arriving through the other door.
+    ///
+    /// Both remaining ways out are nil rather than a value, because nil is the honest answer and
+    /// the safe one — cache off for read and write both:
+    ///
+    /// - **No file behind the store** (the in-memory `PeopleStore(people:)`, or none at all): there
+    ///   is nothing on disk to digest, and the digest already in hand describes artifacts this
+    ///   manager is no longer keyed to. Keeping it — which a bare `return` did — is a stale key
+    ///   with the cache still on.
+    /// - **`""` from a store that IS persistent**: unreachable by construction, since `save()` had
+    ///   just written `people.json` into that very folder, so it means the pair no longer names
+    ///   where the artifacts live. `""` would key this session's verdicts to an empty artifact set;
+    ///   nil records nothing instead.
     func refreshFilingArtifactFingerprint() {
-        guard let dir = filingProfilesDirectory, let id = filingFolderProfile?.profileId else { return }
-        filingArtifactFingerprint = FilingProfileStore.fingerprint(id: id, in: dir)
+        guard let store = filingPeopleStore, store.isPersistent else {
+            filingArtifactFingerprint = nil
+            return
+        }
+        let refreshed = FilingProfileStore.fingerprint(id: store.profileId, in: store.directory)
+        guard refreshed != "" else {
+            Logger.shared.warning("Filing artifacts: nothing to digest in "
+                                  + "\(store.profileId)/ after the roster was saved, so the "
+                                  + "artifact fingerprint is unavailable and no classification is "
+                                  + "cached or replayed this session. The roster was written to "
+                                  + "\(store.fileURL.path).")
+            filingArtifactFingerprint = nil
+            return
+        }
+        filingArtifactFingerprint = refreshed
     }
     /// The prepared router index, and the destination set it was built from.
     ///

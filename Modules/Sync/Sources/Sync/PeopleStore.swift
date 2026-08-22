@@ -27,8 +27,18 @@ public final class PeopleStore: ObservableObject {
     /// user has already corrected.
     public var registry: PersonRegistry { PersonRegistry(people: people, source: source) }
 
-    private let directory: URL
-    private let profileId: String
+    /// Where the roster was read from and is written to — the profiles directory and the FOLDER
+    /// inside it, both as handed over at construction.
+    ///
+    /// **Internal, and the pair is the point.** `FilingArtifacts.attach` builds this store from
+    /// `loaded.id` — the folder the artifacts were actually read from — rather than from
+    /// `profile.profileId`, the field inside `folder-profile.json`, because the two can disagree
+    /// and when they do "the writes went where nothing reads". Anything re-deriving state from the
+    /// bytes this store just wrote has to ask the same pair rather than re-deriving the id from
+    /// the profile, which is how `FileSyncManager.refreshFilingArtifactFingerprint` came to digest
+    /// a folder holding no artifacts at all.
+    let directory: URL
+    let profileId: String
     private let fileManager: FileManager
 
     /// `people.json` for the active profile.
@@ -229,7 +239,9 @@ public final class PeopleStore: ObservableObject {
         self.source = .file
     }
 
-    private var isPersistent: Bool { !profileId.isEmpty }
+    /// False for the in-memory store — there is no file behind it, so nothing it does can
+    /// change anything on disk.
+    var isPersistent: Bool { !profileId.isEmpty }
 
     // MARK: - Editing
 
