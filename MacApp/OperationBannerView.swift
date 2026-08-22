@@ -28,13 +28,28 @@ struct OperationBannerView: View {
     /// The auto-dismiss window for this severity, in seconds, or nil when the banner is sticky
     /// (errors). Read straight from the scheduler's delays so the bar can never drift from the
     /// real timer.
-    private var autoDismissSeconds: Double? {
+    var autoDismissSeconds: Double? {
         BannerDismissScheduler.Delays.standard
             .delayNanoseconds(for: banner.severity)
             .map { Double($0) / 1_000_000_000 }
     }
 
-    private var showsCountdown: Bool { autoDismissSeconds != nil && !reduceMotion }
+    /// Whether to offer the one-click Undo. Both halves are load-bearing: `isUndoable` says the
+    /// outcome is a single undo step, `canUndo` says the stack still has it — dropping either
+    /// shows a dead button (already-undone elsewhere) or hides a live one. Instance state +
+    /// injected flag, so the truth table is testable on a constructed view; `body` reads this
+    /// property and nothing else for the decision.
+    var showsUndo: Bool { banner.isUndoable && canUndo }
+
+    /// The countdown-bar rule, static so the Reduce Motion arm is testable — the environment
+    /// value cannot be injected into a constructed struct outside a render.
+    static func showsCountdown(autoDismissSeconds: Double?, reduceMotion: Bool) -> Bool {
+        autoDismissSeconds != nil && !reduceMotion
+    }
+
+    private var showsCountdown: Bool {
+        Self.showsCountdown(autoDismissSeconds: autoDismissSeconds, reduceMotion: reduceMotion)
+    }
 
     private var tint: Color { OperationBannerStyle.tint(for: banner.severity) }
 
@@ -49,7 +64,7 @@ struct OperationBannerView: View {
                     .foregroundStyle(.primary)
                 Spacer(minLength: 8)
 
-                if banner.isUndoable && canUndo {
+                if showsUndo {
                     Button(action: onUndo) {
                         HStack(spacing: 5) {
                             Image(systemName: "arrow.uturn.backward")
