@@ -1,4 +1,5 @@
 import Foundation
+import Events
 import Testing
 @testable import Sync
 
@@ -417,4 +418,68 @@ final class ScratchDefaults: UserDefaults {
     }
 
     deinit { wipeDefaultsSuite(scratchSuiteName) }
+}
+
+/// Reads the log lines one operation produced, from the on-disk log rather than
+/// `Logger.shared.entries`.
+///
+/// **`entries` cannot carry a window across a multi-step operation in a parallel run.** It is
+/// trimmed to the newest 1000 (`Logger.flushPendingEntries`) and every suite in the process writes
+/// to the same array, so an opening marker written before the operation is routinely EVICTED before
+/// the assertion reads it. Measured on `main` at `140d4773`: four tests across three suites pass
+/// under `swift test --no-parallel` and fail under plain `swift test`, three of them reporting the
+/// marker itself as `nil` — the failure names the missing marker, not the missing log line, so it
+/// reads like the production code stopped logging when nothing of the sort happened.
+///
+/// The per-process temp file the test logger writes to (`Logger.defaultLogFileURL`) has neither
+/// problem: it is append-only, never trimmed, and `Logger.log` appends to it **at the call site**,
+/// so it holds every line in call order. Other suites still interleave their lines into it — that is
+/// why the window is still delimited by a unique tag, and why callers should filter for a line only
+/// they could have written.
+///
+/// - Parameter tag: Something unique to this test — a `UUID().uuidString`. It goes in both markers.
+/// - Returns: The lines strictly between this window's markers, in call order.
+@MainActor
+func logLines(tag: String, during body: () async throws -> Void) async throws -> [String] {
+    let url = Logger.shared.logFileURL
+    await Logger.shared.debug("log-window opens \(tag)").value
+    try await body()
+    await Logger.shared.debug("log-window closes \(tag)").value
+
+    // The writer's disk queue is serial but asynchronous, so the bytes trail the call. Poll for the
+    // closing marker rather than sleeping a guessed interval.
+    var text = ""
+    await waitUntil("the log window's closing marker reaches disk") {
+        text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return text.contains("log-window closes \(tag)")
+    }
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    let opened = try #require(lines.firstIndex { $0.contains("log-window opens \(tag)") },
+                              "the log window's opening marker never reached disk — this read would be vacuous")
+    let closed = try #require(lines.lastIndex { $0.contains("log-window closes \(tag)") },
+                              "the log window's closing marker never reached disk — this read would be vacuous")
+    return Array(lines[(opened + 1)..<closed])
+}
+
+/// The last log line containing `fragment`, read from the on-disk log.
+///
+/// The `Logger.shared.entries.last { … }` spelling this replaces is the same eviction hazard
+/// `logLines(tag:during:)` documents, one step milder: with no window to lose, it survives until the
+/// asserted line ITSELF is trimmed out of the newest 1000 — which a parallel run does, and which
+/// surfaces as `line?.contains(…) == false` rather than as anything naming the logger. Measured:
+/// `aFoldIsRefusedWhenTheKeeperNoLongerHoldsTheFilesItFolded` and both `theSingleResolve…` tests
+/// fail exactly this way under plain `swift test` and pass under `--no-parallel`.
+///
+/// Callers must still pass a fragment only they could have written — the disk log is per-process,
+/// so every suite's lines are in it.
+@MainActor
+func loggedLineOnDisk(containing fragment: String) async -> String? {
+    let url = Logger.shared.logFileURL
+    await Logger.shared.debug("disk-log flush marker \(fragment.hashValue)").value
+    var text = ""
+    await waitUntil("the flush marker reaches disk") {
+        text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        return text.contains("disk-log flush marker \(fragment.hashValue)")
+    }
+    return text.split(separator: "\n").map(String.init).last { $0.contains(fragment) }
 }

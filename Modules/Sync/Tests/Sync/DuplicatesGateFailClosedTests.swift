@@ -27,9 +27,11 @@ import Events
     }
 
     @MainActor
+    /// Reads the DISK log, not `Logger.shared.entries` — the in-memory array is capped at 1000 and
+    /// a parallel run evicts this suite's line before the assertion gets to it. See
+    /// `loggedLineOnDisk(containing:)`.
     private func loggedLine(containing fragment: String) async -> String? {
-        await Logger.shared.debug("fail-closed flush marker").value
-        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+        await loggedLineOnDisk(containing: fragment)
     }
 
     // MARK: A gate whose manager is gone refuses EVERYTHING
@@ -140,9 +142,18 @@ import Events
         let g = group(keeper: "/Pictures/2019/IMG_0421.jpg", redundant: "/Desktop/Old/IMG_0421.jpg")
         manager.duplicateGroups = [g]
 
-        #expect(await manager.resolveDuplicateGroup(g) == false)
+        // Windowed, not last-match: "refused to remove copies of" is written by five call sites and
+        // by this suite's sibling tests, all over the SAME constant paths, so the last line in a
+        // per-process log carrying that fragment is routinely another test's. That is what the
+        // in-memory read was really failing on once eviction was ruled out.
+        let tag = UUID().uuidString
+        var resolved = true
+        let mine = try await logLines(tag: tag) {
+            resolved = await manager.resolveDuplicateGroup(g)
+        }
+        #expect(resolved == false)
 
-        let line = await loggedLine(containing: "refused to remove copies of")
+        let line = mine.last { $0.contains("refused to remove copies of") }
         #expect(line?.contains("/Pictures/2019/IMG_0421.jpg") == true,
                 "the refusal does not name the keeper's path: “\(line ?? "nil")”")
         #expect(line?.contains("/Desktop/Old/IMG_0421.jpg") == true,
@@ -225,9 +236,14 @@ import Events
         let g = group(keeper: "/Pictures/2019/IMG_0421.jpg", redundant: "/Desktop/Old/IMG_0421.jpg")
         manager.duplicateGroups = [g]
 
-        #expect(await manager.resolveDuplicateGroup(g) == false)
+        let tag = UUID().uuidString
+        var resolved = true
+        let mine = try await logLines(tag: tag) {
+            resolved = await manager.resolveDuplicateGroup(g)
+        }
+        #expect(resolved == false)
 
-        let line = await loggedLine(containing: "is no longer what the scan saw")
+        let line = mine.last { $0.contains("is no longer what the scan saw") }
         #expect(line?.contains("/Pictures/2019/IMG_0421.jpg") == true,
                 "the vanished-keeper refusal is still banner-only: “\(line ?? "nil")”")
     }

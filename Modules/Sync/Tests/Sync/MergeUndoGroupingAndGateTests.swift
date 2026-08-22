@@ -90,9 +90,11 @@ import Events
     }
 
     @MainActor
+    /// Reads the DISK log, not `Logger.shared.entries` — the in-memory array is capped at 1000 and
+    /// a parallel run evicts this suite's line before the assertion gets to it. See
+    /// `loggedLineOnDisk(containing:)`.
     private func loggedLine(containing fragment: String) async -> String? {
-        await Logger.shared.debug("merge-gate flush marker").value
-        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+        await loggedLineOnDisk(containing: fragment)
     }
 
     // MARK: FINDING 1 — no undo group across a suspension

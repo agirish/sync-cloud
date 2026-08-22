@@ -545,16 +545,13 @@ import Events
         mockFM.virtualDisk["/d/\(tag)-b.txt"] = stub(size: 10)
 
         // A marker before and after, so only THIS delete's lines are read out of a logger every
-        // other test in the process is also writing to.
-        await Logger.shared.debug("delete-gate window opens \(tag)").value
-        _ = await manager.deleteItems(at: ["/d/\(tag)-a.txt", "/d/\(tag)-b.txt"], fileManager: mockFM,
-                                      removalGate: { paths in Set(paths) })
-        await Logger.shared.debug("delete-gate window closes \(tag)").value
-
-        let all = Logger.shared.entries
-        let opened = try #require(all.firstIndex { $0.message.contains("window opens \(tag)") })
-        let closed = try #require(all.lastIndex { $0.message.contains("window closes \(tag)") })
-        let mine = all[opened...closed].map(\.message)
+        // other test in the process is also writing to — taken from the on-disk log, because the
+        // in-memory `entries` array is capped at 1000 and evicts the opening marker in a parallel
+        // run. See `logLines(tag:during:)`.
+        let mine = try await logLines(tag: tag) {
+            _ = await manager.deleteItems(at: ["/d/\(tag)-a.txt", "/d/\(tag)-b.txt"], fileManager: mockFM,
+                                          removalGate: { paths in Set(paths) })
+        }
 
         #expect(mockFM.virtualDisk["/d/\(tag)-a.txt"] != nil && mockFM.virtualDisk["/d/\(tag)-b.txt"] != nil,
                 "the fixture did not actually refuse — the assertions below would be about nothing")
