@@ -1444,7 +1444,15 @@ extension FileSyncManager {
                 identityWalk = registerCopyUndo(pendingItems: foldedItems, actionName: actionName, fileManager: fm)
             }
             // Registered AFTER the copy-undo, so ⌘Z pops it FIRST: the redundant copies come back
-            // out of the Trash before anything is removed from the keeper. The other order would,
+            // out of the Trash before anything is removed from the keeper.
+            //
+            // Registration order is only HALF of that guarantee, and the half that was always
+            // sound. Both handlers spawn a `Task` that calls `enqueueFileOperation`, so what the
+            // user actually sees is the order that queue runs them in — and that order used to be
+            // a race (`enqueueFileOperation` claimed its slot only after an actor round trip, so
+            // the later caller could claim first). Measured through this exact pair: ~1 inversion
+            // in 300 undos on an idle machine, i.e. a ⌘Z that deleted the folded files out of the
+            // keeper first. Fixed there, pinned by `FileOperationQueueOrderTests`. The other order would,
             // if the restore then failed, have already deleted the folded files with the originals
             // still gone. Only the copies that reached the Trash are here — a permanently deleted
             // one registers nothing, which is what `anyPermanentlyDeleted` withdraws the ⌘Z offer

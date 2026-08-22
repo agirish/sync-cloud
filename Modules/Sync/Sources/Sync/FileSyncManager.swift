@@ -1876,10 +1876,40 @@ public class FileSyncManager: ObservableObject {
         // name normalization, automations, filing) reaches the disk through this call. The
         // count moves here only when the caller didn't already pre-count it (see
         // `preCountFileOperation`, which deliberately runs earlier).
-        await MainActor.run {
-            if !alreadyCounted { self.activeFileOperationsCount += 1 }
-            self.noteFileOperationBegan()
-        }
+        //
+        // **Straight-line, and NOT `await MainActor.run` — that hop is what made the queue's
+        // order a race.** This method is already `@MainActor`, so the block was redundant for
+        // isolation; what it was not was free. `MainActor.run` is a *nonisolated* async
+        // function, so awaiting it from the main actor hops OFF to the generic executor and back
+        // (SE-0338) — two real suspensions between entering this method and claiming a slot in
+        // `fileOperationTask` below. Two callers that entered in a fixed order came back from
+        // that round trip in whatever order the pool released them, and the second could read
+        // `fileOperationTask` before the first had written it: the two operations then chained
+        // on the SAME predecessor and ran concurrently, or in the reverse of the order they were
+        // requested in.
+        //
+        // That is a correctness property, not a tidiness one, and undo is where it bites. A
+        // merge's ⌘Z pops two registrations in a deliberate order — restore the redundant copies
+        // from the Trash FIRST, delete the folded files out of the keeper SECOND — so a failed
+        // restore still leaves the folded files in the keeper rather than leaving the user with
+        // neither. Both handlers run synchronously inside `undo()` and each spawns a `Task` that
+        // calls this method; the registration order and the task-start order are both
+        // deterministic, and this hop threw the ordering away at the last step. Measured before
+        // the fix, on an IDLE machine: two operations requested in a fixed order from two
+        // main-actor tasks ran in the wrong order 8 and 12 times out of 300, while the
+        // task-start order inverted 0 times out of 300 — so the inversion was entirely inside
+        // this method, between entering it and claiming the slot. Driven through the merge's
+        // real pair (a `registerCopyUndo` and a `registerRestoreItems` in one group, then
+        // `undo()`) the rate is ~1 in 300 idle, which is why it read as a full-suite-only flake:
+        // `--filter` passed eight times out of eight and six whole idle package runs never hit
+        // it. After the fix, 0 in 900 through the same merge pair and 0 in 300 through the
+        // primitive.
+        //
+        // With no suspension between entry and the claim, the read-modify-write of
+        // `fileOperationTask` happens in the caller's own main-actor turn, so the queue order is
+        // exactly the call order. `FileOperationQueueOrderTests` pins it.
+        if !alreadyCounted { activeFileOperationsCount += 1 }
+        noteFileOperationBegan()
 
         let previousTask = fileOperationTask
         let newTask = Task.detached(priority: .userInitiated) {
