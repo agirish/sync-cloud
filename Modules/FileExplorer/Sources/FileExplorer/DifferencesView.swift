@@ -1841,6 +1841,29 @@ public struct DifferencesView: View {
     /// The selection filter is ``DifferencesShortcutRules/transferItems(rows:selection:direction:)``,
     /// which exists to keep this away from ``DifferenceActionTargets``' whole-set fallback — see
     /// there.
+    /// The bulk context menu's Copy/Move, resolved when it FIRES.
+    ///
+    /// **A menu item may not carry the rows it was built from.** An NSMenu stays open across
+    /// anything the app does behind it — a scan landing, a row's state moving — and the values
+    /// captured at build time describe the table as it was when the user right-clicked. This is
+    /// the same rule the ⌘→ path states at `focusedSceneValue` ("No rows captured here") and the
+    /// same one `runCopyOrMove` already applies to the move modifier; the items were the half
+    /// still frozen.
+    ///
+    /// Ids, not values, because an id is what survives a row's contents changing. When a full
+    /// rescan replaces the rows outright their ids are new (`FileDifference.id` is a fresh
+    /// `UUID`), so nothing matches and this does nothing — which is the correct outcome and
+    /// exactly what `keyboardCopy` does with an empty result: the rows the menu was about are not
+    /// on screen any more.
+    private func bulkTransfer(ids: Set<FileDifference.ID>, direction: FileDifference.SyncAction) {
+        guard !isSyncActionBlocked else { return }
+        let items = DifferencesShortcutRules.transferItems(rows: displayRows.sorted,
+                                                           selection: ids,
+                                                           direction: direction)
+        guard !items.isEmpty else { return }
+        runCopyOrMove(direction: direction, items: items, scope: "selection")
+    }
+
     private func keyboardCopy(direction: FileDifference.SyncAction, isMove: Bool) {
         guard !isSyncActionBlocked else { return }
         let items = DifferencesShortcutRules.transferItems(rows: displayRows.sorted,
@@ -1923,7 +1946,9 @@ public struct DifferencesView: View {
         if ids.count == 1, let id = ids.first, let difference = visible.first(where: { $0.id == id }) {
             singleRowMenu(for: difference)
         } else if ids.count > 1 {
-            bulkMenu(for: visible.filter { ids.contains($0.id) })
+            // Both halves: the IDS decide what the actions operate on, resolved against the live
+            // rows when they fire; the snapshot is only what the labels count.
+            bulkMenu(for: ids, snapshot: visible.filter { ids.contains($0.id) })
         }
     }
 
@@ -1990,7 +2015,7 @@ public struct DifferencesView: View {
     /// Bulk menu for a multi-row selection: Copy/Move the selected rows in each direction
     /// (respecting the move modifier) and ignore them all.
     @ViewBuilder
-    private func bulkMenu(for selected: [FileDifference]) -> some View {
+    private func bulkMenu(for ids: Set<FileDifference.ID>, snapshot selected: [FileDifference]) -> some View {
         let toRight = selected.filter { $0.action == .copyToRight }
         let toLeft = selected.filter { $0.action == .copyToLeft }
         // Label-only snapshot: NSMenu can't relabel items from @Published while open, so the
@@ -1999,7 +2024,7 @@ public struct DifferencesView: View {
         let isMove = modifierTracker.isMoveModifierPressed
         if !toRight.isEmpty {
             Button {
-                runCopyOrMove(direction: .copyToRight, items: toRight, scope: "selection")
+                bulkTransfer(ids: ids, direction: .copyToRight)
             } label: {
                 Label("\(isMove ? "Move" : "Copy") \(toRight.count) to \(paneNames.right)",
                       systemImage: isMove ? TransferGlyph.move(toRight: true) : TransferGlyph.copy)
@@ -2008,7 +2033,7 @@ public struct DifferencesView: View {
         }
         if !toLeft.isEmpty {
             Button {
-                runCopyOrMove(direction: .copyToLeft, items: toLeft, scope: "selection")
+                bulkTransfer(ids: ids, direction: .copyToLeft)
             } label: {
                 Label("\(isMove ? "Move" : "Copy") \(toLeft.count) to \(paneNames.left)",
                       systemImage: isMove ? TransferGlyph.move(toRight: false) : TransferGlyph.copy)
@@ -2017,7 +2042,11 @@ public struct DifferencesView: View {
         }
         Divider()
         Button {
-            syncManager.ignoredPaths = DifferencesQuery.ignoringAll(selected, in: syncManager.ignoredPaths)
+            // Ids again rather than the snapshot: `ignoringAll` reads each row's paths, and a row
+            // whose paths moved would otherwise be ignored under the path it used to have.
+            syncManager.ignoredPaths = DifferencesQuery.ignoringAll(
+                DifferencesShortcutRules.rows(displayRows.sorted, matching: ids),
+                in: syncManager.ignoredPaths)
         } label: {
             Label("Ignore \(selected.count) in comparison", systemImage: "eye.slash")
         }

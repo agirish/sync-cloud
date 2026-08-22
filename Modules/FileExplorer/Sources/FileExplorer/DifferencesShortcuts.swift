@@ -115,6 +115,23 @@ enum DifferencesShortcutRules {
         return rows.filter { selection.contains($0.id) && $0.action == direction }
     }
 
+    /// The live rows for a set of ids, in the rows' own order.
+    ///
+    /// The direction-blind half of ``transferItems(rows:selection:direction:)``, for the menu
+    /// actions that act on the whole selection rather than one direction of it. Both exist so a
+    /// menu item can hold IDS and read values only when it fires: an NSMenu outlives the table
+    /// state it was built from, and a row captured at build time may since have moved, been
+    /// resolved, or gone.
+    ///
+    /// Empty for ids nothing matches, which is the honest answer for rows that are no longer on
+    /// screen — a full rescan mints new `FileDifference.id`s, so an old id matching nothing means
+    /// the row the user pointed at is genuinely not there any more.
+    static func rows(_ rows: [FileDifference],
+                     matching ids: Set<FileDifference.ID>) -> [FileDifference] {
+        guard !ids.isEmpty else { return [] }
+        return rows.filter { ids.contains($0.id) }
+    }
+
     /// ⌘← / ⌘→ / ⇧⌘← / ⇧⌘→: rows selected in the differences table, and **that table is the
     /// surface the selection belongs to**.
     ///
