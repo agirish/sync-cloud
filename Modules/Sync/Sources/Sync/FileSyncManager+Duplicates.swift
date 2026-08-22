@@ -720,7 +720,10 @@ extension FileSyncManager {
     ///
     /// Refusals are logged HERE, per group with the keeper and the drifted copy's path, so the
     /// single resolve and the batch report identically and a refusal is never a silent counter
-    /// bump — he audits `~/sync-cloud.log`, and a copy the app promised to trash and then kept
+    /// bump. (The single resolve's own PRE-checks log the same shape — keeper path plus culprit
+    /// path. They used to log basenames only, which made three copies named `IMG_0421.jpg`
+    /// undiagnosable from the log, and made this paragraph's claim true of the gate's refusals and
+    /// false of the pre-checks it shares its wording with.) — he audits `~/sync-cloud.log`, and a copy the app promised to trash and then kept
     /// must say why.
     func refuseDriftedDuplicateRemovals(_ paths: [String], groups: [DuplicateGroup],
                                         refusals: DuplicateRemovalRefusals) async -> Set<String> {
@@ -778,12 +781,21 @@ extension FileSyncManager {
 
     /// The gate closure `resolveDuplicateGroup` and `applyRecommendedDuplicates` hand to
     /// `deleteItems`, over the given groups. `self` is captured weakly: a manager torn down
-    /// mid-delete refuses nothing rather than crashing the queue.
-    private func duplicateRemovalGate(groups: [DuplicateGroup],
-                                      refusals: DuplicateRemovalRefusals)
+    /// mid-delete cannot verify anything, so it refuses EVERYTHING rather than crashing the queue.
+    ///
+    /// Fail CLOSED, for the same reason the `unattributed` block above says: "nothing has
+    /// re-verified this" and "this may be destroyed" must not be the same outcome. `return []`
+    /// refused nothing and let every path through, in a file whose two gate bodies are explicitly
+    /// fail-closed for exactly this case. Unreachable today — both callers are instance members
+    /// holding `self` on the awaiting frame — so `Set(about)` costs the ordinary path nothing.
+    ///
+    /// Not `private`, so the nil-`self` branch can be exercised at all: it is by construction
+    /// unreachable through the call sites.
+    func duplicateRemovalGate(groups: [DuplicateGroup],
+                              refusals: DuplicateRemovalRefusals)
         -> @Sendable ([String]) async -> Set<String> {
         { [weak self] about in
-            guard let self else { return [] }
+            guard let self else { return Set(about) }
             return await self.refuseDriftedDuplicateRemovals(about, groups: groups, refusals: refusals)
         }
     }
@@ -795,6 +807,10 @@ extension FileSyncManager {
         let paths = group.recommendedRemovalPaths
         guard !paths.isEmpty else { return false }
         guard keeperStillExists(group) else {
+            // Logged, with the path: the gate and the batch both report a keeper refusal, and this
+            // one used to be banner-only — so the single resolve's most common refusal left no
+            // trace at all in `~/sync-cloud.log`.
+            Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — the keeper (\(group.keeper.path)) is no longer what the scan saw")
             banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before removing its copies.")
             return false
         }
@@ -813,10 +829,10 @@ extension FileSyncManager {
                 // get one — the walk's hard depth cap and its symlink-cycle guard leave the same
                 // mark. Naming only the readable half over-claimed.
                 banner = .warning("“\(drifted.name)” couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so there's no baseline to prove it unchanged. Review it manually before removing.")
-                Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” has no scan baseline (its subtree wasn't fully coverable at scan time: unreadable, too deep, or a link cycle)")
+                Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) — “\(drifted.name)” (\(drifted.path)) has no scan baseline (its subtree wasn't fully coverable at scan time: unreadable, too deep, or a link cycle)")
             } else {
                 banner = .warning("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.")
-                Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” — “\(drifted.name)” changed after the scan")
+                Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) — “\(drifted.name)” (\(drifted.path)) changed after the scan")
             }
             return false
         }
@@ -1184,12 +1200,14 @@ extension FileSyncManager {
     }
 
     /// The gate closure `mergeDuplicateGroup` hands to `deleteItems`. `self` is captured weakly: a
-    /// manager torn down mid-delete refuses nothing rather than crashing the queue.
-    private func mergeRemovalGate(group: DuplicateGroup, folds: [MergeFoldRecord],
-                                  refusals: MergeRemovalRefusals)
+    /// manager torn down mid-delete cannot verify anything, so it refuses EVERYTHING rather than
+    /// crashing the queue — the same fail-closed rule, and the same reasoning, as
+    /// `duplicateRemovalGate`'s.
+    func mergeRemovalGate(group: DuplicateGroup, folds: [MergeFoldRecord],
+                          refusals: MergeRemovalRefusals)
         -> @Sendable ([String]) async -> Set<String> {
         { [weak self] about in
-            guard let self else { return [] }
+            guard let self else { return Set(about) }
             return await self.refuseDriftedMergeSources(about, group: group, folds: folds, refusals: refusals)
         }
     }

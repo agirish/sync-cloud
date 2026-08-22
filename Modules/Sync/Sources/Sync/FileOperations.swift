@@ -675,16 +675,35 @@ extension FileSyncManager {
         }
         let confirmPermanentDelete = permanentDeleteConfirmer
 
-        // Prune nested paths to avoid redundant operations on children if parent is trashed
+        // Prune nested paths to avoid redundant operations on children if parent is trashed.
+        //
+        // A pruned path is not spared — it is destroyed WITH the ancestor that swallowed it — so
+        // it must still be verified, and its ancestor must answer for it. Dropping it from the
+        // gate's input silently removed it from the verification: the duplicates gate's
+        // `guard !groupPaths.isEmpty else { continue }` skipped the whole group, and its
+        // fail-closed `unattributed` block is computed from the already-pruned list, so it could
+        // not see the omission either. `swallowed` keeps the (child, ancestor) pairs so both
+        // halves can be repaired below. Not reachable from the shipped duplicate finder
+        // (`coveredRoots` prevents nesting between the groups it emits), but
+        // `applyRecommendedDuplicates` is `public` and takes caller-supplied groups — the same
+        // reachability standard the two gate bodies' fail-closed blocks were written to.
         let sortedPaths = paths.sorted { $0.count < $1.count }
         var prunedPaths: [String] = []
         var acceptedPaths = Set<String>()
+        var swallowed: [(path: String, ancestor: String)] = []
         for path in sortedPaths {
-            if !path.isInsideDirectory(anyOf: acceptedPaths) {
+            if let ancestor = acceptedPaths.first(where: { path.isInsideDirectory(anyOf: [$0]) }) {
+                swallowed.append((path: path, ancestor: ancestor))
+            } else {
                 prunedPaths.append(path)
                 acceptedPaths.insert(path)
             }
         }
+        // Keyed on the ancestor, so each gate call can add the children its own targets will take
+        // down with them.
+        let swallowedByAncestor = Dictionary(grouping: swallowed) {
+            FileSyncManager.canonicalRemovalPath($0.ancestor)
+        }.mapValues { $0.map(\.path) }
 
         let total = Int64(prunedPaths.count)
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
@@ -693,7 +712,7 @@ extension FileSyncManager {
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation { [weak self, progress, prunedPaths] () -> (errors: [Error], items: [(original: URL, trashed: URL?)], declined: Int, refused: Int) in
+        let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [Error], items: [(original: URL, trashed: URL?)], declined: Int, refused: Int) in
             guard self != nil else { return ([], [], 0, 0) }
             // Publish progress only once this operation actually starts (see copyItems above).
             if let progress {
@@ -712,9 +731,32 @@ extension FileSyncManager {
             // whatever spelling it holds, and an unmatched refusal here fails OPEN — the item is
             // removed under a banner saying it was kept. See that function for the measured
             // spellings that differ.
+            // Asks the gate about `targets` AND about every nested path pruned in their favour,
+            // then condemns any target whose swallowed child the gate refused: removing the
+            // ancestor destroys the child, so a refusal that stopped only at the child would be a
+            // refusal in name and a removal in fact.
+            func gateRefusals(removing targets: [String]) async -> Set<String> {
+                guard let removalGate else { return [] }
+                var ask = targets
+                var ownerOfChild: [String: String] = [:]
+                for target in targets {
+                    let targetKey = FileSyncManager.canonicalRemovalPath(target)
+                    for child in swallowedByAncestor[targetKey] ?? [] {
+                        ask.append(child)
+                        ownerOfChild[FileSyncManager.canonicalRemovalPath(child)] = targetKey
+                    }
+                }
+                var keys = Set(await removalGate(ask).map(FileSyncManager.canonicalRemovalPath))
+                for (childKey, ownerKey) in ownerOfChild where keys.contains(childKey) {
+                    guard keys.insert(ownerKey).inserted else { continue }
+                    Logger.shared.warning("Delete: refusing \(ownerKey) at the last check because the removal gate refused \(childKey), which is nested inside it — trashing the ancestor would destroy the refused item anyway")
+                }
+                return keys
+            }
+
             var gateRefusedKeys = Set<String>()
-            if let removalGate {
-                gateRefusedKeys = Set(await removalGate(prunedPaths).map(FileSyncManager.canonicalRemovalPath))
+            if removalGate != nil {
+                gateRefusedKeys = await gateRefusals(removing: prunedPaths)
                 refused += prunedPaths.filter { gateRefusedKeys.contains(FileSyncManager.canonicalRemovalPath($0)) }.count
             }
 
@@ -774,9 +816,8 @@ extension FileSyncManager {
                     // spelling need not be — the mismatch this canonical match exists for, and the
                     // place it mattered most: an unmatched refusal let `removeItem` run.
                     var toRemove = trashFailures
-                    if let removalGate {
-                        let refusedNow = Set(await removalGate(toRemove.map { $0.path })
-                            .map(FileSyncManager.canonicalRemovalPath))
+                    if removalGate != nil {
+                        let refusedNow = await gateRefusals(removing: toRemove.map { $0.path })
                         if !refusedNow.isEmpty {
                             refused += toRemove.filter { refusedNow.contains(FileSyncManager.canonicalRemovalPath($0.path)) }.count
                             toRemove.removeAll { refusedNow.contains(FileSyncManager.canonicalRemovalPath($0.path)) }
