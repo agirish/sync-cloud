@@ -210,11 +210,29 @@ import Testing
 /// happened to ~12 MB of paid answers.
 @Suite struct FilingVerdictSetAsideMessageTests {
 
+    /// **The fragment has to identify the EPISODE, which is why each one names its own cache
+    /// file.** The set-aside's name is `<cache name>.unreadable-<stamp>` and the stamp is
+    /// `yyyy-MM-dd'T'HH:mm:ss` — one-second resolution, uniquified only against the directory it
+    /// lands in (`UnreadableSetAside.destination`). Two episodes in different temp directories
+    /// within the same second therefore produce the byte-identical *file name*, and the log line
+    /// carries only `lastPathComponent` — no directory anywhere in it — so `entries.last` cannot
+    /// tell one episode's line from the other's. That is what took CI red on `ac37e9d8`: the load
+    /// and the save read the same line, so `theTwoCallersDoNotMakeTheSamePromise` compared a
+    /// sentence with itself, and `aLoadThatWritesNothingPromisesNoNewFile` — which never runs a
+    /// save at all — read its concurrent sibling's.
+    ///
+    /// Fixed in the fixture rather than in the message: production names are unique within the
+    /// directory they are written to, which is the only place uniqueness means anything to a file.
+    /// See `docs/flaky-tests.md`, the rolled log window, for why a bounded window would not have
+    /// closed this — it bounds time, not authorship, and these two run concurrently.
     @MainActor
     private func loggedLine(containing fragment: String) async -> String? {
         await Logger.shared.debug("verdict-message flush marker").value
         return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
     }
+
+    /// A cache file name no other episode can produce, so the set-aside made from it is nameable.
+    private func uniqueCacheName() -> String { "filing-verdicts-\(UUID().uuidString).json" }
 
     /// The part of the line AFTER "…has been kept as <name>." — the clause that says what happens
     /// next, which is the caller's fact and not the set-aside's.
@@ -227,7 +245,7 @@ import Testing
     @MainActor
     private func loadEpisode() async throws -> (kept: URL, line: String, wroteFile: Bool) {
         let dir = try makeCanonicalTempRoot(prefix: "VerdictMsg-load")
-        let url = dir.appendingPathComponent("filing-verdicts.json")
+        let url = dir.appendingPathComponent(uniqueCacheName())
         try Data("{ not json — half a 12MB write".utf8).write(to: url)
         #expect(FilingVerdictStore.load(from: url).count == 0)
         let kept = try #require(setAsidesBeside(url).first, "no set-aside was written")
@@ -241,7 +259,7 @@ import Testing
     @MainActor
     private func saveEpisode() async throws -> (kept: URL, line: String, wroteFile: Bool) {
         let dir = try makeCanonicalTempRoot(prefix: "VerdictMsg-save")
-        let url = dir.appendingPathComponent("filing-verdicts.json")
+        let url = dir.appendingPathComponent(uniqueCacheName())
         try Data("{ not json".utf8).write(to: url)
         let blocked = MoveBlockedFileManager()
         blocked.movesToRefuse = 1
@@ -253,6 +271,25 @@ import Testing
         let line = try #require(await loggedLine(containing: kept.lastPathComponent),
                                 "the set-aside was not logged at all")
         return (kept, line, FileManager.default.fileExists(atPath: url.path))
+    }
+
+    /// **The precondition the three tests below all rest on: an episode's line must be nameable.**
+    ///
+    /// Deterministic, where the failure it guards is not. The set-aside stamp is one-second
+    /// resolution and is uniquified only against its own directory, so two episodes a millisecond
+    /// apart in different temp roots used to produce the byte-identical file name — and since the
+    /// log line carries no directory, nothing downstream could tell their lines apart. That is a
+    /// property of the fixture, so it is checked as one, rather than waiting for the interleaving
+    /// that turns it into a red run.
+    @Test @MainActor func twoEpisodesDoNotProduceTheSameSetAsideName() async throws {
+        let a = try await loadEpisode()
+        defer { try? FileManager.default.removeItem(at: a.kept.deletingLastPathComponent()) }
+        let b = try await loadEpisode()
+        defer { try? FileManager.default.removeItem(at: b.kept.deletingLastPathComponent()) }
+        #expect(a.kept.lastPathComponent != b.kept.lastPathComponent,
+                """
+                two episodes share a set-aside name, so `loggedLine` cannot tell their lines                 apart and a concurrent sibling's line satisfies this one's assertions
+                """)
     }
 
     /// **The two callers leave the user in different places, so they must not say the same thing.**
