@@ -73,4 +73,48 @@ import Foundation
         defaults.set("NONSENSE", forKey: Logger.minimumLevelDefaultsKey)
         #expect(Logger.persistedMinimumLevel(from: defaults) == .debug)
     }
+
+    // MARK: - The ambient level is not the developer's
+
+    /// **A test host must not inherit the machine's user-facing state.**
+    ///
+    /// The app-target tests run *inside SyncCloud.app*, so their `.standard` UserDefaults is the
+    /// installed app's own domain — the developer's live preferences. With Log level set to
+    /// anything above Debug in Settings, the threshold rose inside the test host and every `debug`
+    /// line was dropped before it reached memory, which is what eight marker-based suites assert
+    /// on. They failed together, deterministically, with nothing in the diff to explain it, and
+    /// passed on CI, whose runner has no such preference.
+    ///
+    /// Same rule, same reason, as `defaultLogFileURL()` refusing to write the real
+    /// `~/sync-cloud.log` under a test runner.
+    @Test func theAmbientPersistedLevelIsIgnoredUnderATestRunner() {
+        // This process IS a test runner, which is the premise; without it the assertion below
+        // would pass for the ordinary reason and prove nothing.
+        #expect(Logger.isRunningTests, "the runner detection stopped recognising this process")
+        UserDefaults.standard.set(LogLevel.error.rawValue, forKey: Logger.minimumLevelDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: Logger.minimumLevelDefaultsKey) }
+
+        #expect(Logger.persistedMinimumLevel() == .debug,
+                "a test host inherited the machine's log level and would drop every debug line")
+    }
+
+    /// **And an EXPLICIT suite is still read**, so what the Settings UI writes stays testable. The
+    /// override is on the ambient default only — widening it to every suite would have made the
+    /// setting itself untestable, which is trading one blind spot for another.
+    @Test func anExplicitSuiteIsStillHonouredUnderATestRunner() throws {
+        let name = "LoggerLevelGateTests-\(UUID().uuidString)"
+        defer { wipeDefaultsSuite(name) }
+        let suite = try #require(UserDefaults(suiteName: name))
+        suite.set(LogLevel.warning.rawValue, forKey: Logger.minimumLevelDefaultsKey)
+
+        #expect(Logger.persistedMinimumLevel(from: suite) == .warning)
+    }
+
+    /// An explicit suite with nothing stored still falls back to `.debug`, as it always did.
+    @Test func anExplicitSuiteWithNothingStoredIsStillDebug() throws {
+        let name = "LoggerLevelGateTests-\(UUID().uuidString)"
+        defer { wipeDefaultsSuite(name) }
+        let suite = try #require(UserDefaults(suiteName: name))
+        #expect(Logger.persistedMinimumLevel(from: suite) == .debug)
+    }
 }
