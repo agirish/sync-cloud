@@ -24,14 +24,9 @@ import Testing
         return dir.appendingPathComponent("filing-verdicts.json")
     }
 
-    /// Every set-aside beside the store, sorted by name. The kept name is unique per episode, so
-    /// tests discover the files rather than assuming a single fixed slot.
-    private func setAsides(beside url: URL) -> [URL] {
-        let dir = url.deletingLastPathComponent()
-        let prefix = url.lastPathComponent + ".unreadable"
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-        return names.filter { $0.hasPrefix(prefix) }.sorted().map { dir.appendingPathComponent($0) }
-    }
+    /// Every set-aside beside the store, sorted by name — ``setAsidesBeside(_:)``, shared with the
+    /// person-tag and storage suites rather than spelled a third time here.
+    private func setAsides(beside url: URL) -> [URL] { setAsidesBeside(url) }
 
     private func key(_ path: String) -> FilingVerdictKey {
         FilingVerdictKey(filePath: path, modificationDate: Date(timeIntervalSince1970: 1_700_000_000),
