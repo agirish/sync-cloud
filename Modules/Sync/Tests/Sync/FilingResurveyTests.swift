@@ -177,6 +177,62 @@ import Events
                 "the published memory must still describe the tree")
     }
 
+    /// **The same hole, one file over.** `FilingProfileStore.decode` answers nil for an unreadable
+    /// `filing-memory.json` exactly as it does for an absent one, so `loaded.memory` is nil,
+    /// `previousMemory` is nil, `memory != previousMemory` is trivially true, and the survey
+    /// atomically replaces the user's file — an atomic write needs permission on the DIRECTORY,
+    /// not on the file, so the bytes are destroyed rather than protected.
+    ///
+    /// Mitigated in substance (the fingerprint already returns nil for it, so the cache is off,
+    /// and a readable corpus makes the rebuild faithful) and still the same class: a read failure
+    /// is not evidence about what the file holds. Refused, like the corpus, and for the same
+    /// reason — refusing costs a survey, continuing costs the file.
+    @Test func anUnreadableMemoryLeavesBothArtifactsExactlyAsTheyWere() async throws {
+        if geteuid() == 0 {
+            Issue.record("Skipped: running as root (euid 0), where chmod 000 restricts nothing.")
+            return
+        }
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+
+        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
+        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
+        let fm = FileManager.default
+        defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: memoryURL.path) }
+        let corpusBefore = try Data(contentsOf: corpusURL)
+        let memoryBefore = try Data(contentsOf: memoryURL)
+
+        // The state a launch reaches with an unreadable memory: nothing was loaded from it.
+        manager.filingMemory = nil
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: memoryURL.path)
+        #expect((try? Data(contentsOf: memoryURL)) == nil, "fixture: the memory was still readable")
+
+        try Self.write(docs.appendingPathComponent("Home/PG&E/2024/mar.pdf"),
+                       Self.page("Pacific Gas and Electric"))
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(report.changed == false, "the survey ran over a memory it could not read")
+        try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: memoryURL.path)
+        #expect(try Data(contentsOf: memoryURL) == memoryBefore,
+                "the unreadable folder memory was replaced — the bytes are gone, not kept")
+        #expect(try Data(contentsOf: corpusURL) == corpusBefore,
+                "the corpus was rewritten by a pass that had already been refused")
+    }
+
+    /// The other direction, so the refusals above cannot be "the survey stopped working": with a
+    /// genuinely ABSENT memory the survey runs and writes one, which is what a first survey is.
+    @Test func anAbsentMemoryStillSurveys() async throws {
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
+        try FileManager.default.removeItem(at: memoryURL)
+        manager.filingMemory = nil
+
+        let report = await manager.resurveyFilingMemory(root: docs)
+        #expect(report.changed, "an absent memory must be rebuilt, not refused")
+        #expect(FileManager.default.fileExists(atPath: memoryURL.path))
+    }
+
     /// The other direction, so the refusal above cannot be "the survey stopped working": with NO
     /// corpus at all the survey runs and writes one, which is what a first survey is.
     @Test func anAbsentCorpusStillSurveysFromScratch() async throws {

@@ -242,8 +242,33 @@ public enum FilingProfileStore {
         return canonical
     }
 
+    /// Whether something is at `url` that this process could not open — mode 000, an ACL, an I/O
+    /// error, a symlink whose target is gone.
+    ///
+    /// **`attributesOfItem`, never `fileExists`**, for the reason every store in this module now
+    /// records and this branch re-measured: `fileExists` follows symlinks and answers false for one
+    /// pointing at an unmounted volume, while an atomic write replaces the link itself.
+    static func isPresentButUnreadable(at url: URL, fileManager: FileManager = .default) -> Bool {
+        (try? Data(contentsOf: url)) == nil
+            && (try? fileManager.attributesOfItem(atPath: url.path)) != nil
+    }
+
     private static func decode<T: Decodable>(_ type: T.Type, at url: URL, what: String) -> T? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let data = try? Data(contentsOf: url) else {
+            // **Absent and there-but-unreadable both answer nil here, and the callers cannot tell
+            // them apart — so the one that WRITES has to ask separately.** Nil is right for the
+            // readers (a missing artifact means filing falls back to folder names), and wrong for
+            // the re-survey, whose `previousMemory == nil` makes `memory != previousMemory`
+            // trivially true and atomically replaces a file it never read. See
+            // `resurveyFilingMemory`, which asks `isPresentButUnreadable` before it writes. Saying
+            // so here is the least a nil can do.
+            if isPresentButUnreadable(at: url) {
+                Logger.shared.warning("The \(what) at \(url.path) exists but could not be read — "
+                                      + "treated as absent by everything that only READS it. "
+                                      + "Nothing is inferred about the tree from it.")
+            }
+            return nil
+        }
         // The artifacts carry their own version, and until now only `profiles.json`'s was read —
         // so a future shape would have been decoded field-by-field into a half-empty value and
         // used, which is the silent-wrong-answer failure this store exists to avoid.

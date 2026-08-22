@@ -106,4 +106,30 @@ import Testing
         }
         #expect(corpus.salt == "ab")
     }
+
+    /// The shared probe behind the memory's refusal, on the case only `attributesOfItem` sees.
+    ///
+    /// Its own test because the corpus tests exercise `corpusRead`, not this helper, and a probe
+    /// that quietly regressed to `fileExists` would leave `filing-memory.json` — reached through
+    /// a link whose target is gone — reading as absent and being atomically replaced.
+    @Test func theSharedProbeSeesADanglingSymlink() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let link = dir.appendingPathComponent("t/filing-memory.json")
+        let target = dir.appendingPathComponent("t/gone.json")
+        try Data("{}".utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        try FileManager.default.removeItem(at: target)
+
+        #expect(FileManager.default.fileExists(atPath: link.path) == false,
+                "fixture: fileExists stopped following the link, so it would have caught this")
+        #expect(FilingProfileStore.isPresentButUnreadable(at: link),
+                """
+                the probe folded back to fileExists — the link is still a directory entry, and an \
+                atomic write replaces it
+                """)
+        #expect(FilingProfileStore.isPresentButUnreadable(
+            at: dir.appendingPathComponent("t/nothing-here.json")) == false,
+                "a genuinely missing artifact was called unreadable")
+    }
 }

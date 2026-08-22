@@ -129,6 +129,29 @@ extension FileSyncManager {
         //
         // Refusing costs a survey; continuing costs the survey history. The file itself is left
         // exactly as it is, so it can be inspected or removed by hand.
+        // **The same refusal for the memory, which reaches the merge as a plain nil.**
+        // `FilingProfileStore.decode` answers nil for an unreadable `filing-memory.json` exactly as
+        // it does for an absent one, so `previousMemory` is nil, `memory != previousMemory` is
+        // trivially true, and `write` atomically replaces a file this process never read — an
+        // atomic write needs permission on the DIRECTORY, not on the file, so the bytes are
+        // destroyed rather than protected.
+        //
+        // Mitigated in substance and still refused: the fingerprint already returns nil for an
+        // unreadable component so the cache is off, and a readable corpus makes the rebuild
+        // faithful — but a read failure is not evidence about what the file holds, which is the
+        // whole law the corpus guard above states. Asked only when nothing was loaded, so an
+        // ordinary launch pays nothing for it.
+        if previousMemory == nil,
+           FilingProfileStore.isPresentButUnreadable(
+               at: FilingSurveyStore.memoryURL(id: profileId, in: directory)) {
+            Logger.shared.warning("Folder memory: filing-memory.json is on disk but could not be "
+                                  + "read, so this pass would have written a rebuilt memory over a "
+                                  + "file it never opened. Nothing was re-surveyed and both files "
+                                  + "were left exactly as they are — move filing-memory.json aside "
+                                  + "to rebuild it from scratch.")
+            return .none
+        }
+
         let existing: FilingCorpus?
         switch FilingSurveyStore.corpusRead(id: profileId, in: directory) {
         case .unreadable:
