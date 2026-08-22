@@ -62,4 +62,20 @@ import Foundation
         #expect(code.contains("outcome.removed > 0"),
                 "the guard no longer asks whether the copy left by either route")
     }
+
+    /// **The gate must refuse the set it was ASKED about.** It re-assesses the review's own pair,
+    /// so echoing the argument is the same set by construction — while naming `review.deletePath`
+    /// a second time is a set that can DIVERGE from it: `deleteItems` feeds the post-confirmation
+    /// pass URL round-tripped paths, and a refusal it cannot match back is a refusal banner posted
+    /// over a copy that was destroyed anyway. Scanned for the same structural reason as the rest of
+    /// this file — the branch cannot be driven from a test without a Trash-less volume.
+    @Test func theReviewsRemovalGateRefusesTheSetItWasAskedAbout() throws {
+        let code = try Self.coordinatorSource()
+        #expect(code.contains("removalGate: { about in"),
+                "the gate no longer names its argument, so it cannot be answering about it")
+        #expect(code.contains("return Set(about)"),
+                "the gate's refusal is not the set it was asked about")
+        #expect(!code.contains("return [review.deletePath]"),
+                "the refusal names the review's own spelling again instead of the paths handed to it — a spelling the delete cannot match back fails open")
+    }
 }

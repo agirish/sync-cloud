@@ -557,14 +557,23 @@ struct DuplicateReviewCoordinator {
             // with the same banner and log line — if the pair drifted in either window. A copy
             // that merely vanished meanwhile is not refused; the delete then removes nothing and
             // the `guard` below keeps the review up, as it always has for a no-op delete.
-            let outcome = await sm.deleteItems(at: [review.deletePath], removalGate: { _ in
+            let outcome = await sm.deleteItems(at: [review.deletePath], removalGate: { about in
                 let gateVerdict = await Self.assessReviewedPair(review, fileManager: fm)
                 switch gateVerdict {
                 case .matches, .deleteVanished:
                     return []
                 case .keepDrifted, .deleteDrifted:
                     await Self.reportReviewRefusal(gateVerdict, review: review, syncManager: sm)
-                    return [review.deletePath]
+                    // Refuse what this gate was ASKED about, not `review.deletePath` again. This
+                    // gate ignores its input — the pair it re-assesses is the review's, which is
+                    // the only path the delete carries — so echoing the argument is the same set
+                    // by construction and cannot become a different one. Naming the review's own
+                    // spelling could: `deleteItems` feeds the post-confirmation pass URL
+                    // round-tripped paths, and a refusal it cannot match back is a refusal banner
+                    // posted over a file that was destroyed anyway. (`deleteItems` now matches on
+                    // `canonicalRemovalPath`, which closes that too; this closes it here, where the
+                    // set is produced, so neither side rests on the other.)
+                    return Set(about)
                 }
             })
             guard outcome.removed > 0 else { return }

@@ -725,9 +725,19 @@ extension FileSyncManager {
     func refuseDriftedDuplicateRemovals(_ paths: [String], groups: [DuplicateGroup],
                                         refusals: DuplicateRemovalRefusals) async -> Set<String> {
         var refusedPaths = Set<String>()
-        let remaining = Set(paths)
+        // Keyed by `canonicalRemovalPath`, and the answer is given back in the caller's OWN
+        // spelling. The two sides of this exchange do not always hold one spelling of a path — the
+        // post-confirmation invocation is fed URL round-tripped strings — and matching them raw
+        // failed open in the worst possible way: the intersection came back empty, the `guard`
+        // below `continue`d, and the group went unverified immediately before a permanent delete,
+        // silently. See `FileSyncManager.canonicalRemovalPath`.
+        var askedByKey: [String: Set<String>] = [:]
+        for p in paths { askedByKey[Self.canonicalRemovalPath(p), default: []].insert(p) }
+        var attributed = Set<String>()
         for group in groups {
-            let groupPaths = Set(group.recommendedRemovalPaths).intersection(remaining)
+            let groupKeys = Set(group.recommendedRemovalPaths.map(Self.canonicalRemovalPath))
+            let groupPaths = Set(groupKeys.flatMap { askedByKey[$0] ?? [] })
+            attributed.formUnion(groupPaths)
             guard !groupPaths.isEmpty else { continue }
             var kind: DuplicateRemovalRefusalKind?
             var culprit: DuplicateCopy?
@@ -750,6 +760,18 @@ extension FileSyncManager {
             case .drifted:
                 Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) at the last check before removal — “\(culprit.name)” (\(culprit.path)) changed after the scan")
             }
+        }
+        // **Fail CLOSED.** Anything left over belongs to none of the groups this gate was built
+        // for, so nothing here has re-verified it — and the gate's whole job is to answer for what
+        // is about to be destroyed. Unattributable used to mean unrefused, which made "the match
+        // failed" and "the file was removed" the same outcome. Unreachable from the shipped
+        // callers (each passes exactly its own groups' `recommendedRemovalPaths`, and
+        // `deleteItems` only ever prunes that list), so this costs the ordinary path nothing and
+        // is logged rather than silent, because reaching it means a caller wired the gate wrong.
+        let unattributed = Set(paths).subtracting(attributed)
+        if !unattributed.isEmpty {
+            Logger.shared.warning("Duplicates: refused \(unattributed.count) path(s) at the last check before removal because they belong to none of the groups being verified — \(unattributed.sorted().joined(separator: ", "))")
+            refusedPaths.formUnion(unattributed)
         }
         return refusedPaths
     }

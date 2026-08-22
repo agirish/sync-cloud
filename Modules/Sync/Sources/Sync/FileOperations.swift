@@ -585,6 +585,26 @@ extension FileSyncManager {
         return false
     }
 
+    /// The one spelling in which a removal gate's answer is compared with the paths it was asked
+    /// about — on BOTH sides of that exchange, and inside the gate bodies themselves.
+    ///
+    /// `URL(fileURLWithPath:).path` deliberately, because it is exactly the transform the removal
+    /// itself applies on the way to `trashItem`/`removeItem`: whatever this folds together, the
+    /// syscall folds together too. Measured: it strips a trailing slash (`"/a/Folder/"` →
+    /// `"/a/Folder"`), expands `~`, and makes a relative path absolute against the process's
+    /// working directory; it leaves `//` and `/./` alone, and so does the removal.
+    ///
+    /// It exists because the two sides did NOT always hold one spelling and matched by exact
+    /// string equality anyway. `deleteItems` asks the gate about the caller's own path strings the
+    /// first time and about `trashFailures.map { $0.path }` — already round-tripped through `URL` —
+    /// the second, immediately before the unrecoverable branch. A mismatch there failed OPEN: the
+    /// refusal missed the `contains` and the item was destroyed under a banner saying it had been
+    /// kept. Nothing in the shipped scan-walk paths produces such a spelling today; that is what
+    /// made it an unstated invariant rather than a guard, and this is the guard.
+    nonisolated static func canonicalRemovalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).path
+    }
+
     /// Moves the given paths to the Trash (falling back to a confirmed permanent delete only on
     /// Trash-less volumes). Returns the number of items actually removed — 0 when everything
     /// failed or a permanent delete was declined, and short of the batch after a mid-batch
@@ -649,10 +669,15 @@ extension FileSyncManager {
             // The queue wait is over and the removals are about to run: let the caller's gate
             // re-verify its claim NOW, not when it formed it — a long operation queued ahead of
             // this one puts its whole duration between the caller's checks and this point.
-            var gateRefusedPaths = Set<String>()
+            //
+            // Matched on `canonicalRemovalPath`, not on the raw strings: the gate answers in
+            // whatever spelling it holds, and an unmatched refusal here fails OPEN — the item is
+            // removed under a banner saying it was kept. See that function for the measured
+            // spellings that differ.
+            var gateRefusedKeys = Set<String>()
             if let removalGate {
-                gateRefusedPaths = await removalGate(prunedPaths)
-                refused += prunedPaths.filter { gateRefusedPaths.contains($0) }.count
+                gateRefusedKeys = Set(await removalGate(prunedPaths).map(FileSyncManager.canonicalRemovalPath))
+                refused += prunedPaths.filter { gateRefusedKeys.contains(FileSyncManager.canonicalRemovalPath($0)) }.count
             }
 
             for (index, path) in prunedPaths.enumerated() {
@@ -661,7 +686,7 @@ extension FileSyncManager {
                 await MainActor.run {
                     progress?.localizedAdditionalDescription = (path as NSString).lastPathComponent
                 }
-                if gateRefusedPaths.contains(path) {
+                if gateRefusedKeys.contains(FileSyncManager.canonicalRemovalPath(path)) {
                     // Refused by the gate — leave it on disk. Progress still advances below so
                     // the bar completes; the gate has already surfaced the refusal.
                     await MainActor.run {
@@ -706,12 +731,17 @@ extension FileSyncManager {
                     // the caller's gate over exactly the paths about to be destroyed, and refuse
                     // the ones whose claim no longer holds — a stale verdict must never feed a
                     // permanent delete.
+                    //
+                    // The paths handed over here are URL round-tripped, which the caller's own
+                    // spelling need not be — the mismatch this canonical match exists for, and the
+                    // place it mattered most: an unmatched refusal let `removeItem` run.
                     var toRemove = trashFailures
                     if let removalGate {
-                        let refusedNow = await removalGate(toRemove.map { $0.path })
+                        let refusedNow = Set(await removalGate(toRemove.map { $0.path })
+                            .map(FileSyncManager.canonicalRemovalPath))
                         if !refusedNow.isEmpty {
-                            refused += toRemove.filter { refusedNow.contains($0.path) }.count
-                            toRemove.removeAll { refusedNow.contains($0.path) }
+                            refused += toRemove.filter { refusedNow.contains(FileSyncManager.canonicalRemovalPath($0.path)) }.count
+                            toRemove.removeAll { refusedNow.contains(FileSyncManager.canonicalRemovalPath($0.path)) }
                         }
                     }
                     for url in toRemove {
