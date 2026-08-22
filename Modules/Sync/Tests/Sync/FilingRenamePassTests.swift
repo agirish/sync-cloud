@@ -253,6 +253,308 @@ import Events
         #expect(manager.filingLastProviderRoot == nil)
     }
 
+    // MARK: A case-only tidy
+
+    /// `07. jul 2016.pdf` → `07. Jul 2016.pdf` is a rename the tidy pass proposes for real: the body
+    /// is a bare month and year, so ``OrdinalMonthName`` respells it, and the only thing that
+    /// changes is one letter's case.
+    ///
+    /// On the default (case-INSENSITIVE) macOS volume the apply loop's never-overwrite guard used to
+    /// fire on it. `fileExists("07. Jul 2016.pdf")` is TRUE — it is the source itself, case-collapsed
+    /// — and `standardizedFileURL` resolves `..` and trailing slashes but never case, so the two
+    /// paths compared unequal and the guard "resolved" a collision that did not exist. The file
+    /// landed as `07. Jul 2016 2.pdf`: a duplicate marker invented out of nothing, which the next
+    /// scan then reads as part of the name and preserves forever.
+    ///
+    /// The irony worth keeping: `safeMoveItem` handles a case-only rename correctly on its own
+    /// (``isCaseOnlyRenaming``). The guard above it pre-empted it, so the two disagreed about what
+    /// "the destination exists" means — which is why the guard now asks the same question.
+    @MainActor
+    @Test func aCaseOnlyTidyLandsAtTheCasedNameRatherThanInventingADuplicate() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "RenamePass")
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Stated, not assumed: on a case-SENSITIVE volume `07. jul` and `07. Jul` are two ordinary
+        // distinct names and this fixture would be exercising nothing. A skip would be silent about
+        // that; a required precondition names it.
+        try #require(!FileSyncManager.volumeSupportsCaseSensitiveNames(for: root),
+                     "this fixture only means anything on a case-INSENSITIVE volume")
+
+        let bucket = root.appendingPathComponent("2016")
+        for (n, m) in [("07", "jul"), ("08", "Aug"), ("09", "Sep")] {
+            try write(bucket.appendingPathComponent("\(n). \(m) 2016.pdf"))
+        }
+
+        let manager = FileSyncManager()
+        manager.filingFolderProfile = profile(root: root.path, rel: "2016", year: "2016")
+        let plan = RenamePlanner.plan(
+            folderPath: bucket.path, relativePath: "2016",
+            files: try names(in: bucket).map { FolderFile(path: bucket.appendingPathComponent($0).path, name: $0) },
+            entry: manager.filingFolderProfile?.folders["2016"])
+        // The fixture's whole point: exactly one step, and it changes nothing but case.
+        #expect(plan.steps.map(\.proposedName) == ["07. Jul 2016.pdf"])
+        #expect(plan.steps.first?.currentName == "07. jul 2016.pdf")
+
+        await manager.applyRenamePlans([plan])
+
+        #expect(try names(in: bucket) == ["07. Jul 2016.pdf", "08. Aug 2016.pdf", "09. Sep 2016.pdf"])
+        // Named in the negative too — " 2" is the specific wrong answer, and the one a later scan
+        // would then carry as though a user had typed it.
+        #expect(!(try names(in: bucket).contains("07. Jul 2016 2.pdf")))
+        #expect(manager.banner?.message == "Renamed 1 file. Press ⌘Z to undo")
+    }
+
+    /// The mover underneath the pass, on a REAL case-insensitive volume.
+    ///
+    /// The apply loop's guard was only half the defect. `safeMoveItem` is documented as handling a
+    /// case-only rename on its own, and against the case-SENSITIVE test double it does — but on the
+    /// default macOS volume it threw `identicalSourceAndDestination` before it moved anything,
+    /// because `validateFileOperation` compares paths that have been through
+    /// `resolvingSymlinksInPath`, and realpath hands every component back the way the directory
+    /// spells it. Both spellings resolved to the one on disk.
+    ///
+    /// So this suite cannot pin the pass without pinning the primitive: fix only the guard and the
+    /// tidy stops fabricating `… 2` but never lands the cased name either.
+    @Test func theMoverPerformsACaseOnlyRenameOnACaseInsensitiveVolume() throws {
+        let root = try makeCanonicalTempRoot(prefix: "RenameCase")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try #require(!FileSyncManager.volumeSupportsCaseSensitiveNames(for: root),
+                     "this fixture only means anything on a case-INSENSITIVE volume")
+        let lower = root.appendingPathComponent("07. jul 2016.pdf")
+        let cased = root.appendingPathComponent("07. Jul 2016.pdf")
+        try write(lower)
+
+        #expect(try FileSyncManager.safeMoveItem(at: lower, to: cased,
+                                                 fileManager: FileManager.default) == nil)
+        #expect(try names(in: root) == ["07. Jul 2016.pdf"])
+
+        // The other direction of the same guard: a path identical to itself is still refused, so
+        // the exemption did not widen into "any source equals any destination".
+        #expect(throws: FileSyncManager.FileOperationError.identicalSourceAndDestination) {
+            try FileSyncManager.validateFileOperation(source: cased, destination: cased,
+                                                      caseSensitiveVolume: false)
+        }
+    }
+
+    /// The discriminating half of the guard, both directions, without needing two volumes to run on.
+    ///
+    /// Folding case is only right where the volume folds it. On a case-SENSITIVE volume `07. jul`
+    /// and `07. Jul` are two files, and a rename landing on the second one is a genuine collision
+    /// the pass must step around rather than overwrite.
+    @Test func theNeverOverwriteGuardFoldsCaseOnlyWhereTheVolumeDoes() {
+        let src = URL(fileURLWithPath: "/prov/2016/07. jul 2016.pdf")
+        let cased = URL(fileURLWithPath: "/prov/2016/07. Jul 2016.pdf")
+        let other = URL(fileURLWithPath: "/prov/2016/08. Aug 2016.pdf")
+
+        #expect(FileSyncManager.isCaseOnlyRenaming(source: src, destination: cased,
+                                                  caseSensitiveVolume: false))
+        #expect(!FileSyncManager.isCaseOnlyRenaming(source: src, destination: cased,
+                                                   caseSensitiveVolume: true))
+        // A different name is never a case-only rename, on either kind of volume.
+        #expect(!FileSyncManager.isCaseOnlyRenaming(source: src, destination: other,
+                                                   caseSensitiveVolume: false))
+        // Nor is a same-named file in a DIFFERENT folder — that is a move onto somebody else.
+        #expect(!FileSyncManager.isCaseOnlyRenaming(
+            source: src, destination: URL(fileURLWithPath: "/prov/2017/07. Jul 2016.pdf"),
+            caseSensitiveVolume: false))
+    }
+
+    // MARK: A cohort that fails half way
+
+    /// A renumbering is all-or-nothing, and until this that promise was kept only at re-derive time.
+    ///
+    /// Once the loop was executing, a thrown `safeMoveItem` — a busy iCloud placeholder is routine —
+    /// counted one failure and carried straight on with the REST of the cohort. Inserting February
+    /// into `01. Mar · 02. Apr · 03. May` with April's move failing left `02. Mar` and `02. Apr`
+    /// both sitting on slot 02: precisely the state the cohort machinery exists to prevent. Nothing
+    /// is lost — but the folder ends worse numbered than it started, and the banner called it a
+    /// partial success.
+    ///
+    /// The end state must be one of the two coherent ones. This pins the original.
+    @MainActor
+    @Test func aCohortThatFailsPartWayIsRolledBackToTheNumberingItStartedWith() async throws {
+        let fm = MockFileManager()
+        for dir in ["/prov", "/prov/2021"] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        let original = ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
+                        "9829custbill02182021.pdf"]
+        for name in original {
+            fm.virtualDisk["/prov/2021/\(name)"] = MockFileManager.FileStub(
+                isDirectory: false,
+                attributes: [.size: NSNumber(value: 12),
+                             .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
+                contents: nil)
+        }
+
+        let manager = FileSyncManager(fileManager: fm)
+        let undo = UndoManager()
+        manager.undoManager = undo
+        manager.filingFolderProfile = profile(root: "/prov", rel: "2021", year: "2021")
+        let plan = RenamePlanner.plan(
+            folderPath: "/prov/2021", relativePath: "2021",
+            files: original.map { FolderFile(path: "/prov/2021/\($0)", name: $0) },
+            entry: manager.filingFolderProfile?.folders["2021"])
+        // February takes slot 01 and the three months after it each move up — ONE cohort of four.
+        #expect(plan.steps.count == 4)
+        #expect(Set(plan.steps.map(\.cohort)).count == 1)
+        #expect(plan.steps.first(where: { $0.cohort == 0 }) == nil)
+
+        // The SECOND member of the cohort fails, mid-flight: armed the moment the loop stats
+        // April's target, and one-shot so nothing else in the pass inherits it. Both flags are
+        // needed — the plain move throws EXDEV, and `safeMoveItem`'s cross-volume fallback then
+        // stages through a `.tmp_` that must fail too, or the move would simply succeed.
+        var armed = false
+        fm.onFileExists = { path in
+            guard !armed, path == "/prov/2021/03. Apr 2021.pdf" else { return }
+            armed = true
+            fm.shouldFailMove = true
+            fm.shouldFailMoveOnTempRename = true
+        }
+
+        await manager.applyRenamePlans([plan])
+
+        let after = fm.virtualDisk.keys.filter { $0.hasPrefix("/prov/2021/") }
+            .map { URL(fileURLWithPath: $0).lastPathComponent }
+            .filter { !$0.hasPrefix(".") }.sorted()
+        #expect(after == original.sorted(), "a half-applied renumbering must not be reachable")
+        // Named in the negative: two files on slot 02 is the specific corruption.
+        #expect(after.filter { $0.hasPrefix("02.") }.count <= 1)
+
+        // Nothing stands, so there is nothing for ⌘Z to take back — and the banner says the
+        // renumbering was abandoned rather than reporting a partial success.
+        #expect(!undo.canUndo)
+        let message = try #require(manager.banner?.message)
+        #expect(message.contains("renumbering"), "banner was: \(message)")
+        #expect(await Self.loggerHasWarning(containing: "renumbering of 4 file(s) in 2021"))
+    }
+
+    /// The one way a half-applied renumbering can still be on disk when the pass returns — and it
+    /// must not be silent.
+    ///
+    /// The rollback refuses to move a file back onto a name something else has taken since: putting
+    /// March back would overwrite the stranger sitting on `01. Mar 2021.pdf`, and a file stranded
+    /// under a new name is recoverable where a clobbered stranger is not. So March stays where the
+    /// pass put it, the banner names the count, the log names the folder, and the file stays in the
+    /// undo group because ⌘Z is the user's remaining way back.
+    @MainActor
+    @Test func aRollbackThatCannotPutAFileBackSaysSoRatherThanOverwriting() async throws {
+        let fm = MockFileManager()
+        for dir in ["/prov", "/prov/2021"] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        func stub(_ size: Int) -> MockFileManager.FileStub {
+            MockFileManager.FileStub(
+                isDirectory: false,
+                attributes: [.size: NSNumber(value: size),
+                             .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
+                contents: nil)
+        }
+        let original = ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
+                        "9829custbill02182021.pdf"]
+        for name in original { fm.virtualDisk["/prov/2021/\(name)"] = stub(12) }
+
+        let manager = FileSyncManager(fileManager: fm)
+        let undo = UndoManager()
+        manager.undoManager = undo
+        manager.filingFolderProfile = profile(root: "/prov", rel: "2021", year: "2021")
+        let plan = RenamePlanner.plan(
+            folderPath: "/prov/2021", relativePath: "2021",
+            files: original.map { FolderFile(path: "/prov/2021/\($0)", name: $0) },
+            entry: manager.filingFolderProfile?.folders["2021"])
+        #expect(plan.steps.count == 4)
+
+        // At the moment the loop stats April's target: fail April's move, AND drop a stranger onto
+        // the name March has just vacated — 20 bytes, so a clobber shows in the size and not only
+        // in the listing. `onFileExists` is the seam built for exactly this (it plants AFTER the
+        // stat returns, so the reading that sees the stranger is a later one — the rollback's).
+        var armed = false
+        fm.onFileExists = { path in
+            guard !armed, path == "/prov/2021/03. Apr 2021.pdf" else { return }
+            armed = true
+            fm.shouldFailMove = true
+            fm.shouldFailMoveOnTempRename = true
+            fm.virtualDisk["/prov/2021/01. Mar 2021.pdf"] = stub(20)
+        }
+
+        await manager.applyRenamePlans([plan])
+
+        let survivor = try #require(
+            try fm.attributesOfItem(atPath: "/prov/2021/01. Mar 2021.pdf")[.size] as? NSNumber)
+        #expect(survivor.intValue == 20, "the stranger must still be there, untouched")
+        #expect(fm.virtualDisk["/prov/2021/02. Mar 2021.pdf"] != nil,
+                "March stays where the pass put it rather than overwriting the stranger")
+        #expect(manager.banner?.message
+                == "Renamed 1 file. Press ⌘Z to undo. A renumbering of 4 files failed part-way "
+                 + "and 1 file couldn't be put back — check the folder.")
+        // Still undoable: the stranded file is the whole reason it has to be.
+        #expect(undo.canUndo)
+        #expect(await Self.loggerHasError(containing: "is occupied again in /prov/2021"))
+    }
+
+    /// The discriminating half: a step that stands ALONE is still applied on its own terms.
+    ///
+    /// The rollback must be a statement about cohorts, not about failures. Padding fixes carry
+    /// cohort 0 precisely because each is right whether or not its neighbours move — undoing the
+    /// two that worked because a third failed would make the pass useless on the bulk of the
+    /// backlog (567 one-digit ordinals tree-wide, none of them in a cohort).
+    @MainActor
+    @Test func anIndependentStepThatFailsTakesNothingElseWithIt() async throws {
+        let fm = MockFileManager()
+        for dir in ["/prov", "/prov/2021"] {
+            try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        let original = ["1. Mar 2021.pdf", "2. Apr 2021.pdf", "3. May 2021.pdf"]
+        for name in original {
+            fm.virtualDisk["/prov/2021/\(name)"] = MockFileManager.FileStub(
+                isDirectory: false,
+                attributes: [.size: NSNumber(value: 12),
+                             .modificationDate: Date(timeIntervalSince1970: 1_600_000_000)],
+                contents: nil)
+        }
+
+        let manager = FileSyncManager(fileManager: fm)
+        manager.filingFolderProfile = profile(root: "/prov", rel: "2021", year: "2021")
+        let plan = RenamePlanner.plan(
+            folderPath: "/prov/2021", relativePath: "2021",
+            files: original.map { FolderFile(path: "/prov/2021/\($0)", name: $0) },
+            entry: manager.filingFolderProfile?.folders["2021"])
+        // Three widenings, nothing arriving: no slot moves, so nothing is in a cohort.
+        #expect(plan.steps.count == 3)
+        #expect(plan.steps.allSatisfy { $0.cohort == 0 })
+
+        var armed = false
+        fm.onFileExists = { path in
+            guard !armed, path == "/prov/2021/02. Apr 2021.pdf" else { return }
+            armed = true
+            fm.shouldFailMove = true
+            fm.shouldFailMoveOnTempRename = true
+        }
+
+        await manager.applyRenamePlans([plan])
+
+        let after = fm.virtualDisk.keys.filter { $0.hasPrefix("/prov/2021/") }
+            .map { URL(fileURLWithPath: $0).lastPathComponent }
+            .filter { !$0.hasPrefix(".") }.sorted()
+        #expect(after == ["01. Mar 2021.pdf", "03. May 2021.pdf", "2. Apr 2021.pdf"])
+        // Reported as one failure, and NOT as an abandoned renumbering — there was none.
+        #expect(manager.banner?.message == "Renamed 2 files; 1 couldn't be renamed. Press ⌘Z to undo")
+    }
+
+    /// True when the shared Logger holds a WARNING whose message contains `fragment`. Awaiting a
+    /// fresh log task first guarantees everything enqueued before it is visible.
+    @MainActor
+    private static func loggerHasWarning(containing fragment: String) async -> Bool {
+        await Logger.shared.debug("rename-pass-test flush marker").value
+        return Logger.shared.entries.contains { $0.level == .warning && $0.message.contains(fragment) }
+    }
+
+    /// The same for an ERROR — the level a rollback that could not put a file back logs at.
+    @MainActor
+    private static func loggerHasError(containing fragment: String) async -> Bool {
+        await Logger.shared.debug("rename-pass-test flush marker").value
+        return Logger.shared.entries.contains { $0.level == .error && $0.message.contains(fragment) }
+    }
+
     // MARK: The outcome sentence
 
     @MainActor
@@ -269,6 +571,21 @@ import Events
                 == "4 files had already changed — nothing renamed.")
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 2)
                 == "Couldn't rename 2 files.")
+
+        // An abandoned renumbering is a statement about a GROUP, and it is the one the user has to
+        // hear even when everything else went fine: the folder they asked to renumber is unchanged.
+        // It is not folded into `failed` — one member threw, and calling that four failures is as
+        // dishonest as calling it one.
+        #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 0, abandoned: 4)
+                == "A renumbering of 4 files couldn't be completed, so the folder was left as it was.")
+        #expect(FileSyncManager.renameOutcome(renamed: 2, stale: 0, failed: 0, abandoned: 3)
+                == "Renamed 2 files. Press ⌘Z to undo. A renumbering of 3 files couldn't be "
+                 + "completed, so the folder was left as it was.")
+        // The loud one. A file the rollback could not put back is the ONLY way a half-applied
+        // renumbering survives the pass, so the sentence names it and sends the user to look.
+        #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 0, abandoned: 4, stranded: 1)
+                == "A renumbering of 4 files failed part-way and 1 file couldn't be put back — "
+                 + "check the folder.")
     }
 
     // MARK: Naming a file on the way in

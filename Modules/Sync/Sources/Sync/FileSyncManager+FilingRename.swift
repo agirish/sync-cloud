@@ -183,6 +183,26 @@ extension FileSyncManager {
 
     // MARK: Apply
 
+    /// What one pass over the plans actually did — the value the queued closure hands back.
+    ///
+    /// A struct rather than a six-element tuple because the counts are no longer independent: an
+    /// abandoned cohort's files are neither `failed` (only one of them threw) nor `stale` (the disk
+    /// still described them), and `stranded` is the one that has to reach the user loudest.
+    struct RenameApplyOutcome: Sendable {
+        var moves: [MoveItemState] = []
+        var doneFolders: [String] = []
+        /// Steps the fresh plan no longer proposes.
+        var stale = 0
+        /// Independent steps whose move threw. One file each, and nothing else is affected.
+        var failed = 0
+        /// Files belonging to a renumbering that was rolled back — the whole cohort, not the one
+        /// member that threw, because none of them ends up renamed.
+        var abandoned = 0
+        /// Files inside an abandoned cohort that could NOT be put back. The dangerous residue: the
+        /// only way a partially-applied renumbering can still be on disk when this returns.
+        var stranded = 0
+    }
+
     /// Applies whole folder plans in one undoable pass.
     ///
     /// **Every claim is re-derived against the disk before anything moves.** A plan is a statement
@@ -198,6 +218,16 @@ extension FileSyncManager {
     /// one of its steps no longer describes the folder the whole cohort stands down. That is the
     /// same rule RenamePlanner/withoutCollisions(_:among:skips:) applies at plan time, enforced
     /// again here because the disk gets its own chance to invalidate a step.
+    ///
+    /// **And enforced a third time while the moves are RUNNING**, which is where it used to stop.
+    /// The re-derive can only refuse a cohort it can see is broken; it cannot promise that four
+    /// moves will all succeed. A `safeMoveItem` that throws mid-cohort — a busy iCloud placeholder
+    /// is routine on this tree — used to count one failure and carry on with the rest, so inserting
+    /// February into `01. Mar · 02. Apr · 03. May` with April's move failing left `02. Mar` and
+    /// `02. Apr` both on slot 02: the exact state the cohort exists to prevent, reported as a
+    /// partial success. A cohort is now applied into a buffer and **rolled back** the moment one of
+    /// its members throws, so the folder ends at the full new numbering or at the one it started
+    /// with — never between the two — and the banner and the log say which.
     public func applyRenamePlans(_ plans: [RenamePlan]) async {
         // Verify All's write-exclusion guard, mirrored from `normalizeNames` for the same reason: a
         // rename moves a file Verify All may be hashing.
@@ -213,20 +243,34 @@ extension FileSyncManager {
         let profile = filingFolderProfile
         let logger = Logger.shared
 
-        let result: (moves: [MoveItemState], doneFolders: [String], stale: Int, failed: Int)
-            = await enqueueFileOperation {
-            var moves: [MoveItemState] = []
-            var doneFolders: [String] = []
-            var stale = 0
-            var failed = 0
+        // **Does this folder's volume distinguish names by case?** Asked once per folder, here on
+        // the main actor, because the answer has to be a plain `Sendable` value inside the queued
+        // closure — and asked through the same seam `syncAll` uses, so a test can drive both kinds
+        // of volume on a machine that only has one.
+        //
+        // The answer feeds BOTH the never-overwrite guard below and the `safeMoveItem` beneath it.
+        // One probe rather than two is the point: the guard runs first and can pre-empt the move
+        // entirely, so a guard that folds case while the move does not (or the reverse) is two
+        // functions disagreeing about whether the destination is a different file.
+        let probeCaseSensitivity = destinationCaseSensitivity
+        var caseSensitiveByFolder: [String: Bool] = [:]
+        for plan in plans where caseSensitiveByFolder[plan.folderPath] == nil {
+            caseSensitiveByFolder[plan.folderPath] =
+                probeCaseSensitivity(URL(fileURLWithPath: plan.folderPath))
+        }
+        let caseSensitivity = caseSensitiveByFolder
+
+        let result: RenameApplyOutcome = await enqueueFileOperation {
+            var out = RenameApplyOutcome()
 
             for plan in plans {
                 let dir = URL(fileURLWithPath: plan.folderPath)
                 // Re-derive: what does this folder look like RIGHT NOW?
                 guard let live = Self.liveFiles(in: dir, fileManager: fm) else {
-                    stale += plan.steps.count
+                    out.stale += plan.steps.count
                     continue
                 }
+                let caseSensitive = caseSensitivity[plan.folderPath] ?? false
                 let fresh = RenamePlanner.plan(folderPath: plan.folderPath,
                                                relativePath: plan.relativePath,
                                                files: live,
@@ -241,40 +285,123 @@ extension FileSyncManager {
                 // would collapse two months onto one slot — so the whole cohort stands down.
                 let brokenCohorts = Set(plan.steps.filter { $0.cohort != 0 && !survives($0) }
                                                   .map(\.cohort))
+                let runnable = plan.steps.filter { survives($0) && !brokenCohorts.contains($0.cohort) }
+                out.stale += plan.steps.count - runnable.count
+
+                // The units of execution: a cohort-0 step stands alone (a padding fix is right
+                // whatever its neighbours do), and every step sharing a non-zero cohort travels as
+                // one. Cohorts are ordered by id so a folder with two of them — a `.csv` cascade
+                // and a `.pdf` one — applies in the same order every run.
+                var units: [(cohort: Int, steps: [RenameStep])] = []
+                var byCohort: [Int: [RenameStep]] = [:]
+                for step in runnable {
+                    if step.cohort == 0 { units.append((0, [step])) }
+                    else { byCohort[step.cohort, default: []].append(step) }
+                }
+                for id in byCohort.keys.sorted() { units.append((id, byCohort[id]!)) }
+
                 var appliedHere = false
-                for step in plan.steps {
-                    guard survives(step), !brokenCohorts.contains(step.cohort) else {
-                        stale += 1
+                for unit in units {
+                    var applied: [MoveItemState] = []
+                    var failure: (step: RenameStep, error: Error)?
+                    for step in unit.steps {
+                        let src = URL(fileURLWithPath: step.currentPath)
+                        var dst = dir.appendingPathComponent(step.proposedName)
+                        // Already there under exactly this name — nothing to move.
+                        if src.standardizedFileURL.path == dst.standardizedFileURL.path { continue }
+                        // NEVER overwrite. The planner already refuses a contended target, so
+                        // reaching here means the disk changed under us between the re-derive and
+                        // the move — keep both rather than lose one.
+                        //
+                        // **Unless the "occupant" is the source itself.** `07. jul 2016.pdf` →
+                        // `07. Jul 2016.pdf` is a rename this pass proposes for real, and on a
+                        // case-INSENSITIVE volume `fileExists` finds the source under the collapsed
+                        // name. The old spelling compared `standardizedFileURL` paths, which resolve
+                        // `..` and trailing slashes but never CASE, so the two read as different
+                        // files: the guard "resolved" a collision that did not exist and the file
+                        // landed as `07. Jul 2016 2.pdf` — a duplicate marker invented out of
+                        // nothing, which the next scan then preserves verbatim forever.
+                        // `safeMoveItem` performs a case-only rename correctly; this guard sits
+                        // above it and was pre-empting it, so it now asks that same question of the
+                        // same helper. When the probe cannot answer it says "folds case", and that
+                        // is the safe direction here: at worst this declines to uniquify and hands
+                        // the move to `safeMoveItem`, which refuses a genuinely occupied
+                        // destination rather than overwriting it.
+                        if fm.fileExists(atPath: dst.path),
+                           !Self.isCaseOnlyRenaming(source: src, destination: dst,
+                                                    caseSensitiveVolume: caseSensitive) {
+                            dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)
+                        }
+                        do {
+                            let overwritten = try FileSyncManager.safeMoveItem(
+                                at: src, to: dst, fileManager: fm, caseSensitiveVolume: caseSensitive)
+                            applied.append((from: src, to: dst, overwritten: overwritten))
+                        } catch {
+                            failure = (step, error)
+                            break
+                        }
+                    }
+
+                    guard let failure else {
+                        out.moves.append(contentsOf: applied)
+                        if !applied.isEmpty { appliedHere = true }
                         continue
                     }
-                    let src = URL(fileURLWithPath: step.currentPath)
-                    var dst = dir.appendingPathComponent(step.proposedName)
-                    // NEVER overwrite. The planner already refuses a contended target, so reaching
-                    // here means the disk changed under us between the re-derive and the move —
-                    // keep both rather than lose one.
-                    if fm.fileExists(atPath: dst.path),
-                       src.standardizedFileURL.path != dst.standardizedFileURL.path {
-                        dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)
+                    logger.warning("Rename pass: “\(failure.step.currentName)” → “\(failure.step.proposedName)” failed: \(failure.error.localizedDescription)")
+                    guard unit.cohort != 0 else {
+                        // An independent step. Nothing else depended on it, so nothing else moves —
+                        // undoing the padding fixes that worked because a third one failed would
+                        // make the pass useless on the bulk of the backlog.
+                        out.failed += 1
+                        continue
                     }
-                    if src.standardizedFileURL.path == dst.standardizedFileURL.path { continue }
-                    do {
-                        let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
-                        moves.append((from: src, to: dst, overwritten: overwritten))
-                        appliedHere = true
-                    } catch {
-                        logger.warning("Rename pass: “\(step.currentName)” → “\(step.proposedName)” failed: \(error.localizedDescription)")
-                        failed += 1
+
+                    // Put back what this cohort already moved, newest first. Every name it restores
+                    // to was vacated by this same loop moments ago and no other member of the cohort
+                    // targets it (two files in one folder cannot share a name, so no step's target
+                    // is another step's source), so the folder returns to exactly the numbering it
+                    // had.
+                    var putBack = 0
+                    var stranded: [MoveItemState] = []
+                    for move in applied.reversed() {
+                        // Somebody else took the old name in the meantime: putting the file back
+                        // would overwrite them. Leave it where it is and say so — a file stranded
+                        // under a new name is recoverable, a clobbered stranger is not.
+                        guard !fm.fileExists(atPath: move.from.path) else {
+                            stranded.append(move)
+                            logger.error("Rename pass: could not put “\(move.to.lastPathComponent)” back — “\(move.from.lastPathComponent)” is occupied again in \(plan.folderPath)")
+                            continue
+                        }
+                        do {
+                            _ = try FileSyncManager.safeMoveItem(
+                                at: move.to, to: move.from, fileManager: fm,
+                                caseSensitiveVolume: caseSensitive)
+                            putBack += 1
+                        } catch {
+                            stranded.append(move)
+                            logger.error("Rename pass: could not put “\(move.to.lastPathComponent)” back to “\(move.from.lastPathComponent)” in \(plan.folderPath): \(error.localizedDescription)")
+                        }
                     }
+                    // A file the rollback could not move stays under its new name, so it stays in
+                    // the undo group: ⌘Z is the user's remaining way back.
+                    out.moves.append(contentsOf: stranded)
+                    if !stranded.isEmpty { appliedHere = true }
+                    out.abandoned += unit.steps.count
+                    out.stranded += stranded.count
+                    let folder = plan.relativePath.isEmpty ? plan.folderPath : plan.relativePath
+                    logger.warning("Rename pass: the renumbering of \(unit.steps.count) file(s) in \(folder) was abandoned after “\(failure.step.currentName)” failed — \(putBack) file(s) put back\(stranded.isEmpty ? "" : ", \(stranded.count) left under the new name")")
                 }
-                if appliedHere { doneFolders.append(plan.folderPath) }
+                if appliedHere { out.doneFolders.append(plan.folderPath) }
             }
-            return (moves, doneFolders, stale, failed)
+            return out
         }
 
         guard !result.moves.isEmpty else {
-            if result.failed > 0 || result.stale > 0 {
+            if result.failed > 0 || result.stale > 0 || result.abandoned > 0 {
                 banner = .warning(Self.renameOutcome(renamed: 0, stale: result.stale,
-                                                     failed: result.failed))
+                                                     failed: result.failed,
+                                                     abandoned: result.abandoned,
+                                                     stranded: result.stranded))
             }
             return
         }
@@ -289,25 +416,46 @@ extension FileSyncManager {
         let done = Set(result.doneFolders)
         renamePlans.removeAll { done.contains($0.folderPath) }
 
-        Logger.shared.info("Rename pass: renamed \(n) file(s)\(result.stale > 0 ? ", \(result.stale) stale" : "")\(result.failed > 0 ? ", \(result.failed) failed" : "")")
-        let message = Self.renameOutcome(renamed: n, stale: result.stale, failed: result.failed)
-        banner = (result.failed > 0 || result.stale > 0) ? .warning(message) : .success(message)
+        Logger.shared.info("Rename pass: renamed \(n) file(s)\(result.stale > 0 ? ", \(result.stale) stale" : "")\(result.failed > 0 ? ", \(result.failed) failed" : "")\(result.abandoned > 0 ? ", \(result.abandoned) in a rolled-back renumbering" : "")")
+        let message = Self.renameOutcome(renamed: n, stale: result.stale, failed: result.failed,
+                                         abandoned: result.abandoned, stranded: result.stranded)
+        banner = (result.failed > 0 || result.stale > 0 || result.abandoned > 0)
+            ? .warning(message) : .success(message)
     }
 
     /// The banner sentence for a finished pass. Pure and static so the wording — including the part
     /// that has to stay honest about files it did **not** touch — is testable without a filesystem.
-    static func renameOutcome(renamed: Int, stale: Int, failed: Int) -> String {
+    ///
+    /// `abandoned` is a statement about a GROUP, which is why it is not folded into `failed`: only
+    /// one member of a rolled-back renumbering actually threw, and reporting four failures for one
+    /// error is as dishonest as reporting one. `stranded` is the half that must never be silent —
+    /// a file the rollback could not put back is the only way a half-applied renumbering survives
+    /// this pass, so the sentence names it and sends the user to look.
+    static func renameOutcome(renamed: Int, stale: Int, failed: Int,
+                              abandoned: Int = 0, stranded: Int = 0) -> String {
+        func files(_ n: Int) -> String { "\(n) file\(n == 1 ? "" : "s")" }
+        var tail = ""
+        if abandoned > 0 {
+            tail = stranded > 0
+                ? " A renumbering of \(files(abandoned)) failed part-way and \(files(stranded)) couldn't be put back — check the folder."
+                : " A renumbering of \(files(abandoned)) couldn't be completed, so the folder was left as it was."
+        }
         guard renamed > 0 else {
             if failed > 0 && stale > 0 {
-                return "Couldn't rename \(failed) file\(failed == 1 ? "" : "s"); \(stale) had already changed."
+                return "Couldn't rename \(files(failed)); \(stale) had already changed." + tail
             }
-            if failed > 0 { return "Couldn't rename \(failed) file\(failed == 1 ? "" : "s")." }
-            return "\(stale) file\(stale == 1 ? "" : "s") had already changed — nothing renamed."
+            if failed > 0 { return "Couldn't rename \(files(failed))." + tail }
+            if stale > 0 { return "\(files(stale)) had already changed — nothing renamed." + tail }
+            // Nothing renamed, nothing stale, nothing independently failed: the abandoned
+            // renumbering IS the whole story, and the leading space goes with the joining.
+            return tail.isEmpty ? "Nothing renamed." : String(tail.dropFirst())
         }
-        var s = "Renamed \(renamed) file\(renamed == 1 ? "" : "s")"
+        var s = "Renamed \(files(renamed))"
         if stale > 0 { s += "; \(stale) had already changed" }
         if failed > 0 { s += "; \(failed) couldn't be renamed" }
-        return s + ". Press ⌘Z to undo"
+        // The ⌘Z clause is the one sentence here that does not end in a period, so the renumbering
+        // clause has to bring one or the two run together into nonsense.
+        return s + ". Press ⌘Z to undo" + (tail.isEmpty ? "" : "." + tail)
     }
 
     /// The folder's direct files as they stand on disk, or nil when it cannot be listed.

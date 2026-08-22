@@ -53,9 +53,27 @@ extension FileSyncManager {
         let src = symlinkResolvedPath(for: source)
         let dst = symlinkResolvedPath(for: destination)
 
-        // Deliberately case-sensitive: a case-only rename ("foo" -> "Foo") is a legitimate
-        // operation on case-insensitive volumes and must not be rejected as identical.
-        if src == dst {
+        // A case-only rename ("foo" -> "Foo") is a legitimate operation on a case-insensitive
+        // volume and must not be rejected as identical. Comparing `src` and `dst` case-sensitively
+        // is NOT enough to keep that promise, which is what this used to rely on: the two strings
+        // being compared have been through `symlinkResolvedPath`, and `resolvingSymlinksInPath` is
+        // realpath — it hands every component back the way the DIRECTORY spells it. Measured on
+        // APFS: `/t/07. jul 2016.pdf` and `/t/07. Jul 2016.pdf` both resolve to the lowercase one,
+        // so every case-only rename on the default macOS volume threw
+        // `identicalSourceAndDestination` before it reached the mover.
+        //
+        // It read as covered because the only tests that exercise it drive a case-SENSITIVE test
+        // double, where the destination does not exist, `symlinkResolvedPath` walks up past it, and
+        // realpath never folds anything.
+        //
+        // The exemption is deliberately narrow — the same directory, and a last component that
+        // differs ONLY by case (so a genuinely identical path, where nothing differs, still
+        // throws). A case-variant PARENT is not exempted: `/a/dir/f` and `/a/DIR/f` are one file
+        // and no rename at all.
+        let isCaseOnlyRename = source.lastPathComponent != destination.lastPathComponent
+            && isCaseOnlyRenaming(source: source, destination: destination,
+                                  caseSensitiveVolume: caseSensitiveVolume)
+        if src == dst, !isCaseOnlyRename {
             throw FileOperationError.identicalSourceAndDestination
         }
 
@@ -492,7 +510,11 @@ extension FileSyncManager {
     /// Only meaningful on case-insensitive volumes, where the case-variant destination IS the
     /// source. On a case-sensitive volume "foo" and "Foo" are distinct files, so no name change
     /// qualifies as case-only there.
-    private nonisolated static func isCaseOnlyRenaming(source: URL, destination: URL, caseSensitiveVolume: Bool) -> Bool {
+    /// Internal rather than private since round 6: the rename pass's own never-overwrite guard sits
+    /// ABOVE `safeMoveItem` and pre-empts it, so the two must ask this one question rather than each
+    /// spell an answer. A second copy is how they came to disagree — see
+    /// `applyRenamePlans(_:)`.
+    nonisolated static func isCaseOnlyRenaming(source: URL, destination: URL, caseSensitiveVolume: Bool) -> Bool {
         return !caseSensitiveVolume &&
                source.deletingLastPathComponent() == destination.deletingLastPathComponent() &&
                source.lastPathComponent.lowercased() == destination.lastPathComponent.lowercased()
