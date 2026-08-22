@@ -107,4 +107,93 @@ import Testing
         #expect(FilingVerdictStore.save(cache("/root/f.pdf"), to: url),
                 "the write was refused although there was never a file to protect")
     }
+
+    // MARK: - Finding 2: a failed set-aside must gate the write, not merely log
+
+    /// **A save that lands after a failed set-aside is the original defect with extra steps.**
+    /// `load` answers an empty cache and the next `save` wrote it straight over the paid verdicts
+    /// the move had failed to protect. The doc admitted this and called it a residual; it is the
+    /// finding. `PersonTagStore` refuses in exactly this situation and keeps refusing until the
+    /// move works.
+    @Test func aFailedSetAsideRefusesTheSaveInsteadOfDestroyingTheFile() throws {
+        let url = try cacheURL("armed")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let paid = Data("{ not json — and the rename is about to fail too".utf8)
+        try paid.write(to: url)
+
+        let fm = MoveBlockedFileManager()
+        fm.movesToRefuse = 3                       // the load's attempt, then two saves' attempts
+        #expect(FilingVerdictStore.load(from: url, fileManager: fm).count == 0)
+        #expect(FileManager.default.contents(atPath: url.path) == paid,
+                "the failed set-aside moved something anyway")
+
+        // Save 1: the move fails again. Nothing may land on the user's file.
+        #expect(FilingVerdictStore.save(cache("/root/a.pdf"), to: url, fileManager: fm) == false,
+                "a save that could not protect the file reported success")
+        #expect(FileManager.default.contents(atPath: url.path) == paid,
+                "a failed set-aside let the write land on ~10MB of paid verdicts")
+
+        // Save 2, the move still failing: the refusal repeats — the observable form of "the guard
+        // is still armed". A guard that disarms itself lasts exactly one save.
+        #expect(FilingVerdictStore.save(cache("/root/b.pdf"), to: url, fileManager: fm) == false)
+        #expect(FileManager.default.contents(atPath: url.path) == paid,
+                "one failed set-aside disarmed the guard and the next save overwrote the file")
+
+        // The obstruction clears: this save sets the ORIGINAL bytes aside and writes fresh.
+        #expect(FilingVerdictStore.save(cache("/root/c.pdf"), to: url, fileManager: fm),
+                "the save was still refused after the set-aside became possible")
+        let kept = try #require(setAsides(beside: url).first, "no set-aside was written")
+        #expect(FileManager.default.contents(atPath: kept.path) == paid,
+                "the set-aside does not hold the user's original bytes")
+        #expect(FilingVerdictStore.load(from: url).count == 1,
+                "the fresh cache was not written after the rescue landed")
+    }
+
+    /// **A move that fails must not have removed anything first.** Per-episode names left no
+    /// collision to handle, so no `removeItem` exists at all — this is what keeps one from coming
+    /// back: a refused rescue leaves an earlier episode's bytes untouched, whatever name they sit
+    /// under, and leaves the current file exposed to nothing.
+    @Test func aRefusedRescueCostsNeitherTheEarlierSetAsideNorTheCurrentFile() throws {
+        let url = try cacheURL("refused")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let legacy = url.appendingPathExtension("unreadable")
+        let earlier = Data("an earlier episode's rescued paid verdicts".utf8)
+        try earlier.write(to: legacy)
+        let corrupt = Data("{ not json".utf8)
+        try corrupt.write(to: url)
+
+        let fm = MoveBlockedFileManager()
+        fm.movesToRefuse = 9
+        #expect(FilingVerdictStore.load(from: url, fileManager: fm).count == 0)
+        #expect(FilingVerdictStore.save(cache("/root/a.pdf"), to: url, fileManager: fm) == false)
+
+        #expect(FileManager.default.contents(atPath: legacy.path) == earlier,
+                "a move that failed cost the earlier episode's rescue")
+        #expect(FileManager.default.contents(atPath: url.path) == corrupt,
+                "the refused save landed on the unreadable file anyway")
+    }
+
+    /// **A source that vanishes mid-launch is the protection arriving by other means.** With the
+    /// guard armed, the file is deleted (or moved) by hand: every retry then fails source-absent,
+    /// so a guard that stayed armed would refuse every save for the rest of the launch and drop
+    /// this scan's fresh verdicts — with nothing left at the path to protect.
+    @Test func aVanishedSourceDoesNotLockOutEverySave() throws {
+        let url = try cacheURL("vanished")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try Data("{ not json — and about to be hand-deleted".utf8).write(to: url)
+
+        let fm = MoveBlockedFileManager()
+        fm.movesToRefuse = 1                                  // the load's rescue fails: armed
+        #expect(FilingVerdictStore.load(from: url, fileManager: fm).count == 0)
+        try FileManager.default.removeItem(at: url)           // the user deletes the file
+
+        #expect(FilingVerdictStore.save(cache("/root/a.pdf"), to: url),
+                "the save was refused although there was nothing left to set aside")
+        #expect(FilingVerdictStore.load(from: url).count == 1)
+
+        // ...and it stays healed: the next save is ordinary, not another refusal.
+        #expect(FilingVerdictStore.save(cache("/root/b.pdf"), to: url))
+        #expect(FilingVerdictStore.load(from: url).count == 1)
+    }
+
 }

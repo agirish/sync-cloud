@@ -320,19 +320,25 @@ public enum FilingVerdictStore {
     /// whose next save then overwrote every one of them. Re-asking is acceptable; deleting the
     /// bytes is not. Absent stays silent and empty: a first launch has nothing to protect.
     ///
-    /// Same shape as ``StorageLensStore``'s set-aside; the residual is also the same — if the
-    /// move itself fails, the next save can still land on the file, and the log says so.
-    public static func load(from url: URL) -> FilingVerdictCache {
+    /// **A move that fails arms the guard rather than leaving a residual.** This doc used to say
+    /// that if the set-aside itself failed "the next save can still land on the file, and the log
+    /// says so" — an admission, not a justification: a log line does not keep the bytes. `save`
+    /// now refuses while the guard is armed and re-attempts the move on every save until one
+    /// lands, which is the discipline ``PersonTagStore`` keeps over the user's own judgements.
+    /// Same shape as ``StorageLensStore``'s set-aside, which refuses its write the same way.
+    public static func load(from url: URL, fileManager: FileManager = .default) -> FilingVerdictCache {
         guard let data = try? Data(contentsOf: url) else {
             // `attributesOfItem` rather than `fileExists`, because only the former sees a symlink
             // that does not resolve.
-            if (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil {
-                setAsideUnreadable(url, why: "could not be opened")
+            if (try? fileManager.attributesOfItem(atPath: url.path)) != nil {
+                arm(url, why: "could not be opened")
+                _ = setAsideUnreadable(url, fileManager: fileManager)
             }
             return FilingVerdictCache()
         }
         guard let cache = try? JSONDecoder().decode(FilingVerdictCache.self, from: data) else {
-            setAsideUnreadable(url, why: "could not be decoded")
+            arm(url, why: "could not be decoded")
+            _ = setAsideUnreadable(url, fileManager: fileManager)
             return FilingVerdictCache()
         }
         return cache
@@ -348,19 +354,76 @@ public enum FilingVerdictStore {
     /// unreadable. It also ran BEFORE the move, so a move that then failed left neither the
     /// earlier rescue nor a protected current file: strictly worse than not attempting. With
     /// per-episode names there is no collision to handle and no remove to justify.
-    private static func setAsideUnreadable(_ url: URL, why: String) {
-        let kept = UnreadableSetAside.destination(for: url, at: Date(), fileManager: .default)
+    @discardableResult
+    private static func setAsideUnreadable(_ url: URL, fileManager: FileManager) -> Bool {
+        let why = reasonArmed(url) ?? "could not be read"
+        let kept = UnreadableSetAside.destination(for: url, at: Date(), fileManager: fileManager)
         do {
-            try FileManager.default.moveItem(at: url, to: kept)
+            try fileManager.moveItem(at: url, to: kept)
+            disarm(url)
             Logger.shared.warning("Filing verdict cache at \(url.lastPathComponent) \(why) — it "
                                   + "has been kept as \(kept.lastPathComponent) and a fresh cache "
                                   + "starts beside it. The next scan re-asks (and, on the paid "
                                   + "tier, pays), but nothing was overwritten.")
+            return true
         } catch {
+            // **A source that is no longer there is not an obstruction — it is the protection
+            // having arrived by other means.** The file being deleted (or moved) after the failed
+            // read makes every retry fail source-absent, and a guard that stayed armed on that
+            // would refuse every save for the rest of the launch and silently drop this scan's
+            // fresh verdicts. Nothing is left at the path to overwrite. Probed with
+            // `attributesOfItem` rather than matched on the error code, because the probe also
+            // keeps the dangling-symlink case refusing — the link is still a directory entry.
+            // Same arm, same reason, as `PersonTagStore.save`.
+            if (try? fileManager.attributesOfItem(atPath: url.path)) == nil {
+                disarm(url)
+                Logger.shared.warning("The unreadable Filing verdict cache at "
+                                      + "\(url.lastPathComponent) is no longer there — deleted or "
+                                      + "moved since it failed to read. Nothing is left to set "
+                                      + "aside, so a fresh cache is written.")
+                return true
+            }
             Logger.shared.error("Filing verdict cache at \(url.lastPathComponent) \(why) and could "
-                                + "not be moved aside (\(error.localizedDescription)) — the next "
-                                + "save may overwrite it.")
+                                + "not be moved aside (\(error.localizedDescription)) — NOT "
+                                + "overwriting it; this launch's verdicts stay in memory only, and "
+                                + "the set-aside is attempted again on the next save.")
+            return false
         }
+    }
+
+    // MARK: - The armed guard
+
+    /// Paths whose on-disk bytes could not be read and have NOT yet been moved aside, with why.
+    ///
+    /// **The state a static load/save pair had nowhere to keep, which is why the write was
+    /// ungated.** `load` answered an empty cache and `save` then wrote it — over paid verdicts
+    /// whose rescue had just failed. The in-code doc used to admit that ("the next save can still
+    /// land on the file"), which was the finding rather than a justification: `PersonTagStore`
+    /// keeps an instance flag armed until the move actually lands and refuses every save until
+    /// then, and this store owes the same promise over more valuable bytes.
+    ///
+    /// Keyed by path rather than held per instance because the thing being protected is a FILE,
+    /// not an object: `FileSyncManager` reaches this store through static calls from two places
+    /// (a detached load, the serial write queue), and both must see the same armed fact about the
+    /// same path. A lock rather than the write queue, because `load` does not run on it.
+    private static let armedLock = NSLock()
+    /// `nonisolated(unsafe)` because every access below is under `armedLock` — the
+    /// annotation states the invariant the compiler cannot see, it does not waive it.
+    nonisolated(unsafe) private static var armedPaths: [String: String] = [:]
+
+    private static func arm(_ url: URL, why: String) {
+        armedLock.lock(); defer { armedLock.unlock() }
+        armedPaths[url.path] = why
+    }
+
+    private static func disarm(_ url: URL) {
+        armedLock.lock(); defer { armedLock.unlock() }
+        armedPaths[url.path] = nil
+    }
+
+    private static func reasonArmed(_ url: URL) -> String? {
+        armedLock.lock(); defer { armedLock.unlock() }
+        return armedPaths[url.path]
     }
 
     /// Serializes writes. Every writer hands its whole snapshot of the memoized cache here, so the
@@ -402,6 +465,18 @@ public enum FilingVerdictStore {
     @discardableResult
     public static func save(_ cache: FilingVerdictCache, to url: URL,
                             fileManager: FileManager = .default) -> Bool {
+        // **The write is gated on the rescue having landed.** While the guard is armed the bytes
+        // at `url` are the user's paid verdicts, unread by this launch and not yet moved aside —
+        // an atomic write here (which needs permission on the DIRECTORY, not the file) would
+        // destroy them, which is the whole loss the set-aside exists to prevent. Retried on every
+        // save rather than attempted once, and it is safe to retry precisely because the armed
+        // flag is the invariant: while it is set, nothing has written `url`, so every attempt
+        // moves the user's bytes and never this build's. The cost is the honest state — the error
+        // line repeats once per save while the move keeps failing, and this launch's verdicts live
+        // in memory (`FileSyncManager` holds the authoritative copy) until it stops.
+        if reasonArmed(url) != nil, !setAsideUnreadable(url, fileManager: fileManager) {
+            return false
+        }
         do {
             try fileManager.createDirectory(at: url.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
