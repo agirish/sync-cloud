@@ -600,22 +600,40 @@ import Testing
         }
         let promptFired = LockedBox(false)
         let walkRanDuringPrompt = LockedBox(false)
-        manager.collisionResolver = { _ in
-            promptFired.withLock { $0 = true }
-            // The user, mid-batch: the folder's copy has landed; they edit a file deep inside it
-            // while this prompt sits open. Bounded spin (wall clock — the walk runs on a detached
-            // thread and needs no main-actor turns) until the walk has READ the pre-edit state,
-            // so the edit deterministically postdates the recording.
+
+        // **The wait for the walk happens HERE, off the main thread, not inside the resolver.**
+        // The resolver is `@MainActor` and synchronous, so a spin in it blocks the MAIN THREAD
+        // for as long as the walk takes — and for the whole 5 s budget on the failure path,
+        // stalling every main-actor test running alongside this one. `beforeFileExists` runs on
+        // the operation's own worker thread, before the batch's collision stat for item 2 and
+        // therefore before the prompt, and holds no lock — so the walk (which needs the mock's
+        // recursive lock for every `attributesOfItem`) runs on freely while this parks. Parking
+        // inside `onFileExists` instead would hold that lock and deadlock the walk it waits for.
+        let collidingTarget = "/promptwin-dst/zz-collide.txt"
+        let parkedOut = LockedBox(false)
+        fm.beforeFileExists = { path in
+            guard path == collidingTarget, !walkReadTheDeepFile.withLock({ $0 }) else { return }
             let deadline = Date().addingTimeInterval(5)
             while !walkReadTheDeepFile.withLock({ $0 }) && Date() < deadline {
                 Thread.sleep(forTimeInterval: 0.005)
             }
+            parkedOut.withLock { $0 = !walkReadTheDeepFile.withLock { $0 } }
+        }
+
+        manager.collisionResolver = { _ in
+            promptFired.withLock { $0 = true }
+            // The user, mid-batch: the folder's copy has landed and its walk has already read the
+            // pre-edit state (parked for above), and now they edit a file deep inside it while
+            // this prompt sits open — so the edit deterministically postdates the recording.
             walkRanDuringPrompt.withLock { $0 = walkReadTheDeepFile.withLock { $0 } }
-            fm.virtualDisk[deepCopyPath] = MockFileManager.FileStub(
+            // Through the locked mutator: the walk may still be inside the mock, and a bare
+            // `virtualDisk[…] = …` from here is an unsynchronized `Dictionary` write against a
+            // concurrent read.
+            fm.setStub(MockFileManager.FileStub(
                 isDirectory: false,
                 attributes: [FileAttributeKey.size: 999,
                              FileAttributeKey.modificationDate: Date(timeIntervalSince1970: 9_999)],
-                contents: nil)
+                contents: nil), at: deepCopyPath)
             return .replace
         }
 
@@ -625,6 +643,8 @@ import Testing
 
         try #require(promptFired.withLock { $0 },
                      "fixture check: the collision prompt (and so the mid-batch edit) must have fired")
+        try #require(parkedOut.withLock { $0 } == false,
+                     "the park before the collision stat gave up waiting instead of being released — the walk never reached the deep file, so the ordering below was never established")
         try #require(walkRanDuringPrompt.withLock { $0 },
                      "the copy-to-recording window is per BATCH, not per item: no identity walk read the landed copy while a later item's prompt held the loop open — an edit made now becomes the recorded baseline and ⌘Z will trash it")
         try #require(fm.virtualDisk[deepCopyPath]?.attributes?[FileAttributeKey.size] as? Int == 999,

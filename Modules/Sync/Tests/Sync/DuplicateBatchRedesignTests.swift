@@ -524,6 +524,47 @@ import Events
                 "a kept file was reported as already gone: “\(manager.banner?.message ?? "nil")”")
     }
 
+    /// **A wholly refused batch must leave a `deleteItems`-level line in the log.**
+    ///
+    /// Every other exit from `deleteItems` logs: removals, permanent deletions, a declined
+    /// permanent delete, "none of them were still on disk". A batch the gate refused outright
+    /// logged nothing at this level — the per-path `continue` is silent by design, the removal
+    /// block is skipped because nothing was removed, and the "already gone" branch deliberately
+    /// excludes this case. Both shipped gates happen to log their own refusals, but `removalGate`
+    /// is a public caller-supplied closure and nothing obliges one to, so a gate that stays quiet
+    /// makes the user's delete gesture read as ignored.
+    ///
+    /// The gate here logs NOTHING, which is the whole point: the line has to come from
+    /// `deleteItems`.
+    @MainActor
+    @Test func aWhollyGateRefusedDeleteIsLoggedAtTheDeleteLevel() async throws {
+        let mockFM = MockFileManager()
+        let manager = makeManager(mockFM)
+        let tag = UUID().uuidString          // process-global logger: only this run can match
+        mockFM.virtualDisk["/d/\(tag)-a.txt"] = stub(size: 10)
+        mockFM.virtualDisk["/d/\(tag)-b.txt"] = stub(size: 10)
+
+        // A marker before and after, so only THIS delete's lines are read out of a logger every
+        // other test in the process is also writing to.
+        await Logger.shared.debug("delete-gate window opens \(tag)").value
+        _ = await manager.deleteItems(at: ["/d/\(tag)-a.txt", "/d/\(tag)-b.txt"], fileManager: mockFM,
+                                      removalGate: { paths in Set(paths) })
+        await Logger.shared.debug("delete-gate window closes \(tag)").value
+
+        let all = Logger.shared.entries
+        let opened = try #require(all.firstIndex { $0.message.contains("window opens \(tag)") })
+        let closed = try #require(all.lastIndex { $0.message.contains("window closes \(tag)") })
+        let mine = all[opened...closed].map(\.message)
+
+        #expect(mockFM.virtualDisk["/d/\(tag)-a.txt"] != nil && mockFM.virtualDisk["/d/\(tag)-b.txt"] != nil,
+                "the fixture did not actually refuse — the assertions below would be about nothing")
+        let line = mine.last { $0.contains("removal gate kept") }
+        #expect(line != nil,
+                "a delete whose every path the gate refused left no line at the deleteItems level — the gesture is invisible in the log unless the gate itself happens to talk: \(mine)")
+        #expect(line?.contains("kept 2 of 2") == true,
+                "the line must say how many of how many were kept: “\(line ?? "nil")”")
+    }
+
     // MARK: The snapshot comparison sees kind, not just size
 
     /// A file that becomes a DIRECTORY at the same relative path (or vice versa) is drift, even

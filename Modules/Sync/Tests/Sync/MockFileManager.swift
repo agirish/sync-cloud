@@ -59,8 +59,30 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// look tested while that branch stays dead in production.
     public var unlistableDirectories: Set<String> = []
 
+    /// Invoked BEFORE the lock is taken, on the calling thread, for each `fileExists` check —
+    /// the unlocked sibling of ``onFileExists``.
+    ///
+    /// It exists for the one thing `onFileExists` cannot do: PARK a call. A test that needs a
+    /// batch to wait at a known point until a concurrent identity walk has reached some file has
+    /// to block somewhere, and blocking inside `onFileExists` holds the recursive lock the walk's
+    /// own `attributesOfItem` needs — a deadlock, not a race. Blocking here holds nothing, so the
+    /// walk runs on and the parked thread is a worker rather than the main one.
+    ///
+    /// Unlike `onFileExists`, this MAY touch the disk (through ``setStub(_:at:)``, which takes
+    /// the lock itself).
+    public var beforeFileExists: ((String) -> Void)?
+
+    /// The only safe way to change the disk while a concurrent walk may be reading it: takes the
+    /// same lock every accessor does. Assigning into ``virtualDisk`` directly is an unsynchronized
+    /// `Dictionary` write, which is fine in fixture setup — nothing else is running yet — and a
+    /// data race the moment a walk, a copy worker, or a queued operation is live.
+    public func setStub(_ stub: FileStub?, at path: String) {
+        sync { virtualDisk[path] = stub }
+    }
+
     public func fileExists(atPath path: String) -> Bool {
-        sync {
+        beforeFileExists?(path)
+        return sync {
             let exists = virtualDisk.keys.contains(path)
             onFileExists?(path)
             return exists
@@ -68,7 +90,8 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     }
 
     public func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-        sync {
+        beforeFileExists?(path)
+        return sync {
             let stub = virtualDisk[path]
             isDirectory?.pointee = ObjCBool(stub?.isDirectory ?? false)
             let exists = stub != nil

@@ -638,6 +638,11 @@ extension FileSyncManager {
     ///   user leaves it). The gate is the caller's own verifier, so it also owns saying which
     ///   paths it refused and why; nil (every non-duplicates caller) changes nothing.
     ///
+    ///   **Per-path detail is the gate's to give, and it is not obliged to.** Both shipped gates
+    ///   log every path they refuse, but nothing here requires a caller-supplied one to, so
+    ///   `deleteItems` logs the COUNT itself — otherwise a wholly refused batch leaves no record
+    ///   at this level at all and the user's delete gesture reads, in the log, as ignored.
+    ///
     ///   **Once per invocation, over the WHOLE list — not once per path immediately before its own
     ///   removal.** Stated because it is the difference between what this guarantees and what it
     ///   could be read as guaranteeing: a path late in a large batch is removed some way after the
@@ -894,6 +899,17 @@ extension FileSyncManager {
             let kept = result.declined == 0 ? "" :
                 " — kept \(result.declined) that can't be moved to the Trash"
             self.banner = .success(deleted + kept, undoable: successfullyTrashed.count == items.count)
+        }
+        // **One line at THIS level for anything the gate kept.** The two shipped gates log per
+        // refused path themselves, but `removalGate` is a public caller-supplied closure with no
+        // contract requiring that — and a WHOLLY refused batch otherwise produces no
+        // `deleteItems`-level record at all: the per-path `continue` is silent by design, the
+        // block above is skipped because `items` is empty, and the "already gone" branch below
+        // deliberately excludes this case. A delete gesture that removed nothing, for a reason,
+        // has to be visible in the log whatever the gate did or did not say. Covers the partial
+        // case too, where the removals were logged but the refusals were not.
+        if result.refused > 0 {
+            Logger.shared.info("Delete: the caller's removal gate kept \(result.refused) of \(prunedPaths.count) selected item(s); \(items.count) removed")
         }
         // Surface any failure (e.g. a transiently-busy item), after the success banner so a mixed
         // batch reports both what worked and what didn't.
