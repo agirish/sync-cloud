@@ -105,6 +105,22 @@ import Foundation
         #expect(reloaded.records.isEmpty)
     }
 
+    /// The guard standing between a test run and the user's real history file. Every Sync and
+    /// Dashboard suite that builds a `FileSyncManager` records through the default `.shared`
+    /// store, and `clear()` truncates — so if a toolchain update ever renames
+    /// `swiftpm-testing-helper` out from under the runner detection, a plain `swift test`
+    /// destroys `~/sync-cloud-history.jsonl` with every suite green.
+    /// `Logger.defaultLogFileURL` carries the same six-way detection and the same test
+    /// (`testDefaultLogFileURLAvoidsRealLogUnderTests`); the two resolvers are deliberate
+    /// mirrors and this keeps the second one honest too.
+    @Test func testDefaultFileURLAvoidsRealHistoryUnderTests() {
+        let url = SyncHistoryStore.defaultFileURL()
+        let realHistory = URL(fileURLWithPath: (NSString(string: "~")).expandingTildeInPath)
+            .appendingPathComponent("sync-cloud-history.jsonl")
+        #expect(url.path != realHistory.path)
+        #expect(url.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+    }
+
     @Test func testMalformedLinesAreSkippedOnLoad() throws {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
