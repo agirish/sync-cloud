@@ -795,4 +795,53 @@ import Events
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
         #expect(reread.tags.map(\.personId) == ["divit"])
     }
+
+    /// **`clear` claimed persistence it may not have had — the same lie `record` was just fixed
+    /// out of, one door over.** A withdrawal is a save like any other, so while the unreadable
+    /// guard is armed and the set-aside keeps failing it lives in memory until the quit that loses
+    /// it. The line said "withdrew the verdict" regardless.
+    @Test func aRefusedWithdrawalIsSaidOutLoudInTheLine() async throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("p/person-tags.json")
+        try Data("{ not json — and the rename will keep failing".utf8).write(to: url)
+
+        let fm = MoveBlockedFileManager()
+        fm.movesToRefuse = 99                                       // persistence never recovers
+        let store = PersonTagStore(directory: dir, profileId: "p", fileManager: fm)
+        let path = "withdrawal-\(UUID().uuidString).pdf"
+        store.record(personId: "divit", key: .path(path), verdict: .confirmed, path: path)
+        store.clear(personId: "divit", key: .path(path))
+        #expect(store.tags.isEmpty, "the withdrawal did not take effect in memory")
+
+        await Logger.shared.debug("person-tag withdrawal flush marker").value
+        let entry = try #require(Logger.shared.entries.last {
+            $0.message.hasPrefix("People: withdrew the verdict on \(path)")
+        }, "the withdrawal line was not logged at all")
+        #expect(entry.message.contains("NOT saved"),
+                "a refused save logged a durable-looking withdrawal: \(entry.message)")
+        #expect(store.savedRevision == 0, "a refused save bumped the saved-revision signal")
+    }
+
+    /// The counterpart: a withdrawal that reached disk keeps the line unqualified.
+    @Test func aLandedWithdrawalKeepsTheLineUnqualified() async throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = PersonTagStore(directory: dir, profileId: "p")
+        let path = "withdrawal-\(UUID().uuidString).pdf"
+        store.record(personId: "divit", key: .path(path), verdict: .confirmed, path: path)
+        store.clear(personId: "divit", key: .path(path))
+
+        await Logger.shared.debug("person-tag withdrawal flush marker").value
+        let entry = try #require(Logger.shared.entries.last {
+            $0.message.hasPrefix("People: withdrew the verdict on \(path)")
+        })
+        #expect(!entry.message.contains("NOT saved"),
+                "a landed withdrawal was reported as memory-only: \(entry.message)")
+        let reread = try JSONDecoder().decode(PersonTagFile.self,
+                                              from: try Data(contentsOf: store.fileURL))
+        #expect(reread.tags.isEmpty, "the withdrawal did not reach disk")
+    }
+
 }

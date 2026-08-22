@@ -173,7 +173,7 @@ public final class PersonTagStore: ObservableObject {
     /// the control, when it exists, is wired to something that works.
     public func clear(personId: String, key: PersonTagKey, path: String? = nil) {
         let recordedPath = path ?? tags.first { $0.personId == personId && $0.key == key }?.recordedPath
-        let before = tags.count
+        let countBefore = tags.count
         tags.removeAll { tag in
             guard tag.personId == personId else { return false }
             if tag.key == key { return true }
@@ -181,10 +181,19 @@ public final class PersonTagStore: ObservableObject {
             guard let recordedPath, !recordedPath.isEmpty else { return false }
             return tag.recordedPath == recordedPath && Self.isDifferentKind(tag.key, key)
         }
-        guard tags.count != before else { return }
+        guard tags.count != countBefore else { return }
+        let revisionBefore = savedRevision
         save()
+        // Conditioned on `savedRevision` exactly as `record` is, and for the same reason: a
+        // withdrawal is a save like any other, so while the unreadable guard is armed and the
+        // set-aside keeps failing it lives in memory until the quit that loses it. "Withdrew the
+        // verdict" is a durable claim, and this half of the store was still making it
+        // unconditionally after `record` stopped. A memory-only store makes no durability claim
+        // either way, so it stays unqualified.
+        let persisted = !isPersistent || savedRevision != revisionBefore
         Logger.shared.info("People: withdrew the verdict on \(recordedPath ?? "(unknown path)") "
-                           + "for \(personId)")
+                           + "for \(personId)"
+                           + (persisted ? "" : " — NOT saved: held in memory only this session"))
     }
 
     private func keyKind(_ key: PersonTagKey) -> String {
