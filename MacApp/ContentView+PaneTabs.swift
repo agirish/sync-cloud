@@ -807,62 +807,26 @@ extension ContentView {
                     isDirectory: &isDirectory)
                 return exists && isDirectory.boolValue
             })
-        // Nothing to restore only when the strip is genuinely the state a fresh install opens in:
-        // one tab, at the root, unpinned. The rule lives on `PaneTabList` because it has to read
-        // the tab's COMBINED location rather than its scope, and getting that wrong here skipped
-        // the restore outright for a single tab drilled down from the root — see `isSeedState`.
-        // **What the restore threw away, before what it kept.** `PaneTabsStore.restore` drops an
-        // entry whose source this pane cannot be pointed at, and since that list is now
-        // `enabledProviders` the commonest way to reach it is not a source vanishing but the user
-        // switching one OFF in Settings — a reversible decision whose cost here is not. Dropping is
-        // still the right answer (there is no root to fall back to, and a tab that cannot be opened
-        // is not a place), but doing it in silence is not: the strip is rewritten by the first
-        // thing that saves, so those tabs are gone for good with nothing to say where. He audits
-        // this log.
-        let dropped = (stored.entries.count) - (outcome?.list.count ?? 0)
-        if dropped > 0 {
-            Logger.shared.warning(
-                "Dropped \(dropped) stored \(PaneSideChoice.name(isLeft)) browse tab\(dropped == 1 ? "" : "s"): "
-                + "their source is gone or switched off")
-        }
-        guard let restored = outcome?.list, !restored.isSeedState else {
-            // **The abandoned restore lost a folder too, and this is the only place it can be
-            // said.** A one-entry strip whose only folder is gone re-roots to `""` — which is
-            // exactly `isSeedState` — so the restore stops here and the line below, which claims a
-            // tab came BACK, would be a sentence about something that did not happen. At most one
-            // folder can reach this branch, because the seed state is a one-tab strip.
-            if let lost = (outcome?.lostFolders ?? []).first {
-                Logger.shared.warning(
-                    "Did not restore the \(PaneSideChoice.name(isLeft)) browse tab “\(lost)”: its "
-                    + "folder no longer exists, and one tab at a source root is the state a fresh "
-                    + "launch already seeds")
+        // Everything from here down to the applies is DECIDED in `BrowseTabRestorePlan.plan` —
+        // which lines are said and in what order, whether anything is installed (the seed-state
+        // abandon lives there), and whether the pane must adopt the active tab's provider. The
+        // branch reasoning that used to be written out here (drops before keeps; the abandoned
+        // restore's truthful line; the re-rooted folders named per side; adopt-only-on-change)
+        // moved with the code, so a test can execute it instead of reading it.
+        let plan = BrowseTabRestorePlan.plan(storedCount: stored.entries.count,
+                                             outcome: outcome,
+                                             isLeft: isLeft,
+                                             currentProviderId: paneProviderId(isLeft: isLeft),
+                                             canShowSource: paneCanShowSource)
+        for line in plan.lines {
+            switch line.level {
+            case .warning: Logger.shared.warning(line.message)
+            case .info: Logger.shared.info(line.message)
             }
-            return
         }
-        // **And what came back at the wrong place, which the count above cannot see.** A tab whose
-        // FOLDER is gone is not dropped — `restore` re-roots it, deliberately, because a tab left
-        // pointing at nothing is an empty pane with a path in its header and no way to tell a
-        // missing folder from an empty one. But the restored strip then looks exactly like one the
-        // user left at the root, `Restored N tabs` says nothing was lost, and the first save writes
-        // the root over the stored path for good. The stored path is the last place that folder is
-        // named at all, so it is named here. He audits this log.
-        //
-        // **Below the guard, because the sentence claims a restore.** Emitted above it, a one-entry
-        // strip whose only folder is gone wrote "Restored the left browse tab X at its source root"
-        // and then installed nothing at all — the abandoned branch above says what really happened.
-        for lost in outcome?.lostFolders ?? [] {
-            Logger.shared.warning(
-                "Restored the \(PaneSideChoice.name(isLeft)) browse tab “\(lost)” at its source root: "
-                + "the folder no longer exists")
-        }
-        Logger.shared.info(
-            "Restored \(restored.count) \(PaneSideChoice.name(isLeft)) browse tab\(restored.count == 1 ? "" : "s")")
+        guard let restored = plan.install else { return }
         syncManager.setPaneTabs(restored, isLeft: isLeft)
-        // The restored ACTIVE tab is the pane's position, so it has to be applied like any other
-        // switch — including its provider, which may not be the one the pane was pointed at.
-        let active = restored.active
-        let currentProviderId = paneProviderId(isLeft: isLeft)
-        if active.providerId != currentProviderId, paneCanShowSource(active.providerId) {
+        if let adopt = plan.adoptProviderId {
             // **The counter, not the bootstrap guard.** This used to write the id bare, on the
             // reasoning that the bootstrap guard was the suppression and arming the counter would
             // strand it. Both halves of that were wrong, and the second one measurably so: SwiftUI
@@ -879,15 +843,14 @@ extension ContentView {
             // Arming the counter cannot strand it any more, because the handler now consumes the
             // counters BEFORE testing the bootstrap guard: wherever the write lands, it is
             // accounted for exactly once.
-            adoptProviderForTab(active.providerId, isLeft: isLeft,
-                                log: "Restored \(PaneSideChoice.name(isLeft)) browse tab moved the pane to \(active.providerId)")
+            adoptProviderForTab(adopt, isLeft: isLeft, log: plan.adoptLog ?? "")
         }
         // Re-read, because the line above may have just written it: the id the pane is NOW on is
         // what `applyTab`'s reload rule has to compare against, so passing the pre-write value
         // would report a source change that has already been adopted. At launch the pane is at its
         // root and the tab usually is not, so this normally invalidates anyway; the bootstrap's own
         // refresh two steps later is the reload.
-        syncManager.applyTab(active, isLeft: isLeft,
+        syncManager.applyTab(restored.active, isLeft: isLeft,
                              currentProviderId: paneProviderId(isLeft: isLeft))
     }
 }

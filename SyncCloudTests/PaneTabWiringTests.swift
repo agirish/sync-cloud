@@ -382,11 +382,16 @@ import Sync
         return writes
     }
 
+    // Both readers carry the truncation guard `macAppSources()` documents as load-bearing: a
+    // partially read file makes ~80 `contains` scans below answer false and every `!contains`
+    // vacuously true. These two were the only readers in the target without it.
     private static func fileExplorer(_ name: String) throws -> String {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/\(name)")
-        return try String(contentsOf: url, encoding: .utf8)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        try #require(text.count > 500, "\(name) read as \(text.count) characters — truncated?")
+        return text
     }
 
     private static func source(_ name: String) throws -> String {
@@ -394,7 +399,9 @@ import Sync
             .deletingLastPathComponent()      // SyncCloudTests
             .deletingLastPathComponent()      // repo root
             .appendingPathComponent("MacApp/\(name)")
-        return try String(contentsOf: url, encoding: .utf8)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        try #require(text.count > 500, "\(name) read as \(text.count) characters — truncated?")
+        return text
     }
 
     /// The positive control. Every scan below asserts a presence in one of two files; a reader that
@@ -847,7 +854,11 @@ import Sync
         #expect(code.contains("settings.enabledProviders.contains { $0.id == id }"),
                 "paneCanShowSource no longer reads the enabled list")
         for site in ["isAvailable: paneCanShowSource", "isKnownProvider: paneCanShowSource",
-                     "paneCanShowSource(active.providerId)"] {
+                     "canShowSource: paneCanShowSource"] {
+            // The third site is the launch restore's adoption gate, handed to
+            // `BrowseTabRestorePlan` as a value — the plan's own use of it
+            // (`canShowSource(active.providerId)`) is executed, not scanned, by
+            // `BrowseTabRestorePlanTests.adoptionIsWithheldWhenThePaneCannotShowTheSource`.
             #expect(code.contains(site), "\(site) no longer routes through the one predicate")
         }
         // The chip's NAME and mark are the one thing the discovered list is right for: a source
@@ -871,15 +882,14 @@ import Sync
     /// thing that saves, so a silent drop loses those tabs for good with nothing to say where they
     /// went. The line beside it counts what was RESTORED, which cannot answer that.
     @Test func theLaunchRestoreSaysWhatItDropped() throws {
-        let body = try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
-                                       in: Self.source("ContentView+PaneTabs.swift"))
-        #expect(body.contains("stored.entries.count"),
-                "nothing compares what was stored against what came back, so no drop can be noticed")
-        let code = Self.codeOnly(body)
-        let drop = try #require(code.range(of: "if dropped > 0"),
-                                "the dropped tabs are counted but never reported")
-        #expect(String(code[drop.upperBound...]).contains("Logger.shared.warning("),
-                "a dropped tab is reported below warning, where a launch-time loss would not stand out")
+        // The counting and the warning line live in `BrowseTabRestorePlan` now and are executed by
+        // `BrowseTabRestorePlanTests` (dropped-before-anything-else, the wholly-dropped strip).
+        // What only this scan can see is the threading: the plan can only notice a drop if the
+        // host hands it the STORED count to compare against what the restore kept.
+        let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
+                                                     in: Self.source("ContentView+PaneTabs.swift")))
+        #expect(body.contains("storedCount: stored.entries.count"),
+                "nothing hands the plan what was stored, so no drop can be noticed")
     }
 
     /// **Every verb that OPENS a tab cuts its location through `PaneTabOpening`.**
@@ -2018,7 +2028,7 @@ import Sync
     @Test func theLaunchRestoreArmsTheSuppressionCounterLikeEveryOtherAdopt() throws {
         let body = try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
                                        in: Self.source("ContentView+PaneTabs.swift"))
-        #expect(body.contains("adoptProviderForTab(active.providerId, isLeft: isLeft"),
+        #expect(body.contains("adoptProviderForTab(adopt, isLeft: isLeft"),
                 "the launch restore writes the provider id its own way again")
         // Threaded, not hardcoded — the restore runs for BOTH panes, and a right pane that adopted
         // no source would reopen every tab under whichever provider the pane happened to be on,
@@ -2048,62 +2058,31 @@ import Sync
                 "the setting is consulted after the strip has already been read and acted on")
     }
 
-    /// **…and it says which folder a re-rooted tab lost.**
+    /// **The account of the restore is DECIDED in `BrowseTabRestorePlan` and merely EMITTED here.**
     ///
-    /// A tab whose FOLDER is gone is not dropped — `PaneTabsStore.restore` brings it back at its
-    /// source root, deliberately, because a tab left pointing at nothing is an empty pane with a
-    /// path in its header. But nothing in the restored list distinguishes that from a tab the user
-    /// left at the root: the counts match, `Restored N tabs` reports success, the `dropped` warning
-    /// beside it counts only unknown or disabled SOURCES, and the first save writes the root over
-    /// the stored path for good. The stored path is the last place that folder is named.
-    @Test func theLaunchRestoreNamesTheFolderAReRootedTabLost() throws {
+    /// Two elaborate scans stood in this spot (`theLaunchRestoreNamesTheFolderAReRootedTabLost`,
+    /// `theLostFolderLineDoesNotClaimARestoreThatWasAbandoned`), pinning as source text which lines
+    /// are said, per side, in what order, and never for an abandoned restore. Those branches are
+    /// now executable — `BrowseTabRestorePlanTests` runs every one, including the ordering the
+    /// second scan asserted — so what remains for a scan is the glue the planner cannot see:
+    /// the host must emit the plan's lines at their stated levels, install only what the plan
+    /// installs, and take the plan's adoption through the counter (the test above).
+    @Test func theLaunchRestoreExecutesThePlanItWasHanded() throws {
         let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
                                                      in: Self.source("ContentView+PaneTabs.swift")))
-        #expect(body.contains("lostFolders"),
-                "the host never asks the restore what fell back to a source root")
-        let loop = try #require(body.range(of: "for lost in"),
-                                "the fallbacks are collected and never reported")
-        // **Sliced to the loop's own closing brace.** Run to the end of the member, this read the
-        // rest of `restoreBrowseTabs` — which names its side twice more below — so dropping the
-        // side from THIS warning left both assertions passing and a Compare launch unable to say
-        // which pane lost the folder. The loop's brace sits at member-body indentation.
-        let rest = String(body[loop.upperBound...])
-        let end = try #require(rest.range(of: "\n        }"), "the lost-folder loop never closes")
-        let inLoop = String(rest[..<end.lowerBound])
-        #expect(inLoop.contains("Logger.shared.warning("),
-                "a lost folder is reported below warning, where a launch-time loss would not stand out")
-        #expect(inLoop.contains("PaneSideChoice.name(isLeft)"),
-                "the line does not say which pane's tab lost its folder")
-    }
-
-    /// **…and it does not claim a restore that was abandoned.**
-    ///
-    /// The warning ran ahead of `guard let restored = outcome?.list, !restored.isSeedState`, which
-    /// returns without installing anything. A one-entry strip whose only folder is gone re-roots to
-    /// `""` — which *is* the seed state — so that launch wrote "Restored the left browse tab X at
-    /// its source root" and then restored nothing at all: the one case where the sentence is both
-    /// the most alarming and the most wrong.
-    ///
-    /// Moving it below the guard alone would have lost the report entirely for exactly that launch,
-    /// so the abandoned branch says the truthful version instead. Both halves are pinned, because
-    /// either one alone can be satisfied while the other is broken.
-    @Test func theLostFolderLineDoesNotClaimARestoreThatWasAbandoned() throws {
-        let body = Self.codeOnly(try Self.memberBody("func restoreBrowseTabs(isLeft: Bool)",
-                                                     in: Self.source("ContentView+PaneTabs.swift")))
-        let gate = try #require(body.range(of: "guard let restored = outcome?.list, !restored.isSeedState"),
-                                "the restore no longer abandons a strip that is the seed state")
-        let claim = try #require(body.range(of: "at its source root"),
-                                 "the re-rooted tab's folder is no longer named at all")
-        #expect(gate.upperBound < claim.lowerBound,
-                "the line claiming a tab came back at its source root runs before the guard that returns without restoring anything")
-        // …and the abandoned launch still says the folder went, from inside that branch — named,
-        // because the stored path is the last place it exists.
-        let abandoned = try #require(body.range(of: "Did not restore the"),
-                                     "a launch whose only tab lost its folder now says nothing at all")
-        #expect(abandoned.lowerBound < claim.lowerBound && gate.upperBound < abandoned.lowerBound,
-                "the abandoned-restore line is not in the guard's own branch")
-        #expect(textBetween(body, from: abandoned.lowerBound, to: claim.lowerBound)?.contains("\\(lost)") == true,
-                "the abandoned-restore line does not name the folder that was lost")
+        let decide = try #require(body.range(of: "BrowseTabRestorePlan.plan(storedCount:"),
+                                  "the restore no longer decides through the tested planner")
+        let emit = try #require(body.range(of: "for line in plan.lines"),
+                                "the plan's lines are computed and never reach the log")
+        #expect(body.contains("case .warning: Logger.shared.warning(line.message)"),
+                "a warning line is emitted below warning, where a launch-time loss would not stand out")
+        #expect(body.contains("case .info: Logger.shared.info(line.message)"))
+        let install = try #require(body.range(of: "guard let restored = plan.install else { return }"),
+                                   "the host installs something other than what the plan decided")
+        #expect(decide.upperBound < emit.lowerBound && emit.upperBound < install.lowerBound,
+                "lines must be emitted after the decision and before the install — the abandoned branch's truthful line rides on the plan being consulted first")
+        #expect(body.contains("setPaneTabs(restored, isLeft: isLeft)"),
+                "the plan's strip is not what reaches the pane")
     }
 
     /// **Both panes are restored, and the right one is easy to drop.** The launch sequence called
@@ -2528,7 +2507,7 @@ import Sync
                 "the restore reads a fixed pane's stored strip")
         #expect(restore.contains("setPaneTabs(restored, isLeft: isLeft)"),
                 "the restored strip is installed on a fixed pane")
-        #expect(restore.contains("applyTab(active, isLeft: isLeft"),
+        #expect(restore.contains("applyTab(restored.active, isLeft: isLeft"),
                 "the restored tab is applied to a fixed pane")
 
         for (name, body) in [("saveBrowseTabs", save), ("restoreBrowseTabs", restore)] {
