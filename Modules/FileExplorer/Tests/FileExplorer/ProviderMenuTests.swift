@@ -44,19 +44,13 @@ import SwiftUI
                 "the inline style is what renders the picker as menu rows with the native check column")
     }
 
-    @Test func chooseFolderIsTheOptionalDoorAndManageSourcesIsNot() throws {
+    // This line's menu predates the Choose Folder… door (a v3+ feature), so the door pin the
+    // newer lines carry has no subject here; what is unconditional on 2.x is the one escape hatch.
+    @Test func manageProvidersIsAlwaysReachable() throws {
         let code = Self.codeOnly(try Self.source())
-        #expect(code.contains("if let onChooseFolder"),
-                "Choose Folder… must be withheld when the surface offers no folder door")
-        // Manage sources is unconditional — it must not have crept behind the same (or any) gate.
-        let manage = try #require(code.range(of: "Manage sources"), "the Manage sources item is gone")
-        let before = code[..<manage.lowerBound]
-        let lastGate = before.range(of: "if let onChooseFolder", options: .backwards)
-        if let lastGate {
-            let between = code[lastGate.upperBound..<manage.lowerBound]
-            #expect(between.contains("}"),
-                    "Manage sources… appears inside the onChooseFolder gate — it must be reachable from every surface")
-        }
+        #expect(code.range(of: "Manage providers") != nil, "the Manage providers item is gone")
+        #expect(!code.contains("if let onChooseFolder"),
+                "the folder door arrived on 2.x — restore the newer lines\' door-and-gate pin instead of this reduced one")
     }
 
     @Test func theMenuStaysCompressibleHorizontally() throws {
