@@ -43,8 +43,14 @@ public extension KeyPress {
     /// a chord — and because both `FileExplorer` surfaces that need it would otherwise repeat the
     /// set literal, which is how the four copies of `.isEmpty` came to be wrong together.
     ///
-    /// Only for the `onKeyPress(keys:phases:)` overload. The single-key `onKeyPress(_:)` one
-    /// filters modifiers itself and needs no guard.
+    /// **Every `onKeyPress` overload needs this, including the single-key `onKeyPress(_:)` one.**
+    /// The first cut of this doc said the opposite — that the single-key overload "filters
+    /// modifiers itself and needs no guard" — asserted from intent, never measured. It is false:
+    /// on `ReviewCardView`'s real responder chain, its `.onKeyPress(.return)` ran the primary
+    /// copy for ⌘⏎ and again for ⇧⏎, and fired on key-repeat besides (four copies from one held
+    /// ⏎). Anything whose handler must not run for a chord guards on this, whichever overload it
+    /// is written with — or takes the `keys:phases:` form, which is the only one that can also
+    /// refuse auto-repeat.
     var isPlainKeystroke: Bool {
         modifiers.intersection(.intent).isEmpty
     }

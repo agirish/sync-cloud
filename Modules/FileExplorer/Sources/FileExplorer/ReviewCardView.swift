@@ -96,7 +96,34 @@ struct ReviewCardView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        .onKeyPress(.return) {
+        // ⏎ — BOTH Enter keycaps, `.down` only, plain keystrokes only.
+        //
+        // `.keypadEnter` beside `.return`: a full-size keyboard has two keys marked Enter and
+        // `.return` matches only the main row's. The keypad's is keyCode 76 sending U+0003
+        // (`NSEnterCharacter`), not U+000D, and SwiftUI matches on the character delivered — so
+        // that keycap ran nothing at all here, silently, with the hint row advertising ⏎. See
+        // `KeyEquivalent.keypadEnter` for the measured delivery.
+        //
+        // This was the single-key `onKeyPress(.return)` overload, which had to go to take a
+        // second key. Two things came with the move, and BOTH were live defects under the old
+        // spelling — measured on this card through `ReviewCardKeyTests`' real-window harness,
+        // not inferred:
+        //
+        // - **The single-key overload does not filter modifiers.** ⌘⏎ and ⇧⏎ each ran the
+        //   primary copy (probe: two presses, two `onPrimary` calls). The comment below and
+        //   `KeyPress.isPlainKeystroke`'s doc both used to claim the opposite. Hence
+        //   `press.isPlainKeystroke` here, the same guard ⌫ carries — and not
+        //   `modifiers.isEmpty`, which would refuse every keypad Enter (they all carry
+        //   `.numericPad` + `.function`).
+        // - **The single-key overload fires on key-repeat.** A held ⏎ produced four `onPrimary`
+        //   calls. `isActing` cannot absorb that: it closes only when the host's async outcome
+        //   lands, so auto-repeat could launch several copies of the same row first. `.down`
+        //   only, exactly like ⌫-skip below.
+        //
+        // ␣ and esc still use the single-key overload and therefore still take modified presses;
+        // neither moves bytes (Quick Look, and leaving the session), so they are left as they are.
+        .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
+            guard press.isPlainKeystroke else { return .ignored }
             // Both gates: a copy mid-verify would overwrite the destination while the hash
             // reads it (same exclusion the bulk paths enforce via isVerifyAllRunning).
             if !isActing && !isVerifying { onPrimary(item) }
@@ -104,11 +131,11 @@ struct ReviewCardView: View {
         }
         // .down only, no .repeat: Skip is synchronous and decided rows are unrevisitable, so
         // a held-a-beat-too-long ⌫ must not mass-skip the queue. And `press.isPlainKeystroke`,
-        // because the `onKeyPress(keys:phases:)` overload — unlike the single-key one the other
-        // three keys use — delivers MODIFIED presses too: without the check, ⌘⌫ (Finder's
-        // "delete immediately", delete-to-start-of-line in text land) and ⌥⌫ (delete word)
-        // skipped the current row (measured in ReviewCardKeyTests). The hint row advertises a
-        // plain keystroke; a chord is `.ignored` so whoever owns it still sees it.
+        // because `onKeyPress` delivers MODIFIED presses to its handler — the single-key overload
+        // ␣ and esc use does not filter them either, measured (see the ⏎ note above): without
+        // the check, ⌘⌫ (Finder's "delete immediately", delete-to-start-of-line in text land) and
+        // ⌥⌫ (delete word) skipped the current row (measured in ReviewCardKeyTests). The hint row
+        // advertises a plain keystroke; a chord is `.ignored` so whoever owns it still sees it.
         //
         // ⌘⌥⌃⇧ ONLY, which `press.modifiers.isEmpty` — the first cut — was not: `.capsLock` is
         // present on every event while the lock is engaged, so that spelling took ⌫-skip away

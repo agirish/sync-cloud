@@ -134,6 +134,100 @@ import Sync
         send(window, keyCode: 53, characters: "\u{1B}", modifiers: modifiers, isARepeat: isARepeat)
     }
 
+    /// **The numeric keypad's Enter is not a carriage return.** It is keyCode 76 and it sends
+    /// `NSEnterCharacter` — U+0003 — not U+000D, and like the arrows it always carries
+    /// `.numericPad` and `.function`. Measured through this harness (a probe view reporting what
+    /// `onKeyPress` actually receives on this window's responder chain):
+    ///
+    /// | sent | delivered `press.key` | `press.characters` | `press.modifiers` raw |
+    /// |---|---|---|---|
+    /// | keyCode 36, `"\r"`, `[]` | `KeyEquivalent("\r")` | U+000D | 0 |
+    /// | keyCode 76, `"\u{3}"`, `[.numericPad, .function]` | `KeyEquivalent("\u{3}")` | U+0003 | 96 |
+    ///
+    /// So `keys: [.return]` — which matches on the delivered `KeyEquivalent` — never matches the
+    /// keypad's Enter, and the same probe shows `keys: [KeyEquivalent("\u{3}")]` does. The event
+    /// IS delivered to `onKeyPress`; it is the key set that misses it. Hence
+    /// `KeyEquivalent.keypadEnter` in the handler's set rather than a monitor.
+    ///
+    /// The caller's `modifiers` are UNIONED with the intrinsic pair, the way `sendRightArrow`
+    /// does, so `.command` here means the ⌘-keypad-Enter AppKit would actually deliver.
+    private static let keypadEnterIntrinsicFlags: NSEvent.ModifierFlags = [.numericPad, .function]
+
+    private func sendKeypadEnter(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
+                                 isARepeat: Bool = false) {
+        send(window, keyCode: 76, characters: "\u{3}",
+             modifiers: modifiers.union(Self.keypadEnterIntrinsicFlags), isARepeat: isARepeat)
+    }
+
+    // MARK: The keypad's Enter is the same decision as the main row's
+
+    /// **A full-size keyboard has two Enter keys and the card only heard one.** The keypad's Enter
+    /// is the key a two-handed user filing a stack of documents actually presses, and it filed
+    /// nothing — silently, with the card's hint row advertising ⏎. Nothing on screen distinguishes
+    /// the two keycaps, so the failure is indistinguishable from a wedged card.
+    @Test func theKeypadsEnterFilesLikeTheMainRowReturn() async {
+        let recorder = Recorder()
+        let (window, _) = host(card(into: recorder))
+        guard await waitForCardFocus(in: window) else { return }
+
+        sendKeypadEnter(window)
+        #expect(recorder.decisions == [true], """
+                the numeric keypad's Enter (keyCode 76, U+0003) filed nothing: \(recorder.decisions).                 It must file exactly like the main row's ⏎ — the keycaps mean the same thing.
+                """)
+        #expect(recorder.cancels == 0)
+    }
+
+    /// The held-key rule for the keypad's Enter specifically: it enters through the same handler
+    /// as ⏎, but a key added to a set is exactly where a `.repeat` phase could be re-admitted
+    /// unnoticed. A held keypad Enter must file exactly ONE file.
+    @Test func aHeldKeypadEnterFilesExactlyOneFile() async {
+        let recorder = Recorder()
+        let (window, _) = host(card(into: recorder))
+        guard await waitForCardFocus(in: window) else { return }
+
+        sendKeypadEnter(window)
+        for _ in 0..<3 { sendKeypadEnter(window, isARepeat: true) }
+        #expect(recorder.decisions == [true], """
+                a held keypad Enter produced \(recorder.decisions.count) decisions — auto-repeat                 is filing files.
+                """)
+
+        // The honesty control: fresh presses still arrive, so the single decision above is the
+        // phase filter, not the harness dropping events after the first.
+        for _ in 0..<3 { sendKeypadEnter(window) }
+        #expect(recorder.decisions.count == 4, "fresh presses stopped arriving: \(recorder.decisions)")
+    }
+
+    /// The modifier rule for the keypad's Enter: ⌘⏎/⇧⏎ are "open"/"extend" chords whichever
+    /// keycap produced them, and this Enter arrives with `.numericPad` and `.function` already
+    /// set — so the guard has to be `isPlainKeystroke` (⌘⌥⌃⇧ only) and not `modifiers.isEmpty`,
+    /// which would refuse EVERY keypad Enter. Caps Lock is in the volley for the same reason.
+    @Test func aModifiedKeypadEnterDecidesNothing() async {
+        let recorder = Recorder()
+        let (window, _) = host(card(into: recorder))
+        guard await waitForCardFocus(in: window) else { return }
+
+        // Positive control first: the plain keypad Enter really reaches the handler, so the
+        // no-decision readings below measure the modifier filter, not a dead key.
+        sendKeypadEnter(window)
+        #expect(recorder.decisions == [true],
+                "plain keypad Enter never arrived — the readings below are vacuous")
+
+        sendKeypadEnter(window, modifiers: .command)
+        sendKeypadEnter(window, modifiers: .option)
+        sendKeypadEnter(window, modifiers: .control)
+        sendKeypadEnter(window, modifiers: .shift)
+        #expect(recorder.decisions == [true], """
+                a MODIFIED keypad Enter filed a file: \(recorder.decisions). ⌘/⌥/⌃/⇧ + Enter are                 chords, not the plain keystroke the keycap advertises.
+                """)
+
+        // …and Caps Lock, which is a lock and not a chord, must still file.
+        sendKeypadEnter(window, modifiers: .capsLock)
+        #expect(recorder.decisions == [true, true], """
+                keypad Enter with Caps Lock engaged filed nothing: \(recorder.decisions).                 `.capsLock` rides on every event while the lock is engaged.
+                """)
+        #expect(recorder.cancels == 0)
+    }
+
     // MARK: The keys, with the card focused
 
     /// ⏎ files, → skips, esc cancels — through the focus the card acquired for itself.

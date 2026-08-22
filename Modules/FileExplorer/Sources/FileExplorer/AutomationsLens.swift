@@ -623,8 +623,9 @@ struct FilingWalkthroughCard: View {
         // replaced — and esc keeps the same phase rule for uniformity. (Same rule, same reason,
         // as ReviewCardView's ⌫-skip.)
         //
-        // `press.isPlainKeystroke` on all three: the `onKeyPress(keys:phases:)` overload — unlike
-        // the single-key `onKeyPress(_:)` one — delivers MODIFIED presses too, so without the check
+        // `press.isPlainKeystroke` on all three: `onKeyPress` delivers MODIFIED presses to its
+        // handler (the single-key `onKeyPress(_:)` overload does not filter them either — measured
+        // on ReviewCardView, see the ⏎ note there), so without the check
         // ⌘⏎/⇧⏎ filed the current item and ⌥→/⌃→ irreversibly skipped it (measured in
         // FilingWalkthroughCardKeyTests). The keycaps advertise plain keystrokes; a chord is
         // `.ignored` so whoever owns it still sees it.
@@ -646,7 +647,13 @@ struct FilingWalkthroughCard: View {
         // on Full Keyboard Access, Tab to the walkthrough's Cancel button, press ⏎ — nothing may
         // be filed. esc is deliberately NOT gated on `focused`: cancelling from a focused button
         // is harmless and is what esc means there anyway.
-        .onKeyPress(keys: [.return], phases: .down) { press in
+        // BOTH Enter keycaps: a full-size keyboard has two, and `.return` matches only the main
+        // row's. The keypad's Enter is keyCode 76 sending U+0003 (`NSEnterCharacter`), so the set
+        // needs `.keypadEnter` beside `.return` or that keycap files nothing — silently, with the
+        // card's hint row still advertising ⏎. It arrives with `.numericPad` and `.function` set,
+        // which is the second reason the guard is `isPlainKeystroke` and not `modifiers.isEmpty`.
+        // See `KeyEquivalent.keypadEnter` for the measured delivery.
+        .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
             guard press.isPlainKeystroke, focused else { return .ignored }
             onDecision(true)
             return .handled

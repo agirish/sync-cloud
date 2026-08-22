@@ -8,13 +8,24 @@ import Sync
 /// harness as `FilingWalkthroughCardKeyTests` (borrowed in turn from
 /// `DifferencesTableBindingTests`).
 ///
-/// The card's other keys (⏎/␣/esc) use the single-key `onKeyPress(_:)` overload, which matches
-/// unmodified presses only. ⌫ cannot: it needs `phases: .down` so a held ⌫ skips exactly one row,
-/// and the `onKeyPress(keys:phases:)` overload does NOT filter modifiers — so without an explicit
-/// `press.modifiers` check, ⌘⌫ (Finder's "delete immediately", and "delete to start of line" in
-/// text land) and ⌥⌫ (delete word) SKIP the current item, which no back-step can revisit. That is
-/// the same modifier-blindness `FilingWalkthroughCard`'s first `.onKeyPress` cut shipped; this
-/// suite is the donor-file half of that fix.
+/// Covers the two keys that move or drop a row: ⌫-skip and ⏎-primary.
+///
+/// `onKeyPress` does NOT filter modifiers for its handler, on ANY overload — so without an
+/// explicit `press.isPlainKeystroke` check, ⌘⌫ (Finder's "delete immediately", and "delete to
+/// start of line" in text land) and ⌥⌫ (delete word) SKIP the current item, which no back-step
+/// can revisit. That is the same modifier-blindness `FilingWalkthroughCard`'s first `.onKeyPress`
+/// cut shipped; this suite is the donor-file half of that fix.
+///
+/// **The ⏎ tests below were written red, and three separate defects made them so.** The card's ⏎
+/// was the single-key `onKeyPress(.return)` overload, whose doc-comment reputation here (and in
+/// `KeyPress.isPlainKeystroke`'s own doc) was "matches unmodified presses only" — asserted, never
+/// measured. Measured on this harness it: (1) never matched the numeric keypad's Enter at all
+/// (keyCode 76 sends U+0003, not U+000D), (2) ran the primary copy for ⌘⏎ and ⇧⏎, and (3) fired
+/// on key-repeat — a held ⏎ produced FOUR `onPrimary` calls, and `isActing` closes only when the
+/// host's async outcome lands. The handler is now the `keys: [.return, .keypadEnter], phases:
+/// .down` form with the same guard ⌫ carries. Nothing here reads the single-key overload's
+/// behaviour any more; the ␣ and esc handlers still use it and are still unguarded (neither moves
+/// bytes).
 @MainActor
 @Suite(.serialized) struct ReviewCardKeyTests {
 
@@ -86,6 +97,119 @@ import Sync
             windowNumber: window.windowNumber, context: nil,
             characters: "\u{08}", charactersIgnoringModifiers: "\u{08}",
             isARepeat: isARepeat, keyCode: 51)!)
+    }
+
+    private func send(_ window: NSWindow, keyCode: UInt16, characters: String,
+                      modifiers: NSEvent.ModifierFlags = [], isARepeat: Bool = false) {
+        window.sendEvent(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil,
+            characters: characters, charactersIgnoringModifiers: characters,
+            isARepeat: isARepeat, keyCode: keyCode)!)
+    }
+
+    private func sendReturn(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
+                            isARepeat: Bool = false) {
+        send(window, keyCode: 36, characters: "\r", modifiers: modifiers, isARepeat: isARepeat)
+    }
+
+    /// **The keypad's Enter is a different character.** keyCode 76, `NSEnterCharacter` (U+0003),
+    /// never U+000D — and, like the arrows, it always carries `.numericPad` and `.function`.
+    /// Measured on this harness through a probe view: the main row's ⏎ is delivered to
+    /// `onKeyPress` as `KeyEquivalent("\r")` with `press.modifiers` rawValue 0; the keypad's is
+    /// delivered as `KeyEquivalent("\u{3}")` with rawValue 96. A handler keyed on `.return`
+    /// therefore never sees it. Caller modifiers are UNIONED with the intrinsic pair, so
+    /// `.command` here is the ⌘-keypad-Enter AppKit would really deliver.
+    private static let keypadEnterIntrinsicFlags: NSEvent.ModifierFlags = [.numericPad, .function]
+
+    private func sendKeypadEnter(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
+                                 isARepeat: Bool = false) {
+        send(window, keyCode: 76, characters: "\u{3}",
+             modifiers: modifiers.union(Self.keypadEnterIntrinsicFlags), isARepeat: isARepeat)
+    }
+
+    // MARK: ⏎ — both keycaps
+
+    /// **Both Enter keys copy.** The card's hint row advertises ⏎ for the primary action and a
+    /// full-size keyboard has two keycaps that say so; before this, the keypad's did nothing at
+    /// all, silently, on a card whose whole job is one decision per row.
+    @Test func bothEnterKeysRunThePrimaryAction() async throws {
+        let recorder = Recorder()
+        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
+        let (window, _) = host(subject)
+        guard await waitForCardFocus(in: window) else { return }
+
+        sendReturn(window)
+        try #require(recorder.primaries == 1,
+                     "the main row's ⏎ never arrived — the keypad reading below would be vacuous")
+        sendKeypadEnter(window)
+        #expect(recorder.primaries == 2, """
+                the numeric keypad's Enter (keyCode 76, U+0003) ran nothing (primaries: \
+                \(recorder.primaries)). It must copy exactly like the main row's ⏎.
+                """)
+        #expect(recorder.skips == 0)
+        #expect(recorder.exits == 0)
+    }
+
+    /// **A held Enter copies one item, from either keycap.** The primary is a real file copy; the
+    /// `isActing` gate closes only once the host's async outcome lands, so auto-repeat at ~15
+    /// events a second can launch several copies of the same row before it does. `.down`-only is
+    /// what actually prevents that — the same rule ⌫ already carries.
+    @Test func aHeldEnterCopiesExactlyOneItem() async throws {
+        let recorder = Recorder()
+        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
+        let (window, _) = host(subject)
+        guard await waitForCardFocus(in: window) else { return }
+
+        sendReturn(window)
+        for _ in 0..<3 { sendReturn(window, isARepeat: true) }
+        #expect(recorder.primaries == 1,
+                "a held ⏎ produced \(recorder.primaries) copies — auto-repeat is re-copying the row")
+
+        for _ in 0..<3 { sendKeypadEnter(window, isARepeat: true) }
+        #expect(recorder.primaries == 1,
+                "a held keypad Enter produced \(recorder.primaries) copies in total — auto-repeat is re-copying the row")
+
+        // The honesty control: fresh presses of BOTH keycaps still arrive, so the readings above
+        // are the phase filter working rather than the harness dropping events.
+        sendReturn(window)
+        sendKeypadEnter(window)
+        #expect(recorder.primaries == 3, "fresh presses stopped arriving: \(recorder.primaries)")
+    }
+
+    /// **A modified Enter is not the primary action, from either keycap.** ⌘⏎ and ⇧⏎ are
+    /// "open"/"extend" chords all over macOS and ⌥⏎ is "open in a new window" — none is the plain
+    /// keystroke the hint row advertises, and the primary moves real bytes. The guard has to be
+    /// `isPlainKeystroke` (⌘⌥⌃⇧ only): every keypad Enter arrives with `.numericPad` and
+    /// `.function` set, so `modifiers.isEmpty` would refuse the key outright.
+    @Test func aModifiedEnterCopiesNothing() async throws {
+        let recorder = Recorder()
+        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
+        let (window, _) = host(subject)
+        guard await waitForCardFocus(in: window) else { return }
+
+        // Positive control: both plain keycaps really reach the handler.
+        sendReturn(window)
+        sendKeypadEnter(window)
+        try #require(recorder.primaries == 2,
+                     "a plain Enter never arrived — the modified readings below would be vacuous")
+
+        for modifier in [NSEvent.ModifierFlags.command, .option, .control, .shift] {
+            sendReturn(window, modifiers: modifier)
+            sendKeypadEnter(window, modifiers: modifier)
+        }
+        #expect(recorder.primaries == 2, """
+                a MODIFIED Enter ran the primary action (primaries: \(recorder.primaries)).                 ⌘/⌥/⌃/⇧ + ⏎ are chords, and the primary copies a real file.
+                """)
+
+        // Caps Lock is a lock, not a chord: both keycaps must still copy while it is engaged.
+        sendReturn(window, modifiers: .capsLock)
+        sendKeypadEnter(window, modifiers: .capsLock)
+        #expect(recorder.primaries == 4, """
+                Enter with Caps Lock engaged copied nothing (primaries: \(recorder.primaries)).                 `.capsLock` rides on every event while the lock is engaged.
+                """)
+        #expect(recorder.skips == 0)
+        #expect(recorder.exits == 0)
     }
 
     /// **A modified ⌫ is not a skip.** The positive control (plain ⌫ really skips) is what keeps
