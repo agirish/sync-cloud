@@ -44,6 +44,9 @@ public enum SkipReason: Equatable, Sendable {
     /// The destination provider's name rules reject the path (pre-write guard;
     /// writing it would create a local-only file the provider never uploads).
     case nameViolation
+    /// One end of the pair no longer reads as it did when the plan was drawn, so the plan no
+    /// longer describes it (pre-write guard; see the re-check in `runSync`).
+    case changedSincePlan
 }
 
 /// One skipped item: the path, why it was skipped, and — for name-rule skips — the specific
@@ -120,6 +123,17 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
         // to the bare path, described by the heading.
         out.append("Skipped \(nameSkips.count) file(s) (name not allowed by the destination provider):")
         out.append(contentsOf: nameSkips.map { item in
+            "  \(item.relativePath)\(item.detail.map { " — \($0)" } ?? "")"
+        })
+    }
+    // Reported apart from the two above for the same reason they are reported apart from each
+    // other: this one is not a policy decision the user can change with a flag, it is the run
+    // declining to act on a reading that went stale while it waited at the prompt, and the fix
+    // is to run it again rather than to pass something different.
+    let staleSkips = tally.skippedItems.filter { $0.reason == .changedSincePlan }
+    if !staleSkips.isEmpty {
+        out.append("Skipped \(staleSkips.count) file(s) that changed after the plan was shown; re-run sync to see the current plan:")
+        out.append(contentsOf: staleSkips.map { item in
             "  \(item.relativePath)\(item.detail.map { " — \($0)" } ?? "")"
         })
     }

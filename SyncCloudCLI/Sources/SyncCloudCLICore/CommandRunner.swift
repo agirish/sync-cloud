@@ -229,6 +229,24 @@ public struct CommandRunner {
         var diffs = scanResult.diffs
         let (leftURL, rightURL) = (scanResult.leftURL, scanResult.rightURL)
 
+        // Stamp both ends of every planned row NOW, while the scan that produced them is the
+        // current truth, and re-check each one immediately before its own write (below).
+        //
+        // Everything between here and the write is time the plan spends aging: `--verify` hashes
+        // first, and then the [y/N] prompt sits there for however long the user takes. Nothing
+        // looked at the files again in between, so a right-side file rewritten while the prompt
+        // waited was overwritten by the stale left copy the plan had chosen — recoverable from
+        // the Trash, but below the bar the app itself sets, which re-stats both ends before it
+        // writes. The CLI should not be the weaker path onto the same data.
+        //
+        // Taken BEFORE `--verify` rather than after, so an unmoved stamp also certifies the
+        // verification: a pair neither end of which has changed since before it was hashed is
+        // still described by the verdict that hashing produced.
+        let stampFM = env.fileManager
+        let planStamps = Dictionary(uniqueKeysWithValues: diffs.map {
+            ($0.id, FilePairStamp.read($0, fileManager: stampFM))
+        })
+
         if verify {
             printOut("Verifying files with matching sizes...")
             let (kept, verifiedCount) = await DifferenceProcessing.partitionByVerification(diffs) { diff in
@@ -284,6 +302,31 @@ public struct CommandRunner {
                 // "path — reason" inline (the stderr line above scrolls away / can be redirected).
                 tally.recordSkipped(relativePath: diff.relativePath, reason: .nameViolation,
                                     detail: violation.reason)
+                continue
+            }
+
+            // Re-check the plan against the disk, at the point of writing (see `planStamps`).
+            // Both ends, not just the destination: a source rewritten since the plan was drawn
+            // means the bytes about to be copied are not the bytes anything measured, and a
+            // source caught mid-write copies a torn file.
+            //
+            // Per row, not a whole-run abort. On an actively synced cloud folder — which is the
+            // only place this fires — one moving file must not cost the other 499, and a run
+            // that refuses wholesale just meets the next daemon write on the re-run.
+            //
+            // Checked before the collision strategy resolves, so the message names the real
+            // cause: under `--strategy skip` a destination that APPEARED during the prompt would
+            // otherwise be filed as an ordinary collision, which reads as policy rather than as
+            // the plan having gone stale. Under `--strategy keep-both` the write would land on a
+            // uniquified name and overwrite nothing, and it is still refused: the plan the user
+            // approved said this destination was a different file (or no file), and minting a
+            // "name 2" beside something it never saw is not what they approved either.
+            if let side = planStamps[diff.id]?.sideThatChanged(of: diff, fileManager: fm) {
+                let sourceSide: FilePairStamp.Side = diff.action == .copyToRight ? .left : .right
+                let reason = "the \(side == sourceSide ? "source" : "destination") changed after the plan was shown"
+                env.writeErr("Skipping \(diff.relativePath): \(reason). Re-run sync to see the current plan.\n")
+                tally.recordSkipped(relativePath: diff.relativePath, reason: .changedSincePlan,
+                                    detail: reason)
                 continue
             }
 

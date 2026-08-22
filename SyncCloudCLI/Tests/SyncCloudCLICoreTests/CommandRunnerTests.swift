@@ -552,4 +552,141 @@ import Sync
         """)
         #expect(rec.copies.isEmpty)
     }
+
+    // MARK: sync — the plan is re-checked between the prompt and the write
+
+    /// The plan is executed however long the [y/N] prompt sat there, and nothing looked at the
+    /// files again in between. A destination that did not exist when the plan was drawn — the
+    /// row reads "missing on right" — can be created by a cloud daemon while the user reads the
+    /// list, and `--strategy replace` then overwrites a file the plan never mentioned.
+    ///
+    /// The mutation is a real write performed from inside the prompt closure, which is exactly
+    /// where the window is.
+    @Test func syncSkipsARowWhoseDestinationAppearedWhileThePromptWaited() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        try write(left.appendingPathComponent("a.txt"), "from-left")
+
+        let rec = Recorder()
+        let arrival = right.appendingPathComponent("a.txt")
+        let runner = makeRunner(rec, readLine: {
+            try? Data("landed-while-you-read".utf8).write(to: arrival)
+            return "y"
+        })
+        try await runner.runSync(left: left.path, right: right.path,
+                                 direction: .auto, showHidden: false, ignore: [],
+                                 strategy: .replace, yes: false, failFast: false, verify: false)
+
+        #expect(rec.copies.isEmpty, "the plan said this destination was empty; it is not any more")
+        #expect(try Data(contentsOf: arrival) == Data("landed-while-you-read".utf8))
+        #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
+    }
+
+    /// The case a re-scan alone cannot see. Left is newer than right, so the row is
+    /// "left is newer → copy right"; the destination is then rewritten with DIFFERENT bytes at a
+    /// timestamp that is still older than left's, so a fresh scan produces a row of exactly the
+    /// same shape — same type, same action, same two sizes — and the stale left copy would go
+    /// straight over the new bytes.
+    @Test func syncSkipsARowWhoseDestinationWasRewrittenUnderTheSamePlanShape() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        try write(left.appendingPathComponent("a.txt"), "LLLLLLLLL", mtime: base.addingTimeInterval(100))
+        let target = right.appendingPathComponent("a.txt")
+        try write(target, "rrrrrrrrr", mtime: base)
+
+        let rec = Recorder()
+        let runner = makeRunner(rec, readLine: {
+            // Same length, and still older than left: the row's type, action and both sizes are
+            // unchanged, so only a reading of the file itself can tell.
+            try? write(target, "NNNNNNNNN", mtime: base.addingTimeInterval(50))
+            return "y"
+        })
+        try await runner.runSync(left: left.path, right: right.path,
+                                 direction: .auto, showHidden: false, ignore: [],
+                                 strategy: .replace, yes: false, failFast: false, verify: false)
+
+        #expect(rec.copies.isEmpty, "the destination is no longer the file the plan measured")
+        #expect(try Data(contentsOf: target) == Data("NNNNNNNNN".utf8))
+        #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
+    }
+
+    /// The other end. A source rewritten while the prompt waited means the bytes about to be
+    /// copied are not the bytes the plan (and `--verify`, which runs BEFORE the prompt) was
+    /// drawn from — and a source caught mid-write copies a torn file.
+    @Test func syncSkipsARowWhoseSourceChangedWhileThePromptWaited() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        let source = left.appendingPathComponent("a.txt")
+        try write(source, "planned")
+
+        let rec = Recorder()
+        let runner = makeRunner(rec, readLine: {
+            try? Data("rewritten-while-you-read".utf8).write(to: source)
+            return "y"
+        })
+        try await runner.runSync(left: left.path, right: right.path,
+                                 direction: .auto, showHidden: false, ignore: [],
+                                 strategy: .replace, yes: false, failFast: false, verify: false)
+
+        #expect(rec.copies.isEmpty, "these are not the bytes the plan described")
+        #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
+    }
+
+    /// The re-check is per row, not a whole-run abort, and it names the file. On an actively
+    /// synced cloud folder a single moving file must not cost the other 499 — that is a livelock,
+    /// since the next run meets the next daemon write.
+    @Test func syncCopiesTheUntouchedRowsAndNamesTheOneItSkipped() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        // The stale row sorts FIRST on purpose. With it last, a run that abandoned the whole
+        // plan on the first stale row would produce exactly the same copies as one that skipped
+        // just that row, and this test would be blind to the difference.
+        try write(left.appendingPathComponent("a-moved.txt"), "two")
+        try write(left.appendingPathComponent("b-keep.txt"), "one")
+        try write(left.appendingPathComponent("c-keep.txt"), "three")
+
+        let rec = Recorder()
+        let arrival = right.appendingPathComponent("a-moved.txt")
+        let runner = makeRunner(rec, readLine: {
+            try? Data("arrived".utf8).write(to: arrival)
+            return "y"
+        })
+        try await runner.runSync(left: left.path, right: right.path,
+                                 direction: .auto, showHidden: false, ignore: [],
+                                 strategy: .replace, yes: false, failFast: false, verify: false)
+
+        #expect(rec.copies.map(\.source.lastPathComponent).sorted() == ["b-keep.txt", "c-keep.txt"],
+                "the rows after the stale one must still be copied")
+        #expect(rec.out.contains("Sync complete. Copied: 2, Skipped: 1, Failed: 0."), "\(rec.out)")
+        // The summary section itself, not merely the name — the "Planned operations" listing at
+        // the top of the run prints every path, so a `contains` on the name alone says nothing
+        // about whether the run explained the skip at the end.
+        #expect(rec.out.contains("""
+        Skipped 1 file(s) that changed after the plan was shown; re-run sync to see the current plan:
+          a-moved.txt — the destination changed after the plan was shown
+        """), "\(rec.out)")
+        #expect(rec.err.contains(
+            "Skipping a-moved.txt: the destination changed after the plan was shown. "
+            + "Re-run sync to see the current plan.\n"), "\(rec.err)")
+    }
+
+    /// The control the four above need: with nothing touched during the prompt, every planned
+    /// row still copies. Without it they would pass just as well against a re-check that refuses
+    /// everything.
+    @Test func syncCopiesEverythingWhenNothingMovedDuringThePrompt() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        try write(left.appendingPathComponent("a.txt"), "one")
+        try write(left.appendingPathComponent("b.txt"), "two")
+
+        let rec = Recorder()
+        try await makeRunner(rec, readLine: { "y" }).runSync(
+            left: left.path, right: right.path,
+            direction: .auto, showHidden: false, ignore: [],
+            strategy: .replace, yes: false, failFast: false, verify: false)
+
+        #expect(rec.copies.count == 2)
+        #expect(rec.out.contains("Sync complete. Copied: 2, Skipped: 0, Failed: 0."), "\(rec.out)")
+    }
 }
