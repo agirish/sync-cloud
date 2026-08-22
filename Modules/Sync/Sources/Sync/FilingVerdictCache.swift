@@ -277,7 +277,15 @@ extension FilingVerdictCache: Codable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let schema = try container.decode(Int.self, forKey: .schema)
-        guard schema == Self.currentSchema else { self.init(); return }
+        // **A schema this build does not know is not an empty cache.** Answering one made
+        // `FilingVerdictStore.load`'s decode guard never fire: nothing was armed, nothing was set
+        // aside, and the next `save` wrote emptiness straight over a NEWER build's file. Measured
+        // before this threw — `bytes intact after save = false`, `set-asides = []`, over what this
+        // store's own doc calls ~10MB of paid answers. Thrown so the store can tell the case apart
+        // and refuse; see `FilingVerdictStore.foreignSchema(at:)`.
+        guard schema == Self.currentSchema else {
+            throw ForeignSchema(found: schema, expected: Self.currentSchema)
+        }
         let list = try container.decode([FilingVerdictCacheEntry].self, forKey: .entries)
         // Last write wins on a duplicate key — impossible from `record`, but a hand-edited or
         // concatenated file should not throw when simply keeping one of them is well defined.
@@ -290,6 +298,12 @@ extension FilingVerdictCache: Codable {
         try container.encode(Self.currentSchema, forKey: .schema)
         try container.encode(entries.values.sorted { $0.cachedAt < $1.cachedAt }, forKey: .entries)
     }
+}
+
+/// Thrown by ``FilingVerdictCache/init(from:)`` for a file this build's decoder cannot claim.
+struct ForeignSchema: Error {
+    let found: Int
+    let expected: Int
 }
 
 // MARK: - Store
@@ -336,12 +350,48 @@ public enum FilingVerdictStore {
             }
             return FilingVerdictCache()
         }
-        guard let cache = try? JSONDecoder().decode(FilingVerdictCache.self, from: data) else {
+        do {
+            return try JSONDecoder().decode(FilingVerdictCache.self, from: data)
+        } catch let foreign as ForeignSchema {
+            // **A newer build's cache is good data, and it is NOT an unreadable episode.** Routing
+            // it through the set-aside is what `StorageLensStore` used to do, and a foreign schema
+            // repeats: this build would move the newer file and write its own, the newer build
+            // would move THAT and write its own, and every launch of the ping-pong mints another
+            // dated file — ~12 MB apiece at the entry cap — that nothing anywhere sweeps. It is
+            // its own case: the file stays exactly where it is, this launch works from memory, and
+            // `save` refuses.
+            markForeignSchema(url, foreign)
+            Logger.shared.error("The Filing verdict cache at \(url.lastPathComponent) was written "
+                                + "by a newer SyncCloud (schema \(foreign.found), this build reads "
+                                + "\(foreign.expected)). It is left exactly as it is and nothing is "
+                                + "cached to disk this launch — every scan re-asks (and, on the "
+                                + "paid tier, pays) until you run the newer build again or move "
+                                + "the file aside by hand.")
+            return FilingVerdictCache()
+        } catch {
             arm(url, why: "could not be decoded")
             _ = setAsideUnreadable(url, fileManager: fileManager, next: loadWritesNothing)
             return FilingVerdictCache()
         }
-        return cache
+    }
+
+    /// Paths holding a file written under a schema this build does not know.
+    ///
+    /// Kept beside ``armedPaths`` and for the same reason: the thing being protected is a FILE and
+    /// the store is reached through static calls from two places. Distinct from the armed guard
+    /// because the remedy is different — an armed path is retried until the rescue lands, and this
+    /// one is never retried at all. Nothing clears it within a launch: the file cannot become
+    /// readable to this build, and `load` re-marks it on the next launch.
+    nonisolated(unsafe) private static var foreignSchemaPaths: Set<String> = []
+
+    private static func markForeignSchema(_ url: URL, _ foreign: ForeignSchema) {
+        armedLock.lock(); defer { armedLock.unlock() }
+        foreignSchemaPaths.insert(url.path)
+    }
+
+    private static func isForeignSchema(_ url: URL) -> Bool {
+        armedLock.lock(); defer { armedLock.unlock() }
+        return foreignSchemaPaths.contains(url.path)
     }
 
     /// Moves the unreadable cache aside so no queued snapshot write can land on the paid verdicts.
@@ -492,6 +542,10 @@ public enum FilingVerdictStore {
         // moves the user's bytes and never this build's. The cost is the honest state — the error
         // line repeats once per save while the move keeps failing, and this launch's verdicts live
         // in memory (`FileSyncManager` holds the authoritative copy) until it stops.
+        // A newer build's file is never written over and never moved — see `load`. Silent here
+        // because `load` already said it, once, with the remedy; repeating it per save would be
+        // the same line at every scan for the rest of the launch.
+        guard !isForeignSchema(url) else { return false }
         if reasonArmed(url) != nil,
            !setAsideUnreadable(url, fileManager: fileManager,
                                next: "A fresh cache is written beside it.") {

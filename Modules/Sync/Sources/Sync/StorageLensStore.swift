@@ -66,15 +66,30 @@ public enum StorageLensStore {
     /// `FilingProfileStore.indexForAmending` is the sibling that gets this right: it refuses to
     /// amend what it could not read.
     ///
-    /// A schema this build does not know is treated as unreadable rather than as empty, and that
-    /// is the sharper half: a NEWER build's file is perfectly good data, and overwriting it is not
-    /// a recovery.
+    /// A schema this build does not know is neither empty nor unreadable, and that is the sharper
+    /// half: a NEWER build's file is perfectly good data, and overwriting it is not a recovery.
+    ///
+    /// **It is its own case, and not an "unreadable episode", because it REPEATS.** Corruption
+    /// and permission failures are self-clearing — the set-aside frees the path, the next launch
+    /// writes a fresh readable file, and that episode is over. A foreign schema is the steady
+    /// state of an old/new build ping-pong: this build sets the newer file aside and writes its
+    /// own, the newer build finds a schema IT does not know and does the same, and every launch
+    /// mints another dated file that nothing anywhere sweeps. Measured: five rounds, five
+    /// set-asides. For ``FilingVerdictStore`` each one is ~12 MB.
+    ///
+    /// So the file is left exactly where it is, this build works from memory, and the write is
+    /// refused. That costs an old build its persistence until the user moves the file — which the
+    /// log says — and it is the cheaper half of the trade against a directory that grows without
+    /// bound to protect a file that was never in danger.
     enum Read {
         /// No file. Nothing to lose, and a scan writes the first one.
         case absent
         /// A file that could not be opened at all (mode 000, an ACL, an I/O error, a dangling
-        /// symlink), one that could not be decoded, or one written under another schema.
+        /// symlink), or one that could not be decoded. Set aside before anything is written.
         case unreadable
+        /// A file written under a schema this build does not know — good data it cannot read.
+        /// Never moved, never overwritten, and no write proceeds past it.
+        case foreignSchema(Int)
         case loaded([StorageLensSnapshot])
     }
 
@@ -100,7 +115,7 @@ public enum StorageLensStore {
             return .absent
         }
         guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return .unreadable }
-        guard payload.schema == currentSchema else { return .unreadable }
+        guard payload.schema == currentSchema else { return .foreignSchema(payload.schema) }
         return .loaded(payload.snapshots.sorted { $0.completedAt > $1.completedAt })
     }
 
@@ -110,6 +125,15 @@ public enum StorageLensStore {
     public static func load(from url: URL, fileManager: FileManager = .default) -> [StorageLensSnapshot] {
         if case .loaded(let snapshots) = read(from: url, fileManager: fileManager) { return snapshots }
         return []
+    }
+
+    /// Says a newer build's file is in the way, once per call, naming what to do about it.
+    private static func refuseForeignSchema(_ url: URL, _ schema: Int, action: String) {
+        Logger.shared.error("Storage snapshots at \(url.lastPathComponent) were written by a newer "
+                            + "SyncCloud (schema \(schema), this build reads \(currentSchema)) — "
+                            + "\(action). The file is good data this build cannot read, so it is "
+                            + "left exactly as it is rather than replaced; move it aside by hand "
+                            + "to start fresh on this build.")
     }
 
     /// Moves an unreadable file aside so a fresh one can be written without destroying it, and
@@ -173,6 +197,10 @@ public enum StorageLensStore {
             switch read(from: url, fileManager: fileManager) {
             case .loaded(let snapshots): existing = snapshots
             case .absent: existing = []
+            case .foreignSchema(let schema):
+                // Not an episode — see `Read`. Nothing is moved and nothing is written.
+                refuseForeignSchema(url, schema, action: "this analysis was not saved")
+                return
             case .unreadable:
                 // The file is kept and a fresh one is written beside it. Merging into `[]` without
                 // this is what silently replaced eleven roots with one.
@@ -202,6 +230,10 @@ public enum StorageLensStore {
             switch read(from: url, fileManager: fileManager) {
             case .absent:
                 return                                    // nothing to forget
+            case .foreignSchema(let schema):
+                refuseForeignSchema(url, schema,
+                                    action: "“Forget this root” could not be applied")
+                return
             case .unreadable:
                 // Kept rather than deleted, and the request is refused rather than applied to a
                 // list this build cannot see.

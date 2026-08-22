@@ -651,6 +651,32 @@ import Events
         #expect(third != first && third != second)
     }
 
+    /// **The disambiguator must terminate whatever the probe answers.**
+    ///
+    /// The loop asks `attributesOfItem` for candidate after candidate until one comes back absent.
+    /// A manager that never says absent is an infinite loop — measured: a test double answering
+    /// "present" for every path spun the test host at 100% CPU for ten minutes before it was
+    /// killed. Real filesystems terminate it; nothing in the loop did.
+    ///
+    /// Bounded rather than made to give up, because a set-aside that returns no destination means
+    /// the caller refuses its write, and refusing every write on the strength of a stat that keeps
+    /// answering "yes" would be the worse failure of the two.
+    @Test func theDisambiguatorTerminatesAgainstAProbeThatNeverSaysAbsent() throws {
+        final class AlwaysPresent: FileManager, @unchecked Sendable {
+            override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+                [.size: NSNumber(value: 0)]
+            }
+        }
+        let url = URL(fileURLWithPath: "/tmp/never-absent/person-tags.json")
+        let now = Date(timeIntervalSince1970: 1_766_000_000)
+
+        // No `waitUntil` here: the failure this pins is a hang, so the assertion is that control
+        // comes back at all. A bounded loop returns in microseconds.
+        let dest = UnreadableSetAside.destination(for: url, at: now, fileManager: AlwaysPresent())
+        #expect(dest != url, "the set-aside would land on the file it is rescuing")
+        #expect(dest.lastPathComponent.hasPrefix("person-tags.json.unreadable-"))
+    }
+
     /// **A second unreadable episode must not destroy the only copy of the first episode's
     /// rescue.** Episode 1 sets the original aside and never re-ingests it — the set-aside IS the
     /// only copy of those verdicts. Under a single-slot kept name, episode 2's collision handling

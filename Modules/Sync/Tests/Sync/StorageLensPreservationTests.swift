@@ -48,6 +48,9 @@ import Testing
 
     /// **The sharper half: a file from a NEWER build is good data, not corruption.** A schema this
     /// build does not know used to read as empty and be overwritten.
+    ///
+    /// It is now kept **where it is** rather than kept aside — see
+    /// `aForeignSchemaIsNotAnUnreadableEpisode` for why the difference matters.
     @Test func aForeignSchemaIsKeptRatherThanOverwritten() throws {
         let url = try storeURL("schema")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -57,9 +60,59 @@ import Testing
         StorageLensStore.saveInBackground(snapshot("/b"), to: url)
         StorageLensStore.waitForPendingWrites()
 
-        let kept = try #require(setAsidesBeside(url).first, "no set-aside was written")
-        #expect(FileManager.default.contents(atPath: kept.path) == future,
+        #expect(FileManager.default.contents(atPath: url.path) == future,
                 "a newer build's file was overwritten")
+    }
+
+    /// **A newer build's file is not an "episode" — it is the steady state, and it repeats.**
+    ///
+    /// Corruption and permission failures are self-clearing: the set-aside frees the path, the
+    /// next launch writes a fresh readable file, and that episode is over. A foreign schema is
+    /// not. This build sets the newer file aside and writes its own; the newer build then finds
+    /// a schema IT does not know, sets that aside, and writes its own — so an old/new ping-pong
+    /// mints another dated set-aside on every single launch, forever, and nothing anywhere
+    /// sweeps them. For `FilingVerdictCache` each one is ~12 MB.
+    ///
+    /// So the foreign schema stops being routed through the unreadable machinery altogether. The
+    /// file is left exactly where it is, this build works from memory, and the write is refused.
+    /// Recovery is the user's to make and is said in the log — the alternative was a directory
+    /// that grows without bound to protect a file that was never in danger.
+    @Test func aForeignSchemaIsNotAnUnreadableEpisode() throws {
+        let url = try storeURL("pingpong")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let future = Data("{\"schema\":99,\"snapshots\":[]}".utf8)
+        try future.write(to: url)
+
+        // Five rounds of the ping-pong: the newer build writes its file, then this build runs.
+        for _ in 0..<5 {
+            try future.write(to: url)
+            StorageLensStore.saveInBackground(snapshot("/b"), to: url)
+            StorageLensStore.waitForPendingWrites()
+        }
+
+        #expect(setAsidesBeside(url).isEmpty,
+                """
+                \(setAsidesBeside(url).count) set-aside(s) after five rounds of an old/new \
+                build ping-pong, and nothing anywhere sweeps them
+                """)
+        #expect(FileManager.default.contents(atPath: url.path) == future,
+                "the newer build's file did not survive")
+    }
+
+    /// The other direction, so the case above cannot become "nothing is ever set aside": genuinely
+    /// unreadable bytes still are, and exactly once — the path is free afterwards, so the next
+    /// launch writes a fresh file and there is no second episode to mint a second name.
+    @Test func aGenuinelyUnreadableFileIsStillSetAsideAndOnlyOnce() throws {
+        let url = try storeURL("oneepisode")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try Data("{ truncated".utf8).write(to: url)
+
+        for _ in 0..<5 {
+            StorageLensStore.saveInBackground(snapshot("/b"), to: url)
+            StorageLensStore.waitForPendingWrites()
+        }
+        #expect(setAsidesBeside(url).count == 1,
+                "one corruption episode minted \(setAsidesBeside(url).count) set-asides")
     }
 
     /// **The read layer has the same two states as the parse layer, and it lost them** — in the

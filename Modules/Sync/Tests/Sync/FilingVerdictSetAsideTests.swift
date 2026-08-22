@@ -306,3 +306,72 @@ import Testing
                 "the save stopped saying that a fresh cache was written beside the kept file")
     }
 }
+
+// MARK: - A newer build's cache
+
+/// **A `filing-verdicts.json` written by a NEWER build is good data, and this build destroyed it
+/// silently.**
+///
+/// `FilingVerdictCache.init(from:)` answers an EMPTY cache for a schema it does not know rather
+/// than throwing, so `load`'s decode guard never fired: nothing was armed, nothing was set aside,
+/// and the next `save` wrote an empty cache straight over the file. Measured on this branch before
+/// the fix — `bytes intact after save = false`, `set-asides = []` — over what the store's own doc
+/// calls "~10MB of PAID answers".
+///
+/// The fix is NOT to route it through the set-aside machinery. That is what `StorageLensStore` did,
+/// and a foreign schema is not an episode: it repeats every launch of an old/new ping-pong, each
+/// round minting another ~12 MB dated file that nothing sweeps. It is its own case — the file
+/// stays exactly where it is, this launch works from memory, and the write is refused.
+@Suite struct FilingVerdictForeignSchemaTests {
+
+    private func cacheURL(_ name: String) throws -> URL {
+        let dir = try makeCanonicalTempRoot(prefix: "VerdictSchema-\(name)")
+        return dir.appendingPathComponent("filing-verdicts.json")
+    }
+
+    private var future: Data { Data(#"{"schema":99,"entries":[]}"#.utf8) }
+
+    @Test func aNewerBuildsCacheIsNotOverwritten() throws {
+        let url = try cacheURL("overwrite")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try future.write(to: url)
+
+        #expect(FilingVerdictStore.load(from: url).count == 0,
+                "fixture: this build cannot read a newer schema, and must not pretend to")
+        #expect(FilingVerdictStore.save(FilingVerdictCache(), to: url) == false,
+                "the save was allowed to proceed over a newer build's paid verdicts")
+        #expect(FileManager.default.contents(atPath: url.path) == future,
+                "a newer build's ~12 MB of paid answers were overwritten")
+    }
+
+    /// And it is not treated as an unreadable episode either, so a ping-pong between two builds
+    /// cannot mint a ~12 MB dated file on every launch with nothing to sweep them.
+    @Test func aNewerBuildsCacheMintsNoSetAsides() throws {
+        let url = try cacheURL("pingpong")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        for _ in 0..<5 {
+            try future.write(to: url)
+            _ = FilingVerdictStore.load(from: url)
+            _ = FilingVerdictStore.save(FilingVerdictCache(), to: url)
+        }
+        #expect(setAsidesBeside(url).isEmpty,
+                """
+                \(setAsidesBeside(url).count) set-aside(s) after five rounds of an old/new build \
+                ping-pong — at the entry cap that is ~12 MB apiece, and nothing sweeps them
+                """)
+    }
+
+    /// The other direction: bytes that are genuinely unreadable are still rescued, and the store
+    /// still refuses to write until the rescue lands.
+    @Test func corruptBytesAreStillRescued() throws {
+        let url = try cacheURL("corrupt")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let corrupt = Data("{ half a 12MB write".utf8)
+        try corrupt.write(to: url)
+
+        #expect(FilingVerdictStore.load(from: url).count == 0)
+        let kept = try #require(setAsidesBeside(url).first, "corrupt bytes stopped being rescued")
+        #expect(FileManager.default.contents(atPath: kept.path) == corrupt)
+    }
+}
