@@ -192,7 +192,7 @@ extension FileSyncManager {
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<ItemIdentity, Never>], alreadyThere: Int) in
+        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int) in
             guard self != nil else { return ([], [], [], 0) }
             // One stat, before any I/O: a missing destination root fails the whole operation
             // rather than being recreated by the per-item intermediate-directory pass below.
@@ -215,7 +215,7 @@ extension FileSyncManager {
             // ⌘Z would then read `.unchanged` and trash the edit. Per-item, the edit postdates
             // the recording and reads as drift, which refuses. Registration below stays
             // synchronous and merely awaits these.
-            var identityWalks: [Task<ItemIdentity, Never>] = []
+            var identityWalks: [Task<CopyIdentityReading, Never>] = []
             // Earlier copies' walk indices by aggressively folded destination path (precomposed
             // + lowercased), for the duplicate-destination restart below. Aggressive on purpose:
             // it only NOMINATES candidates — the volume-gated check at the hit decides.

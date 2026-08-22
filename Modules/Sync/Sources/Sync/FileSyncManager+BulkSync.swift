@@ -236,7 +236,7 @@ extension FileSyncManager {
         completedBase: Int = 0,
         fileManager: FileManaging,
         reportCompleted: @escaping @MainActor @Sendable (Int) -> Void
-    ) async -> (successes: [(FileDifference, (URL?, URL, URL), Task<ItemIdentity, Never>?)], failures: [(FileDifference, Error)]) {
+    ) async -> (successes: [(FileDifference, (URL?, URL, URL), Task<FileSyncManager.CopyIdentityReading, Never>?)], failures: [(FileDifference, Error)]) {
         let collector = BulkSyncResultsCollector()
         await processInParallel(
             items: workList,
@@ -647,15 +647,15 @@ private actor CompletedCounter {
 }
 
 private actor BulkSyncResultsCollector {
-    private var successes: [(FileDifference, (URL?, URL, URL), Task<ItemIdentity, Never>?)] = []
+    private var successes: [(FileDifference, (URL?, URL, URL), Task<FileSyncManager.CopyIdentityReading, Never>?)] = []
     private var failures: [(FileDifference, Error)] = []
-    func addSuccess(_ diff: FileDifference, _ result: (URL?, URL, URL), _ identityWalk: Task<ItemIdentity, Never>?) {
+    func addSuccess(_ diff: FileDifference, _ result: (URL?, URL, URL), _ identityWalk: Task<FileSyncManager.CopyIdentityReading, Never>?) {
         successes.append((diff, result, identityWalk))
     }
     func addFailure(_ diff: FileDifference, _ error: Error) {
         failures.append((diff, error))
     }
-    func get() -> (successes: [(FileDifference, (URL?, URL, URL), Task<ItemIdentity, Never>?)], failures: [(FileDifference, Error)]) {
+    func get() -> (successes: [(FileDifference, (URL?, URL, URL), Task<FileSyncManager.CopyIdentityReading, Never>?)], failures: [(FileDifference, Error)]) {
         (successes, failures)
     }
 }

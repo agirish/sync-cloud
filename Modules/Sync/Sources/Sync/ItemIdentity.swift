@@ -147,7 +147,8 @@ public extension ItemIdentity {
     /// answers `.indeterminate` even when it sits inside an ignored subtree — recorded at
     /// registration, that is a permanent refusal for that item. Refusal is the safe direction,
     /// and it is stated here rather than silent (and, since the failing descendant is knowable,
-    /// logged at registration — see `FileSyncManager.recordedCopyIdentity`).
+    /// carried out of the walk and reported once per batch at registration — see
+    /// `FileSyncManager.logIndeterminateRegistrations`).
     ///
     /// **The digest is a function of the tree, not of the walk.** APFS promises no enumeration
     /// order, so the lines are sorted by the UTF-8 bytes of the relative path's precomposed form
@@ -176,7 +177,21 @@ public extension ItemIdentity {
     }
 
     /// The names `deepSnapshot` leaves out of a tree's identity — genuine OS noise only:
-    /// Finder's `.DS_Store` and `.localized`, Windows' `Thumbs.db`, the volume-root `.Trashes`.
+    /// Finder's `.DS_Store` and `.localized`, Windows' `Thumbs.db`, and `.Trashes`.
+    ///
+    /// **The filter is by COMPONENT NAME at any depth, not by position**, and `.Trashes` is the
+    /// entry where that distinction is visible, so it is stated rather than left to be discovered:
+    /// a user directory called `.Trashes` inside a copied tree is invisible to the digest, and an
+    /// edit inside it would not refuse a ⌘Z. That is accepted, and it is the same trade the other
+    /// three names take. These are all names the OS writes to on its OWN schedule — Finder
+    /// touches `.DS_Store` when a window is merely opened, and the system writes into a volume's
+    /// `.Trashes` whenever anything is deleted on it. Digesting them would not buy safety; it
+    /// would manufacture drift, and drift at this walk means a refused ⌘Z. A `.Trashes` really can
+    /// sit at depth inside a walked item — copy a mounted volume's root folder and it lands at
+    /// depth 1 of the copy — so pinning the skip to the volume root would not be equivalent, and
+    /// nothing distinguishes that one from a user's directory of the same name by name or by
+    /// depth. This doc used to say "the volume-root `.Trashes`", which described a filter the code
+    /// has never had.
     ///
     /// Deliberately its OWN set, NOT `DuplicateFinderOptions.defaultIgnoredNames`, which also
     /// skips `.git`, `.build` and `node_modules`. The two sets answer different questions. The
@@ -200,8 +215,9 @@ public extension ItemIdentity {
     /// where one can be named. A partial listing names its first unreadable descendant (the
     /// `unreadableDescendants` array this walk used to discard); a child that vanished or lost
     /// its size between list and stat names itself; a root that could not be read at all has no
-    /// child to name (nil). Callers that RECORD the identity log this detail at registration
-    /// time (`FileSyncManager.recordedCopyIdentity`), because a registration-time
+    /// child to name (nil). Callers that RECORD the identity carry this detail out with it and
+    /// report it once per batch at registration time
+    /// (`FileSyncManager.logIndeterminateRegistrations`), because a registration-time
     /// `.indeterminate` is a permanent refusal the user otherwise first hears about from a ⌘Z
     /// banner hours later that cannot say why.
     static func deepSnapshotDetailingFailure(

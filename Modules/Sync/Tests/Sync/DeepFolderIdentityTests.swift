@@ -731,6 +731,46 @@ import Testing
         #expect(entry?.message.contains("\(root)/project/src/deep") == true,
                 "the failing descendant is known (the listing reports it) and must be named; got \(String(describing: entry?.message))")
     }
+
+    /// …and a BATCH of them says it ONCE.
+    ///
+    /// `Logger.shared.entries` keeps the last 1000, so a registration over an unreadable tree —
+    /// one permissions problem, one unmounted network volume, one provider that stopped answering
+    /// — used to emit a warning per item and push the context that would explain the cause out of
+    /// the buffer. Same report shape as `SyncHistoryStore.appendBatch`'s dropped records: count
+    /// them, name the first.
+    ///
+    /// The per-run UUID in the paths is what keeps this honest against a process-global logger,
+    /// per the `LoggingGapTests` discipline: nothing but this run can match, so a count of the
+    /// matching lines is a count of THIS batch's lines.
+    @MainActor
+    @Test func aBatchOfUnreadableRegistrationsLogsOneLineNamingTheFirstAndTheCount() async throws {
+        let manager = makeManager()
+        let fm = MockFileManager()
+        let root = "/logbatch-\(UUID().uuidString)"
+        var items: [(source: URL, destination: URL, overwritten: URL?)] = []
+        for i in 0..<6 {
+            try plantDeepSource(on: fm, under: "\(root)/item\(i)")
+            fm.unlistableDirectories.insert("\(root)/item\(i)/project/src/deep")
+            items.append((source: URL(fileURLWithPath: "\(root)/item\(i)-src/project"),
+                          destination: URL(fileURLWithPath: "\(root)/item\(i)/project"),
+                          overwritten: nil))
+        }
+
+        await manager.registerCopyUndo(items: items, actionName: "Copy 6 Items", fileManager: fm).value
+        await Logger.shared.debug("deep-identity batch log flush \(root)").value
+
+        let mine = Logger.shared.entries.filter { $0.level == .warning && $0.message.contains(root) }
+        #expect(mine.count == 1,
+                "6 unreadable registrations left \(mine.count) warning(s) — one per item crowds the 1000-entry buffer that holds the context explaining WHY they were unreadable: \(mine.map(\.message))")
+        let line = mine.first?.message ?? ""
+        #expect(line.contains("6 of 6"),
+                "the one line must say how many of how many: “\(line)”")
+        #expect(line.contains("\(root)/item0/project"),
+                "the one line must name the first offender: “\(line)”")
+        #expect(line.contains("\(root)/item0/project/src/deep"),
+                "the one line must still name the failing descendant — that is the whole diagnostic value: “\(line)”")
+    }
 }
 
 /// Parks the walk's FIRST `attributesOfItem` — the opening stat of `deepSnapshot` — so a test

@@ -32,7 +32,13 @@ extension FileSyncManager {
     /// the main actor per item) and on slow-volume I/O, so a post-batch walk would record an edit
     /// the user made during that tail as the copy's baseline — and a later ⌘Z would trash it as
     /// `.unchanged`. See `registerCopyUndo(pendingItems:)`.
-    typealias PendingCopyItemState = (source: URL, destination: URL, overwritten: URL?, identity: Task<ItemIdentity, Never>)
+    typealias PendingCopyItemState = (source: URL, destination: URL, overwritten: URL?, identity: Task<CopyIdentityReading, Never>)
+    /// What one registration-time identity read yields: the identity itself, plus — when it came
+    /// back `.indeterminate` — the descendant that made it so. The second half exists only to be
+    /// REPORTED: it is what makes an eventual permanent ⌘Z refusal diagnosable. It rides along
+    /// rather than being logged where it is read so that a batch can say it once instead of once
+    /// per item; see `logIndeterminateRegistrations`.
+    typealias CopyIdentityReading = (identity: ItemIdentity, unreadableDescendant: URL?)
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
     /// `MoveItemState` enriched with the identity the moved item had once the move completed, so
     /// the undo can verify that what sits at `to` now is still what it put there.
@@ -593,10 +599,18 @@ extension FileSyncManager {
         // from the registration, which is the first half of the ordering guarantee above.
         registerCopyUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
         return Task.detached(priority: .userInitiated) {
-            let enriched: [CopyUndoItemState] = items.map { item in
-                (source: item.source, destination: item.destination, overwritten: item.overwritten,
-                 destinationIdentity: FileSyncManager.recordedCopyIdentity(at: item.destination, fileManager: fm))
+            var enriched: [CopyUndoItemState] = []
+            enriched.reserveCapacity(items.count)
+            var unreadable: [(destination: URL, child: URL?)] = []
+            for item in items {
+                let read = FileSyncManager.recordedCopyIdentity(at: item.destination, fileManager: fm)
+                if read.identity == .indeterminate {
+                    unreadable.append((item.destination, read.unreadableDescendant))
+                }
+                enriched.append((source: item.source, destination: item.destination,
+                                 overwritten: item.overwritten, destinationIdentity: read.identity))
             }
+            FileSyncManager.logIndeterminateRegistrations(unreadable, of: items.count, actionName: actionName)
             await resolver.resolve(enriched)
         }
     }
@@ -615,11 +629,17 @@ extension FileSyncManager {
         return Task.detached(priority: .userInitiated) {
             var enriched: [CopyUndoItemState] = []
             enriched.reserveCapacity(pendingItems.count)
+            var unreadable: [(destination: URL, child: URL?)] = []
             for item in pendingItems {
+                let read = await item.identity.value
+                if read.identity == .indeterminate {
+                    unreadable.append((item.destination, read.unreadableDescendant))
+                }
                 enriched.append((source: item.source, destination: item.destination,
                                  overwritten: item.overwritten,
-                                 destinationIdentity: await item.identity.value))
+                                 destinationIdentity: read.identity))
             }
+            FileSyncManager.logIndeterminateRegistrations(unreadable, of: pendingItems.count, actionName: actionName)
             await resolver.resolve(enriched)
         }
     }
@@ -630,7 +650,37 @@ extension FileSyncManager {
     /// on a user prompt or hours of I/O; an edit the user makes during that tail reads as drift
     /// (⌘Z refuses) instead of being recorded as the copy's baseline. The task feeds
     /// `registerCopyUndo(pendingItems:)`.
-    nonisolated static func startCopyIdentityWalk(at destination: URL, fileManager fm: FileManaging) -> Task<ItemIdentity, Never> {
+    ///
+    /// **Deliberately UNBOUNDED, against the `processInParallel(concurrency: min(4, …))` this
+    /// codebase uses everywhere else it fans out — measured, not assumed.** A 5,000-file bulk sync
+    /// spawns 5,000 of these, each doing blocking `stat` work on the cooperative pool alongside the
+    /// copy workers, and since `tree-3` a folder walk digests `.git`, `.build` and `node_modules`
+    /// too. Measured on this machine (10 cores, APFS, warm):
+    ///
+    /// | shape                                   | unbounded | serial |
+    /// |-----------------------------------------|-----------|--------|
+    /// | 5,000 file walks (one stat each)        |  0.095 s  | 0.22 s |
+    /// | 4 folder walks, 10k nodes               |  0.24 s   | 0.60 s |
+    /// | 16 folder walks, 40k nodes              |  1.53 s   | 5.01 s |
+    ///
+    /// Two facts decide it. First, **"5,000 spawned" is not 5,000 running**: `Task.detached` puts
+    /// them on the cooperative pool, which is capped at the core count — the 5,000-file run's
+    /// measured PEAK concurrency was 10, exactly `activeProcessorCount`. The fan-out is already
+    /// bounded, by the runtime, at the width of the machine. A `min(4, …)` cap would only make it
+    /// narrower than the hardware, and every measurement above says narrower is slower.
+    ///
+    /// Second, and the reason a cap would be a correctness regression rather than a tuning
+    /// choice: a capped walk STARTS LATE. Item 5,000 of a batch would not begin its walk until
+    /// 4,996 others had finished — which is the end of the batch, i.e. exactly the
+    /// copy-to-recording window the per-item start exists to eliminate. An edit made in that
+    /// window becomes the copy's recorded baseline and ⌘Z trashes it.
+    ///
+    /// What the walks DO cost is `copyItems`' tail, where `activeProgress` is still published at
+    /// 100% while the registration awaits them: measured over a 4-folder, 10,000-file batch, the
+    /// whole call took 1.36–1.66 s with the walks and 0.98–1.17 s with them stubbed out — ~0.45 s
+    /// of tail, which is the walks' own standalone cost rather than contention with the copies.
+    /// If that tail ever needs shortening the lever is the walk's own work, not its width.
+    nonisolated static func startCopyIdentityWalk(at destination: URL, fileManager fm: FileManaging) -> Task<CopyIdentityReading, Never> {
         Task.detached(priority: .userInitiated) {
             recordedCopyIdentity(at: destination, fileManager: fm)
         }
@@ -642,13 +692,31 @@ extension FileSyncManager {
     /// however often it is pressed — and the user used to first learn of it hours later from a
     /// banner that cannot say why, with the refusal itself as the log's only line. The cause is
     /// knowable NOW (the walk can name the descendant it could not read), so it is logged now.
-    nonisolated static func recordedCopyIdentity(at destination: URL, fileManager fm: FileManaging) -> ItemIdentity {
-        let read = ItemIdentity.deepSnapshotDetailingFailure(at: destination, fileManager: fm)
-        if read.identity == .indeterminate {
-            let child = read.unreadableDescendant.map { " — couldn't read \"\($0.path)\"" } ?? ""
-            Logger.shared.warning("Copy undo: the identity of \"\(destination.lastPathComponent)\" at \(destination.path) couldn't be read when its undo was registered\(child); a later ⌘Z of this copy will refuse rather than remove what it can't verify")
-        }
-        return read.identity
+    nonisolated static func recordedCopyIdentity(at destination: URL, fileManager fm: FileManaging) -> CopyIdentityReading {
+        ItemIdentity.deepSnapshotDetailingFailure(at: destination, fileManager: fm)
+    }
+
+    /// The ONE line a batch leaves behind when some of its registration-time identity reads came
+    /// back `.indeterminate`. Emits nothing when none did.
+    ///
+    /// **One line, not one per item, and the cap is the reason.** `Logger.shared.entries` holds
+    /// the last 1000 entries, so a batch registered over an unreadable tree — a permissions
+    /// problem, an unmounted network volume, a provider that stopped answering — used to emit a
+    /// warning per item and push the surrounding context, including whatever explains the cause,
+    /// out of the buffer. Same shape and the same reason as `SyncHistoryStore.appendBatch`'s
+    /// dropped-record report: count them, name the first, say what it costs.
+    ///
+    /// A single-item batch reads exactly as it did before this was a batch report, because for
+    /// N == 1 there is nothing to summarize.
+    nonisolated static func logIndeterminateRegistrations(
+        _ unreadable: [(destination: URL, child: URL?)], of total: Int, actionName: String
+    ) {
+        guard let first = unreadable.first else { return }
+        let child = first.child.map { " — couldn't read \"\($0.path)\"" } ?? ""
+        let subject = unreadable.count == 1
+            ? "the identity of \"\(first.destination.lastPathComponent)\" at \(first.destination.path) couldn't be read when its undo was registered\(child); a later ⌘Z of this copy will refuse"
+            : "\(unreadable.count) of \(total) items' identities couldn't be read when their undo was registered — first \"\(first.destination.lastPathComponent)\" at \(first.destination.path)\(child); a later ⌘Z of those copies will refuse"
+        Logger.shared.warning("Copy undo (\(actionName)): \(subject) rather than remove what it can't verify")
     }
 
     /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
@@ -935,6 +1003,10 @@ extension FileSyncManager {
                         let params = await paramResolver.get()
                         var nextState: [CopyUndoItemState] = []
                         var redoFailures = 0
+                        // Collected across the loop and reported once, for the reason
+                        // `logIndeterminateRegistrations` states: N lines over an unreadable tree
+                        // push the context that explains it out of the 1000-entry buffer.
+                        var unreadable: [(destination: URL, child: URL?)] = []
 
                         // **No source-identity guard here, deliberately, and it is not the same gap
                         // the MOVE redo had.** A move-redo that reads a changed source relocates
@@ -962,8 +1034,12 @@ extension FileSyncManager {
                                 // that test: every copy-redo fixture was a file, for which the
                                 // two snapshots are definitionally identical). Taken inline,
                                 // right after the item's own copy, so the window is per item.
+                                let read = FileSyncManager.recordedCopyIdentity(at: param.destination, fileManager: fm)
+                                if read.identity == .indeterminate {
+                                    unreadable.append((param.destination, read.unreadableDescendant))
+                                }
                                 nextState.append((source: param.source, destination: param.destination, overwritten: trashed,
-                                                  destinationIdentity: FileSyncManager.recordedCopyIdentity(at: param.destination, fileManager: fm)))
+                                                  destinationIdentity: read.identity))
                             } catch {
                                 // A failed re-copy must stay out of the next undo state: undoing
                                 // a phantom copy would prompt to permanently delete a file that
@@ -973,6 +1049,7 @@ extension FileSyncManager {
                             }
                         }
 
+                        FileSyncManager.logIndeterminateRegistrations(unreadable, of: params.count, actionName: actionName)
                         await nextUndoStateResolver.resolve(nextState)
                         logger.info("Redo (\(actionName)): copied \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s)")
                 }
