@@ -1,5 +1,7 @@
 import Testing
 import AppKit
+import SwiftUI
+import Design
 @testable import SyncCloud
 
 /// The one rule shared by every menu chord that is also a text-editing key.
@@ -64,13 +66,107 @@ import AppKit
         #expect(editorRuns == (caretHasFocus ? 1 : 0))
     }
 
-    /// `DeleteSelectionCommand` kept its name as a forwarding alias; it must still answer the same
-    /// thing, or the ⌘⌫ account this rule was extracted from stops being true.
-    @Test func theDeleteCommandsAliasStillAnswersTheSharedRule() {
-        let editor = fieldEditor()
-        #expect(TextEditingChord.belongsToTextEditor(editor)
-                == TextEditingChord.belongsToTextEditor(editor))
-        #expect(TextEditingChord.belongsToTextEditor(nil)
-                == TextEditingChord.belongsToTextEditor(nil))
+    // The tautological alias test that stood here (`belongsToTextEditor(x) ==
+    // belongsToTextEditor(x)`, literally self-comparison) was removed 2026-08-22 — the alias it
+    // once pinned is long gone. What it wanted to guarantee is now guaranteed structurally:
+    // `route` itself decides through `belongsToTextEditor`, so the predicate tests above pin the
+    // shipped rule, and the scans below pin that every colliding chord actually calls `route`.
+
+    // MARK: Call-site coverage — the routing has to be WIRED, not merely correct
+
+    /// The exact chords NSText also claims: select-all, cut/copy/paste, delete-to-line-start, the
+    /// line moves (⌘←/⌘→, ±⇧ for selection) and the document moves (⌘↑/⌘↓, ±⇧). Chords, not bare
+    /// keys — the first cut of this matched any ⌘-chord on these keys and flagged ⇧⌘V, which the
+    /// field editor does NOT bind, so a registered ⇧⌘V would have been forced through routing it
+    /// does not need. The collision is a property of AppKit's field editor, so this set is stable
+    /// while the app's registry grows toward it.
+    private static let textEditorClaimedChords: [AppChord] = [
+        AppChord("a", .command), AppChord("x", .command),
+        AppChord("c", .command), AppChord("v", .command),
+        AppChord(.delete, .command),
+        AppChord(.leftArrow, .command), AppChord(.rightArrow, .command),
+        AppChord(.leftArrow, [.shift, .command]), AppChord(.rightArrow, [.shift, .command]),
+        AppChord(.upArrow, .command), AppChord(.downArrow, .command),
+        AppChord(.upArrow, [.shift, .command]), AppChord(.downArrow, [.shift, .command]),
+    ]
+
+    /// How each colliding chord is spelled at its registration in `ShortcutCommands.swift`.
+    /// Hand-written, so it is guarded against registry drift by the set-equality test below: a NEW
+    /// chord landing on a text-editing key fails that test until it is named here, and naming it
+    /// here is what puts its registration under the routing scan.
+    private static let collidingRegistrations: [(spelling: String, chords: [AppChord])] = [
+        ("AppChord.selectAll.key", [.selectAll]),
+        ("AppChord.cut.key", [.cut]),
+        ("AppChord.copy.key", [.copy]),
+        ("AppChord.paste.key", [.paste]),
+        ("AppChord.deleteSelection.key", [.deleteSelection]),
+        ("AppChord.transfer(", [.copyToLeft, .copyToRight, .moveToLeft, .moveToRight]),
+    ]
+
+    @Test func theCollidingSpellingTableMatchesTheRegistry() {
+        let claimed = Set(Self.textEditorClaimedChords.map(\.display))
+        let colliding = AppChord.registry.filter { claimed.contains($0.display) }
+        let tabled = Self.collidingRegistrations.flatMap(\.chords)
+        #expect(Set(colliding.map(\.display)) == Set(tabled.map(\.display)),
+                """
+                the registry's text-editing chords and the spelling table disagree. A chord \
+                added on one of NSText's own bindings must be listed in `collidingRegistrations` \
+                so the routing scan covers its registration. Registry: \(colliding.map(\.display)); \
+                table: \(tabled.map(\.display))
+                """)
+        // Non-vacuity: the six known chord families are actually in the derived set.
+        #expect(colliding.count >= 9, "the derived colliding set shrank — the filter is broken, not the app")
     }
+
+    /// Every registration of a colliding chord hands the keystroke through `TextEditingChord.route`.
+    ///
+    /// This is the test whose absence was the finding: `route` was unit-tested to perfection while
+    /// nothing pinned that any chord CALLED it — deleting the route from ⌘C would have shipped
+    /// "⌘C over a caret copies files" with every suite green.
+    @Test func everyCollidingChordRegistrationRoutesThroughTextEditingChord() throws {
+        let source = try shortcutCommandsSource()
+        // Comment text can legitimately name a chord's spelling (and does); only code decides.
+        let code = source.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                if let slash = line.range(of: "//") { return line[line.startIndex..<slash.lowerBound] }
+                return line
+            }
+            .joined(separator: "\n")
+        // Top-level struct declarations delimit the blocks; nested types are indented and don't split.
+        let blocks = code.components(separatedBy: "\nstruct ")
+        try #require(blocks.count > 10, "ShortcutCommands.swift split into \(blocks.count) blocks — the scan is broken")
+
+        for (spelling, chords) in Self.collidingRegistrations {
+            let registering = blocks.filter { $0.contains(".keyboardShortcut(") && $0.contains(spelling) }
+            try #require(!registering.isEmpty,
+                         "no block registers \(spelling) — the spelling table is stale, fix the table")
+            for block in registering {
+                let name = block.prefix(while: { $0 != ":" && $0 != "\n" })
+                #expect(block.contains("TextEditingChord.route("),
+                        """
+                        \(name) registers \(chords.map(\.display).joined(separator: " ")) without \
+                        routing through TextEditingChord.route — with the caret in any text field \
+                        this chord would act on FILES instead of the text
+                        """)
+            }
+        }
+    }
+
+    /// The scan's own failure mode: a matcher that finds nothing fails, never passes. A decoy
+    /// spelling that exists nowhere must be reported as stale, proving `#require(!registering
+    /// .isEmpty)` really is reachable.
+    @Test func theRoutingScanRefusesAStaleSpelling() throws {
+        let source = try shortcutCommandsSource()
+        let blocks = source.components(separatedBy: "\nstruct ")
+        let registering = blocks.filter { $0.contains(".keyboardShortcut(") && $0.contains("AppChord.decoyNeverRegistered.key") }
+        #expect(registering.isEmpty, "the decoy is supposed to match nothing")
+    }
+}
+
+/// `MacApp/ShortcutCommands.swift` alone, with a truncation guard sized to the file — a partially
+/// read file would make every `contains` above answer false and every negative vacuously true.
+private func shortcutCommandsSource() throws -> String {
+    let text = try macAppFile("ShortcutCommands.swift")
+    try #require(text.count > 5_000, "ShortcutCommands.swift read as \(text.count) characters — truncated?")
+    return text
 }

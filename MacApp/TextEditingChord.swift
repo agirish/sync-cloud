@@ -34,10 +34,15 @@ enum TextEditingChord {
     /// **Handing it back is not optional.** Swallowing the keystroke would be worse than the
     /// collision it avoids: ⌘C in a text field would silently do nothing at all, which reads as the
     /// app being broken rather than as a chord being busy.
+    ///
+    /// Decides through ``belongsToTextEditor(_:)`` rather than an inline cast: the predicate used
+    /// to be a parallel copy nothing shipped called, so the tests naming it pinned a rule the app
+    /// did not run. If the predicate ever widens past "is an NSTextView", the failed downcast falls
+    /// through to `fileAction` — the safe side, since only a real text view can take the hand-back.
     static func route(responder: NSResponder?,
                       editorAction: (NSTextView) -> Void,
                       fileAction: () -> Void) {
-        if let editor = responder as? NSTextView {
+        if belongsToTextEditor(responder), let editor = responder as? NSTextView {
             editorAction(editor)
         } else {
             fileAction()
