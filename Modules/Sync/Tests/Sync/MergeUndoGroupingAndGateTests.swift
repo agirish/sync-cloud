@@ -310,7 +310,7 @@ import Events
         let planned = FileSyncManager.fileSnapshotsByRelativePath(
             await FileSyncManager.buildTree(url: redundant, sortOption: .name,
                                             fileManager: FileManager.default, maxDepth: nil))
-        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned)
+        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [])
 
         // The control first, so a gate that refuses everything cannot pass this.
         let clean = await manager.refuseDriftedMergeSources(
@@ -341,7 +341,7 @@ import Events
         let planned = FileSyncManager.fileSnapshotsByRelativePath(
             await FileSyncManager.buildTree(url: redundant, sortOption: .name,
                                             fileManager: FileManager.default, maxDepth: nil))
-        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned)
+        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [])
 
         try FileManager.default.removeItem(at: fixture.keeper)
         let refused = await manager.refuseDriftedMergeSources(
@@ -364,7 +364,7 @@ import Events
         let planned = FileSyncManager.fileSnapshotsByRelativePath(
             await FileSyncManager.buildTree(url: redundant, sortOption: .name,
                                             fileManager: FileManager.default, maxDepth: nil))
-        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned)
+        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [])
 
         let stray = base.appendingPathComponent("stray.txt").path
         let refused = await manager.refuseDriftedMergeSources(
@@ -387,7 +387,7 @@ import Events
         let planned = FileSyncManager.fileSnapshotsByRelativePath(
             await FileSyncManager.buildTree(url: redundant, sortOption: .name,
                                             fileManager: FileManager.default, maxDepth: nil))
-        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned)
+        let fold = FileSyncManager.MergeFoldRecord(name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [])
         try Data(repeating: 0x01, count: 32).write(to: redundant.appendingPathComponent("new.txt"))
 
         let spelled = redundant.path + "/"
@@ -397,5 +397,177 @@ import Events
 
         #expect(refused == [spelled],
                 "a drifted fold asked about in a trailing-slash spelling was not verified: \(refused)")
+    }
+
+    // MARK: The keeper-side half of the claim — the destinations the fold actually produced
+
+    /// **The gate's keeper check was a directory-entry check and nothing more.** `keeperStillExists`
+    /// is `fileExists(keeper.path) && !copyDriftedInPlace(keeper)`, and `copyDriftedInPlace` returns
+    /// false unconditionally for a directory — a merge keeper is always a folder, so the whole
+    /// verdict degenerated to "something is still mounted at this path". Measured: an emptied-in-place
+    /// keeper produced `refused=[]` and the redundant copy was trashed anyway.
+    ///
+    /// What the merge knows and was not using: every destination URL its own copy loop wrote, plus
+    /// the keeper-side paths `planMerge` matched for the files it SKIPPED as already present. Those
+    /// two sets together ARE "every byte this copy is being trashed for now lives in the keeper" —
+    /// so both are stat'ed here, and a missing one refuses the fold.
+    ///
+    /// Trash-less, because that is where the window ends in an unrecoverable delete of the last
+    /// instance: the user leaves the confirmation open, something empties the keeper, and without
+    /// this check the copy is destroyed outright.
+    @MainActor
+    @Test func aFoldIsRefusedWhenTheKeeperNoLongerHoldsTheFilesItFolded() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGateDest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rName = "Redundant-\(UUID().uuidString)"
+        let fixture = try makeGroup(base, redundantNames: [rName])
+        let redundant = fixture.redundant[0]
+
+        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        manager.undoManager = UndoManager()
+        manager.duplicateGroups = [fixture.group]
+        let confirmed = LockedBox<Int>(0)
+        manager.permanentDeleteConfirmer = { _ in
+            // The keeper is still a folder at its scanned path — only the file the fold just put
+            // there is gone. That is exactly what the old check could not see.
+            try? FileManager.default.removeItem(at: fixture.keeper.appendingPathComponent("unique0.txt"))
+            confirmed.withLock { $0 += 1 }
+            return true
+        }
+
+        let ok = await manager.mergeDuplicateGroup(fixture.group)
+
+        #expect(confirmed.withLock { $0 } == 1, "the run never reached the permanent-delete confirmation")
+        #expect(FileManager.default.fileExists(atPath: fixture.keeper.path),
+                "the fixture removed the keeper itself — the pin would then be about the path check, not this one")
+        #expect(FileManager.default.fileExists(atPath: redundant.path),
+                "the copy was destroyed unrecoverably while the keeper no longer held what was folded into it")
+        #expect(FileManager.default.fileExists(atPath: redundant.appendingPathComponent("unique0.txt").path),
+                "the only remaining instance of the folded file is gone")
+        #expect(ok == false, "the merge claimed success over a copy it refused to remove")
+        let line = await loggedLine(containing: "at the last check before removal")
+        #expect(line?.contains("no longer") == true,
+                "the keeper-side refusal was not logged: “\(line ?? "nil")”")
+    }
+
+    /// The wiring pin for the SKIPPED half, end to end: `unique0.txt` (the file the fold copied)
+    /// stays put, and `shared.txt` — which `planMerge` never copied because the keeper already had
+    /// it — is removed from the keeper while the confirmation is open. Only a fold record carrying
+    /// `plan.vouchedKeeperPaths` can see this; a record built from the copy loop's destinations
+    /// alone waves it through.
+    @MainActor
+    @Test func aFoldIsRefusedWhenTheKeeperLosesAFileThePlanSkipped() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGateVouch")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rName = "Redundant-\(UUID().uuidString)"
+        let fixture = try makeGroup(base, redundantNames: [rName])
+        let redundant = fixture.redundant[0]
+
+        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        manager.undoManager = UndoManager()
+        manager.duplicateGroups = [fixture.group]
+        manager.permanentDeleteConfirmer = { _ in
+            try? FileManager.default.removeItem(at: fixture.keeper.appendingPathComponent("shared.txt"))
+            return true
+        }
+
+        let ok = await manager.mergeDuplicateGroup(fixture.group)
+
+        #expect(FileManager.default.fileExists(atPath: fixture.keeper.appendingPathComponent("unique0.txt").path),
+                "the fixture removed the COPIED file too — the pin would then not be about the skipped half")
+        #expect(FileManager.default.fileExists(atPath: redundant.appendingPathComponent("shared.txt").path),
+                "the last instance of a file the plan skipped was destroyed with the copy")
+        #expect(ok == false, "the merge claimed success over a copy it refused to remove")
+    }
+
+    /// The unit form, on the file the copy loop wrote.
+    @MainActor
+    @Test func theMergeGateRefusesAFoldWhoseCopiedDestinationIsGone() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGateDestUnit")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fixture = try makeGroup(base, redundantNames: ["Red"])
+        let redundant = fixture.redundant[0]
+        let manager = FileSyncManager(fileManager: FileManager.default)
+        let planned = FileSyncManager.fileSnapshotsByRelativePath(
+            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
+                                            fileManager: FileManager.default, maxDepth: nil))
+        // As if the fold had run: the unique file now also lives in the keeper.
+        let landed = fixture.keeper.appendingPathComponent("unique0.txt")
+        try Data(repeating: 0x60, count: 4000).write(to: landed)
+        let fold = FileSyncManager.MergeFoldRecord(
+            name: "Red", url: redundant, plannedSnapshot: planned,
+            keeperDestinations: [landed.path, fixture.keeper.appendingPathComponent("shared.txt").path])
+
+        // Control first, so a gate that refuses everything cannot pass the pin below.
+        let clean = await manager.refuseDriftedMergeSources(
+            [redundant.path], group: fixture.group, folds: [fold],
+            refusals: FileSyncManager.MergeRemovalRefusals())
+        #expect(clean.isEmpty, "an intact fold was refused — the pin below would be vacuous")
+
+        try FileManager.default.removeItem(at: landed)
+        let refusals = FileSyncManager.MergeRemovalRefusals()
+        let refused = await manager.refuseDriftedMergeSources(
+            [redundant.path], group: fixture.group, folds: [fold], refusals: refusals)
+
+        #expect(refused == [redundant.path],
+                "the copy was cleared for the Trash with the file it was trashed FOR gone from the keeper: \(refused)")
+        #expect(refusals.all.count == 1)
+    }
+
+    /// **The skipped half is checked too, and that is a decision worth stating.** A file `planMerge`
+    /// never copied — because the keeper provably already had those exact bytes at that exact
+    /// relative path — is still part of what the copy is being trashed for. If the keeper's own
+    /// instance disappears between the plan and the trash, the redundant copy holds the last one.
+    @MainActor
+    @Test func theMergeGateRefusesAFoldWhoseAlreadyPresentKeeperFileWentAway() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeGateSkipped")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fixture = try makeGroup(base, redundantNames: ["Red"])
+        let redundant = fixture.redundant[0]
+        let manager = FileSyncManager(fileManager: FileManager.default)
+        let planned = FileSyncManager.fileSnapshotsByRelativePath(
+            await FileSyncManager.buildTree(url: redundant, sortOption: .name,
+                                            fileManager: FileManager.default, maxDepth: nil))
+        let shared = fixture.keeper.appendingPathComponent("shared.txt")
+        let fold = FileSyncManager.MergeFoldRecord(
+            name: "Red", url: redundant, plannedSnapshot: planned, keeperDestinations: [shared.path])
+
+        try FileManager.default.removeItem(at: shared)
+        let refused = await manager.refuseDriftedMergeSources(
+            [redundant.path], group: fixture.group, folds: [fold],
+            refusals: FileSyncManager.MergeRemovalRefusals())
+
+        #expect(refused == [redundant.path],
+                "the copy was cleared for the Trash although the keeper's own instance of a plan-skipped file is gone: \(refused)")
+    }
+
+    /// `planMerge` must hand the caller the keeper-side path it vouched with, for BOTH skip
+    /// branches — the same-relative-path hash match and the retry-idempotence match, whose keeper
+    /// file carries a DIFFERENT name. Without the second, a retry's fold is trashed on the strength
+    /// of bytes nothing re-checked.
+    @Test func planMergeReportsTheKeeperPathsItVouchedWith() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "PlanMergeVouched")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("K")
+        let redundant = base.appendingPathComponent("R")
+        // (a) same content at the same relative path → skipped, vouched by K/same.txt
+        try write(keeper.appendingPathComponent("same.txt"), bytes: 700, fill: 0x41)
+        try write(redundant.appendingPathComponent("same.txt"), bytes: 700, fill: 0x41)
+        // (b) the retry-idempotence skip: the NAME is taken by different content, and the bytes
+        //     live in that folder under the uniquified name a previous run minted.
+        try write(keeper.appendingPathComponent("dup.txt"), bytes: 300, fill: 0x42)
+        try write(keeper.appendingPathComponent("dup 2.txt"), bytes: 900, fill: 0x43)
+        try write(redundant.appendingPathComponent("dup.txt"), bytes: 900, fill: 0x43)
+        // (c) a genuinely unique file → copied, so it is NOT vouched for here
+        try write(redundant.appendingPathComponent("new.txt"), bytes: 500, fill: 0x44)
+
+        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper,
+                                                   fileManager: FileManager.default, cache: nil)
+
+        #expect(plan.steps.map { $0.src.lastPathComponent } == ["new.txt"],
+                "the fixture did not exercise both skip branches: \(plan.steps.map { $0.src.lastPathComponent })")
+        #expect(Set(plan.vouchedKeeperPaths) == [keeper.appendingPathComponent("same.txt").path,
+                                                 keeper.appendingPathComponent("dup 2.txt").path],
+                "planMerge did not report the keeper paths its skips rested on: \(plan.vouchedKeeperPaths)")
     }
 }

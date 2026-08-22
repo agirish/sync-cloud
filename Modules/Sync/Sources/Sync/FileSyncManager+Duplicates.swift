@@ -1077,6 +1077,15 @@ extension FileSyncManager {
         let name: String
         let url: URL
         let plannedSnapshot: [String: MergeFileSnapshot]
+        /// Every keeper-side path this fold's claim rests on: the destination of each file the copy
+        /// loop actually wrote, PLUS the keeper file `planMerge` matched for each file it skipped as
+        /// already present. Together they are "every byte this copy is being trashed for now lives
+        /// in the keeper", spelled as paths the gate can stat.
+        ///
+        /// No default. The gate refuses on a missing destination, so an empty list is silence, and a
+        /// defaulted parameter would make a new call site fail OPEN by omission — the exact shape
+        /// the two `unattributed` blocks in this file exist to prevent.
+        let keeperDestinations: [String]
     }
 
     /// Collects the merge gate's refusals across `deleteItems`' (up to two) invocations, for the
@@ -1107,6 +1116,17 @@ extension FileSyncManager {
     /// The keeper is checked too, and it is not redundant with the fold's own snapshot: every byte
     /// this copy is being trashed for now lives in the keeper, so a keeper that left its scanned
     /// location between the fold and the removal turns the copy back into the only instance.
+    ///
+    /// **That check is `keeperStillExists` AND the fold's own destinations, and the second is the
+    /// load-bearing one.** `keeperStillExists` is `fileExists(keeper.path) && !copyDriftedInPlace`,
+    /// and `copyDriftedInPlace` returns false unconditionally for a directory (see its own comment
+    /// for why a merge keeper is MEANT to change and cannot be held to the scan baseline) — a merge
+    /// keeper is always a folder, so on its own it asks only "is a directory entry still mounted
+    /// here". Measured with probes: `refused=[]` for an emptied-in-place keeper AND for a
+    /// removed-and-recreated one, with the redundant copy trashed in both. What the merge cannot
+    /// check against the SCAN it can check against ITSELF: `keeperDestinations` is exactly what this
+    /// fold put in the keeper plus what `planMerge` matched there, and a stat of each is cheap.
+    ///
     /// Refusals are logged per copy, in the shape the duplicates gate logs its own — he audits
     /// `~/sync-cloud.log`, and a copy the app was about to trash and then kept must say why.
     func refuseDriftedMergeSources(_ paths: [String], group: DuplicateGroup,
@@ -1134,6 +1154,17 @@ extension FileSyncManager {
             // A copy that has simply VANISHED is not drift — there is nothing left to trash, and
             // the caller reads the disk afterwards. Same carve-out the duplicates rules make.
             guard fm.fileExists(atPath: fold.url.path) else { continue }
+            // Before the walk, because it is a handful of stats against a full tree read: does the
+            // keeper still hold what this fold put there (and what the plan matched there)? A file
+            // deleted out of the keeper in either user-paced window makes the redundant copy the
+            // last instance again, and on a Trash-less volume the next step destroys it outright.
+            let missing = fold.keeperDestinations.filter { !fm.fileExists(atPath: $0) }
+            if let first = missing.first {
+                Logger.shared.warning("Duplicates merge: refused to trash “\(fold.name)” (\(fold.url.path)) at the last check before removal — the keeper “\(group.keeper.name)” (\(group.keeper.path)) no longer holds \(missing.count) of the \(fold.keeperDestinations.count) file(s) this fold rests on (first: \(first)), so those bytes are provably nowhere else")
+                refusals.record(fold.name)
+                refused.formUnion(asked)
+                continue
+            }
             let current = Self.fileSnapshotsByRelativePath(
                 await Self.buildTree(url: fold.url, sortOption: .name, fileManager: fm, maxDepth: nil))
             if Self.mergeSourceDrifted(planned: fold.plannedSnapshot, current: current) {
@@ -1398,7 +1429,9 @@ extension FileSyncManager {
             // recorded here is the claim it rests on — this copy, as the plan snapshotted it — so
             // the removal gate can re-prove it at the last moment.
             readyToTrash.append(MergeFoldRecord(name: redundant.name, url: rURL,
-                                                plannedSnapshot: plan.sourceSnapshot))
+                                                plannedSnapshot: plan.sourceSnapshot,
+                                                keeperDestinations: outcome.copied.map { $0.destination.path }
+                                                    + plan.vouchedKeeperPaths))
         }
 
         // ONE trash for every fold that completed, gated. The gate is the whole reason this can be
@@ -1554,12 +1587,21 @@ extension FileSyncManager {
     /// keeper does NOT provably already have, mapped to their destination under the keeper —
     /// plus a `sourceSnapshot` of the redundant copy's full file set (relative path → size+mtime)
     /// as it stood at plan time, so the trash step can prove nothing appeared or changed since.
+    ///
+    /// `vouchedKeeperPaths` is the other half of that proof and the reason this returns four things
+    /// instead of three: the keeper-side path of every source file this plan SKIPPED, i.e. the file
+    /// whose existence is the entire reason no step was emitted. The copy is trashed on the claim
+    /// that every byte in it lives in the keeper, and for a skipped file that claim rests on a
+    /// keeper file the merge never wrote and therefore never re-checks. Both skip branches report:
+    /// the same-relative-path hash match (`keeperHashByRel`) and the retry-idempotence match, whose
+    /// keeper file carries the uniquified name a previous run minted, not the source's.
     /// Relative paths come from the tree walk (not string prefix math), so path canonicalization
     /// quirks — e.g. `/var` vs `/private/var` symlinks — can't mangle the destinations.
     nonisolated static func planMerge(
         from rURL: URL, into kURL: URL, caseSensitiveVolume: Bool = true, fileManager fm: FileManaging,
         cache: ContentHashCache? = .shared
-    ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot], blockedLinkedDirs: [String]) {
+    ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot],
+                blockedLinkedDirs: [String], vouchedKeeperPaths: [String]) {
         let kTree = await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
         // this exact content *at the same location*, not merely somewhere. "Same location" uses
@@ -1644,10 +1686,22 @@ extension FileSyncManager {
         let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm, cache: cache)
         var keeperHashByRel: [String: String] = [:]
         var keeperHashesByParent: [String: Set<String>] = [:]
+        // The ACTUAL keeper file behind each vouch, so a skip can name what it rested on. Keyed the
+        // same two ways the skips are decided, because the retry-idempotence branch matches on
+        // (parent, hash) and the file it finds is named differently from the source's.
+        var keeperPathByRel: [String: String] = [:]
+        var keeperPathByParentHash: [String: String] = [:]
         for k in kItems {
             if let h = kHashesByPath[k.id] {
                 keeperHashByRel[relKey(k.rel)] = h
-                keeperHashesByParent[relKey((k.rel as NSString).deletingLastPathComponent), default: []].insert(h)
+                keeperPathByRel[relKey(k.rel)] = k.id
+                let parent = relKey((k.rel as NSString).deletingLastPathComponent)
+                keeperHashesByParent[parent, default: []].insert(h)
+                // First writer wins: any one file with these bytes in this folder vouches, and a
+                // stable choice keeps the plan deterministic.
+                if keeperPathByParentHash[parent + "\u{0}" + h] == nil {
+                    keeperPathByParentHash[parent + "\u{0}" + h] = k.id
+                }
             }
         }
 
@@ -1662,6 +1716,7 @@ extension FileSyncManager {
 
         var steps: [(src: URL, dst: URL)] = []
         var blockedLinkedDirs = Set<String>()
+        var vouchedKeeperPaths: [String] = []
         for item in rItems {
             // Skip ONLY when the keeper already has this exact content at the SAME relative path —
             // a true same-location duplicate. A distinctly-named or -located file is folded in even
@@ -1673,7 +1728,10 @@ extension FileSyncManager {
             // safety rests on this run's own copy. A cancelled run's prior landing then sits
             // as a junk sibling — the price of never skipping unverified content.
             if let h = rHashes[item.id] {
-                if keeperHashByRel[relKey(item.rel)] == h { continue }
+                if keeperHashByRel[relKey(item.rel)] == h {
+                    if let vouch = keeperPathByRel[relKey(item.rel)] { vouchedKeeperPaths.append(vouch) }
+                    continue
+                }
                 // Retry idempotence: the destination NAME is taken (by anything fileExists
                 // would collide with — a different-content file, a folder, an unhashable
                 // file), and the same bytes already live in that folder under another name —
@@ -1682,8 +1740,10 @@ extension FileSyncManager {
                 // against the cancel banner's "a retry skips what landed". The name-preserving
                 // principle above is not violated: with the name taken, this fold could only
                 // ever land junk-named.
+                let parent = relKey((item.rel as NSString).deletingLastPathComponent)
                 if keeperNames.contains(relKey(item.rel)),
-                   keeperHashesByParent[relKey((item.rel as NSString).deletingLastPathComponent)]?.contains(h) == true {
+                   keeperHashesByParent[parent]?.contains(h) == true {
+                    if let vouch = keeperPathByParentHash[parent + "\u{0}" + h] { vouchedKeeperPaths.append(vouch) }
                     continue
                 }
             }
@@ -1696,7 +1756,7 @@ extension FileSyncManager {
             }
             steps.append((src: URL(fileURLWithPath: item.id), dst: kURL.appendingPathComponent(item.rel)))
         }
-        return (steps, fileSnapshotsByRelativePath(rTree), blockedLinkedDirs.sorted())
+        return (steps, fileSnapshotsByRelativePath(rTree), blockedLinkedDirs.sorted(), vouchedKeeperPaths)
     }
 
     /// What the drift check knows about one file in the merge source: byte size AND modification
