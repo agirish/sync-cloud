@@ -435,8 +435,22 @@ import Events
         }
 
         let first = await manager.resurveyFilingMemory(root: docs)
-        #expect(first.documentsUnavailable == 0, "fixture: it must be judged available up front")
+        // The fixture premise — it was judged available up front and really was opened — is
+        // carried by `reads`, not by the counts. The counts are the CLAIM under test below.
         #expect(reads.paths.contains { $0.hasSuffix("offloaded.pdf") }, "fixture: it must be opened")
+
+        // **The report has to say what happened to it, in both columns.** `documentsRead` is
+        // documented as "Documents whose page 1 was actually read" and `documentsUnavailable` as
+        // "Documents that needed reading but are not downloaded, so a later survey will do it" —
+        // and the mid-read skip is the second, not the first. Built from the PRE-batch counts, the
+        // evicted document was claimed as read and excluded from unavailable: wrong twice, in
+        // opposite directions, and `summary` is the user-facing sentence made of them.
+        #expect(first.documentsRead == 4,
+                "the evicted document is still counted as read — its page 1 never was")
+        #expect(first.documentsUnavailable == 1,
+                "the evicted document vanished from the report — the survey reads as complete")
+        #expect(first.summary.contains("1 not downloaded yet"),
+                "the sentence the user sees still claims the survey covered everything")
 
         let corpus = try #require(FilingSurveyStore.corpus(id: "t", in: profiles))
         #expect(corpus.documents.keys.contains { $0.hasSuffix("offloaded.pdf") } == false,

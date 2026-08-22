@@ -16,13 +16,18 @@ extension FileSyncManager {
     public struct FilingSurveyReport: Sendable, Equatable {
         /// Folders that were new, or whose contents had moved, since the memory last learned them.
         public let foldersChanged: Int
-        /// Documents whose page 1 was actually read.
+        /// Documents whose page 1 was actually read. **Net of anything the provider withdrew
+        /// part-way through the batch** — those were chosen for reading and never stamped, so
+        /// counting them here would credit the survey with work it did not do.
         public let documentsRead: Int
         /// Documents that had only moved, so their tokens travelled with them instead.
         public let documentsRelocated: Int
         /// Documents that are no longer in the tree and have stopped counting.
         public let documentsDropped: Int
         /// Documents that needed reading but are not downloaded, so a later survey will do it.
+        /// **Includes the ones withdrawn part-way through the batch**: availability is asked
+        /// before the batch and the batch takes minutes, and a document evicted in between is in
+        /// exactly this state by the time the pass ends.
         public let documentsUnavailable: Int
         /// Folders with learned content afterwards.
         public let foldersLearned: Int
@@ -181,13 +186,16 @@ extension FileSyncManager {
         let dropped = corpus.documents.keys.filter { tree.showsGone($0) }.count - relocated
 
         var read: [String: FilingCorpusDocument] = [:]
+        // Documents chosen for this batch that stopped being downloaded before their result was
+        // stamped. Declared out here because the REPORT is built from the pre-batch counts and has
+        // to be corrected by it — see below.
+        var evictedMidRead = 0
         if !toRead.isEmpty {
             updateScan(\.filingSurveyLifecycle, epoch: epoch,
                        status: "Reading \(toRead.count) new or changed document\(toRead.count == 1 ? "" : "s")…")
             let absolute = toRead.map { root.appendingPathComponent($0).path }
             let text = await Self.extractSnippets(for: absolute, using: extractor)
             if Task.isCancelled { return .none }
-            var evictedMidRead = 0
             for path in toRead {
                 guard let stamp = tree.documents[path] else { continue }
                 // Absent text is a document that was opened and gave up nothing — recorded as blank
@@ -235,10 +243,18 @@ extension FileSyncManager {
             filingMemory = memory
             filingArtifactFingerprint = FilingProfileStore.fingerprint(id: profileId, in: directory)
         }
-        let report = FilingSurveyReport(foldersChanged: stale.count, documentsRead: toRead.count,
+        // **Both counts are corrected by the mid-read evictions, in opposite directions.** They
+        // are derived from `toRead`/`candidates`, which were fixed BEFORE the batch ran, so a
+        // document withheld part-way through was counted as read — its page 1 never was — and was
+        // excluded from the unavailable column, which is precisely what it became. Wrong twice,
+        // and `summary` is the user-facing sentence built from them: a survey that left work
+        // undone read as one that had covered the tree. The `continue` that skips the stamp
+        // reached only a `Logger.info`, which nothing in the report can see.
+        let report = FilingSurveyReport(foldersChanged: stale.count,
+                                        documentsRead: toRead.count - evictedMidRead,
                                         documentsRelocated: relocated,
                                         documentsDropped: max(0, dropped),
-                                        documentsUnavailable: unavailable,
+                                        documentsUnavailable: unavailable + evictedMidRead,
                                         foldersLearned: memory.folders.count, changed: wrote)
         Logger.shared.info("Folder memory re-surveyed — \(report.summary) "
                            + "\(report.foldersLearned) folder(s) now have learned content.")
