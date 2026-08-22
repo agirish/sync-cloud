@@ -83,8 +83,22 @@ extension FileSyncManager {
             throw FileOperationError.identicalSourceAndDestination
         }
 
+        // **The nesting check asks a different question from the identity check above, and needs a
+        // different source path.** Identity asks "are these the same item?", where following the
+        // link is right: an alias and its target ARE one item, and moving the alias onto it would
+        // replace the real directory with a link to itself. Nesting asks "would this put a
+        // container inside itself?", and **a symlink is not a container** — moving `/a/alias` to
+        // `/b/dir/sub`, inside the very directory it points at, relocates one directory entry and
+        // creates no cycle. With the leaf resolved the source read as `/b/dir`, the destination sat
+        // under it, and an ordinary move was refused as `nestingViolation`.
+        //
+        // Only the LAST component is treated differently; `entryResolvedPath` still resolves the
+        // parent, so every aliased-parent case this guard was written for is untouched. For a
+        // source that is not a link the two paths are identical, because realpath hands the same
+        // name back.
+        let nestingSrc = entryResolvedPath(for: source)
         // Ensure trailing slash for prefix check to avoid /a matching /abc
-        let srcWithSlash = src.hasSuffix("/") ? src : src + "/"
+        let srcWithSlash = nestingSrc.hasSuffix("/") ? nestingSrc : nestingSrc + "/"
         let isNested: Bool
         if caseSensitiveVolume {
             isNested = dst.hasPrefix(srcWithSlash)
@@ -114,6 +128,36 @@ extension FileSyncManager {
             resolved.appendPathComponent(component)
         }
         return resolved.path
+    }
+
+    /// Symlink-free path for `url`'s PARENT, with the last component left exactly as spelled.
+    ///
+    /// **An operation acts on the directory entry, not on what it points at.** Moving or copying
+    /// `/a/link` moves the link; `copyItem` duplicates the link rather than the tree behind it, and
+    /// `moveItem` relocates the entry. Resolving the leaf therefore validates the wrong thing:
+    /// ``symlinkResolvedPath(for:)`` hands back the TARGET, so `/a/link` → `/b/dir` is checked as
+    /// though the user had asked to move `/b/dir` itself.
+    ///
+    /// What that costs is a refusal of a legal operation. `isNested` asks whether the destination
+    /// sits under the source, and a link is not a container — dropping `/a/link` inside `/b/dir`,
+    /// the very directory it points at, is ordinary and creates no cycle, but with the leaf
+    /// resolved the source reads as `/b/dir` and the destination is inside it, so it throws
+    /// `nestingViolation`. The `src == dst` comparison folds the same way: the link and its target
+    /// compare equal and the move reads as `identicalSourceAndDestination`.
+    ///
+    /// The parent is still resolved, which is what the guard is actually for: an *aliased* parent
+    /// can still smuggle a directory into itself, and that check is untouched. Only the last
+    /// component is left alone — and for anything that is not a link, leaving it alone changes
+    /// nothing, because realpath would have handed the same name back.
+    ///
+    /// Same principle as the delete path's `attributesOfItem` probe: the link is a thing in its own
+    /// right, and asking about its target answers a different question.
+    private nonisolated static func entryResolvedPath(for url: URL) -> String {
+        let standardized = url.standardizedFileURL
+        let parent = standardized.deletingLastPathComponent()
+        let leaf = standardized.lastPathComponent
+        guard !leaf.isEmpty, leaf != "/" else { return symlinkResolvedPath(for: url) }
+        return symlinkResolvedPath(for: parent) + "/" + leaf
     }
 
     /// True when the volume containing `url` distinguishes names by case. Falls back to false

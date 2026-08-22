@@ -212,6 +212,42 @@ import Foundation
         ) == ())
     }
 
+    /// **A symlink is not a container, so moving one INTO the directory it points at is legal.**
+    ///
+    /// The nesting guard resolved the source's last component, so a link source read as its
+    /// target: `/base/alias` → `/base/realDir/sub` was checked as though the user had asked to move
+    /// `/base/realDir` into itself, and an ordinary move of one directory entry was refused with
+    /// `nestingViolation`. Moving the link creates no cycle — nothing traverses it.
+    ///
+    /// The identity check above still follows the link, deliberately, and
+    /// `testRecursivePathValidationResolvesSymlinks` pins that: an alias and its target ARE one
+    /// item, and moving the alias onto it would replace the real directory with a link to itself.
+    /// The two checks ask different questions and take different paths for the source.
+    @Test func testMovingASymlinkIntoTheDirectoryItPointsAtIsAllowed() async throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("ValidateLinkMove-\(UUID().uuidString)")
+        let realDir = base.appendingPathComponent("realDir")
+        let linkURL = base.appendingPathComponent("alias")
+        try fm.createDirectory(at: realDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: linkURL, withDestinationURL: realDir)
+        defer { try? fm.removeItem(at: base) }
+
+        // The link, into the directory it points at.
+        try #expect(FileSyncManager.validateFileOperation(
+            source: linkURL, destination: realDir.appendingPathComponent("sub")) == ())
+
+        // And somewhere unrelated, which was never in doubt but keeps this from passing because
+        // validation stopped refusing anything at all.
+        try #expect(FileSyncManager.validateFileOperation(
+            source: linkURL, destination: base.appendingPathComponent("moved")) == ())
+
+        // The real directory into itself is still refused — the guard this narrows, not removes.
+        #expect(throws: FileSyncManager.FileOperationError.nestingViolation) {
+            try FileSyncManager.validateFileOperation(
+                source: realDir, destination: realDir.appendingPathComponent("sub"))
+        }
+    }
+
     /// A destination reached through a symlink that points back inside the source must be
     /// rejected: before symlink resolution, `/tmp/.../link/sub` shares no prefix with the real
     /// source directory, so the guard passed and the copy recursed into itself.
