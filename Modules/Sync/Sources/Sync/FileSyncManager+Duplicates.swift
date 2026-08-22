@@ -1484,15 +1484,31 @@ extension FileSyncManager {
         // synchronous stretch, so nothing else can register into the merge's step. The identity
         // walks are awaited AFTER the group closes.
         var identityWalk: Task<Void, Never>?
-        if !foldedItems.isEmpty || trashedForUndo != nil {
-            let actionName = "Merge \(group.name)"
+        // **A merge with a permanently deleted copy registers NO copy-undo.** Withdrawing the
+        // banner's button was never enough: the registration below is what `undoManager.canUndo`
+        // and the Edit ▸ Undo menu item read, and measured at dc865114 and at 6fe2c8c7 alike,
+        // `isUndoable=false` sat alongside `canUndo=true` and `undoActionName="Merge Keeper"`.
+        // Firing that menu item deletes the folded files back out of the keeper while the original
+        // is permanently gone — this is the one duplicates path whose ⌘Z DESTROYS data, and the
+        // banner is not the only surface that offers it. Now that registration is one synchronous
+        // tail, withholding it is a single condition rather than a rollback.
+        //
+        // The Trash RESTORE is still registered when some copies did reach the Trash: it only puts
+        // files back, its redo re-trashes recoverably, and dropping it would throw away a recovery
+        // the user has no other one-step route to. But it is named for what it does rather than for
+        // the merge — an Edit menu reading "Undo Merge Keeper" would promise to reverse a merge
+        // that cannot be reversed, which is the same over-claim in a different surface.
+        let copyUndoWithheld = anyPermanentlyDeleted
+        let registersCopyUndo = !foldedItems.isEmpty && !copyUndoWithheld
+        if registersCopyUndo || trashedForUndo != nil {
+            let actionName = copyUndoWithheld ? "Restore Copies of “\(group.name)”" : "Merge \(group.name)"
             // Grouped only when there is a manager to group in. Without one (headless/CLI) the
             // registrations are no-ops, but the handback still has to be ANSWERED — the trash
             // happened, and dropping the pairs on the floor is the one way to lose an undo the
             // caller took responsibility for.
             let grouped = undoManager != nil
             if grouped { undoManager?.beginUndoGrouping() }
-            if !foldedItems.isEmpty {
+            if registersCopyUndo {
                 identityWalk = registerCopyUndo(pendingItems: foldedItems, actionName: actionName, fileManager: fm)
             }
             // Registered AFTER the copy-undo, so ⌘Z pops it FIRST: the redundant copies come back
@@ -1560,9 +1576,13 @@ extension FileSyncManager {
                           undoable: !anyPermanentlyDeleted)
         Logger.shared.info("Duplicates: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
         if anyPermanentlyDeleted {
-            // He audits this log, and this is the case where the fold cannot be taken back.
+            // He audits this log, and this is the case where the fold cannot be taken back. The
+            // line used to say "the merge is not undoable", which was FALSE at the moment it was
+            // written — the copy-undo was registered and `canUndo` was true; only the banner's
+            // button had been withdrawn. It now records what the code actually did.
             Logger.shared.warning(
-                "Duplicates: “\(group.name)” had a redundant copy deleted permanently rather than trashed — the merge is not undoable, and undoing the fold would remove the copied files from \(group.keeper.name)")
+                "Duplicates: “\(group.name)” had a redundant copy deleted permanently rather than trashed — the fold's undo was deliberately NOT registered, because taking it would remove the copied files from \(group.keeper.name) with the original already gone"
+                + (trashedForUndo == nil ? "" : "; ⌘Z offers only the restore of the copies that did reach the Trash"))
         }
         return true
     }

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Events
 @testable import Sync
 
 /// The merge path's half of `DeleteOutcome`'s promise, which the type's own suite does not reach.
@@ -85,6 +86,130 @@ import Foundation
         #expect(manager.banner?.message.contains("⌘Z") != true,
                 "the merge offered ⌘Z after destroying the copy permanently — taking it deletes the folded files from the keeper, and the originals are gone")
         #expect(manager.banner?.isUndoable != true)
+    }
+
+    /// **The banner is not the only surface that offers ⌘Z.** `undoable: !anyPermanentlyDeleted`
+    /// suppresses the banner's button and nothing else; the registration a few lines above it ran
+    /// unconditionally, so `undoManager.canUndo` was true and Edit ▸ Undo read "Undo Merge Keeper".
+    /// Firing it deletes the folded files back out of the keeper while the original is
+    /// permanently gone — the one duplicates path whose reversal DESTROYS data. Measured
+    /// identically at dc865114 and 6fe2c8c7: `isUndoable=false`, `canUndo=true`,
+    /// `undoActionName="Merge Keeper"`.
+    ///
+    /// Nothing in the suite observed the Edit-menu path, which is why the banner assertion above
+    /// could pass with the hazard fully live. This asserts the registration itself, and then fires
+    /// the undo to prove the folded file survives it.
+    @MainActor
+    @Test func aMergeWhoseCopyWasDestroyedPermanentlyRegistersNoUndoAtAll() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeUndoRegistration")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rName = "Redundant-\(UUID().uuidString)"
+        let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
+        defer { try? FileManager.default.removeItem(at: trashed) }
+        let pair = try makePair(base, redundantName: rName)
+        let folded = pair.keeper.appendingPathComponent("unique.txt")
+
+        let manager = FileSyncManager(fileManager: TrashlessVolume())
+        let undo = UndoManager()
+        manager.undoManager = undo
+        manager.permanentDeleteConfirmer = { _ in true }
+        manager.duplicateGroups = [pair.group]
+
+        let ok = await manager.mergeDuplicateGroup(pair.group)
+
+        #expect(ok == true, "the merge did not complete, so nothing here is the unrecoverable case")
+        #expect(FileManager.default.fileExists(atPath: pair.redundant.path) == false,
+                "the copy is still on disk — the permanent delete never happened")
+        #expect(FileManager.default.fileExists(atPath: folded.path),
+                "the unique file was not folded in, so there is no copy-undo to be dangerous")
+
+        // THE INVARIANT: the Edit menu has nothing to offer for a merge that cannot be reversed.
+        #expect(undo.canUndo == false,
+                "Edit ▸ Undo still offers “\(undo.undoActionName)” for a merge whose original is unrecoverable")
+        #expect(undo.undoActionName.contains("Merge") == false,
+                "the undo stack still names the merge: “\(undo.undoActionName)”")
+
+        // And pressing it destroys nothing.
+        undo.undo()
+        await waitUntil("any undo work drains") { manager.activeFileOperationsCount == 0 }
+        #expect(FileManager.default.fileExists(atPath: folded.path),
+                "Edit ▸ Undo deleted the folded file out of the keeper — its original is permanently gone, so that was the last instance")
+
+        await Logger.shared.debug("merge-undo flush marker").value
+        let line = Logger.shared.entries.last { $0.message.contains("deleted permanently rather than trashed") }?.message
+        #expect(line?.contains("not undoable") != true,
+                "the audit log still claims the merge is not undoable rather than saying the undo was withheld: “\(line ?? "nil")”")
+        #expect(line?.contains("NOT registered") == true,
+                "the audit log does not record what actually happened: “\(line ?? "nil")”")
+    }
+
+    /// A Trash-less volume for ONE named path only, so a single merge can produce both outcomes.
+    private final class TrashlessForOne: FileManager, @unchecked Sendable {
+        let refusedPath: String
+        init(refusedPath: String) { self.refusedPath = refusedPath; super.init() }
+        override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            if url.path == refusedPath {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
+            }
+            try super.trashItem(at: url, resultingItemURL: resultingItemURL)
+        }
+    }
+
+    /// The mixed case, and the reason the fix withholds the copy-undo rather than registering
+    /// nothing: one copy reached the Trash and can still be put back in one step. That step is
+    /// registered — it only restores — but it is NOT named after the merge, because an Edit menu
+    /// reading "Undo Merge Keeper" would promise to reverse a merge that cannot be reversed.
+    @MainActor
+    @Test func aMixedMergeKeepsTheRestoreButNotTheMergeNamedUndo() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeUndoMixed")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let aName = "A-\(UUID().uuidString)"
+        let bName = "B-\(UUID().uuidString)"
+        let a = base.appendingPathComponent(aName)
+        let b = base.appendingPathComponent(bName)
+        let trashedA = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(aName)")
+        defer { try? FileManager.default.removeItem(at: trashedA) }
+
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        for (url, fill, unique) in [(a, UInt8(0x61), "a-only.txt"), (b, UInt8(0x62), "b-only.txt")] {
+            try write(url.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+            try write(url.appendingPathComponent(unique), bytes: 4000, fill: fill)
+        }
+
+        let manager = FileSyncManager(fileManager: TrashlessForOne(refusedPath: b.path))
+        let undo = UndoManager()
+        manager.undoManager = undo
+        manager.permanentDeleteConfirmer = { _ in true }
+        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 4000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+        let ca = DuplicateCopy(id: a.path, name: aName, isDirectory: true, size: 8000, itemCount: 2,
+                               modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
+        let cb = DuplicateCopy(id: b.path, name: bName, isDirectory: true, size: 8000, itemCount: 2,
+                               modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
+                                   isDirectory: true, copies: [k, ca, cb], reclaimableBytes: 8000)
+        manager.duplicateGroups = [group]
+
+        _ = await manager.mergeDuplicateGroup(group)
+
+        // The premise: A trashed, B destroyed.
+        try #require(FileManager.default.fileExists(atPath: trashedA.path),
+                     "A did not reach the Trash — this is not the mixed case")
+        try #require(FileManager.default.fileExists(atPath: b.path) == false,
+                     "B was not permanently deleted — this is not the mixed case")
+
+        #expect(undo.canUndo == true, "the restore of the copy that DID reach the Trash was dropped")
+        #expect(undo.undoActionName.contains("Merge") == false,
+                "the undo step is still named after a merge that cannot be reversed: “\(undo.undoActionName)”")
+
+        undo.undo()
+        await waitUntil("the restore puts A back") { FileManager.default.fileExists(atPath: a.path) }
+        await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }
+        for name in ["a-only.txt", "b-only.txt"] {
+            #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent(name).path),
+                    "the undo removed \(name) from the keeper — B's original is permanently gone")
+        }
     }
 
     /// The other direction, and the reason it is here: without it, deleting the offer outright
