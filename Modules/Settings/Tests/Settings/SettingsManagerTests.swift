@@ -15,20 +15,10 @@ import Sync
         #expect(settings.availableProviders.first?.id == "iCloud")
     }
 
-    @Test @MainActor func testPathOverrides() async {
-        let test = TestDefaults()
-        defer { test.wipe() }
-        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
-        let testPath = "/tmp/test_override"
-
-        settings.setPath(testPath, for: "iCloud")
-        await settings.discoverProviders()
-        #expect(settings.path(for: "iCloud") == testPath)
-
-        settings.resetPath(for: "iCloud")
-        await settings.discoverProviders()
-        #expect(settings.path(for: "iCloud") != testPath)
-    }
+    // testPathOverrides was removed 2026-08-22: a strict subset of
+    // SettingsDiscoveryTests.testSetPathResetPathRoundTripWithoutGlobalState (which also asserts
+    // the defaults key), with the iCloud-specific angle covered by the seed test below, including
+    // the override surviving a subsequent discovery.
 
     /// The init-time seed must consult the persisted iCloud path/name overrides (and compute
     /// validity against the effective path), exactly like discovery does — otherwise anything

@@ -4,60 +4,15 @@ import Foundation
 @testable import Dashboard
 
 @Suite struct DashboardTests {
-    
-    @MainActor
-    @Test func testDetailsSidebarActivePathPriority() async throws {
-        let manager = FileSyncManager()
-        let sourceFolder = "/src/folder"
-        let destFolder = "/dst/folder"
-        
-        let sidebar = DetailsSidebar(syncManager: manager, leftPath: sourceFolder, rightPath: destFolder)
-        
-        // 1. Initial state (no selection) -> Should fallback to source folder
-        #expect(sidebar.activePath == sourceFolder)
-        
-        // 2. Select in Source -> Should show source selection
-        manager.selectedLeftPaths = ["/src/folder/file1.txt"]
-        #expect(sidebar.activePath == "/src/folder/file1.txt")
-        
-        // 3. Select in Dest (while Source is still selected) -> Should still favor Source (primary driver)
-        manager.selectedRightPaths = ["/dst/folder/file2.txt"]
-        #expect(sidebar.activePath == "/src/folder/file1.txt")
-        
-        // 4. Clear Source selection -> Should show Dest selection
-        manager.selectedLeftPaths = []
-        #expect(sidebar.activePath == "/dst/folder/file2.txt")
-        
-        // 5. Clear both -> Should fallback to source folder (or dest if source empty, but here both folders provided)
-        manager.selectedRightPaths = []
-        #expect(sidebar.activePath == sourceFolder)
-    }
-    
-    @MainActor
-    @Test func testSingleSourceInspectorIgnoresTheHiddenRightPane() async throws {
-        // On the Tidy rail the right pane is hidden, so a selection lingering there (from a prior
-        // Compare session) must not drive the inspector — otherwise it would describe a file in the
-        // wrong provider. With `singleSource`, a right-only selection is ignored and the panel falls
-        // back to the left rail's focused folder.
-        let manager = FileSyncManager()
-        let railFolder = "/rail/folder"
-        let sidebar = DetailsSidebar(syncManager: manager, leftPath: railFolder, rightPath: "/hidden/right",
-                                     singleSource: true)
 
-        manager.selectedRightPaths = ["/hidden/right/other.txt"]
-        #expect(sidebar.activePath == railFolder)
-        #expect(sidebar.isShowingFocusedFolderFallback)
-
-        // A real rail (left) selection still shows through.
-        manager.selectedLeftPaths = ["/rail/folder/file.txt"]
-        #expect(sidebar.activePath == "/rail/folder/file.txt")
-
-        // The same view WITHOUT singleSource would follow the right selection — the default (Compare)
-        // behavior is unchanged.
-        let compare = DetailsSidebar(syncManager: manager, leftPath: railFolder, rightPath: "/hidden/right")
-        manager.selectedLeftPaths = []
-        #expect(compare.activePath == "/hidden/right/other.txt")
-    }
+    // testDetailsSidebarActivePathPriority and testSingleSourceInspectorIgnoresTheHiddenRightPane
+    // were removed 2026-08-22. `activePath` now DELEGATES the pane-selection rule to
+    // `CurrentSelection.primaryPanePath` (the fix DetailsActivePathAgreementTests exists for), so
+    // each branch those two walked is pinned at the resolver (CurrentSelectionTests, in Sync:
+    // left-wins, right-only, single-source, empty→nil) and the delegation plus fallback is pinned
+    // by the agreement suite. Of the tests below, the leftPath-empty fallback and `pruneSelection`
+    // have no other coverage; the multi-selection walk overlaps the same resolver pins and is kept
+    // only as an end-to-end read through the sidebar.
 
     @MainActor
     @Test func testDetailsSidebarFallbackToDestIfSourceEmpty() async throws {

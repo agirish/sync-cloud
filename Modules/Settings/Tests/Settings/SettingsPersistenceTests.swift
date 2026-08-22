@@ -26,22 +26,8 @@ import Foundation
         #expect(test.defaults.string(forKey: key) == nil)
     }
 
-    @MainActor
-    @Test func testIgnoreGoogleDriveFlagPersistsAcrossInstances() {
-        let test = TestDefaults()
-        defer { test.wipe() }
-        func makeManager() -> SettingsManager {
-            SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
-        }
-
-        let a = makeManager()
-        a.ignoreGoogleDriveNewerDateOnly = true // didSet persists
-        // A fresh instance reads the persisted value in init.
-        #expect(makeManager().ignoreGoogleDriveNewerDateOnly == true)
-
-        a.ignoreGoogleDriveNewerDateOnly = false
-        #expect(makeManager().ignoreGoogleDriveNewerDateOnly == false)
-    }
+    // testIgnoreGoogleDriveFlagPersistsAcrossInstances was removed 2026-08-22: a line-for-line
+    // duplicate of SettingsDiscoveryTests.testIgnoreGoogleDriveFlagRoundTripsThroughInjectedDefaults.
 }
 
 /// The stored-tab resolution, which until now no test could reach.
