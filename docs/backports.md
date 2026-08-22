@@ -402,6 +402,43 @@ absence a file-level survey reports as present.
   **emptying the others** in the fixture — and the fixture's treemap had to go empty too, because a
   page that always draws one has full-width chromatic ink that the bar-edge scan reads as a bar.
 
+## The coverage review's test landings — triaged 2026-08-22
+
+The 2026-08-21 test/log coverage review produced two waves of test landings (P0: data-loss-class
+gaps and duplicate removals; P1: unpinned wiring). Every piece was triaged for both lines at
+landing time — nothing from these waves is deferred.
+
+**Landed on all three lines** (byte-identical, or deriving from the line's own sources):
+
+- `SyncHistoryStore.defaultFileURL` guard test; the automation rule-removal and dry-run
+  start/cancel/clear suites; four duplicate-test removals (each deletion re-verified against the
+  line's own superset suite before landing there).
+- `OperationNotifier` injectable seams with request + call-site pins, and `OperationBannerView`'s
+  extracted `showsUndo`/`showsCountdown` rules — both files were byte-identical across lines
+  (v2.x's banner differs by one cosmetic keycap line that the change does not touch).
+- The `FileActionDelegate` two-direction wiring anchor and the `ProviderMenu` pins. The anchor
+  parses the line's own protocol and sources, so it adapts per line (v2.x's protocol has 18
+  requirements to main's 30+ — the non-vacuity floor is deliberately below every line's count).
+  `ProviderMenu`'s third pin is adapted on `v2.x` (no Choose Folder… door there, and the line says
+  "providers"): see `Adapt the ProviderMenu pins to the 2.x menu` on that line, which carries a
+  tripwire to restore the fuller pin if the door is ever backported.
+
+**Main-only by rule, so never owed:**
+
+- The text-editing chord routing (route-through-predicate refactor + the registry-derived
+  colliding-chord scan): `MacApp/TextEditingChord.swift` exists on neither maintenance line — the
+  ⌘A/⌘X/⌘C/⌘V/transfer menu chords are v4.2+ work.
+- `BrowseTabRestorePlan` and its suite: browse tabs are v4.2+; `MacApp/ContentView+PaneTabs.swift`
+  is absent on both lines.
+
+**Not landed anywhere yet, will need triage when fixed:** the review's two parked defect-test
+suites (the `PaneBarArrangement` decode→edit write-back destroying a newer build's token, and
+`SettingsManager`'s five sibling properties lacking the folderSources `.unreadable` salvage).
+They document open defects on `main`; the `SettingsManager` read-tolerantly-write-unconditionally
+shape exists on all three lines, so when the salvage lands it is a candidate for both — check the
+five keys' presence per line then (`disabledProviderIds`, `ignorePatterns`, `defaultSortOption`,
+`folderNameRuleProvider`, `conflictDefaultPolicy`).
+
 ## The unaudited surface, honestly
 
 Neither line has been audited commit-by-commit. These are the sizes as of 2026-08-20, narrowing from
