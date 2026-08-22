@@ -95,13 +95,6 @@ import Events
         return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
     }
 
-    /// Spins the main runloop briefly so NSUndoManager's event-scoped group closes — same helper and
-    /// same reason as `DuplicateBatchRedesignTests`.
-    @MainActor
-    private func closeTheUndoEventGroup() {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-    }
-
     // MARK: FINDING 1 — no undo group across a suspension
 
     /// **The invariant, stated the only way it can be observed: from the main actor.** A
@@ -177,7 +170,7 @@ import Events
         try write(bystander, bytes: 10, fill: 0x41)
         await manager.deleteItems(at: [bystander.path], fileManager: FileManager.default)
         try #require(FileManager.default.fileExists(atPath: bystander.path) == false)
-        closeTheUndoEventGroup()
+        await closeTheUndoEventGroup(manager.undoManager)
 
         manager.duplicateGroups = [fixture.group]
         let ok = await manager.mergeDuplicateGroup(fixture.group)
@@ -187,7 +180,7 @@ import Events
         }
         #expect(manager.undoManager?.undoActionName == "Merge Keeper",
                 "the merge's step is named after its last registration rather than after the merge: “\(manager.undoManager?.undoActionName ?? "nil")”")
-        closeTheUndoEventGroup()
+        await closeTheUndoEventGroup(manager.undoManager)
 
         manager.undoManager?.undo()
         await waitUntil("one undo restores both redundant copies") {
@@ -212,6 +205,14 @@ import Events
     /// Trash backup gone), the folded files must still be in the keeper rather than already
     /// deleted with the originals unrecoverable.
     ///
+    /// **It takes two guarantees, and only one of them lives in this file's subject.** The
+    /// registration order is set by the merge's synchronous tail; the order the two registrations'
+    /// work actually REACHES THE DISK is set by `enqueueFileOperation`, which both handlers funnel
+    /// through. That second half used to be a race — measured at ~1 inversion in 300 undos of this
+    /// exact pair on an idle machine, which is why this test failed once in an integrated package
+    /// run and never under `--filter`. `FileOperationQueueOrderTests` pins the queue half directly,
+    /// at a trial count that can actually see a 1-in-300 defect; this test is the end-to-end one.
+    ///
     /// This is also the pin on the `restoreUndoHandback` itself: without it `deleteItems` registers
     /// the restore where it happens — BEFORE the merge's copy-undo — and the ⌘Z then removes from
     /// the keeper first. (Verified as a mutation: disabling the handback flips the two indices
@@ -232,7 +233,7 @@ import Events
         manager.duplicateGroups = [fixture.group]
         try #require(await manager.mergeDuplicateGroup(fixture.group) == true)
         recorder.calls.withLock { $0.removeAll() }
-        closeTheUndoEventGroup()
+        await closeTheUndoEventGroup(manager.undoManager)
 
         manager.undoManager?.undo()
         await waitUntil("the undo restores the copy") {

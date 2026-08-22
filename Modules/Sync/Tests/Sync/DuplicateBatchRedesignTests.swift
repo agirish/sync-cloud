@@ -48,16 +48,6 @@ import Events
         return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
     }
 
-    /// Spins the main runloop briefly so NSUndoManager's event-scoped undo group closes — the
-    /// production app's runloop turns between user actions; a test performing two operations
-    /// back-to-back inside one async context must turn it explicitly or both registrations can
-    /// land in one event group. Synchronous on purpose: `RunLoop.run(until:)` is unavailable
-    /// from async contexts, and a sync main-actor helper is the sanctioned way to pump it.
-    @MainActor
-    private func closeTheUndoEventGroup() {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-    }
-
     /// A continuation-backed latch for parking an enqueued file operation WITHOUT blocking a
     /// cooperative-pool thread (see docs/flaky-tests.md, "Every gate parks at once, on the pool
     /// their releases need").
@@ -91,7 +81,7 @@ import Events
         await manager.deleteItems(at: ["/c/unrelated.txt"], fileManager: mockFM)
         try #require(mockFM.virtualDisk["/c/unrelated.txt"] == nil)
         // Close the unrelated delete's undo event group before the batch registers.
-        closeTheUndoEventGroup()
+        await closeTheUndoEventGroup(manager.undoManager)
 
         mockFM.virtualDisk["/a/x"] = stub(size: 1000)
         mockFM.virtualDisk["/b/x"] = stub(size: 1000)
@@ -105,7 +95,7 @@ import Events
         try #require(mockFM.virtualDisk["/b/x"] == nil)
         try #require(mockFM.virtualDisk["/b/y"] == nil)
         #expect(manager.banner?.message.contains("⌘Z") == true)
-        closeTheUndoEventGroup()
+        await closeTheUndoEventGroup(manager.undoManager)
 
         // ONE undo brings the WHOLE batch back…
         manager.undoManager?.undo()

@@ -116,6 +116,43 @@ func waitUntil(
             sourceLocation: sourceLocation)
 }
 
+/// Waits for NSUndoManager's event-scoped group to CLOSE, so the next registration starts a new
+/// top-level step instead of nesting into the previous action's — the separation two undo suites
+/// depend on when they perform an unrelated operation and then the one under test.
+///
+/// **This replaced `RunLoop.main.run(until: Date().addingTimeInterval(0.02))`, which both suites
+/// carried and which did nothing at all.** Measured in this test process: that call returns in
+/// ~2 µs and `groupingLevel` reads 1 on the line after it — `run(until:)` exits immediately when
+/// no input source is attached to the main runloop, which is the case under `swift test`. So it
+/// was neither a pump nor even the fixed sleep it looked like. What actually closes the group in
+/// these tests is the ordinary `await` that comes next: a `Task.sleep` hands the main thread
+/// back, the main queue is serviced, and the group closes — measured as level 1 → 0 across a
+/// single 10 ms `Task.sleep`. The separation the helper claimed to establish was being provided
+/// by whichever suspension happened to follow it.
+///
+/// Condition-based and bounded, never a duration: it polls the level that has to reach zero and
+/// fails, naming the level and the poll count, if it never does.
+@MainActor
+func closeTheUndoEventGroup(_ undoManager: UndoManager?,
+                            timeout: TimeInterval = 5,
+                            sourceLocation: SourceLocation = #_sourceLocation) async {
+    guard let undoManager else {
+        #expect(Bool(false), "no UndoManager to close a group on — the test's premise is void",
+                sourceLocation: sourceLocation)
+        return
+    }
+    var polls = 0
+    let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
+    while polls < waitPollFloor || ContinuousClock.now < deadline {
+        polls += 1
+        if undoManager.groupingLevel == 0 { return }
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+    #expect(undoManager.groupingLevel == 0,
+            "the undo event group never closed — still at level \(undoManager.groupingLevel) after \(polls) polls",
+            sourceLocation: sourceLocation)
+}
+
 /// The fewest polls `waitUntil` will make before it may give up, however little of its deadline is
 /// left. Same number, and the same reason, as `LayoutPumpWait.pumpFloor` in the FileExplorer test
 /// target — the one sibling that exists on both release lines.

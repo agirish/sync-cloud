@@ -111,6 +111,23 @@ genuinely cannot read "not started" as "finished". Both were mutation-tested by 
 item back into the redo params, and both fail without the sleep — in ~0.03s, where the sleeps had
 been charging half a second for the same verdict.
 
+**A pump that never pumps — `RunLoop.main.run(until:)` under `swift test`, 2026-08-21.**
+`MergeUndoGroupingAndGateTests` and `DuplicateBatchRedesignTests` each carried a
+`closeTheUndoEventGroup()` helper — `RunLoop.main.run(until: Date().addingTimeInterval(0.02))` —
+whose stated job was to turn the runloop so NSUndoManager's event-scoped group closes before the
+next registration. Measured in the test process: **the call returns in ~2 µs and `groupingLevel`
+still reads 1 on the very next line.** `run(until:)` exits immediately when no input source is
+attached to the main runloop, which is its state under `swift test`. So it was not merely a fixed
+sleep of the wrong length; it was not a sleep at all, and it closed nothing. What actually closes
+the group in those tests is the next ordinary `await` — one 10 ms `Task.sleep` takes the level
+from 1 to 0, because handing the main thread back lets the main queue be serviced. The separation
+both suites depended on was being supplied by whichever suspension happened to follow the helper.
+
+Replaced by a shared `closeTheUndoEventGroup(_:)` in `TestSupport.swift` that polls
+`groupingLevel` and **fails, naming the level and the poll count**, if it never reaches zero. The
+general lesson is the one this section already makes, one step earlier: a helper that waits for a
+duration cannot report that it waited for nothing. Only a helper that asserts its condition can.
+
 A trailing sleep after a wait is worth reading as a signal, not noise: either the wait is not a gate
 and needs replacing, or it is and the sleep is dead weight. Establish which before deleting it.
 
