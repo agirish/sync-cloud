@@ -194,6 +194,41 @@ family — a deep identity that refuses an undo cannot say *why* honestly on a l
 a trashed item from a permanently deleted one. Settle item 1 first; this rides the same file.
 Symbols to check when settling: `deepSnapshot`, `.directoryTree` in `ItemIdentity.swift`.
 
+### 5. The classifier's cloud guard knows only iCloud — OPEN, owed to BOTH lines, filed 2026-08-22
+
+Both lines download cloud-only Dropbox, OneDrive, Google Drive and Box files behind the user's back
+during filing classification. `MacApp/ContentSignalExtractor.swift` guards `extractTextSync` with its
+own `private static func isEvictediCloudFile` (`v3.x:74`, `v2.x:122`, byte-identical), which is
+spelled purely from iCloud's `isUbiquitousItem` / `ubiquitousItemDownloadingStatus`. A dataless file
+under `~/Library/CloudStorage` is not a ubiquitous item, so the guard answers "not evicted", the
+extractor opens it, and **opening it is what makes the provider fetch it**. `main` replaced the copy
+with `FilingSurvey.isAvailable`, which tests `SF_DATALESS` first — the provider-agnostic signal every
+File Provider sets — and keeps the iCloud check only for the `.downloaded`-but-stale case.
+
+**The blocker previously assumed here is not real, and that is the point of this entry.**
+`FilingSurvey.swift` is indeed absent on both lines, so this cannot be a cherry-pick — but the
+predicate the fix actually depends on is already present on both:
+`MaterializationStatus.isCloudOnly(atPath:)` (`MaterializationStatus.swift`, all three lines), and
+`ContentSignalExtractor.swift` already carries `import Sync`. The fix is one added line inside the
+existing private function:
+
+```swift
+if MaterializationStatus.isCloudOnly(atPath: url.path) { return true }
+```
+
+**What is genuinely missing is the test seam, and it should be ported with the fix.** `SF_DATALESS`
+is an `SF_` flag that `chflags` refuses to anyone but root, so a dataless file cannot be staged and
+the only honest test substitutes the syscall. `main` added `MaterializationStatus.StatFlags` (a
+`@Sendable (String) -> UInt32?`) plus a defaulted `statFlags:` parameter for exactly this, and
+`Modules/Sync/Tests/Sync/FilingSurveyAvailabilityTests.swift` drives it. Both maintenance lines have
+`isCloudOnly(atPath:)` with **no** seam, so a fix landed without it would be untestable in the
+direction that matters. Adding a defaulted parameter is additive and source-compatible — allowed on
+a maintenance line.
+
+Oldest-first: land on `v2.x`, cherry-pick to `v3.x`. Verify with `xcodebuild test` on the app
+target, not `build` — `MacApp/` is in no SPM package. Symbols to check when settling:
+`isEvictediCloudFile`, `MaterializationStatus.StatFlags`, `realStatFlags`.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -309,10 +344,19 @@ Owed here exactly as to `v3.x` — see item 4 under **`v3.x` — owed**. `v2.x` 
 `DeleteOutcome` family, so the port is closer to a pick here — but the undo file has drifted, so
 verify `deepSnapshot`'s seams before assuming.
 
+### The classifier's cloud guard knows only iCloud — OPEN, filed 2026-08-22
+
+Owed here exactly as to `v3.x`, and **this is the line to fix first** — see item 5 under
+**`v3.x` — owed** for the mechanism, the symbol checks and the seam that has to come with it.
+`v2.x` carries the byte-identical `isEvictediCloudFile` at `MacApp/ContentSignalExtractor.swift:122`
+and the same seamless `MaterializationStatus.isCloudOnly(atPath:)`. No vocabulary adaptation is
+needed: the change is inside a private function and touches no user-facing copy.
+
 ### Nothing else confirmed
 
 Every safety family above is present on `v2.x`, and it is the line the `DeleteOutcome` family
-landed on first. No other confirmed fix debt was found by the 2026-08-16 audit or this one.
+landed on first. Apart from the entry just above, no other confirmed fix debt was found by
+the 2026-08-16 audit or this one.
 
 ### Checked and NOT applicable
 
