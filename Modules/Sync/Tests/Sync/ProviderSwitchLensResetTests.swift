@@ -72,6 +72,56 @@ import Foundation
                 "the finding is still labelled with the old provider's root")
     }
 
+    // MARK: - The filing collections `clearFiling()` left standing
+
+    /// **The same defect one level down: an omission from `clearFiling()`'s own list.**
+    ///
+    /// It clears eleven things and argues at length for the last of them —
+    /// `filingTryAnotherInFlight`, a latch `tryAnotherFolder` releases in a `defer` that only runs
+    /// if the round-trip returns, making this "the ONLY recovery hatch". `filingOCRInFlight` is the
+    /// identical latch: `readScan` inserts, releases in a `defer`, and `filingOCRExtractor` is an
+    /// unbounded `async` closure with no timeout, so a Vision render that never comes back leaves
+    /// the file latched and every later "Read scan" on it a silent no-op. Nothing else clears it —
+    /// a rescan assigns `filingSuggestions` directly and never touches this set.
+    ///
+    /// The other two are staleness rather than a latch, and only grow: both are keyed by absolute
+    /// path under the provider being switched away from.
+    @Test func clearFilingClearsTheCollectionsKeyedToTheOldProvider() {
+        let m = FileSyncManager()
+        m.filingOCRInFlight = ["/old/Scan 1.pdf"]
+        m.filingUnreadableScans = ["/old/Scan 1.pdf", "/old/Scan 2.pdf"]
+        m.filingPageSamples = ["/old/Scan 1.pdf": "eOCI Card | Government of India"]
+
+        // Not vacuous: all three really are populated before the clear.
+        #expect(!m.filingOCRInFlight.isEmpty)
+        #expect(!m.filingUnreadableScans.isEmpty)
+        #expect(!m.filingPageSamples.isEmpty)
+
+        m.clearFiling()
+
+        #expect(m.filingOCRInFlight.isEmpty,
+                "the OCR latch outlived the provider switch — a render that never returned leaves that file's Read scan a permanent no-op")
+        #expect(m.filingUnreadableScans.isEmpty,
+                "the old provider's unreadable scans still drive the Read scan offer")
+        #expect(m.filingPageSamples.isEmpty,
+                "page-1 text for the old provider's files is still held, and only grows per switch")
+    }
+
+    /// And through the path a provider switch actually takes, since that is the caller the fix is
+    /// for — testing only `clearFiling()` would pass on a build where nothing calls it.
+    @Test func aProviderSwitchClearsThemToo() {
+        let m = FileSyncManager()
+        m.filingOCRInFlight = ["/old/Scan 1.pdf"]
+        m.filingUnreadableScans = ["/old/Scan 1.pdf"]
+        m.filingPageSamples = ["/old/Scan 1.pdf": "some page one text"]
+
+        m.clearLensResultsForProviderSwitch()
+
+        #expect(m.filingOCRInFlight.isEmpty)
+        #expect(m.filingUnreadableScans.isEmpty)
+        #expect(m.filingPageSamples.isEmpty)
+    }
+
     /// The finding's *root* is what makes a stale list dangerous rather than merely wrong: the
     /// rows carry absolute paths under the provider that is no longer selected, and the fix path
     /// renames by those paths.

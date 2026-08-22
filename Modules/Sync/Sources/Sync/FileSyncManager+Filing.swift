@@ -1467,6 +1467,26 @@ extension FileSyncManager {
         // round-trip whose entry is cleared here can neither strip a successor's guard in its
         // defer nor land its stale verdict in a recreated card.
         filingTryAnotherInFlight = [:]
+        // **The OCR latch is the same latch, and it was left behind.** `readScan` inserts here,
+        // releases in a `defer`, and that defer only runs if it RETURNS — `filingOCRExtractor` is
+        // an unbounded `async` closure with no timeout, exactly like `FilingClassifier` above, so a
+        // Vision render that never comes back leaves the entry latched and every later "Read scan"
+        // on that file is a silent no-op. Nothing else clears this set: a Filing rescan assigns
+        // `filingSuggestions` directly and never touches it, so a latched file survives any number
+        // of rescans. Clearing here is the only hatch, word for word the argument three lines up.
+        //
+        // Safe wholesale for a weaker reason than `tryAnotherFolder`'s, and worth stating rather
+        // than borrowing: `readScan` guards its write on `filingSuggestionsGeneration`, so a
+        // still-out render whose latch is cleared here cannot land its result in a recreated list.
+        // Its `defer` may remove a path a later `readScan` re-inserted — that merely un-latches a
+        // file, which is this function's whole intent.
+        filingOCRInFlight = []
+        // Both are keyed by absolute path and describe files under the provider being switched
+        // AWAY from, so neither says anything true about the next one. `filingUnreadableScans`
+        // drives the "Read scan" offer and `filingPageSamples` holds page-1 text for the
+        // rule-offer — held across every switch in a session, they only grow.
+        filingUnreadableScans = []
+        filingPageSamples = [:]
     }
 
     // MARK: Apply
