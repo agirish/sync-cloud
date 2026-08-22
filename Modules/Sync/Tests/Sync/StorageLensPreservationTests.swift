@@ -368,9 +368,17 @@ import Testing
         }
     }
 
+    /// **The name goes in the FILE, not only in the directory.** `clearAndSaveBothCarryTheManagerIntoTheRead`
+    /// asserts on the log line, and the seven lines `StorageLensStore` can write all name the file
+    /// by `lastPathComponent` alone — so a fixture whose file is always `storage-lens.json` gives
+    /// every test in this package the same fragment, and `entries.last` returns whichever sibling
+    /// logged most recently. That assertion exists precisely because "an assertion on emptiness
+    /// would pass on both wirings"; a fragment a sibling can satisfy hands back the same false
+    /// pass by another route. `aFailedSetAsideIsNotLoggedAsARescue` above already names this and
+    /// builds its own unique file; this helper had been left behind.
     private func storeURL(_ name: String) throws -> URL {
         let dir = try makeCanonicalTempRoot(prefix: "StorageSeam-\(name)")
-        return dir.appendingPathComponent("storage-lens.json")
+        return dir.appendingPathComponent("storage-lens-\(name)-\(UUID().uuidString).json")
     }
 
     @MainActor
