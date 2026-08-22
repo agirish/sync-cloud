@@ -1298,8 +1298,10 @@ been written**.
    out lines from *before* and *after*, not lines a concurrent sibling drops *inside* it.
    `PaneTabsStoreTests` needs it because `aCorruptValueReadsAsNothingStored` emits the very sentence
    `anUnreadableStoredStripIsReportedRatherThanSilentlyReplaced` asserts. (The cross-*suite* half is
-   mechanism 3's known residual, and is closed here only by picking a fragment no other suite writes
-   — grep the package before trusting one.)
+   mechanism 3's known residual. Closing it by picking a fragment no other suite writes — grep the
+   package before trusting one — works only when the wording is yours to choose; when production
+   code writes the same sentence from several call sites, filter by authorship instead, per the
+   subsection below.)
 
 **Measured, 2026-08-17, and it is why rule 4 is not optional where it applies.**
 `Modules/Sync/Tests/Sync/UndoDriftIdentityTests.swift` had rule 1 and only half of rule 2: its
@@ -1313,6 +1315,55 @@ presence assertion PASSED on a line its own code never wrote. **It passed just t
 window was bounded strictly between its own markers**, because the sibling's line is INSIDE the
 window, not after it; `@Suite(.serialized)` is what made the same mutation fail (3 issues → 4). Both
 landed. Read rule 2 as closing the *before and after*, never as covering rule 4's job.
+
+#### The uncapped on-disk log — a better substrate, and why it is not a free win
+
+**Measured 2026-08-22, in the order the mistakes were made, because the sequence is the lesson.**
+
+Everything above operates inside `entries`, so every remedy is shaped by its 1000-line cap. There is
+a second copy of the same stream that has no cap: `Logger.shared.logFileURL`. Two properties make it
+the better substrate for these assertions, and both are worth stating because neither is obvious —
+the append happens **at the call site**, synchronously inside the `nonisolated log(level:message:)`
+and *before* the flush task is returned (`logWriter.append(entry.formattedString + "\n")`), so the
+file preserves call order and needs no flush marker to become visible; and the 1000-line trim lives
+in `flushPendingEntries()` and touches `entries` alone, so the file never rolls. Under a test runner
+it is a per-process temp file (`sync-cloud-tests-<pid>.log`, see `defaultLogFileURL()`), so it is
+scoped to the run and does not touch `~/sync-cloud.log`.
+
+`logLines(tag:during:)` and `loggedLineOnDisk(containing:)` in
+`Modules/Sync/Tests/Sync/TestSupport.swift` read it.
+
+**But moving to it makes the shared-fragment collision worse, not better** — the haystack stops
+being the last 1000 lines and becomes the entire run. Switching substrate closes eviction and
+*widens* rule 4. That is not a prediction: `9af896bf` said so in its own commit message and then left
+`MergeUndoGroupingAndGateTests` matching a 7-call-site fragment with `last {}` off the newly
+unbounded file. It passed under one full-suite ordering and failed under another.
+
+**And windowing does not close it either, because a window bounds time, not authorship.** Bound the
+same assertion strictly between its own markers and a *foreign suite's* refusal still lands inside
+the window and wins the `last {}`. Rule 4 prescribes `.serialized` for the same-suite case and
+otherwise sends you to "pick a fragment no other suite writes" — which is sound advice that does not
+always have a move available, because **the production code decides the wording, not the test**.
+`"at the last check before removal"` is written by **7 call sites** in
+`Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift`; there is no unique fragment to pick.
+
+**So: filter by authorship.** Every one of those refusals names a path, and each test's fixture root
+is a per-test UUID temp directory, so the fixture's own root is a witness that the line is *yours*:
+
+```swift
+let line = mine.last { $0.contains("at the last check before removal") && $0.contains(base.path) }
+```
+
+Check the filter is not circular before using it — here it is not, because the assertions read the
+refusal's *wording* and the copy's *name*, never the root itself.
+
+**Audit the fragments rather than assuming.** Grepping every `loggedLine(containing:)` fragment in
+the package against the sources found this to be the only over-shared one; the rest are single-site
+or carry a test-injected token. That audit is the cheap step and it is what tells you whether you
+need the authorship filter at all.
+
+**Verify a log fix in parallel.** `--no-parallel` cannot see any of this, and CI runs the package
+target parallel. A serial-only green is what let the first landing go out red.
 
 **Slice from the opening marker first, then search inside that slice.** `messages[a...b]` on
 reversed bounds *traps* rather than failing, and inside an `#expect` that takes the whole test host
@@ -1394,6 +1445,9 @@ cannot afford citations that rot without saying so — `grep -n` costs the reade
 - `wideningAOnePaneRefreshSaysSo` in `Modules/Sync/Tests/Sync/LoggingGapTests.swift` — why to read
   at the decision rather than at completion, which is rule 3 and the one that is easy to talk
   yourself out of.
+- `logLines(tag:during:)` in `Modules/Sync/Tests/Sync/TestSupport.swift` — the same two-marker
+  window read off the uncapped on-disk log instead of `entries`, for assertions that cannot survive
+  the cap; see the subsection above for what it does *not* close.
 
 **This mechanism has a different number on each line, so cite it by name.** It is **12** here, 11 on
 `v2.x` and 10 on `v3.x`, because the three registers accumulated different entries before it. Write
