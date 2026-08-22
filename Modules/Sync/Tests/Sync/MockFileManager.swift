@@ -19,6 +19,18 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     // The dictionary-backed RAM virtual disk
     public var virtualDisk: [String: FileStub] = [:]
 
+    /// Paths whose stub is a **dangling symlink**: the directory entry is there, its target is not.
+    ///
+    /// The one filesystem state that separates the two existence probes, and the reason this
+    /// exists rather than a general symlink model: `fileExists(atPath:)` FOLLOWS the link and so
+    /// answers `false`, while `attributesOfItem(atPath:)` reports on the link itself and succeeds.
+    /// Production code that asks only the first cannot see the entry at all — see
+    /// `deleteItems(at:)`, which skipped such an item silently.
+    ///
+    /// Keep the stub in ``virtualDisk`` as well: the entry really is there, so trashing it works
+    /// and removes it, exactly as on a real volume.
+    public var danglingSymlinks: Set<String> = []
+
     private let lock = NSRecursiveLock()
     private func sync<T>(_ body: () throws -> T) rethrows -> T {
         lock.lock()
@@ -83,7 +95,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     public func fileExists(atPath path: String) -> Bool {
         beforeFileExists?(path)
         return sync {
-            let exists = virtualDisk.keys.contains(path)
+            // A dangling link is followed to a target that is not there — `false`, as on a real
+            // volume, even though the entry exists and `attributesOfItem` below will describe it.
+            let exists = virtualDisk.keys.contains(path) && !danglingSymlinks.contains(path)
             onFileExists?(path)
             return exists
         }
@@ -106,7 +120,8 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
             }
             var attrs = stub.attributes ?? [:]
-            attrs[.type] = stub.isDirectory ? FileAttributeType.typeDirectory : FileAttributeType.typeRegular
+            attrs[.type] = danglingSymlinks.contains(path) ? FileAttributeType.typeSymbolicLink
+                : (stub.isDirectory ? FileAttributeType.typeDirectory : FileAttributeType.typeRegular)
             // A real regular file always reports a size; a stub built without an attributes
             // dictionary reported none, so anything reading size off this double saw "unknown"
             // for an ordinary file — a state the real filesystem does not produce. Synthesized for

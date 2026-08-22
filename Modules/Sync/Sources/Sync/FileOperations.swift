@@ -790,7 +790,17 @@ extension FileSyncManager {
                     }
                     continue
                 }
-                if fm.fileExists(atPath: path) {
+                // **`fileExists` follows the link, and a dangling one is still a directory
+                // entry.** Asked alone, it answers `false` for a symlink whose target has been
+                // deleted or lives on an unmounted volume — so the item the user selected and
+                // pressed Delete on was skipped here, with no error, no banner and no place in the
+                // removed count. It stayed on disk and the operation reported success without it.
+                //
+                // `attributesOfItem` reports on the LINK, so it succeeds where the follow fails —
+                // the same probe, for the same reason, as `setAsideUnreadable`, whose own comment
+                // says it "keeps the dangling-symlink case refusing — the link is still a
+                // directory entry". Asked second, so the ordinary path costs nothing extra.
+                if fm.fileExists(atPath: path) || (try? fm.attributesOfItem(atPath: path)) != nil {
                     let url = URL(fileURLWithPath: path)
                     var trashedURL: NSURL? = nil
                     do {

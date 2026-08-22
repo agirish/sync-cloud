@@ -348,8 +348,20 @@ import Events
 
         let lines = await logLines(since: marker)
         // It must not be reported as a change: nothing changed, the item is gone.
-        #expect(lines.allSatisfy { !$0.contains("REFUSED") },
-                "a vanished item is not a refusal; lines since the marker: \(lines)")
+        //
+        // **Narrowed to this fixture's own item.** `Logger.shared` is process-wide and a window
+        // bounds time, not authorship: a whole-window `!contains("REFUSED")` fails the moment any
+        // concurrent suite writes a refusal of its own inside it, and the package has several —
+        // the duplicates gate, the merge gate, and the delete-redo guard among them. Not
+        // hypothetical: this went red the day the delete-redo refusal was added, on a line about
+        // `/docs/report.pdf`.
+        //
+        // Not vacuous, and that is the thing to check before narrowing an absence: the refusal
+        // this guards is `reportUndoRefusedChangedItem`, whose message embeds
+        // `\(destination.path)` — so a real one WOULD name `/dst/report.txt` and still be caught.
+        let mine = lines.filter { $0.contains("/dst/report.txt") }
+        #expect(mine.allSatisfy { !$0.contains("REFUSED") },
+                "a vanished item is not a refusal; lines naming this item: \(mine)")
         #expect(manager.banner?.message.contains("changed since") != true,
                 "the banner still claims the deleted item changed: \(String(describing: manager.banner))")
         #expect(lines.contains { $0.contains("report.txt is no longer on disk") },
