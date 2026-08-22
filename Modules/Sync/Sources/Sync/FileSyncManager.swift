@@ -748,6 +748,20 @@ public class FileSyncManager: ObservableObject {
     /// not decide that a real home directory exists. nil ⇒ no re-survey, which is the state of any
     /// machine that has never been surveyed.
     public var filingProfilesDirectory: URL?
+    /// The id those artifacts were actually **read under** — the folder name, not the `profileId`
+    /// field inside the file.
+    ///
+    /// **The directory is the identity**, which ``FilingProfileStore/active(in:)`` states and warns
+    /// about when the two disagree: a `folder-profile.json` with no `profileId` decodes to
+    /// `"default"`, so a tree read from `work/` would have its re-survey written to `default/`,
+    /// where nothing reads it — and the fingerprint rehashed against that empty folder, which turns
+    /// off the verdict cache for every file. The app already loads the roster, the tag store and
+    /// the fingerprint under this id; the re-survey is the one pass that was still deriving its own
+    /// from the field, so it could send both artifacts somewhere the loader would never look.
+    ///
+    /// nil ⇒ fall back to the field, which is the pre-existing behaviour and the only thing a test
+    /// that never set this can expect.
+    public var filingProfileDirectoryId: String?
     /// Where the two content indexes live — `~/Library/Application Support/SyncCloud`.
     ///
     /// **Injected, never defaulted**, for exactly the reason the line above is and the reason
@@ -924,7 +938,12 @@ public class FileSyncManager: ObservableObject {
     private func rejectedIdentifiers() -> [String: Set<String>] {
         let rejections = (filingPersonTagStore?.tags ?? []).filter { $0.verdict == .rejected }
         guard !rejections.isEmpty,
-              let directory = filingProfilesDirectory, let id = filingFolderProfile?.profileId,
+              let directory = filingProfilesDirectory,
+              // The folder, not the field — same law as ``filingProfileDirectoryId`` states and
+              // the fingerprint refresh below already follows. Keyed on the field, a disagreement
+              // reads a corpus that is not there, so this answers `[:]` and every "not theirs" the
+              // user pressed silently stops withdrawing anything.
+              let id = filingProfileDirectoryId ?? filingFolderProfile?.profileId,
               let memory = filingMemory
         else { return [:] }
         // **Read once per change to the rejections, not once per verdict.** This rebuild fires on

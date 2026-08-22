@@ -76,7 +76,22 @@ extension FileSyncManager {
             Logger.shared.warning("No content extractor — the folder memory cannot be re-surveyed")
             return .none
         }
-        guard let profileId = filingMemory?.profileId ?? filingFolderProfile?.profileId else {
+        // **The folder the artifacts were read from wins over the field inside them.**
+        // ``FilingProfileStore/active(in:)`` decides identity by directory and logs the
+        // disagreement; the app hands that id over as ``FileSyncManager/filingProfileDirectoryId``
+        // and already keys the roster, the tag store and the fingerprint on it. This pass used to
+        // key on `profileId` — a field that decodes to `"default"` when a hand-built profile simply
+        // omits it — and that value drives BOTH ends of the pass: the corpus it reads, the memory
+        // it overwrites, and the fingerprint it republishes. A tree read from `work/` therefore had
+        // its re-survey merged into `default/`'s corpus and written there, where nothing reads it,
+        // while the fingerprint was rehashed against that folder and turned the verdict cache off
+        // for every file. The corpus and memory refusals below are keyed on it too, so they stat
+        // the wrong files, find nothing, and wave the pass through.
+        //
+        // The field remains the fallback, for a caller that never set the directory id — every test
+        // predating this, and any future non-app host.
+        guard let profileId = filingProfileDirectoryId
+                ?? filingMemory?.profileId ?? filingFolderProfile?.profileId else {
             Logger.shared.info("No filing profile on this machine — nothing to re-survey")
             return .none
         }

@@ -88,6 +88,38 @@ import Testing
                                          identity: m.filingPersonIdentity) == ["muktha"])
     }
 
+    /// **The same correction, on a tree whose folder name and `profileId` field disagree.**
+    ///
+    /// ``FilingProfileStore/active(in:)`` lets the folder win and warns when they differ — which
+    /// they do whenever a hand-built `folder-profile.json` omits `profileId`, since it decodes to
+    /// `"default"`. `rejectedIdentifiers()` read the corpus under the FIELD, so on a disagreement
+    /// it opened a path with nothing behind it, answered `[:]`, and every "not theirs" the user had
+    /// pressed silently stopped withdrawing anything. Nothing failed: the index simply rebuilt as
+    /// though no rejection existed, which is indistinguishable from a household that never pressed
+    /// the button.
+    ///
+    /// Same assertions as `aVerdictRecordedNowChangesTheIndexNow` above, so the only variable is
+    /// where the corpus is looked for.
+    @Test func aRejectionStillAppliesWhenTheProfileFieldDisagreesWithItsFolder() throws {
+        let (m, dir) = try Self.makeManager()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // The artifacts are under `p/`, which is what the app would hand over as the directory id;
+        // the field inside the profile says something else entirely.
+        m.filingProfileDirectoryId = "p"
+        m.filingFolderProfile = FolderProfile(profileId: "default", root: "~",
+                                              folders: Self.profile().folders,
+                                              personTokens: ["muktha", "aditi"])
+        try #require(m.filingPersonIdentity.isEmpty,
+                     "the fixture stopped reproducing the silenced identifier")
+
+        m.filingPersonTagStore?.record(personId: "aditi", key: .path(Self.misfiled),
+                                       verdict: .rejected, path: Self.misfiled)
+
+        #expect(m.filingPersonIdentity.count(for: "muktha") == 1,
+                "the rejection was read against the wrong folder, so it withdrew nothing")
+        #expect(m.filingPersonIdentity.count(for: "aditi") == 0)
+    }
+
     /// A confirmation moves nothing — it rebuilds, and the index is what it was.
     @Test func aConfirmationLeavesTheIndexAlone() throws {
         let (m, dir) = try Self.makeManager()

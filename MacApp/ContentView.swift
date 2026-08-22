@@ -2105,7 +2105,10 @@ struct ContentView: View {
         Logger.shared.info("User asked for everything that is \(person.displayName)'s")
         personGatherTask?.cancel()
         personScope = PersonScope(person: person, phase: .gathering)
-        let id = profile.profileId
+        // The folder the artifacts were read from, not the field inside them — the gather reads
+        // `filing-corpus.json` under this id, so a disagreement finds no corpus and the accept
+        // returns nothing at all. See `FileSyncManager.filingProfileDirectoryId`.
+        let id = syncManager.filingProfileDirectoryId ?? profile.profileId
         // Snapshotted here, on the main actor, rather than read inside the sweep: the store is
         // `@MainActor` and the sweep deliberately is not. A verdict recorded while a gather runs
         // therefore lands in the *next* gather, which is right — the one in flight is answering the

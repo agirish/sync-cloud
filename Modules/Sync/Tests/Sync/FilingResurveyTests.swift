@@ -549,6 +549,79 @@ import Events
         #expect(reads.paths.isEmpty)
     }
 
+    // MARK: - The folder the artifacts came from is the identity, not the field inside them
+
+    /// **A re-survey must write back to the folder it read from.**
+    ///
+    /// ``FilingProfileStore/active(in:)`` states the law — *"The DIRECTORY is the identity"* — and
+    /// logs a warning when the folder name and the `profileId` field disagree, which they do
+    /// whenever a hand-built `folder-profile.json` omits the field: it decodes to `"default"`.
+    /// The app already honours it for the roster, the tag store and the fingerprint
+    /// (`FilingArtifacts.attach` passes `loaded.id` to all three). The re-survey ran inside `Sync`,
+    /// could not reach that id, and keyed itself on the field — so a tree read from `work/` had its
+    /// memory and corpus written to `default/`, where nothing would ever read them again, and the
+    /// artifact fingerprint republished from that same empty folder, which turns the verdict cache
+    /// off for every file in the tree.
+    ///
+    /// Asserted on the FILES, in both directions: the right folder gained the artifacts, and the
+    /// folder named by the field does not exist at all. Checking only the first would pass on a
+    /// pass that wrote to both.
+    @Test func theResurveyWritesBackToTheFolderItReadFromNotTheFieldInsideTheProfile() async throws {
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        // The disagreement, exactly as a profile that omits `profileId` produces it.
+        manager.filingFolderProfile = FolderProfile(profileId: "default", root: docs.path,
+                                                    folders: [:], personTokens: [])
+        manager.filingProfileDirectoryId = "work"
+
+        let report = await manager.resurveyFilingMemory(root: docs)
+        #expect(report.documentsRead > 0, "fixture: the pass has to have done something to misfile")
+
+        #expect(FileManager.default.fileExists(
+            atPath: profiles.appendingPathComponent("work/filing-memory.json").path),
+                "the memory belongs in the folder the artifacts were read from")
+        #expect(FileManager.default.fileExists(
+            atPath: profiles.appendingPathComponent("work/filing-corpus.json").path),
+                "so does the corpus — it is the half the next survey reads to scope itself")
+        #expect(!FileManager.default.fileExists(
+            atPath: profiles.appendingPathComponent("default").path),
+                "nothing may be written under the field's name; that folder is where reads never go")
+    }
+
+    /// The fingerprint is the half that OUTLIVES the pass, so it gets its own assertion.
+    ///
+    /// `FilingArtifacts.attach` sets it from `loaded.id` at launch; the re-survey recomputes and
+    /// republishes it at the end. Keyed on the field, that recomputation hashed a folder with no
+    /// artifacts in it — a digest that disagrees with every verdict already cached, and one that
+    /// stays wrong until the next launch reloads the artifacts.
+    @Test func theRepublishedFingerprintIsTakenFromTheFolderNotTheField() async throws {
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        manager.filingFolderProfile = FolderProfile(profileId: "default", root: docs.path,
+                                                    folders: [:], personTokens: [])
+        manager.filingProfileDirectoryId = "work"
+
+        _ = await manager.resurveyFilingMemory(root: docs)
+
+        let expected = FilingProfileStore.fingerprint(id: "work", in: profiles)
+        #expect(manager.filingArtifactFingerprint == expected)
+        // Not the empty-directory digest: that is what the defect published, and `""` is a
+        // perfectly recurring value, so it would look like a stable answer forever.
+        #expect(manager.filingArtifactFingerprint != FilingProfileStore.fingerprint(id: "default",
+                                                                                   in: profiles))
+    }
+
+    /// **The fallback has to stay**, or every caller that never sets the directory id — which is
+    /// every test predating this and any non-app host — silently stops re-surveying.
+    @Test func withNoDirectoryIdTheFieldInsideTheProfileIsStillUsed() async throws {
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        #expect(manager.filingProfileDirectoryId == nil, "fixture: the fallback is what is under test")
+
+        _ = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(FileManager.default.fileExists(
+            atPath: profiles.appendingPathComponent("t/filing-memory.json").path),
+                "the profile field names 't', and with no directory id that is the right answer")
+    }
+
     /// With no artifacts and no extractor there is nothing to do, and saying so beats writing an
     /// empty memory over a tree nobody surveyed.
     @Test func aMachineWithNoProfileIsLeftAlone() async throws {
