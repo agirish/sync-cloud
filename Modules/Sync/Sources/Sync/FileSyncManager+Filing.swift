@@ -1531,6 +1531,20 @@ extension FileSyncManager {
         filingSuggestions.filter { $0.isBatchEligible }
     }
 
+    /// True while a "File recommended" batch is running for this manager — see the latch's
+    /// declaration at the foot of this file and the guard in ``applyRecommendedFiling(_:)``.
+    ///
+    /// Internal, and deliberately not published: the storage is a file-private set, so nothing
+    /// observes it and a SwiftUI view reading it would never be told when it changed. It exists so
+    /// the re-entrancy test can assert that its second invocation really did overlap the first —
+    /// without that, a run in which the two never overlapped is indistinguishable from one the
+    /// latch refused, and the test would pass while proving nothing.
+    ///
+    /// Disabling the button for the duration is the other half of this fix and is NOT done here:
+    /// that needs a `@Published` property on `FileSyncManager` and a `.disabled(…)` in
+    /// `LensWorkspaceView.fileAllButton`, neither of which is this file.
+    var isFilingBatchRunning: Bool { filingBatchInFlight.contains(ObjectIdentifier(self)) }
+
     /// Files the batch-eligible suggestions among `scope` into their suggested homes.
     ///
     /// `scope` is REQUIRED for the same reason as `applyRecommendedDuplicates`: a search can now
@@ -1547,6 +1561,33 @@ extension FileSyncManager {
         }
         let batch = scope.filter { $0.isBatchEligible }
         guard !batch.isEmpty else { return }
+        // **The in-flight latch every sibling write pass owns, and this one did not.**
+        // `isVerifyAllRunning` above is a *different* pass's guard; it says nothing about a second
+        // "File all". And a second one is a single gesture away: the button is disabled only while
+        // a scan runs, its confirmation is an `NSAlert` whose modal run loop keeps spinning the
+        // main actor while the first batch's `Task` is parked on the file-operation queue, and both
+        // invocations file the same captured `scope` array — the list republish that would have
+        // narrowed it happens per file, after each move, and cannot reach an array already passed.
+        //
+        // So the second run walks suggestions the first one has already moved, fails
+        // `performFiling`'s source-exists guard on every one, and reports each as
+        // "Couldn't file this item; it was left in place" under a "Couldn't file N files" banner.
+        // Every word of that is false: the files were filed, and they are not in place.
+        //
+        // Refuse silently rather than with a banner. The Verify All refusal above answers a
+        // question the user could not have known the answer to; this one answers "you pressed the
+        // same button twice", where the first press is still running and about to report for both.
+        //
+        // The latch is file-private storage keyed by manager identity rather than a stored property
+        // because a stored property has to live in the class body and this is an extension. It is
+        // otherwise exactly the sibling shape — `isBulkSyncRunning`, `isApplyingRenames`,
+        // `mergingGroupIDs`: refuse at entry, latch, release in a `defer` that covers every exit.
+        // Nothing leaks: `ObjectIdentifier` holds no reference, the caller's `await` holds `self`
+        // alive for the whole latched window so the key cannot be reused by a later object, and the
+        // `defer` removes the entry on every path out.
+        guard !filingBatchInFlight.contains(ObjectIdentifier(self)) else { return }
+        filingBatchInFlight.insert(ObjectIdentifier(self))
+        defer { filingBatchInFlight.remove(ObjectIdentifier(self)) }
         var moves: [MoveItemState] = []
         var failures = 0
         for s in batch {
@@ -1695,3 +1736,20 @@ extension FileSyncManager {
             : URL(fileURLWithPath: providerRoot)
     }
 }
+
+/// Which managers currently have a "File recommended" batch in flight.
+///
+/// The in-flight latch behind ``FileSyncManager/applyRecommendedFiling(_:)``, in the shape every
+/// sibling write pass uses — `isBulkSyncRunning`, `isApplyingRenames`, `mergingGroupIDs`,
+/// `filingRefineInFlight` — but as file-private storage rather than a stored property, because a
+/// stored property has to live in the class body and this file is an extension.
+///
+/// Keyed by `ObjectIdentifier` so two managers (which tests routinely create) latch independently.
+/// That key is safe here specifically because a latched manager cannot be deallocated: the caller
+/// awaits `applyRecommendedFiling`, which holds `self` for the whole latched window, and the
+/// method's `defer` clears the entry before returning. No entry outlives its object, so no address
+/// can be reused while it is still spoken for.
+///
+/// `@MainActor` because `FileSyncManager` is: the read, the insert and the `defer`'s remove all
+/// happen in one main-actor turn each, which is exactly what makes this a latch at all.
+@MainActor private var filingBatchInFlight: Set<ObjectIdentifier> = []
