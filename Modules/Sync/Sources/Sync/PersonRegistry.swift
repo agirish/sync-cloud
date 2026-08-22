@@ -58,7 +58,17 @@ public struct Person: Sendable, Equatable, Identifiable {
 }
 
 extension Person: Codable {
-    private enum Key: String, CodingKey { case id, displayName, relationship, fullNames, aliases }
+    private enum Key: String, CodingKey, CaseIterable {
+        case id, displayName, relationship, fullNames, aliases
+    }
+
+    /// The keys of a person record this build models — everything `init(from:)` reads and
+    /// `encode(to:)` writes, which are deliberately the same set.
+    ///
+    /// **Derived from `Key`, not written out beside it.** A second hand-maintained list is how a
+    /// field gets added to the record and stays absent from this set, which would make
+    /// ``PeopleStore`` carry a key it had just written and then prefer the carried copy forever.
+    static let modelledKeys: Set<String> = Set(Key.allCases.map(\.rawValue))
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
         id = try c.decode(String.self, forKey: .id)

@@ -63,6 +63,7 @@ public final class PeopleStore: ObservableObject {
         dismissedSuggestions = FilingProfileStore.dismissedNameSuggestions(id: profileId,
                                                                            in: directory)
         carriedKeys = Self.unmodelledKeys(at: fileURL)
+        carriedPersonKeys = Self.unmodelledPersonKeys(at: fileURL)
         rosterIsUnreadable = Self.rosterIsUnreadable(at: fileURL, loaded: loaded,
                                                      fileManager: fileManager)
         if rosterIsUnreadable {
@@ -214,9 +215,30 @@ public final class PeopleStore: ObservableObject {
     ///
     /// Carried generically rather than as a `note: String?` field, for the same reason
     /// ``PersonTagVerdict/unrecognized(_:)`` exists one file over: the failure is not "the note is
-    /// missing", it is "this build rewrote a file it had only partly understood". A key added by a
-    /// newer build, or by him in a text editor, survives a round trip through this one.
+    /// missing", it is "this build rewrote a file it had only partly understood".
+    ///
+    /// **Top-level only — see ``carriedPersonKeys`` for the keys INSIDE a person record.** This
+    /// used to close by saying "a key added by a newer build, or by him in a text editor, survives
+    /// a round trip through this one", unqualified, which was true of `_note` beside `people` and
+    /// false of anything written on a person. The two need separate machinery because they are
+    /// merged back at different depths.
     private var carriedKeys: [String: Any] = [:]
+
+    /// Unmodelled keys found INSIDE each person record, by person id.
+    ///
+    /// **The same failure as ``carriedKeys``, one level down, and the top-level carry cannot see
+    /// it.** `Person` models exactly five keys (``Person/modelledKeys``) and its `init(from:)`
+    /// ignores everything else, so a `"nickname"` — added by a newer build, or typed into the file
+    /// by hand next to the person it describes — decodes to nothing, is absent from the re-encoded
+    /// record, and is gone from disk the first time anybody edits anybody. Silently: the file it
+    /// leaves behind is well-formed and looks complete.
+    ///
+    /// Keyed by id because id is the roster's primary key everywhere. Three consequences, all
+    /// deliberate: a person deleted from the roster takes their carried keys with them rather than
+    /// being resurrected by the merge; a person whose id is changed loses them, which is the same
+    /// thing that happens to every other per-person fact keyed on id; and a repeated id never
+    /// reaches here, because ``save()`` refuses to write at all in that state.
+    private var carriedPersonKeys: [String: [String: Any]] = [:]
 
     /// The keys of `people.json` that this build has no field for.
     ///
@@ -228,6 +250,27 @@ public final class PeopleStore: ObservableObject {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return [:] }
         return object.filter { !PeopleFileOut.modelledKeys.contains($0.key) }
+    }
+
+    /// The keys inside each person record that this build has no field for, by person id.
+    ///
+    /// Read from the bytes for the same reason ``unmodelledKeys(at:)`` is: a `Decodable` that
+    /// ignores unknown keys is exactly what cannot report them. A record with no id is skipped
+    /// rather than carried under a placeholder — it cannot be matched back to anything on write,
+    /// and `PersonRegistry` drops it on load too, so carrying it would mean re-attaching keys to a
+    /// record that is not in the file any more.
+    private static func unmodelledPersonKeys(at url: URL) -> [String: [String: Any]] {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let records = object["people"] as? [[String: Any]]
+        else { return [:] }
+        var out: [String: [String: Any]] = [:]
+        for record in records {
+            guard let id = record["id"] as? String else { continue }
+            let extras = record.filter { !Person.modelledKeys.contains($0.key) }
+            if !extras.isEmpty { out[id] = extras }
+        }
+        return out
     }
 
     /// A store with no file behind it, for tests and previews — edits stay in memory.
@@ -385,7 +428,7 @@ public final class PeopleStore: ObservableObject {
                 PeopleFileOut(schemaVersion: FilingProfileStore.currentSchema, people: people,
                               notNames: dismissedSuggestions.isEmpty ? nil
                                                                      : dismissedSuggestions.sorted()))
-            if let merged = Self.merging(carriedKeys, into: data) {
+            if let merged = Self.merging(carriedKeys, perPerson: carriedPersonKeys, into: data) {
                 data = merged
             } else if !carriedKeys.isEmpty {
                 // **The loss is said, even though the write proceeds.** Writing the unmerged bytes
@@ -430,11 +473,25 @@ public final class PeopleStore: ObservableObject {
     ///
     /// The modelled keys win by construction — `carriedKeys` never contains them — so a stale
     /// `people` array read at launch can never overwrite the roster being saved now.
-    private static func merging(_ carried: [String: Any], into encoded: Data) -> Data? {
-        guard !carried.isEmpty,
+    private static func merging(_ carried: [String: Any], perPerson: [String: [String: Any]],
+                                into encoded: Data) -> Data? {
+        guard !carried.isEmpty || !perPerson.isEmpty,
               var object = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         else { return nil }
         object.merge(carried) { fresh, _ in fresh }
+        // The per-record half, merged at the depth it was read from. Driven by the ENCODED array
+        // rather than by the carried map, so a person removed from the roster this session is
+        // simply not here to merge into — their keys go with them, instead of the merge putting a
+        // record back that the user just deleted.
+        if !perPerson.isEmpty, let records = object["people"] as? [[String: Any]] {
+            object["people"] = records.map { record -> [String: Any] in
+                guard let id = record["id"] as? String, let extras = perPerson[id] else { return record }
+                // `fresh` wins on a collision, exactly as at the top level: a key this build now
+                // models is this build's to write, and preferring the carried copy would pin a
+                // value the user can no longer change from the UI.
+                return record.merging(extras) { fresh, _ in fresh }
+            }
+        }
         // `.sortedKeys` so the file stays diffable, matching what the encoder above produces.
         return try? JSONSerialization.data(withJSONObject: object,
                                            options: [.prettyPrinted, .sortedKeys,

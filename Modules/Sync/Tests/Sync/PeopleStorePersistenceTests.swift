@@ -45,6 +45,18 @@ import Foundation
         }
         """
 
+    /// The same hand-editing, one level down: keys written ON a person rather than beside them.
+    private static let handWrittenPerPerson = """
+        {
+          "schemaVersion": 1,
+          "people": [
+            { "id": "abhishek", "displayName": "Abhishek", "fullNames": ["Abhishek Girish"],
+              "nickname": "Abhi", "_why": "the tree files under his full name" },
+            { "id": "muktha", "displayName": "Muktha" }
+          ]
+        }
+        """
+
     // MARK: - The bug
 
     @Test func anEditKeepsTheNoteAndAnythingElseInTheFile() throws {
@@ -322,5 +334,90 @@ import Foundation
         let names = (saved["people"] as? [[String: Any]])?.compactMap { $0["displayName"] as? String }
         #expect(names?.sorted() == ["Abhishek", "Shweta"], "the edit must still be written")
         #expect(saved["_note"] as? String == "Anuraag is on this roster because the tree already files for him.")
+    }
+
+    // MARK: - The same failure inside a person record
+
+    /// **A key written ON a person is destroyed by the first edit to ANYBODY.**
+    ///
+    /// `carriedKeys` reads the top-level object and filters it against `PeopleFileOut.modelledKeys`
+    /// — so `_note` beside `people` survives, and `nickname` on Abhishek does not. `Person` models
+    /// exactly five keys and `init(from:)` ignores the rest, so the record re-encodes without them
+    /// and the whole-file write puts that on disk. Nothing fails: the file is well-formed and looks
+    /// complete, which is why this needed a test rather than a bug report.
+    @Test func anEditKeepsKeysWrittenInsideAPersonRecord() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try write(Self.handWrittenPerPerson, to: dir)
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        store.add(displayName: "Shweta")            // an edit to somebody else entirely
+
+        let people = try #require(try read(dir)["people"] as? [[String: Any]])
+        let abhishek = try #require(people.first { $0["id"] as? String == "abhishek" })
+        #expect(abhishek["nickname"] as? String == "Abhi",
+                "a key written on a person was deleted by an edit to a different person")
+        #expect(abhishek["_why"] as? String == "the tree files under his full name",
+                "prose on a person is the same kind of thing as prose beside them")
+        // And the modelled fields still round-trip, so the merge did not replace the record.
+        #expect(abhishek["displayName"] as? String == "Abhishek")
+        #expect(abhishek["fullNames"] as? [String] == ["Abhishek Girish"])
+    }
+
+    /// A person with no extras gains none, and the new person is written normally — the merge must
+    /// not invent keys or skip records it has nothing for.
+    @Test func recordsWithNothingCarriedAreUntouched() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try write(Self.handWrittenPerPerson, to: dir)
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        store.add(displayName: "Shweta")
+
+        let people = try #require(try read(dir)["people"] as? [[String: Any]])
+        let muktha = try #require(people.first { $0["id"] as? String == "muktha" })
+        #expect(Set(muktha.keys) == ["id", "displayName"])
+        let shweta = try #require(people.first { $0["displayName"] as? String == "Shweta" })
+        #expect(Set(shweta.keys) == ["id", "displayName"])
+    }
+
+    /// **Deleting a person takes their carried keys with them.**
+    ///
+    /// The merge is driven by the records being written, not by the carried map, so a person the
+    /// user just removed has nothing to merge into. Driving it the other way would put a record
+    /// back that was deliberately deleted — a whole-file write is the one place that mistake is
+    /// invisible.
+    @Test func aRemovedPersonIsNotResurrectedByTheirCarriedKeys() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try write(Self.handWrittenPerPerson, to: dir)
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        store.remove(id: "abhishek")
+
+        let people = try #require(try read(dir)["people"] as? [[String: Any]])
+        #expect(!people.contains { $0["id"] as? String == "abhishek" },
+                "the deleted person came back through the carry")
+        #expect(people.contains { $0["id"] as? String == "muktha" })
+    }
+
+    /// A field this build DOES model is this build's to write, even if the file had it too —
+    /// the same rule the top-level merge follows, checked because preferring the carried copy
+    /// would pin a value the user can no longer change from the UI.
+    @Test func aModelledFieldIsNotShadowedByTheCarriedCopy() throws {
+        let dir = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try write(Self.handWrittenPerPerson, to: dir)
+
+        let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
+        let person = try #require(store.person(id: "abhishek"))
+        store.update(Person(id: person.id, displayName: "Abhishek G",
+                            relationship: person.relationship,
+                            fullNames: person.fullNames, aliases: person.aliases))
+
+        let people = try #require(try read(dir)["people"] as? [[String: Any]])
+        let abhishek = try #require(people.first { $0["id"] as? String == "abhishek" })
+        #expect(abhishek["displayName"] as? String == "Abhishek G")
+        #expect(abhishek["nickname"] as? String == "Abhi", "the rename dropped the carried key")
     }
 }
