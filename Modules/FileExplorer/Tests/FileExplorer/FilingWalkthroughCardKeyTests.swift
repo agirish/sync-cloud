@@ -109,13 +109,29 @@ import Sync
         send(window, keyCode: 36, characters: "\r", modifiers: modifiers, isARepeat: isARepeat)
     }
 
+    /// **Arrows always carry `.function` and `.numericPad`.** Not a stylistic choice — AppKit sets
+    /// both on every arrow-key event (`NSEvent.ModifierFlags.numericPad`: "also set if any of the
+    /// arrow keys are pressed"), so an arrow with `modifierFlags: []` is a shape the real
+    /// keyboard cannot produce. This sender synthesized exactly that until 2026-08-21, and the
+    /// blindness cost a shipped feature: the handlers guarded on `press.modifiers.isEmpty`, which
+    /// is FALSE for every real →, so → skipped nothing in the app while this suite stayed green.
+    /// The caller's `modifiers` are UNIONED with the intrinsic pair, so `.option` here means the
+    /// ⌥→ AppKit would actually deliver.
+    ///
+    /// Measured through this same harness (`SwiftUI.EventModifiers` raw values, from a probe view
+    /// on this window's responder chain): arrow flags `[]` → 0; `[.function, .numericPad]` → 96;
+    /// `[.capsLock, .function, .numericPad]` → 97.
+    private static let arrowIntrinsicFlags: NSEvent.ModifierFlags = [.function, .numericPad]
+
     private func sendRightArrow(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
                                 isARepeat: Bool = false) {
-        send(window, keyCode: 124, characters: "\u{F703}", modifiers: modifiers, isARepeat: isARepeat)
+        send(window, keyCode: 124, characters: "\u{F703}",
+             modifiers: modifiers.union(Self.arrowIntrinsicFlags), isARepeat: isARepeat)
     }
 
-    private func sendEscape(_ window: NSWindow, isARepeat: Bool = false) {
-        send(window, keyCode: 53, characters: "\u{1B}", isARepeat: isARepeat)
+    private func sendEscape(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
+                            isARepeat: Bool = false) {
+        send(window, keyCode: 53, characters: "\u{1B}", modifiers: modifiers, isARepeat: isARepeat)
     }
 
     // MARK: The keys, with the card focused
@@ -127,8 +143,8 @@ import Sync
         guard await waitForCardFocus(in: window) else { return }
 
         sendReturn(window)
-        send(window, keyCode: 124, characters: "\u{F703}")   // →
-        send(window, keyCode: 53, characters: "\u{1B}")      // esc
+        sendRightArrow(window)
+        sendEscape(window)
         #expect(recorder.decisions == [true, false],
                 "got \(recorder.decisions) — ⏎ must file and → must skip")
         #expect(recorder.cancels == 1, "esc did not cancel")
@@ -218,6 +234,26 @@ import Sync
 
         for _ in 0..<3 { sendEscape(window) }
         #expect(recorder.cancels == 4, "fresh presses stopped arriving: \(recorder.cancels)")
+    }
+
+    /// **Caps Lock is not a chord.** `.capsLock` is present on EVERY event while the lock is
+    /// engaged, so a guard written as `press.modifiers.isEmpty` kills ⏎, → and esc outright for
+    /// anyone who left it on — the card goes fully dead with no way to tell why. Measured on this
+    /// harness: `return` with `[.capsLock]` arrives as `EventModifiers` rawValue 1, `isEmpty ==
+    /// false`. Only the four INTENT modifiers (⌘⌥⌃⇧) may refuse a decision.
+    @Test func capsLockDoesNotDisableTheCardsKeys() async {
+        let recorder = Recorder()
+        let (window, _) = host(card(into: recorder))
+        guard await waitForCardFocus(in: window) else { return }
+
+        sendReturn(window, modifiers: .capsLock)
+        sendRightArrow(window, modifiers: .capsLock)
+        #expect(recorder.decisions == [true, false], """
+                got \(recorder.decisions) — with Caps Lock engaged ⏎ must still file and → must \
+                still skip. Caps Lock rides on every event; it is a lock, not a chord.
+                """)
+        sendEscape(window, modifiers: .capsLock)
+        #expect(recorder.cancels == 1, "esc with Caps Lock engaged did not cancel")
     }
 
     // MARK: The keys, with a text field focused

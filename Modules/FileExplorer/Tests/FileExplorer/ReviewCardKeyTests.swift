@@ -112,6 +112,26 @@ import Sync
         #expect(recorder.exits == 0)
     }
 
+    /// **Caps Lock is not a chord.** `.capsLock` rides on EVERY event while the lock is engaged,
+    /// so a guard written as `press.modifiers.isEmpty` takes ⌫-skip away entirely from anyone who
+    /// left it on — silently, with the hint row still advertising the key. Measured on this
+    /// harness: `delete` sent with `[.capsLock]` arrives as `SwiftUI.EventModifiers` rawValue 1,
+    /// `isEmpty == false`. Only the four INTENT modifiers (⌘⌥⌃⇧) may refuse the skip.
+    @Test func capsLockDoesNotDisableTheSkipKey() async throws {
+        let recorder = Recorder()
+        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
+        let (window, _) = host(subject)
+        guard await waitForCardFocus(in: window) else { return }
+
+        sendDelete(window, modifiers: .capsLock)
+        #expect(recorder.skips == 1, """
+                ⌫ with Caps Lock engaged skipped nothing (skips: \(recorder.skips)). Caps Lock is \
+                a lock, not a chord — it must not disarm the key the hint row advertises.
+                """)
+        #expect(recorder.primaries == 0)
+        #expect(recorder.exits == 0)
+    }
+
     /// The held-key rule the handler's `.down`-only phases promise, proven here rather than
     /// assumed from the walkthrough card's twin: a held ⌫ skips exactly ONE row.
     @Test func aHeldDeleteSkipsExactlyOneRow() async throws {

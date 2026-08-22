@@ -623,11 +623,18 @@ struct FilingWalkthroughCard: View {
         // replaced — and esc keeps the same phase rule for uniformity. (Same rule, same reason,
         // as ReviewCardView's ⌫-skip.)
         //
-        // `press.modifiers.isEmpty` on all three: the `onKeyPress(keys:phases:)` overload — unlike
+        // `press.isPlainKeystroke` on all three: the `onKeyPress(keys:phases:)` overload — unlike
         // the single-key `onKeyPress(_:)` one — delivers MODIFIED presses too, so without the check
         // ⌘⏎/⇧⏎ filed the current item and ⌥→/⌃→ irreversibly skipped it (measured in
         // FilingWalkthroughCardKeyTests). The keycaps advertise plain keystrokes; a chord is
         // `.ignored` so whoever owns it still sees it.
+        //
+        // It reads ⌘⌥⌃⇧ ONLY, and the first cut of this guard did not: it was
+        // `press.modifiers.isEmpty`, which is false for every arrow AppKit has ever delivered
+        // (`.function` + `.numericPad` are intrinsic to the arrow keys) and false for everything
+        // at all while Caps Lock is engaged. Shipped, that spelling meant → skipped NOTHING and
+        // Caps Lock killed all three keys. See `KeyPress.isPlainKeystroke` for the measured
+        // values.
         //
         // `guard focused` on the two DECISION keys: with Full Keyboard Access the card's buttons
         // become focusable, and a ⏎ aimed at the focused Cancel button would otherwise bubble to
@@ -640,12 +647,12 @@ struct FilingWalkthroughCard: View {
         // be filed. esc is deliberately NOT gated on `focused`: cancelling from a focused button
         // is harmless and is what esc means there anyway.
         .onKeyPress(keys: [.return], phases: .down) { press in
-            guard press.modifiers.isEmpty, focused else { return .ignored }
+            guard press.isPlainKeystroke, focused else { return .ignored }
             onDecision(true)
             return .handled
         }
         .onKeyPress(keys: [.rightArrow], phases: .down) { press in
-            guard press.modifiers.isEmpty, focused else { return .ignored }
+            guard press.isPlainKeystroke, focused else { return .ignored }
             onDecision(false)
             return .handled
         }
@@ -653,7 +660,7 @@ struct FilingWalkthroughCard: View {
         // window-level equivalent, and it would discard the walkthrough's approvals on an esc the
         // user typed to clear the search field.
         .onKeyPress(keys: [.escape], phases: .down) { press in
-            guard press.modifiers.isEmpty else { return .ignored }
+            guard press.isPlainKeystroke else { return .ignored }
             onCancel()
             return .handled
         }
