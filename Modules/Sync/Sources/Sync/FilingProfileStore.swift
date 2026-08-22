@@ -199,10 +199,34 @@ public enum FilingProfileStore {
                 // store. `attributesOfItem` rather than `fileExists` so a dangling symlink still
                 // counts as present.
                 guard (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil else {
+                    // **"and relaunch" was not quite true and not quite false, which is worse than
+                    // either.** This digest is re-derived on three occasions — at launch, after a
+                    // roster save (`FileSyncManager.refreshFilingArtifactFingerprint`), and after a
+                    // re-survey writes — so a repaired `folder-profile.json` or
+                    // `filing-memory.json` is picked up by the next roster edit without a
+                    // relaunch. `people.json` is the exception, and it is the one this line most
+                    // often names: an unreadable roster sets `PeopleStore.rosterIsUnreadable` at
+                    // construction, which lasts the session, and `save()` refuses while it is set
+                    // — so `savedRevision` never bumps, the sink never fires, and that repair
+                    // really does wait for a relaunch (pinned by
+                    // `PeopleStoreSaveOrderingTests.aRefusedSaveDoesNotBumpTheRevision`).
+                    //
+                    // **The cost while it stays broken is not only the edits.** The People banner
+                    // says edits will not be saved; it does not say that with the fingerprint
+                    // unavailable the verdict cache is off for READ as well as write, so every
+                    // paid refine re-bills in full and caches nothing. That is the expensive half,
+                    // and it is stated here because nothing on screen states it.
+                    //
+                    // Logged once per CALL rather than once per episode, which is affordable
+                    // precisely because of the three occasions above: nothing calls this per file
+                    // or per scan.
                     Logger.shared.warning("Filing artifacts: \(name) exists but could not be read "
                                           + "— the artifact fingerprint is unavailable, so no "
-                                          + "classification is cached or replayed until it can "
-                                          + "be. Fix \(url.path) and relaunch.")
+                                          + "classification is cached or replayed this session and "
+                                          + "every paid pass re-asks in full. Fix \(url.path); it "
+                                          + "is re-read at the next launch, and for everything but "
+                                          + "people.json as soon as the artifacts are next "
+                                          + "written.")
                     return nil
                 }
                 continue
