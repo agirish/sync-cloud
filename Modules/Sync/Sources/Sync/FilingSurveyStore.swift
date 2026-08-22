@@ -34,7 +34,9 @@ public enum FilingSurveyStore {
     public enum CorpusRead: Sendable {
         /// No corpus file — an ordinary state, and the next survey reads everything.
         case absent
-        /// A corpus file that could not be parsed. Nothing may be inferred about the tree from it.
+        /// A corpus file that is **on disk and could not be read** — could not be opened (mode
+        /// 000, an ACL, an I/O error, a dangling symlink) or could not be parsed. Nothing may be
+        /// inferred about the tree from it.
         case unreadable
         case loaded(FilingCorpus)
 
@@ -47,8 +49,38 @@ public enum FilingSurveyStore {
     }
 
     /// The corpus for `id`, saying which of the three states it found.
+    ///
+    /// **Unreadable is not only a decode failure.** This reached `.unreadable` through the `catch`
+    /// alone, so every way a file can be present and unopenable — mode 000, an ACL, an I/O error,
+    /// a symlink whose target is gone — answered `.absent` and walked straight into the harm the
+    /// type exists to prevent. Measured: a mode-000 `filing-corpus.json` answered `.absent`, the
+    /// survey merged into an empty corpus, and `write` replaced the file — an atomic write needs
+    /// permission on the DIRECTORY, not on the file, so the learned content was destroyed rather
+    /// than protected.
+    ///
+    /// `attributesOfItem` rather than `fileExists`, the same probe the four sibling stores use:
+    /// `fileExists` follows symlinks and answers false for one whose target is on an unmounted
+    /// volume — measured — and the atomic write then replaces the link itself.
+    ///
+    /// **Nothing is moved aside here, deliberately, unlike ``StorageLensStore``,
+    /// ``FilingVerdictStore`` and ``PersonTagStore``.** Those three set the file aside because
+    /// they are *committed to writing*: their caller has verdicts or judgements in hand and the
+    /// only alternative to a rescue is losing them. This corpus has a third option and takes it —
+    /// `FileSyncManager+FilingSurvey` refuses the whole pass, so the bytes are left exactly as
+    /// they are and a fixed permission bit recovers the entire survey history. A set-aside here
+    /// would be strictly worse: the kept file is never re-ingested, so renaming it would turn a
+    /// recoverable permission problem into a full re-read of every document in the tree.
     public static func corpusRead(id: String, in directory: URL) -> CorpusRead {
-        guard let data = try? Data(contentsOf: corpusURL(id: id, in: directory)) else { return .absent }
+        let url = corpusURL(id: id, in: directory)
+        guard let data = try? Data(contentsOf: url) else {
+            guard (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil else {
+                Logger.shared.warning("The filing corpus at \(url.path) exists but could not be "
+                                      + "opened — permission, an ACL, an I/O error or a broken "
+                                      + "link. Nothing may be inferred about the tree from it.")
+                return .unreadable
+            }
+            return .absent
+        }
         do {
             return .loaded(try JSONDecoder().decode(FilingCorpus.self, from: data))
         } catch {

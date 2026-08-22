@@ -130,6 +130,53 @@ import Events
                 "the published memory must still describe the tree")
     }
 
+    /// The same refusal reached through the door the decode guard could not see: a corpus that is
+    /// **on disk and cannot be opened at all** — mode 000 here, an ACL or an I/O error in the wild.
+    ///
+    /// This answered `.absent` before, so the survey started from an empty corpus, merged this
+    /// pass into nothing, and wrote the result over `filing-memory.json`. The bytes were not even
+    /// set aside: an atomic write needs permission on the DIRECTORY, not on the file. Measured on
+    /// this machine — `corpus bytes after write == original? false`.
+    ///
+    /// Asserted on the BYTES, because the report is exactly what could not tell the two apart.
+    @Test func aCorpusThatCannotBeOpenedLeavesBothArtifactsExactlyAsTheyWere() async throws {
+        if geteuid() == 0 {
+            Issue.record("""
+                Skipped: running as root (euid 0), where chmod 000 does not restrict access, so \
+                this fixture cannot distinguish an unreadable corpus from a readable one.
+                """)
+            return
+        }
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+
+        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
+        let memoryURL = profiles.appendingPathComponent("t/filing-memory.json")
+        let fm = FileManager.default
+        defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: corpusURL.path) }
+        let corpusBefore = try Data(contentsOf: corpusURL)
+        let memoryBefore = try Data(contentsOf: memoryURL)
+        let learnedBefore = try #require(manager.filingMemory).folders.count
+        #expect(learnedBefore > 0, "fixture: there must be something to lose")
+
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: corpusURL.path)
+        #expect((try? Data(contentsOf: corpusURL)) == nil, "fixture: the corpus was still readable")
+
+        // A real document appears, so the pass has something to read and every reason to write.
+        try Self.write(docs.appendingPathComponent("Home/PG&E/2024/mar.pdf"),
+                       Self.page("Pacific Gas and Electric"))
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(report.changed == false, "the survey ran on a corpus it could not open")
+        #expect(try Data(contentsOf: memoryURL) == memoryBefore,
+                "the folder memory was rewritten from an empty corpus")
+        try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: corpusURL.path)
+        #expect(try Data(contentsOf: corpusURL) == corpusBefore,
+                "the unopenable corpus was overwritten — the learned content is gone, not kept")
+        #expect(manager.filingMemory?.folders.count == learnedBefore,
+                "the published memory must still describe the tree")
+    }
+
     /// The other direction, so the refusal above cannot be "the survey stopped working": with NO
     /// corpus at all the survey runs and writes one, which is what a first survey is.
     @Test func anAbsentCorpusStillSurveysFromScratch() async throws {
