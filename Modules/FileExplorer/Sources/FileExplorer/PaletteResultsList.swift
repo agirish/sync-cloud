@@ -1,6 +1,42 @@
 import SwiftUI
 import Design
 
+/// The palette row's geometry, named so something other than the row can compute what fits in it.
+///
+/// **The row draws from these constants**, which is the whole point: a test that re-typed the
+/// numbers would go on passing after the layout changed, and this list's own history is that
+/// geometry re-stated away from the thing it describes stops describing it. This is what lets
+/// `everyDetailFitsTheFloorWidth` measure the real opening a detail line is given.
+///
+/// Public, and top-level rather than nested in `PaletteResultsList`, because the guard that needs
+/// it is in `SyncCloudTests`: the strings it measures are the `Settings` package's and the geometry
+/// is this one's, so the only target that can hold them to each other is the app's.
+public enum PaletteRowMetrics {
+    public static let horizontalPadding: CGFloat = 16
+    public static let spacing: CGFloat = 12
+    public static let symbolWidth: CGFloat = 18
+    /// `Spacer(minLength:)` — the least the row keeps between the text and whatever trails it.
+    public static let minTrailingGap: CGFloat = 8
+    public static let titleSize: CGFloat = 13
+    public static let detailSize: CGFloat = 11
+
+    /// What the title and detail actually have to lay out in.
+    ///
+    /// - Parameters:
+    ///   - listWidth: the panel's width, which is the Go to field's — ``GoToFieldMetrics``'
+    ///     `ceilingWidth` at its widest and `floorWidth` at its narrowest, so the floor is the
+    ///     number that decides whether a line fits.
+    ///   - trailing: the width of what sits after the spacer — the `↩` on the selected row, an
+    ///     unavailable reason otherwise, and zero when neither is drawn. The selected row is the
+    ///     narrower case and therefore the one to measure against.
+    public static func textOpening(listWidth: CGFloat, trailing: CGFloat) -> CGFloat {
+        // Two paddings, the symbol, the gaps between every pair in the HStack (one more when
+        // something trails), the spacer's own floor, and the trailing item itself.
+        let gaps = spacing * (trailing > 0 ? 3 : 2)
+        return listWidth - horizontalPadding * 2 - symbolWidth - gaps - minTrailingGap - trailing
+    }
+}
+
 /// The palette's rows, **extracted so they can be rendered and read back.**
 ///
 /// Not organizational, and the reason outlived the view it was extracted from. **Anything drawn
@@ -87,17 +123,17 @@ struct PaletteResultsList: View {
     private func row(at index: Int) -> some View {
         let row = rows[index]
         let isSelected = selection == index
-        HStack(spacing: 12) {
+        HStack(spacing: PaletteRowMetrics.spacing) {
             Image(systemName: row.symbol)
-                .scaledFont(.system(size: 13))
-                .frame(width: 18)
+                .scaledFont(.system(size: PaletteRowMetrics.titleSize))
+                .frame(width: PaletteRowMetrics.symbolWidth)
             VStack(alignment: .leading, spacing: 1) {
                 Self.emphasized(row.title, query: query)
-                    .scaledFont(.system(size: 13, weight: .medium))
+                    .scaledFont(.system(size: PaletteRowMetrics.titleSize, weight: .medium))
                     .lineLimit(1)
                 if let detail = row.detail {
                     Self.emphasized(detail, query: query)
-                        .scaledFont(.system(size: 11))
+                        .scaledFont(.system(size: PaletteRowMetrics.detailSize))
                         .opacity(isSelected ? 0.85 : 1)
                         .foregroundStyle(isSelected ? AnyShapeStyle(Color.onFillLabel(accent))
                                                     : AnyShapeStyle(.secondary))
@@ -108,7 +144,7 @@ struct PaletteResultsList: View {
                         .truncationMode(detail.contains("/") ? .middle : .tail)
                 }
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: PaletteRowMetrics.minTrailingGap)
             // **The reason, on the row.** ROADMAP 14 asks for an unavailable result to be shown
             // disabled with its reason rather than hidden — an unmounted drive that simply vanished
             // teaches that the palette does not know about it.
@@ -128,7 +164,7 @@ struct PaletteResultsList: View {
         // on-fill glyph path — white for every hue, and the reason the fill may not be pale.
         .foregroundStyle(isSelected ? AnyShapeStyle(Color.onFillLabel(accent))
                          : AnyShapeStyle(row.isAvailable ? Color.primary : Color.secondary))
-        .padding(.horizontal, 16)
+        .padding(.horizontal, PaletteRowMetrics.horizontalPadding)
         .padding(.vertical, 7)
         .background {
             if isSelected {

@@ -5,6 +5,7 @@ import FileExplorer
 import Sync
 import Dashboard
 import Events
+import Settings
 
 // MARK: - The menu item
 
@@ -137,7 +138,11 @@ extension ContentView {
         // something appeared over an empty one.
         Logger.shared.info("Command palette opened — \(state.rows.count) rows from "
             + "\(index.folders.count) folders, \(index.people.count) people, "
-            + "\(index.providers.count) sources")
+            // The tabs are counted for the same reason the other three are: this line's job is to
+            // say the index was BUILT. They cross a package wall as injected data, so the way they
+            // go missing is the `map` above quietly handing over fewer — and without a count here
+            // an empty list and a full one write exactly the same line.
+            + "\(index.providers.count) sources, \(index.settingsTabs.count) settings tabs")
     }
 
     /// What the router is allowed to read, assembled from live state.
@@ -209,7 +214,17 @@ extension ContentView {
             // an offer whose accept does nothing is what `acceptPersonScope`'s failure path exists
             // to say out loud; the palette says it before you press ↩ instead.
             hasSurvey: syncManager.filingFolderProfile != nil
-                && syncManager.filingProfilesDirectory != nil)
+                && syncManager.filingProfilesDirectory != nil,
+            // **`SettingsTab.digests` whole, never a hand-picked list**, and never a literal built
+            // here. This file is in `MacApp`, which belongs to no SPM package, so a subset written
+            // here would compile forever and simply make some tabs unreachable from ⌘K — nothing
+            // would fail. The derivation lives in `Settings` where `SettingsTests` compiles it, and
+            // `theHostOffersEverySettingsTab` in `SyncCloudTests` is what holds this line to
+            // passing all of it through.
+            settingsTabs: SettingsView.SettingsTab.digests.map {
+                PaletteSettingsTab(id: $0.id, name: $0.name, detail: $0.detail,
+                                   symbol: $0.symbol, vocabulary: $0.vocabulary)
+            })
     }
 
     /// Applies a route. **The only place in the app that turns a `PaletteRoute` into state**, so the
@@ -250,6 +265,18 @@ extension ContentView {
             revealInSourcePane(path)
         case .action(let action):
             runPaletteAction(action)
+        case .settings(let raw):
+            guard let tab = SettingsView.SettingsTab(rawValue: raw) else {
+                // The raw value crosses the package wall as a string, so a tab renamed on one side
+                // and not the other lands here. Said out loud rather than opening the sheet on
+                // whatever was last selected: ↩ on a row that named Appearance and delivered
+                // Advanced is worse than ↩ that visibly did nothing, and this is the surface whose
+                // whole logging exists for the "nothing happened" case.
+                Logger.shared.warning("Command palette: \(raw) is not a settings tab — "
+                    + "the row was built from a digest this app no longer recognises")
+                return
+            }
+            openSettings(on: tab)
         }
     }
 

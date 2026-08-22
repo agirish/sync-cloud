@@ -1500,7 +1500,10 @@ struct ContentView: View {
     /// ordering costs is a write that outlives a refused open, so the displaced tab is stashed here
     /// and `onChange(of: showSettings)` either forgets it (the open happened) or puts it back (the
     /// open was refused mid-destination-pick).
-    private func openSettings(on tab: SettingsView.SettingsTab) {
+    /// Internal, not private: `CommandPaletteHost.swift` is another extension on this type in
+    /// another file, and `.settings(tab:)` must come through this door rather than reproducing the
+    /// preset-then-latch ordering the comment above spells out.
+    func openSettings(on tab: SettingsView.SettingsTab) {
         // Only while the latch is actually flipping. `onChange` is what consumes the stash and it
         // does not fire for a redundant `true`, so stashing on an already-open panel would leave a
         // value to be restored later over a tab the user had since chosen by hand.

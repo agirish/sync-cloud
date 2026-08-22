@@ -40,6 +40,20 @@ public enum PaletteRoute: Equatable, Sendable {
 
     /// A named action, run or opened.
     case action(PaletteAction)
+
+    /// Settings, opened on one named tab — the raw value of `SettingsView.SettingsTab`.
+    ///
+    /// **A string, not the enum, because the enum is in a package this one cannot see.**
+    /// `FileExplorer` and `Settings` are siblings, so the tab arrives here as data
+    /// (``PaletteSettingsTab``, injected on the index) and leaves the same way; the host turns it
+    /// back into a case with `SettingsTab(rawValue:)`. A raw value that no longer names a tab is
+    /// therefore possible in principle, and the host says so out loud rather than opening the
+    /// wrong page — the same treatment `.person` gets for an id the registry has dropped.
+    ///
+    /// Distinct from `.action(.settings)`, which opens **the tab you were last on**. Two requests,
+    /// two destinations: "take me to Appearance" and "put Settings back where I left it" are not
+    /// the same thing, so neither row is a duplicate of the other.
+    case settings(tab: String)
 }
 
 /// The actions the palette can run.
@@ -118,6 +132,18 @@ public enum PaletteGroup: String, CaseIterable, Sendable {
     case folders = "Folders"
     case sources = "Sources"
     case actions = "Actions"
+    /// The Settings tabs. **Last, and it is the tie-break only** — a group's position is decided
+    /// by its own best row (see ``PaletteRouter/sorted(_:)``), so an exact hit on "Appearance"
+    /// still opens the list. What this rank settles is where Settings sits among groups that
+    /// scored the *same*, and there it belongs behind the places and the files: a query that
+    /// answers both a folder and a preferences page nearly always means the folder.
+    ///
+    /// **That tie is real and measured, not a theoretical one.** A folder named `People` scores 400
+    /// against Settings ▸ People's 396 and wins on score alone; the same folder five levels deep
+    /// takes a depth penalty to exactly 396 and is separated *only* by this rank. So moving this
+    /// case earlier in `allCases` would put a preferences page above the folder somebody was
+    /// looking for — `aFolderNamedLikeATabKeepsItsLead` is what fails if it moves.
+    case settings = "Settings"
 
     /// Ties are broken in this order, which is also the order the sections are drawn in.
     var rank: Int { PaletteGroup.allCases.firstIndex(of: self) ?? 0 }
@@ -184,6 +210,42 @@ public struct PaletteProvider: Equatable, Sendable {
     }
 }
 
+/// A Settings tab, as the palette needs it.
+///
+/// Injected rather than known, for the reason ``PaletteRoute/settings(tab:)`` records: the tabs
+/// live in the `Settings` package, which this one does not depend on. `MacApp` maps
+/// `SettingsTabDigest` onto this — a one-line `map` whose only failure mode (mapping a subset) is
+/// what `SyncCloudTests` pins.
+public struct PaletteSettingsTab: Equatable, Sendable {
+    /// `SettingsTab.rawValue`, carried into the route unchanged.
+    public let id: String
+    /// The rail's name for the tab — "Appearance", "Sources".
+    public let name: String
+    /// One line saying what is on it, drawn as the row's second line.
+    public let detail: String
+    public let symbol: String
+
+    /// Every word that should reach this tab: the titles and keywords of the controls on it.
+    ///
+    /// **It is a whole tab's worth of vocabulary behind ONE row**, and that is the design. The
+    /// alternative was a row per control — 53 of them — which put four rows on screen that all
+    /// open the same page and still could not scroll to the control, because the Settings sheet
+    /// lands on a tab and not on a row. Folding the words in keeps `glass` and `sk-ant` and
+    /// `node_modules` answerable while the list stays at ten.
+    ///
+    /// It is why a Settings row is often matched by text it does not display. That is what
+    /// ``detail`` is for: the row cannot bold what is not in it, so it says what is on the tab.
+    public let vocabulary: [String]
+
+    public init(id: String, name: String, detail: String, symbol: String, vocabulary: [String]) {
+        self.id = id
+        self.name = name
+        self.detail = detail
+        self.symbol = symbol
+        self.vocabulary = vocabulary
+    }
+}
+
 /// Everything the router may read, snapshotted.
 ///
 /// A plain `Sendable` value rather than the manager, so the routing table is a **function** of
@@ -228,6 +290,10 @@ public struct PaletteIndex: Equatable, Sendable {
     /// Whether a document survey exists for a person gather to read. Without one the offer is a
     /// button that does nothing, which is what the gather's own failure path had to be taught to say.
     public var hasSurvey: Bool
+    /// The Settings tabs, in the rail's order. Empty offers no Settings rows at all, which is what
+    /// every fixture that predates them gets — so a test written for the folder rules is not made
+    /// to reason about a preferences page it never mentioned.
+    public var settingsTabs: [PaletteSettingsTab]
 
     public init(providers: [PaletteProvider] = [], providerRoot: String? = nil,
                 folders: [String] = [], recentFolders: [String] = [],
@@ -235,7 +301,8 @@ public struct PaletteIndex: Equatable, Sendable {
                 home: String = NSHomeDirectory(),
                 people: [Person] = [],
                 registry: PersonRegistry? = nil, isScanning: Bool = false,
-                hasSurvey: Bool = false) {
+                hasSurvey: Bool = false,
+                settingsTabs: [PaletteSettingsTab] = []) {
         self.providers = providers
         self.providerRoot = providerRoot
         self.folders = folders
@@ -247,6 +314,7 @@ public struct PaletteIndex: Equatable, Sendable {
         self.registry = registry
         self.isScanning = isScanning
         self.hasSurvey = hasSurvey
+        self.settingsTabs = settingsTabs
     }
 }
 
@@ -439,6 +507,7 @@ public enum PaletteRouter {
         rows.append(contentsOf: folderRows(query: trimmed, index: index))
         rows.append(contentsOf: providerRows(query: trimmed, index: index))
         rows.append(contentsOf: actionRows(query: trimmed, index: index))
+        rows.append(contentsOf: settingsRows(query: trimmed, index: index))
 
         // **No de-duplication pass, and that is measured rather than assumed.** One was written
         // here — keep the best-scoring copy of each id — on the reasoning that "organize legal"
@@ -791,6 +860,85 @@ public enum PaletteRouter {
                    score: score)
     }
 
+    // MARK: Settings
+
+    /// One row per Settings tab, matched on its **name and its whole vocabulary**.
+    ///
+    /// Two candidates rather than one, and the second is penalised:
+    ///
+    /// - the row's own **title** and the tab **name**, at full score. `"Settings ▸ Appearance"`
+    ///   carries the prefix, which is what makes typing `settings` list every tab — the same shape
+    ///   `organize` already has, where the overview and all six lenses answer the parent word.
+    /// - every word in ``PaletteSettingsTab/vocabulary``, at `score - 20`, the same penalty
+    ///   ``rankedFolders(matching:in:)`` puts on a path match under a leaf match.
+    ///
+    /// **The penalty is load-bearing, and the case that shows it is real.** Readability's
+    /// "Size & spacing" deliberately keeps the keyword `appearance`, because the tab moved out of
+    /// Appearance and people still look for it there. Without the penalty the query `appearance`
+    /// scores Readability's keyword hit at whatever tier it lands on and Appearance's own name at
+    /// `.exact`, and they are only ordered correctly by luck; with it, a vocabulary hit can never
+    /// reach the tier above it — 20 exceeds the largest position decrement below, and the tiers
+    /// are 100 apart.
+    ///
+    /// The decrement itself keeps the **rail's order** among tabs that matched equally well, which
+    /// is what `settings` produces: ten rows all matched by the same prefix, listed as the rail
+    /// lists them rather than alphabetically. `index.settingsTabs` arrives in rail order and this
+    /// is the only thing that preserves it.
+    ///
+    /// Cost, measured against a 3013-folder index — his real tree: `rows` already takes ~16ms and
+    /// this adds ~1.1ms of it (+7%), for ~370 vocabulary words. Recorded rather than optimised,
+    /// because the 93% is where the time is; `rows` is read twice per keystroke, so the figure to
+    /// hold against a future change to either is ~34ms per keystroke, not ~17.
+    static func settingsRows(query: String, index: PaletteIndex) -> [PaletteRow] {
+        index.settingsTabs.enumerated().compactMap { offset, tab in
+            let title = settingsTitle(tab)
+            let named = best(of: [title, tab.name], query: query)
+            let spoken = best(of: tab.vocabulary, query: query)
+            let combined = Swift.max(score(named), score(spoken) - vocabularyPenalty)
+            guard combined > 0 else { return nil }
+            return PaletteRow(id: "settings.\(tab.id)", group: .settings, title: title,
+                              detail: tab.detail, symbol: tab.symbol,
+                              route: .settings(tab: tab.id),
+                              score: combined - Swift.min(offset, maxPositionDecrement))
+        }
+    }
+
+    /// How far a vocabulary match scores below a name match. The same shape
+    /// ``rankedFolders(matching:in:)`` uses for a path match under a leaf match.
+    static let vocabularyPenalty = 20
+
+    /// The largest position decrement a Settings row may take, and it is **derived from the
+    /// penalty rather than picked**.
+    ///
+    /// The ordering above only holds while every decrement is strictly smaller than the smallest
+    /// gap between two distinct outcomes. Those outcomes are the four tiers at full score
+    /// (100/200/300/400) and the same four penalised (80/180/280/380), so the smallest gap is
+    /// `vocabularyPenalty` itself — 380 against 400 — and a decrement of `penalty - 1` is the
+    /// largest that cannot cross it.
+    ///
+    /// **Clamped rather than asserted.** Ten tabs are comfortably inside it today and the comment
+    /// above said so, which is exactly the kind of invariant that is true until a release adds an
+    /// eleventh, and a twenty-first, and nothing fails — the rows would simply start outranking
+    /// each other by where they sit in the rail. Past the clamp, tabs tie and fall back to the
+    /// title, which is a worse order but never a wrong one.
+    static let maxPositionDecrement = vocabularyPenalty - 1
+
+    /// `"Settings ▸ Appearance"` — the same separator `PalettePlace` draws for Organize's lenses,
+    /// because a Settings tab is a page inside a thing exactly as a lens is, and two spellings for
+    /// one relationship would say they were different.
+    ///
+    /// **The prefix restates the group header, and it stays anyway.** Under a `SETTINGS` heading a
+    /// row reading "Settings ▸ Appearance" says Settings twice, and at the 320pt floor those eleven
+    /// characters are about a quarter of the ~215pt the text is given — a real cost, and the reason
+    /// dropping them was considered. What decides it is that **the header scrolls away and the row
+    /// does not**: `GoToResultsPanel.listMaxHeight` is 420pt against a two-line row of ~44pt, so
+    /// nine rows are visible and the ten tabs do not fit under their own heading. A row left reading
+    /// only "Appearance", scrolled past its header, is indistinguishable from a folder of that name.
+    /// `PalettePlace` prefixes its lenses for the same reason, and there the header is `Places`, so
+    /// the redundancy here is the price of a row that names its own destination rather than an
+    /// oversight.
+    static func settingsTitle(_ tab: PaletteSettingsTab) -> String { "Settings ▸ \(tab.name)" }
+
     // MARK: The empty query
 
     /// What the palette shows before anything is typed: **where you have been, then where you can
@@ -828,6 +976,11 @@ public enum PaletteRouter {
         for (offset, action) in PaletteAction.allCases.enumerated() {
             rows.append(actionRow(action, index: index, score: 700 - offset))
         }
+        // **The Settings tabs are deliberately NOT here.** They would be ten more rows on a
+        // landing whose whole job is "where you have been, then where you can go" — nearly
+        // doubling it, and pushing the recents that lead it off the opening. `Settings…` is
+        // already in the actions above and is the honest empty-query answer: somebody who has not
+        // typed anything has not named a tab. They appear the moment a query does.
         return sorted(rows)
     }
 

@@ -42,6 +42,11 @@ import Design
         case .provider: return "provider"
         case .folder: return "folder"
         case .action(let action): return "action.\(action)"
+        // One kind, not one per tab: which tabs are offered is a property of the list the host
+        // injects, and it is walked where that list is derived (`everyTabIsOffered`) and where it
+        // is passed through (`theHostOffersEverySettingsTab`). What is owed *here* is that the
+        // Settings builder still emits at all.
+        case .settings: return "settings"
         }
     }
 
@@ -60,7 +65,7 @@ import Design
         switch route {
         case .folder(let path): return path
         case .organize(_, let scope): return scope
-        case .browse, .compare, .storage, .person, .provider, .action: return nil
+        case .browse, .compare, .storage, .person, .provider, .action, .settings: return nil
         }
     }
 
@@ -87,7 +92,17 @@ import Design
             recentFolders: recents, pinnedFolders: pinned,
             foldersUnavailable: unavailable,
             people: people, registry: PersonRegistry(people: people),
-            isScanning: false, hasSurvey: true)
+            isScanning: false, hasSurvey: true,
+            // Two tabs, so the Settings builder has a door to be found through. Real names and a
+            // real keyword, because the walk below reaches it with the query "settings".
+            settingsTabs: [
+                PaletteSettingsTab(id: "general", name: "General",
+                                   detail: "Startup, sorting, and notifications",
+                                   symbol: "gearshape", vocabulary: ["Sort panes by", "login"]),
+                PaletteSettingsTab(id: "appearance", name: "Appearance",
+                                   detail: "Theme, accent, glass, and surfaces",
+                                   symbol: "paintbrush", vocabulary: ["Glass effect", "blur"])
+            ])
     }
 
     /// The queries that reach every builder able to mint a path under the root: the landing
@@ -127,7 +142,7 @@ import Design
         }
 
         var expected: Set<String> = ["browse", "compare", "storage", "organize", "person",
-                                     "provider", "folder"]
+                                     "provider", "folder", "settings"]
         for action in PaletteAction.allCases { expected.insert("action.\(action)") }
 
         let missing = expected.subtracting(reached).sorted()

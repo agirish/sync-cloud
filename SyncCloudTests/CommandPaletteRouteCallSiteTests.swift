@@ -252,7 +252,7 @@ import Sync
         let host = try Self.source("CommandPaletteHost.swift")
         for arm in ["case .compare:", "case .storage:", "case .organize(let lens, let scope):",
                     "case .person(let id):", "case .provider(let id):", "case .folder(let path):",
-                    "case .action(let action):"] {
+                    "case .action(let action):", "case .settings(let raw):"] {
             #expect(host.contains(arm), "runPaletteRoute no longer handles `\(arm)`")
         }
         let body = try #require(host.range(of: "func runPaletteRoute(_ route: PaletteRoute) {"))
@@ -260,5 +260,69 @@ import Sync
         let end = try #require(rest.range(of: "\n    }"))
         #expect(!Self.codeOnly(String(rest[..<end.lowerBound])).contains("default:"),
                 "a default arm would swallow a route case added upstream")
+    }
+
+    // MARK: Settings
+
+    /// **The host offers every Settings tab, by passing the whole derived list through.**
+    ///
+    /// The derivation lives in `Settings`, where `SettingsTabDigestTests` compiles it. What cannot
+    /// be tested there is this line: a hand-picked subset written here — `[.general, .appearance]`,
+    /// or a literal array of `PaletteSettingsTab` built by hand — compiles forever and simply makes
+    /// the other eight tabs unreachable from ⌘K. Nothing fails, nothing logs, and the only symptom
+    /// is a word that used to find a page and now finds nothing.
+    ///
+    /// So the scan is for the *source* of the list, not for its contents: it must be
+    /// `SettingsTab.digests`, mapped whole.
+    @Test func theHostOffersEverySettingsTab() throws {
+        let host = try Self.source("CommandPaletteHost.swift")
+        let code = Self.codeOnly(host)
+        #expect(code.contains("settingsTabs: SettingsView.SettingsTab.digests.map"),
+                "the palette index no longer takes the whole derived tab list — a subset here is silent")
+        #expect(!code.contains("SettingsTab.allCases.filter"),
+                "the tab list is being filtered at the call site; a tab dropped here fails nothing")
+    }
+
+    /// **A tab route goes through `openSettings(on:)`, never `showSettings = true` plus a write.**
+    ///
+    /// That function is documented as the one door for every Settings deep link, and the ordering
+    /// it encodes is load-bearing: the tab is preset *before* the latch, because the overlay renders
+    /// `settingsTab` as it finds it and presetting afterwards shows the previous page for a frame.
+    /// It also stashes the displaced tab so a refused open puts it back. A route that flipped the
+    /// latch itself would reproduce neither, and would look right nearly every time.
+    @Test func aTabRouteGoesThroughTheOneDeepLinkDoor() throws {
+        let host = try Self.source("CommandPaletteHost.swift")
+        let code = Self.codeOnly(host)
+        #expect(code.contains("openSettings(on: tab)"),
+                "the Settings tab route no longer opens through openSettings(on:)")
+        // `runPaletteAction`'s `case .settings` is the one legitimate bare latch in this file —
+        // "put Settings back where I left it" names no tab. Anything beyond that one is the
+        // hand-rolled open this test exists to refuse.
+        #expect(code.components(separatedBy: "showSettings = true").count - 1 == 1,
+                "a second bare `showSettings = true` appeared — a deep link that skips the door")
+    }
+
+    /// **The open log counts the tabs, like the other three things the index carries.**
+    ///
+    /// That line's own comment says the counts are what say the index was *built*, not merely that
+    /// something appeared over an empty one. The tabs are the newest thing on it and the one that
+    /// crosses a package wall, so the way they go missing is the `map` above handing over fewer —
+    /// and with no count, an empty list and a full one write exactly the same line.
+    @Test func theOpenLogReportsHowManySettingsTabsWereIndexed() throws {
+        let host = try Self.source("CommandPaletteHost.swift")
+        #expect(Self.codeOnly(host).contains("index.settingsTabs.count) settings tabs"),
+                "the palette-open log no longer counts the settings tabs — an empty list would log identically")
+    }
+
+    /// A raw value that names no tab is **reported and refused**, not silently opened on whatever
+    /// was last selected. The string crosses a package wall, so this is reachable in principle, and
+    /// ↩ on a row that said Appearance and delivered Advanced is worse than ↩ that did nothing.
+    @Test func anUnknownTabRawValueIsRefusedOutLoud() throws {
+        let host = try Self.source("CommandPaletteHost.swift")
+        let code = Self.codeOnly(host)
+        #expect(code.contains("guard let tab = SettingsView.SettingsTab(rawValue: raw)"),
+                "the raw value is no longer checked before it is used")
+        #expect(code.contains("is not a settings tab"),
+                "an unrecognised tab is no longer logged — the palette would appear to do nothing")
     }
 }
