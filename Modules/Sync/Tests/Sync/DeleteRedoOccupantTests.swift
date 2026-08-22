@@ -88,6 +88,83 @@ import Foundation
         #expect(mockFM.trashedPaths.count == trashCountBeforeRedo + 1) // notes.txt only
     }
 
+    /// **A redo trashes by identity, not by path.** The restore succeeded, so the path IS on the
+    /// redo's list — and being on that list means "the undo put OUR item back here", which stops
+    /// being true the moment anything replaces it.
+    ///
+    /// The move-redo path has refused exactly this shape since `ItemIdentity` landed; this one
+    /// stat-ed the path for existence and trashed whatever answered. Measured before the guard:
+    /// the replacement went to the Trash, with no log line and no banner.
+    ///
+    /// Two items, per the suite note above, and they carry the two halves: `notes.txt` is
+    /// untouched and must still be re-trashed, so the guard cannot become "never redo".
+    @MainActor
+    @Test func redoDoesNotTrashAnItemThatReplacedTheRestoredOne() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/docs"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/docs/report.pdf"] = file(100)
+        mockFM.virtualDisk["/docs/notes.txt"] = file(50)
+
+        let removed = await manager.deleteItems(at: ["/docs/report.pdf", "/docs/notes.txt"], fileManager: mockFM).removed
+        #expect(removed == 2)
+
+        // Undo restores BOTH — nothing occupies either path, so both are on the redo's list.
+        manager.undoManager?.undo()
+        await waitUntil("undo restores both") {
+            mockFM.virtualDisk["/docs/report.pdf"] != nil && mockFM.virtualDisk["/docs/notes.txt"] != nil
+        }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        #expect(mockFM.virtualDisk["/docs/report.pdf"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+
+        // Now a DIFFERENT file takes report.pdf's path — same name, not the restored item.
+        mockFM.virtualDisk["/docs/report.pdf"] = file(555)
+        manager.banner = nil
+        let trashCountBeforeRedo = mockFM.trashedPaths.count
+
+        manager.undoManager?.redo()
+        await waitUntil("redo re-trashes the untouched item") {
+            mockFM.virtualDisk["/docs/notes.txt"] == nil
+        }
+        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(mockFM.virtualDisk["/docs/report.pdf"]?.attributes?[FileAttributeKey.size] as? Int == 555,
+                "the redo trashed a file that merely shares the restored item's path")
+        #expect(mockFM.trashedPaths.count == trashCountBeforeRedo + 1,
+                "exactly one item — notes.txt — was the redo's to trash")
+        #expect(manager.banner?.severity == .warning,
+                "a refused redo that leaves a file on disk has to say so")
+    }
+
+    /// And the refusal is reported, not merely performed — the defect it replaces was silent in
+    /// both channels, which is what made it survive.
+    @MainActor
+    @Test func aRefusedRedoTrashSaysSoInTheLog() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/docs"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/docs/report.pdf"] = file(100)
+        mockFM.virtualDisk["/docs/notes.txt"] = file(50)
+        _ = await manager.deleteItems(at: ["/docs/report.pdf", "/docs/notes.txt"], fileManager: mockFM)
+
+        manager.undoManager?.undo()
+        await waitUntil("undo restores both") {
+            mockFM.virtualDisk["/docs/report.pdf"] != nil && mockFM.virtualDisk["/docs/notes.txt"] != nil
+        }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        mockFM.virtualDisk["/docs/report.pdf"] = file(555)
+
+        // Bounded strictly between this test's own markers, and matched on a path only this
+        // fixture uses — `Logger.shared` is process-wide and a window bounds time, not authorship.
+        let tag = "redo-refusal-\(UUID().uuidString)"
+        let lines = try await logLines(tag: tag) {
+            manager.undoManager?.redo()
+            await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
+        }
+        #expect(lines.contains { $0.contains("REFUSED to trash") && $0.contains("/docs/report.pdf") },
+                "the redo left a file on disk and the log did not say why")
+    }
+
     /// The control case: when the undo DID restore the items, redo re-trashes them as before,
     /// and the chain keeps working for a second undo.
     @MainActor

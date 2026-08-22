@@ -73,6 +73,12 @@ extension FileSyncManager {
     /// at `to` for the NEXT undo already, so recording the source costs one more stat on a path
     /// that was taking one anyway.
     typealias MoveRedoParam = (from: URL, to: URL, sourceIdentity: ItemIdentity)
+    /// A restore the delete-undo actually performed, plus the identity the restored item had the
+    /// instant it landed — so the paired redo can refuse to trash something that is no longer it.
+    ///
+    /// The identity is the whole reason this is not a bare `URL`, exactly as `MoveRedoParam` is not
+    /// a bare `(from:to:)` pair: a redo trashes, and a path is not an identity.
+    typealias TrashRedoItemState = (url: URL, restoredIdentity: ItemIdentity)
     /// One deleted item awaiting a possible undo-restore: where it lived, and where the Trash
     /// holds its backup. Only items that actually reached the Trash are represented — a delete
     /// that fell through to a permanent remove has nothing to restore.
@@ -280,6 +286,44 @@ extension FileSyncManager {
         case .unchanged:
             // Not a refusal. Spelled out rather than defaulted so a future verdict has to be
             // decided here rather than quietly reported as a change.
+            logMessage = "Redo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
+            bannerMessage = "Redo left \"\(name)\" in place"
+        }
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning(bannerMessage)
+        }
+    }
+
+    /// Surfaces a delete-REDO that was refused because the item at the restored path is no longer
+    /// the item its undo put there.
+    ///
+    /// The sibling of ``reportRedoRefusedChangedItem(of:actionName:verdict:on:)`` for the other
+    /// destructive redo, and it exists for the reason that one states: a redo is as destructive as
+    /// an undo and gets the same refusal. The wording differs because the outcome does — this one
+    /// would have put the stranger in the Trash rather than moved it somewhere.
+    ///
+    /// An ABSENT path never reaches here; it is skipped before the identity is read, because
+    /// nothing being there is not a drift and there is nothing to leave in place.
+    nonisolated static func reportRedoRefusedTrashOfChangedItem(
+        at url: URL,
+        actionName: String,
+        verdict: DriftVerdict,
+        on target: FileSyncManager
+    ) async {
+        let name = url.lastPathComponent
+        let logMessage: String
+        let bannerMessage: String
+        switch verdict {
+        case .changed:
+            logMessage = "Redo (\(actionName)): REFUSED to trash \"\(name)\" at \(url.path) — it changed since the undo restored it, so it is no longer the item this redo deletes; leaving it in place"
+            bannerMessage = "Redo left \"\(name)\" in place — it changed since"
+        case .indeterminate:
+            logMessage = "Redo (\(actionName)): REFUSED to trash \"\(name)\" at \(url.path) — its current state could not be read, so it cannot be confirmed as the item this redo deletes; leaving it in place"
+            bannerMessage = "Redo left \"\(name)\" in place — it couldn't be checked"
+        case .unchanged:
+            // Not a refusal. Spelled out rather than defaulted for the same reason the move-redo
+            // reporter spells it out: a future verdict has to be decided here.
             logMessage = "Redo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
             bannerMessage = "Redo left \"\(name)\" in place"
         }
@@ -1563,12 +1607,23 @@ extension FileSyncManager {
         undoManager?.setActionName("New Folder")
     }
     
-    /// Registers the REDO of a delete: the handler re-trashes the URLs its paired undo actually
-    /// restored — `urlsResolver` is resolved by that undo AFTER its restore loop, from only the
+    /// Registers the REDO of a delete: the handler re-trashes what its paired undo actually
+    /// restored — `itemsResolver` is resolved by that undo AFTER its restore loop, from only the
     /// successful restores, so a REFUSED restore (a different item occupied the original path)
     /// can never put the unrelated occupant on the redo's trash list. Its only caller is the
     /// delete-undo handler in `registerRestoreItems`, so the audit label is always "Redo".
-    func registerTrashItems(urlsResolver: AsyncValueResolver<[URL]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+    ///
+    /// **And each item is re-identified at the moment it is trashed, not merely stat-ed for
+    /// existence.** Being on this list means "the undo put our item back here", which stops being
+    /// true the moment anything replaces it. The move-redo path has refused exactly this shape
+    /// since `ItemIdentity` landed (`reportRedoRefusedChangedItem`, whose doc says a redo is as
+    /// destructive as an undo and gets the same refusal); this one gated on the PATH existing and
+    /// would trash a stranger. Measured: delete `/a/report.txt`, ⌘Z, replace `/a/report.txt` with a
+    /// different file, ⌘⇧Z — the replacement went to the Trash, with no log line and no banner.
+    ///
+    /// A path that is simply GONE stays a silent skip: nothing is there to trash, the redo has
+    /// nothing to do about it, and the count line already says how many of how many were trashed.
+    func registerTrashItems(itemsResolver: AsyncValueResolver<[TrashRedoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
@@ -1580,16 +1635,30 @@ extension FileSyncManager {
             Task {
                 await target.enqueueFileOperation(slot: slot) {
                         let fmLocal = fm
-                        let urls = await urlsResolver.get()
+                        let items = await itemsResolver.get()
                         var trashedItems: [RestoreItemState] = []
-                        for url in urls {
+                        var refused = 0
+                        for item in items {
+                            let url = item.url
+                            guard fmLocal.fileExists(atPath: url.path) else { continue }
+                            // Re-read HERE, immediately before the trash, rather than trusting the
+                            // existence check: the gap between "something is at this path" and
+                            // "our item is at this path" is the whole defect.
+                            let verdict = item.restoredIdentity.drift(at: url, fileManager: fmLocal)
+                            guard verdict == .unchanged else {
+                                refused += 1
+                                await FileSyncManager.reportRedoRefusedTrashOfChangedItem(
+                                    at: url, actionName: actionName, verdict: verdict, on: target)
+                                continue
+                            }
                             var t: NSURL?
-                            if fmLocal.fileExists(atPath: url.path), (try? fmLocal.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
+                            if (try? fmLocal.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
                                 trashedItems.append((original: url, trashedBackup: trashed))
                             }
                         }
                         await nextResolver.resolve(trashedItems)
-                        logger.info("Redo (\(actionName)): trashed \(trashedItems.count) of \(urls.count) item(s)")
+                        logger.info("Redo (\(actionName)): trashed \(trashedItems.count) of \(items.count) item(s)"
+                                    + (refused > 0 ? ", refused \(refused) that changed since the undo" : ""))
                 }
             }
         }
@@ -1607,8 +1676,8 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
-            let redoURLResolver = AsyncValueResolver<[URL]>()
-            target.registerTrashItems(urlsResolver: redoURLResolver, actionName: actionName, fileManager: fm)
+            let redoItemResolver = AsyncValueResolver<[FileSyncManager.TrashRedoItemState]>()
+            target.registerTrashItems(itemsResolver: redoItemResolver, actionName: actionName, fileManager: fm)
 
             let slot = target.claimFileOperationSlot()
             Task {
@@ -1616,7 +1685,7 @@ extension FileSyncManager {
                     let items = await stateResolver.get()
                     var restored = 0
                     var restoreFailures = 0
-                    var restoredURLs: [URL] = []
+                    var restoredItems: [FileSyncManager.TrashRedoItemState] = []
                     for item in items {
                         try? fm.createDirectory(at: item.original.deletingLastPathComponent(), withIntermediateDirectories: true)
                         if fm.fileExists(atPath: item.original.path) {
@@ -1630,15 +1699,26 @@ extension FileSyncManager {
                             do {
                                 _ = try FileSyncManager.safeMoveItem(at: item.trashedBackup, to: item.original, fileManager: fm)
                                 restored += 1
-                                // Only a restore that actually happened is redoable.
-                                restoredURLs.append(item.original)
+                                // Only a restore that actually happened is redoable — and it is
+                                // identified as it lands, so the redo can tell our item from
+                                // whatever may be at that path by the time it runs. Read AFTER the
+                                // move, so it describes the restored item rather than the backup.
+                                //
+                                // Shallow: `snapshot` not `deepSnapshot`. A directory edited
+                                // internally between the undo and the redo still re-trashes, which
+                                // is right — the redo puts back what the delete had, and the Trash
+                                // is recoverable. The deep walk exists for the copy-undo, where the
+                                // refusal protects the ONLY instance of an edit; here the item goes
+                                // somewhere the user can retrieve it from.
+                                restoredItems.append((url: item.original,
+                                                      restoredIdentity: ItemIdentity.snapshot(at: item.original, fileManager: fm)))
                             } catch {
                                 restoreFailures += 1
                                 await FileSyncManager.reportUndoRestoreFailure(of: item.original, from: item.trashedBackup, actionName: actionName, error: error, on: target)
                             }
                         }
                     }
-                    await redoURLResolver.resolve(restoredURLs)
+                    await redoItemResolver.resolve(restoredItems)
                     logger.info("Undo (\(actionName)): restored \(restored) of \(items.count) deleted item(s) from Trash, \(restoreFailures) restore failure(s)")
                 }
             }
