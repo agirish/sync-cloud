@@ -136,7 +136,40 @@ import Design
         return Mounted(host: host, window: window, defaults: defaults)
     }
 
+    /// Every capture in this suite goes through here, and it resigns first responder before it
+    /// draws — **which is load-bearing, not hygiene.**
+    ///
+    /// A mount carrying a parked query renders with its header search field open, and
+    /// `ExpandingSearchField` claims focus for that field the moment it appears
+    /// (`.onAppear { Task { @MainActor in focused = true } }`). AppKit select-alls a text field
+    /// that becomes first responder, so the query text is painted behind a selection band —
+    /// **4511 pixels of it at this canvas**, measured.
+    ///
+    /// That band does not belong to this window. SwiftUI arbitrates `_SystemTextField` focus
+    /// **process-wide**: any other suite in this test binary that hands an `NSTextField` first
+    /// responder drops this window's first responder straight back to the window itself, and the
+    /// band with it. `FilingWalkthroughCardKeyTests` does exactly that, three times, and Swift
+    /// Testing interleaves it with this suite on the same main actor. Measured, twice:
+    ///
+    ///   * a foreign `window.makeFirstResponder(field)` moved a settled mount of this screen by
+    ///     exactly 4511 pixels **on the next layout pass** — 0 pumps of delay;
+    ///   * mounting the second lens window of a single test does it too, because its own field
+    ///     claims the same process-global focus and evicts the first mount's.
+    ///
+    /// So a comparison of two mounts was reading the process's focus history, not the screen:
+    /// `aQueryHidesTheToFixRowsAsWellAsThePlans` failed by that same 4511 in a full-package run
+    /// while passing alone, with both screens correctly showing "Nothing matches" and neither
+    /// to-fix row drawn on either. **The band is also there at `dc865114`** — the probe reproduces
+    /// it identically with this branch's sources reverted — so it is a property of this harness
+    /// rather than of anything the branch changed.
+    ///
+    /// Resigning before every frame makes the band absent from every frame of every mount, so what
+    /// these comparisons see is what the code drew. It does not paper over instability either: the
+    /// mount stays byte-identical for 300 further layout passes under it (it moved by 4511 without
+    /// it), and a re-claim between frames would show up as `settled` never going quiet rather than
+    /// as a quietly passing equality.
     private func snapshot(_ m: Mounted, _ band: CGRect? = nil) -> NSBitmapImageRep? {
+        m.window.makeFirstResponder(nil)
         m.host.layoutSubtreeIfNeeded()
         let rect = band ?? m.host.bounds
         guard let rep = m.host.bitmapImageRepForCachingDisplay(in: rect) else { return nil }
