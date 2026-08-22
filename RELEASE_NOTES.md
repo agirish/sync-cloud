@@ -5,6 +5,196 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v4.3 — DRAFT, not released
+
+> **This section is a draft.** v4.3 has not been cut and this is not final copy. Work is
+> still landing, so entries will be added and existing ones may change or be withdrawn.
+> Covers `v4.2..140d4773` — 66 commits. Every claim below was checked against the `v4.2`
+> tag: a fix to work that landed *inside* this range earns no entry, because no user of
+> v4.2 was ever exposed to it. That rule takes out a large part of this range. Two
+> adversarial review waves followed the first round of fixes, and a repair to a repair
+> reached nobody.
+
+**This one is repair.** v4.2 built the setup form and filled in the menu bar; v4.3 is what
+two reviews of the shipped code found underneath, and nearly all of it is the app quietly
+destroying or misreading your files.
+
+The spine is a single mistake in four places. A file that existed but could not be
+*opened* — wrong permissions, an ACL, an I/O error, a dangling symlink — was read as a
+file that was not there. Nothing was lost on that read. The loss came on the next write:
+saving needs permission on the *folder*, not the file, so the save succeeded exactly where
+the read had failed, and replaced what it could not read with a blank start. Your
+household, your person verdicts, your Storage snapshots and your paid-for filing
+classifications each sat behind that mistake.
+
+Around it: ⌘Z after copying a folder could trash the copy with the edits you had made
+inside it; offloaded Dropbox, OneDrive, Google Drive and Box files were treated as though
+their contents were on disk; the duplicate and merge paths could trash a copy on a verdict
+that had gone stale while a dialog was open; and the keys that file and skip documents
+fired for chords nobody aimed at them.
+
+On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0
+section first.
+
+### What SyncCloud had stored about your files
+
+- **A file that exists but cannot be read is no longer mistaken for one that isn't
+  there.** Four stores made the same mistake, each with a guard that only ever consulted
+  the *decode* result and never the failure to open: `people.json` (your household),
+  `person-tags.json` (which person a document belongs to), `storage-lens.json` (Storage's
+  per-root snapshots) and `filing-verdicts.json` (the classifications the filing engine
+  has paid a model for). The consequences differed by store and were all silent: the first
+  edit to a person replaced the entire household — names, aliases, relationships, notes —
+  with a folder-name seed; the first verdict recorded overwrote every verdict already
+  there; the next analysis wrote one root's snapshot over all of them, up to the twelve
+  Storage keeps, and "Forget this root" read as nothing to forget. Each store now
+  recognises the difference, moves the bytes it could not read aside, and refuses the
+  write until that rescue has actually landed.
+- **An unreadable filing artifact suspends the classification cache instead of quietly
+  changing its key.** The cache key is a fingerprint over the filing artifacts, and an
+  artifact that could not be read was simply left out of it. That mints a key that can
+  never occur again once the file is fixed — so every classification paid for under it
+  became permanently unreachable, and the same documents would be sent off and paid for a
+  second time. An unreadable artifact now declares the fingerprint unavailable and the
+  cache is switched off for that pass, read and write both.
+- **A rescued copy survives a later rescue.** The copy set aside from an unreadable
+  `person-tags.json` or `storage-lens.json` went to one fixed name that the next rescue
+  deleted before writing its own. A set-aside is never read back automatically, so it is
+  the only copy of what it holds — and a second bad episode destroyed what the first one
+  saved. Each rescue now gets its own name. Relatedly, a set-aside that *failed* used to
+  clear the guard anyway: the app correctly refused that one save and then overwrote the
+  file on the very next one. It now keeps refusing, and keeps retrying the rescue, until
+  the move succeeds.
+
+### Cloud files that are not on disk
+
+- **Offloaded Dropbox, OneDrive, Google Drive and Box files are recognised as
+  placeholders.** The availability check asked iCloud's question — `isUbiquitousItem`,
+  which is false for every non-Apple File Provider — and so answered "the contents are
+  here" for every other provider's evicted file. Online, a filing survey opened them and
+  made the provider download your entire offloaded library. Offline, they were recorded as
+  blank against a size and modification date that do not change when a file is
+  materialised, so they were written off permanently and never revisited. Availability is
+  now decided by whether the bytes are actually on disk, whoever owns the file, and a file
+  evicted *while* a survey is reading it is skipped rather than stamped blank.
+
+### Undo
+
+- **⌘Z after copying a folder no longer destroys the work you did inside the copy.** The
+  copy-undo compared a folder's own modification date and its immediate child count, which
+  an edit two levels down leaves untouched — so ⌘Z read the copy as pristine and trashed
+  it, with the edit inside, permanently on a volume with no Trash. It now records a digest
+  of the whole tree. Two narrower versions of the same bug went with it: the baseline was
+  taken after the *whole* batch rather than when each copy landed, so an edit made while a
+  later item's collision prompt sat open was captured as the original state; and a
+  `.DS_Store` written into the copy by simply opening it in Finder changed the child count
+  and made ⌘Z refuse a copy that was fine.
+- **File operations run strictly in the order you asked for them.** The serial queue's
+  prologue hopped off the main actor and back before claiming its slot, so two operations
+  starting together could return from that round trip out of order and chain onto the same
+  predecessor — leaving them to run concurrently rather than one after another. The worst
+  reachable form was a merge's own undo pair inverting: the folded files deleted back out
+  of the keeper *before* the original was restored. The prologue is now straight-line, and
+  a 300-pair test pins the ordering.
+
+### Duplicates and merging
+
+- **Folder duplicate groups are judged file by file.** The check that a folder had not
+  changed since the scan re-counted its contents with different conventions than the scan
+  used — counting the `.DS_Store` the scan ignored, and measuring a symlink's own bytes
+  where the scan recorded none. Any group holding either was refused as "changed since it
+  was scanned", permanently, because a rescan reproduces the same difference; the batch
+  then dropped it without saying so. The same constant offset could equally mask a real
+  loss, and a count-and-bytes rollup can never see a same-length rewrite inside a folder
+  about to be removed. The scan now records a per-file snapshot and the gate re-walks
+  against it with the scan's own rules.
+- **The Compare review's "Trash right copy" checks what it is about to trash.** For a
+  folder — and the Compare review is the folder-only flow — the gate passed on existence
+  alone, so a file that landed in the right-hand folder while the review sat open was
+  trashed along with it, under a banner saying the left copy was kept. It now uses the same
+  re-walk the engine uses, and re-measures both ends when the removal actually starts and
+  again after a permanent-delete confirmation, rather than trusting a verdict formed
+  before two user-paced waits.
+- **Merging duplicates is safer to undo and safer to trash after.** Four things: the merge
+  held an undo group open across every suspension inside it, and because undo grouping is
+  global to the window, an unrelated operation that finished in that window was swallowed
+  into the merge's step and came back with one ⌘Z. The keeper was checked once, before a
+  copy loop that can run for minutes, and for a folder that check degenerated to "does it
+  exist" — so a keeper emptied or replaced mid-merge still had its redundant copy trashed,
+  with the folded files nowhere. On a volume with no Trash, where the copy was destroyed
+  permanently, the banner correctly withheld its undo button but Edit ▸ Undo still offered
+  "Undo Merge", which would have deleted the folded files back out of the keeper with the
+  original gone for good. And a run now asks for one permanent-delete confirmation instead
+  of one per copy.
+- **The permanent-delete confirmation names what it is about to destroy.** The app's one
+  unrecoverable dialog said "permanently delete these N items?" and discarded the list —
+  and even for a single item it showed only the basename, which is no help at all when the
+  two candidates are duplicate copies with the same name. It now lists the full paths,
+  home-abbreviated, capped with an "and N more".
+
+### The keyboard
+
+- **The Organize review card's ⏎ and ⌫ decide once, unmodified, and only when the card has
+  focus.** This is the surface where ⏎ moves real bytes, and it was reachable four ways it
+  should not have been. Every modifier combination ran the primary action — ⌘⏎, ⇧⏎, ⌥⏎ and
+  ⌃⏎ each performed the copy or move; the single-key handler's reputation for matching only
+  unmodified presses was asserted in three separate comments and turns out to be false. A
+  held ⏎ launched four copies of one row, because the in-progress flag only closes when the
+  outcome lands and auto-repeat outruns it. ⌘⌫, ⌥⌫ and ⇧⌫ each irreversibly skipped a row.
+  The keypad's Enter did nothing at all, silently, while the hint row advertised ⏎. And
+  neither key checked whether the card actually held focus: a key handler scopes to the
+  subtree rather than the focused view, so with Full Keyboard Access on, ⏎ aimed at the
+  focused Skip button ran the copy instead — a focused macOS button activates on Space, not
+  Return.
+- **The filing walkthrough's ⏎, → and esc stay inside the card.** They were registered as
+  window-level key equivalents, which macOS consults *before* the first responder. So ⏎
+  typed into the lens header's search field filed the document on screen, → typed anywhere
+  skipped one with no way back to it, holding either decided document after document, and
+  an esc meant to clear the search field discarded every approval in the walkthrough. The
+  app already had this written down: the other review card carries a comment explaining why
+  it deliberately does not use window-level shortcuts.
+- **↩ in a pane opens the rename editor without swallowing chords.** ⌘↩, ⇧↩, ⌥↩ and ⌃↩ each
+  opened it, taking chords other surfaces own, and the keypad's Enter did nothing while
+  File ▸ Rename advertises ↩.
+
+### Renaming
+
+- **A case-only tidy lands on the cased name instead of inventing a duplicate.** Renaming
+  `07. jul 2016.pdf` to `07. Jul 2016.pdf` produced **`07. Jul 2016 2.pdf`** — the
+  destination-exists check compared paths case-sensitively on a volume that folds case, so
+  a file collided with itself and got a duplicate marker from nowhere, which the next scan
+  then preserves as though you had meant it.
+- **Case-only renames work at all.** One layer down, the primitive resolved both paths
+  through `realpath`, which folds case, and threw "source and destination are identical" —
+  under a comment claiming case-only renames were exempt. Every case-only rename on the
+  default volume failed, the Rename field included: you could not rename `foo` to `Foo`.
+- **A failed renumbering rolls back whole.** A cohort rename that hit an I/O error partway
+  logged it, counted it and carried on, leaving two files sharing a slot number and
+  reporting a partial success.
+
+### Elsewhere
+
+- **The ⌘K results panel stops painting dark notches at its corners.** It carried a shadow
+  it had nowhere to put; on the shipped build that renders as four dark corner marks and no
+  shadow anywhere a shadow belongs.
+- **The filing walkthrough has a voice in VoiceOver.** The decision surface carried no
+  card-level accessibility at all, so the position, the filename and the destination were
+  read as three unrelated siblings with nothing answering the one question that matters —
+  which file am I deciding about.
+- **The Help book covers what v4.2 added** — the file clipboard, the Storage bars and the
+  ⌘K redesign shipped without ever being described in the book that describes the app.
+- Several refusals in the duplicates and merge paths that were previously banner-only now
+  also write their detail — full paths, the keeper and the culprit, both sides of a Compare
+  review — to `~/sync-cloud.log`.
+
+### Still to come in v4.3
+
+- **Browse's folder sidebar** is built and reachable from nothing: `FolderSidebar` is
+  constructed nowhere outside its own tests. It joins the list above when something opens
+  it.
+
+---
+
 ## v4.2
 
 **SyncCloud can set itself up.** Until now the filing engine needed a *folder
