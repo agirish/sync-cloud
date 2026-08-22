@@ -783,3 +783,100 @@ import Events
         #expect(blocked != "01. Jun 2021.pdf")
     }
 }
+
+/// **The rollback's occupancy probe folds case, and the rollback tests could not see it.**
+///
+/// Putting a cohort member back asks `fileExists` at the name it came from and strands the file
+/// when something is there. On a case-INSENSITIVE volume — which is every default macOS install,
+/// and the one this ships on — a member whose forward move was case-only is its own "occupant":
+/// after `07. jul 2016.pdf` → `07. Jul 2016.pdf`, `fileExists("07. jul 2016.pdf")` is **true**.
+/// Measured on this machine, and pinned below so the premise cannot quietly stop holding.
+///
+/// The rollback suites all drive `MockFileManager`, whose virtual disk is case-SENSITIVE, so none
+/// of them could distinguish the fix from the bug — the same blind spot `validateFileOperation`'s
+/// own comment records ("It read as covered because the only tests that exercise it drive a
+/// case-SENSITIVE test double").
+///
+/// Not reachable through the planner today, and the reason is a planner property rather than
+/// anything the apply loop enforces: a step whose ordinal does not move keeps cohort 0
+/// (`RenamePlanner.swift`), cohort-0 steps are never rolled back, and a step whose ordinal DOES
+/// move is not a case-only rename. So this pins the guard rather than a live defect — which is why
+/// it is stated on the decision, where it is provable, instead of through a plan the planner cannot
+/// produce.
+@Suite struct RenameRollbackOccupancyTests {
+
+    private func makeDir() throws -> URL {
+        try makeCanonicalTempRoot(prefix: "RollbackOccupancy")
+    }
+
+    /// The measured premise, on the real volume: a case-only rename leaves the old spelling
+    /// answering `fileExists` — so the bare probe cannot tell "somebody took it" from "this is the
+    /// file I am putting back".
+    @Test func aCaseOnlyRenameLeavesTheOldSpellingAnsweringFileExists() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let lower = dir.appendingPathComponent("07. jul 2016.pdf")
+        let upper = dir.appendingPathComponent("07. Jul 2016.pdf")
+        try Data("x".utf8).write(to: lower)
+        try FileManager.default.moveItem(at: lower, to: upper)
+
+        guard !FileSyncManager.volumeSupportsCaseSensitiveNames(for: dir) else {
+            Issue.record("""
+                Skipped: this temp volume distinguishes names by case, so the fold this fixture is \
+                about does not happen here and the guard below cannot be exercised.
+                """)
+            return
+        }
+        #expect(FileManager.default.fileExists(atPath: lower.path),
+                "the old spelling stopped answering — the fold this guard exists for is gone")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["07. Jul 2016.pdf"],
+                "fixture: there is exactly one file, under the new spelling")
+    }
+
+    /// The guard itself: the file being put back is not a stranger occupying its own old name.
+    @Test func aCaseOnlyMemberIsNotItsOwnOccupant() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let lower = dir.appendingPathComponent("07. jul 2016.pdf")
+        let upper = dir.appendingPathComponent("07. Jul 2016.pdf")
+        try Data("x".utf8).write(to: lower)
+        try FileManager.default.moveItem(at: lower, to: upper)
+        guard !FileSyncManager.volumeSupportsCaseSensitiveNames(for: dir) else { return }
+
+        #expect(FileSyncManager.rollbackTargetIsOccupied(
+            movedTo: upper, puttingBackTo: lower,
+            fileManager: FileManager.default, caseSensitiveVolume: false) == false,
+                "the file was declared occupied by itself, and would be stranded under its new name")
+    }
+
+    /// The other direction, so the exemption cannot become "never refuse": a genuine stranger on
+    /// the old name still strands the member, which is the whole point of the probe.
+    @Test func aRealStrangerStillOccupiesTheOldName() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let from = dir.appendingPathComponent("01. Mar 2021.pdf")
+        let to = dir.appendingPathComponent("02. Mar 2021.pdf")
+        try Data("moved".utf8).write(to: to)
+        try Data("stranger".utf8).write(to: from)
+
+        #expect(FileSyncManager.rollbackTargetIsOccupied(
+            movedTo: to, puttingBackTo: from,
+            fileManager: FileManager.default, caseSensitiveVolume: false),
+                "putting the member back would overwrite a file nothing here put there")
+    }
+
+    /// And on a case-SENSITIVE volume the case variant is a different file, so it occupies. Driven
+    /// through the flag rather than a volume, which is the seam the whole pass already uses.
+    @Test func onACaseSensitiveVolumeTheVariantIsAStranger() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let lower = dir.appendingPathComponent("07. jul 2016.pdf")
+        let upper = dir.appendingPathComponent("07. Jul 2016.pdf")
+        try Data("x".utf8).write(to: lower)
+
+        #expect(FileSyncManager.rollbackTargetIsOccupied(
+            movedTo: upper, puttingBackTo: lower,
+            fileManager: FileManager.default, caseSensitiveVolume: true),
+                "a case-sensitive volume was told the two names are one file")
+    }
+}

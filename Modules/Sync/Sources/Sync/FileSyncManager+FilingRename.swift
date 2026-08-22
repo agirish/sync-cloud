@@ -298,6 +298,11 @@ extension FileSyncManager {
                     if step.cohort == 0 { units.append((0, [step])) }
                     else { byCohort[step.cohort, default: []].append(step) }
                 }
+                // **All cohort-0 steps run before any cohort, whatever order `plan.steps` had.**
+                // A consequence of appending the singletons as they are seen and the cohorts after
+                // the whole pass, not a decision anyone stated — and it is safe for the same
+                // planner reason the rollback leans on: a cohort-0 step only widens an ordinal it
+                // already holds, so it neither frees nor takes a name any cohort member targets.
                 for id in byCohort.keys.sorted() { units.append((id, byCohort[id]!)) }
 
                 var appliedHere = false
@@ -357,17 +362,46 @@ extension FileSyncManager {
                     }
 
                     // Put back what this cohort already moved, newest first. Every name it restores
-                    // to was vacated by this same loop moments ago and no other member of the cohort
-                    // targets it (two files in one folder cannot share a name, so no step's target
-                    // is another step's source), so the folder returns to exactly the numbering it
-                    // had.
+                    // to was vacated by this same loop moments ago, and no other member of the
+                    // cohort targets it — so the folder returns to exactly the numbering it had.
+                    //
+                    // **That last clause is a PLANNER property, and the parenthetical this used to
+                    // carry did not establish it.** "Two files in one folder cannot share a name"
+                    // is about two steps wanting one TARGET, which `RenamePlanner.withoutCollisions`
+                    // refuses; it says nothing about a step's target being another step's SOURCE,
+                    // and a renumbering cascade looks exactly like a chain that would (01→02 beside
+                    // 02→03).
+                    //
+                    // What actually holds it: `RenamePlanner` builds each cohort member's name as
+                    // `d.parsed.canonicalName(ordinal: target)`, which keeps the file's own body,
+                    // or — for a bare month-and-year body — rebuilds it as
+                    // `OrdinalMonthName.body(month:year:)` for that member's own `MonthKey`. Two
+                    // members of one cascade carry different keys, so a cascade shifts ORDINALS
+                    // while every body stays put: `02. Jan 2025.pdf` (March's target) and
+                    // `02. Feb 2025.pdf` (April's source) are different names.
+                    //
+                    // Written down because it is the dependency a future author would break: a
+                    // non-month ordinal scheme, where two members could share a body, makes a
+                    // target equal to another member's source — and the forward loop would then
+                    // start minting " 2" names through `generateUniqueURL`, which is the defect
+                    // this branch just removed.
                     var putBack = 0
                     var stranded: [MoveItemState] = []
                     for move in applied.reversed() {
                         // Somebody else took the old name in the meantime: putting the file back
                         // would overwrite them. Leave it where it is and say so — a file stranded
-                        // under a new name is recoverable, a clobbered stranger is not.
-                        guard !fm.fileExists(atPath: move.from.path) else {
+                        // under a new name is plainly visible in the folder, while the stranger's
+                        // recovery would be a `.rollback_` backup or a Trash item the user has to
+                        // know to go and look for.
+                        //
+                        // (`safeMoveItem` does not unlink an occupant: it replaces atomically with
+                        // a backup, which `finalizeReplacementBackup` prefers to put in the Trash.
+                        // This comment used to say a clobbered stranger "is not recoverable",
+                        // which is stronger than the code delivers — the guard is still right, but
+                        // for the weaker reason.)
+                        guard !Self.rollbackTargetIsOccupied(
+                            movedTo: move.to, puttingBackTo: move.from,
+                            fileManager: fm, caseSensitiveVolume: caseSensitive) else {
                             stranded.append(move)
                             logger.error("Rename pass: could not put “\(move.to.lastPathComponent)” back — “\(move.from.lastPathComponent)” is occupied again in \(plan.folderPath)")
                             continue
@@ -483,5 +517,38 @@ extension FileSyncManager {
             files.append(FolderFile(path: path, name: name))
         }
         return files
+    }
+}
+
+extension FileSyncManager {
+
+    /// Whether the name a rolled-back cohort member is being restored to is held by **something
+    /// else**.
+    ///
+    /// **A bare `fileExists` folds case, and this ships on a volume that does.** After a case-only
+    /// forward move — `07. jul 2016.pdf` → `07. Jul 2016.pdf` — `fileExists` at the old spelling
+    /// answers **true** on any case-INSENSITIVE volume, which is every default macOS install.
+    /// Measured on this machine. The member would then be declared "occupied again" by itself and
+    /// stranded under its new name, with an error line naming a stranger that does not exist.
+    ///
+    /// Asked through ``isCaseOnlyRenaming(source:destination:caseSensitiveVolume:)`` — the same
+    /// helper the forward never-overwrite guard asks, and the same probed answer for the folder's
+    /// volume — because two spellings of this question are how the forward guard and `safeMoveItem`
+    /// came to disagree once already.
+    ///
+    /// **Not reachable through the planner today**, and only through a planner property: a step
+    /// whose ordinal does not move keeps cohort 0, cohort-0 steps are never rolled back, and a step
+    /// whose ordinal DOES move is not a case-only rename. The apply loop enforces none of that, and
+    /// every rollback test drives `MockFileManager`, whose disk is case-sensitive — so nothing here
+    /// would have noticed the day the planner changed. Stated as its own function so it is provable
+    /// on the volume it ships on.
+    nonisolated static func rollbackTargetIsOccupied(movedTo: URL, puttingBackTo: URL,
+                                                     fileManager: FileManaging,
+                                                     caseSensitiveVolume: Bool) -> Bool {
+        guard fileManager.fileExists(atPath: puttingBackTo.path) else { return false }
+        // The one false positive: what "occupies" the old name is the member itself, under a
+        // spelling this volume does not distinguish.
+        return !isCaseOnlyRenaming(source: movedTo, destination: puttingBackTo,
+                                   caseSensitiveVolume: caseSensitiveVolume)
     }
 }
