@@ -1443,7 +1443,26 @@ extension FileSyncManager {
         // and the unrecoverable branch re-verified nothing at all.
         let gateRefusals = MergeRemovalRefusals()
         var trashedForUndo: (originals: [URL], backups: [URL?])?
-        if !readyToTrash.isEmpty {
+        // **A Cancel must not START a destructive step that had not begun.** Deferring the trash
+        // out of the loop made this call unconditional, so a fold that completed BEFORE the user
+        // pressed Cancel was trashed AFTER it — measured on a Trash-less volume, the Cancel was
+        // answered by a modal permanent-delete alert the user never asked for, plus a second
+        // "Deleting N Items" dialog carrying its own, different Cancel (`deleteItems` publishes its
+        // own `Progress`). Before the restructure each fold was trashed inside the loop, so a
+        // Cancel stopped further trashing; this restores that meaning under the new shape.
+        //
+        // The folded copies simply stay on disk, which is what the cancel banner already promises
+        // ("a retry skips what landed"): the retry re-plans, the already-copied files are skipped
+        // by the plan's retry-idempotence rule, and the trash happens then.
+        //
+        // Only `cancelled` skips it. A COPY FAILURE does not: pre-restructure the earlier folds
+        // were already in the Trash by the time a later fold's copy failed, so trashing them here
+        // is the same outcome, later — and unlike a Cancel it is not the user asking for the run
+        // to stop touching their files.
+        if cancelled, !readyToTrash.isEmpty {
+            Logger.shared.info("Duplicates merge: “\(group.name)” was cancelled with \(readyToTrash.count) completed fold(s) not yet trashed — leaving them on disk rather than starting a removal the user just cancelled")
+        }
+        if !readyToTrash.isEmpty, !cancelled {
             let outcome = await deleteItems(
                 at: readyToTrash.map { $0.url.path }, fileManager: fm,
                 removalGate: mergeRemovalGate(group: group, folds: readyToTrash, refusals: gateRefusals),
@@ -1516,11 +1535,18 @@ extension FileSyncManager {
         // never show a false "Merged" banner over an orphaned folder.
         guard allTrashed, currentError == nil else {
             if cancelled {
-                banner = .warning("Merge of “\(group.name)” cancelled — unfinished copies were left in place."
-                                  + (anyPermanentlyDeleted
-                                     ? " A copy was deleted permanently, so this cannot be undone."
-                                     : " Everything already merged is undoable with ⌘Z;")
-                                  + " the group stays listed and a retry skips what landed.")
+                // Nothing was trashed — the deferred removal is skipped on this branch — so the
+                // only thing that happened is the copying, and the only thing ⌘Z has to reverse is
+                // the copy-undo registered above. `undoable:` is passed rather than defaulted: the
+                // flag, not the sentence, is what `invalidateUndoableBanner` reads to retire the
+                // offer when the undo stack moves on, and a "press ⌘Z" that outlives its step
+                // becomes an instruction to reverse the NEXT operation. It defaulted to false here
+                // while the prose offered ⌘Z anyway — the exact drift this file's own reasoning at
+                // the partial-batch banner warns about.
+                banner = .warning(totalFolded > 0
+                    ? "Merge of “\(group.name)” cancelled — nothing was trashed, so every copy is still on disk. The \(totalFolded) file\(totalFolded == 1 ? "" : "s") already folded into \(group.keeper.name) can be undone with ⌘Z; the group stays listed and a retry skips what landed."
+                    : "Merge of “\(group.name)” cancelled — nothing was copied or trashed. The group stays listed.",
+                                  undoable: totalFolded > 0)
             } else if let drifted = driftedCopies.first {
                 banner = .warning("“\(drifted)” changed since it was scanned — it was left in place. Rescan before merging.")
             } else if totalFolded > 0 {

@@ -134,4 +134,119 @@ import Foundation
         #expect(manager.banner?.message.contains("cancelled") == true)
         #expect(manager.mergingGroupIDs.isEmpty, "the in-flight marker clears on the cancel path too")
     }
+
+    /// A Trash-less volume whose `copyItem` cancels the run from inside the Nth call — so the
+    /// cancel can be aimed at a LATER fold, after an earlier one has completed in full.
+    private final class NthCopyCancelGate: FileManager, @unchecked Sendable {
+        private final class Gate: @unchecked Sendable {
+            private let lock = NSLock()
+            private var seen = 0
+            private var progress: Progress?
+            let target: Int
+            init(target: Int) { self.target = target }
+            func trip() -> Bool {
+                lock.lock(); defer { lock.unlock() }
+                seen += 1
+                return seen == target
+            }
+            func install(_ progress: Progress) { lock.lock(); self.progress = progress; lock.unlock() }
+            func awaitProgress() -> Progress? {
+                let deadline = Date().addingTimeInterval(30)
+                while Date() < deadline {
+                    lock.lock(); let p = progress; lock.unlock()
+                    if let p { return p }
+                    Thread.sleep(forTimeInterval: 0.005)
+                }
+                return nil
+            }
+        }
+        private let gate: Gate
+        init(cancelOnCopyNumber n: Int) { gate = Gate(target: n); super.init() }
+        func installProgress(_ progress: Progress) { gate.install(progress) }
+        override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+            if gate.trip() { gate.awaitProgress()?.cancel() }
+            try super.copyItem(at: srcURL, to: dstURL)
+        }
+        override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
+        }
+    }
+
+    /// **A Cancel must not START a destructive step that had not begun.** The duplicates
+    /// restructure moved the merge's trash out of the per-fold loop into one deferred
+    /// `deleteItems` after it — and that call ran unconditionally, so a fold completed BEFORE the
+    /// user pressed Cancel was trashed AFTER it. Measured at 6fe2c8c7 on a Trash-less volume: the
+    /// Cancel was answered by a modal permanent-delete alert the user never asked for
+    /// (`permanentDeletePrompts=[["A-…"]]`), and a second "Deleting N Items" progress dialog with
+    /// its own, different Cancel appeared behind it. Before the restructure a Cancel stopped
+    /// further trashing, because each fold was trashed inside the loop.
+    ///
+    /// Two redundant copies: A folds completely (one unique file), B has two, and the cancel is
+    /// fired from inside B's FIRST copy so B's second step observes it — leaving A finished and
+    /// queued for the deferred trash at the moment the user cancelled.
+    @MainActor
+    @Test func cancellingAfterAFoldCompletedDoesNotTrashItAfterTheFact() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeCancelDeferredTrash")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let aName = "A-\(UUID().uuidString)"
+        let bName = "B-\(UUID().uuidString)"
+        let a = base.appendingPathComponent(aName)
+        let b = base.appendingPathComponent(bName)
+
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(a.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(a.appendingPathComponent("a-only.txt"), bytes: 5000, fill: 0x41)
+        try write(b.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(b.appendingPathComponent("b1.txt"), bytes: 5000, fill: 0x42)
+        try write(b.appendingPathComponent("b2.txt"), bytes: 5000, fill: 0x43)
+
+        // Copy #1 is A's a-only.txt; copy #2 is B's b1.txt — cancelling there makes B's b2.txt the
+        // step that observes it, with A already complete and queued for the deferred trash.
+        let gate = NthCopyCancelGate(cancelOnCopyNumber: 2)
+        let manager = FileSyncManager(fileManager: gate)
+        manager.undoManager = UndoManager()
+        let prompts = LockedBox<[[String]]>([])
+        manager.permanentDeleteConfirmer = { names in
+            prompts.withLock { $0.append(names) }
+            return true
+        }
+        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+        let ca = DuplicateCopy(id: a.path, name: aName, isDirectory: true, size: 10000, itemCount: 2,
+                               modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
+        let cb = DuplicateCopy(id: b.path, name: bName, isDirectory: true, size: 15000, itemCount: 3,
+                               modificationDate: nil, uniqueItemCount: 2, depth: 0, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.33), name: "Keeper",
+                                   isDirectory: true, copies: [k, ca, cb], reclaimableBytes: 5000)
+        manager.duplicateGroups = [group]
+
+        let merge = Task { await manager.mergeDuplicateGroup(group) }
+        await waitUntil("the merge publishes a cancellable Progress") { manager.activeProgress != nil }
+        gate.installProgress(try #require(manager.activeProgress))
+        let ok = await merge.value
+
+        #expect(ok == false)
+        // The cancel landed where the fixture aims it: A folded, B's second file never started.
+        #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("a-only.txt").path),
+                "A never folded — the cancel landed too early for this pin")
+        #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("b2.txt").path) == false,
+                "a step started after the cancel — the cancel landed too late for this pin")
+
+        // THE INVARIANT: the cancel stopped the trash that had not begun.
+        #expect(prompts.withLock { $0 }.isEmpty,
+                "the Cancel was answered with a permanent-delete confirmation the user never asked for: \(prompts.withLock { $0 })")
+        #expect(FileManager.default.fileExists(atPath: a.path),
+                "the fold completed before the Cancel was destroyed after it")
+        #expect(FileManager.default.fileExists(atPath: b.path))
+
+        // The banner says what actually happened — nothing was trashed — and carries the flag, so
+        // `invalidateUndoableBanner` can retire the ⌘Z offer when the stack moves on.
+        let message = manager.banner?.message ?? ""
+        #expect(message.contains("cancelled"), "banner: “\(message)”")
+        #expect(message.contains("nothing was trashed"),
+                "the cancel banner does not say the copies were left alone: “\(message)”")
+        #expect(manager.banner?.isUndoable == true,
+                "the cancel banner offers ⌘Z in prose but ships isUndoable false, so the offer cannot be retired")
+    }
 }
