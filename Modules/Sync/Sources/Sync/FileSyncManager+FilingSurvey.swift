@@ -187,13 +187,31 @@ extension FileSyncManager {
             let absolute = toRead.map { root.appendingPathComponent($0).path }
             let text = await Self.extractSnippets(for: absolute, using: extractor)
             if Task.isCancelled { return .none }
+            var evictedMidRead = 0
             for path in toRead {
                 guard let stamp = tree.documents[path] else { continue }
                 // Absent text is a document that was opened and gave up nothing — recorded as blank
                 // so the next survey does not open it again. That is the whole reason a blank entry
                 // exists rather than the path simply being left out.
                 let page = text[root.appendingPathComponent(path).path] ?? ""
+                // **A blank stamp is permanent, so it is only earned by a file that was there.**
+                // Availability was asked before the batch and the batch takes minutes; a file the
+                // provider evicts in between extracts as `""`, and the stamp that records it is
+                // keyed on size and mtime, neither of which moves when the content comes back. So
+                // the write-off would never invalidate — the exact outcome `isAvailable` exists to
+                // prevent, arrived at through the door of a stale answer. Re-asked only for the
+                // blank ones (one lstat apiece, and a survey's blanks are a handful), because a
+                // document that produced text plainly had its content on disk.
+                if page.isEmpty,
+                   !filingDocumentIsAvailable(root.appendingPathComponent(path).path) {
+                    evictedMidRead += 1
+                    continue
+                }
                 read[path] = FilingSurvey.document(fromPage1: page, stamp: stamp, salt: salt)
+            }
+            if evictedMidRead > 0 {
+                Logger.shared.info("\(evictedMidRead) document(s) stopped being downloaded while the "
+                                   + "survey was reading — not stamped, left for a later survey")
             }
         }
 

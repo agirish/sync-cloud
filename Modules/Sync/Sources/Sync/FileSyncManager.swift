@@ -757,8 +757,8 @@ public class FileSyncManager: ObservableObject {
     /// Whether a document is on this disk to be read, asked before a re-survey opens one.
     ///
     /// Defaults to the real check, so this is the production path rather than a hook something else
-    /// has to remember to install — see ``FilingSurvey/isAvailable(_:)`` for why an evicted file
-    /// must not be mistaken for an empty one. A test replaces it to make eviction reproducible,
+    /// has to remember to install — see ``FilingSurvey/isAvailable(_:)`` for why a cloud-only
+    /// placeholder must not be mistaken for an empty file. A test replaces it to make eviction reproducible,
     /// which is otherwise impossible to stage.
     public var filingDocumentIsAvailable: @Sendable (String) -> Bool = { FilingSurvey.isAvailable($0) }
     /// Digest of the artifacts above, mixed into every ``FilingVerdictKey`` so a re-survey does not

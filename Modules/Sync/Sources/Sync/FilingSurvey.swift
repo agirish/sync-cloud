@@ -291,13 +291,37 @@ public enum FilingSurvey {
 
     /// Whether a document is actually on this disk to be read.
     ///
-    /// **An evicted iCloud file is not an unreadable document, and the difference is permanent.**
+    /// **A cloud-only placeholder is not an unreadable document, and the difference is permanent.**
     /// The extractor declines to force-download one, so it comes back with nothing — exactly like an
     /// image-only scan. Recording that as "read, nothing there" would stamp it and never look again,
-    /// and on a tree that lives in iCloud Documents an offloaded folder would be written off in one
+    /// and on a tree that lives in cloud storage an offloaded folder would be written off in one
     /// pass. So availability is asked separately, and an unavailable document is skipped whole:
     /// not read, not stamped, still there to be learned from once it comes back.
+    ///
+    /// **The check is provider-agnostic, and it has to be.** It used to consult iCloud's eviction
+    /// signals alone — `isUbiquitousItem` plus `ubiquitousItemDownloadingStatus` — which every other
+    /// File Provider answers `false` to. So a dataless Dropbox, OneDrive, Google Drive or Box file
+    /// under `~/Library/CloudStorage` fell straight through to "available", and both outcomes are
+    /// the ones this comment exists to rule out: online the survey opens the placeholder and the
+    /// provider downloads it (a metadata scan must never cause a download), offline it is stamped
+    /// blank against a size and mtime that do not change when the content later arrives, so it never
+    /// invalidates. ``MaterializationStatus`` is the shared answer — one dataless check, not a
+    /// second cloud-detection path to drift from it.
     public static func isAvailable(_ path: String) -> Bool {
+        isAvailable(path, statFlags: MaterializationStatus.realStatFlags)
+    }
+
+    /// The decision proper, with only the `lstat` substitutable — see
+    /// ``MaterializationStatus/StatFlags`` for why that is the one seam a test can honestly take.
+    static func isAvailable(_ path: String, statFlags: MaterializationStatus.StatFlags) -> Bool {
+        // The provider-agnostic half, and the one that has to come first: `SF_DATALESS` is set by
+        // every File Provider, Apple's included, so it is what says "this file's bytes are not on
+        // this disk" for Dropbox, OneDrive, Google Drive and Box under `~/Library/CloudStorage`.
+        // An lstat reads it without fetching anything.
+        if MaterializationStatus.isCloudOnly(atPath: path, statFlags: statFlags) { return false }
+        // iCloud's own signal, kept because it says something the flag does not: `.downloaded`
+        // (as against `.current`) is a file whose bytes ARE local but stale, which is not a
+        // dataless placeholder and is still not the document to learn from.
         let url = URL(fileURLWithPath: path)
         guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey,
                                                              .ubiquitousItemDownloadingStatusKey]),

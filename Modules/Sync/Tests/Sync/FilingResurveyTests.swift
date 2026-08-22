@@ -361,6 +361,77 @@ import Events
         #expect(reads.paths.contains { $0.hasSuffix("offloaded.pdf") })
     }
 
+    /// **The availability answer goes stale, and the stamp it licenses is permanent.** It is asked
+    /// once, before a batch that takes minutes on a real tree; a file the provider evicts inside
+    /// that window extracts as nothing and used to be stamped blank — against a size and mtime that
+    /// do not move when the content comes back, so the write-off never invalidates. Exactly the
+    /// outcome `isAvailable` exists to prevent, reached through a stale answer instead of a missing
+    /// check.
+    ///
+    /// The blank is what makes it reachable: a document that produced text plainly had its bytes on
+    /// disk, so only the empty results are re-asked.
+    @Test func aDocumentEvictedWhileTheSurveyReadsIsNotStampedBlank() async throws {
+        let (manager, docs, profiles, reads) = try Self.makeTree()
+        try Self.write(docs.appendingPathComponent("Health/Kaiser/offloaded.pdf"),
+                       Self.page("Kaiser Permanente dermatology"))
+
+        // Available when the batch is chosen; gone by the time its (empty) result is stamped.
+        let asked = Reads()
+        manager.filingDocumentIsAvailable = { path in
+            guard path.hasSuffix("offloaded.pdf") else { return true }
+            asked.note(path)
+            return asked.paths.count == 1        // true the first time, false the second
+        }
+        manager.filingSnippetExtractor = { path in
+            reads.note(path)
+            return path.hasSuffix("offloaded.pdf") ? nil : (try? String(contentsOfFile: path, encoding: .utf8))
+        }
+
+        let first = await manager.resurveyFilingMemory(root: docs)
+        #expect(first.documentsUnavailable == 0, "fixture: it must be judged available up front")
+        #expect(reads.paths.contains { $0.hasSuffix("offloaded.pdf") }, "fixture: it must be opened")
+
+        let corpus = try #require(FilingSurveyStore.corpus(id: "t", in: profiles))
+        #expect(corpus.documents.keys.contains { $0.hasSuffix("offloaded.pdf") } == false,
+                "an evicted file was stamped, and the stamp can never invalidate")
+
+        // It comes back down, and the next survey learns from it — the proof that nothing was
+        // written off. Now available at both asks, and the extractor returns its text.
+        manager.filingDocumentIsAvailable = { _ in true }
+        manager.filingSnippetExtractor = { path in
+            reads.note(path)
+            return try? String(contentsOfFile: path, encoding: .utf8)
+        }
+        reads.reset()
+        let second = await manager.resurveyFilingMemory(root: docs)
+        #expect(second.documentsRead == 1)
+        #expect(reads.paths.contains { $0.hasSuffix("offloaded.pdf") })
+    }
+
+    /// And the other direction, so the guard above cannot become "never stamp a blank": a document
+    /// that is genuinely there and genuinely yields nothing is still stamped once, or the survey
+    /// reopens every image-only scan forever. Same fixture as
+    /// ``aDocumentThatYieldsNothingIsStillStamped``, stated against the availability seam.
+    @Test func aBlankFromAFileThatIsStillThereIsStillStamped() async throws {
+        let (manager, docs, profiles, reads) = try Self.makeTree()
+        try Self.write(docs.appendingPathComponent("Health/Kaiser/imageonly.pdf"), "")
+        manager.filingDocumentIsAvailable = { _ in true }
+        manager.filingSnippetExtractor = { path in
+            reads.note(path)
+            return path.hasSuffix("imageonly.pdf") ? nil : (try? String(contentsOfFile: path, encoding: .utf8))
+        }
+        _ = await manager.resurveyFilingMemory(root: docs)
+
+        let corpus = try #require(FilingSurveyStore.corpus(id: "t", in: profiles))
+        #expect(corpus.documents.keys.contains { $0.hasSuffix("imageonly.pdf") },
+                "a readable-but-empty document must be stamped, or it is reopened every survey")
+
+        reads.reset()
+        let second = await manager.resurveyFilingMemory(root: docs)
+        #expect(second.documentsRead == 0)
+        #expect(reads.paths.isEmpty)
+    }
+
     /// With no artifacts and no extractor there is nothing to do, and saying so beats writing an
     /// empty memory over a tree nobody surveyed.
     @Test func aMachineWithNoProfileIsLeftAlone() async throws {

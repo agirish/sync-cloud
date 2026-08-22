@@ -15,6 +15,23 @@ public enum MaterializationStatus {
         flags & datalessFlag != 0
     }
 
+    /// One file's `st_flags`, or nil when the path cannot be statted.
+    ///
+    /// **This is the seam a test substitutes, and it is deliberately the syscall itself** — the one
+    /// thing about a dataless file that cannot be staged. `SF_DATALESS` is an `SF_` flag, which
+    /// `chflags` refuses to anyone but root and which only a File Provider ever sets, so a test that
+    /// wants to say "this file's content lives on the provider" has no other way to say it. Stubbing
+    /// here leaves the whole decision — the flag math, the fold to a Bool, and every predicate built
+    /// on it — running as production runs it, rather than replacing the answer wholesale.
+    public typealias StatFlags = @Sendable (String) -> UInt32?
+
+    /// The real `lstat`: metadata only, so it never fetches the file's content.
+    public static let realStatFlags: StatFlags = { path in
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return nil }
+        return info.st_flags
+    }
+
     /// True when the file at `path` is a cloud-only placeholder, false for anything without the flag
     /// (ordinary local files, directories) — and **nil when the path cannot be statted at all**.
     ///
@@ -28,10 +45,10 @@ public enum MaterializationStatus {
     /// download poll and the memo's own stat. Everything else takes the two-way form below.
     ///
     /// One `lstat` — cheap enough to call lazily per visible row.
-    public static func isCloudOnlyIfKnown(atPath path: String) -> Bool? {
-        var info = stat()
-        guard lstat(path, &info) == 0 else { return nil }
-        return isDataless(flags: info.st_flags)
+    public static func isCloudOnlyIfKnown(atPath path: String,
+                                          statFlags: StatFlags = realStatFlags) -> Bool? {
+        guard let flags = statFlags(path) else { return nil }
+        return isDataless(flags: flags)
     }
 
     /// True when the file at `path` is a cloud-only placeholder. False on any stat error and for
@@ -60,8 +77,9 @@ public enum MaterializationStatus {
     /// is the quiet one: it hands its caller the same `false` this would, and differs only in
     /// declining to MEMOIZE it, so the next realization of that row asks the filesystem again
     /// instead of being served what one stat failed to find out.
-    public static func isCloudOnly(atPath path: String) -> Bool {
-        isCloudOnlyIfKnown(atPath: path) ?? false
+    public static func isCloudOnly(atPath path: String,
+                                   statFlags: StatFlags = realStatFlags) -> Bool {
+        isCloudOnlyIfKnown(atPath: path, statFlags: statFlags) ?? false
     }
 
     /// Asks the system to fetch a dataless file's content. Uses the iCloud download API — the one

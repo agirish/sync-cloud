@@ -9,7 +9,7 @@ import Events
 /// On-device content signals for Filing (F2). Given a file, it reads a bounded amount of text —
 /// PDF text via PDFKit, image/scan text via Vision OCR, or a plain-text head — and pulls
 /// entity/keyword tokens via NaturalLanguage. Nothing leaves the device. Returns an empty set for
-/// unsupported types, evicted iCloud files, or when nothing useful is found.
+/// unsupported types, cloud-only placeholders, or when nothing useful is found.
 ///
 /// The heavy synchronous work (PDF parse, OCR) runs on a dedicated queue so it never blocks the
 /// Swift cooperative thread pool.
@@ -56,7 +56,9 @@ enum ContentSignalExtractor {
         await withCheckedContinuation { continuation in
             workQueue.async {
                 let url = URL(fileURLWithPath: path)
-                guard !isEvictediCloudFile(url) else { return continuation.resume(returning: nil) }
+                // Same provider-agnostic guard as `extractTextSync`: rendering page 1 opens the
+                // document, and opening a placeholder is what makes the provider fetch it.
+                guard FilingSurvey.isAvailable(url.path) else { return continuation.resume(returning: nil) }
                 let image: CGImage? = PDFKitSerialAccess.run {
                     guard let doc = PDFDocument(url: url), !doc.isLocked,
                           let page = doc.page(at: 0) else { return nil }
@@ -103,7 +105,7 @@ enum ContentSignalExtractor {
     }
 
     /// The seam the manager injects for the AI classifier: a bounded plain-text excerpt of the file
-    /// (PDF text / OCR / plain), or nil when there's nothing readable. Same evicted-iCloud guard and
+    /// (PDF text / OCR / plain), or nil when there's nothing readable. Same cloud-only guard and
     /// bounds as the token path — nothing leaves the device.
     static func snippet(forFileAt path: String) async -> String? {
         await withCheckedContinuation { continuation in
@@ -122,29 +124,27 @@ enum ContentSignalExtractor {
         return tokens(fromText: text)
     }
 
-    /// Reads a bounded amount of text from a supported file. Empty for unsupported types, evicted
-    /// iCloud files, or when nothing useful is found. Shared by the token and snippet seams.
+    /// Reads a bounded amount of text from a supported file. Empty for unsupported types,
+    /// cloud-only placeholders, or when nothing useful is found. Shared by the token and snippet
+    /// seams.
+    ///
+    /// **The cloud-only guard is `FilingSurvey.isAvailable`, not a copy of it.** This file used to
+    /// carry its own `isEvictediCloudFile`, spelled from iCloud's `isUbiquitousItem` signals — so a
+    /// dataless Dropbox/OneDrive/Drive file read as present, and the classifier's extraction opened
+    /// it, which is what makes the provider download it. One predicate, one answer.
     ///
     /// Internal rather than private so the read failures below can be driven from a test with a
     /// real unreadable file — the three branches it dispatches to all answer `""`, and what
     /// separates "nothing to say" from "could not look" is only the log line.
     static func extractTextSync(_ url: URL) -> String {
-        // Never force-download an evicted iCloud file just to peek at its contents.
-        guard !isEvictediCloudFile(url) else { return "" }
+        // Never force-download a cloud-only placeholder just to peek at its contents.
+        guard FilingSurvey.isAvailable(url.path) else { return "" }
 
         let ext = url.pathExtension.lowercased()
         if ext == "pdf" { return pdfText(url) }
         if imageExtensions.contains(ext) { return ocrText(url) }
         if textExtensions.contains(ext) { return plainText(url) }
         return ""
-    }
-
-    /// True when the file is an iCloud item that isn't currently downloaded locally.
-    private static func isEvictediCloudFile(_ url: URL) -> Bool {
-        guard let vals = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
-              vals.isUbiquitousItem == true,
-              let status = vals.ubiquitousItemDownloadingStatus else { return false }
-        return status != .current
     }
 
     /// Page 1, and further pages only while page 1 has not produced enough to work with.

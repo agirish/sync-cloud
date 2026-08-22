@@ -8,7 +8,7 @@ import PDFKit
 /// the user's read-contents setting gates. This one is PDFKit alone, it is not user-gated, and
 /// `MacApp` belongs to no SPM package — anything put there can only be compiled by the app build
 /// and can never be unit-tested. Keeping it in `Sync` is what lets the extraction rules (page cap,
-/// locked documents, evicted iCloud files) have tests at all.
+/// locked documents, cloud-only placeholders) have tests at all.
 ///
 /// The parse runs on ``PDFKitSerialAccess``'s lane — off the cooperative pool, and one at a time
 /// across the whole process. A full-tree pass is 10,569 documents.
@@ -57,19 +57,19 @@ public enum PDFTextExtractor {
     /// above, not here.
     ///
     /// `isAvailable` is a parameter for the same reason `findDuplicates` takes `isCloudOnly` as
-    /// one: a genuinely evicted file cannot be fabricated in a test, and this is the guard whose
+    /// one: a genuinely dataless file cannot be fabricated in a test, and this is the guard whose
     /// absence would cost the most — see below. A defaulted parameter rather than a settable
     /// static, so two tests running in parallel cannot see each other's substitution.
     static func readSync(_ path: String,
                          isAvailable: (String) -> Bool = FilingSurvey.isAvailable) -> ExtractedDocument? {
         guard ContentFingerprint.canFingerprint(path: path) else { return nil }
         let url = URL(fileURLWithPath: path)
-        // Never force-download an evicted iCloud file to fingerprint it. `FilingSurvey.isAvailable`
+        // Never force-download a cloud-only placeholder to fingerprint it. `FilingSurvey.isAvailable`
         // makes the same call for the same reason: the extractor would come back with nothing and
         // the absence would be indistinguishable from an image-only scan.
         //
         // **The one guard here with a cost behind it.** The scan hands this every PDF in the tree,
-        // so on a tree that lives in iCloud Documents, losing this line does not degrade an answer
+        // so on a tree that lives in cloud storage, losing this line does not degrade an answer
         // — it downloads the user's entire offloaded library, once per cold scan.
         guard isAvailable(path) else { return nil }
         // A locked document yields no text, and "no text" is a claim we must not make about it —
