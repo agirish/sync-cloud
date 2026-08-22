@@ -1472,6 +1472,13 @@ public struct DifferencesView: View {
         // `singleSource: false` unconditionally: `compareBottomListActive` gates this whole view
         // to Compare, and the lens workspaces show `LensWorkspaceView` instead, so the rail's hidden-right-pane case
         // cannot reach here.
+        //
+        // Single-key overload, kept deliberately. It takes modified presses and fires on
+        // key-repeat — no `onKeyPress` overload filters either, the single-key one included
+        // (measured; see `KeyPress.isPlainKeystroke`) — and neither matters for Quick Look: it
+        // opens a panel, a repeat re-targets the same panel, and nothing moves on disk. Reviewed
+        // alongside `ReviewCardView`'s ⏎/⌫ and the pane's ↩-rename on 2026-08-21; only the keys
+        // that move bytes or steal a chord were converted.
         .onKeyPress(.space) {
             guard let onQuickLook, let targetPath = DifferencesQuery.spaceQuickLookTarget(
                 lastInteracted: syncManager.lastSelectionSurface,

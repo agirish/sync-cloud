@@ -306,6 +306,41 @@ import Testing
                 """)
     }
 
+    /// **The other half of the rule this suite enforces.** The ban says a surface that wants a
+    /// bare key uses `.onKeyPress` instead of a window-level equivalent — but `.onKeyPress` does
+    /// not do for free the one thing an equivalent did: refuse chords. No overload filters
+    /// modifiers (the single-key one included — measured; see `KeyPress.isPlainKeystroke`), and
+    /// none of them matches the keypad's Enter when keyed on `.return` alone, because keyCode 76
+    /// sends U+0003 rather than U+000D.
+    ///
+    /// The panes' ↩-rename is the app's third ↩-as-decision site, after the two cards, and it was
+    /// the one the conversion range skipped: `.onKeyPress(.return) { paneRename() }`, so ⌘↩/⌥↩ and
+    /// friends each opened the rename editor — stealing a chord another surface owns — and the
+    /// keypad's Enter did nothing at all while the File menu's Rename item advertises ↩.
+    ///
+    /// **Source-level because there is no alternative**: `MacApp/` is in NO SPM package, this
+    /// sweep is the only test that can read it, and only CI's second step even compiles it. A
+    /// behavioural test of this handler cannot exist today.
+    @Test func thePanesRenameKeyTakesBothEnterKeycapsAndRefusesChords() throws {
+        let contentView = try #require(
+            try Self.sweptSources().first { $0.url.path.hasSuffix("/MacApp/ContentView.swift") },
+            "MacApp/ContentView.swift was not swept — has it moved, or did the sweep stop reading MacApp/?")
+        // Indentation-insensitive: the handler sits deep inside a view builder and a reflow would
+        // otherwise fail this for a reason that is not the rule.
+        let code = Self.codeOnly(contentView.text)
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        #expect(code.contains(
+            ".onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in "
+            + "guard press.isPlainKeystroke else { return .ignored } return paneRename() }"), """
+                the panes' ↩-rename handler is no longer `keys: [.return, .keypadEnter], phases: \
+                .down` guarded on `press.isPlainKeystroke`. Keyed on `.return` alone it is deaf to \
+                the keypad's Enter keycap; without the guard, ⌘↩/⇧↩/⌥↩/⌃↩ each open the rename \
+                editor and swallow a chord aimed somewhere else. `.isPlainKeystroke` and NOT \
+                `modifiers.isEmpty`: the keypad's Enter always carries .numericPad + .function, \
+                and .capsLock rides every event while the lock is engaged.
+                """)
+    }
+
     /// **Depth does not buy a way out of the net.** The claims above — "it defaults to *in*: a new
     /// view is covered the day it is added" and "the exemptions are the only way out" — were false
     /// for any file below the first level of `Sources/FileExplorer/`, because the membership test

@@ -2800,9 +2800,41 @@ struct ContentView: View {
             treeView(pane)
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel)
                 // Space → Quick Look, scoped to the FILE LIST — see `paneQuickLook()`.
+                //
+                // Left on the single-key overload deliberately. It takes modified presses and
+                // fires on key-repeat like every other overload does (measured — see
+                // `KeyPress.isPlainKeystroke`), and neither matters here: Quick Look opens a
+                // panel, a repeat re-targets the same panel, and nothing moves on disk.
                 .onKeyPress(.space) { paneQuickLook() }
                 // ↩ → Rename, scoped the same way and for a stronger reason — see `paneRename()`.
-                .onKeyPress(.return) { paneRename() }
+                //
+                // Same shape as the two decision cards, and for two of their three reasons. This
+                // was `.onKeyPress(.return)`, which meant:
+                //
+                // - **⌘↩/⇧↩/⌥↩/⌃↩ each opened the rename editor.** No `onKeyPress` overload
+                //   filters modifiers; the single-key one is not the exception it was once
+                //   documented to be. ⌘↩ and ⌥↩ are chords other surfaces own, and a rename
+                //   editor opening under one steals the keystroke from whoever meant it.
+                // - **The keypad's Enter did nothing**, silently, while the File menu's Rename
+                //   item and the pane's own affordances advertise ↩. keyCode 76 sends U+0003, not
+                //   U+000D, and SwiftUI matches on the character delivered.
+                //
+                // The third reason does not apply, which is why this is not the cards' problem:
+                // a held ↩ opening one rename editor and then re-opening the same one moves no
+                // bytes. `.down` only regardless — there is no reason to want the repeats.
+                // `press.isPlainKeystroke` and not `modifiers.isEmpty`: the keypad's Enter always
+                // carries `.numericPad` + `.function`, so the strict spelling would refuse the
+                // keycap this change exists to accept, and `.capsLock` rides on every event while
+                // the lock is engaged.
+                //
+                // No `focused` term, unlike the cards: `paneRename` has no focusable descendants
+                // of its own to be confused with, and the guard it does need — a pending
+                // destination pick or the ⌘K palette owning the keyboard — is `paneChordsSuspended`,
+                // asked inside `paneRename()` where the menu item's twin can be asked the same way.
+                .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
+                    guard press.isPlainKeystroke else { return .ignored }
+                    return paneRename()
+                }
                 // The file actions (Compare/Copy/Move/Delete) live here now, not in the titlebar: a
                 // contextual bar on whichever pane holds the selection, so the buttons name their
                 // target. (New Folder stays on the right-click menu to keep the bar compact.) The
@@ -2848,6 +2880,13 @@ struct ContentView: View {
         // `barSelectionNodes`) is compare-only, so gating on it alone made Escape dead on the one
         // surface that has neither a bar nor its ✕ to fall back on. Compare's gate is unchanged —
         // see `PaneLogic.escapeClearsSelection`.
+        //
+        // Single-key overload, kept: like ␣ above it takes modified presses and fires on
+        // key-repeat, and neither costs anything here. Clearing an already-clear selection is a
+        // no-op, and the guard already returns `.ignored` when there is nothing to clear, so a
+        // ⌘esc-shaped press cannot swallow a key someone else wanted. (⌘esc and ⌃esc do not reach
+        // any `onKeyPress` at all — AppKit takes them as `cancelOperation:` ahead of the responder
+        // chain.) Reviewed with ↩ above on 2026-08-21 and deliberately left as-is.
         .onKeyPress(.escape) {
             let paneSelection = isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths
             guard PaneLogic.escapeClearsSelection(
