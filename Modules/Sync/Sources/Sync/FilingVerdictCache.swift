@@ -52,10 +52,34 @@ public struct FilingVerdictKey: Hashable, Codable, Sendable {
     /// which is the guard this repo prefers wherever a silent default can drop a fact.
     public let artifacts: String
 
-    public init(filePath: String, modificationDate: Date?, size: Int, model: String,
-                promptVersion: Int, excludedRelativePaths: [String] = [], artifacts: String) {
+    /// **Fails when the file's own facts are unknown, rather than standing in a value for them.**
+    ///
+    /// `modifiedMillis` used to take `?? 0` for an unreadable mtime and the scan site passed
+    /// `f.fileSize ?? 0` for an unreadable size — so "we could not read this" was written into the
+    /// key as `1970-01-01` and `0 bytes`, two perfectly ordinary values a real file can have. Two
+    /// different states then shared one key, and the cache cannot tell a hit on a fact from a hit
+    /// on a placeholder: a file whose mtime stays unreadable while its contents change keeps the
+    /// same key at the same size and is served its old verdict, which on the refine tier is an
+    /// answer that was paid for.
+    ///
+    /// nil turns the cache off for that file, read and write both — exactly what
+    /// ``FileSyncManager/filingArtifactFingerprint`` being nil already does one field over, and for
+    /// the identical reason stated there: an unreadable component is an unknown, and a key minted
+    /// around it can be served against something it never described.
+    ///
+    /// **The cost is stated rather than glossed:** a file with an unreadable mtime is re-asked
+    /// every scan instead of being answered from cache, and on the paid tier that is money. It is
+    /// the trade this repo already made for the artifact digest, the population is small (the walk
+    /// reads both facts in one `resourceValues` and only a failed read yields nil), and the
+    /// alternative is serving a stale paid answer silently.
+    ///
+    /// Failable rather than defaulting, so every call site has to decide — the same reason
+    /// `artifacts` is a required argument above.
+    public init?(filePath: String, modificationDate: Date?, size: Int?, model: String,
+                 promptVersion: Int, excludedRelativePaths: [String] = [], artifacts: String) {
+        guard let modificationDate, let size else { return nil }
         self.filePath = filePath
-        self.modifiedMillis = modificationDate.map { Int(($0.timeIntervalSince1970 * 1000).rounded()) } ?? 0
+        self.modifiedMillis = Int((modificationDate.timeIntervalSince1970 * 1000).rounded())
         self.size = size
         self.model = model
         self.promptVersion = promptVersion

@@ -20,9 +20,11 @@ import Testing
     static let existing: Set<String> = ["Immigration", "Immigration/OCI", "Immigration/OCI/Divit"]
     static let now = Date(timeIntervalSince1970: 1_786_000_000)
 
+    /// Force-unwrapped: the initializer is failable only for an unknown mtime or size, and both
+    /// are literals here. A nil would be a broken fixture, which is what a trap should report.
     static func key(_ name: String) -> FilingVerdictKey {
         FilingVerdictKey(filePath: "\(root)/TODO/\(name)", modificationDate: now, size: 1_000,
-                         model: "m", promptVersion: 1, excludedRelativePaths: [], artifacts: "a")
+                         model: "m", promptVersion: 1, excludedRelativePaths: [], artifacts: "a")!
     }
 
     /// The headline: a verdict naming the document itself at the end of the path — the shape the

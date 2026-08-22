@@ -46,9 +46,10 @@ private final class SpendProbe: @unchecked Sendable {
 
     private func key(_ path: String, model: String = "test-model", size: Int = 5000,
                      excluded: [String] = [], artifacts: String = "") -> FilingVerdictKey {
+        // Force-unwrapped: failable only for an unknown mtime or size, both literal here.
         FilingVerdictKey(filePath: path, modificationDate: Date(timeIntervalSince1970: 1_700_000_000),
                          size: size, model: model, promptVersion: 1, excludedRelativePaths: excluded,
-                         artifacts: artifacts)
+                         artifacts: artifacts)!
     }
 
     private let verdict = FilingVerdict(relativePath: "Documents/Vehicles/Tesla",
@@ -890,12 +891,61 @@ private final class SpendProbe: @unchecked Sendable {
         #expect(FilingProfileStore.fingerprint(id: "me", in: dir) == "")
     }
 
+    // MARK: - An unknown fact is not a value
+
+    /// **A file whose mtime could not be read has no key, rather than a key that says 1970.**
+    ///
+    /// `modifiedMillis` took `?? 0` for a nil date and the scan site passed `fileSize ?? 0`, so
+    /// "we could not read this" was written into the key as two values a real file can genuinely
+    /// have. The cache then cannot tell a hit on a fact from a hit on a placeholder: a file whose
+    /// mtime stays unreadable while its contents change keeps the same key at the same size and is
+    /// served its old verdict — on the refine tier, an answer that was paid for.
+    ///
+    /// Same rule as a nil `filingArtifactFingerprint`, which already turns the cache off for read
+    /// and write both, and for the reason stated there: an unreadable component is an unknown.
+    @Test func anUnreadableModificationDateYieldsNoKeyAtAll() {
+        #expect(FilingVerdictKey(filePath: "/r/TODO/a.pdf", modificationDate: nil, size: 10,
+                                 model: "m", promptVersion: 1, artifacts: "a") == nil)
+    }
+
+    @Test func anUnreadableSizeYieldsNoKeyAtAll() {
+        #expect(FilingVerdictKey(filePath: "/r/TODO/a.pdf",
+                                 modificationDate: Date(timeIntervalSince1970: 1), size: nil,
+                                 model: "m", promptVersion: 1, artifacts: "a") == nil)
+    }
+
+    /// **The collision the old default produced, spelled out.** A file dated exactly at the epoch
+    /// is an ordinary file, and under `?? 0` it was indistinguishable from one whose date could not
+    /// be read. Now only the real one has a key.
+    @Test func aFileDatedAtTheEpochKeysNormallyAndAnUnreadableOneDoesNot() throws {
+        let epoch = try #require(FilingVerdictKey(filePath: "/r/TODO/a.pdf",
+                                                  modificationDate: Date(timeIntervalSince1970: 0),
+                                                  size: 0, model: "m", promptVersion: 1,
+                                                  artifacts: "a"),
+                                 "an epoch-dated, empty file is ordinary and must still be keyable")
+        #expect(epoch.modifiedMillis == 0)
+        #expect(epoch.size == 0)
+        #expect(FilingVerdictKey(filePath: "/r/TODO/a.pdf", modificationDate: nil, size: nil,
+                                 model: "m", promptVersion: 1, artifacts: "a") == nil,
+                "the unreadable case still mints the same key as the epoch-dated one")
+    }
+
+    /// And an ordinary readable file is untouched — the guard must not become "never cache".
+    @Test func aReadableFileStillKeysAsBefore() throws {
+        let k = try #require(FilingVerdictKey(filePath: "/r/TODO/a.pdf",
+                                              modificationDate: Date(timeIntervalSince1970: 1.5),
+                                              size: 10, model: "m", promptVersion: 1,
+                                              artifacts: "a"))
+        #expect(k.modifiedMillis == 1500)
+        #expect(k.size == 10)
+    }
+
     /// The fingerprint is key material: two otherwise identical questions asked against different
     /// artifacts are different questions.
     @Test func theFingerprintSeparatesOtherwiseIdenticalKeys() {
         func key(_ fp: String) -> FilingVerdictKey {
             FilingVerdictKey(filePath: "/r/TODO/a.pdf", modificationDate: Date(timeIntervalSince1970: 1),
-                             size: 10, model: "on-device", promptVersion: 5, artifacts: fp)
+                             size: 10, model: "on-device", promptVersion: 5, artifacts: fp)!
         }
         #expect(key("aaaa") != key("bbbb"))
         #expect(key("aaaa") == key("aaaa"))

@@ -181,11 +181,17 @@ extension FileSyncManager {
             let cache = await loadedFilingVerdictCache()
             misses = []
             for s in eligible {
-                let key = FilingVerdictKey(
+                // Same rule as the scan tier: an unreadable mtime leaves the file unkeyed, so it
+                // is re-asked rather than answered from a key built around a placeholder. These
+                // are the paid answers, which is what makes a false hit the expensive direction.
+                guard let key = FilingVerdictKey(
                     filePath: s.filePath, modificationDate: s.modificationDate, size: s.size,
                     model: identity, promptVersion: CloudFilingProtocol.promptVersion,
                     excludedRelativePaths: excludedByFile[s.filePath] ?? [],
-                    artifacts: artifacts)
+                    artifacts: artifacts) else {
+                    misses.append(s)
+                    continue
+                }
                 keysByFile[s.filePath] = key
                 if let hit = cache.verdict(for: key, providerRoot: root,
                                            existingRelative: existingRelative) {

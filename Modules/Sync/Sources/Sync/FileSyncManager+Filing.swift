@@ -546,11 +546,18 @@ extension FileSyncManager {
                     let cache = ignoringCache ? nil : loaded
                     misses = []
                     for f in toClassify {
-                        let key = FilingVerdictKey(
-                            filePath: f.id, modificationDate: f.modificationDate, size: f.fileSize ?? 0,
+                        // No key ⇒ this file's mtime or size could not be read, so the cache is
+                        // off for it in both directions: it is not looked up, and having no entry
+                        // in `keysByFile` is what keeps `recordFilingVerdicts` from writing one.
+                        // A miss costs a re-ask; a hit on a placeholder key costs a wrong answer.
+                        guard let key = FilingVerdictKey(
+                            filePath: f.id, modificationDate: f.modificationDate, size: f.fileSize,
                             model: identity, promptVersion: CloudFilingProtocol.promptVersion,
                             excludedRelativePaths: excludedByFile[f.id] ?? [],
-                            artifacts: artifacts)
+                            artifacts: artifacts) else {
+                            misses.append(f)
+                            continue
+                        }
                         keysByFile[f.id] = key
                         if let hit = cache?.verdict(for: key, providerRoot: providerRoot.path,
                                                     existingRelative: existingRelative) {

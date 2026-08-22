@@ -31,8 +31,9 @@ import Testing
     private func setAsides(beside url: URL) -> [URL] { setAsidesBeside(url) }
 
     private func key(_ path: String) -> FilingVerdictKey {
+        // Force-unwrapped: failable only for an unknown mtime or size, both literal here.
         FilingVerdictKey(filePath: path, modificationDate: Date(timeIntervalSince1970: 1_700_000_000),
-                         size: 5000, model: "test-model", promptVersion: 1, artifacts: "")
+                         size: 5000, model: "test-model", promptVersion: 1, artifacts: "")!
     }
 
     private func cache(_ path: String) -> FilingVerdictCache {
