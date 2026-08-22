@@ -150,4 +150,84 @@ import Testing
         #expect(log.events.isEmpty)
         #expect(Self.store(suite).events.isEmpty, "the cleared log came back at the next launch")
     }
+
+    // MARK: - Absent, unreadable, and the write that used to collapse them
+
+    /// **A stored value this build cannot decode must not be overwritten by the next refusal.**
+    ///
+    /// The load was `guard let data = …, let decoded = try? … else { return }`, so an undecodable
+    /// value left `events` empty — indistinguishable from a machine that has refused nothing — and
+    /// `record` then called `save`, writing that empty array over history it had never read. One
+    /// refusal, and the log is gone. `PersonVetoEvent` is a stored `Codable`, so a newer build
+    /// adding a non-optional field produces exactly this on the older one.
+    ///
+    /// Asserted on the STORED BYTES, because `events` is empty either way — reading the in-memory
+    /// array is what cannot tell the two apart.
+    @Test func anUnreadableStoredLogIsNotOverwrittenByANewRefusal() throws {
+        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
+        defer { wipeDefaultsSuite(suite) }
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let theirs = Data("{\"schema\":2,\"events\":[]}".utf8)   // valid JSON, not our shape
+        defaults.set(theirs, forKey: PersonVetoLog.defaultsKey)
+
+        let log = PersonVetoLog(userDefaults: defaults)
+        #expect(log.events.isEmpty, "fixture: an unreadable value shows as no refusals")
+
+        log.record(Self.event(named: "muktha", file: "Passport.pdf"))
+
+        #expect(defaults.data(forKey: PersonVetoLog.defaultsKey) == theirs,
+                "the refusal overwrote a stored log this build never read")
+    }
+
+    /// And the session still works — the refusal is visible now, it is just not persisted over
+    /// something unreadable. A guard that also stopped recording would trade a data loss for a
+    /// dead feature.
+    @Test func anUnreadableStoredLogStillShowsThisSessionsRefusals() throws {
+        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
+        defer { wipeDefaultsSuite(suite) }
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.set(Data("not our shape at all".utf8), forKey: PersonVetoLog.defaultsKey)
+
+        let log = PersonVetoLog(userDefaults: defaults)
+        log.record(Self.event(named: "muktha", file: "Passport.pdf"))
+
+        #expect(log.events.count == 1)
+        #expect(log.count(namedPerson: "muktha") == 1)
+    }
+
+    /// The other direction, so the guard cannot become "never persist": with NOTHING stored — the
+    /// ordinary state — a refusal is written as it always was.
+    @Test func anAbsentLogIsStillWrittenToOnFirstRefusal() throws {
+        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
+        defer { wipeDefaultsSuite(suite) }
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        #expect(defaults.data(forKey: PersonVetoLog.defaultsKey) == nil, "fixture: nothing stored")
+
+        let log = PersonVetoLog(userDefaults: defaults)
+        log.record(Self.event(named: "muktha", file: "Passport.pdf"))
+
+        let stored = try #require(defaults.data(forKey: PersonVetoLog.defaultsKey),
+                                  "an absent log was treated as unreadable and never persisted")
+        let decoded = try JSONDecoder().decode([PersonVetoEvent].self, from: stored)
+        #expect(decoded.map(\.fileName) == ["Passport.pdf"])
+    }
+
+    /// A readable log keeps being appended to across launches — the control that proves the flag
+    /// is set from the decode and not from "there were bytes".
+    @Test func aReadableLogIsStillAppendedToAfterARelaunch() throws {
+        let suite = "PersonVetoLogTests-\(UUID().uuidString)"
+        defer { wipeDefaultsSuite(suite) }
+        let defaults = try #require(UserDefaults(suiteName: suite))
+
+        let first = PersonVetoLog(userDefaults: defaults)
+        first.record(Self.event(named: "muktha", file: "First.pdf"))
+
+        let second = PersonVetoLog(userDefaults: defaults)          // the relaunch
+        #expect(second.events.map(\.fileName) == ["First.pdf"])
+        second.record(Self.event(named: "muktha", file: "Second.pdf"))
+
+        let third = PersonVetoLog(userDefaults: defaults)
+        #expect(third.events.map(\.fileName) == ["Second.pdf", "First.pdf"],
+                "a readable log stopped persisting — the unreadable guard is firing too widely")
+    }
 }

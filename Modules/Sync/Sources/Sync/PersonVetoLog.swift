@@ -64,10 +64,38 @@ public final class PersonVetoLog: ObservableObject {
 
     private let userDefaults: UserDefaults
 
+    /// True when the defaults hold a value for this key that this build could not decode.
+    ///
+    /// **Absent and unreadable are opposite facts and this used to collapse them.** The load was
+    /// `guard let data = …, let decoded = try? … else { return }`, so a stored value this build
+    /// cannot understand left `events` empty — exactly as a machine that had never recorded a veto
+    /// does — and the very next ``record(_:)`` called ``save()``, which wrote that empty array over
+    /// the value it had never read. One refusal, and the log is gone.
+    ///
+    /// Not hypothetical: `PersonVetoEvent` is a stored `Codable`, so any build that adds a
+    /// non-optional field writes values older builds decline, and running the older build once
+    /// destroys them. The same law the roster (`PeopleStore.rosterIsUnreadable`), the filing corpus
+    /// and the verdict cache already follow — this was the last store still collapsing the two.
+    private let storedValueIsUnreadable: Bool
+
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        guard let data = userDefaults.data(forKey: Self.defaultsKey),
-              let decoded = try? JSONDecoder().decode([PersonVetoEvent].self, from: data) else { return }
+        guard let data = userDefaults.data(forKey: Self.defaultsKey) else {
+            // Nothing stored: the ordinary state of a machine that has refused nothing.
+            storedValueIsUnreadable = false
+            return
+        }
+        guard let decoded = try? JSONDecoder().decode([PersonVetoEvent].self, from: data) else {
+            storedValueIsUnreadable = true
+            // Said once, at load, and it says what will and will not happen — the log is built once
+            // per launch, so this lasts the session and a later fix does not re-read it.
+            Logger.shared.warning("The person veto log is stored but could not be read — this "
+                                  + "session shows no past refusals and will NOT overwrite them. "
+                                  + "They are still in defaults under \(Self.defaultsKey); "
+                                  + "relaunching on a build that understands them restores the view.")
+            return
+        }
+        storedValueIsUnreadable = false
         events = decoded
     }
 
@@ -98,6 +126,10 @@ public final class PersonVetoLog: ObservableObject {
     }
 
     private func save() {
+        // **A value this build could not read is one it must not write over.** Everything here is
+        // a whole-value replace, and when the load fell back to empty this array is what this
+        // session happens to have seen — not the history. See ``storedValueIsUnreadable``.
+        guard !storedValueIsUnreadable else { return }
         guard let data = try? JSONEncoder().encode(events) else { return }
         userDefaults.set(data, forKey: Self.defaultsKey)
     }

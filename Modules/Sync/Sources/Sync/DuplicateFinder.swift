@@ -252,13 +252,39 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     }
 
     /// The recommended copy to keep.
+    ///
+    /// **The `??` is a fallback for a broken invariant, not a normal path.** Every production route
+    /// keeps exactly one copy flagged — the finder builds with `isKeeper: idx == 0`,
+    /// ``choosingKeeper(_:)`` refuses an id the group does not hold, and
+    /// ``removingRedundantCopy(atPath:)`` promotes the shallowest survivor when it removes the
+    /// keeper. It is here because `init` is public and takes any array.
+    ///
+    /// `copies[0]` still traps on an EMPTY group, which no finder builds. Left as a trap rather
+    /// than made optional: this is read by a dozen call sites across the duplicates subsystem and
+    /// each would need its own answer for nil, most of which would be invented rather than
+    /// decided. A group with no copies is not a group.
     public var keeper: DuplicateCopy {
         copies.first(where: { $0.isRecommendedKeeper }) ?? copies[0]
     }
 
     /// The copies the recommendation would remove or merge away.
+    ///
+    /// **Excludes whatever ``keeper`` actually names, not merely whatever is flagged.** The two
+    /// used to disagree in exactly the case the fallback above exists for: with no copy flagged,
+    /// `keeper` answered `copies[0]` while this returned EVERY copy — including that one. A caller
+    /// reading both saw a group whose keeper was also redundant, and the consumers of this list
+    /// drive "Move to Trash", so that is every copy of the user's file going to the Trash with the
+    /// one meant to survive among them.
+    ///
+    /// Both conditions, deliberately. Dropping the flag test and filtering on the keeper's id
+    /// alone would make a SECOND flagged copy redundant — the same invariant broken the other way.
+    /// Together they can only ever remove fewer copies than either alone, which is the right
+    /// direction for a list that feeds a trash.
     public var redundantCopies: [DuplicateCopy] {
-        copies.filter { !$0.isRecommendedKeeper }
+        // Computed here rather than via `keeper` so an empty group stays empty instead of trapping.
+        let fallbackKeeperID = copies.contains(where: { $0.isRecommendedKeeper })
+            ? nil : copies.first?.id
+        return copies.filter { !$0.isRecommendedKeeper && $0.id != fallbackKeeperID }
     }
 
     /// True when the recommendation removes copies without any merge — the per-group one-click

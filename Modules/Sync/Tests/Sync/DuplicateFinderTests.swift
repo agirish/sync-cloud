@@ -818,6 +818,67 @@ import Testing
         })
     }
 
+    // MARK: - `keeper` and `redundantCopies` must never name the same copy
+
+    private static func copy(_ path: String, keeper: Bool, depth: Int = 2) -> DuplicateCopy {
+        DuplicateCopy(id: path, name: "x", isDirectory: false, size: 100, itemCount: 1,
+                      modificationDate: nil, uniqueItemCount: 0, depth: depth,
+                      isRecommendedKeeper: keeper)
+    }
+
+    /// **A group with nothing flagged used to report its own keeper as redundant.**
+    ///
+    /// `keeper` falls back to `copies[0]` when no copy carries the flag — a fallback that exists
+    /// because `init` is public — while `redundantCopies` filtered on the flag alone and so
+    /// returned every copy, that one included. The consumers of that list drive "Move to Trash",
+    /// which makes the disagreement every copy of a file going to the Trash together with the one
+    /// meant to survive.
+    ///
+    /// No production route builds such a group today (the finder flags `idx == 0`,
+    /// `choosingKeeper` refuses an unknown id, `removingRedundantCopy` re-promotes). This pins the
+    /// two accessors to each other so a route that ever does cannot make them disagree.
+    @Test func aGroupWithNoFlaggedKeeperDoesNotListItsKeeperAsRedundant() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [Self.copy("/a/x", keeper: false),
+                                        Self.copy("/b/x", keeper: false)],
+                               reclaimableBytes: 100)
+        #expect(g.keeper.id == "/a/x", "fixture: the fallback keeper is the first copy")
+        #expect(!g.redundantCopies.contains { $0.id == g.keeper.id },
+                "the group's own keeper is on the list of copies to remove")
+        #expect(g.redundantCopies.map(\.id) == ["/b/x"])
+    }
+
+    /// The ordinary case is untouched — the fix must not change what a well-formed group removes.
+    @Test func aNormalGroupsRedundantListIsUnchanged() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [Self.copy("/a/x", keeper: true),
+                                        Self.copy("/b/x", keeper: false),
+                                        Self.copy("/c/x", keeper: false)],
+                               reclaimableBytes: 200)
+        #expect(g.keeper.id == "/a/x")
+        #expect(g.redundantCopies.map(\.id) == ["/b/x", "/c/x"])
+    }
+
+    /// The invariant broken the other way: TWO flagged copies. Both stay off the redundant list,
+    /// because the filter keeps the flag test as well as the id test — removing fewer copies is
+    /// the right direction for a list that feeds a trash.
+    @Test func aGroupWithTwoFlaggedKeepersRemovesNeitherOfThem() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [Self.copy("/a/x", keeper: true),
+                                        Self.copy("/b/x", keeper: true),
+                                        Self.copy("/c/x", keeper: false)],
+                               reclaimableBytes: 100)
+        #expect(g.redundantCopies.map(\.id) == ["/c/x"])
+    }
+
+    /// An empty group has nothing to remove, and asking must not trap. (`keeper` itself still
+    /// traps on one, deliberately — see its doc.)
+    @Test func anEmptyGroupHasNoRedundantCopies() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [], reclaimableBytes: 0)
+        #expect(g.redundantCopies.isEmpty)
+    }
+
     @Test func choosingKeeperRecomputesRemovalForIdentical() {
         let a = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 100, itemCount: 1,
                               modificationDate: nil, uniqueItemCount: 0, depth: 2, isRecommendedKeeper: true)
