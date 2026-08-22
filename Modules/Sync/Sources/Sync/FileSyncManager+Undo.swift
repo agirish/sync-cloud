@@ -712,9 +712,9 @@ extension FileSyncManager {
             let redoParamResolver = AsyncValueResolver<[(source: URL, destination: URL)]>()
             target.registerCopyRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
 
-            target.preCountFileOperation()
+            let slot = target.claimFileOperationSlot()
             Task {
-                await target.enqueueFileOperation(alreadyCounted: true) {
+                await target.enqueueFileOperation(slot: slot) {
                         let items = await stateResolver.get()
 
                         // Undoing a copy deletes the copied item. On volumes without Trash that
@@ -929,9 +929,9 @@ extension FileSyncManager {
             let nextUndoStateResolver = AsyncValueResolver<[CopyUndoItemState]>()
             target.registerCopyUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
 
-            target.preCountFileOperation()
+            let slot = target.claimFileOperationSlot()
             Task {
-                await target.enqueueFileOperation(alreadyCounted: true) {
+                await target.enqueueFileOperation(slot: slot) {
                         let params = await paramResolver.get()
                         var nextState: [CopyUndoItemState] = []
                         var redoFailures = 0
@@ -1040,9 +1040,9 @@ extension FileSyncManager {
             let redoParamResolver = AsyncValueResolver<[MoveRedoParam]>()
             target.registerMoveRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
             
-            target.preCountFileOperation()
+            let slot = target.claimFileOperationSlot()
             Task {
-                await target.enqueueFileOperation(alreadyCounted: true) {
+                await target.enqueueFileOperation(slot: slot) {
                         let items = await stateResolver.get()
 
                         // Resolve the redo params AFTER the reversal loop, from ONLY the items that
@@ -1249,9 +1249,9 @@ extension FileSyncManager {
             let nextUndoStateResolver = AsyncValueResolver<[MoveUndoItemState]>()
             target.registerMoveUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
 
-            target.preCountFileOperation()
+            let slot = target.claimFileOperationSlot()
             Task {
-                await target.enqueueFileOperation(alreadyCounted: true) {
+                await target.enqueueFileOperation(slot: slot) {
                         let params = await paramResolver.get()
                         var nextState: [MoveUndoItemState] = []
                         var redoFailures = 0
@@ -1416,8 +1416,8 @@ extension FileSyncManager {
             Logger.shared.info("User triggered Undo: New Folder")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             target.registerCreateFolderRedo(url: url, fileManager: fm)
-            target.preCountFileOperation()
-            Task { await target.enqueueFileOperation(alreadyCounted: true) {
+            let slot = target.claimFileOperationSlot()
+            Task { await target.enqueueFileOperation(slot: slot) {
                 // This undo can follow a FAILED folder redo (its registration cannot be taken
                 // back once the redo's createDirectory throws), so it only removes what it owns:
                 // an existing directory at `url`. A missing folder — or a non-folder item that
@@ -1472,8 +1472,8 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: New Folder")
             target.registerCreateFolderUndo(url: url, fileManager: fm)
-            target.preCountFileOperation()
-            Task { await target.enqueueFileOperation(alreadyCounted: true) {
+            let slot = target.claimFileOperationSlot()
+            Task { await target.enqueueFileOperation(slot: slot) {
                 do {
                     try fm.createDirectory(at: url, withIntermediateDirectories: true)
                 } catch {
@@ -1499,9 +1499,9 @@ extension FileSyncManager {
             let nextResolver = AsyncValueResolver<[RestoreItemState]>()
             target.registerRestoreItems(stateResolver: nextResolver, actionName: actionName, fileManager: fm)
 
-            target.preCountFileOperation()
+            let slot = target.claimFileOperationSlot()
             Task {
-                await target.enqueueFileOperation(alreadyCounted: true) {
+                await target.enqueueFileOperation(slot: slot) {
                         let fmLocal = fm
                         let urls = await urlsResolver.get()
                         var trashedItems: [RestoreItemState] = []
@@ -1533,9 +1533,9 @@ extension FileSyncManager {
             let redoURLResolver = AsyncValueResolver<[URL]>()
             target.registerTrashItems(urlsResolver: redoURLResolver, actionName: actionName, fileManager: fm)
 
-            target.preCountFileOperation()
+            let slot = target.claimFileOperationSlot()
             Task {
-                await target.enqueueFileOperation(alreadyCounted: true) {
+                await target.enqueueFileOperation(slot: slot) {
                     let items = await stateResolver.get()
                     var restored = 0
                     var restoreFailures = 0

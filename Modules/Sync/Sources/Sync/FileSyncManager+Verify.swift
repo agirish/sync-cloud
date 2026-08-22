@@ -255,15 +255,19 @@ extension FileSyncManager {
         // Refuse it: the operation's rescan is already on its way to re-derive fresh rows.
         //
         // BOTH terms are load-bearing, because they answer different questions. The epoch says
-        // an operation already RAN. The count says one is already claimed and about to run:
-        // every undo/redo path calls `preCountFileOperation()` synchronously and only reaches
-        // `enqueueFileOperation` — where the epoch is bumped — from inside a `Task`, and since
-        // this type is `@MainActor` that hop is a real suspension point. On the epoch alone a
-        // confirm placed in that gap passes, the undo's task then claims the serial queue
-        // first, and the bulk copy queues behind it and overwrites the bytes the undo just
-        // restored. The count term is the one this file's entry guard and
-        // `sweepOrphanedTempArtifactsNow` also carry; the PAIRING is unique to here, since
-        // neither of those looks at the epoch at all.
+        // an operation already RAN. The count says one is already claimed and about to run — and
+        // there is still a caller for which the two genuinely differ: the CONFIRMATION-GATED
+        // TRANSFER path (`transferItems`) calls `preCountFileOperation()` before its modal and
+        // only reaches `enqueueFileOperation` — where the epoch is bumped — once the user
+        // confirms, which can be minutes later. On the epoch alone a confirm placed in that gap
+        // passes, the transfer then claims the serial queue, and the bulk copy queues behind it
+        // and overwrites the bytes it just wrote.
+        //
+        // The undo/redo paths used to be the example here, and are no longer: they now
+        // `claimFileOperationSlot()` synchronously inside `undo()`, which moves the count AND the
+        // epoch together, so for them the epoch term alone would already be true. The count term
+        // is the one this file's entry guard and `sweepOrphanedTempArtifactsNow` also carry; the
+        // PAIRING is unique to here, since neither of those looks at the epoch at all.
         //
         // Checked again inside `bulkCopyDifferencesLeftToRight`, on the same two terms, because
         // these readings age: the run is several main-actor hops from ordering its write. This

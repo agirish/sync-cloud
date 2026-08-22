@@ -32,7 +32,18 @@ extension FileSyncManager {
         markSyncing(ids: toCopyIDs)
         bulkSyncProgress = (0, total)
 
-        // Yield so the progress overlay can render before we block on the copy work.
+        // **A deliberate YIELD, not a stray isolation hop — do not delete it as one.** This method
+        // is already on the main actor, so the block buys nothing for isolation, and
+        // `enqueueFileOperation` now carries a prominent note that exactly this shape "was
+        // redundant for isolation" where IT used it. The difference is the whole point: there the
+        // hop was pure cost, here the hop IS the work. `MainActor.run` is a *nonisolated* async
+        // function, so awaiting it from the main actor really does suspend (SE-0338) — which hands
+        // the main thread back long enough for the overlay this method just published
+        // (`activeProgress`, `bulkSyncProgress`) to render before the copy work blocks it.
+        //
+        // It is also the last one of its kind in `Modules/Sync/Sources`: every other
+        // `MainActor.run` there is inside a detached task, a `nonisolated` body, or a `@Sendable`
+        // closure, where it is doing real isolation work.
         await MainActor.run { }
 
         defer {
@@ -43,15 +54,27 @@ extension FileSyncManager {
         }
 
         // Re-assert the confirm-time guard HERE, where the write is about to be ordered, rather
-        // than trusting the reading it took at the click. Between the two there are three
-        // main-actor hops — the `Task` this runs in starting, the overlay yield just above, and
-        // `enqueueFileOperation`'s own hop, which is where the epoch is bumped and the operation
-        // chain is claimed. A ⌘Z delivered into that gap pre-counts and spawns its task first,
-        // claims the chain first, restores the bytes — and this run then queues behind it and
-        // overwrites them, which is verbatim the failure the confirm guard exists to prevent.
-        // The window is sub-millisecond and keystroke-only, so this closes the last
-        // check-then-act in the path rather than a reachable bug; a guard resting on a value
-        // read before a suspension point is the shape, not the timing.
+        // than trusting the reading it took at the click. Between the two there are TWO
+        // main-actor hops — the `Task` this runs in starting, and the overlay yield just above.
+        // (There used to be a third, inside `enqueueFileOperation`, and this paragraph named it as
+        // where "the epoch is bumped and the operation chain is claimed". That hop is gone: the
+        // claim is straight-line now, and for the undo/redo paths both the epoch bump and the
+        // chain claim happen synchronously in `undo()` itself, via `claimFileOperationSlot()`.)
+        //
+        // The guard is still needed, and the removed hop made it STRONGER rather than redundant.
+        // A ⌘Z delivered into either remaining window runs its handler synchronously on the main
+        // actor, and that handler now claims the queue and bumps the epoch before it returns — so
+        // by the time this line runs, `fileOperationsEpoch != asOf` and the count is non-zero, and
+        // this run refuses instead of queueing behind the undo and overwriting the bytes it just
+        // restored. Before the slot, only the COUNT term caught that case; the epoch had not moved
+        // yet, because the undo's bump waited on its own `Task`.
+        //
+        // Both terms stay, because they still answer different questions for a different caller:
+        // a confirmation-gated transfer counts at `preCountFileOperation()` and bumps the epoch
+        // only when the user confirms, so a pending one is visible in the count alone. The window
+        // is sub-millisecond and keystroke-only either way, so this closes the last check-then-act
+        // in the path rather than a reachable bug; a guard resting on a value read before a
+        // suspension point is the shape, not the timing.
         guard fileOperationsEpoch == asOf, activeFileOperationsCount == 0 else {
             banner = .warning("A file operation ran or is pending — run Verify All again")
             return

@@ -1843,12 +1843,17 @@ public class FileSyncManager: ObservableObject {
     /// `executeScan`, and `cancelScan`, which is the only reader.
     var scanDrainTask: Task<Void, Never>?
     
-    /// Synchronously counts a file operation whose `enqueueFileOperation` call happens inside a
-    /// `Task` the caller is about to spawn (the undo/redo handlers). The counter must move
-    /// before that Task is even scheduled: the quit guard reads it, and ⌘Z immediately followed
-    /// by ⌘Q would otherwise pass `applicationShouldTerminate` before the undo's file I/O is
-    /// counted. Pair with `enqueueFileOperation(alreadyCounted: true)`; the completion decrement
-    /// there is shared and unconditional.
+    /// Synchronously counts a file operation that is committed but not yet queueable — today only
+    /// `transferItems`, which counts before its confirmation modal so the quit guard and the
+    /// hashing exclusions treat a pending transfer as in flight while the dialog is up. Pair with
+    /// `enqueueFileOperation(alreadyCounted: true)`, or with `cancelPreCountedFileOperation()`
+    /// when the user declines; the completion decrement is shared and unconditional.
+    ///
+    /// **Counts only — it does NOT claim a queue position, and for this caller must not.** The
+    /// modal can stay open for minutes, and a slot claimed in front of it would hold every later
+    /// operation for exactly that long. The undo/redo handlers, which have no such gap, use
+    /// `claimFileOperationSlot()` instead: it counts the same way and additionally fixes the
+    /// operation's position before the `Task` that runs it exists.
     public func preCountFileOperation() {
         activeFileOperationsCount += 1
     }
@@ -1865,13 +1870,67 @@ public class FileSyncManager: ObservableObject {
         activeFileOperationsCount = max(0, activeFileOperationsCount - 1)
     }
 
+    /// Synchronously CLAIMS this operation's position in the serial file-operation queue, before
+    /// the `Task` that will run it exists.
+    ///
+    /// **Why a claim and not just an ordering convention.** `enqueueFileOperation` reads and
+    /// writes `fileOperationTask` without a suspension in front of it, so two callers that are
+    /// ALREADY on the main actor claim in call order — but that rests on the caller's isolation
+    /// and, for callers that spawn a `Task` first, on equal-priority main-actor jobs being FIFO.
+    /// Neither is checkable at the call site: a future `Task.detached { await
+    /// manager.enqueueFileOperation { … } }` reinstates the hop and the race silently, and the
+    /// race is a ⌘Z that deletes the folded files out of a merge's keeper before restoring the
+    /// originals (measured at ~1 inversion in 300 undos of that pair before the hop was removed).
+    /// A slot moves the ordering decision to a point the caller controls — its own synchronous
+    /// main-actor stretch — so the queue order stops depending on task scheduling or on where
+    /// `enqueueFileOperation` is eventually called from.
+    ///
+    /// Everything `enqueueFileOperation`'s prologue does happens HERE instead: the count, the
+    /// epoch bump, and the chain claim. Pass the returned slot to exactly one
+    /// `enqueueFileOperation(slot:)`; do not also pass `alreadyCounted`.
+    ///
+    /// **Claiming BLOCKS every later operation until this one finishes**, which is why the
+    /// confirmation-gated transfer path keeps `preCountFileOperation()` instead: it counts before
+    /// a modal that can stay open for minutes, and a slot claimed there would hold the whole queue
+    /// for the length of the dialog. The undo/redo handlers have no such gap — their `Task` starts
+    /// immediately — so they claim.
+    ///
+    /// Dropping a slot without enqueuing it is safe: the slot releases its position on
+    /// `deinit`, so a claim that is never used cannot wedge the queue.
+    public func claimFileOperationSlot() -> FileOperationSlot {
+        claimFileOperationSlot(alreadyCounted: false)
+    }
+
+    private func claimFileOperationSlot(alreadyCounted: Bool) -> FileOperationSlot {
+        if !alreadyCounted { activeFileOperationsCount += 1 }
+        noteFileOperationBegan()
+        let predecessor = fileOperationTask
+        let slot = FileOperationSlot(predecessor: predecessor)
+        // The successor's claim chains on THIS: it waits for our predecessor and then for our
+        // body's completion signal — the same total order the previous shape got by chaining on
+        // the operation's own task, just claimed earlier.
+        //
+        // The chain captures the SIGNAL, never the slot. Holding the slot here would keep it
+        // alive for the whole chain and disarm the `deinit` release that stops an unused claim
+        // from wedging the queue.
+        let released = slot.released
+        fileOperationTask = Task { _ = await predecessor.result; await released.wait() }
+        return slot
+    }
+
     /// Enqueues a file operation to be executed sequentially.
     /// Manages `activeFileOperationsCount` and triggers UI refreshes and selection pruning upon completion.
     /// - Parameter alreadyCounted: True when the caller already bumped the counter via
     ///   `preCountFileOperation()`; skips the increment so the operation isn't double-counted.
+    /// - Parameter slot: A position already claimed by `claimFileOperationSlot()`, in the caller's
+    ///   own synchronous main-actor stretch. Pass one whenever this operation's order relative to
+    ///   another matters — with a slot the order is fixed at claim time and no longer depends on
+    ///   where or when this method is called. Mutually exclusive with `alreadyCounted`: the claim
+    ///   already counted the operation.
     @discardableResult
     public func enqueueFileOperation<T: Sendable>(
         alreadyCounted: Bool = false,
+        slot: FileOperationSlot? = nil,
         _ operation: @escaping @Sendable () async -> T
     ) async -> T {
         // The epoch moves HERE, unconditionally — this is the last point before the work is
@@ -1908,13 +1967,24 @@ public class FileSyncManager: ObservableObject {
         // it. After the fix, 0 in 900 through the same merge pair and 0 in 300 through the
         // primitive.
         //
-        // With no suspension between entry and the claim, the read-modify-write of
-        // `fileOperationTask` happens in the caller's own main-actor turn, so the queue order is
-        // exactly the call order. `FileOperationQueueOrderTests` pins it.
-        if !alreadyCounted { activeFileOperationsCount += 1 }
-        noteFileOperationBegan()
-
-        let previousTask = fileOperationTask
+        // **What the fix actually guarantees, stated precisely, because the unqualified version of
+        // this sentence was wrong.** With no suspension between entry and the claim, the
+        // read-modify-write of `fileOperationTask` happens in the caller's own main-actor turn —
+        // so the queue order is the call order FOR CALLERS ALREADY ON THE MAIN ACTOR, and, for
+        // callers that spawn a `Task` and call from inside it (the undo/redo handlers), only
+        // additionally because equal-priority main-actor jobs run FIFO. Every call site today
+        // satisfies the first condition; nothing here enforces it, and a future
+        // `Task.detached { await manager.enqueueFileOperation { … } }` would reinstate the hop
+        // and the race without a word.
+        //
+        // `slot:` is what makes the ordering structural instead of conventional: the caller claims
+        // its position synchronously (`claimFileOperationSlot()`), before the Task that will run
+        // the operation exists, so neither this method's isolation nor the scheduler can reorder
+        // two claims. `FileOperationQueueOrderTests` pins both halves — the unslotted call order
+        // for main-actor callers, and slotted order held across deliberately inverted, off-main
+        // enqueues.
+        let claimed = slot ?? claimFileOperationSlot(alreadyCounted: alreadyCounted)
+        let previousTask = claimed.predecessor
         let newTask = Task.detached(priority: .userInitiated) {
             _ = await previousTask.result
             let res = await operation()
@@ -1928,9 +1998,12 @@ public class FileSyncManager: ObservableObject {
                 self?.scheduleSelectionPrune()
                 self?.refreshSubject.send()
             }
+            // Hands the queue on, AFTER the cleanup above — the successor's claim is waiting on
+            // exactly this. Holding `claimed` strongly here is what keeps its `deinit` release
+            // (the unused-claim valve) from firing while the operation is still running.
+            claimed.release()
             return res
         }
-        fileOperationTask = Task { _ = await newTask.value }
         return await newTask.value
     }
     
