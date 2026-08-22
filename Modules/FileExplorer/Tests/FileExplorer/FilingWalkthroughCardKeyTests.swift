@@ -269,7 +269,8 @@ import Sync
     /// GREEN — window-level equivalents never fire in this never-key window, so what the esc
     /// volley pins is the `.onKeyPress` handlers honouring focus. The `.cancelAction` shape
     /// itself is banned statically, by `BareKeyEquivalentScanTests.
-    /// noLensFileRegistersAnyKeyEquivalentAtAll` (proven red under that same mutation).
+    /// noAlwaysMountedSurfaceRegistersAnyKeyEquivalentAtAll` (proven red under that same
+    /// mutation).
     @Test func aTextFieldElsewhereKeepsItsReturnArrowAndEsc() async throws {
         let recorder = Recorder()
         let (window, hostView) = host(VStack {
