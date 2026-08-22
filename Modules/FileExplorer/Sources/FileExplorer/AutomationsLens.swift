@@ -641,9 +641,22 @@ struct FilingWalkthroughCard: View {
         // become focusable, and a ⏎ aimed at the focused Cancel button would otherwise bubble to
         // this ancestor handler and FILE the item (a focused macOS button activates on Space, not
         // Return). When focus sits on a descendant rather than the card itself, deciding is not
-        // what the keystroke meant — `.ignored` hands it back. UNVERIFIABLE under `swift test`
-        // (no assistive client, so FKA button focus cannot be reproduced; the harness only proves
-        // the guard does not break the card-focused path). Manual check when touching this: turn
+        // what the keystroke meant — `.ignored` hands it back.
+        //
+        // **The premise is measured, and an earlier revision of this comment overstated what was
+        // unverifiable.** `.onKeyPress` fires for a key delivered anywhere in its SUBTREE, so an
+        // ancestor handler really does run while a DESCENDANT holds focus and `focused` reads
+        // false — probed on the suites' real-window harness by driving a `@FocusState` onto a
+        // descendant (a `Button` and a plain `.focusable()` view alike) and pressing ⏎: the
+        // handler fired both times with `focused == false` inside it. That probe is now
+        // `ReviewCardKeyTests.anAncestorHandlerStillFiresForAKeyAimedAtAFocusedDescendant`, and
+        // `ReviewCardView`'s ⏎/⌫ carry this same term as of 2026-08-21 — it had been left out of
+        // the donor, so with FKA on, a ⏎ aimed at its focused Skip button ran a real copy/move.
+        //
+        // What is genuinely unverifiable is the ROUTE that puts focus on those buttons in the
+        // app: FKA is what makes them focusable, and `NSApp` is nil in the test process
+        // (measured), so FKA cannot be read there, let alone turned on. Manual check when
+        // touching this: turn
         // on Full Keyboard Access, Tab to the walkthrough's Cancel button, press ⏎ — nothing may
         // be filed. esc is deliberately NOT gated on `focused`: cancelling from a focused button
         // is harmless and is what esc means there anyway.

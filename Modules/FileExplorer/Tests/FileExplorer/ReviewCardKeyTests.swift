@@ -274,4 +274,164 @@ import Sync
         for _ in 0..<3 { sendDelete(window) }
         #expect(recorder.skips == 4, "fresh presses stopped arriving: \(recorder.skips)")
     }
+
+    // MARK: The premise the `focused` guard rests on
+
+    /// A focus target that is unambiguously a DESCENDANT of the handler's own view.
+    private enum ProbeSpot: Hashable { case anchor, button, plainFocusable }
+
+    /// What the probe below saw. A reference type: the closures escape into SwiftUI's update.
+    private final class ProbeRecorder: @unchecked Sendable {
+        /// One entry per press the ancestor handler received: what `focused` read inside it.
+        var ancestorSawAnchorFocused: [Bool] = []
+        /// Every `@FocusState` transition the probe observed, so a "focus never moved" run is
+        /// distinguishable from "focus moved and the handler fired anyway".
+        var focusMoves: [ProbeSpot?] = []
+        /// The seam that moves focus. A `@FocusState` cannot be written from outside the view,
+        /// and driving it through an `onChange(of:)` on a plain captured `var` does NOT work —
+        /// the view never re-renders, so the change is never observed. That was the first cut of
+        /// this probe and it reported a false negative: focus stayed on the anchor throughout.
+        var setFocus: ((ProbeSpot?) -> Void)?
+    }
+
+    /// The minimum shape both decision cards have: a `.focusable()` ancestor carrying the
+    /// `.onKeyPress` handler, with focusable descendants inside it.
+    private struct AncestorHandlerProbe: View {
+        let recorder: ProbeRecorder
+        @FocusState private var spot: ProbeSpot?
+
+        var body: some View {
+            VStack {
+                Text("the card")
+                // A real `Button`, like the cards' Skip / Preview / Verify, and a plain
+                // focusable view beside it — the two ways a descendant can hold focus.
+                Button("Skip") {}
+                    .focusable(true)
+                    .focused($spot, equals: .button)
+                Text("plain focusable")
+                    .focusable(true)
+                    .focused($spot, equals: .plainFocusable)
+            }
+            .focusable()
+            .focusEffectDisabled()
+            .focused($spot, equals: .anchor)
+            .onKeyPress(keys: [.return], phases: .down) { _ in
+                recorder.ancestorSawAnchorFocused.append(spot == .anchor)
+                return .handled
+            }
+            .onAppear {
+                recorder.setFocus = { spot = $0 }
+                Task { @MainActor in spot = .anchor }
+            }
+            .onChange(of: spot) { _, new in recorder.focusMoves.append(new) }
+        }
+    }
+
+    /// **`.onKeyPress` fires for a key delivered anywhere in its SUBTREE — including while a
+    /// DESCENDANT holds focus and the handler's own `focused` reads false.**
+    ///
+    /// This is the premise `ReviewCardView`'s and `FilingWalkthroughCard`'s `guard … focused`
+    /// rests on, and until 2026-08-21 it was asserted rather than measured: the walkthrough's
+    /// comment called it "UNVERIFIABLE under `swift test`", and on that reading the guard looked
+    /// like complexity on a false premise — which is exactly why `ReviewCardView` shipped without
+    /// it while its twin had it. It is verifiable. Only the ROUTE is not: in the app Full Keyboard
+    /// Access is what makes a `Button` focusable, and `NSApp` is **nil** in this test process
+    /// (measured — so `isFullKeyboardAccessEnabled` cannot even be read, let alone set). Driving
+    /// the `@FocusState` directly reproduces the state FKA would produce, which is what the guard
+    /// actually keys on.
+    ///
+    /// Both descendant kinds are pressed, because a `Button` and a plain `.focusable()` view are
+    /// different focus citizens on macOS and only one of them is what FKA promotes.
+    ///
+    /// Without this, the two cards' `focused` terms have no test that says what they buy: every
+    /// other test in this suite and in `FilingWalkthroughCardKeyTests` runs with the card itself
+    /// focused, where the term is a no-op.
+    @Test func anAncestorHandlerStillFiresForAKeyAimedAtAFocusedDescendant() async {
+        let recorder = ProbeRecorder()
+        let (window, hostView) = host(AncestorHandlerProbe(recorder: recorder))
+        guard await waitForCardFocus(in: window) else { return }
+
+        // The positive control: with the ANCHOR focused the handler runs and sees `focused` true.
+        sendReturn(window)
+        #expect(recorder.ancestorSawAnchorFocused == [true], """
+                the anchor never received ⏎ (\(recorder.ancestorSawAnchorFocused)) — the readings \
+                below would be measuring a dead harness rather than focus.
+                """)
+
+        for descendant in [ProbeSpot.button, .plainFocusable] {
+            recorder.setFocus?(descendant)
+            hostView.layoutSubtreeIfNeeded()
+            _ = await LayoutPumpWait.pump(window, upTo: 0.2) { false }
+            let before = recorder.ancestorSawAnchorFocused.count
+            sendReturn(window)
+            // Non-vacuity: focus really left the anchor. A run where the `@FocusState` write did
+            // not take would otherwise read as "the guard is unnecessary".
+            #expect(recorder.focusMoves.contains(descendant), """
+                    focus never moved to \(descendant) (moves: \(recorder.focusMoves)) — this \
+                    press was still aimed at the anchor, so it proves nothing.
+                    """)
+            #expect(recorder.ancestorSawAnchorFocused.count == before + 1, """
+                    the ancestor handler did NOT fire for a ⏎ aimed at a focused \(descendant). \
+                    If SwiftUI has started scoping `.onKeyPress` to the exact focused view, the \
+                    two cards' `focused` guards are dead code and this test should say so.
+                    """)
+            #expect(recorder.ancestorSawAnchorFocused.last == false, """
+                    the handler fired with `focused` reading TRUE while \(descendant) held focus \
+                    — the guard cannot tell the two states apart, so it protects nothing.
+                    """)
+        }
+    }
+
+    /// **Both decision cards guard their byte-moving keys on `focused`, and they say so in the
+    /// same words.**
+    ///
+    /// The behavioural half is above; this is the half that pins it to the two real handlers.
+    /// It cannot be behavioural on the shipped cards: their `@FocusState` is private and none of
+    /// their descendants carries a `.focused()` binding a test could write, so there is no way to
+    /// put the real card into the descendant-focused state from out here. A structural check is
+    /// what is left — and this file's own history is the argument for having one: `ReviewCardView`
+    /// and `FilingWalkthroughCard` are twins whose handlers have now diverged twice (the modifier
+    /// filter, then this), each time silently, each time on the card that moves bytes.
+    ///
+    /// Byte-moving keys only. esc is deliberately ungated on both cards — cancelling from a
+    /// focused button is what esc means there anyway — and ␣ (Quick Look) moves nothing.
+    @Test func bothDecisionCardsGuardTheirByteMovingKeysOnFocus() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // …/Tests/FileExplorer
+            .deletingLastPathComponent()   // …/Tests
+            .deletingLastPathComponent()   // …/FileExplorer
+            .appendingPathComponent("Sources/FileExplorer")
+
+        /// The `guard` line that opens the handler introduced by `marker`.
+        func guardLine(_ file: String, after marker: String) throws -> String {
+            let text = try #require(
+                try? String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8),
+                "cannot read \(file) — this check would be vacuous")
+            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            let start = try #require(lines.firstIndex { $0.contains(marker) }, """
+                        \(file) no longer contains `\(marker)` — the handler was renamed, \
+                        respelled or removed, and this check stopped reading anything.
+                        """)
+            let body = try #require(lines[(start + 1)...].first { !$0.trimmingCharacters(in: .whitespaces).isEmpty },
+                                    "\(file): nothing follows \(marker)")
+            return body.trimmingCharacters(in: .whitespaces)
+        }
+
+        let expected = "guard press.isPlainKeystroke, focused else { return .ignored }"
+        let handlers = [
+            ("ReviewCardView.swift", ".onKeyPress(keys: [.return, .keypadEnter], phases: .down)", "⏎ — the primary copy/move"),
+            ("ReviewCardView.swift", ".onKeyPress(keys: [.delete], phases: .down)", "⌫ — an unrevisitable skip"),
+            ("AutomationsLens.swift", ".onKeyPress(keys: [.return, .keypadEnter], phases: .down)", "⏎ — files a real file"),
+            ("AutomationsLens.swift", ".onKeyPress(keys: [.rightArrow], phases: .down)", "→ — an unrevisitable skip"),
+        ]
+        for (file, marker, what) in handlers {
+            #expect(try guardLine(file, after: marker) == expected, """
+                    \(file)'s \(what) handler does not open with `\(expected)`. Both terms are \
+                    load-bearing: `isPlainKeystroke` keeps ⌘⏎/⌥⌫ from deciding, and `focused` \
+                    keeps a key aimed at a focused descendant button from deciding (see \
+                    anAncestorHandlerStillFiresForAKeyAimedAtAFocusedDescendant). Dropping \
+                    either one on either card moves bytes the keystroke did not ask for.
+                    """)
+        }
+    }
 }

@@ -122,8 +122,27 @@ struct ReviewCardView: View {
         //
         // ␣ and esc still use the single-key overload and therefore still take modified presses;
         // neither moves bytes (Quick Look, and leaving the session), so they are left as they are.
+        //
+        // `focused` on BOTH byte-moving keys, matching `FilingWalkthroughCard`'s two decision
+        // keys — and the premise is measured, not assumed. `.onKeyPress` fires for a key
+        // delivered anywhere in its SUBTREE, so when a DESCENDANT holds focus the ancestor
+        // handler still runs while `focused` reads false: probed on this file's real-window
+        // harness by driving a `@FocusState` onto a descendant (both a `Button` and a plain
+        // `.focusable()` view) and pressing ⏎ — the ancestor handler fired each time, with
+        // `focused == false` inside it. `ReviewCardKeyTests.
+        // anAncestorHandlerStillFiresForAKeyAimedAtAFocusedDescendant` is that probe as a test.
+        // This card has focusable descendants (Skip, Quick Look, Verify), so until 2026-08-21 —
+        // when this term was added, eight days after its twin got it — a ⏎ aimed at a focused
+        // Skip button ran the primary COPY/MOVE, a real byte move the keystroke did not mean
+        // (a focused macOS button activates on Space, not Return).
+        //
+        // What is NOT verifiable here is the route that gets focus onto those buttons in the
+        // app: Full Keyboard Access is what makes them focusable, and `NSApp` is nil in this test
+        // process (measured), so FKA cannot even be read there, let alone enabled. Manual check
+        // when touching this: turn on Full Keyboard Access, start a review, Tab to Skip, press ⏎
+        // — nothing may be copied or moved, and ⌫ must not skip the row either.
         .onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in
-            guard press.isPlainKeystroke else { return .ignored }
+            guard press.isPlainKeystroke, focused else { return .ignored }
             // Both gates: a copy mid-verify would overwrite the destination while the hash
             // reads it (same exclusion the bulk paths enforce via isVerifyAllRunning).
             if !isActing && !isVerifying { onPrimary(item) }
@@ -140,8 +159,11 @@ struct ReviewCardView: View {
         // ⌘⌥⌃⇧ ONLY, which `press.modifiers.isEmpty` — the first cut — was not: `.capsLock` is
         // present on every event while the lock is engaged, so that spelling took ⌫-skip away
         // outright from anyone who left it on. See `KeyPress.isPlainKeystroke`.
+        //
+        // `focused` for the same reason as ⏎ above: a skip is unrevisitable, so a ⌫ aimed at a
+        // focused descendant must not spend the row.
         .onKeyPress(keys: [.delete], phases: .down) { press in
-            guard press.isPlainKeystroke else { return .ignored }
+            guard press.isPlainKeystroke, focused else { return .ignored }
             if !isActing { onSkip(item) }
             return .handled
         }
