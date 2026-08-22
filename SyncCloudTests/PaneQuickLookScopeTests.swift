@@ -124,9 +124,26 @@ import Foundation
                 "Space → Quick Look is not a modifier on the file list")
         // And it is the FIRST thing after the card, so it cannot have drifted past the overlay onto
         // something wider without this failing.
-        let handler = try #require(after.range(of: ".onKeyPress(.space)"))
-        #expect(after.distance(from: after.startIndex, to: handler.lowerBound) < 300,
-                "the Space handler has drifted away from the list it is supposed to be scoped to")
+        //
+        // Measured over CODE lines, not raw characters. This was a `distance(...) < 300` over the
+        // raw text and it failed at 554 the moment the ↩ handler below grew the comment explaining
+        // why it left the single-key overload — prose between two lines is not drift, and a budget
+        // that cannot tell them apart makes documenting the neighbouring code a test failure.
+        // Stripped of comments the gap is one line, which is the claim this sentence is making.
+        let codeLines = after
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let spaceLine = try #require(codeLines.firstIndex { $0.contains(".onKeyPress(.space)") },
+                                     "the Space handler is gone from the list's modifiers")
+        let between = codeLines[..<spaceLine].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        #expect(between == ["                .paneCardIfNeeded(surfaceStyle, level: glassLevel)"],
+                """
+                the Space handler is no longer the first thing after the card — it is now preceded \
+                by \(between.count) modifier line(s): \(between). Anything inserted here is a \
+                modifier the handler has drifted past, which is how it ends up scoped to something \
+                wider than the list.
+                """)
         #expect(content.components(separatedBy: ".onKeyPress(.space) { paneQuickLook() }").count == 2,
                 "there should be exactly one pane Quick Look handler")
     }

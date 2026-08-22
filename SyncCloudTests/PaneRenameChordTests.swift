@@ -40,12 +40,43 @@ import AppKit
 
     /// It is wired where Space is — on the file list, focus-scoped — so it fires only while the
     /// list holds focus and never while the caret is in a field.
+    ///
+    /// Asserted on WHERE the handler sits and WHAT it calls, not on the overload it is spelled
+    /// with. The pinned spelling was `.onKeyPress(.return) { paneRename() }` and it broke the day
+    /// the handler moved to `keys:phases:` to take the keypad's Enter — a change this suite exists
+    /// to protect, failing the guard that was supposed to protect it. Which overload is correct is
+    /// `thePanesRenameKeyTakesBothEnterKeycapsAndRefusesChords`'s question (it lives over in
+    /// `Modules/FileExplorer/Tests/FileExplorer/BareKeyEquivalentScanTests.swift`, whose sweep
+    /// reads `MacApp/` too); this one only asks that ↩ is wired on the list, one level deeper than
+    /// `treeView(pane)`, beside Space.
+    ///
+    /// Note for whoever edits that sweep: it is NOT "the only test that reads `MacApp/`", which is
+    /// what its commit claimed. This suite reads `MacApp/ContentView.swift` directly, as do the
+    /// other `SyncCloudTests` call-site scans — and because they run only in the app target, a
+    /// change verified with `xcodebuild build` instead of `xcodebuild test` sails straight past
+    /// them. That is exactly how this test came to be broken by the change it guards.
     @Test func returnIsWiredOnTheFileListBesideSpace() throws {
         let content = try Self.source("ContentView.swift")
         #expect(content.contains(".onKeyPress(.space) { paneQuickLook() }"),
                 "Space has moved — this check has stopped covering the list it is scoped to")
-        #expect(content.contains(".onKeyPress(.return) { paneRename() }"),
-                "↩ is not wired on the file list beside Space")
+
+        let lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let listModifier = "                .onKeyPress("        // 16 spaces: the list's own level
+        let spaceAt = try #require(lines.firstIndex { $0.hasPrefix(listModifier)
+                                                      && $0.contains(".space") },
+                                   "Space is not an `onKeyPress` at the file list's indentation")
+        // The next handler at exactly that indentation, and everything up to the modifier after it.
+        let renameAt = try #require(lines[(spaceAt + 1)...].firstIndex { $0.hasPrefix(listModifier) },
+                                    "there is no second key handler on the file list — ↩ is unwired")
+        let end = lines[(renameAt + 1)...].firstIndex { $0.hasPrefix("                .")
+                                                        && !$0.hasPrefix(listModifier) }
+            ?? lines.endIndex
+        let handler = lines[renameAt..<end].joined(separator: "\n")
+        #expect(handler.contains("paneRename()"),
+                """
+                the handler on the file list after Space does not call `paneRename()` — ↩ is not \
+                wired beside Space. What is there instead: \(handler)
+                """)
     }
 
     /// **The chord and the menu item run one closure.** `paneRename()` reads
