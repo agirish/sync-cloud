@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import Sync
@@ -474,5 +475,112 @@ import Testing
 
         let outcome = await m.applyAutomationFiling(rows: [row])
         #expect(outcome.filed == 1)
+    }
+
+    // MARK: The public start/cancel/clear seam
+    //
+    // Everything above drives `runAutomationDryRun` directly, which leaves the wrapper the UI
+    // actually calls — `startAutomationDryRun`'s task replacement, `cancelAutomationDryRun`,
+    // `clearAutomationDryRun` — with no coverage at all. These three park the scan mid-flight in
+    // the injected extractor so cancellation and supersession are exercised deterministically
+    // rather than raced against a scan over a tiny folder.
+
+    /// `cancelAutomationDryRun`'s documented contract: the in-flight preview is abandoned and
+    /// "the previous report (if any) is left intact".
+    @Test func cancellingAPreviewLeavesThePreviousReportIntact() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("Tesla Policy.pdf", in: dir, modified: now)
+        let second = try tempDir(); defer { try? FileManager.default.removeItem(at: second) }
+        try write("scan0042.pdf", in: second, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
+                           destinationTemplate: "Cars/Tesla")
+        ])
+
+        // First preview completes normally (name-decided, extractor never consulted).
+        let entered = Flag(), released = Flag(), timedOut = Flag()
+        m.filingSnippetExtractor = { _ in
+            entered.value = true
+            await parkUntilReleased(released, timedOut: timedOut)
+            return nil
+        }
+        m.startAutomationDryRun(root: dir, destinationRoot: dir, providerName: nil)
+        _ = await m.automationDryRunTask?.value
+        let first = try #require(m.automationDryRun)
+        #expect(first.root == dir.path)
+
+        // Second preview parks in the extractor (its file needs content to decide), is cancelled
+        // mid-flight, then unwinds. The first report must survive it.
+        m.startAutomationDryRun(root: second, destinationRoot: second, providerName: nil)
+        await waitUntil("the second preview reached the extractor") { entered.value }
+        m.cancelAutomationDryRun()
+        released.value = true
+        _ = await m.automationDryRunTask?.value
+        try #require(!timedOut.value, "the parked extractor was never released")
+
+        #expect(m.automationDryRun?.root == dir.path,
+                "the cancelled preview must not publish, and must not clear the standing report")
+    }
+
+    /// `startAutomationDryRun` replaces an in-flight preview: the superseded scan never publishes
+    /// and the replacement's report is the one that lands, even when the first is parked mid-file
+    /// when the second starts.
+    @Test func aSecondPreviewSupersedesAParkedFirstAndPublishesItsOwnReport() async throws {
+        let dirA = try tempDir(); defer { try? FileManager.default.removeItem(at: dirA) }
+        let dirB = try tempDir(); defer { try? FileManager.default.removeItem(at: dirB) }
+        try write("scanA.pdf", in: dirA, modified: now)
+        try write("scanB.pdf", in: dirB, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "Lease", conditions: [.mentionsAll(["lease"])],
+                           destinationTemplate: "Home/Lease")
+        ])
+        let enteredA = Flag(), released = Flag(), timedOut = Flag()
+        m.filingSnippetExtractor = { path in
+            if path.hasSuffix("scanA.pdf") {
+                enteredA.value = true
+                await parkUntilReleased(released, timedOut: timedOut)
+                return nil
+            }
+            return "lease agreement for unit 4"
+        }
+        // Collect every publish, because the final state alone cannot see the defect this test
+        // exists for: the superseded scan runs first, so even WITHOUT the cancel its report would
+        // be overwritten by the replacement's and the end state would look right. A stale report
+        // flashing up and being replaced is exactly the supersession bug; the sequence pins it.
+        var publishedRoots: [String?] = []
+        let subscription = m.$automationDryRun.dropFirst().sink { publishedRoots.append($0?.root) }
+        defer { subscription.cancel() }
+
+        m.startAutomationDryRun(root: dirA, destinationRoot: dirA, providerName: nil)
+        await waitUntil("the first preview reached the extractor") { enteredA.value }
+        m.startAutomationDryRun(root: dirB, destinationRoot: dirB, providerName: nil)
+        released.value = true
+        _ = await m.automationDryRunTask?.value
+        try #require(!timedOut.value, "the parked extractor was never released")
+
+        let report = try #require(m.automationDryRun)
+        #expect(report.rows.map(\.fileName) == ["scanB.pdf"])
+        #expect(m.automationDryRunLifecycle.hasCompleted)
+        #expect(publishedRoots == [dirB.path],
+                "the superseded scan must never publish — one report, the replacement's")
+    }
+
+    /// `clearAutomationDryRun` (the provider-switch path): the standing report is dropped so a
+    /// stale preview from one provider can't show under another.
+    @Test func clearDropsTheStandingReportAndItsCompletionFlag() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("a.pdf", in: dir, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "PDFs", conditions: [.kindIs(.pdf)], destinationTemplate: "Docs")
+        ])
+        m.startAutomationDryRun(root: dir, destinationRoot: dir, providerName: nil)
+        _ = await m.automationDryRunTask?.value
+        try #require(m.automationDryRun != nil)
+        try #require(m.automationDryRunLifecycle.hasCompleted)
+
+        m.clearAutomationDryRun()
+
+        #expect(m.automationDryRun == nil)
+        #expect(!m.automationDryRunLifecycle.hasCompleted)
     }
 }
