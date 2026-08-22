@@ -1574,3 +1574,62 @@ character for character; with the new clock the suite passes. The guard still bi
 **The general shape, worth more than this instance.** A fixture that computes a deadline and then
 runs the code it is timing has made the code's own duration part of the threshold. Start the clock
 from inside the thing being measured, or the test is timing the machine.
+
+---
+
+### 16. Text-field focus is arbitrated process-wide, so any suite can evict another's field editor — FIXED
+
+**Symptom.** A full-package `swift test` in `Modules/FileExplorer` fails exactly one test, while
+`--filter` on that suite alone passes:
+
+```
+✘ … LensHeaderReadoutTests.swift:240: Expectation failed: (moved → 4511) == 0
+  ↳ the to-fix rows are still on screen under a query matching neither of them (4511 pixels differ)
+```
+
+The number is *identical* in every failing run, which reads as a deterministic product defect
+rather than a flake — and the message names a cause that was never true.
+
+**What the pixels actually were.** Not the to-fix rows. Both screens correctly drew "Nothing
+matches. The current search hides all 2 renames." with neither risky name on them; the filter was
+working in the red runs and the green ones alike. The diff bounding box is `x∈[49,193],
+y∈[171,203]` — the **select-all highlight band behind the query text in the header's own search
+field**. `ExpandingSearchField` claims focus on appear (`Modules/Design/Sources/Design/
+ExpandingSearchField.swift`), and AppKit select-alls a field that becomes first responder, so a
+capture taken *with* the field editor installed differs from one taken without it.
+
+**Mechanism.** **SwiftUI arbitrates `_SystemTextField` focus process-wide, not per window.** None of
+these offscreen windows is ever key, so the per-window first-responder isolation you would expect
+never applies. Measured: a settled mount reads `fr=_SystemTextFieldFieldEditor`; a *foreign*
+`window.makeFirstResponder(field)` in an unrelated suite flips it to `fr=NSWindow` and moves 4511
+pixels **on the very next layout pass, with zero pumps of delay**. The failing test's own second
+mount does it too — mounting window 2 evicts window 1's focus. The suite had been passing on the
+order in which its own two mounts happened to steal focus from each other; adding *any* concurrent
+focusing test elsewhere in the package re-rolls that order.
+
+**What makes it fire.** Not load — verified: skipping two unrelated slow tests changed nothing,
+while skipping the concurrent focusing tests went green. It is not a property of any particular
+pair either; three tests in `FilingWalkthroughCardKeyTests` can do it, and so can the failing test
+itself. `--skip` experiments shift the interleaving without removing the hazard, which is what makes
+this one so easy to misattribute to whichever suite was added last.
+
+**Fixed** by resigning first responder in the suite's single capture funnel, so every snapshot is
+taken in the same, field-editor-free state:
+
+```swift
+m.window.makeFirstResponder(nil)   // in LensHeaderReadoutTests.snapshot(_:_:)
+```
+
+**Both directions measured.** Under the fix a settled mount is byte-identical after **311 further
+layout passes** (it shed 4511 without it), and a foreign steal moves **0 pixels across 40 pumps**.
+The assertion still bites: forcing `RenameBacklogSearch.matches(_:RiskyName)` to `true` — the
+shipped defect the test exists for — fails it at **8478 px**, which is what the no-query control
+measures for those two names. Full package: 1444 tests in 204 suites, green twice, same count as
+the red runs.
+
+**The general shape.** A rendering assertion is only as stable as the process-global UI state at
+capture time, and focus is process-global here even when windows are not. If a snapshot can be
+perturbed by what some *other* suite is doing to the responder chain, normalise that state in the
+capture funnel rather than reasoning about who ran first. And when a failure message names a cause,
+check that the cause is what actually moved the pixels — this one cost an entire investigation
+aimed at the wrong subsystem.
