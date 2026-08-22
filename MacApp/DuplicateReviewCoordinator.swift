@@ -70,7 +70,18 @@ struct DuplicateReviewCoordinator {
     var confirmTrashRightCopy: @MainActor (DuplicateCompareContext) -> Bool = { review in
         NativeAlerts.confirmDestructive(
             messageText: "Move the right copy of “\(review.groupName)” to the Trash?",
-            informativeText: "Trashes \((review.deletePath as NSString).abbreviatingWithTildeInPath). The left copy is kept. Reversible with ⌘Z.",
+            // **"Reversible with ⌘Z" was unconditional, and it is not.** On a volume with no Trash
+            // — exFAT, most SMB shares — `deleteItems` cannot trash the copy and escalates to the
+            // permanent-delete confirmation, which destroys it outright: nothing is registered
+            // with the undo manager, because there is no backup to restore from. The same
+            // distinction this file already draws thirty lines down, where the log line branches
+            // "Trashed" against "Permanently deleted" rather than calling both the former.
+            //
+            // The second alert is named rather than the promise merely dropped: it is real
+            // (`SyncOperationAlerts.confirmPermanentDelete`, critical style, with Return
+            // deliberately left unbound), so saying so is both true and the reassurance the ⌘Z
+            // sentence was there to give.
+            informativeText: "Trashes \((review.deletePath as NSString).abbreviatingWithTildeInPath). The left copy is kept. Undo with ⌘Z. On a volume with no Trash you'll be asked first, and a permanent delete can't be undone.",
             confirmTitle: "Move to Trash")
     }
 
