@@ -788,8 +788,40 @@ extension FileSyncManager {
         let model = CloudFilingProtocol.currentModel(
             for: filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel)
         let estTokens = CloudFilingProtocol.estimateTokens(taxonomyFolders: taxonomyFolders, files: files)
-        let estCost = CloudFilingProtocol.estimatedCostUSD(
-            model: model, taxonomyFolders: taxonomyFolders, files: files) ?? 0
+        // **An unpriced model is not a free one, and `?? 0` said it was.**
+        //
+        // `pricing(for:)` answers nil for any id outside the four `claude-<family>` arms, and
+        // `currentModel(for:)` deliberately hands such an id through untouched — "it can only have
+        // been set by hand, so honor it rather than overriding a deliberate choice" — so a
+        // `tidyFilingCloudModel` the user typed, or any dated pre-alias id, arrives here with no
+        // rate. Coercing that nil to zero broke both halves of this function at once:
+        //
+        // - **The quote.** `promptForFilingSpend` renders `estCostUSD` verbatim, so the dialog
+        //   read "Estimated cost: $0.0000" for a call whose price nothing in this build knows,
+        //   and offered Classify. `estimatedCostUSD`'s own doc says the nil exists so the caller
+        //   "shows 'estimate unavailable' rather than a wrong number"; this call site did the
+        //   opposite, and $0.0000 is the most misleading wrong number available.
+        // - **The caps.** `wouldExceedMonthlyCap` and `wouldExceedTotalCap` both test
+        //   `spent + estCostUSD` against the cap, so a zero estimate can never push either
+        //   dimension past its limit — the $5 lifetime backstop that ships ON by default
+        //   included. Nor can the recorded spend catch up later: `CloudFilingClassifier` records
+        //   the same nil as `estimatedCostUSD: 0, costUnpriced: true`, so an unpriced model's
+        //   whole spend history sums to zero and `isOverCap` never fires either.
+        //
+        // Neither half is fixable by choosing a number — a substitute rate is exactly the wrong
+        // number the nil exists to avoid, and there is no honest cap arithmetic over an unknown.
+        // So the pass stands down and keeps the free on-device suggestions, which is the same
+        // graceful degradation `CloudFilingClassifier` already applies when the spend record
+        // cannot be read: no paid call may be made while no cap can be enforced against it. The
+        // log names the model, because the remedy is one Settings ▸ Organize change away.
+        guard let estCost = CloudFilingProtocol.estimatedCostUSD(
+                model: model, taxonomyFolders: taxonomyFolders, files: files) else {
+            Logger.shared.warning("Filing: cloud classify skipped for \(files.count) file(s) — no price "
+                + "is known for model “\(model)”, so the cost could not be quoted and neither budget "
+                + "cap could be enforced against it. Using the free on-device suggestions; pick one of "
+                + "the offered models in Settings ▸ Organize to use Claude.")
+            return false
+        }
         // Spend and caps must come from the SAME store, or the preflight compares this month's
         // spend in one place against a cap set in another. Production resolves both to `.standard`;
         // reading the spend from the hard-coded default while the caps honoured the injectable one
