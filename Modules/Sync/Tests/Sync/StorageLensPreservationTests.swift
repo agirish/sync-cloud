@@ -284,3 +284,100 @@ import Testing
     }
 
 }
+
+/// **A half-wired seam proves less than it reads as proving.**
+///
+/// `StorageLensStore.clearInBackground(root:from:fileManager:)` forwarded its injected manager to
+/// `setAsideUnreadable` but called `read(from:)`, which took no manager and hardcoded
+/// `FileManager.default`; `saveInBackground` called the set-aside with no manager at all. A test
+/// handing in a double therefore got the double for the rename and the real filesystem for the
+/// decision about whether a rename was needed at all — the half that decides everything.
+///
+/// The seam covers the *probe* and the *moves*. `Data(contentsOf:)` takes no `FileManager` and is
+/// deliberately not faked: what the doubles here exist for is the present-vs-absent decision, and
+/// pinning that is what these assert.
+@Suite struct StorageLensSeamTests {
+
+    /// Claims ONE path is present, whatever the disk says — the seam's decision half in isolation.
+    ///
+    /// **Scoped to that path deliberately.** A first version answered "present" for everything and
+    /// hung the test host at 100% CPU: `UnreadableSetAside.destination` probes candidate names with
+    /// this same call until one comes back absent, so a manager that never says absent is an
+    /// infinite loop. Real filesystems terminate it; a double is under no such obligation, and the
+    /// loop is now bounded (see `UnreadableSetAside`).
+    private final class ClaimsPresent: FileManager, @unchecked Sendable {
+        let path: String
+        init(_ url: URL) { self.path = url.path; super.init() }
+
+        override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+            guard path == self.path else { return try super.attributesOfItem(atPath: path) }
+            return [.size: NSNumber(value: 0)]
+        }
+    }
+
+    private func storeURL(_ name: String) throws -> URL {
+        let dir = try makeCanonicalTempRoot(prefix: "StorageSeam-\(name)")
+        return dir.appendingPathComponent("storage-lens.json")
+    }
+
+    @MainActor
+    private func loggedLine(containing fragment: String) async -> String? {
+        await Logger.shared.debug("storage-seam flush marker").value
+        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+    }
+
+    /// With nothing on disk, the answer is `absent` from the real manager and `unreadable` from a
+    /// manager that says the entry is there. Only a `read` that actually uses the injected one can
+    /// tell them apart — so this fails on any wiring that reaches past it.
+    @Test func readHonoursTheInjectedManagersPresenceProbe() throws {
+        let url = try storeURL("read")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        guard case .absent = StorageLensStore.read(from: url) else {
+            Issue.record("fixture: nothing is on disk, so the real manager must answer absent")
+            return
+        }
+        guard case .unreadable = StorageLensStore.read(from: url, fileManager: ClaimsPresent(url)) else {
+            Issue.record("""
+                read reached past the injected manager to FileManager.default — a test passing a \
+                double gets the real filesystem for the half that decides whether anything is at \
+                risk
+                """)
+            return
+        }
+    }
+
+    /// And the wiring through the two background entry points, which is where a caller's double
+    /// actually has to arrive.
+    @Test @MainActor func clearAndSaveBothCarryTheManagerIntoTheRead() async throws {
+        let url = try storeURL("wired")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        // Nothing on disk, but the injected manager insists there is: both writers must take the
+        // unreadable path rather than treating it as a first scan.
+        //
+        // The forget is asserted on its LOG line, not on the file: with the manager reaching past
+        // to `FileManager.default` the read answers `.absent`, the forget returns silently, and
+        // the file is empty either way — an assertion on emptiness would pass on both wirings.
+        StorageLensStore.clearInBackground(root: "/a", from: url, fileManager: ClaimsPresent(url))
+        StorageLensStore.waitForPendingWrites()
+        #expect(await loggedLine(containing: url.lastPathComponent) != nil,
+                """
+                “Forget this root” said nothing, so it took the absent path — the injected \
+                manager did not reach the read
+                """)
+
+        let snapshot = StorageLensSnapshot(
+            root: "/b",
+            report: StorageLensReport(treemap: [], largest: [], stale: [], reclaimCandidates: [],
+                                      totalBytes: 0),
+            completedAt: Date(timeIntervalSince1970: 1_800_000_000))
+        StorageLensStore.saveInBackground(snapshot, to: url, fileManager: ClaimsPresent(url))
+        StorageLensStore.waitForPendingWrites()
+        #expect(StorageLensStore.load(from: url).isEmpty,
+                """
+                the save merged into an empty list and wrote it — the set-aside could not move a \
+                file that is not there, so the write had to be refused
+                """)
+    }
+}

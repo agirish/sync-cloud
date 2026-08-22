@@ -78,7 +78,13 @@ public enum StorageLensStore {
         case loaded([StorageLensSnapshot])
     }
 
-    static func read(from url: URL) -> Read {
+    /// `fileManager` is the presence probe's, and **the whole seam is only as wide as the probe**:
+    /// `Data(contentsOf:)` takes no `FileManager` and is not faked. That is deliberate — the
+    /// decision a caller's double exists to drive is present-vs-absent, and a half-wired version of
+    /// this (the manager forwarded to `setAsideUnreadable` while `read` reached
+    /// `FileManager.default`) meant a test got the double for the rename and the real filesystem
+    /// for the half that decides whether a rename is needed at all.
+    static func read(from url: URL, fileManager: FileManager = .default) -> Read {
         guard let data = try? Data(contentsOf: url) else {
             // **"Absent" and "there but unreadable" are different answers**, and a `try?` alone
             // conflates them — the same read-layer hole this file fixed at the parse layer. A
@@ -88,7 +94,7 @@ public enum StorageLensStore {
             // former sees a symlink that does not resolve: `fileExists` follows links and answers
             // false for one whose target is on an unmounted volume — and the write then replaces
             // the link itself.
-            guard (try? FileManager.default.attributesOfItem(atPath: url.path)) == nil else {
+            guard (try? fileManager.attributesOfItem(atPath: url.path)) == nil else {
                 return .unreadable
             }
             return .absent
@@ -101,8 +107,8 @@ public enum StorageLensStore {
     /// Every stored snapshot, newest first. Absent and unreadable both read as empty here, which is
     /// right for the DISPLAY callers this serves: a missing report costs a re-scan. A caller about
     /// to WRITE must use ``read(from:)``, because for it the two are not the same fact at all.
-    public static func load(from url: URL) -> [StorageLensSnapshot] {
-        if case .loaded(let snapshots) = read(from: url) { return snapshots }
+    public static func load(from url: URL, fileManager: FileManager = .default) -> [StorageLensSnapshot] {
+        if case .loaded(let snapshots) = read(from: url, fileManager: fileManager) { return snapshots }
         return []
     }
 
@@ -142,8 +148,9 @@ public enum StorageLensStore {
     }
 
     /// The stored snapshot for `root`, if there is one.
-    public static func snapshot(for root: String, from url: URL) -> StorageLensSnapshot? {
-        load(from: url).first { $0.root == root }
+    public static func snapshot(for root: String, from url: URL,
+                                fileManager: FileManager = .default) -> StorageLensSnapshot? {
+        load(from: url, fileManager: fileManager).first { $0.root == root }
     }
 
     /// Bytes the snapshot file occupies, or nil when there is none. A `stat`, like the hash
@@ -159,16 +166,17 @@ public enum StorageLensStore {
     /// Read-modify-write happens ON the queue rather than at the call site, so two roots analyzed
     /// in quick succession cannot each read the same prior state and have the second write erase
     /// the first's snapshot.
-    public static func saveInBackground(_ snapshot: StorageLensSnapshot, to url: URL) {
+    public static func saveInBackground(_ snapshot: StorageLensSnapshot, to url: URL,
+                                        fileManager: FileManager = .default) {
         writeQueue.async {
             let existing: [StorageLensSnapshot]
-            switch read(from: url) {
+            switch read(from: url, fileManager: fileManager) {
             case .loaded(let snapshots): existing = snapshots
             case .absent: existing = []
             case .unreadable:
                 // The file is kept and a fresh one is written beside it. Merging into `[]` without
                 // this is what silently replaced eleven roots with one.
-                guard setAsideUnreadable(url) != nil else {
+                guard setAsideUnreadable(url, fileManager: fileManager) != nil else {
                     Logger.shared.error("Storage snapshots: this analysis was not saved — the "
                                         + "unreadable file could not be moved out of its way.")
                     return
@@ -177,7 +185,7 @@ public enum StorageLensStore {
             }
             var all = existing.filter { $0.root != snapshot.root }
             all.insert(snapshot, at: 0)
-            write(Array(all.prefix(maxRoots)), to: url)
+            write(Array(all.prefix(maxRoots)), to: url, fileManager: fileManager)
         }
     }
 
@@ -190,8 +198,8 @@ public enum StorageLensStore {
     public static func clearInBackground(root: String?, from url: URL,
                                         fileManager: FileManager = .default) {
         writeQueue.async {
-            guard let root else { write([], to: url); return }
-            switch read(from: url) {
+            guard let root else { write([], to: url, fileManager: fileManager); return }
+            switch read(from: url, fileManager: fileManager) {
             case .absent:
                 return                                    // nothing to forget
             case .unreadable:
@@ -217,12 +225,13 @@ public enum StorageLensStore {
                                         + "was emptied and the file is untouched.")
                 }
             case .loaded(let snapshots):
-                write(snapshots.filter { $0.root != root }, to: url)
+                write(snapshots.filter { $0.root != root }, to: url, fileManager: fileManager)
             }
         }
     }
 
-    private static func write(_ snapshots: [StorageLensSnapshot], to url: URL) {
+    private static func write(_ snapshots: [StorageLensSnapshot], to url: URL,
+                              fileManager: FileManager = .default) {
         do {
             // Empty means DELETE, not "write an empty payload". `load` cannot tell the two apart —
             // both answer `[]` — but anything asking what this store occupies on disk can, and a
@@ -231,14 +240,14 @@ public enum StorageLensStore {
             // inserts one.
             guard !snapshots.isEmpty else {
                 do {
-                    try FileManager.default.removeItem(at: url)
+                    try fileManager.removeItem(at: url)
                 } catch CocoaError.fileNoSuchFile {
                     // Already absent is the desired end state.
                 }
                 return
             }
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
             let data = try JSONEncoder().encode(Payload(schema: currentSchema, snapshots: snapshots))
             try data.write(to: url, options: .atomic)
         } catch {
