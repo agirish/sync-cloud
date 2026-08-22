@@ -106,26 +106,38 @@ public enum StorageLensStore {
         return []
     }
 
-    /// Moves an unreadable file aside, once, so a fresh one can be written without destroying it.
+    /// Moves an unreadable file aside so a fresh one can be written without destroying it, and
+    /// answers **where it went** — nil when the move failed.
     ///
-    /// Returns false when the set-aside fails, in which case the caller must not write: the whole
-    /// point is that the bytes survive, and a write that lands on top of them after a failed rename
-    /// is the original defect with extra steps.
-    private static func setAsideUnreadable(_ url: URL) -> Bool {
-        let kept = url.appendingPathExtension("unreadable")
+    /// A nil answer means the caller must not write: the whole point is that the bytes survive,
+    /// and a write that lands on top of them after a failed rename is the original defect with
+    /// extra steps. It is also the only thing that lets each caller say what actually happened —
+    /// `clearInBackground` used to discard the result entirely and report a rescue either way.
+    ///
+    /// **The kept name is unique PER EPISODE — see ``UnreadableSetAside``, and nothing here
+    /// deletes anything.** The old fixed slot plus its unconditional pre-move `removeItem` is the
+    /// shape the other two stores were fixed out of: a second episode destroyed the first
+    /// episode's kept file, and a move that then failed left neither it nor a protected current
+    /// file. Snapshots are re-scannable, so the stakes are lower here than in the verdict cache —
+    /// which is a reason to share the fix, not to keep a second spelling of the defect.
+    ///
+    /// This line claims only the set-aside itself. What happens NEXT differs by caller — a save
+    /// writes a fresh file beside the kept one, a forget writes nothing at all — so each says its
+    /// own half rather than this one promising a "fresh file" that a forget never produces.
+    private static func setAsideUnreadable(_ url: URL,
+                                           fileManager: FileManager = .default) -> URL? {
+        let kept = UnreadableSetAside.destination(for: url, at: Date(), fileManager: fileManager)
         do {
-            try? FileManager.default.removeItem(at: kept)
-            try FileManager.default.moveItem(at: url, to: kept)
+            try fileManager.moveItem(at: url, to: kept)
             Logger.shared.error("Storage snapshots at \(url.lastPathComponent) could not be read "
-                                + "(or were written by a newer SyncCloud), so they have been kept as "
-                                + "\(kept.lastPathComponent) and a fresh file will be written beside "
-                                + "them. Nothing was overwritten.")
-            return true
+                                + "(or were written by a newer SyncCloud), so they have been kept "
+                                + "as \(kept.lastPathComponent). Nothing was overwritten.")
+            return kept
         } catch {
             Logger.shared.error("Storage snapshots at \(url.lastPathComponent) could not be read and "
                                 + "could not be moved aside (\(error.localizedDescription)) — NOT "
-                                + "overwriting them; this analysis was not saved.")
-            return false
+                                + "overwriting them.")
+            return nil
         }
     }
 
@@ -156,7 +168,11 @@ public enum StorageLensStore {
             case .unreadable:
                 // The file is kept and a fresh one is written beside it. Merging into `[]` without
                 // this is what silently replaced eleven roots with one.
-                guard setAsideUnreadable(url) else { return }
+                guard setAsideUnreadable(url) != nil else {
+                    Logger.shared.error("Storage snapshots: this analysis was not saved — the "
+                                        + "unreadable file could not be moved out of its way.")
+                    return
+                }
                 existing = []
             }
             var all = existing.filter { $0.root != snapshot.root }
@@ -171,7 +187,8 @@ public enum StorageLensStore {
     /// and `write` reads an empty list as "delete the file" — so one unreadable byte turned a
     /// request to forget ONE root into forgetting all twelve, with the request itself as the
     /// trigger. Forget-all is unaffected: that is what the user asked for either way.
-    public static func clearInBackground(root: String?, from url: URL) {
+    public static func clearInBackground(root: String?, from url: URL,
+                                        fileManager: FileManager = .default) {
         writeQueue.async {
             guard let root else { write([], to: url); return }
             switch read(from: url) {
@@ -180,10 +197,25 @@ public enum StorageLensStore {
             case .unreadable:
                 // Kept rather than deleted, and the request is refused rather than applied to a
                 // list this build cannot see.
-                _ = setAsideUnreadable(url)
-                Logger.shared.error("Storage snapshots: “Forget this root” could not be applied "
-                                    + "because the file could not be read. It has been kept beside "
-                                    + "the fresh one rather than emptied; the other roots are in it.")
+                //
+                // **Both outcomes are said, and neither claims the other's facts.** This ignored
+                // the move's result and logged "It has been kept beside the fresh one" whatever
+                // happened: a failed move read as a successful rescue, sending a user to look for
+                // a kept file that was never written. The "fresh one" was wrong in the other
+                // direction too — forgetting a root writes no file at all, so on the success path
+                // the only thing beside the kept file is nothing.
+                if let kept = setAsideUnreadable(url, fileManager: fileManager) {
+                    Logger.shared.error("Storage snapshots: “Forget this root” could not be applied "
+                                        + "to \(url.lastPathComponent) because the file could not be "
+                                        + "read. It has been kept as \(kept.lastPathComponent) "
+                                        + "rather than emptied — the other roots are in that file, "
+                                        + "and nothing was written in its place.")
+                } else {
+                    Logger.shared.error("Storage snapshots: “Forget this root” could not be applied "
+                                        + "to \(url.lastPathComponent) because the file could not be "
+                                        + "read, and it could not be moved aside either — nothing "
+                                        + "was emptied and the file is untouched.")
+                }
             case .loaded(let snapshots):
                 write(snapshots.filter { $0.root != root }, to: url)
             }
