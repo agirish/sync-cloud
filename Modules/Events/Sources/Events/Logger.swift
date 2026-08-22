@@ -181,10 +181,48 @@ public class Logger: ObservableObject {
     /// seeds `shared.minimumLevel` from it at launch; Settings writes both.
     public nonisolated static let minimumLevelDefaultsKey = "logMinimumLevel"
 
+    /// True when this process is a test runner.
+    ///
+    /// `swift test` runs swift-testing suites inside `swiftpm-testing-helper` (no XCTest linked, no
+    /// XCTest* environment) and XCTest suites inside an `xctest` runner; Xcode sets the XCTest*
+    /// environment markers. All three are covered.
+    ///
+    /// Extracted from ``defaultLogFileURL()``, which has always needed it, because the minimum
+    /// level needs exactly the same question asked — see ``persistedMinimumLevel(from:)``.
+    nonisolated static var isRunningTests: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        let executable = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? "").lastPathComponent
+        return executable == "swiftpm-testing-helper"
+            || executable == "xctest"
+            || NSClassFromString("XCTestCase") != nil
+            || environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestSessionIdentifier"] != nil
+            || environment["XCTestBundlePath"] != nil
+    }
+
     /// The persisted minimum level, falling back to `.debug` (log everything — the historical
     /// behavior) when unset or unrecognized.
+    ///
+    /// **Under a test runner this is always `.debug`, and the persisted value is not read.** The
+    /// app-target tests run *inside SyncCloud.app*, so their `.standard` UserDefaults IS the
+    /// installed app's domain — the developer's own live preferences. Setting Log level to
+    /// anything above Debug in Settings therefore raised the threshold inside the test host and
+    /// silently dropped every `debug` line, which is what eight marker-based suites assert on:
+    /// `ContentSignalExtractorTests`, `SetupDraftTests`, `PaneTabWiringTests` and
+    /// `DuplicateReviewCoordinatorTests` among them. They went red together, deterministically,
+    /// with nothing in the diff to explain it — and green again on CI, whose runner has no such
+    /// preference. Measured 2026-08-22 with `logMinimumLevel = INFO` in
+    /// `com.abhishekgirish.SyncCloud`.
+    ///
+    /// The same rule, for the same reason, as ``defaultLogFileURL()`` refusing to write the real
+    /// `~/sync-cloud.log` under a test runner: a test host must not inherit the machine's
+    /// user-facing state, and must not be steerable by it.
+    ///
+    /// `from:` is still honoured for the *explicit* suites the Settings tests pass, so what that
+    /// UI writes stays testable — the override is only on the ambient default.
     public nonisolated static func persistedMinimumLevel(from defaults: UserDefaults = .standard) -> LogLevel {
-        defaults.string(forKey: minimumLevelDefaultsKey).flatMap(LogLevel.init(rawValue:)) ?? .debug
+        if isRunningTests, defaults == .standard { return .debug }
+        return defaults.string(forKey: minimumLevelDefaultsKey).flatMap(LogLevel.init(rawValue:)) ?? .debug
     }
 
     /// Entries below this severity are dropped before they reach memory or disk. Nonisolated
@@ -282,16 +320,6 @@ public class Logger: ObservableObject {
         if let override = environment["SYNCCLOUD_LOG_FILE"], !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
         }
-        // `swift test` runs swift-testing suites inside swiftpm-testing-helper (no XCTest linked,
-        // no XCTest* environment), XCTest suites inside an xctest runner; Xcode sets the
-        // XCTest* environment markers. Cover all three.
-        let executable = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? "").lastPathComponent
-        let isRunningTests = executable == "swiftpm-testing-helper"
-            || executable == "xctest"
-            || NSClassFromString("XCTestCase") != nil
-            || environment["XCTestConfigurationFilePath"] != nil
-            || environment["XCTestSessionIdentifier"] != nil
-            || environment["XCTestBundlePath"] != nil
         if isRunningTests {
             return FileManager.default.temporaryDirectory
                 .appendingPathComponent("sync-cloud-tests-\(ProcessInfo.processInfo.processIdentifier).log")
