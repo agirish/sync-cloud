@@ -137,6 +137,39 @@ import Foundation
         #expect(m.currentError == nil)
     }
 
+    /// The release has to cover the **no-move** exit too, not just the two banner paths.
+    ///
+    /// `applyRecommendedFiling` returns early when the batch produced no moves at all — every file
+    /// already in its suggested folder, or every one failed — and that return sits above both
+    /// banner assignments. A release written after the banner instead of in a `defer` leaks the
+    /// latch on exactly that path and disables "File all" for the rest of the session; both other
+    /// tests here pass while it does, because both of their batches end at the success banner.
+    /// Found by mutation, which is the only way a hole in a one-direction guard shows up.
+    @Test func aBatchThatMovedNothingStillReleasesTheLatch() async throws {
+        let (root, suggestions) = try fixture("nomove")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let m = FileSyncManager()
+        m.filingSuggestions = suggestions
+
+        // A destination that IS the file's current folder: `performFiling` answers `.noMoveNeeded`,
+        // so the batch collects no moves, sets no banner, and returns before either of them.
+        let inPlace = suggestions.map { s in
+            s.replacingCandidates([FilingDestination(
+                path: URL(fileURLWithPath: s.filePath).deletingLastPathComponent().path,
+                confidence: .high, reasons: ["name"], newSegments: [])])
+        }
+        try #require(inPlace.allSatisfy { $0.isBatchEligible })
+        await m.applyRecommendedFiling(inPlace)
+        try #require(m.banner == nil, "the fixture took a banner path, so it is not the no-move exit")
+        #expect(!m.isFilingBatchRunning, "a batch that moved nothing kept the latch")
+
+        // …and the session is not disabled: a real batch still files.
+        await m.applyRecommendedFiling(suggestions)
+        #expect(filed(root, "Tesla Policy.pdf"),
+                "the next batch was refused by a latch the no-move exit never released")
+        #expect(filed(root, "Tesla Registration.pdf"))
+    }
+
     /// And the early exits must not take the latch either: a refused or empty batch leaves nothing
     /// behind. `isVerifyAllRunning` is the refusal the batch already had; an empty scope is the
     /// other pre-latch return.
