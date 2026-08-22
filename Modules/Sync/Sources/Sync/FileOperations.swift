@@ -316,9 +316,20 @@ extension FileSyncManager {
                             // One on-disk name: exact after precomposing (APFS lookups are
                             // normalization-insensitive on every volume), or a case variant on
                             // a volume that folds case — the undo handler's own foldedKey gate.
+                            //
+                            // `…ForNewItem` rather than the plain probe, for its FAILURE
+                            // behaviour rather than for a missing path (`targetURL` was just
+                            // copied, so it is there): the plain probe answers `false` — folds —
+                            // for any path it cannot query, and a false "folds" here restarts an
+                            // unrelated earlier item's walk, moving its recording time to the end
+                            // of THIS copy and reopening the batch-length window
+                            // `startCopyIdentityWalk` exists to eliminate. The walking-up form
+                            // asks the nearest ancestor that can answer, which is the same volume,
+                            // and only falls back to `false` when nothing up to "/" answers at
+                            // all. For a path that resolves first time the two are one probe each.
                             let sameOnDiskName = earlier.path.precomposedStringWithCanonicalMapping
                                 == targetURL.path.precomposedStringWithCanonicalMapping
-                                || !Self.volumeSupportsCaseSensitiveNames(for: targetURL)
+                                || !Self.volumeSupportsCaseSensitiveNamesForNewItem(at: targetURL)
                             if sameOnDiskName {
                                 identityWalks[i] = Self.startCopyIdentityWalk(at: earlier, fileManager: fm)
                             }
