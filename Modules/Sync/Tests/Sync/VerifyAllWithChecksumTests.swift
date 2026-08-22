@@ -544,4 +544,181 @@ import Foundation
         #expect(manager.activeProgress == nil)
         #expect(manager.syncingDifferenceIds.isEmpty)
     }
+
+    // MARK: Out-of-app writes while the offer's dialog is open
+
+    /// The offer's existing guards count only in-app writes. A cloud daemon syncing a new
+    /// right-side version down while the dialog sits open moves neither `fileOperationsEpoch`
+    /// nor `activeFileOperationsCount` nor `scanRequestGeneration` — nothing in the path had
+    /// looked at the files themselves since they were hashed, so Confirm ran a bulk overwrite
+    /// with no per-file prompt and put the stale left copy over bytes that arrived after the
+    /// hash.
+    ///
+    /// Driven with a plain `Data.write` — NOT `enqueueFileOperation` — because going through
+    /// the queue is exactly what this failure does not do; an out-of-app writer is the whole
+    /// point.
+    @MainActor
+    @Test func testConfirmRefusesWhenTheRightSideChangedOutsideTheApp() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+        let stampedEpoch = manager.fileOperationsEpoch
+
+        // The daemon lands a new version: same 9 bytes as "identical", different content, so a
+        // size-only check could not see it and a write over it is observable.
+        let arrived = Data("cloud-new".utf8)
+        try #require(arrived.count == Data("identical".utf8).count)
+        try arrived.write(to: fixture.rightIdenticalURL)
+
+        try #require(manager.fileOperationsEpoch == stampedEpoch,
+                     "an out-of-app write moves no epoch — that is the hole being closed")
+        try #require(manager.activeFileOperationsCount == 0)
+
+        let task = manager.confirmVerifiedCopy()
+        await task?.value
+
+        #expect(try Data(contentsOf: fixture.rightIdenticalURL) == arrived,
+                "the bulk copy must not overwrite bytes that arrived after the hash")
+        #expect(manager.verifiedIdenticalForCopy == nil)
+        #expect(manager.banner?.severity == .warning)
+    }
+
+    /// The other end of the same pair. The left side is what gets WRITTEN, and the offer says
+    /// "these two are byte-identical" — a left file rewritten after the hash makes the bulk copy
+    /// push bytes nobody verified onto the right, silently replacing a file the user was told
+    /// was already the same.
+    @MainActor
+    @Test func testConfirmRefusesWhenTheLeftSideChangedOutsideTheApp() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        let leftURL = URL(fileURLWithPath: fixture.identical.leftItemPath)
+        let rightBefore = try Data(contentsOf: fixture.rightIdenticalURL)
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+        let stampedEpoch = manager.fileOperationsEpoch
+
+        let arrived = Data("left-new!".utf8)
+        try #require(arrived.count == rightBefore.count)
+        try arrived.write(to: leftURL)
+
+        try #require(manager.fileOperationsEpoch == stampedEpoch)
+
+        let task = manager.confirmVerifiedCopy()
+        await task?.value
+
+        #expect(try Data(contentsOf: fixture.rightIdenticalURL) == rightBefore,
+                "unverified left bytes must not reach the right side")
+        #expect(manager.verifiedIdenticalForCopy == nil)
+        #expect(manager.banner?.severity == .warning)
+    }
+
+    /// The control the two refusals above need: with neither end touched, Confirm still runs the
+    /// bulk copy through to resolving the row. Without this, both refusal tests would pass just
+    /// as well against a guard that refuses everything.
+    @MainActor
+    @Test func testConfirmStillCopiesWhenNeitherEndChanged() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+
+        let task = manager.confirmVerifiedCopy()
+        try #require(task != nil, "an untroubled offer must start its copy")
+        await task?.value
+
+        // The run completed and resolved its row; only the differing pair is left.
+        #expect(manager.differences.map(\.id) == [fixture.differed.id])
+        #expect(manager.banner?.severity != .warning)
+    }
+
+    /// Cancel rests on the same verdicts (see `testDismissAfterAFileOperationHidesNothing`), so
+    /// an out-of-app write has to stop the hide too — otherwise a refusal quietly resolves the
+    /// very row it declined to act on.
+    @MainActor
+    @Test func testDismissAfterAnOutOfAppWriteHidesNothing() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+
+        try Data("cloud-new".utf8).write(to: fixture.rightIdenticalURL)
+
+        manager.dismissVerifiedCopyDialogWithoutCopy()
+
+        #expect(manager.verifiedIdenticalForCopy == nil)
+        #expect(manager.verifiedSameDifferenceIds.isEmpty,
+                "the pair no longer verifies identical, so it must not be hidden as if it did")
+    }
+
+    /// The size half of the stamp, which no same-size fixture can reach. A writer that restores
+    /// the timestamp it found — `rsync -t`, a restore-from-backup, a provider client preserving
+    /// the server's mtime — leaves the modification date matching and only the length differing.
+    /// Done as real filesystem operations (write, then `setAttributes`), not by reaching into
+    /// the guard.
+    @MainActor
+    @Test func testConfirmRefusesAMtimePreservingRewriteOfADifferentLength() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        let fm = FileManager.default
+        // Pinned to a whole second before the pass stamps it: a timestamp written by
+        // `Data.write` carries sub-second precision that does not survive being handed back
+        // through `setAttributes`, so restoring an unpinned one would move the mtime slightly
+        // and the test would pass on the wrong term.
+        let originalMtime = Date(timeIntervalSince1970: 1_700_000_000)
+        try fm.setAttributes([.modificationDate: originalMtime],
+                             ofItemAtPath: fixture.rightIdenticalURL.path)
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+
+        let arrived = Data("a much longer replacement".utf8)
+        try #require(arrived.count != Data("identical".utf8).count)
+        try arrived.write(to: fixture.rightIdenticalURL)
+        try fm.setAttributes([.modificationDate: originalMtime],
+                             ofItemAtPath: fixture.rightIdenticalURL.path)
+        try #require(
+            (try fm.attributesOfItem(atPath: fixture.rightIdenticalURL.path)[.modificationDate] as? Date)
+                == originalMtime,
+            "the timestamp must really be back, or the size term is not what is under test")
+
+        let task = manager.confirmVerifiedCopy()
+        await task?.value
+
+        #expect(try Data(contentsOf: fixture.rightIdenticalURL) == arrived,
+                "a rewrite that preserves the timestamp still changes the size — and must refuse")
+        #expect(manager.banner?.severity == .warning)
+    }
+
+    /// An offer that carries no stamps for its pairs cannot substantiate its own verdicts, and
+    /// must cost a re-verify rather than an unchecked bulk write. Same direction as `asOf`: the
+    /// guard fails CLOSED on a caller who supplies the wrong thing.
+    @MainActor
+    @Test func testConfirmRefusesAnOfferWithNoStampsToReCheckAgainst() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        let rightURL = URL(fileURLWithPath: fixture.differed.rightItemPath)
+        let before = try Data(contentsOf: rightURL)
+
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(
+            differences: [fixture.differed], asOf: manager.fileOperationsEpoch, stamps: [:])
+
+        let task = manager.confirmVerifiedCopy()
+
+        #expect(task == nil, "an unsubstantiated offer must not start a copy")
+        #expect(try Data(contentsOf: rightURL) == before)
+        #expect(manager.verifiedIdenticalForCopy == nil)
+        #expect(manager.banner?.message
+                == "\"diff.txt\" cannot be re-checked against its verification — run Verify All again")
+    }
 }

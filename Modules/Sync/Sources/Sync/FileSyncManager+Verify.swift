@@ -24,10 +24,142 @@ public struct VerifiedCopyOffer: Equatable, Sendable {
     public let differences: [FileDifference]
     /// `fileOperationsEpoch` as it stood when these verdicts were taken.
     public let asOf: Int
+    /// Both ends of each pair as they read on DISK the instant before its bytes were hashed,
+    /// keyed by difference id.
+    ///
+    /// The epoch stamp above answers "did WE write anything since?"; this answers "did anyone?".
+    /// Nothing in this path had looked at the files themselves between the hash and the confirm,
+    /// so a cloud daemon syncing a new right-side version down while the dialog sat open moved
+    /// no epoch, no count and no scan generation, and Confirm bulk-overwrote it with the stale
+    /// left copy — no per-file prompt, bytes that were never the bytes that got hashed.
+    ///
+    /// Read BEFORE the content read, not after, so the recorded value also covers the hashing
+    /// window itself: a write that lands mid-hash moves the endpoint away from what was recorded
+    /// and the confirm-time re-stat sees it, without the pass needing a second stat per side.
+    public let stamps: [UUID: FilePairStamp]
 
-    public init(differences: [FileDifference], asOf: Int) {
+    /// - Parameter stamps: pass `nil` to stamp the pairs from disk right now. That default is
+    ///   what keeps this guard from failing OPEN the way the epoch stamp once did (see above):
+    ///   an offer built without stamps would otherwise certify every pair as unchanged, and a
+    ///   caller who simply forgot the argument would get the unchecked write. Callers that
+    ///   hashed earlier — `verifyAllWithChecksum` is the only one — pass the values they took
+    ///   at hash time, which are the honest ones.
+    public init(
+        differences: [FileDifference],
+        asOf: Int,
+        stamps: [UUID: FilePairStamp]? = nil,
+        fileManager: FileManaging = FileManager.default
+    ) {
         self.differences = differences
         self.asOf = asOf
+        self.stamps = stamps ?? Dictionary(
+            uniqueKeysWithValues: differences.map { ($0.id, FilePairStamp.read($0, fileManager: fileManager)) }
+        )
+    }
+
+    /// Why an offer can no longer be acted on, beyond the epoch: one of its pairs has moved on
+    /// disk, or one of them was never stamped and so cannot be re-checked at all.
+    public enum Staleness: Equatable, Sendable {
+        case changed(FileDifference, FilePairStamp.Side)
+        case unstamped(FileDifference)
+
+        /// The offending row, for the message.
+        public var difference: FileDifference {
+            switch self {
+            case .changed(let diff, _), .unstamped(let diff): return diff
+            }
+        }
+    }
+
+    /// Re-stats every pair and returns the first that no longer reads as it did at hash time,
+    /// or `nil` when the whole offer is still describable by its verdicts.
+    ///
+    /// Reports the FIRST offender rather than a filtered subset on purpose. The offer is one
+    /// bulk permission over a list the user read as a whole; quietly shrinking it would write a
+    /// different set than the one that was confirmed, and a daemon that has just rewritten one
+    /// file in a synced folder is the least likely writer to have finished. One refused copy and
+    /// a banner naming the file is visible and costs one re-verify.
+    ///
+    /// A pair with no stamp counts as stale, not as clean. `verifyAllWithChecksum` stamps every
+    /// pair it offers and the memberwise init stamps whatever it is handed, so this is
+    /// unreachable today — which is exactly when the direction of a default gets chosen
+    /// carelessly. Same reasoning as `asOf` itself: an offer that cannot substantiate its
+    /// verdicts must cost one re-verify, not one unchecked bulk write.
+    func firstStaleness(fileManager: FileManaging) -> Staleness? {
+        for diff in differences {
+            guard let recorded = stamps[diff.id] else { return .unstamped(diff) }
+            if let side = recorded.sideThatChanged(of: diff, fileManager: fileManager) {
+                return .changed(diff, side)
+            }
+        }
+        return nil
+    }
+}
+
+/// One end of a pair as a later re-stat can compare it: size and modification date, as they
+/// stood at the moment a decision was based on them.
+///
+/// Deliberately NOT a content hash. This exists to detect that the bytes a verdict describes
+/// may have moved under it, and the cheap reading is the right one to take at a click — a
+/// second hashing pass would cost as much as the first and still be a reading taken before the
+/// write. Its blind spot is a rewrite that lands on the same size AND the same timestamp;
+/// APFS records modification times at nanosecond resolution, so two distinct writes colliding
+/// on both is not a case any writer produces by accident.
+public struct FileEndpointStamp: Equatable, Sendable {
+    public let size: Int64
+    public let modified: Date
+
+    public init(size: Int64, modified: Date) {
+        self.size = size
+        self.modified = modified
+    }
+
+    /// Stats `path` without following symlinks — the same item the copy primitive acts on.
+    /// `nil` means "nothing to stat", which is a VALUE and not a failure: `nil` recorded and a
+    /// stamp found later is how "the destination appeared while the dialog was open" is
+    /// detected, and the reverse is how a deletion is.
+    public static func read(atPath path: String, fileManager: FileManaging) -> FileEndpointStamp? {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path),
+              let modified = attributes[.modificationDate] as? Date else { return nil }
+        return FileEndpointStamp(
+            size: (attributes[.size] as? NSNumber)?.int64Value ?? 0,
+            modified: modified
+        )
+    }
+}
+
+/// Both ends of one pair, stamped at the same moment, so a later re-stat can say which side
+/// moved — the left (the bytes about to be written) or the right (the bytes about to be
+/// overwritten).
+public struct FilePairStamp: Equatable, Sendable {
+    public enum Side: String, Equatable, Sendable {
+        case left
+        case right
+    }
+
+    public let left: FileEndpointStamp?
+    public let right: FileEndpointStamp?
+
+    public init(left: FileEndpointStamp?, right: FileEndpointStamp?) {
+        self.left = left
+        self.right = right
+    }
+
+    public static func read(_ diff: FileDifference, fileManager: FileManaging) -> FilePairStamp {
+        FilePairStamp(
+            left: FileEndpointStamp.read(atPath: diff.leftItemPath, fileManager: fileManager),
+            right: FileEndpointStamp.read(atPath: diff.rightItemPath, fileManager: fileManager)
+        )
+    }
+
+    /// Re-stats both ends of `diff` and returns the side that no longer matches this stamp, or
+    /// `nil` when both still do. The right side is reported first when both moved: it names the
+    /// end that is about to be overwritten, which is the expensive one to be wrong about.
+    public func sideThatChanged(of diff: FileDifference, fileManager: FileManaging) -> Side? {
+        let now = Self.read(diff, fileManager: fileManager)
+        if now.right != right { return .right }
+        if now.left != left { return .left }
+        return nil
     }
 }
 
@@ -128,6 +260,10 @@ extension FileSyncManager {
                 weakRef.value?.verifyAllProgress = (completed, totalCount)
             }
         ) { diff in
+            // Stamped BEFORE the read, not after: the recorded value then also covers the hash
+            // itself, so a write landing mid-read is caught by the confirm-time re-stat rather
+            // than being baked in as "how it looked when we hashed it".
+            let stamp = FilePairStamp.read(diff, fileManager: activeFM)
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: diff.leftItemPath,
                 rightPath: diff.rightItemPath,
@@ -135,7 +271,7 @@ extension FileSyncManager {
                 cache: ContentHashCache.shared
             )
             if same == true {
-                await collector.addIdentical(diff)
+                await collector.addIdentical(diff, stamp: stamp)
             } else if same == false {
                 await collector.addDiffered()
             } else {
@@ -149,7 +285,7 @@ extension FileSyncManager {
         // expensive thing this cache exists to avoid.
         await ContentHashCache.shared.save()
 
-        let (verifiedIdentical, differed, skipped) = await collector.get()
+        let (verifiedIdentical, stamps, differed, skipped) = await collector.get()
         if progress.isCancelled || verifiedIdentical.isEmpty {
             // Nothing this pass stands behind, so retract any offer a previous pass left standing.
             // Falling through instead — which is what the publish condition alone did — leaves
@@ -184,7 +320,7 @@ extension FileSyncManager {
             // the live epoch happens to read at this instant. The guard above has just
             // established the two are the same, so this is the honest one of the pair.
             verifiedIdenticalForCopy = VerifiedCopyOffer(
-                differences: verifiedIdentical, asOf: startOperationsEpoch
+                differences: verifiedIdentical, asOf: startOperationsEpoch, stamps: stamps
             )
         }
         var parts: [String] = []
@@ -220,6 +356,12 @@ extension FileSyncManager {
         guard let offer = verifiedIdenticalForCopy else { return }
         verifiedIdenticalForCopy = nil
         guard fileOperationsEpoch == offer.asOf, activeFileOperationsCount == 0 else { return }
+        // And on the same terms as the confirm's disk re-check, for the same reason the epoch
+        // terms are shared: hiding a row asserts "these two are byte-identical, stop showing
+        // me", which a pair that has since been rewritten by something outside this app no
+        // longer supports. Nothing rescans after an out-of-app write, so a hide granted here
+        // would outlive its justification until the user asks for a scan by hand.
+        guard offer.firstStaleness(fileManager: fileManager) == nil else { return }
         for diff in offer.differences {
             verifiedSameDifferenceIds.insert(diff.id)
         }
@@ -289,6 +431,31 @@ extension FileSyncManager {
             banner = .warning("A file operation ran or is pending — run Verify All again")
             return nil
         }
+        // The epoch and count above are blind to every writer that is not this app, and the
+        // dialog has no expiry — it sits open for as long as the user leaves it. A cloud daemon
+        // syncing a new right-side version down in that window moves none of the three counters
+        // this path watches, so a confirm ran the bulk overwrite with no per-file prompt over
+        // bytes that arrived after the hash. Re-stat instead of expiring: an expiry would be a
+        // duration picked out of the air that still admits every write inside it, where the
+        // re-stat asks the only question that matters — do these two files still read as they
+        // did when we hashed them — and it is the same shape as every other guard here, a value
+        // captured at decision time and re-checked before acting on it.
+        //
+        // Two stats per pair, on the main actor, at a click: the bulk copy this gates reads and
+        // writes both files in full, so the check is orders of magnitude cheaper than the thing
+        // it is protecting.
+        if let staleness = offer.firstStaleness(fileManager: fileManager) {
+            verifiedIdenticalForCopy = nil
+            let name = staleness.difference.relativePath
+            switch staleness {
+            case .changed(_, let side):
+                let end = side == .right ? "on the right" : "on the left"
+                banner = .warning("\"\(name)\" changed \(end) since it was verified — run Verify All again")
+            case .unstamped:
+                banner = .warning("\"\(name)\" cannot be re-checked against its verification — run Verify All again")
+            }
+            return nil
+        }
         verifiedIdenticalForCopy = nil
         // Hand the stamp on so the run can re-check it at the moment it orders the write; these
         // readings are already several main-actor hops old by the time that happens.
@@ -345,7 +512,9 @@ extension FileSyncManager {
                 cache: ContentHashCache.shared
             )
             if same == true {
-                await collector.addIdentical(diff)
+                // No stamp: this pass publishes no copy offer and orders no write — it only
+                // hides rows, which the next scan re-derives.
+                await collector.addIdentical(diff, stamp: nil)
             }
         }
 
@@ -390,14 +559,21 @@ extension FileSyncManager {
 
 private actor VerifyResultsCollector {
     private var verifiedIdentical: [FileDifference] = []
+    private var stamps: [UUID: FilePairStamp] = [:]
     private var differed: Int = 0
     private var skipped: Int = 0
-    func addIdentical(_ diff: FileDifference) {
+    /// The stamp travels with the verdict rather than being re-read on the way out: it is only
+    /// evidence about the bytes this worker hashed if it was taken around that read.
+    /// No default on `stamp`: the scan-time pass has no use for one and says so explicitly,
+    /// rather than a forgotten argument silently producing an offer that cannot be re-checked.
+    func addIdentical(_ diff: FileDifference, stamp: FilePairStamp?) {
         verifiedIdentical.append(diff)
+        stamps[diff.id] = stamp
     }
     func addDiffered() { differed += 1 }
     func addSkipped() { skipped += 1 }
-    func get() -> (verifiedIdentical: [FileDifference], differed: Int, skipped: Int) {
-        (verifiedIdentical, differed, skipped)
+    func get() -> (verifiedIdentical: [FileDifference], stamps: [UUID: FilePairStamp],
+                   differed: Int, skipped: Int) {
+        (verifiedIdentical, stamps, differed, skipped)
     }
 }
