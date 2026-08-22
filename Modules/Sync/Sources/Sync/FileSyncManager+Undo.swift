@@ -1704,12 +1704,14 @@ extension FileSyncManager {
                                 // whatever may be at that path by the time it runs. Read AFTER the
                                 // move, so it describes the restored item rather than the backup.
                                 //
-                                // Shallow: `snapshot` not `deepSnapshot`. A directory edited
-                                // internally between the undo and the redo still re-trashes, which
-                                // is right — the redo puts back what the delete had, and the Trash
-                                // is recoverable. The deep walk exists for the copy-undo, where the
-                                // refusal protects the ONLY instance of an edit; here the item goes
-                                // somewhere the user can retrieve it from.
+                                // Shallow: `snapshot` not `deepSnapshot`, so for a directory this
+                                // is `.directory(modified:childCount:)` — it notices a direct
+                                // child appearing or going, and does NOT notice an edit further
+                                // down. That asymmetry is the intended one. The deep walk exists
+                                // for the copy-undo, where a refusal is what protects the ONLY
+                                // instance of an edit; here the item goes to the Trash, which the
+                                // user can retrieve it from, so paying a recursive walk per
+                                // restored folder to catch a deep edit would buy very little.
                                 restoredItems.append((url: item.original,
                                                       restoredIdentity: ItemIdentity.snapshot(at: item.original, fileManager: fm)))
                             } catch {

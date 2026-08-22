@@ -430,17 +430,39 @@ public final class PeopleStore: ObservableObject {
                                                                      : dismissedSuggestions.sorted()))
             if let merged = Self.merging(carriedKeys, perPerson: carriedPersonKeys, into: data) {
                 data = merged
-            } else if !carriedKeys.isEmpty {
+            } else if !carriedKeys.isEmpty || !carriedPersonKeys.isEmpty {
                 // **The loss is said, even though the write proceeds.** Writing the unmerged bytes
                 // is the deliberate trade (see `merging`) — the roster is what this file is for —
                 // but the whole carried-keys mechanism exists *because* silently dropping a
                 // hand-written `_note` from people.json was a defect once. Nil is also the
                 // ordinary "nothing to carry" case, which is lossless and must stay quiet; only
                 // the case that actually drops something speaks.
-                Logger.shared.warning("Saving people.json dropped \(carriedKeys.count) hand-added "
-                                      + "key(s) it could not re-attach "
-                                      + "(\(carriedKeys.keys.sorted().joined(separator: ", "))) — "
-                                      + "the roster was saved")
+                //
+                // **Both kinds, and named apart.** This used to test `carriedKeys` alone, so a
+                // file whose only hand-additions were INSIDE person records — the common shape,
+                // since that is where a nickname or a note about a person belongs — would have
+                // lost them without a word, through the one branch written to stop exactly that.
+                //
+                // **No test reaches here, and that is a property of `merging`, not an omission.**
+                // It answers nil in exactly two cases: nothing to carry, which fails the condition
+                // above and is lossless; or `JSONSerialization` failing to re-read bytes
+                // `JSONEncoder` just produced, which cannot happen for an object encode. The
+                // branch is kept because the nil is a shape a future edit to `merging` could give
+                // a real reason — and a silent drop is the one outcome this whole mechanism
+                // exists to prevent, so it should already be correct when that day comes.
+                var lost: [String] = []
+                if !carriedKeys.isEmpty {
+                    lost.append("\(carriedKeys.count) top-level "
+                                + "(\(carriedKeys.keys.sorted().joined(separator: ", ")))")
+                }
+                if !carriedPersonKeys.isEmpty {
+                    let people = carriedPersonKeys.keys.sorted().joined(separator: ", ")
+                    let n = carriedPersonKeys.values.reduce(0) { $0 + $1.count }
+                    lost.append("\(n) inside person record(s) (\(people))")
+                }
+                Logger.shared.warning("Saving people.json dropped hand-added key(s) it could not "
+                                      + "re-attach: \(lost.joined(separator: "; ")) — the roster "
+                                      + "was saved")
             }
             // Atomic: the engine reads this file at launch and the fingerprint hashes it, so a
             // torn write would be a half-household that looks like a whole one.
