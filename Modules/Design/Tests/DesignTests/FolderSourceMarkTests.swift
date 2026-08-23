@@ -5,7 +5,7 @@ import Testing
 
 /// How a folder source is marked, as against a cloud account: a colourless hue rather than a brand
 /// one, and an SF Symbol rather than a bundled logo.
-@Suite struct FolderSourceMarkTests {
+@Suite(.machinePinned(.pixelSampling)) struct FolderSourceMarkTests {
 
     // MARK: The hue
 
