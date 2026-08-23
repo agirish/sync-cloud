@@ -95,7 +95,9 @@ public enum MainThreadHitchMonitor {
         // `NSTableView`'s mouse tracking above all — run in their own mode, and an observer
         // registered only for the default mode would go quiet during exactly the work being hunted.
         observer = obs
-        Logger.shared.info("[hitch] monitor armed (threshold \(Int(threshold * 1000))ms)")
+        // .debug like every [hitch] line it announces: at Info level "armed" followed by silence
+        // read as a healthy main thread while the hitch reports were being level-dropped.
+        Logger.shared.debug("[hitch] monitor armed (threshold \(Int(threshold * 1000))ms)")
     }
 
     static func stop() {

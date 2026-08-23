@@ -115,6 +115,10 @@ public final class FolderJumpStore: ObservableObject {
     private func persistPinned() {
         if let data = try? JSONEncoder().encode(pinnedByRoot) {
             defaults.set(data, forKey: Self.pinnedKey)
+        } else {
+            // The read side treats unreadable bytes as a state worth preserving; a write that
+            // silently skips is the same loss one step earlier, so it at least gets a line.
+            Logger.shared.error("The pinned-folders list could not be encoded for saving — the previously stored list is left in place")
         }
     }
 

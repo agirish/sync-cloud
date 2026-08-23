@@ -1,3 +1,4 @@
+import Events
 import Foundation
 
 /// State→presentation mapping and per-tab persistence for the file panes that sit alongside the
@@ -73,6 +74,12 @@ enum TopPaneVisibility {
         encoder.outputFormatting = .sortedKeys
         guard let data = try? encoder.encode(map),
               let string = String(data: data, encoding: .utf8) else {
+            // "" decodes back to an empty map, so this branch silently resets every workspace's
+            // override to its default. It cannot fire for a `[String: Bool]`, which is exactly
+            // when a branch must announce itself if it ever does.
+            Task { @MainActor in
+                Logger.shared.error("The pane-visibility overrides could not be encoded for saving — every workspace falls back to its default panes")
+            }
             return ""
         }
         return string

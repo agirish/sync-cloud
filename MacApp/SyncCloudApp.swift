@@ -663,7 +663,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         case .allowWithoutWarning(let count):
             // The quit decision + flush is the single event most correlated with crash-time
             // corruption, so record it and force the buffered lines to disk before we quit.
-            Logger.shared.warning("User chose Quit Anyway with \(count) active file operation(s)")
+            // NOT the dialog branch's "chose Quit Anyway" wording: no dialog was shown here, so
+            // "chose" would invent a decision — the setting made it, and the line says which one.
+            Logger.shared.warning("Quitting with \(count) active file operation(s) — warn-before-quit is switched off")
             Logger.shared.flushToDisk()
             SyncHistoryStore.shared.flushToDisk()
             return .terminateNow

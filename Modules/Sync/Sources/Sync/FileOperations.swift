@@ -179,8 +179,10 @@ extension FileSyncManager {
             ))
             guard confirmed else {
                 // The breadcrumb matters: callers log "User initiating move…" before this
-                // prompt, and a decline with no record reads as a swallowed operation.
-                Logger.shared.debug("\(isMove ? "Move" : "Copy") of \(prunedNodes.count) item(s) cancelled at the confirmation prompt")
+                // prompt, and a decline with no record reads as a swallowed operation. At the
+                // same level as the initiation line, or an Info-level trace shows an operation
+                // start with no outcome — the exact swallowed read this exists to prevent.
+                Logger.shared.info("\(isMove ? "Move" : "Copy") of \(prunedNodes.count) item(s) cancelled at the confirmation prompt")
                 cancelPreCountedFileOperation()
                 return []
             }

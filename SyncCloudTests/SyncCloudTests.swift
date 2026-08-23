@@ -21,7 +21,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     }
 
     /// Active operations with the warning disabled skips the alert but still quits — the app
-    /// delegate logs "Quit Anyway" and flushes on this branch so the breadcrumb survives.
+    /// delegate logs the quit-with-operations breadcrumb (worded for the setting, not the dialog
+    /// nobody saw) and flushes on this branch so it survives.
     @Test func testQuitDecisionAllowsWithoutWarningWhenSettingDisabled() {
         #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 3, warnBeforeQuit: false)
             == .allowWithoutWarning(activeOperations: 3))

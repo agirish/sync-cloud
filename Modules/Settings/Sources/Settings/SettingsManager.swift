@@ -225,7 +225,14 @@ public class SettingsManager: ObservableObject {
     @Published public private(set) var folderSources: [FolderSource] {
         didSet {
             guard folderSources != oldValue else { return }
-            userDefaults.set(try? JSONEncoder().encode(folderSources), forKey: Self.folderSourcesKey)
+            // Not `set(try? …)`: passing an encode failure's nil to `set` REMOVES the key, which
+            // destroys the stored list the read side goes to such lengths to salvage. On a failed
+            // encode the disk keeps the previous value — stale beats gone — and the log says so.
+            guard let data = try? JSONEncoder().encode(folderSources) else {
+                Logger.shared.error("The folder-source list could not be encoded for saving — the previously stored list is left in place")
+                return
+            }
+            userDefaults.set(data, forKey: Self.folderSourcesKey)
         }
     }
 

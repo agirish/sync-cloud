@@ -38,6 +38,11 @@ public struct SyncHistoryView: View {
     @discardableResult
     public static func clearIfConfirmed(store: SyncHistoryStore, confirm: @MainActor () -> Bool) -> Bool {
         guard confirm() else { return false }
+        // The one destructive clear in the app: a history that is suddenly empty should be
+        // attributable to this confirmed action, not read as the store failing to load. Logged
+        // here rather than in `store.clear()` so test fixtures' cleanup stays out of the shared
+        // log — Logger's own exact-count suite lives in the same package as the store.
+        Logger.shared.info("Sync history cleared — \(store.records.count) record(s) removed")
         store.clear()
         return true
     }
