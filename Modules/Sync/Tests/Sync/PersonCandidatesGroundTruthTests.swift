@@ -104,13 +104,26 @@ import Testing
 /// that closed.
 @Suite struct PersonCandidatesGateTests {
     @Test func reportsWhetherTheGroundTruthSuiteCanRun() {
-        if PersonCandidatesGroundTruthTests.isAvailable {
-            print("[people-ground-truth] RAN — the proposer was checked against the live tree and roster")
+        // The exclusion is consulted FIRST, from the same gate the tests' own
+        // `.machinePinned(.liveProfile)` traits read. Without it this printed "RAN — the proposer
+        // was checked against the live tree" on every CI run — where the trait had disabled all
+        // three tests — which is the exact false positive the template
+        // (`FolderSurveyGroundTruthGateTests`) exists to prevent: a report that cannot say RAN
+        // for a suite its trait has skipped. The old `#expect(Bool(true))` asserted nothing;
+        // the line is now held to the gates it read.
+        let excluded = MachinePinnedGate.isExcluded(.liveProfile)
+        let available = PersonCandidatesGroundTruthTests.isAvailable
+        let line: String
+        if excluded {
+            line = "SKIPPED — machine-pinned (liveProfile), excluded via SYNCCLOUD_SKIP_MACHINE_PINNED"
+        } else if available {
+            line = "RAN — the proposer was checked against the live tree and roster"
         } else {
             let tree = FileManager.default.fileExists(atPath: PersonCandidatesGroundTruthTests.root.path)
-            print("[people-ground-truth] SKIPPED — "
-                  + (tree ? "no roster on this machine" : "no ~/Documents on this machine"))
+            line = "SKIPPED — " + (tree ? "no roster on this machine" : "no ~/Documents on this machine")
         }
-        #expect(Bool(true))
+        print("[people-ground-truth] \(line)")
+        #expect(line.hasPrefix("RAN") == (!excluded && available),
+                "the gate report says \(line) while the gates read excluded=\(excluded) available=\(available)")
     }
 }
