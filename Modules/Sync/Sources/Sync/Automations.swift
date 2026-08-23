@@ -528,7 +528,7 @@ extension AutomationRule {
 /// Kept as a value rather than as raw `Data` because it has to sit inside a `Codable`, `Hashable`
 /// struct and be written back through whatever encoder the caller is using.
 indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
-    case null, bool(Bool), integer(Int), number(Double), string(String)
+    case null, bool(Bool), integer(Int), unsignedInteger(UInt64), number(Double), string(String)
     case array([JSONFragment]), object([String: JSONFragment])
 
     /// **`integer` is tried before `number`, and it is not tidiness.** Holding every JSON number as
@@ -543,6 +543,13 @@ indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
         if c.decodeNil() { self = .null }
         else if let v = try? c.decode(Bool.self) { self = .bool(v) }
         else if let v = try? c.decode(Int.self) { self = .integer(v) }
+        // Above `Int64.max` and still integral — a 20-digit id, a `UInt64` hash. `Int` refuses it
+        // and `Double` accepts it lossily, which is the same rewrite the `integer`-before-`number`
+        // ordering exists to prevent, one range further out: 18446744073709551615 came back as
+        // 18446744073709552000. Beyond `UInt64.max` it degrades to `Double` as before, which is a
+        // real residual and is stated rather than papered over — carrying arbitrary-precision
+        // integers would mean keeping the source token, which `Codable` does not hand us.
+        else if let v = try? c.decode(UInt64.self) { self = .unsignedInteger(v) }
         else if let v = try? c.decode(Double.self) { self = .number(v) }
         else if let v = try? c.decode(String.self) { self = .string(v) }
         else if let v = try? c.decode([JSONFragment].self) { self = .array(v) }
@@ -555,6 +562,7 @@ indirect enum JSONFragment: Codable, Equatable, Hashable, Sendable {
         case .null: try c.encodeNil()
         case .bool(let v): try c.encode(v)
         case .integer(let v): try c.encode(v)
+        case .unsignedInteger(let v): try c.encode(v)
         case .number(let v): try c.encode(v)
         case .string(let v): try c.encode(v)
         case .array(let v): try c.encode(v)

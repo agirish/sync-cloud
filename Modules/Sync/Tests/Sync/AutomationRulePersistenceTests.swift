@@ -226,6 +226,32 @@ import Testing
         #expect(probe.on)
     }
 
+    /// **The same rewrite, one range further out.** `integer` before `number` fixed everything up
+    /// to `Int64.max`; a value above it — a 20-digit id, a `UInt64` hash — still failed
+    /// `decode(Int.self)`, fell through to `Double`, and came back altered:
+    /// `18446744073709551615` was written as `18446744073709552000`.
+    ///
+    /// The residual is stated rather than papered over: past `UInt64.max` this degrades to `Double`
+    /// as before, because carrying arbitrary precision would mean keeping the source token, which
+    /// `Codable` does not hand us. The test says where the guarantee ends.
+    @Test func aCarriedIntegerAboveInt64MaxIsStillCarriedExactly() throws {
+        let extra = #","hugeId":18446744073709551615,"atInt64Max":9223372036854775807"#
+        let rules = try Self.decode("[\(Self.ruleJSON(extra: extra))]")
+        let written = try #require(try Self.reencode(rules).first)
+
+        // Read back through JSON rather than as `Int`: the value does not fit one, which is the
+        // whole point, and `as? Int` would report nil for a correctly carried value.
+        let data = try JSONSerialization.data(withJSONObject: written)
+        let text = try #require(String(data: data, encoding: .utf8))
+        #expect(text.contains("18446744073709551615"),
+                "a UInt64-range id was rewritten on the way out; got \(text)")
+        #expect(!text.contains("18446744073709552000"),
+                "the value came back as the Double approximation")
+
+        // The boundary itself still round-trips through the Int path, unchanged.
+        #expect(written["atInt64Max"] as? Int == 9_223_372_036_854_775_807)
+    }
+
     // MARK: Backward tolerance — a file missing something this build expects
 
     @Test func aMissingFieldCostsItsDefaultNotTheWholeSet() throws {
