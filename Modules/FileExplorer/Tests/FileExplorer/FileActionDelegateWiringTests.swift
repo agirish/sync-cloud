@@ -31,6 +31,34 @@ import Foundation
         return text
     }
 
+    /// Whole-line comments stripped, so prose that happens to spell `delegate.someMember` — the
+    /// protocol's own doc does, for the recorded bug — cannot satisfy either walk.
+    private static func codeOnly(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
+    /// Every file that binds the existential — derived rather than listed, so the next consumer
+    /// joins the walk the day it declares one. `PaneColumnsView` consumes seven members through
+    /// the same `delegate:` it declares at its top; a forward walk that read `FileTreeView` alone
+    /// was structurally silent about all of them, which is the recorded bug with a different file
+    /// name on it.
+    private static func consumerSources() throws -> [String] {
+        let fm = FileManager.default
+        let files = try #require(try? fm.contentsOfDirectory(at: sourcesDirectory(),
+                                                             includingPropertiesForKeys: nil))
+            .filter { $0.pathExtension == "swift" }
+        let consumers = files.compactMap { url -> String? in
+            guard let text = try? String(contentsOf: url, encoding: .utf8),
+                  codeOnly(text).contains("delegate: FileActionDelegate") else { return nil }
+            return text
+        }
+        try #require(consumers.count >= 2,
+                     "only \(consumers.count) files declare the existential — FileTreeView and PaneColumnsView both do today, so the detector is broken")
+        return consumers
+    }
+
     /// The member names declared inside the protocol BODY — the witness table. Extension members
     /// deliberately excluded: being outside this set is exactly what made the recorded bug.
     private static func protocolRequirements() throws -> Set<String> {
@@ -51,10 +79,23 @@ import Foundation
         return names
     }
 
-    /// Every `delegate.<member>` consumed in `file`.
-    private static func delegateMemberReferences(in file: String) throws -> Set<String> {
-        let text = try source(file)
-        return Set(text.matches(of: /delegate\.([a-zA-Z0-9_]+)/).map { String($0.1) })
+    /// Every `delegate.<member>` consumed in `text`, comments stripped. The boundary check is
+    /// hand-rolled rather than `\b`: Swift regexes default to UNICODE word boundaries, under
+    /// which `lhs.delegate` is one word and `\b` never fires before the member access — which
+    /// silently dropped `isEquivalent`, whose only consumer is `lhs.delegate.isEquivalent(...)`.
+    /// The check still refuses a `scrollDelegate.someMember`, which must not count as the
+    /// file-action existential.
+    private static func delegateMemberReferences(inText text: String) -> Set<String> {
+        let code = codeOnly(text)
+        var names: Set<String> = []
+        for match in code.matches(of: /delegate\.([a-zA-Z0-9_]+)/) {
+            if match.range.lowerBound > code.startIndex {
+                let before = code[code.index(before: match.range.lowerBound)]
+                if before.isLetter || before.isNumber || before == "_" { continue }
+            }
+            names.insert(String(match.1))
+        }
+        return names
     }
 
     // MARK: The two directions
@@ -65,7 +106,10 @@ import Foundation
     /// feature dies silently — the `riskyName` bug, re-armed for whatever member is added next.
     @Test func everyConsumedDelegateMemberIsARequirementNotAnExtensionDefault() throws {
         let requirements = try Self.protocolRequirements()
-        let consumed = try Self.delegateMemberReferences(in: "FileTreeView.swift")
+        var consumed: Set<String> = []
+        for text in try Self.consumerSources() {
+            consumed.formUnion(Self.delegateMemberReferences(inText: text))
+        }
         try #require(consumed.count > 12, "only \(consumed.count) delegate references found — the scan is broken")
 
         let extensionOnly = consumed.subtracting(requirements)
@@ -92,7 +136,7 @@ import Foundation
         var consumed: Set<String> = []
         for url in files {
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            consumed.formUnion(text.matches(of: /delegate\.([a-zA-Z0-9_]+)/).map { String($0.1) })
+            consumed.formUnion(Self.delegateMemberReferences(inText: text))
         }
 
         let unconsumed = requirements.subtracting(consumed)

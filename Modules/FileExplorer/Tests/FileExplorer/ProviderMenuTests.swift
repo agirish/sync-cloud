@@ -57,7 +57,11 @@ import SwiftUI
         let code = Self.codeOnly(try Self.source())
         #expect(code.contains(".fixedSize(horizontal: false, vertical: true)"),
                 "the vertical-only fixedSize is the ballooning-label fix — full fixedSize ignores the width proposal")
-        #expect(!code.contains(".fixedSize()"),
-                "a bare .fixedSize() reintroduces the ballooning-label regression")
+        // Exactly one .fixedSize in the file, and the line above pins its spelling — which bans
+        // the bare `.fixedSize()` AND the expanded `.fixedSize(horizontal: true, …)` in one count,
+        // where a bare-spelling ban alone let the expanded form balloon the label all the same.
+        let uses = code.components(separatedBy: ".fixedSize").count - 1
+        #expect(uses == 1,
+                "found \(uses) .fixedSize uses — any spelling other than the vertical-only one reintroduces the ballooning-label regression")
     }
 }
