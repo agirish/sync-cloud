@@ -136,7 +136,25 @@ struct AppearanceModeTests {
             .appendingPathComponent("Sources/Design/AppearanceMode.swift")
         let source = try #require(try? String(contentsOf: url, encoding: .utf8))
         try #require(source.count > 500, "AppearanceMode.swift read truncated — the scan would be vacuous")
-        #expect(source.contains("pin(mode, onto: NSApplication.shared, windows: NSApplication.shared.windows)"),
+        // Scoped to apply's BODY, comments stripped — a whole-file `contains` would keep passing
+        // with apply gutted and the old line surviving as a comment, which is a routine refactor
+        // artifact and exactly the drift this pin exists to refuse.
+        let code = source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let start = try #require(code.range(of: "static func apply(_ mode: AppearanceMode)"),
+                                 "apply moved — update this scan")
+        var depth = 0
+        var body = ""
+        var entered = false
+        for ch in code[start.upperBound...] {
+            if ch == "{" { depth += 1; entered = true }
+            if ch == "}" { depth -= 1 }
+            if entered { body.append(ch) }
+            if entered && depth == 0 { break }
+        }
+        try #require(body.count > 10, "apply's body parsed empty — the walker is broken")
+        #expect(body.contains("pin(mode, onto: NSApplication.shared, windows: NSApplication.shared.windows)"),
                 "apply no longer hands pin the open windows — the glass title-bar bug is back for on-screen windows")
     }
 
