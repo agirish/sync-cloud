@@ -332,8 +332,10 @@ import SwiftUI
         #expect(PaneViewMode.columns.rawValue == "columns")
         #expect(PaneViewMode.allCases == [.tree, .columns])
 
-        // The documented fallback in `stored(isLeft:in:)`, previously asserted nowhere: absent and
-        // unrecognised both read as the default, and a near-miss is unrecognised.
+        // The documented fallback in `stored(isLeft:in:)`. The absent and foreign-word halves were
+        // already pinned (`testColumnsIsTheDefault`, `testUnrecognisedValueFallsBackToTheDefault`);
+        // the case-NEAR-MISS is what this adds — "Tree" for "tree" is the shape a hand-edited
+        // plist or a case-renamed enum actually produces, and neither older test probes it.
         let defaults = ScratchDefaults("PaneViewModeRawValues")
         #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .default)
         defaults.set("Tree", forKey: PaneViewMode.defaultsKey(isLeft: true))
