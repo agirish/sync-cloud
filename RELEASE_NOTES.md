@@ -9,15 +9,16 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.3 has not been cut and this is not final copy. Work is
 > still landing, so entries will be added and existing ones may change or be withdrawn.
-> Covers `v4.2..140d4773` — 66 commits. Every claim below was checked against the `v4.2`
+> Covers `v4.2..96ddd485` — 120 commits. Every claim below was checked against the `v4.2`
 > tag: a fix to work that landed *inside* this range earns no entry, because no user of
 > v4.2 was ever exposed to it. That rule takes out a large part of this range. Two
 > adversarial review waves followed the first round of fixes, and a repair to a repair
 > reached nobody.
 
-**This one is repair.** v4.2 built the setup form and filled in the menu bar; v4.3 is what
-two reviews of the shipped code found underneath, and nearly all of it is the app quietly
-destroying or misreading your files.
+**Mostly repair, and one new thing.** v4.2 built the setup form and filled in the menu bar;
+v4.3 is what three reviews of the shipped code found underneath, and most of it is the app
+quietly destroying or misreading your files. The exception is Go to, which now reaches every
+Settings tab by name.
 
 The spine is a single mistake in four places. A file that existed but could not be
 *opened* — wrong permissions, an ACL, an I/O error, a dangling symlink — was read as a
@@ -35,6 +36,18 @@ fired for chords nobody aimed at them.
 
 On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0
 section first.
+
+### Go to
+
+- **Every Settings tab is a ⌘K destination, matched on the words of the controls inside
+  it.** Typing "appearance" matched nothing: the word lived only in Settings' own search
+  field, which you cannot reach without already having Settings open. The palette had one
+  Settings row, which opened whichever tab you happened to be on last. There are now ten,
+  one per tab, in the rail's own order — and each is matched on the folded-down vocabulary
+  of every control on that tab, so "glass", "log level" or "accent" find the page that
+  carries them. A row per control was the other reading and was rejected deliberately: 53
+  rows, four of which open the same page, none able to deliver what its title promises,
+  because the sheet lands on a tab and not on a row.
 
 ### What SyncCloud had stored about your files
 
@@ -65,6 +78,31 @@ section first.
   clear the guard anyway: the app correctly refused that one save and then overwrote the
   file on the very next one. It now keeps refusing, and keeps retrying the rescue, until
   the move succeeds.
+- **Two more stores had the same absent-versus-unreadable hole, and one of them was the
+  refusal log.** `PersonVetoLog` reached its "unreadable" answer only through a decode
+  failure, so a log this build could not decode read as a machine that had refused nothing
+  — and the next refusal recorded wrote that empty history over it. One refusal and the
+  record of every person you had declined was gone. The filing corpus had the identical
+  gap: a corpus present but unopenable answered "never surveyed" and walked into exactly
+  the overwrite its type was introduced to prevent.
+- **The re-survey no longer writes over a `filing-memory.json` it could not open.** An
+  unreadable memory decoded to nil, which is the right answer for readers — filing falls
+  back to folder names — and the wrong one for the single caller that writes. Nil made
+  "has the memory changed?" trivially true, and the atomic replace that followed needed
+  permission on the directory, not on the file, so it destroyed bytes the process had never
+  read.
+- **A key written on a person survives an edit.** Notes and unknown keys sitting *beside*
+  `people` in the roster file were already carried across a save. Keys written *on* a
+  person were not: the model reads five fields and drops everything else, then the whole
+  file is rewritten. A `nickname`, or a `_why` typed next to the person it explains, was
+  gone the first time anybody edited anybody — silently, because what is left behind is
+  still a well-formed roster.
+- **The filing fingerprint is derived from the folder the artifacts actually came from.**
+  It resolved the profile id from the field *inside* `folder-profile.json`, and the two
+  disagree whenever that field is absent or hand-edited — an omitted field decodes to
+  "default". The app's own rule is that the directory is the identity, and it logs a
+  warning when they split; the fingerprint ignored the warning and keyed the classification
+  cache to a profile nothing was reading or writing.
 
 ### Cloud files that are not on disk
 
@@ -96,6 +134,12 @@ section first.
   reachable form was a merge's own undo pair inverting: the folded files deleted back out
   of the keeper *before* the original was restored. The prologue is now straight-line, and
   a 300-pair test pins the ordering.
+- **Redoing a delete no longer trashes whatever has taken the path since.** The redo
+  re-trashed by bare path, and being on its list means "the undo put *our* item back here"
+  — which stops being true the moment something replaces it. Delete a file, ⌘Z, let a
+  different file land on that path, ⌘⇧Z, and the replacement went to the Trash with no
+  banner and no log line. Silent in both channels, which is how it lasted; the move-redo
+  path has refused this shape since item identity landed.
 
 ### Duplicates and merging
 
@@ -131,6 +175,55 @@ section first.
   and even for a single item it showed only the basename, which is no help at all when the
   two candidates are duplicate copies with the same name. It now lists the full paths,
   home-abbreviated, capped with an "and N more".
+- **The Compare review stops promising ⌘Z for a delete that cannot be undone.** Its
+  confirmation read "The left copy is kept. Reversible with ⌘Z." unconditionally. On a
+  volume with no Trash — exFAT, most SMB shares — the copy cannot be trashed, so the app
+  escalates to the permanent-delete confirmation and destroys it outright, with nothing
+  reaching the undo manager because there is no backup to restore from. The coordinator
+  already drew that distinction thirty lines below, in its log line; the dialog in front of
+  the same action did not.
+
+### Filing and automations
+
+- **A file whose scan never came back is no longer stuck forever.** Reading a scan holds
+  the file in an in-flight set released when the round trip returns, and the extractor has
+  no timeout — so a render that never came back left the file latched, and every later
+  "Read scan" on it was a silent no-op. Nothing cleared the set: switching provider did not,
+  and a filing rescan assigns its suggestions directly without touching it, so a latched
+  file survived any number of rescans. Switching provider now clears it, along with two
+  other filing collections left keyed to the old tree.
+- **"File recommended" cannot be started twice.** It checked only a *different* pass's
+  exclusion guard and carried none of its own, unlike every sibling write pass in the app.
+  Its confirmation is a modal alert, and a modal run loop keeps the main actor turning while
+  the first batch sits parked — so a second run was one gesture away.
+- **A cloud filing pass stands down when it cannot price the model.** The spend check read a
+  missing price as zero, and missing means "this build has no rate for that model id" — 
+  reachable in ordinary use, because a hand-set model is deliberately passed through
+  untouched while the pricing table matches only four name prefixes. A dated identifier is
+  both at once, and zero is the one substitute that fails every consumer in the same
+  direction: the estimate reads as free and the cap cannot bind.
+- **An automation checks a row is still its file before moving it.** The apply gated on
+  nothing more than a non-empty destination, and a dry-run report can sit on screen for
+  minutes — longer with the walkthrough, which stretches it over as many rows as you have.
+  Anything that took a row's path in the meantime was moved in its place.
+
+### Deleting, copying and the command line
+
+- **A dangling symlink is deleted instead of reported as already gone.** The trash was gated
+  on an existence check that follows the link, so a symlink whose target had been deleted —
+  or lives on a volume that is not mounted — answered "not there", and the branch had no
+  else. No error, no banner, no place in the removed count: you selected it, pressed Delete,
+  were told the operation succeeded, and the link stayed exactly where it was.
+- **The verified-copy offer re-checks both ends before it writes.** Its guards count this
+  app's own writes and nothing else, and the dialog never expires — so a cloud daemon
+  syncing down a new version of a file while the offer sat open was completely invisible.
+  Confirming then bulk-overwrote with the left side's *current* bytes, which were never the
+  bytes that had been hashed, over a file that had changed since the verdict was taken.
+- **`sync` re-checks its plan against disk before each write.** The plan was drawn once at
+  scan time and then executed however long the `[y/N]` prompt sat there — `--verify` runs
+  before the prompt, so its verdicts were the same age, and nothing looked at the files
+  again in between. A file rewritten while you read the list was overwritten by the stale
+  copy the plan had picked.
 
 ### The keyboard
 
@@ -181,6 +274,9 @@ section first.
   card-level accessibility at all, so the position, the filename and the destination were
   read as three unrelated siblings with nothing answering the one question that matters —
   which file am I deciding about.
+- **The bulk difference menu acts on the rows as they are when you pick an item**, not as
+  they were when you right-clicked. A menu stays open across whatever the app does behind
+  it, so a scan landing underneath left the click operating on a stale table.
 - **The Help book covers what v4.2 added** — the file clipboard, the Storage bars and the
   ⌘K redesign shipped without ever being described in the book that describes the app.
 - Several refusals in the duplicates and merge paths that were previously banner-only now
