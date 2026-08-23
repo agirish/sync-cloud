@@ -48,6 +48,19 @@ final class CallCounter: @unchecked Sendable {
     func next() -> Int { lock.lock(); defer { lock.unlock() }; count += 1; return count }
 }
 
+/// What the classifier was handed on a re-ask — recorded from a `@Sendable` closure, so it is a
+/// lock-guarded box rather than a captured `var`.
+private final class SnippetBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _snippet: String?
+    private var _tier: FilingClassifierTier?
+    func record(tier: FilingClassifierTier, snippet: String?) {
+        lock.lock(); _tier = tier; _snippet = snippet; lock.unlock()
+    }
+    var snippet: String? { lock.lock(); defer { lock.unlock() }; return _snippet }
+    var tier: FilingClassifierTier? { lock.lock(); defer { lock.unlock() }; return _tier }
+}
+
 @Suite struct FileSyncManagerFilingTests {
 
     private func write(_ url: URL, bytes: Int = 5000, fill: UInt8 = 0x41) throws {
@@ -909,6 +922,76 @@ final class CallCounter: @unchecked Sendable {
         #expect(best?.path == "/p/Docs/Fresh")
         #expect(best?.newSegments == [],
                 "the fallback must use the taxonomy list snapshotted pre-await, not the swapped one")
+    }
+
+    // MARK: - The paid re-ask must not go out blind
+
+    /// **"Try another" is a `.refine` call — the paid tier — and it sent `contentSnippet: nil`.**
+    ///
+    /// The refine PASS made exactly this change for exactly this reason, and says so: it extracts
+    /// for every file, not only the nameless ones, because it is "the last place to hand the model
+    /// less than the router already had — a name-only verdict here is one the overlay will refuse
+    /// anyway (`contentBlind`), which is a paid round-trip that changes nothing". A re-ask is the
+    /// same kind of pass, asked for by the same click, and was still going out blind.
+    ///
+    /// The evidence is free and already in hand: `filingPageSamples` holds page 1 of every file the
+    /// scan read, and `tryAnotherFolder` itself reads it a few lines later for the person veto.
+    @MainActor
+    @Test func tryAnotherFolderSendsThePageTheScanAlreadyRead() async throws {
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+
+        let seen = SnippetBox()
+        manager.filingClassifier = { _, files, tier in
+            seen.record(tier: tier, snippet: files.first?.contentSnippet)
+            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai",
+                              proposesNewFolder: true)) })
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/Scan.pdf", fileName: "Scan.pdf",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.publishFilingSuggestions([s])
+        manager.filingPageSamples["/p/Downloads/Scan.pdf"] =
+            "eOCI Card | Government of India | Bureau of Immigration"
+
+        await manager.tryAnotherFolder(for: s)
+
+        #expect(seen.snippet == "eOCI Card | Government of India | Bureau of Immigration",
+                "the paid re-ask went out with no content, so the overlay can refuse the verdict it paid for")
+        // The premise: this really is the paid tier, which is what makes a blind ask cost money.
+        #expect(seen.tier == .refine)
+    }
+
+    /// A file the scan never read still sends nil — the honest answer for it, and the guard must
+    /// not invent an excerpt to avoid one.
+    @MainActor
+    @Test func tryAnotherFolderSendsNilForAFileWithNoPageSample() async throws {
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+
+        let seen = SnippetBox()
+        manager.filingClassifier = { _, files, tier in
+            seen.record(tier: tier, snippet: files.first?.contentSnippet)
+            return [:]
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0023.HEIC", fileName: "IMG_0023.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.publishFilingSuggestions([s])
+
+        await manager.tryAnotherFolder(for: s)
+        #expect(seen.snippet == nil)
     }
 
     /// Each "Try another" click fires its own unstructured Task; without a guard two rapid

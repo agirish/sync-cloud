@@ -1317,10 +1317,22 @@ extension FileSyncManager {
             }
         }
         let excluded = allRejected.compactMap { Self.relativePath($0, under: root) }
+        // **The page the scan already read, not nil.** This is a `.refine` call — the paid tier —
+        // and it was handing the model less than the router had. The refine PASS made exactly this
+        // change for exactly this reason: "the last place to hand the model less than the router
+        // already had — a name-only verdict here is one the overlay will refuse anyway
+        // (`contentBlind`), which is a paid round-trip that changes nothing". A re-ask is the same
+        // kind of pass, asked for by the same click, and was still going out blind.
+        //
+        // Free, and already in hand: `filingPageSamples` holds page 1 of every file the scan read,
+        // bounded to the router's own sample size — this very function reads it forty lines down
+        // for the person veto. Nothing is re-extracted, so the click costs no more I/O than before.
+        // A file the scan never read still sends nil, which is the honest answer for it.
         let file = FilingCandidateFile(filePath: suggestion.filePath, fileName: suggestion.fileName,
                                        ext: (suggestion.fileName as NSString).pathExtension.lowercased(),
                                        year: Self.modificationYear(suggestion.modificationDate),
-                                       contentSnippet: nil, excludedRelativePaths: excluded)
+                                       contentSnippet: filingPageSamples[suggestion.filePath],
+                                       excludedRelativePaths: excluded)
         // `.refine`, not `.free` — this is the same thing the refine pass is, for one card: an
         // explicit click asking the preferred backend for a better answer. Routing it to the free
         // tier would re-ask the model that already produced the destination being rejected.
