@@ -498,6 +498,25 @@ deliberately NOT changed anywhere: the per-item "Replaced … recoverable" `.inf
 comment defends the level) and the Duplicates same-instance warning the review had called dead
 (rewritten since into a documented fail-open guard).
 
+**The adversarial-review fix pass (2026-08-23), triaged as it landed.** The review of the
+coverage waves produced fixes on `main` (`4d233141..f2e0c26d`); the line-portable subset landed
+on both lines the same day: the delegate-existential walk widening and ProviderMenu scan
+hardening (v2.x keeps its reduced no-door variant, count ban only), the banner countdown routed
+through its tested rule plus the ingredient-pair re-inline bans, the notifier pin's comment
+stripping, the appearance-scan body scoping, the dry-run clear-abandonment test, the reducer
+tabSwitched combo-count pin, the CLI sync-subcommand parse pins and Trash sweep, and the two
+Design doc corrections. The lines' `MachinePinned` copies gained the `layoutMetrics` case (each
+keeping its own sibling list), because their `LensHeaderCardTests` measure exact heights — that
+reason, not `pixelSampling`, which their copies earn nowhere. To `v2.x` alone:
+`PaneScanningPlaceholderRenderTests` marked `pixelSampling` — the one per-line divergence in that
+family, unmarked here while main's byte-similar copy has carried the mark since it existed. To
+`v3.x` additionally: the pixel/layout pins for the seven reader files this line shares with main
+(`PaneHeaderSearch`, `DuplicateReveal`, `PaneColumnCarryOver`, `PaneSearchRow`, `HomeOnlyBadge`,
+`StorageMagnitude`, `RiskyNameBadge`, plus the `FolderSourceMark`/`DetailsWhereItLives`
+suite→per-test conversions). Main-only, each checked: the chord-scan splitter hardening (v4
+surface), the gate-report trait binding and ground-truth `.enabled(if:)` (suites absent), the
+restore-plan tests (v4), and the pixel pins for files the lines do not carry.
+
 ## The unaudited surface, honestly
 
 Neither line has been audited commit-by-commit. These are the sizes as of 2026-08-20, narrowing from
