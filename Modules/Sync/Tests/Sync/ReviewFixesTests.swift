@@ -31,6 +31,41 @@ import Events
         #expect(FileSyncManager.caseSensitivityWalkingUp(from: URL(fileURLWithPath: "/a/b/c")) { _ in nil } == false)
     }
 
+    /// **The undo's case check asks about a path that is usually absent, so it must use the walk.**
+    ///
+    /// `sameItemAsMoved` decides whether a case-variant path at `item.from` is the moved item
+    /// itself or a foreign occupant the undo must refuse to displace. It asked
+    /// `volumeSupportsCaseSensitiveNames(for: item.from)` — and `item.from` is the path being
+    /// restored TO, which in an undo-of-a-move is normally not there. `resourceValues` throws for a
+    /// path with nothing on disk, so that probe "always produced the fallback — never the volume's
+    /// real answer", in the words of its own sibling's doc.
+    ///
+    /// The fallback is `false`, insensitive, and here that is the UNSAFE direction: it makes
+    /// `sameItemAsMoved` true on a genuinely case-sensitive volume, where the two paths are
+    /// distinct files, and waves the undo past the occupant guard the surrounding comment says must
+    /// trip. Folding is the safe default only where its cost is a needless " 2".
+    ///
+    /// A scan, and honest about it: telling the two probes apart behaviourally needs a
+    /// case-sensitive volume, which this machine is not — on a case-INsensitive disk both answer
+    /// `false` and the fix is indistinguishable from the bug, which is the same reason
+    /// `caseSensitivityWalkingUp` was split out to be tested directly above.
+    @Test func theUndosCaseCheckUsesTheProbeThatSurvivesAnAbsentPath() throws {
+        let url = URL(fileURLWithPath: #filePath)          // …/Tests/Sync/<this>.swift
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Sync/FileSyncManager+Undo.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+
+        // Non-vacuity: the decision this is about still exists and still reads a volume probe.
+        let line = try #require(source.range(of: "let sameItemAsMoved = "),
+                                "the undo's case check was renamed — this scan measures nothing")
+        let decision = String(source[line.lowerBound...].prefix(220))
+
+        #expect(decision.contains("volumeSupportsCaseSensitiveNamesForNewItem"),
+                "the undo asks a probe that throws for an absent path, so it always folds")
+        #expect(!decision.contains("volumeSupportsCaseSensitiveNames(for:"),
+                "the undo is back on the probe that cannot answer for a path being restored to")
+    }
+
     @Test func caseWalkStopsAtTheFirstAnswerRatherThanTheOutermost() {
         // A nested mount answers for itself; the walk must not keep climbing past it.
         let answer = FileSyncManager.caseSensitivityWalkingUp(from: URL(fileURLWithPath: "/outer/inner/new.txt")) { probe in

@@ -1276,7 +1276,23 @@ extension FileSyncManager {
                             // case-sensitive volume they're distinct, so a genuine occupant at
                             // item.from must still trip the guard (matches renameItem's isCaseOnly,
                             // which is likewise volume-gated).
-                            let sameItemAsMoved = !FileSyncManager.volumeSupportsCaseSensitiveNames(for: item.from)
+                            //
+                            // **The walking-up probe, because `item.from` is the path being
+                            // restored TO and is usually absent.** `volumeSupportsCaseSensitiveNames`
+                            // asks `resourceValues`, which throws for a path with nothing on disk —
+                            // its own sibling's doc says asking about a file about to be created
+                            // "always produced the fallback — never the volume's real answer". That
+                            // fallback is `false`, insensitive, and here that is the UNSAFE
+                            // direction: it makes `sameItemAsMoved` true on a genuinely
+                            // case-sensitive volume, where the two paths are distinct files, and
+                            // waves the undo past the occupant guard the comment above says must
+                            // trip. Folding is the safe default where it only costs a needless
+                            // " 2"; this is not that place.
+                            //
+                            // `…ForNewItem` walks to the nearest existing ancestor, which answers
+                            // for the volume the path lands on — volume semantics do not change
+                            // within a subtree.
+                            let sameItemAsMoved = !FileSyncManager.volumeSupportsCaseSensitiveNamesForNewItem(at: item.from)
                                 && item.from.path.caseInsensitiveCompare(item.to.path) == .orderedSame
                             // "Still the same item?" — the guard the doc comment claimed and the
                             // code did not have. The occupancy check below asks whether the SOURCE
