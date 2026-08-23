@@ -54,9 +54,33 @@ import Sync
                 "body no longer gates the Undo button on the tested rule")
         #expect(source.contains("if showsCountdown {"),
                 "body no longer gates the countdown bar on the tested rule")
-        // The negative direction: the raw conjunction must not reappear inline in body, or the
-        // truth table above stops describing the shipped gate.
-        #expect(!source.contains("if banner.isUndoable && canUndo"),
-                "the Undo gate was re-inlined — the tested rule is a parallel copy again")
+        // The negative direction: the raw conjunctions must not reappear inline, or the truth
+        // tables above stop describing the shipped gates. Spelled as ingredient pairs rather than
+        // one exact phrase, so a reordered `canUndo && banner.isUndoable` — or the countdown's
+        // `guard let seconds …, !reduceMotion` that survived the first extraction — cannot slip
+        // past a ban that only knew one spelling.
+        let lines = source.split(separator: "\n").filter {
+            !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+        }
+        let undoReinlines = lines.filter {
+            $0.contains("isUndoable") && $0.contains("canUndo") && !$0.contains("showsUndo")
+        }
+        #expect(undoReinlines.isEmpty,
+                "the Undo conjunction was re-inlined — the tested rule is a parallel copy again: \(undoReinlines)")
+        // Conditional lines only: the declaration, the static rule's signature and body, and the
+        // delegation all mention reduceMotion legitimately — what must not exist is a BRANCH on
+        // it outside the rule, which is the shape the surviving copy had
+        // (`guard let seconds = autoDismissSeconds, !reduceMotion else`).
+        let countdownReinlines = lines.filter {
+            ($0.contains("guard ") || $0.contains("if ")) && $0.contains("reduceMotion")
+        }
+        #expect(countdownReinlines.isEmpty,
+                "a branch consults reduceMotion outside the tested countdown rule — a parallel copy of the gate: \(countdownReinlines)")
+
+        // And the instance property must DELEGATE to the static the truth table drives — a
+        // re-derived instance body would let the shipped gate drift from the tested one while
+        // every assertion above stays green.
+        #expect(source.contains("Self.showsCountdown(autoDismissSeconds: autoDismissSeconds, reduceMotion: reduceMotion)"),
+                "the instance showsCountdown no longer delegates to the tested static rule")
     }
 }

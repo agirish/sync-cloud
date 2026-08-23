@@ -114,7 +114,9 @@ struct OperationBannerView: View {
     }
 
     private func startCountdown() {
-        guard let seconds = autoDismissSeconds, !reduceMotion else { countdown = 1; return }
+        // Routed through the tested rule rather than re-deriving `!reduceMotion` here — this was
+        // the one remaining parallel copy of the conjunction the extraction exists to end.
+        guard showsCountdown, let seconds = autoDismissSeconds else { countdown = 1; return }
         countdown = 1
         withAnimation(.linear(duration: seconds)) { countdown = 0 }
     }

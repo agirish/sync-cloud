@@ -78,8 +78,13 @@ import Sync
     /// The call-site pin: the banner `onChange` in ContentView must hand every new banner to
     /// `postIfEnabled`. This is the one line whose deletion previously shipped the feature dead.
     @Test func theBannerChangeHandlerCallsTheNotifier() throws {
-        let source = try macAppFile("ContentView.swift")
-        #expect(source.contains("OperationNotifier.postIfEnabled(for:"),
+        // Comment lines stripped: a commented-out call left behind by a deletion is exactly the
+        // state this pin exists to refuse, and a whole-file `contains` would accept it.
+        let code = try macAppFile("ContentView.swift")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        #expect(code.contains("OperationNotifier.postIfEnabled(for:"),
                 "nothing in ContentView hands a new banner to OperationNotifier — the background-notification feature is unwired")
     }
 }
