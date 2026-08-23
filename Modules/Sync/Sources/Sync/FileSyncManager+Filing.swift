@@ -1535,9 +1535,19 @@ extension FileSyncManager {
         // here can neither strip a successor's guard nor land a stale verdict.
         filingRefineInFlight = nil
         // The re-ask guard too. `tryAnotherFolder` releases its own entry in a `defer`, but only
-        // if it returns: `FilingClassifier` has no timeout, so a round-trip that never comes back
+        // if it returns: `FilingClassifier` is a seam with no timeout in its type, so a round-trip
+        // that never comes back
         // leaves the entry latched forever and every later "Try another" for that card is a
-        // silent no-op. Clearing here is the ONLY recovery hatch: a Filing rescan assigns
+        // silent no-op.
+        //
+        // **How reachable that is, measured rather than assumed:** what the app injects is bounded
+        // — `CloudFilingClassifier` sets `request.timeoutInterval = 90`, and a hard failure there
+        // falls back to the on-device model. So the shipped worst case is a latch held for the
+        // length of one timed-out request plus a local classify, not a permanent one; "forever"
+        // needs an injected backend that hangs. The hatch is kept because it is free and the seam
+        // is public, not because the shipped path is known to strand.
+        //
+        // Clearing here is the ONLY recovery hatch: a Filing rescan assigns
         // `filingSuggestions` directly and never touches this dictionary, so a latched card
         // survives any number of rescans — only a provider switch (the one caller of this
         // function) frees it. Clearing wholesale is safe because every release and result write
