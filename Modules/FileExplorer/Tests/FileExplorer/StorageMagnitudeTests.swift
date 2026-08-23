@@ -78,7 +78,7 @@ import Design
 /// edges stand in that ratio — and a `fraction` stuck at 1, or scaled to the wrong yardstick, puts
 /// them all at the same place.
 @MainActor
-@Suite struct StorageMagnitudeRenderTests {
+@Suite(.machinePinned(.pixelSampling)) struct StorageMagnitudeRenderTests {
 
     static let canvas = CGSize(width: 620, height: 420)
     /// A 4:3:2:1 ladder, largest first, as `StorageLens` emits `largest`.

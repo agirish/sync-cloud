@@ -18,7 +18,7 @@ import Sync
 /// for the opposite failure: a render that draws nothing would otherwise pass this test with a
 /// perfect zero.
 @MainActor
-@Suite struct PaneScanningPlaceholderRenderTests {
+@Suite(.machinePinned(.pixelSampling)) struct PaneScanningPlaceholderRenderTests {
 
     private struct StubDelegate: FileActionDelegate {
         func handleRefresh() {}

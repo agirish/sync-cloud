@@ -24,6 +24,11 @@ enum MachinePinnedReason: String {
     case pixelSampling
     /// Asserts latency thresholds calibrated on this hardware.
     case calibratedTiming
+    /// Measures laid-out text and control geometry (`fittingSize`, intrinsic widths, wrap
+    /// points) that tracks the OS's fonts and rendering metrics: the same code answers
+    /// differently across macOS releases and display configurations, so a different host fails
+    /// these for machine reasons rather than code reasons.
+    case layoutMetrics
 }
 
 enum MachinePinnedGate {
