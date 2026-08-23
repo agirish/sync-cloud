@@ -434,11 +434,21 @@ final class ScratchDefaults: UserDefaults {
 /// marker itself as `nil` — the failure names the missing marker, not the missing log line, so it
 /// reads like the production code stopped logging when nothing of the sort happened.
 ///
-/// The per-process temp file the test logger writes to (`Logger.defaultLogFileURL`) has neither
-/// problem: it is append-only, never trimmed, and `Logger.log` appends to it **at the call site**,
-/// so it holds every line in call order. Other suites still interleave their lines into it — that is
-/// why the window is still delimited by a unique tag, and why callers should filter for a line only
-/// they could have written.
+/// The per-process temp file the test logger writes to (`Logger.defaultLogFileURL`) does not have
+/// that problem: it holds every line, in call order, at any volume a test run reaches. Other suites
+/// still interleave their lines into it — that is why the window is still delimited by a unique tag,
+/// and why callers should filter for a line only they could have written.
+///
+/// **The bytes do not arrive by themselves, and this used to assume they did.** `Logger.log` calls
+/// `logWriter.append`, which is `queue.async` on a serial queue at **`qos: .background`** — the call
+/// is synchronous, the WRITE is not, and background QoS is exactly what the scheduler starves when
+/// the machine is busy. This helper polled for the marker instead, on the belief that the append
+/// "needs no flush marker to become visible"; measured across repeated full-package serial runs,
+/// that poll expired after 250+ real polls (so: not a starved wait — five seconds of genuine
+/// asking) with BOTH markers still absent, and the test it hit moved from run to run because
+/// swift-testing randomizes order. `Logger.flushToDisk()` is `queue.sync {}`: it blocks until the
+/// writer drains AND boosts the background queue's priority to the caller's for the duration, which
+/// is the half a poll can never supply. Its own doc said so all along.
 ///
 /// - Parameter tag: Something unique to this test — a `UUID().uuidString`. It goes in both markers.
 /// - Returns: The lines strictly between this window's markers, in call order.
@@ -449,13 +459,12 @@ func logLines(tag: String, during body: () async throws -> Void) async throws ->
     try await body()
     await Logger.shared.debug("log-window closes \(tag)").value
 
-    // The writer's disk queue is serial but asynchronous, so the bytes trail the call. Poll for the
-    // closing marker rather than sleeping a guessed interval.
-    var text = ""
-    await waitUntil("the log window's closing marker reaches disk") {
-        text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        return text.contains("log-window closes \(tag)")
-    }
+    // Drain the writer, rather than waiting for a background-QoS queue to get around to it. This
+    // returns only once every append issued above has hit the file, so the read below needs no
+    // poll and cannot expire — a marker missing after this is a real absence, which is what the
+    // two `#require`s are entitled to claim.
+    Logger.shared.flushToDisk()
+    let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     let opened = try #require(lines.firstIndex { $0.contains("log-window opens \(tag)") },
                               "the log window's opening marker never reached disk — this read would be vacuous")
@@ -477,12 +486,11 @@ func logLines(tag: String, during body: () async throws -> Void) async throws ->
 /// so every suite's lines are in it.
 @MainActor
 func loggedLineOnDisk(containing fragment: String) async -> String? {
+    // Drained, not polled — see `logLines(tag:during:)` for why a background-QoS append cannot be
+    // waited out. The marker line goes with it: with the queue drained there is nothing to detect
+    // the arrival OF, and a marker keyed on `hashValue` was never unique anyway.
     let url = Logger.shared.logFileURL
-    await Logger.shared.debug("disk-log flush marker \(fragment.hashValue)").value
-    var text = ""
-    await waitUntil("the flush marker reaches disk") {
-        text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        return text.contains("disk-log flush marker \(fragment.hashValue)")
-    }
+    Logger.shared.flushToDisk()
+    let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     return text.split(separator: "\n").map(String.init).last { $0.contains(fragment) }
 }

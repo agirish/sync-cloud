@@ -1639,9 +1639,29 @@ extension FileSyncManager {
             return false
         }
         duplicateGroups.removeAll { $0.id == group.id }
+        // **Offer ⌘Z only where this merge actually registered one**, which is not the same
+        // question as `!anyPermanentlyDeleted`. Two conditions, and they are separate:
+        //
+        // - `!anyPermanentlyDeleted` is the DELIBERATE withdrawal above: with a copy destroyed
+        //   outright the merge cannot be taken back, and the restore that *is* registered for the
+        //   copies that reached the Trash is named for itself rather than for the merge. That one
+        //   stays exactly as it was.
+        // - `registeredUndo` is the one this condition could not see: a merge that folded nothing
+        //   and trashed nothing enters the registration tail with `foldedItems` empty and no
+        //   handback, so the `if` above opens no group and registers nothing at all — while
+        //   `anyPermanentlyDeleted` is false, so the banner promised ⌘Z anyway. Reachable two
+        //   ways, both ordinary: every redundant copy already off the disk (an external delete, or
+        //   a retry after a partial merge — each one skipped by the loop's `fileExists` guard,
+        //   and skipping is not failing), or a group carrying no redundant copy at all.
+        //
+        // The stack is untouched in that case, which is precisely the harm: ⌘Z reverses whatever
+        // the user did BEFORE the merge, and the Edit menu names that step. Same rule the two
+        // reclaim paths already follow through `DeleteOutcome.isUndoable`, stated here because the
+        // merge builds its registration by hand and so has to answer the question itself.
+        let registeredUndo = !anyPermanentlyDeleted && (registersCopyUndo || trashedForUndo != nil)
         banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name)."
-                          + (anyPermanentlyDeleted ? "" : " Press ⌘Z to undo"),
-                          undoable: !anyPermanentlyDeleted)
+                          + (registeredUndo ? " Press ⌘Z to undo" : ""),
+                          undoable: registeredUndo)
         Logger.shared.info("Duplicates: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
         if anyPermanentlyDeleted {
             // He audits this log, and this is the case where the fold cannot be taken back. The

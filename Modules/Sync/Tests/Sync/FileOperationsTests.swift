@@ -189,6 +189,35 @@ import Foundation
         try #expect(FileSyncManager.validateFileOperation(source: parentDir, destination: URL(fileURLWithPath: "/src/otherFolder")) == ())
     }
 
+    /// **A source whose parent is the volume root.** The nesting guard builds its source prefix by
+    /// resolving the PARENT and re-appending the leaf (so a symlinked leaf is not followed — see
+    /// `aSymlinkCanBeMovedIntoTheDirectoryItPointsAt` below). At the root the parent's resolved
+    /// path is already `"/"`, so joining with another separator spelled the source `//Users`, and
+    /// the prefix `//Users/` matches no resolved destination path there is — the check came back
+    /// false for the one operation it exists to refuse, and a directory could be moved into itself.
+    ///
+    /// Every other depth was unaffected, which is why the ordinary tests above did not see it:
+    /// `/src/folder` has a parent of `/src`, with nothing to double.
+    @Test func testRecursivePathValidationHoldsForASourceAtTheVolumeRoot() async throws {
+        let atRoot = URL(fileURLWithPath: "/Users")
+
+        #expect(throws: FileSyncManager.FileOperationError.nestingViolation) {
+            try FileSyncManager.validateFileOperation(
+                source: atRoot, destination: URL(fileURLWithPath: "/Users/child"),
+                caseSensitiveVolume: true)
+        }
+        #expect(throws: FileSyncManager.FileOperationError.nestingViolation) {
+            try FileSyncManager.validateFileOperation(
+                source: atRoot, destination: URL(fileURLWithPath: "/users/child"),
+                caseSensitiveVolume: false)
+        }
+        // And a sibling at the same depth is still legal — the fix must not turn the root into a
+        // blanket refusal.
+        try #expect(FileSyncManager.validateFileOperation(
+            source: atRoot, destination: URL(fileURLWithPath: "/Elsewhere/child"),
+            caseSensitiveVolume: true) == ())
+    }
+
     /// On a case-insensitive volume (the macOS default), `/src/Folder` and `/src/folder` are the
     /// same directory: a case-variant destination must not slip past the nesting guard and
     /// trigger a recursive self-copy.

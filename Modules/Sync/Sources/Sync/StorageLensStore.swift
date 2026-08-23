@@ -56,6 +56,12 @@ public enum StorageLensStore {
         let snapshots: [StorageLensSnapshot]
     }
 
+    /// Just the version stamp, decoded on its own so a file this build cannot fully decode can
+    /// still say which build wrote it. See `read(from:)` for why that ordering is load-bearing.
+    private struct SchemaProbe: Codable {
+        let schema: Int
+    }
+
     /// How a read of the snapshot file went.
     ///
     /// **Absent, unreadable and foreign-schema all answered `[]`, and both writers are
@@ -114,8 +120,19 @@ public enum StorageLensStore {
             }
             return .absent
         }
+        // **The schema is read BEFORE the payload, and the order is the whole point.** Asked after
+        // a successful full decode, the foreign-schema case only fires for a newer file this build
+        // can still decode — which is the easy half. The version that matters is a newer build that
+        // CHANGED `StorageLensSnapshot`: this build's `Payload` decode fails, the answer is
+        // `.unreadable`, and the file goes to the set-aside — the exact old/new ping-pong
+        // `UnreadableSetAside`'s doc says is prevented here, minting another dated file on every
+        // launch of either build. A two-field probe costs one extra decode of a small object on a
+        // path taken once per read, and it makes the claim true for the case it was written for.
+        guard let probe = try? JSONDecoder().decode(SchemaProbe.self, from: data) else {
+            return .unreadable
+        }
+        guard probe.schema == currentSchema else { return .foreignSchema(probe.schema) }
         guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return .unreadable }
-        guard payload.schema == currentSchema else { return .foreignSchema(payload.schema) }
         return .loaded(payload.snapshots.sorted { $0.completedAt > $1.completedAt })
     }
 

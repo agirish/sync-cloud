@@ -21,9 +21,11 @@ private final class Harness {
     let syncManager: FileSyncManager
     let reviewStore = ReviewSessionStore()
 
-    /// The injected `FileManaging` reaches only the manager's own stats — `deleteItems` takes its
-    /// own (defaulted) file manager — so a test can hold the keeper stat open without stubbing out
-    /// the trash itself.
+    /// The injected `FileManaging` reaches the manager's stats AND, since `trashRightCopy` began
+    /// passing `fileManager:` explicitly, the removal itself — so a double that fails `trashItem`
+    /// drives the permanent-delete branch for real (see `DuplicateReviewLogHonestyTests`). This
+    /// used to say the removal took its own defaulted manager and was therefore undrivable; that
+    /// was true, and is the very seam that let the gate and the delete measure different disks.
     init(fileManager: FileManaging = FileManager.default) {
         syncManager = FileSyncManager(fileManager: fileManager)
     }
@@ -129,6 +131,20 @@ private final class Harness {
 /// window in which the user can act. Holding the stat open here reproduces the slow volume
 /// deterministically, so the window can be DRIVEN rather than raced — a `Task.sleep` long enough
 /// to hit it reliably would also be long enough to be a flake on a loaded runner.
+/// A real `FileManager` whose Trash always refuses — a Trash-less volume (exFAT, most SMB shares)
+/// without needing one. Same shape as `Sync`'s `MergeUndoPromiseTests.TrashlessVolume`.
+private final class TrashlessVolume: FileManager, @unchecked Sendable {
+    override func trashItem(at url: URL,
+                            resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+        throw NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
+    }
+}
+
+/// A reference box for what the permanent-delete confirmer was asked about; the closure escapes.
+private final class PermanentDeleteBox: @unchecked Sendable {
+    var paths: [String] = []
+}
+
 private final class GatedKeeperStat: FileManager, @unchecked Sendable {
     private let heldPath: String
     private let lock = NSLock()
@@ -699,6 +715,64 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.duplicateGroups.isEmpty)
         // And the pre-review Compare setup came back (the pinned right pane released).
         #expect(harness.rightId == "dropbox")
+    }
+
+    /// **The permanent-delete branch, driven for real** — which only became possible when
+    /// `trashRightCopy` started passing `fileManager:` to `deleteItems`.
+    ///
+    /// Before that the removal took `FileManager.default` whatever the manager held, so staging a
+    /// Trash-less volume achieved nothing: `trashItem` succeeded against the real temp directory,
+    /// the copy went to the user's ACTUAL Trash, and the branch was unreachable from a test. That
+    /// is why `DuplicateReviewLogHonestyTests` pins it by source scan, and why its doc used to say
+    /// no injection could reach it.
+    ///
+    /// The discriminator is `permanentDeleteConfirmer`, which `deleteItems` asks ONLY once the
+    /// trash has failed. With the removal on the injected manager it is asked, naming the copy;
+    /// with the removal on `FileManager.default` it is never asked at all — so an empty box here
+    /// means the two halves measured different filesystems. It also means this test never touches
+    /// the real Trash: the double refuses that call outright.
+    @Test func aPermanentlyDeletedRightCopyIsConfirmedAgainstTheManagersOwnFilesystem() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-perm-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+
+        let harness = Harness(fileManager: TrashlessVolume())
+        harness.lensProviderRoot = root.path
+        let ignored = DuplicateFinderOptions.defaultIgnoredNames
+        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: keep.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let deleteSnapshot = await FileSyncManager.folderContentSnapshot(
+            ofPath: copy.path, ignoredNames: ignored, fileManager: FileManager.default)
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        harness.trashConfirmAnswer = true
+
+        let askedAbout = PermanentDeleteBox()
+        harness.syncManager.permanentDeleteConfirmer = { paths in
+            askedAbout.paths = paths
+            return true
+        }
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the right copy leaves the disk") {
+            !FileManager.default.fileExists(atPath: copy.path)
+        }
+
+        #expect(askedAbout.paths.count == 1,
+                """
+                the permanent-delete confirmation was never raised, so the removal did not go \
+                through the manager the drift gate measures — it used FileManager.default and \
+                trashed the copy for real
+                """)
+        #expect(askedAbout.paths.first?.hasSuffix("Backup/Docs") == true,
+                "the confirmation named \(askedAbout.paths) rather than the right copy")
+        // The keeper is untouched, exactly as on the recoverable path.
+        #expect(FileManager.default.fileExists(atPath: keep.path))
     }
 
     /// **The review is the folder-ONLY flow, and its directory gate must see content.** The card

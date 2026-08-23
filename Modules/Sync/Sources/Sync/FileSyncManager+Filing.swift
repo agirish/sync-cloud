@@ -809,8 +809,15 @@ extension FileSyncManager {
     /// `tryAnotherFolder` routes to `.refine` — the paid tier — and consulted no spend gate at all:
     /// the one billable path in the app with no pre-flight, recorded as a known gap in its own
     /// comment. A modal per card click really would be worse than the gap, so this takes the half
-    /// of the gate that is not a conversation: an unpriced model and a cap breach both refuse and
-    /// say so in the log, and the click falls back to the free on-device answer.
+    /// of the gate that is not a conversation: an unpriced model and a cap breach both refuse, say
+    /// the specifics in the log and the remedy in a banner, and the click falls back to the free
+    /// on-device answer.
+    ///
+    /// **A banner rather than nothing, which is what "no dialog" first became.** The refusal's only
+    /// trace was the log: the button did nothing, said nothing, and the remedy lived in a file the
+    /// user has no reason to open. "Not a conversation" rules out a modal — it does not rule out
+    /// telling them. The banner is non-blocking, needs no answer, and is the surface every other
+    /// refusal in this file already uses.
     ///
     /// The refine PASS keeps its dialog, and keeps showing a cap breach as an informational alert —
     /// that pass is a deliberate bulk action the user asked to price. A single card is not, and the
@@ -821,6 +828,16 @@ extension FileSyncManager {
         case .notBilled:
             return true
         case .blocked:
+            // **Not silent on screen.** "No dialog" was the right call and it was over-applied to
+            // mean "no feedback at all": the click's only trace was `~/sync-cloud.log`, so a user
+            // who pressed a button and watched nothing happen had no way to learn why, and the
+            // remedy — a model with a known price — sat in a file they have no reason to open.
+            // A banner is not a conversation: it does not block the card, it does not need an
+            // answer, and it is the surface every other refusal in this file already uses. The
+            // gate has logged the specifics; this says the sentence the user needs.
+            banner = .warning("Couldn't ask Claude for another folder — the chosen model has no "
+                              + "known price, so the cost can't be checked. Keeping the on-device "
+                              + "suggestion; pick one of the offered models in Settings ▸ Intelligence.")
             return false
         case .billable(let preflight):
             guard preflight.wouldExceedCap else { return true }
@@ -829,6 +846,10 @@ extension FileSyncManager {
                 + "\(FilingSpendFormat.cost(preflight.monthlySpentUSD)), lifetime "
                 + "\(FilingSpendFormat.cost(preflight.totalSpentUSD))). Using the free on-device "
                 + "suggestion; raise the cap in Settings ▸ Intelligence to keep using Claude.")
+            // Same reasoning as `.blocked` above, and the remedy differs, so the sentence does.
+            banner = .warning("Couldn't ask Claude for another folder — it would pass a budget "
+                              + "cap. Keeping the on-device suggestion; raise the cap in "
+                              + "Settings ▸ Intelligence to keep using Claude.")
             return false
         }
     }
@@ -1393,8 +1414,9 @@ extension FileSyncManager {
         // re-ask consulted no spend gate at all: the one billable path in the app with no
         // pre-flight. A modal per card click really would be worse than the gap, so this takes the
         // half of the guardrail that is not a conversation — an unpriced model and a cap breach
-        // both refuse, silently on screen and loudly in the log, and the click keeps the free
-        // on-device suggestion it already had.
+        // both refuse under a banner naming the remedy (not a modal, and not silence: a click that
+        // does nothing, with its reason only in `~/sync-cloud.log`, teaches the user nothing), and
+        // the click keeps the free on-device suggestion it already had.
         //
         // The refine PASS keeps its dialog: that is a bulk action the user asked to price. This is
         // one card.

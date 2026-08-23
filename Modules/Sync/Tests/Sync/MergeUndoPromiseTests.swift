@@ -358,3 +358,103 @@ import Events
         #expect(manager.banner?.message.contains("⌘Z") == true)
     }
 }
+
+/// The other half of the merge's ⌘Z promise: a merge with **nothing to register**.
+///
+/// `MergeUndoPromiseTests` above pins the permanent-delete case, where the withheld registration is
+/// deliberate and `anyPermanentlyDeleted` withdraws the offer with it. This suite pins the case the
+/// same banner condition cannot see: a merge that folds nothing and trashes nothing registers no
+/// copy-undo AND no restore, so `anyPermanentlyDeleted` is false and the success banner offered a
+/// ⌘Z that points at whatever the user did BEFORE the merge.
+///
+/// Two ways to reach it, both real:
+///
+/// - every redundant copy has already left the disk (an external delete, or a retry after a
+///   partial merge). The loop's `guard fm.fileExists(atPath: redundant.path) else { continue }`
+///   skips each one, and skipping is not failing — `allTrashed` stays true and the merge succeeds.
+/// - the group carries no redundant copy at all. `DuplicateGroup.redundantCopies` excludes the
+///   keeper *and* the fallback keeper, so a one-copy group yields an empty list and the loop body
+///   never runs. `mergeDuplicateGroup` is `public` and `DuplicateGroup`'s initializer validates
+///   nothing, so what a group holds belongs to the caller — the same reasoning
+///   `applyRecommendedDuplicates` states for its own empty-batch banner.
+///
+/// The consequence is the one the file above opens with, minus the confirmation: the Edit menu and
+/// the banner both offer to reverse a step this merge never took.
+@Suite struct MergeEmptyUndoPromiseTests {
+
+    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try Data(repeating: fill, count: bytes).write(to: url)
+    }
+
+    private func copy(_ url: URL, keeper: Bool, unique: Int) -> DuplicateCopy {
+        DuplicateCopy(id: url.path, name: url.lastPathComponent, isDirectory: true, size: 4000,
+                      itemCount: 1, modificationDate: nil, uniqueItemCount: unique, depth: 0,
+                      isRecommendedKeeper: keeper)
+    }
+
+    /// A previous step the merge must not offer to reverse. Registered directly on the manager's
+    /// undo manager so the assertion is about what is on TOP of the stack, not about whether the
+    /// stack is empty — an empty stack would let a wrong "canUndo == false" pass for the right
+    /// reason and hide the misdirection this is about.
+    @MainActor
+    private func registerPriorStep(_ manager: FileSyncManager) -> UndoManager {
+        let undo = UndoManager()
+        manager.undoManager = undo
+        undo.registerUndo(withTarget: manager) { _ in }
+        undo.setActionName("Something Else")
+        return undo
+    }
+
+    @MainActor
+    @Test func aMergeWhoseCopiesHaveAllVanishedDoesNotPromiseAnUndoItNeverRegistered() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeVanished")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        // Listed in the group, gone from the disk — never created.
+        let vanished = base.appendingPathComponent("Redundant")
+
+        let manager = FileSyncManager()
+        let undo = registerPriorStep(manager)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
+                                   isDirectory: true,
+                                   copies: [copy(keeper, keeper: true, unique: 0),
+                                            copy(vanished, keeper: false, unique: 1)],
+                                   reclaimableBytes: 4000)
+
+        let ok = await manager.mergeDuplicateGroup(group)
+        #expect(ok, "skipping a copy that is already gone is not a failure")
+        let banner = try #require(manager.banner)
+        #expect(!banner.isUndoable,
+                "the banner offered ⌘Z for a merge that registered nothing: \(banner.message)")
+        #expect(!banner.message.contains("⌘Z"),
+                "the banner's prose offered ⌘Z for a merge that registered nothing: \(banner.message)")
+        #expect(undo.undoActionName == "Something Else",
+                "the merge registered nothing, so ⌘Z still points at the step before it")
+    }
+
+    @MainActor
+    @Test func aMergeOfAGroupWithNoRedundantCopyDoesNotPromiseAnUndo() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "MergeNoRedundant")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+
+        let manager = FileSyncManager()
+        let undo = registerPriorStep(manager)
+        // One copy, so `redundantCopies` is empty and the fold loop never runs.
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 1.0), name: "Keeper",
+                                   isDirectory: true,
+                                   copies: [copy(keeper, keeper: true, unique: 0)],
+                                   reclaimableBytes: 0)
+
+        _ = await manager.mergeDuplicateGroup(group)
+        let banner = try #require(manager.banner)
+        #expect(!banner.isUndoable,
+                "the banner offered ⌘Z for a merge that registered nothing: \(banner.message)")
+        #expect(undo.undoActionName == "Something Else",
+                "the merge registered nothing, so ⌘Z still points at the step before it")
+    }
+}

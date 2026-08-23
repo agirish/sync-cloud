@@ -96,6 +96,21 @@ struct ReviewCardView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
+        // **The recovery hatch that has to come with the `focused` guard below.** Adding `focused`
+        // to ⏎ and ⌫ made a card that has lost key focus a card whose advertised keys do nothing —
+        // so there has to be a way back, and clicking the thing you are looking at is the one a
+        // user will try. `.focusable()` alone does NOT claim focus on click (that is why this
+        // modifier exists at all), and `.contentShape` is what makes the card's padding and
+        // background hittable rather than only the text inside it — an unfilled shape is hit-tested
+        // only where it is painted.
+        //
+        // Deferred a turn for the same reason `.task(id:)` below defers its claim: a `@FocusState`
+        // write in the transaction that is already handling the click can be silently dropped.
+        //
+        // `FilingWalkthroughCard` — the sibling this card's guard was copied FROM — carries the
+        // identical pair. It got the hatch; this card got only the restriction.
+        .contentShape(Rectangle())
+        .onTapGesture { reclaimFocus() }
         // ⏎ — BOTH Enter keycaps, `.down` only, plain keystrokes only.
         //
         // `.keypadEnter` beside `.return`: a full-size keyboard has two keys marked Enter and
@@ -317,6 +332,13 @@ struct ReviewCardView: View {
                 // One button, source side (same as ␣) — mockup style. The destination copy is
                 // a right-click away on the row (Quick Look per side in the context menu).
                 Button {
+                    // Focus back to the card, for the same reason the walkthrough card's Quick
+                    // Look and Reveal go through `recoveringFocus`: this button can take key focus
+                    // (Full Keyboard Access), and the card's ⏎/⌫ are guarded on `focused`, so
+                    // without this a Quick Look leaves the advertised keys dead on a card that is
+                    // still showing their keycaps. Nothing changes the item here, so the
+                    // `.task(id: item.id)` claim below — which covers File and Skip — never fires.
+                    reclaimFocus()
                     onQuickLook(URL(fileURLWithPath: item.reviewSourcePath))
                 } label: {
                     Label("Quick Look", systemImage: "doc.viewfinder")
@@ -331,6 +353,9 @@ struct ReviewCardView: View {
             }
             if model.canVerify {
                 Button {
+                    // Same as Quick Look above: Verify leaves the item alone, so nothing else
+                    // gives the card its focus back.
+                    reclaimFocus()
                     performVerify(item)
                 } label: {
                     Label("Verify", systemImage: "checkmark.shield")
@@ -354,6 +379,16 @@ struct ReviewCardView: View {
     }
 
     // MARK: Actions
+
+    /// Puts key focus back on the card, one turn later.
+    ///
+    /// One spelling for every route that can take focus off it — a click on the card body, and a
+    /// click on one of its own buttons — so the deferral is decided once. The turn matters: a
+    /// `@FocusState` write made inside the transaction handling the click can be dropped, the same
+    /// gotcha `.task(id:)`'s claim below is written around.
+    private func reclaimFocus() {
+        Task { @MainActor in focused = true }
+    }
 
     private func quickLookKeyPressed(_ item: FileDifference) -> KeyPress.Result {
         guard let onQuickLook else { return .ignored }

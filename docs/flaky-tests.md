@@ -1352,19 +1352,57 @@ window was bounded strictly between its own markers**, because the sibling's lin
 window, not after it; `@Suite(.serialized)` is what made the same mutation fail (3 issues → 4). Both
 landed. Read rule 2 as closing the *before and after*, never as covering rule 4's job.
 
-#### The uncapped on-disk log — a better substrate, and why it is not a free win
+#### The on-disk log — a better substrate, and why it is not a free win
 
 **Measured 2026-08-22, in the order the mistakes were made, because the sequence is the lesson.**
 
 Everything above operates inside `entries`, so every remedy is shaped by its 1000-line cap. There is
-a second copy of the same stream that has no cap: `Logger.shared.logFileURL`. Two properties make it
-the better substrate for these assertions, and both are worth stating because neither is obvious —
-the append happens **at the call site**, synchronously inside the `nonisolated log(level:message:)`
-and *before* the flush task is returned (`logWriter.append(entry.formattedString + "\n")`), so the
-file preserves call order and needs no flush marker to become visible; and the 1000-line trim lives
-in `flushPendingEntries()` and touches `entries` alone, so the file never rolls. Under a test runner
+a second copy of the same stream with a far larger one: `Logger.shared.logFileURL`. It is the better
+substrate for these assertions — the append is *ordered* at the call site, inside the `nonisolated
+log(level:message:)` and before the flush task is returned, so the file preserves call order; and the
+1000-line trim lives in `flushPendingEntries()` and touches `entries` alone, so nothing an
+assertion's own window can outlive rolls it away at the sizes a test run reaches. Under a test runner
 it is a per-process temp file (`sync-cloud-tests-<pid>.log`, see `defaultLogFileURL()`), so it is
 scoped to the run and does not touch `~/sync-cloud.log`.
+
+**But you must DRAIN the writer before reading it, and this section used to say the opposite.**
+It said the append happens "synchronously ... so the file ... needs no flush marker to become
+visible". Only the *call* is synchronous. `LogFileWriter.append` is `queue.async` on a serial queue
+declared **`qos: .background`** — so the write lands whenever the scheduler gets to it, and
+background QoS is the first thing starved when the machine is busy (a parallel package run, or a
+second session testing on the same Mac). `Logger.flushToDisk()` is `queue.sync {}`, which both
+blocks until the queue drains and lifts it to the caller's QoS for the duration; its own doc already
+said "blocks until the writer's queue drains, so a reader that needs to be sure". `logLines` and
+`loggedLineOnDisk` now call it.
+
+**Polling is not a substitute, and the measurement is the point.** The first cut waited for the
+closing marker with `waitUntil` on the belief above. Measured over repeated full-package serial runs
+of `Modules/Sync`: one run green, the next red on **two different tests**, each having polled
+**250+ times** — five full seconds of genuine asking, so not a starved wait — with *both* markers
+still absent. The pair moves from run to run because swift-testing randomizes order, so the victim
+is whichever windowed test happens to sit behind the backlog. A poll cannot fix this because the
+thing it waits on is priority-starved *by the waiting*; only `sync` donates the priority that clears
+it. **Tell for this one: both markers missing and a high poll count.** Both markers missing with a
+LOW poll count is the starved-wait mechanism instead, and both markers missing with the log near
+5 MB is the trim, below.
+
+**"The file never rolls" is what this said, and it is wrong** — corrected 2026-08-23, by reading
+`LogFileWriter` rather than reasoning from `entries`' trim living elsewhere. The file has a cap of
+its own: `LogFileWriter.defaultMaxFileSize` is **5 MB**, re-checked every `trimCheckInterval`
+(= `min(1 MB, maxFileSize / 2)`) bytes appended, and `trimTailIfOversized` keeps the TAIL — it
+discards the oldest lines, which is precisely where a `logLines(tag:)` window's OPENING marker sits.
+The claim was asserted from the absence of a trim in the path being replaced, never grepped in the
+writer; it is the exact failure the release-notes rule names, *a sentence about how the code is
+structured needs the same grep as one about what it does*.
+
+**Why it has not bitten, and what would make it.** Measured across this machine's test logs: the
+largest full-package serial run writes **~583 KB**, an order of magnitude under the cap, so no trim
+fires and the substrate behaves as the paragraph above describes. What would change that is volume,
+not time — roughly a 9× growth in logged lines per run, or a suite that logs in a loop. If a
+`logLines` assertion ever fails with **both** markers absent, check the log's size against 5 MB
+before reaching for anything else, and remember the writer's own documented residual: an append that
+lands on the orphaned inode during a trim's atomic rename is lost outright, so a trim can eat the
+CLOSING marker too and leave the wait to expire.
 
 `logLines(tag:during:)` and `loggedLineOnDisk(containing:)` in
 `Modules/Sync/Tests/Sync/TestSupport.swift` read it.
@@ -1504,8 +1542,9 @@ cannot afford citations that rot without saying so — `grep -n` costs the reade
   at the decision rather than at completion, which is rule 3 and the one that is easy to talk
   yourself out of.
 - `logLines(tag:during:)` in `Modules/Sync/Tests/Sync/TestSupport.swift` — the same two-marker
-  window read off the uncapped on-disk log instead of `entries`, for assertions that cannot survive
-  the cap; see the subsection above for what it does *not* close.
+  window read off the on-disk log instead of `entries`, for assertions that cannot survive the
+  1000-line cap; see the subsection above for what it does *not* close, including the 5 MB cap the
+  file has of its own (this line used to call it "uncapped").
 
 **This mechanism has a different number on each line, so cite it by name.** It is **12** here, 11 on
 `v2.x` and 10 on `v3.x`, because the three registers accumulated different entries before it. Write

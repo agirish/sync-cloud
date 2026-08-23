@@ -998,9 +998,14 @@ private final class SnippetBox: @unchecked Sendable {
 
     /// **A re-ask consulted no spend gate at all** — the one billable path in the app with no
     /// pre-flight, recorded as a known gap in its own comment. It now takes the half of the
-    /// guardrail that is not a conversation: a cap breach refuses, silently on screen and loudly in
-    /// the log, and the click keeps the free on-device suggestion it already had. A modal per card
-    /// click would be worse than the gap, so there is none — the refine PASS keeps its dialog.
+    /// guardrail that is not a conversation: a cap breach refuses, says the specifics in the log
+    /// and the remedy in a banner, and the click keeps the free on-device suggestion it already
+    /// had. A modal per card click would be worse than the gap, so there is none — the refine PASS
+    /// keeps its dialog.
+    ///
+    /// **The banner is asserted, not just the refusal**, because the first cut of this guard had
+    /// none: the click did nothing, said nothing, and the remedy lived in `~/sync-cloud.log`. A
+    /// test that only checks the classifier was not reached passes on that version too.
     @MainActor
     @Test func tryAnotherFolderStandsDownWhenACapWouldBePassed() async throws {
         let defaults = ScratchDefaults("reaskCap-\(UUID().uuidString)")
@@ -1032,6 +1037,50 @@ private final class SnippetBox: @unchecked Sendable {
         await manager.tryAnotherFolder(for: s)
 
         #expect(seen.tier == nil, "the re-ask reached the paid classifier with the lifetime cap already passed")
+        let banner = try #require(manager.banner, "the refused re-ask left the user no sign at all")
+        #expect(banner.severity == .warning)
+        #expect(banner.message.contains("budget cap"),
+                "the banner does not say why the click declined: \(banner.message)")
+        #expect(banner.message.contains("Settings"),
+                "the banner does not name the remedy: \(banner.message)")
+    }
+
+    /// The other refusal the same gate makes, and it needs its own sentence: a model with no known
+    /// price cannot be quoted, so neither cap can be enforced against it. The remedy is a different
+    /// one (pick an offered model, not raise a cap), and a banner that named the wrong one would
+    /// send the user to a control that changes nothing.
+    @MainActor
+    @Test func tryAnotherFolderSaysWhyWhenTheModelHasNoKnownPrice() async throws {
+        let defaults = ScratchDefaults("reaskUnpriced-\(UUID().uuidString)")
+        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        // A model name no price table knows, which is exactly the state the gate blocks on.
+        defaults.set("claude-not-a-real-model", forKey: FileSyncManager.cloudModelDefaultsKey)
+
+        let manager = FileSyncManager()
+        manager.filingContentDefaults = defaults
+        manager.filingRuleDefaults = defaults
+        manager.filingBackendIdentity = { _ in "cloud:claude-not-a-real-model" }
+
+        let seen = SnippetBox()
+        manager.filingClassifier = { _, files, tier in
+            seen.record(tier: tier, snippet: files.first?.contentSnippet)
+            return [:]
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/Scan.pdf", fileName: "Scan.pdf",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.publishFilingSuggestions([s])
+
+        await manager.tryAnotherFolder(for: s)
+
+        #expect(seen.tier == nil, "the re-ask reached a classifier whose call could not be priced")
+        let banner = try #require(manager.banner, "the refused re-ask left the user no sign at all")
+        #expect(banner.message.contains("price"),
+                "the banner does not say the price is what is missing: \(banner.message)")
+        #expect(!banner.message.contains("raise the cap"),
+                "the banner sends the user to raise a cap, which is not this refusal's remedy: \(banner.message)")
     }
 
     /// **And it still runs when there is room** — the guard must not become "never re-ask". Same
@@ -1062,6 +1111,9 @@ private final class SnippetBox: @unchecked Sendable {
         await manager.tryAnotherFolder(for: s)
 
         #expect(seen.tier == .refine, "a re-ask with budget left was refused")
+        // And the banner must stay OUT of the ordinary path: a warning on every successful re-ask
+        // would be the noise that trains the user to ignore the one that matters.
+        #expect(manager.banner == nil, "a re-ask that went through posted a banner anyway")
     }
 
     /// Each "Try another" click fires its own unstructured Task; without a guard two rapid

@@ -157,7 +157,15 @@ extension FileSyncManager {
         let parent = standardized.deletingLastPathComponent()
         let leaf = standardized.lastPathComponent
         guard !leaf.isEmpty, leaf != "/" else { return symlinkResolvedPath(for: url) }
-        return symlinkResolvedPath(for: parent) + "/" + leaf
+        let parentPath = symlinkResolvedPath(for: parent)
+        // **Join without doubling the separator.** A source directly under the volume root has
+        // `/` as its parent, and a bare `parent + "/" + leaf` spelled it `//Users` — which the
+        // caller then turns into the prefix `//Users/`, and no resolved destination path ever
+        // starts with that. So `isNested` came back false for exactly the operations it exists to
+        // refuse: moving `/Users` into `/Users/anything` would have been allowed through, a
+        // directory into itself. Only the root has a trailing slash to collide with, which is why
+        // one `hasSuffix` covers it.
+        return parentPath.hasSuffix("/") ? parentPath + leaf : parentPath + "/" + leaf
     }
 
     /// True when the volume containing `url` distinguishes names by case. Falls back to false

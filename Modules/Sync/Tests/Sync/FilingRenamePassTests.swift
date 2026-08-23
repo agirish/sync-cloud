@@ -95,6 +95,15 @@ import Events
         #expect(try names(in: bucket) == ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"])
         // ONE grouped undo for the whole pass: a single ⌘Z puts all three back, not just the last.
         #expect(undo.canUndo)
+        // **The ⌘Z sentence and the `undoable:` flag must agree.** The flag is what
+        // `invalidateUndoableBanner` reads to retire the offer once another operation registers
+        // its own undo; defaulted to false, this banner outlived its step and kept telling the
+        // user to press ⌘Z after that shortcut had come to mean the OTHER operation. Asserting the
+        // prose alone would pass on the broken version, so both are checked.
+        let banner = try #require(manager.banner)
+        #expect(banner.message.contains("⌘Z"))
+        #expect(banner.isUndoable, "the ⌘Z offer is not flagged, so nothing retires it: \(banner.message)")
+
         undo.undo()
         await waitUntil("all three names restored") {
             ((try? names(in: bucket)) ?? []) == ["1. Mar 2021.pdf", "2. Apr 2021.pdf", "3. May 2021.pdf"]

@@ -453,8 +453,18 @@ extension FileSyncManager {
         Logger.shared.info("Rename pass: renamed \(n) file(s)\(result.stale > 0 ? ", \(result.stale) stale" : "")\(result.failed > 0 ? ", \(result.failed) failed" : "")\(result.abandoned > 0 ? ", \(result.abandoned) in a rolled-back renumbering" : "")")
         let message = Self.renameOutcome(renamed: n, stale: result.stale, failed: result.failed,
                                          abandoned: result.abandoned, stranded: result.stranded)
+        // **`undoable:`, on both severities.** `message` carries "Press ⌘Z to undo" for every
+        // `renamed > 0` outcome, and the FLAG — not the prose — is what `invalidateUndoableBanner`
+        // reads to retire the offer once the undo stack moves on. Defaulted to false, this banner
+        // outlived its own step: any later operation registering an undo left it standing, still
+        // saying press ⌘Z, which by then reverses that operation instead. Severity and undoability
+        // are separate axes, which is why `.warning` takes the parameter at all — a pass that
+        // renamed some files and left others is a warning AND undoable. The registration above is
+        // unconditional on this path (`result.moves` is non-empty), so the flag is true exactly
+        // where `renameOutcome` puts the sentence. The `renamed: 0` branch above emits no ⌘Z
+        // clause and correctly stays unflagged.
         banner = (result.failed > 0 || result.stale > 0 || result.abandoned > 0)
-            ? .warning(message) : .success(message)
+            ? .warning(message, undoable: true) : .success(message, undoable: true)
     }
 
     /// The banner sentence for a finished pass. Pure and static so the wording — including the part

@@ -99,6 +99,39 @@ import Testing
                 "the newer build's file did not survive")
     }
 
+    /// **The half of the ping-pong the two tests above cannot see.** Both of them write
+    /// `{"schema":99,"snapshots":[]}` — a foreign VERSION whose payload this build still decodes
+    /// perfectly. The schema check was asked *after* a successful full decode, so that fixture is
+    /// the easy case and it passed with the ordering wrong.
+    ///
+    /// The version that matters is a newer build that CHANGED the snapshot record, because that is
+    /// what a schema bump is normally FOR. Then this build's `Payload` decode fails, the read
+    /// answers `.unreadable`, and the file goes to the set-aside — reinstating the exact ping-pong
+    /// the test above pins the absence of, on the one input a real schema bump produces.
+    @Test func aForeignSchemaWhoseRecordsThisBuildCannotDecodeIsStillNotAnEpisode() throws {
+        let url = try storeURL("pingpongShape")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        // Schema 99 AND a snapshot record of a shape this build has no model for.
+        let future = Data("""
+        {"schema":99,"snapshots":[{"root":"/b","aFieldThisBuildHasNever":true}]}
+        """.utf8)
+
+        for _ in 0..<5 {
+            try future.write(to: url)
+            StorageLensStore.saveInBackground(snapshot("/b"), to: url)
+            StorageLensStore.waitForPendingWrites()
+        }
+
+        #expect(setAsidesBeside(url).isEmpty,
+                """
+                \(setAsidesBeside(url).count) set-aside(s) after five rounds — a newer build's \
+                file whose RECORDS this build cannot decode is still being treated as an \
+                unreadable episode
+                """)
+        #expect(FileManager.default.contents(atPath: url.path) == future,
+                "the newer build's file did not survive")
+    }
+
     /// The other direction, so the case above cannot become "nothing is ever set aside": genuinely
     /// unreadable bytes still are, and exactly once — the path is free afterwards, so the next
     /// launch writes a fresh file and there is no second episode to mint a second name.

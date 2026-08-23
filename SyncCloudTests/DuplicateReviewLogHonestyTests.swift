@@ -3,12 +3,13 @@ import Foundation
 
 /// Pins the one thing `DuplicateReviewCoordinator` says about a trash that may not have been one.
 ///
-/// **A scan rather than a run, and the reason is structural.** `trashRightCopy` reaches the Trash
-/// through `syncManager.deleteItems(at:)`, which takes its OWN defaulted file manager — the
-/// `FileManaging` a test injects into the manager reaches only the keeper stat, as the coordinator
-/// suite's harness documents. So no injection available to a test can make that call take the
-/// permanent-delete branch; driving it for real would need a Trash-less volume. The branch is
-/// therefore pinned where it is written.
+/// **A scan, and the reason it used to give is no longer true.** It said `trashRightCopy` reaches
+/// the Trash through a `deleteItems(at:)` taking its OWN defaulted file manager, so no injection
+/// could drive the permanent-delete branch. That call now passes `fileManager: fm` — the manager's
+/// own, the one the coordinator's drift assessment already measures through, which is what makes
+/// the gate and the removal answer for the same filesystem. `aPermanentlyDeletedRightCopyIs…` in
+/// `DuplicateReviewCoordinatorTests` (where the harness lives) is that branch driven for real;
+/// this scan stays as the cheap structural guard beside it.
 ///
 /// What it guards: `deleteItems` answers a `DeleteOutcome` separating "reached the Trash" from
 /// "destroyed permanently", and this caller logged "Trashed the right duplicate copy" for both. On
@@ -41,11 +42,22 @@ import Foundation
         // The premise: this really is the site that removes the right copy. Without it a rename of
         // the call would leave every assertion below quietly true of a file that no longer deletes
         // anything.
-        // The call now carries the last-moment `removalGate` (the drift re-check `deleteItems`
-        // runs when the queued operation starts and again after a confirmed permanent delete), so
-        // the pinned spelling includes it — a revert to the gateless call fails here on purpose.
-        #expect(code.contains("deleteItems(at: [review.deletePath], removalGate:"),
-                "the right copy is no longer removed here (or lost its removal gate) — this scan has lost its subject")
+        // The call carries two things a revert would drop, so both are pinned: the last-moment
+        // `removalGate` (the drift re-check `deleteItems` runs when the queued operation starts and
+        // again after a confirmed permanent delete), and the explicit `fileManager:`, without which
+        // the gate re-assesses through the manager's file manager while the removal reaches for
+        // `FileManager.default`.
+        //
+        // Three fragments rather than one literal: this pinned the whole call as a SPELLING, and
+        // inserting the argument between `at:` and `removalGate:` broke it while the subject sat
+        // exactly where it always had. A scan that fails on formatting is a scan that gets relaxed
+        // under pressure.
+        #expect(code.contains("deleteItems(at: [review.deletePath]"),
+                "the right copy is no longer removed here — this scan has lost its subject")
+        #expect(code.contains("fileManager: fm"),
+                "the removal no longer names a file manager, so it and its own gate can measure different filesystems")
+        #expect(code.contains("removalGate:"),
+                "the removal lost its last-moment gate")
         // The branch, and both of its answers. An unconditional revert loses all three.
         #expect(code.contains("outcome.trashed > 0"),
                 "the log no longer asks how the copy left, so it reports one outcome for both")

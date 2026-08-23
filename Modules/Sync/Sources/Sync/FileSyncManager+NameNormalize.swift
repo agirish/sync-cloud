@@ -201,9 +201,19 @@ extension FileSyncManager {
         riskyNames.removeAll { doneSet.contains($0.id) }
 
         Logger.shared.info("Name normalizer: normalized \(n) name(s)\(result.failed > 0 ? ", \(result.failed) failed" : "")")
+        // **`undoable:` as well as the sentence**, on BOTH branches. The flag — not the prose — is
+        // what `invalidateUndoableBanner` reads to retire the offer when the undo stack moves on,
+        // and these two defaulted it to false while the text said "Press ⌘Z to undo". So the
+        // offer outlived the step it points at: any later operation registering its own undo left
+        // this banner standing, still instructing the user to press ⌘Z, which by then reverses
+        // that operation instead. Severity is a separate axis from undoability, which is why
+        // `.warning` takes the parameter at all — the partial branch is a warning AND undoable.
+        // The registration above is unconditional on this path (`result.moves` is non-empty), so
+        // the flag is true wherever the sentence is.
         banner = result.failed > 0
-            ? .warning("Normalized \(n) name\(n == 1 ? "" : "s"); \(result.failed) couldn't be fixed. Press ⌘Z to undo")
-            : .success("Normalized \(n) name\(n == 1 ? "" : "s"). Press ⌘Z to undo")
+            ? .warning("Normalized \(n) name\(n == 1 ? "" : "s"); \(result.failed) couldn't be fixed. Press ⌘Z to undo",
+                       undoable: true)
+            : .success("Normalized \(n) name\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
     }
 
     /// Removes one risky name from the list without touching disk ("Skip" / leave it as-is).

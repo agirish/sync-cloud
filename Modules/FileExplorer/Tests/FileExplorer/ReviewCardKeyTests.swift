@@ -36,7 +36,7 @@ import Sync
         var exits = 0
     }
 
-    private func makeCard(into recorder: Recorder) -> ReviewCardView? {
+    private func makeCard(into recorder: Recorder, focusNudge: Int = 0) -> ReviewCardView? {
         let queue = [FileDifference(
             id: UUID(),
             relativePath: "Reports/Q3-summary.pdf",
@@ -58,7 +58,7 @@ import Sync
             fileManager: FileManager.default,
             onQuickLook: nil,
             isActing: false,
-            focusNudge: 0,
+            focusNudge: focusNudge,
             onPrimary: { _ in recorder.primaries += 1 },
             onSkip: { _ in recorder.skips += 1 },
             onVerdict: { _, _, _ in },
@@ -434,4 +434,89 @@ import Sync
                     """)
         }
     }
+
+    // MARK: Focus recovery
+
+    /// **The hatch that has to come with the `focused` guard**, and the half of it this process can
+    /// actually prove.
+    ///
+    /// Adding `focused` to ⏎ and ⌫ (this session) made a card that has lost key focus a card whose
+    /// advertised keys silently do nothing. The routes back are a click on the card body and a
+    /// click on its own Quick Look / Verify buttons, all three of which now call `reclaimFocus()` —
+    /// a `Task { @MainActor in focused = true }`, one turn later.
+    ///
+    /// **The click itself is not reachable from here**, and that is stated rather than worked
+    /// around: a synthesized `leftMouseDown`/`leftMouseUp` through `window.sendEvent` does not
+    /// drive SwiftUI's tap gesture in this headless host — written and measured, the card kept its
+    /// dead keys. So this drives the same one-turn deferred claim through `focusNudge`, the host
+    /// route that IS reachable, and what it pins is the MECHANISM: that a deferred `focused = true`
+    /// really does bring ⏎ back after focus has moved away. That the three affordances call it is
+    /// pinned separately, by scan, below.
+    ///
+    /// The middle step is what stops this passing vacuously — ⏎ is proved DEAD first, so a green
+    /// cannot come from focus never having left.
+    @MainActor
+    @Test func aDeferredFocusClaimTakesTheCardsKeysBackAfterFocusMovedAway() async throws {
+        let recorder = Recorder()
+        let card = try #require(makeCard(into: recorder))
+        let (window, hostView) = host(card)
+        defer { window.contentView = nil }
+        guard await waitForCardFocus(in: window) else { return }
+
+        // Focus off the card — what a click on one of its own buttons does under Full Keyboard
+        // Access, staged here without needing FKA (which `NSApp` being nil makes unreadable).
+        window.makeFirstResponder(window)
+        _ = await LayoutPumpWait.pump(window, upTo: 5) { false }
+        sendReturn(window)
+        #expect(recorder.primaries == 0,
+                "PREMISE FAILED: ⏎ still ran the primary with focus off the card, so this test cannot see the recovery")
+
+        // The same deferred claim `reclaimFocus()` makes, driven through the host's nudge.
+        let bumped = try #require(makeCard(into: recorder, focusNudge: 1))
+        hostView.rootView = AnyView(bumped.frame(width: hostView.frame.width,
+                                                 height: hostView.frame.height))
+        _ = await LayoutPumpWait.pump(window, upTo: 10) {
+            window.firstResponder !== window && !(window.firstResponder is NSText)
+        }
+
+        sendReturn(window)
+        #expect(recorder.primaries == 1,
+                "a deferred focus claim did not give the card's keys back — ⏎ is still dead")
+    }
+
+    /// **Every affordance on the card that can take key focus away from it calls `reclaimFocus()`.**
+    ///
+    /// A scan, and weak on purpose-built evidence — it reads the source, so it cannot see whether
+    /// the call works, only whether it is there. The test above carries the mechanism. What this
+    /// one catches is the asymmetry that produced the defect: `FilingWalkthroughCard` was given the
+    /// `focused` guard AND the recovery (`recoveringFocus`, `onTapGesture`); this card, the one the
+    /// guard was copied from, was given only the guard — so a Quick Look or a Verify left ⏎ and ⌫
+    /// dead with their keycaps still on screen and no way back but a click on the table.
+    ///
+    /// Anchored on the two buttons by name rather than on a count of `reclaimFocus` calls: a count
+    /// passes when a NEW focus-taking button is added without one, which is the next way this
+    /// regresses.
+    @Test func theCardsOwnAffordancesAllPutKeyFocusBack() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/ReviewCardView.swift"),
+                                encoding: .utf8)
+        // The card body: a click anywhere on it is the route a user tries first, and it needs the
+        // filled hit area to be clickable at all — an unfilled shape is hit-tested only where
+        // painted.
+        #expect(source.contains(".contentShape(Rectangle())\n        .onTapGesture { reclaimFocus() }"),
+                "the card body no longer takes focus back on a tap")
+        // The two buttons that leave the ITEM alone, so `.task(id: item.id)`'s claim never fires
+        // for them. (File and Skip do change the item, and are covered by that claim.)
+        for button in ["Quick Look", "Verify"] {
+            let label = "Label(\"\(button)\""
+            let idx = try #require(source.range(of: label)?.lowerBound,
+                                   "the \(button) button is gone — re-aim this scan")
+            let action = String(source[..<idx].suffix(600))
+            #expect(action.contains("reclaimFocus()"),
+                    "the \(button) button can take key focus and does not give it back")
+        }
+    }
+
 }

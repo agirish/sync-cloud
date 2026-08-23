@@ -568,7 +568,15 @@ struct DuplicateReviewCoordinator {
             // with the same banner and log line — if the pair drifted in either window. A copy
             // that merely vanished meanwhile is not refused; the delete then removes nothing and
             // the `guard` below keeps the review up, as it always has for a no-op delete.
-            let outcome = await sm.deleteItems(at: [review.deletePath], removalGate: { about in
+            // `fileManager: fm` — the manager's own, the one `assessReviewedPair` above and the
+            // gate below both measure through. Left to default it was `FileManager.default`, so the
+            // verdict and the removal could be asked of two different filesystems: identical in the
+            // app (the manager holds `.default`), and not in any test that injects one, where the
+            // gate would re-assess a staged tree while the delete reached for the real disk. The
+            // sibling callers in `FileSyncManager+Duplicates` all pass it explicitly; this one is
+            // the seam that did not.
+            let outcome = await sm.deleteItems(at: [review.deletePath], fileManager: fm,
+                                               removalGate: { about in
                 let gateVerdict = await Self.assessReviewedPair(review, fileManager: fm)
                 switch gateVerdict {
                 case .matches, .deleteVanished:
