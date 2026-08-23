@@ -148,10 +148,12 @@ public final class SyncHistoryStore: ObservableObject {
     // MARK: - Clearing
 
     /// Empties both the in-memory mirror and the on-disk file.
+    ///
+    /// Deliberately silent here: the user-facing clear logs at its confirm
+    /// (`SyncHistoryView.clearIfConfirmed`), where the count and the user's decision are one
+    /// event. A line HERE fires from every test fixture's cleanup too, and Logger.shared's own
+    /// exact-count suite runs in the same package — the interference reddened CI once already.
     public func clear() {
-        // The one destructive clear in the app that had no line: a history that is suddenly empty
-        // should be attributable to this action, not read as the store failing to load.
-        Logger.shared.info("Sync history cleared — \(records.count) record(s) removed")
         records.removeAll()
         writer.clear()
     }
