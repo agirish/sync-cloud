@@ -12,7 +12,7 @@ import Design
 /// can say `if canCollapse` is present; it cannot say the row still fills its width, or that the
 /// chevron is really gone, which is exactly what changed when the header stopped being a button.
 @MainActor
-@Suite struct StorageSectionHeaderRenderTests {
+@Suite(.machinePinned(.pixelSampling)) struct StorageSectionHeaderRenderTests {
 
     static let canvas = CGSize(width: 620, height: 420)
 

@@ -10,7 +10,6 @@ import Testing
 //   Modules/Design/Tests/DesignTests/MachinePinned.swift
 //   Modules/Settings/Tests/Settings/MachinePinned.swift
 //   Modules/Sync/Tests/Sync/MachinePinned.swift
-//   SyncCloudTests/MachinePinned.swift
 /// Why a suite only produces a trustworthy verdict on the machine that recorded it.
 ///
 /// These suites are not flaky and they are not wrong — they are *pinned*: they compare

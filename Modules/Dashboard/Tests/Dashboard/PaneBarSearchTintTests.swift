@@ -18,7 +18,7 @@ import Design
 /// the mechanism instead, so a change that lets a query outlive its field fails here and the tint
 /// becomes necessary again with a test already saying so.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarSearchTintTests {
+@Suite(.serialized) struct PaneBarSearchTintTests {
 
     /// Collapsing clears the query, in one transaction. This is the whole invariant.
     @Test func testCollapsingClearsTheQuery() {
@@ -59,7 +59,7 @@ import Design
     ///
     /// The collapsed readings are the vacuity guards, deliberately loose: they say the crops are
     /// where the bar is, and the zero above them is the claim.
-    @Test func testTheFieldReplacesTheBarRatherThanJoiningIt() throws {
+    @Test(.machinePinned(.pixelSampling)) func testTheFieldReplacesTheBarRatherThanJoiningIt() throws {
         let collapsed = try Self.rendered(expanded: false, query: "")
         let expanded = try Self.rendered(expanded: true, query: "invoice")
 

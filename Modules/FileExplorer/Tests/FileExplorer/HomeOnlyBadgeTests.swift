@@ -12,7 +12,7 @@ import Sync
 /// a row that reserves one. `FileRowAccessoryStabilityTests` owns the geometry question (the slot
 /// does not move when an answer lands); this owns the paint question.
 @MainActor
-@Suite struct HomeOnlyBadgeRenderTests {
+@Suite(.machinePinned(.pixelSampling)) struct HomeOnlyBadgeRenderTests {
 
     private static let canvas = CGSize(width: 60, height: 24)
 
@@ -190,7 +190,7 @@ import Sync
 /// row: the row is exactly as wide with it as without, which is the whole point of the reservation
 /// and the reason a `fittingSize` delta cannot see this.
 @MainActor
-@Suite(.serialized) struct HomeOnlyBadgeWiringTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct HomeOnlyBadgeWiringTests {
 
     private static let canvas = CGSize(width: 260, height: 28)
 

@@ -898,7 +898,7 @@ import Design
     /// the largest text size is a single point. It is not slack to spend — anything that adds
     /// vertical padding to `RailItemLabel` fails here first.
     @MainActor
-    @Test("Every rail item fits the row the scroll clips it to")
+    @Test("Every rail item fits the row the scroll clips it to", .machinePinned(.layoutMetrics))
     func theRailItemFitsTheRowItIsClippedTo() {
         for size in FontSize.allCases {
             let host = NSHostingView(rootView:
@@ -1076,7 +1076,7 @@ import Design
                 "row 1's trailing side draws \(drawn)pt at \(size.scale)× against a reserve of \(OrganizeRailMetrics.searchToggleWidth) — a control has been put back up here and the rail is not being charged for it")
     }
 
-    @Test("The glyph table still matches the renderer")
+    @Test("The glyph table still matches the renderer", .machinePinned(.layoutMetrics))
     func theGlyphTableMatchesTheRenderer() throws {
         // ``OrganizeRailMetrics/glyphWidth(_:scale:)`` is tabulated because measuring costs ~812µs
         // for the six and the caller runs per `body`. Tabulated numbers rot; this is what stops

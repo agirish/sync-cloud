@@ -178,7 +178,7 @@ import Sync
     /// the name region differs too, which it can only do by rendering different glyphs. Comparing
     /// the totals alone would pass just as well if the date merely got wider, and pinning the
     /// counts themselves would break on any font revision.
-    @Test func theFoldersDateCostsA210ptColumnItsName() throws {
+    @Test(.machinePinned(.pixelSampling)) func theFoldersDateCostsA210ptColumnItsName() throws {
         let name = "Birth Certificate"
         func info(_ dated: Bool) -> FileRowInfo {
             FileRowInfo(FileNode(id: "/root/\(name)", name: name, isDirectory: true,
@@ -235,7 +235,7 @@ import Sync
     /// passes nothing, is what fails. What no test here covers is `treeRow` starting to pass `false`
     /// explicitly; that is a deliberate design change rather than a regression, and guarding it
     /// would only make the flag harder to use for the thing it exists for.
-    @Test func theTreeRowStillPaintsTheFolderDate() throws {
+    @Test(.machinePinned(.pixelSampling)) func theTreeRowStillPaintsTheFolderDate() throws {
         let dated = try #require(bitmap(FileRowView(
             node: FileRowInfo(folder(dated: true)), isIgnored: false, diffStatus: nil,
             containedDiffCount: 0, density: .comfortable)))
@@ -247,7 +247,7 @@ import Sync
     }
 
     /// The change itself: in Columns a dated folder is painted identically to an undated one.
-    @Test func theColumnRowPaintsNoFolderDate() throws {
+    @Test(.machinePinned(.pixelSampling)) func theColumnRowPaintsNoFolderDate() throws {
         let dated = try #require(bitmap(ColumnRowView(
             row: row(folder(dated: true)), isIgnored: false, diffStatus: nil,
             containedDiffCount: 0, density: .comfortable, showsChevron: true)))
@@ -269,7 +269,7 @@ import Sync
     /// Measured as the rightmost painted column, against a canvas whose own trailing padding is
     /// zero (the List supplies the row inset in the app, not the row). 3pt of tolerance covers the
     /// glyph's own right side bearing.
-    @Test func theChevronReachesTheTrailingEdge() throws {
+    @Test(.machinePinned(.pixelSampling)) func theChevronReachesTheTrailingEdge() throws {
         let rep = try #require(bitmap(ColumnRowView(
             row: row(folder(dated: true)), isIgnored: false, diffStatus: nil,
             containedDiffCount: 0, density: .comfortable, showsChevron: true)))
@@ -289,7 +289,7 @@ import Sync
     /// removing the reservation later would fail this test for a reason having nothing to do with
     /// the chevron. Production always pairs a folder with a chevron, so this configuration is
     /// synthetic on purpose: it changes exactly one thing.
-    @Test func aRowWithoutAChevronDoesNotReachTheEdge() throws {
+    @Test(.machinePinned(.pixelSampling)) func aRowWithoutAChevronDoesNotReachTheEdge() throws {
         let rep = try #require(bitmap(ColumnRowView(
             row: row(folder(dated: true)), isIgnored: false, diffStatus: nil,
             containedDiffCount: 0, density: .comfortable, showsChevron: false)))
@@ -300,7 +300,7 @@ import Sync
     }
 
     /// The half of layout B that is a keep, not a removal: a file's size survives in Columns.
-    @Test func theColumnRowKeepsAFileSize() throws {
+    @Test(.machinePinned(.pixelSampling)) func theColumnRowKeepsAFileSize() throws {
         let sized = try #require(bitmap(ColumnRowView(
             row: row(file(sized: true)), isIgnored: false, diffStatus: nil,
             containedDiffCount: 0, density: .comfortable, showsChevron: false)))

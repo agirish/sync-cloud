@@ -17,7 +17,7 @@ import Sync
 
     /// The gate switches something. With the same findings behind it, opened and not-yet-opened
     /// must not paint the same lens.
-    @Test func theGateSwapsTheCardForTheAnswer() throws {
+    @Test(.machinePinned(.pixelSampling)) func theGateSwapsTheCardForTheAnswer() throws {
         let card = try Self.rendered(hasReviewed: false, findings: [Self.finding()])
         let answer = try Self.rendered(hasReviewed: true, findings: [Self.finding()])
         let differing = Self.differingPixels(card, answer)
@@ -27,7 +27,7 @@ import Sync
 
     /// A tree that agrees with itself says so. Without this the empty case is indistinguishable
     /// from a lens that revealed an answer and drew nothing.
-    @Test func aCleanTreeGetsASentenceRatherThanAnEmptyList() throws {
+    @Test(.machinePinned(.pixelSampling)) func aCleanTreeGetsASentenceRatherThanAnEmptyList() throws {
         let clean = try Self.rendered(hasReviewed: true, findings: [])
         let answer = try Self.rendered(hasReviewed: true, findings: [Self.finding()])
 
@@ -55,7 +55,7 @@ import Sync
     /// with nothing inside it but something above still opens the answer rather than the clean
     /// state — which is the case the ancestor section exists for and the one most likely to be
     /// broken by a later "simplify this to `findings.isEmpty`".
-    @Test func ancestorOnlyFindingsAreAnAnswerNotACleanTree() throws {
+    @Test(.machinePinned(.pixelSampling)) func ancestorOnlyFindingsAreAnAnswerNotACleanTree() throws {
         let ancestorOnly = try Self.rendered(hasReviewed: true, findings: [], ancestor: [Self.finding()])
         let clean = try Self.rendered(hasReviewed: true, findings: [])
 

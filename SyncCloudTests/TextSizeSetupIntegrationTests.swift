@@ -22,7 +22,7 @@ import Design
     /// cannot see and `theSetupFormUsesTheSpecimenTilesAndDoesNotPinTheirWidth` is what guards.
     /// What this holds is the outer bound: that the card is wide enough for the control at all.
     @MainActor
-    @Test func theSetupTextSizeRowFitsTheCardAtEveryTextSize() {
+    @Test(.machinePinned(.layoutMetrics)) func theSetupTextSizeRowFitsTheCardAtEveryTextSize() {
         for size in FontSize.allCases {
             // The card widens with the text setting (`resolvedWidth` is `cardWidth * scale`), so
             // the row measured at 135% has to be held against the card at 135% — measuring a

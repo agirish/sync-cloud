@@ -15,7 +15,7 @@ import Sync
 /// rendering — to make SwiftUI commit their async-loaded state (see `mount`). Two suites driving
 /// window renders at once repaint each other, which no amount of settling can wait out.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct DetailsWhereItLivesTests {
+@Suite(.serialized) struct DetailsWhereItLivesTests {
 
     // MARK: The supporting fact — every state, including the unproducible ones
 
@@ -260,7 +260,7 @@ import Sync
     /// card back over the user's desktop. A frame that intersects any display — parked wrongly, or
     /// pulled back by AppKit — fails here rather than quietly painting a 320×1400 inspector over
     /// whatever the user is doing. Also mutation-verified, by restoring the plain `orderBack`.
-    @Test func theCardFillsItselfWithTheWindowOffScreen() async throws {
+    @Test(.machinePinned(.pixelSampling)) func theCardFillsItselfWithTheWindowOffScreen() async throws {
         let root = try fixture("WhereItLivesOffScreen")
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("notes.md")
@@ -286,7 +286,7 @@ import Sync
     ///
     /// The file is real, so the materialization half is the real `lstat` answering `false`: this is
     /// `This Mac · <provider>` against `This Mac only`.
-    @Test func theVerdictChangesWithTheCoverage() async throws {
+    @Test(.machinePinned(.pixelSampling)) func theVerdictChangesWithTheCoverage() async throws {
         let root = try fixture("WhereItLives")
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("Q3 Forecast.numbers")
@@ -313,7 +313,7 @@ import Sync
     ///
     /// (`.empty`, not `.none`: `Coverage.none` written at an Optional call site resolves to
     /// `Optional.none` and silently becomes `nil` — which is exactly the confusion under test.)
-    @Test func anUnknownCoverageDrawsNoVerdictRatherThanTheWrongOne() async throws {
+    @Test(.machinePinned(.pixelSampling)) func anUnknownCoverageDrawsNoVerdictRatherThanTheWrongOne() async throws {
         let root = try fixture("WhereItLivesUnknown")
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("notes.md")
@@ -333,7 +333,7 @@ import Sync
     /// (`theVerdictChangesWithTheCoverage` is the premise, and it is what stops this from being a
     /// claim about a card that never changes at all). Comparing a folder card against a file card
     /// would prove nothing — they differ in name, kind and size before any of this is reached.
-    @Test func aFoldersCardDoesNotMoveWithTheCoverage() async throws {
+    @Test(.machinePinned(.pixelSampling)) func aFoldersCardDoesNotMoveWithTheCoverage() async throws {
         let root = try fixture("WhereItLivesFolder")
         defer { try? FileManager.default.removeItem(at: root) }
         let folder = root.appendingPathComponent("Inner")

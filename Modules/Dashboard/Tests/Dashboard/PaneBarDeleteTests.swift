@@ -13,7 +13,7 @@ import Design
 /// that produced it would be the model compared to itself. What a person actually sees is a red
 /// trash or a grey one, so that is what is counted.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarDeleteTests {
+@Suite(.serialized) struct PaneBarDeleteTests {
 
     // MARK: - Availability
 
@@ -67,7 +67,7 @@ import Design
     ///
     /// Mutation-tested by dropping the `.disabled(selectionCount == 0)` and the count-dependent
     /// `foregroundStyle` in turn: with either gone the two renders stop differing and this fails.
-    @Test func testTheTrashIsRedOnlyWhenSomethingIsSelected() throws {
+    @Test(.machinePinned(.pixelSampling)) func testTheTrashIsRedOnlyWhenSomethingIsSelected() throws {
         let empty = try Self.redPixels(inBarOf: Self.header(onDelete: {}, selectionCount: 0))
         let selected = try Self.redPixels(inBarOf: Self.header(onDelete: {}, selectionCount: 3))
 
@@ -87,7 +87,7 @@ import Design
     /// The differential is the guard, and it needs no coordinates: a header built WITHOUT the rung
     /// is the control, and the rung's own ink is what the two crops differ by. Asserted in both
     /// selection states, because "drawn but dimmed" and "drawn and red" are both drawn.
-    @Test func testTheRungIsDrawnInBothStates() throws {
+    @Test(.machinePinned(.pixelSampling)) func testTheRungIsDrawnInBothStates() throws {
         // An ink COUNT cannot answer this, and two attempts at one have now failed here. Forty
         // pixels of ink is met by the neighbours alone; and a differential against a header built
         // WITHOUT the rung fails too, because removing a rung lets the others reflow into the crop

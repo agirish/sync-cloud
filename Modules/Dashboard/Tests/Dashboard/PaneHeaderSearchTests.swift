@@ -52,14 +52,14 @@ import Sync
     /// `LiquidGlass.headerHeight`, because that is what puts the pane's header↔list boundary on the
     /// same 83.5 as the lens header card. The field takes the BAR's row rather than adding one, so the number
     /// cannot move — open or closed, and at the narrow width where the bar is already stepping down.
-    @Test("The header keeps its rung with the field closed")
+    @Test("The header keeps its rung with the field closed", .machinePinned(.layoutMetrics))
     func theClosedHeaderKeepsItsHeight() {
         let box = Box()
         #expect(Self.laidOutHeight(Self.header(box), width: 560) == LiquidGlass.headerHeight)
         #expect(Self.laidOutHeight(Self.header(box), width: 250) == LiquidGlass.headerHeight)
     }
 
-    @Test("…and with the field open, which is the row it took")
+    @Test("…and with the field open, which is the row it took", .machinePinned(.layoutMetrics))
     func theOpenHeaderKeepsItsHeight() {
         let box = Box()
         box.isExpanded = true
@@ -76,7 +76,7 @@ import Sync
     ///
     /// The cap is what leaves a stretch of bar to click. Measured against the LAID-OUT field, not
     /// the constant: a `.frame(maxWidth:)` that failed to apply would still read 460 in the source.
-    @Test("The field is capped, so there is bar left to click away on")
+    @Test("The field is capped, so there is bar left to click away on", .machinePinned(.layoutMetrics))
     func theFieldLeavesSomewhereToClick() async {
         let box = Box()
         box.isExpanded = true
@@ -95,7 +95,7 @@ import Sync
 
     /// …and the cap must not starve the field on a narrow pane, where it is the only thing on the
     /// row. The 250pt pane is the split's own clamp — the narrowest the bar ever gets.
-    @Test("A narrow pane still gets a usable field")
+    @Test("A narrow pane still gets a usable field", .machinePinned(.layoutMetrics))
     func theFieldStillFitsANarrowPane() async {
         let box = Box()
         box.isExpanded = true
@@ -130,7 +130,7 @@ import Sync
     /// Counted in painted pixels, and it has to be: SwiftUI's `Button` is not an `NSControl` and
     /// leaves nothing in the AppKit tree to find, so a structural search cannot see it. Measured in
     /// the band just past the text, inside the field's own surface, where the ✕ sits.
-    @Test("The revealed field always offers a control, even with nothing typed")
+    @Test("The revealed field always offers a control, even with nothing typed", .machinePinned(.pixelSampling))
     func anEmptyFieldStillHasAWayOut() async {
         let box = Box()
         box.isExpanded = true
@@ -298,7 +298,7 @@ import Sync
     /// same summary string, same ✕, same width, `onSearchAdvance` withheld. An unconditional ink
     /// threshold here would be measuring the counter and the dismiss button and would pass with no
     /// arrows drawn — which is precisely the state being fixed.
-    @Test("The counter comes with buttons to move it")
+    @Test("The counter comes with buttons to move it", .machinePinned(.pixelSampling))
     func theFieldDrawsWalkButtons() async {
         let width: CGFloat = 900
         func trailingInk(canAdvance: Bool) async -> (ink: Int, shown: Bool) {
@@ -330,7 +330,7 @@ import Sync
     /// text's own pixels are held constant and the only thing that can move the count is the pair
     /// of arrows changing state. "No matches" with two live-looking arrows says there is somewhere
     /// to go and this merely is not it.
-    @Test("With no hits the buttons are visibly disabled")
+    @Test("With no hits the buttons are visibly disabled", .machinePinned(.pixelSampling))
     func theButtonsDimWithNothingToWalk() async {
         let width: CGFloat = 900
         func trailingInk(matchCount: Int) async -> Int {

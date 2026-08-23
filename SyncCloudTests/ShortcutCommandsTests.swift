@@ -554,7 +554,7 @@ import Foundation
                 "a toolbar control that cannot act during a pick still looks like it can")
     }
 
-    @Test func theReferenceFitsItsWindowWithoutScrolling() {
+    @Test(.machinePinned(.layoutMetrics)) func theReferenceFitsItsWindowWithoutScrolling() {
         let host = NSHostingView(rootView:
             ShortcutsReferenceContent().frame(width: ShortcutsReferenceView.windowSize.width))
         let height = host.fittingSize.height
