@@ -76,6 +76,27 @@ struct GlassLevelTests {
         #expect(GlassLevel.solid.needsExplicitChrome)
     }
 
+    // MARK: - Raw values are a wire format
+
+    /// `SurfaceStyle` below has carried this pin all along; its siblings in the same file did not,
+    /// which is the only reason renaming a case here compiled clean while silently resetting every
+    /// user's stored choice at the `?? .frosted` / `?? .blue` read sites. The literal LIST is the
+    /// pin (order included — case-adds must append, per the graphite precedent), and the
+    /// unknown-value probes keep the tolerant fallbacks honest about being fallbacks.
+    @Test func glassLevelRawValuesAreStable() {
+        #expect(GlassLevel.allCases.map(\.rawValue) == ["clear", "frosted", "solid"])
+        #expect(GlassLevel(rawValue: "Frosted") == nil, "raw values are case-exact — a near-miss must fall back, not match")
+        #expect(GlassLevel(rawValue: "medium") == nil)
+    }
+
+    @Test func liquidGlassHueRawValuesAreStable() {
+        #expect(LiquidGlassHue.allCases.map(\.rawValue) ==
+                ["none", "blue", "cyan", "teal", "green", "amber", "coral",
+                 "rose", "purple", "indigo", "slate", "graphite"])
+        #expect(LiquidGlassHue(rawValue: "Graphite") == nil)
+        #expect(LiquidGlassHue(rawValue: "grey") == nil)
+    }
+
     // MARK: - Shape is shape
 
     @Test func surfaceStyleIsShapeOnly() {
