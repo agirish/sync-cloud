@@ -46,7 +46,11 @@ private func makeRunner() -> CommandRunner {
 /// Also maps Core's outcome errors onto ArgumentParser's: `CLIValidationError` becomes a
 /// `ValidationError` with the same message (usage text + exit 64, exactly as when the command
 /// bodies threw it directly), and `CLISyncFailuresError` becomes `ExitCode.failure`.
-private func flushingLogToDisk<T>(_ body: () async throws -> T) async rethrows -> T {
+// Internal, not private, for one consumer: `CLIWiringTests`. The outcome CLASSIFICATION lives in
+// Core (`CLIExitMapping`, tested there); what only this function does is the translation onto
+// ArgumentParser's types and the flush barrier, and both were dead code to every test while this
+// was private — the exit code a wrapping script sees, unpinned.
+func flushingLogToDisk<T>(_ body: () async throws -> T) async rethrows -> T {
     do {
         let result = try await body()
         await MainActor.run { Logger.shared.flushToDisk() }

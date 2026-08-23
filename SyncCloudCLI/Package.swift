@@ -47,6 +47,14 @@ let package = Package(
         .testTarget(
             name: "SyncCloudCLICoreTests",
             dependencies: ["SyncCloudCLICore"]
+        ),
+        // The shell had no tests at all: argument parsing, the default subcommand, and the
+        // ArgumentParser error translation were invisible to every suite. The target imports the
+        // executable, which works because the entry point is `@main` (top-level code in a
+        // main.swift would make the module unimportable).
+        .testTarget(
+            name: "SyncCloudCLITests",
+            dependencies: ["SyncCloudCLI"]
         )
     ]
 )
