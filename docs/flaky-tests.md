@@ -1800,3 +1800,60 @@ perturbed by what some *other* suite is doing to the responder chain, normalise 
 capture funnel rather than reasoning about who ran first. And when a failure message names a cause,
 check that the cause is what actually moved the pixels — this one cost an entire investigation
 aimed at the wrong subsystem.
+
+### 17. The control that stops an absence being vacuous is itself load-dependent
+
+**Symptom.** The test fails on its **control**, not on the thing it is testing. Every substantive
+assertion passes; the one that fails is the one asserting the test was in a position to observe
+anything. It fails at the boundary, and its message is *true*.
+
+**Mechanism.** `noUndoGroupIsEverOpenWhileTheMergeIsSuspended` in
+`Modules/Sync/Tests/Sync/MergeUndoGroupingAndGateTests.swift` samples `undo.groupingLevel` from the
+main actor for as long as a merge runs, and then asserts the reading is meaningful before it asserts
+the reading:
+
+```swift
+while !finished.withLock({ $0 }) && ContinuousClock.now < deadline {
+    maxLevel = max(maxLevel, undo.groupingLevel)
+    samples += 1
+    try? await Task.sleep(nanoseconds: 2_000_000)
+}
+#expect(samples > 20, "only \(samples) samples were taken — too few to have observed …")
+#expect(maxLevel == 0, "an undo group was open …")
+```
+
+`samples` is not a duration and not a count of anything the code does. It is
+`merge_duration / actual_sleep_interval`, and **the denominator is the machine's**: `Task.sleep`
+overshoots 2ms by however much the main actor is contended, so the *same* merge yields fewer samples
+on a loaded box. The guard then fires on a run in which nothing whatsoever is wrong — the merge
+completed, `ok == true`, the copied and trashed files are where they should be, and `maxLevel` is a
+correct zero.
+
+**Why it is filed apart from "Fixed pumps and fixed sleeps".** That mechanism is a wait too short
+for the thing under test to have happened, and its fix is to poll a real observable instead of a
+fixed window. This test already polls a real observable. What is fixed here is not the wait but the
+**threshold on the evidence**, and the two need opposite repairs: nothing about polling harder makes
+`samples` larger, because the sleep interval is what shrank the count.
+
+**The trap is that the obvious fix restores a silent failure.** This guard is the good kind — it is
+there precisely so `maxLevel == 0` cannot pass vacuously on a run that never looked, which is the
+whole subject of [the silent half][silent-half] in the triage page. Lowering the threshold, or
+deleting the guard, converts a noisy false failure into exactly the quiet false pass the guard was
+written to prevent. **A vacuity control must not be relaxed to stop it
+flaking**; it has to be re-expressed in a quantity the machine does not set.
+
+**Measured, 2026-08-22.** CI run `32595371148` failed it at `samples → 20` against `> 20` — one
+short, at the boundary — in 3.244s. Locally the same day, under a heavier local load (three package
+suites and a build in flight, load average 16), the same test read `samples → 2`. It passed in run
+`32597536957` with the whole package green at 2715 tests. The spread 2 → 20 → passing across one
+day, on one machine, on unchanged code, is the mechanism.
+
+**Fix pattern.** Express the control in something the code produces rather than something the
+scheduler does: count the *suspensions the merge actually took* (the operation can report them), or
+sample on the operation's own progress notifications so one sample is one step, not one sleep. If
+the sample count has to stay, it is a floor on **turns observed while the operation was in flight**,
+and the loop that produces it must be driven by the operation, not by a clock. Anything of the form
+"N sleeps means enough looking" is the same throughput bet "Fixed pumps and fixed sleeps" names,
+wearing the clothes of a correctness guard.
+
+[silent-half]: flaky-triage.md#the-silent-half--read-before-writing-any-absence-assertion
