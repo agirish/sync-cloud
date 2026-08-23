@@ -457,8 +457,10 @@ all three; `flushingLogToDisk` opened to internal everywhere) and the Core defau
 `DetailsWhereItLivesTests`, whose copies there read pixels byte-identically to `main`. Main-only,
 each checked rather than assumed: the other six suite marks and the per-test pin conversion (the
 suites do not exist on the lines); the `LensHeaderCard` marks (the lines' copies read ZERO pixels
-— the pixel reads arrived later); the app-target gate and `layoutMetrics` reason (no
-`SyncCloudTests` on the lines, and the reason's only users are main-only suites — note the
+— the pixel reads arrived later); the app-target gate and `layoutMetrics` reason (both lines DO carry a
+`SyncCloudTests/` target — this entry first said they don't, which was false — but neither line's
+app suites read pixels, so the gate has nothing to gate there, and the reason's only users are
+main-only suites — note the
 `MachinePinned.swift` sibling-list header now differs between main and the lines, so a future
 cherry-pick touching that file will conflict on the note: resolve by keeping each line's own
 sibling list); and the liveProfile gate-report companions (all three reported suites are
