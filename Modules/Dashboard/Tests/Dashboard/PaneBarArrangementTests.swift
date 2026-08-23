@@ -40,8 +40,9 @@ import Testing
 
     @Test func testUnknownTokensAreDroppedNotRejected() {
         // A bar arranged on a newer build, opened on an older one: the item it doesn't know about
-        // disappears, the rest survives. Resetting to the default here would throw away an
-        // arrangement over one unrecognized word.
+        // disappears from the BAR, the rest survives. Resetting to the default here would throw
+        // away an arrangement over one unrecognized word. The token itself still rides through
+        // `encoded` — that half is `PaneBarArrangementWriteBackTests`' subject.
         let parsed = PaneBarArrangement(encoded: "backForward,teleport,scan,sort")
         #expect(parsed.items == [.backForward, .scan, .sort])
     }
