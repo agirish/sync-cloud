@@ -423,6 +423,24 @@ import Testing
         #expect(dest.renamingNewFolder(to: "Something Else") == dest)
     }
 
+    /// **A colon is not a legal folder name here, and this used to accept one.**
+    ///
+    /// The guard listed `/`, `.`, `..` and empty by hand, while every other new-folder path in the
+    /// app goes through `validateItemName` — which rejects `:` because Finder maps it to `/` per
+    /// HFS+ semantics, so the folder created is not the one the name shows. Two hand-maintained
+    /// lists is how one of them drifts, and this was the one that had; it now calls the shared
+    /// predicate the others do.
+    @Test func aRenameTheSharedValidatorRefusesIsRefusedHereToo() {
+        let dest = FilingDestination(path: "/root/Documents/Visa/Suggested", confidence: .high,
+                                     reasons: [], newSegments: ["Suggested"])
+        // The premise: the shared predicate really does refuse this, or the test pins nothing.
+        #expect(FileSyncManager.validateItemName("2026: Q1") != nil)
+        #expect(dest.renamingNewFolder(to: "2026: Q1") == dest,
+                "a name the rest of the app refuses was accepted here")
+        // And a name it accepts still goes through, so the guard did not become "refuse edits".
+        #expect(dest.renamingNewFolder(to: "2026 Q1").newSegments == ["2026 Q1"])
+    }
+
     /// A blank edit means "keep the suggestion", and a name that is not a single folder is refused
     /// rather than silently reinterpreted as a path.
     @Test func aBlankOrPathLikeRenameKeepsTheSuggestion() {

@@ -170,8 +170,16 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// "create that" by accident.
     public func renamingNewFolder(to name: String) -> FilingDestination {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !newSegments.isEmpty, !trimmed.isEmpty, !trimmed.contains("/"),
-              trimmed != "." , trimmed != ".." else { return self }
+        // **The shared predicate, not a second list.** This checked `/`, `.`, `..` and empty and
+        // stopped there, so a `:` typed into the card's "Create as" field reached
+        // `createDirectory` — and Finder maps `:` to `/` per HFS+ semantics, so the folder it makes
+        // is not the one the name shows. `validateItemName` is documented as "shared by the engine
+        // and the UI prompts" and already covers that character and NUL; every other new-folder
+        // path in the app goes through it. Two hand-maintained lists is how one of them drifts,
+        // and this is the one that had.
+        guard !newSegments.isEmpty, FileSyncManager.validateItemName(trimmed) == nil else {
+            return self
+        }
         let parent = (path as NSString).deletingLastPathComponent
         return FilingDestination(path: parent + "/" + trimmed, confidence: confidence,
                                  reasons: reasons, newSegments: newSegments.dropLast() + [trimmed],

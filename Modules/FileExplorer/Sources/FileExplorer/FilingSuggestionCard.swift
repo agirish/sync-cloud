@@ -42,6 +42,13 @@ struct FilingSuggestionCard: View {
     /// the model's suggestion rather than the user's own vocabulary — `Divit/eOCI.pdf` is only the
     /// most vivid example. Editing it before accepting costs a text field; not being able to means
     /// filing into a name you did not choose, then renaming the folder in Finder afterwards.
+    /// The name typed into "Create as", for the destination currently on the card.
+    ///
+    /// **Cleared whenever that destination changes.** This is `@State` on a card whose identity is
+    /// the SUGGESTION, and "Try another" replaces the destination without replacing the card — so a
+    /// name typed for `Finance › HDFC › <new>` stayed in the field and "File here" applied it to
+    /// whatever came back next, creating `Health › Kaiser › 2026 Statements`. The field showed the
+    /// old name against the new folder's placeholder, which is the only clue there was.
     @State private var editedFolderName: String = ""
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
@@ -112,6 +119,13 @@ struct FilingSuggestionCard: View {
                 .padding(.bottom, densityMetrics.cardHeaderVerticalPadding)
         }
         .lensCard()
+        // **The typed name belongs to the destination it was typed for.** This card's identity is
+        // the suggestion, so "Try another" swaps `best` underneath it and `@State` survives —
+        // a name meant for one proposed folder would otherwise be applied to the next one.
+        // Keyed on the proposed leaf rather than the whole path: that is the string the field is
+        // editing, so re-proposing the same folder name under a different parent keeps what the
+        // user typed, while a genuinely different name clears it.
+        .onChange(of: best?.newSegments.last) { _, _ in editedFolderName = "" }
     }
 
     private var sourceRow: some View {
