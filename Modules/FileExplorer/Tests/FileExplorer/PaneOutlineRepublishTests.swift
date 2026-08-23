@@ -118,7 +118,15 @@ import Sync
             selection: .constant([]), otherSelection: [], isLeft: true, delegate: StubDelegate(),
             downloadChannel: downloads
         )
-        guard let rows = laidOutRowCount(v) else { return }
+        guard let rows = laidOutRowCount(v) else {
+            // Same environment gate as the test above, and the same rule: a bare `return` here
+            // reported PASSED for a run in which nothing was measured — the vacuous-on-skip
+            // shape `ReviewFactsTests.skippedBecauseRoot` documents. Recorded, never silent.
+            withKnownIssue("List did not bridge to an NSTableView in this environment") {
+                Issue.record("no NSTableView")
+            }
+            return
+        }
         #expect(rows == 2)          // mine, not theirs (which has 1)
     }
 }
