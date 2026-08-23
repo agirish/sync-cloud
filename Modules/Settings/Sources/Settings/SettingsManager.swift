@@ -219,6 +219,45 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    // MARK: Reading persisted values
+
+    /// Reads one persisted setting so that a stored value this build cannot read is **kept**
+    /// rather than quietly becoming the default.
+    ///
+    /// Every `@Published` setting above shares one shape: a tolerant read (`?? default`) at init,
+    /// and a `didSet` that writes the live value back on the next edit. The tolerance is right —
+    /// the app must start whatever is on disk — but alone it destroys data, and invisibly: a
+    /// foreign-typed value, or a raw value only a newer build recognizes, reads as the default,
+    /// and the user's next edit of that setting persists the default-derived value over the
+    /// original. Five disabled providers silently become one; a newer build's sort choice is gone
+    /// the first time the setting is touched after a downgrade, with nothing in the log to say why.
+    ///
+    /// This is the shape `FileSyncManager.readPersistedStore` was built for — a sibling module,
+    /// `internal`, so the behaviour is restated here rather than shared: preserve the original
+    /// under a `.unreadable` sibling key, say so at `.error`, and carry on with the default so the
+    /// app still starts. Absent stays absent: a first launch has no value and must not log.
+    ///
+    /// - Returns: The decoded value, or nil for both "absent" and "unreadable" — the caller's
+    ///   `?? default` supplies the fallback either way; only the unreadable case leaves a backup.
+    static func readSetting<T>(_ key: String, from defaults: UserDefaults,
+                               describing what: String,
+                               as read: (UserDefaults) -> T?) -> T? {
+        if let value = read(defaults) { return value }
+        guard let original = defaults.object(forKey: key) else { return nil }
+        let backupKey = key + ".unreadable"
+        // Read-and-compare rather than an unconditional write: after this line the value is under
+        // the backup key however it got there, and a re-launch on a still-unreadable value must
+        // not rewrite the same payload every time.
+        if (defaults.object(forKey: backupKey) as? NSObject)?.isEqual(original) != true {
+            defaults.set(original, forKey: backupKey)
+        }
+        Logger.shared.error(
+            "The saved \(what) could not be read and is being treated as the default — the "
+            + "unreadable copy was kept under \"\(backupKey)\". Your choice is not lost; it is "
+            + "in that value.")
+        return nil
+    }
+
     /// - Parameters:
     ///   - autoDiscover: When true (the app's case), kicks off provider discovery in the
     ///     background so the UI populates on launch. Callers that discover explicitly (e.g. the CLI,
@@ -248,10 +287,25 @@ public class SettingsManager: ObservableObject {
         self.dateToleranceSeconds = (userDefaults.object(forKey: Self.dateToleranceSecondsKey) as? Double) ?? 1
         self.autoVerifySameSizeDuringScan = userDefaults.bool(forKey: Self.autoVerifySameSizeDuringScanKey)
         self.rememberIgnoredItems = (userDefaults.object(forKey: Self.rememberIgnoredItemsKey) as? Bool) ?? true
-        self.ignorePatterns = userDefaults.stringArray(forKey: Self.ignorePatternsKey) ?? []
-        self.conflictPolicy = ConflictPolicy.persisted(from: userDefaults)
-        self.defaultSortOption = userDefaults.string(forKey: Self.defaultSortOptionKey).flatMap(SortOption.init(rawValue:)) ?? .name
-        self.disabledProviderIds = Set(userDefaults.stringArray(forKey: Self.disabledProviderIdsKey) ?? [])
+        self.ignorePatterns = Self.readSetting(Self.ignorePatternsKey, from: userDefaults,
+                                               describing: "ignore-pattern list") {
+            $0.stringArray(forKey: Self.ignorePatternsKey)
+        } ?? []
+        // The same decode `ConflictPolicy.persisted(from:)` performs; inlined so an unreadable
+        // value takes the salvage path above. The app's per-collision re-reads keep using
+        // `persisted`, which only reads — the destroying write is this manager's `didSet`.
+        self.conflictPolicy = Self.readSetting(ConflictPolicy.defaultsKey, from: userDefaults,
+                                               describing: "collision answer") {
+            $0.string(forKey: ConflictPolicy.defaultsKey).flatMap(ConflictPolicy.init(rawValue:))
+        } ?? .ask
+        self.defaultSortOption = Self.readSetting(Self.defaultSortOptionKey, from: userDefaults,
+                                                  describing: "default sort order") {
+            $0.string(forKey: Self.defaultSortOptionKey).flatMap(SortOption.init(rawValue:))
+        } ?? .name
+        self.disabledProviderIds = Self.readSetting(Self.disabledProviderIdsKey, from: userDefaults,
+                                                    describing: "disabled-provider list") {
+            $0.stringArray(forKey: Self.disabledProviderIdsKey).map(Set.init)
+        } ?? []
         // Seed with the always-present iCloud provider so the app can start immediately,
         // before the first (off-main) discovery publishes. The seed goes through the same
         // mapping as discovery — persisted path/name overrides included, validity computed
