@@ -9,285 +9,189 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.3 has not been cut and this is not final copy. Work is
 > still landing, so entries will be added and existing ones may change or be withdrawn.
-> Covers `v4.2..96ddd485` — 120 commits. Every claim below was checked against the `v4.2`
-> tag: a fix to work that landed *inside* this range earns no entry, because no user of
-> v4.2 was ever exposed to it. That rule takes out a large part of this range. Two
-> adversarial review waves followed the first round of fixes, and a repair to a repair
+> Covers `v4.2..5315961c` — 122 commits, of which these are the ones worth your time.
+> Every claim was checked against the `v4.2` tag: a fix to work that landed *inside* this
+> range earns no entry, because no user of v4.2 was ever exposed to it. That rule removed
+> most of the range — three review waves followed the first fixes, and a repair to a repair
 > reached nobody.
 
-**Mostly repair, and one new thing.** v4.2 built the setup form and filled in the menu bar;
-v4.3 is what three reviews of the shipped code found underneath, and most of it is the app
-quietly destroying or misreading your files. The exception is Go to, which now reaches every
-Settings tab by name.
+**Mostly repair, and one new thing.** v4.2 built the setup form and filled in the menu bar.
+v4.3 is what three reviews of the shipped code found underneath, and most of it is one
+mistake wearing different clothes: **a file that existed but could not be *opened* was read
+as a file that was not there.** Nothing was lost on that read. The loss came on the next
+write — saving needs permission on the *folder*, not the file, so the save succeeded exactly
+where the read had failed, and replaced what it could not read with a blank start.
 
-The spine is a single mistake in four places. A file that existed but could not be
-*opened* — wrong permissions, an ACL, an I/O error, a dangling symlink — was read as a
-file that was not there. Nothing was lost on that read. The loss came on the next write:
-saving needs permission on the *folder*, not the file, so the save succeeded exactly where
-the read had failed, and replaced what it could not read with a blank start. Your
-household, your person verdicts, your Storage snapshots and your paid-for filing
-classifications each sat behind that mistake.
+Six stores sat behind that mistake, and the rest of the release is the same theme in other
+places: undo trusting a folder it had only glanced at, removal gates trusting verdicts that
+had gone stale while a dialog was open, and cloud placeholders read as though their contents
+were on disk.
 
-Around it: ⌘Z after copying a folder could trash the copy with the edits you had made
-inside it; offloaded Dropbox, OneDrive, Google Drive and Box files were treated as though
-their contents were on disk; the duplicate and merge paths could trash a copy on a verdict
-that had gone stale while a dialog was open; and the keys that file and skip documents
-fired for chords nobody aimed at them.
-
-On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0
-section first.
+On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0 section
+first.
 
 ### Go to
 
 - **Every Settings tab is a ⌘K destination, matched on the words of the controls inside
-  it.** Typing "appearance" matched nothing: the word lived only in Settings' own search
-  field, which you cannot reach without already having Settings open. The palette had one
-  Settings row, which opened whichever tab you happened to be on last. There are now ten,
-  one per tab, in the rail's own order — and each is matched on the folded-down vocabulary
-  of every control on that tab, so "glass", "log level" or "accent" find the page that
-  carries them. A row per control was the other reading and was rejected deliberately: 53
-  rows, four of which open the same page, none able to deliver what its title promises,
-  because the sheet lands on a tab and not on a row.
+  it.** Typing "appearance" used to match nothing: the word lived only in Settings' own
+  search field, which you cannot reach without already having Settings open. The palette had
+  a single "Settings…" row, and it opened whichever tab you were last on. There are now ten,
+  one per tab, in the rail's own order, and each is matched on the folded-down vocabulary of
+  every control it holds — so "glass", "log level" or "accent" find the page that carries
+  them.
 
-### What SyncCloud had stored about your files
+### Files the app could have destroyed
 
-- **A file that exists but cannot be read is no longer mistaken for one that isn't
-  there.** Four stores made the same mistake, each with a guard that only ever consulted
-  the *decode* result and never the failure to open: `people.json` (your household),
-  `person-tags.json` (which person a document belongs to), `storage-lens.json` (Storage's
-  per-root snapshots) and `filing-verdicts.json` (the classifications the filing engine
-  has paid a model for). The consequences differed by store and were all silent: the first
-  edit to a person replaced the entire household — names, aliases, relationships, notes —
-  with a folder-name seed; the first verdict recorded overwrote every verdict already
-  there; the next analysis wrote one root's snapshot over all of them, up to the twelve
-  Storage keeps, and "Forget this root" read as nothing to forget. Each store now
-  recognises the difference, moves the bytes it could not read aside, and refuses the
-  write until that rescue has actually landed.
-- **An unreadable filing artifact suspends the classification cache instead of quietly
-  changing its key.** The cache key is a fingerprint over the filing artifacts, and an
-  artifact that could not be read was simply left out of it. That mints a key that can
-  never occur again once the file is fixed — so every classification paid for under it
-  became permanently unreachable, and the same documents would be sent off and paid for a
-  second time. An unreadable artifact now declares the fingerprint unavailable and the
-  cache is switched off for that pass, read and write both.
-- **A rescued copy survives a later rescue.** The copy set aside from an unreadable
-  `person-tags.json` or `storage-lens.json` went to one fixed name that the next rescue
-  deleted before writing its own. A set-aside is never read back automatically, so it is
-  the only copy of what it holds — and a second bad episode destroyed what the first one
-  saved. Each rescue now gets its own name. Relatedly, a set-aside that *failed* used to
-  clear the guard anyway: the app correctly refused that one save and then overwrote the
-  file on the very next one. It now keeps refusing, and keeps retrying the rescue, until
-  the move succeeds.
-- **Two more stores had the same absent-versus-unreadable hole, and one of them was the
-  refusal log.** `PersonVetoLog` reached its "unreadable" answer only through a decode
-  failure, so a log this build could not decode read as a machine that had refused nothing
-  — and the next refusal recorded wrote that empty history over it. One refusal and the
-  record of every person you had declined was gone. The filing corpus had the identical
-  gap: a corpus present but unopenable answered "never surveyed" and walked into exactly
-  the overwrite its type was introduced to prevent.
-- **The re-survey no longer writes over a `filing-memory.json` it could not open.** An
-  unreadable memory decoded to nil, which is the right answer for readers — filing falls
-  back to folder names — and the wrong one for the single caller that writes. Nil made
-  "has the memory changed?" trivially true, and the atomic replace that followed needed
-  permission on the directory, not on the file, so it destroyed bytes the process had never
-  read.
+- **A file that exists but cannot be read is no longer mistaken for one that isn't there.**
+  Six stores made this mistake, each with a guard that consulted only the *decode* result and
+  never the failure to open: your household (`people.json`), which person a document belongs
+  to (`person-tags.json`), Storage's per-root snapshots, the classifications the filing engine
+  has paid a model for, the log of people you have refused, and the filing corpus. The
+  consequences differed and were all silent — the first edit to a person replaced the entire
+  household with a folder-name seed; the first verdict overwrote every verdict already there;
+  one refusal wiped the record of everyone you had ever declined; the next analysis wrote one
+  root's snapshot over all twelve. Each store now tells the two apart, moves the bytes it
+  could not read aside under a name no later rescue can take, and refuses the write until
+  that has actually landed. The re-survey's write over an unreadable `filing-memory.json` is
+  closed the same way.
 - **A key written on a person survives an edit.** Notes and unknown keys sitting *beside*
-  `people` in the roster file were already carried across a save. Keys written *on* a
-  person were not: the model reads five fields and drops everything else, then the whole
-  file is rewritten. A `nickname`, or a `_why` typed next to the person it explains, was
-  gone the first time anybody edited anybody — silently, because what is left behind is
-  still a well-formed roster.
-- **The filing fingerprint is derived from the folder the artifacts actually came from.**
-  It resolved the profile id from the field *inside* `folder-profile.json`, and the two
-  disagree whenever that field is absent or hand-edited — an omitted field decodes to
-  "default". The app's own rule is that the directory is the identity, and it logs a
-  warning when they split; the fingerprint ignored the warning and keyed the classification
-  cache to a profile nothing was reading or writing.
+  `people` in the roster were already carried across a save; keys written *on* a person were
+  not. The model reads five fields, drops the rest, and the whole file is rewritten — so a
+  `nickname`, or a `_why` typed next to the person it explains, was gone the first time
+  anybody edited anybody, silently, because what is left behind is still a well-formed roster.
+- **An unreadable filing artifact suspends the classification cache instead of quietly
+  changing its key.** Leaving an unreadable artifact out of the cache fingerprint mints a key
+  that can never occur again once the file is fixed — so every classification already paid
+  for became unreachable, and the same documents would be sent off and paid for a second
+  time. The fingerprint now reports itself unavailable and the cache is switched off for that
+  pass. It is also derived from the folder the artifacts actually came from, rather than a
+  field inside a file that can disagree with it.
 
 ### Cloud files that are not on disk
 
-- **Offloaded Dropbox, OneDrive, Google Drive and Box files are recognised as
-  placeholders.** The availability check asked iCloud's question — `isUbiquitousItem`,
-  which is false for every non-Apple File Provider — and so answered "the contents are
-  here" for every other provider's evicted file. Online, a filing survey opened them and
-  made the provider download your entire offloaded library. Offline, they were recorded as
-  blank against a size and modification date that do not change when a file is
-  materialised, so they were written off permanently and never revisited. Availability is
-  now decided by whether the bytes are actually on disk, whoever owns the file, and a file
-  evicted *while* a survey is reading it is skipped rather than stamped blank.
+- **Offloaded Dropbox, OneDrive, Google Drive and Box files are recognised as placeholders.**
+  The availability check asked iCloud's question — `isUbiquitousItem`, false for every
+  non-Apple File Provider — and so answered "the contents are here" for every other
+  provider's evicted file. Online, a filing survey opened them and made the provider download
+  your entire offloaded library. Offline, they were recorded as blank against a size and date
+  that do not change when a file is materialised, so they were written off permanently and
+  never revisited.
 
-### Undo
+### Undo and redo
 
 - **⌘Z after copying a folder no longer destroys the work you did inside the copy.** The
-  copy-undo compared a folder's own modification date and its immediate child count, which
-  an edit two levels down leaves untouched — so ⌘Z read the copy as pristine and trashed
-  it, with the edit inside, permanently on a volume with no Trash. It now records a digest
-  of the whole tree. Two narrower versions of the same bug went with it: the baseline was
-  taken after the *whole* batch rather than when each copy landed, so an edit made while a
-  later item's collision prompt sat open was captured as the original state; and a
-  `.DS_Store` written into the copy by simply opening it in Finder changed the child count
-  and made ⌘Z refuse a copy that was fine.
+  copy-undo compared a folder's own modification date and its immediate child count, which an
+  edit two levels down leaves untouched — so ⌘Z read the copy as pristine and trashed it,
+  with the edit inside, permanently on a volume with no Trash. It now records a digest of the
+  whole tree, takes that baseline the moment each copy lands rather than after the whole
+  batch, and ignores the `.DS_Store` that merely opening the copy in Finder leaves behind.
+- **Redoing a delete no longer trashes whatever has taken the path since.** The redo
+  re-trashed by bare path, and being on its list means "the undo put *our* item back here" —
+  which stops being true the moment something replaces it. Delete a file, ⌘Z, let a different
+  file land on that path, ⌘⇧Z, and the replacement went to the Trash with no banner and no
+  log line.
 - **File operations run strictly in the order you asked for them.** The serial queue's
   prologue hopped off the main actor and back before claiming its slot, so two operations
-  starting together could return from that round trip out of order and chain onto the same
-  predecessor — leaving them to run concurrently rather than one after another. The worst
-  reachable form was a merge's own undo pair inverting: the folded files deleted back out
-  of the keeper *before* the original was restored. The prologue is now straight-line, and
-  a 300-pair test pins the ordering.
-- **Redoing a delete no longer trashes whatever has taken the path since.** The redo
-  re-trashed by bare path, and being on its list means "the undo put *our* item back here"
-  — which stops being true the moment something replaces it. Delete a file, ⌘Z, let a
-  different file land on that path, ⌘⇧Z, and the replacement went to the Trash with no
-  banner and no log line. Silent in both channels, which is how it lasted; the move-redo
-  path has refused this shape since item identity landed.
+  starting together could chain onto the same predecessor and run concurrently. The worst
+  reachable form was a merge's own undo pair inverting: the folded files deleted back out of
+  the keeper *before* the original was restored.
 
-### Duplicates and merging
+### Duplicates, merging and deleting
 
-- **Folder duplicate groups are judged file by file.** The check that a folder had not
-  changed since the scan re-counted its contents with different conventions than the scan
-  used — counting the `.DS_Store` the scan ignored, and measuring a symlink's own bytes
-  where the scan recorded none. Any group holding either was refused as "changed since it
-  was scanned", permanently, because a rescan reproduces the same difference; the batch
-  then dropped it without saying so. The same constant offset could equally mask a real
-  loss, and a count-and-bytes rollup can never see a same-length rewrite inside a folder
-  about to be removed. The scan now records a per-file snapshot and the gate re-walks
-  against it with the scan's own rules.
-- **The Compare review's "Trash right copy" checks what it is about to trash.** For a
-  folder — and the Compare review is the folder-only flow — the gate passed on existence
-  alone, so a file that landed in the right-hand folder while the review sat open was
-  trashed along with it, under a banner saying the left copy was kept. It now uses the same
-  re-walk the engine uses, and re-measures both ends when the removal actually starts and
-  again after a permanent-delete confirmation, rather than trusting a verdict formed
-  before two user-paced waits.
-- **Merging duplicates is safer to undo and safer to trash after.** Four things: the merge
-  held an undo group open across every suspension inside it, and because undo grouping is
-  global to the window, an unrelated operation that finished in that window was swallowed
-  into the merge's step and came back with one ⌘Z. The keeper was checked once, before a
-  copy loop that can run for minutes, and for a folder that check degenerated to "does it
-  exist" — so a keeper emptied or replaced mid-merge still had its redundant copy trashed,
-  with the folded files nowhere. On a volume with no Trash, where the copy was destroyed
-  permanently, the banner correctly withheld its undo button but Edit ▸ Undo still offered
-  "Undo Merge", which would have deleted the folded files back out of the keeper with the
-  original gone for good. And a run now asks for one permanent-delete confirmation instead
-  of one per copy.
+- **Folder duplicate groups are judged file by file.** The check that a folder had not changed
+  since the scan counted its contents by different rules than the scan used — counting the
+  `.DS_Store` the scan ignored, and measuring a symlink's own bytes where the scan recorded
+  none. Any group holding either was refused as "changed since it was scanned", permanently,
+  because a rescan reproduces the same difference. The same constant offset could equally mask
+  a real loss, and a count-and-bytes rollup can never see a same-length rewrite inside a
+  folder about to be removed.
+- **The Compare review checks what it is about to trash, and stops promising an undo it
+  cannot honour.** For a folder — and Compare is the folder-only flow — the gate passed on
+  existence alone, so a file that landed in the right-hand folder while the review sat open
+  was trashed along with it. Its confirmation also read "Reversible with ⌘Z" unconditionally,
+  including on volumes with no Trash, where the copy is destroyed outright and nothing reaches
+  the undo manager.
+- **Merging duplicates is safer to undo and safer to trash after.** The merge held an undo
+  group open across every suspension, and undo grouping is global to the window, so an
+  unrelated operation finishing in that window was swallowed into the merge's step and came
+  back with one ⌘Z. The keeper was checked once, before a copy loop that can run for minutes,
+  and for a folder that check degenerated to "does it exist" — so a keeper emptied mid-merge
+  still had its redundant copy trashed, with the folded files nowhere. Edit ▸ Undo also
+  offered to reverse merges whose copies had been destroyed permanently.
 - **The permanent-delete confirmation names what it is about to destroy.** The app's one
-  unrecoverable dialog said "permanently delete these N items?" and discarded the list —
-  and even for a single item it showed only the basename, which is no help at all when the
-  two candidates are duplicate copies with the same name. It now lists the full paths,
-  home-abbreviated, capped with an "and N more".
-- **The Compare review stops promising ⌘Z for a delete that cannot be undone.** Its
-  confirmation read "The left copy is kept. Reversible with ⌘Z." unconditionally. On a
-  volume with no Trash — exFAT, most SMB shares — the copy cannot be trashed, so the app
-  escalates to the permanent-delete confirmation and destroys it outright, with nothing
-  reaching the undo manager because there is no backup to restore from. The coordinator
-  already drew that distinction thirty lines below, in its log line; the dialog in front of
-  the same action did not.
+  unrecoverable dialog said "permanently delete these N items?" and discarded the list — and
+  for a single item showed only the basename, which is no help when the two candidates are
+  duplicate copies with the same name.
+- **A dangling symlink is deleted instead of reported as already gone.** The trash was gated
+  on an existence check that follows the link, so a symlink whose target had been deleted
+  answered "not there", and that branch had no else: no error, no banner, no place in the
+  removed count. You were told the delete succeeded and the link stayed where it was.
 
-### Filing and automations
+### Verdicts that had gone stale
 
-- **A file whose scan never came back is no longer stuck forever.** Reading a scan holds
-  the file in an in-flight set released when the round trip returns, and the extractor has
-  no timeout — so a render that never came back left the file latched, and every later
-  "Read scan" on it was a silent no-op. Nothing cleared the set: switching provider did not,
-  and a filing rescan assigns its suggestions directly without touching it, so a latched
-  file survived any number of rescans. Switching provider now clears it, along with two
-  other filing collections left keyed to the old tree.
-- **"File recommended" cannot be started twice.** It checked only a *different* pass's
-  exclusion guard and carried none of its own, unlike every sibling write pass in the app.
-  Its confirmation is a modal alert, and a modal run loop keeps the main actor turning while
-  the first batch sits parked — so a second run was one gesture away.
-- **A cloud filing pass stands down when it cannot price the model.** The spend check read a
-  missing price as zero, and missing means "this build has no rate for that model id" — 
-  reachable in ordinary use, because a hand-set model is deliberately passed through
-  untouched while the pricing table matches only four name prefixes. A dated identifier is
-  both at once, and zero is the one substitute that fails every consumer in the same
-  direction: the estimate reads as free and the cap cannot bind.
+- **The verified-copy offer re-checks both ends before it writes.** Its guards count this
+  app's own writes and nothing else, and the dialog never expires — so a cloud daemon syncing
+  down a new version while the offer sat open was invisible, and confirming bulk-overwrote
+  with bytes that were never the ones hashed.
+- **`sync` re-checks its plan against disk before each write.** The plan was drawn once at
+  scan time and then executed however long the `[y/N]` prompt sat there, `--verify` included.
+  A file rewritten while you read the list was overwritten by the stale copy the plan picked.
 - **An automation checks a row is still its file before moving it.** The apply gated on
   nothing more than a non-empty destination, and a dry-run report can sit on screen for
-  minutes — longer with the walkthrough, which stretches it over as many rows as you have.
-  Anything that took a row's path in the meantime was moved in its place.
+  minutes. Anything that took a row's path in the meantime was moved in its place.
 
-### Deleting, copying and the command line
+### Filing
 
-- **A dangling symlink is deleted instead of reported as already gone.** The trash was gated
-  on an existence check that follows the link, so a symlink whose target had been deleted —
-  or lives on a volume that is not mounted — answered "not there", and the branch had no
-  else. No error, no banner, no place in the removed count: you selected it, pressed Delete,
-  were told the operation succeeded, and the link stayed exactly where it was.
-- **The verified-copy offer re-checks both ends before it writes.** Its guards count this
-  app's own writes and nothing else, and the dialog never expires — so a cloud daemon
-  syncing down a new version of a file while the offer sat open was completely invisible.
-  Confirming then bulk-overwrote with the left side's *current* bytes, which were never the
-  bytes that had been hashed, over a file that had changed since the verdict was taken.
-- **`sync` re-checks its plan against disk before each write.** The plan was drawn once at
-  scan time and then executed however long the `[y/N]` prompt sat there — `--verify` runs
-  before the prompt, so its verdicts were the same age, and nothing looked at the files
-  again in between. A file rewritten while you read the list was overwritten by the stale
-  copy the plan had picked.
+- **A cloud filing pass stands down when it cannot price the model.** The spend check read a
+  missing price as zero — and missing means "this build has no rate for that model id", which
+  a hand-set model reaches in ordinary use. Zero is the one substitute that fails every
+  consumer in the same direction: the estimate reads as free and the cap cannot bind.
+- **A file whose scan never came back is no longer stuck.** The in-flight set that "Read
+  scan" holds a file in was released only when the round trip returned, and the extractor has
+  no timeout — so a render that never came back left the file latched, every later attempt a
+  silent no-op, surviving any number of rescans. Switching provider now clears it. Separately,
+  "File recommended" can no longer be started twice.
 
 ### The keyboard
 
 - **The Organize review card's ⏎ and ⌫ decide once, unmodified, and only when the card has
-  focus.** This is the surface where ⏎ moves real bytes, and it was reachable four ways it
-  should not have been. Every modifier combination ran the primary action — ⌘⏎, ⇧⏎, ⌥⏎ and
-  ⌃⏎ each performed the copy or move; the single-key handler's reputation for matching only
-  unmodified presses was asserted in three separate comments and turns out to be false. A
-  held ⏎ launched four copies of one row, because the in-progress flag only closes when the
-  outcome lands and auto-repeat outruns it. ⌘⌫, ⌥⌫ and ⇧⌫ each irreversibly skipped a row.
-  The keypad's Enter did nothing at all, silently, while the hint row advertised ⏎. And
-  neither key checked whether the card actually held focus: a key handler scopes to the
-  subtree rather than the focused view, so with Full Keyboard Access on, ⏎ aimed at the
-  focused Skip button ran the copy instead — a focused macOS button activates on Space, not
-  Return.
-- **The filing walkthrough's ⏎, → and esc stay inside the card.** They were registered as
-  window-level key equivalents, which macOS consults *before* the first responder. So ⏎
-  typed into the lens header's search field filed the document on screen, → typed anywhere
-  skipped one with no way back to it, holding either decided document after document, and
-  an esc meant to clear the search field discarded every approval in the walkthrough. The
-  app already had this written down: the other review card carries a comment explaining why
-  it deliberately does not use window-level shortcuts.
-- **↩ in a pane opens the rename editor without swallowing chords.** ⌘↩, ⇧↩, ⌥↩ and ⌃↩ each
-  opened it, taking chords other surfaces own, and the keypad's Enter did nothing while
-  File ▸ Rename advertises ↩.
+  focus.** This is the surface where ⏎ moves real bytes. Every modifier combination ran the
+  primary action — ⌘⏎, ⇧⏎, ⌥⏎ and ⌃⏎ each performed the copy or move. A held ⏎ launched four
+  copies of one row. ⌘⌫, ⌥⌫ and ⇧⌫ each irreversibly skipped a row. The keypad's Enter did
+  nothing while the hint row advertised ⏎. And neither key checked whether the card held
+  focus, so with Full Keyboard Access on, ⏎ aimed at the focused Skip button ran the copy — a
+  focused macOS button activates on Space, not Return. ↩ in a pane had the same modifier
+  problem and now shares the fix.
+- **The filing walkthrough's ⏎, → and esc stay inside the card.** They were window-level key
+  equivalents, which macOS consults *before* the first responder — so ⏎ typed into the lens
+  header's search field filed the document on screen, → skipped one with no way back, holding
+  either decided document after document, and an esc meant for the search field discarded
+  every approval. The walkthrough also has a voice in VoiceOver now; its decision surface
+  previously read as three unrelated siblings with nothing saying which file was being decided.
 
 ### Renaming
 
-- **A case-only tidy lands on the cased name instead of inventing a duplicate.** Renaming
+- **A case-only tidy lands on the cased name, and case-only renames work at all.** Renaming
   `07. jul 2016.pdf` to `07. Jul 2016.pdf` produced **`07. Jul 2016 2.pdf`** — the
-  destination-exists check compared paths case-sensitively on a volume that folds case, so
-  a file collided with itself and got a duplicate marker from nowhere, which the next scan
-  then preserves as though you had meant it.
-- **Case-only renames work at all.** One layer down, the primitive resolved both paths
-  through `realpath`, which folds case, and threw "source and destination are identical" —
-  under a comment claiming case-only renames were exempt. Every case-only rename on the
-  default volume failed, the Rename field included: you could not rename `foo` to `Foo`.
-- **A failed renumbering rolls back whole.** A cohort rename that hit an I/O error partway
-  logged it, counted it and carried on, leaving two files sharing a slot number and
-  reporting a partial success.
+  destination check compared case-sensitively on a volume that folds case, so the file
+  collided with itself and got a duplicate marker from nowhere, which the next scan preserves
+  as though you meant it. One layer down, the primitive resolved both paths through
+  `realpath`, which also folds case, and threw "source and destination are identical" — so
+  every case-only rename failed, the Rename field included: you could not rename `foo` to
+  `Foo`. A cohort rename that fails partway now rolls back whole instead of leaving two files
+  sharing a slot number.
 
-### Elsewhere
+### Also
 
-- **The ⌘K results panel stops painting dark notches at its corners.** It carried a shadow
-  it had nowhere to put; on the shipped build that renders as four dark corner marks and no
-  shadow anywhere a shadow belongs.
-- **The filing walkthrough has a voice in VoiceOver.** The decision surface carried no
-  card-level accessibility at all, so the position, the filename and the destination were
-  read as three unrelated siblings with nothing answering the one question that matters —
-  which file am I deciding about.
-- **The bulk difference menu acts on the rows as they are when you pick an item**, not as
-  they were when you right-clicked. A menu stays open across whatever the app does behind
-  it, so a scan landing underneath left the click operating on a stale table.
-- **The Help book covers what v4.2 added** — the file clipboard, the Storage bars and the
-  ⌘K redesign shipped without ever being described in the book that describes the app.
-- Several refusals in the duplicates and merge paths that were previously banner-only now
-  also write their detail — full paths, the keeper and the culprit, both sides of a Compare
-  review — to `~/sync-cloud.log`.
+- The ⌘K results panel no longer paints dark notches at its corners, and the bulk difference
+  menu acts on rows as they are when you pick an item rather than when you right-clicked.
+- The Help book now covers what v4.2 added — the file clipboard, the Storage bars and the ⌘K
+  redesign shipped without ever being described in the book that describes the app.
 
 ### Still to come in v4.3
 
-- **Browse's folder sidebar** is built and reachable from nothing: `FolderSidebar` is
-  constructed nowhere outside its own tests. It joins the list above when something opens
-  it.
+- **Browse's folder sidebar** is built and reachable from nothing. It joins the list above
+  when something opens it.
 
 ---
 
