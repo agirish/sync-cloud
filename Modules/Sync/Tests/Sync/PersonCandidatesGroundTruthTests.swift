@@ -2,18 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What the household proposer actually finds on a real tree, measured against a real roster.
-///
-/// **Machine-pinned, and it earns the pin.** The rule is a heuristic over folder names, and the only
-/// honest way to know whether it is useful is to run it over a tree somebody really organised and
-/// compare it with the household they really wrote down. A fixture cannot answer that: I would be
-/// grading the rule against folders I invented to suit it.
-///
-/// Gated on the developer's `~/Documents` and its `people.json` being present, so it reports SKIPPED
-/// on any other machine rather than failing. `PersonCandidatesGateTests` always runs and prints the
-/// verdict, because a suite that silently vanishes is one nobody notices has stopped checking.
-@Suite struct PersonCandidatesGroundTruthTests {
-
+/// The live tree and roster the ground-truth suite measures against. A separate type solely so
+/// the suite's `@Suite(.enabled(if:))` attribute can reference it — an attribute referencing the
+/// annotated type's own statics is a circular macro reference.
+enum PersonCandidatesLiveData {
     static var root: URL { URL(fileURLWithPath: NSHomeDirectory() + "/Documents") }
 
     static var profilesDirectory: URL {
@@ -30,6 +22,33 @@ import Testing
     static var isAvailable: Bool {
         FileManager.default.fileExists(atPath: root.path) && roster() != nil
     }
+}
+
+/// What the household proposer actually finds on a real tree, measured against a real roster.
+///
+/// **Machine-pinned, and it earns the pin.** The rule is a heuristic over folder names, and the only
+/// honest way to know whether it is useful is to run it over a tree somebody really organised and
+/// compare it with the household they really wrote down. A fixture cannot answer that: I would be
+/// grading the rule against folders I invented to suit it.
+///
+/// Gated on the developer's `~/Documents` and its `people.json` being present, so it reports SKIPPED
+/// on any other machine rather than failing. `PersonCandidatesGateTests` always runs and prints the
+/// verdict, because a suite that silently vanishes is one nobody notices has stopped checking.
+///
+/// The `.enabled(if:)` is what makes that sentence true: the in-test `#require(Self.isAvailable)`
+/// lines FAIL when the roster is absent — they are the belt for a machine where the roster
+/// disappears between discovery and run — so without this gate, the companion printed SKIPPED for
+/// a state that actually went red.
+@Suite(.enabled(if: PersonCandidatesLiveData.isAvailable,
+                "no live tree or roster on this machine"))
+struct PersonCandidatesGroundTruthTests {
+
+    // Forwarders: the data lives in `PersonCandidatesLiveData` because a `@Suite` attribute that
+    // references the suite's own statics is a circular macro reference and does not compile; the
+    // gate companion and the tests keep reading it through these names.
+    static var root: URL { PersonCandidatesLiveData.root }
+    static func roster() -> [Person]? { PersonCandidatesLiveData.roster() }
+    static var isAvailable: Bool { PersonCandidatesLiveData.isAvailable }
 
     /// The proposer finds most of a real household, and says so with numbers.
     ///

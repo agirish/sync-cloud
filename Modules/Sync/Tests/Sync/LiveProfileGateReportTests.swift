@@ -68,4 +68,38 @@ enum LiveProfileSuiteGate {
         #expect(scope.hasPrefix("RAN") == (!excluded && LiveProfile.isAvailable),
                 "the gate report says \(scope) while the gates read excluded=\(excluded) profile=\(LiveProfile.isAvailable)")
     }
+
+    /// The report's gates are a COPY of the suites' traits, and only convention kept them equal —
+    /// a suite that gained a third gate (the folder-survey template has one: display awake) would
+    /// leave the report printing RAN for a suite the new gate had skipped, and nothing above can
+    /// see that: the RAN assertion compares the line to the report's OWN inputs. This scan binds
+    /// the copy to the suites' `@Suite(` attributes: a condition joining or leaving either trait
+    /// fails here and names the report as the thing to update.
+    @Test func theReportedGatesMatchTheSuitesOwnTraits() throws {
+        func suiteAttribute(of file: String) throws -> String {
+            let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+                .appendingPathComponent(file)
+            let text = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                    "cannot read \(file) — the trait pin would be vacuous")
+            let start = try #require(text.range(of: "\n@Suite("), "\(file) lost its @Suite attribute")
+            let after = text[start.upperBound...]
+            let end = try #require(after.range(of: "\nstruct "), "\(file)'s @Suite attribute never reaches its struct")
+            return String(after[..<end.lowerBound])
+        }
+
+        let replayTraits = try suiteAttribute(of: "PersonChannelReplayTests.swift")
+        #expect(replayTraits.contains("LiveProfile.isAvailable && LiveCorpus.isAvailable"),
+                "the replay suite's gate changed — update theRunSaysWhetherTheLiveProfileSuitesRan's replayGates to match: \(replayTraits)")
+        #expect(replayTraits.components(separatedBy: ".enabled(if:").count - 1 == 1,
+                "the replay suite gained or lost an .enabled gate — the report's gates are now a stale copy")
+        #expect(replayTraits.contains(".machinePinned(.liveProfile)"))
+
+        let scopeTraits = try suiteAttribute(of: "OrganizeScopeLiveProfileTests.swift")
+        #expect(scopeTraits.contains("LiveProfile.isAvailable"))
+        #expect(!scopeTraits.contains("LiveCorpus"),
+                "the scope suite now consults the corpus — the report's single-gate copy is stale")
+        #expect(scopeTraits.components(separatedBy: ".enabled(if:").count - 1 == 1,
+                "the scope suite gained or lost an .enabled gate — the report's gates are now a stale copy")
+        #expect(scopeTraits.contains(".machinePinned(.liveProfile)"))
+    }
 }
