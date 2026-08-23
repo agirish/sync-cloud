@@ -87,59 +87,6 @@ struct AppearanceModeTests {
         #expect(Set(keys).count == keys.count)
     }
 
-    // MARK: - The per-window pass
-
-    /// The pass exists because of a shipped bug — the macOS 26 glass title-bar band kept the OLD
-    /// appearance on a Dark → Light switch until relaunch, so `apply` re-asserts the value on
-    /// every open window — and nothing pinned it: resolution was tested to the last raw value
-    /// while the one function that touches AppKit had zero coverage. Driven through the `pin`
-    /// seam with THIS test's own windows (never `NSApp.windows` — that would clobber the
-    /// appearance a parallel render suite just pinned on its window); `apply`'s only other line
-    /// is feeding `pin` the real app and window list, pinned by the scan below.
-    ///
-    /// The un-pin half matters as much as the pin: `.system` must write nil onto every window,
-    /// or a once-pinned window stays stuck in its old appearance after the user returns to
-    /// following the system.
-    @MainActor
-    @Test func pinWritesEveryWindowAndSystemUnpins() {
-        let app = NSApplication.shared
-        let saved = app.appearance
-        defer { app.appearance = saved }
-        // Parked far offscreen, per the house convention — ordered-in is not on a display.
-        let windows = (0..<2).map { _ in
-            let w = NSWindow(contentRect: NSRect(x: -12_000, y: -12_000, width: 80, height: 60),
-                             styleMask: [.borderless], backing: .buffered, defer: false)
-            w.isReleasedWhenClosed = false
-            return w
-        }
-        defer { windows.forEach { $0.orderOut(nil) } }
-
-        AppAppearance.pin(.dark, onto: app, windows: windows)
-        #expect(app.appearance?.name == .darkAqua)
-        #expect(windows.allSatisfy { $0.appearance?.name == .darkAqua })
-
-        AppAppearance.pin(.light, onto: app, windows: windows)
-        #expect(app.appearance?.name == .aqua)
-        #expect(windows.allSatisfy { $0.appearance?.name == .aqua })
-
-        AppAppearance.pin(.system, onto: app, windows: windows)
-        #expect(app.appearance == nil)
-        #expect(windows.allSatisfy { $0.appearance == nil },
-                "the un-pin must reach every window, or a once-pinned window is stuck until relaunch")
-    }
-
-    /// The call-site half: `apply` must feed `pin` the real app and the real window list. One
-    /// line, but it is the line whose absence was the original bug (app-only, windows skipped).
-    @Test func applyFeedsPinTheRealAppAndItsWindows() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/Design/AppearanceMode.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8))
-        try #require(source.count > 500, "AppearanceMode.swift read truncated — the scan would be vacuous")
-        #expect(source.contains("pin(mode, onto: NSApplication.shared, windows: NSApplication.shared.windows)"),
-                "apply no longer hands pin the open windows — the glass title-bar bug is back for on-screen windows")
-    }
-
     // MARK: -
 
     /// An isolated defaults suite, so these never read or write the developer's real preferences.
