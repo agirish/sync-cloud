@@ -281,6 +281,15 @@ new feature, which `CLAUDE.md` puts on `main` alone — not a fix that a mainten
 - **`SizePreset` / `SizePresetRow` / `SizeSpacingPreview`.** New types with no counterpart to fix
   on either line.
 
+- **`flaky-tests.md`'s "The control that stops an absence being vacuous is itself load-dependent".**
+  The mechanism is real on any line, but the only test that has ever produced it —
+  `MergeUndoGroupingAndGateTests.noUndoGroupIsEverOpenWhileTheMergeIsSuspended` — exists on `main`
+  alone, and `flaky-triage.md`, which carries its signature row, is a `main`-only file. A section
+  describing a test a maintenance line does not have is a section its reader cannot act on. The
+  companion finding from the same CI run *was* portable and is on all three lines: the
+  expiry-discarding `waitUntil` recorded under "Fixed pumps and fixed sleeps", whose test and helper
+  are byte-identical everywhere. Checked 2026-08-22.
+
 The one part of this work that *would* have been portable — a bug fix inside `scaledPointSize` —
 does not exist: the curve was not touched.
 
