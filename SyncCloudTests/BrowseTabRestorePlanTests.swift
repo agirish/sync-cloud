@@ -98,6 +98,35 @@ import Sync
                 "the abandoned launch must not claim a tab came back")
     }
 
+    /// Both misfortunes at once: one entry's SOURCE is gone (dropped) and the survivor's FOLDER is
+    /// gone (re-rooted to seed state → abandoned). The dropped warning still leads, the abandoned
+    /// line still replaces the restore claims, nothing installs — the combination neither
+    /// single-misfortune test above can see.
+    @Test func aDroppedSourceAndALostFolderTogetherWarnTwiceAndInstallNothing() {
+        let p = plan(entries: [entry("Gone", path: "Old/Stuff"), entry(path: "Docs/Tax")],
+                     selected: 1,
+                     folderExists: { _, _ in false })
+        #expect(p.install == nil)
+        #expect(p.lines.map(\.level) == [.warning, .warning])
+        #expect(p.lines.first?.message.hasPrefix("Dropped 1 stored left browse tab") == true,
+                "what the restore threw away is still said first — got \(p.lines)")
+        #expect(p.lines.last?.message.hasPrefix("Did not restore the left browse tab “Docs/Tax”") == true)
+        #expect(!p.lines.contains { $0.message.contains("Restored") })
+    }
+
+    /// The pairing invariant the executor leans on: `adoptProviderId` and `adoptLog` are one
+    /// decision — the host logs `plan.adoptLog ?? ""` beside the adopt, so an id without its
+    /// audit line would write an EMPTY line into the log he audits, and a line without its id
+    /// would be an audit of nothing.
+    @Test func adoptionAndItsAuditLineAlwaysTravelTogether() {
+        let adopting = plan(entries: [entry("Dropbox", path: "Work")], currentProviderId: "iCloud")
+        #expect((adopting.adoptProviderId == nil) == (adopting.adoptLog == nil))
+        #expect(adopting.adoptLog?.isEmpty == false)
+
+        let staying = plan(entries: [entry(path: "Docs/Tax")])
+        #expect((staying.adoptProviderId == nil) == (staying.adoptLog == nil))
+    }
+
     // MARK: Re-rooted folders
 
     /// A tab whose folder is gone comes back at its source root — deliberately — and the stored

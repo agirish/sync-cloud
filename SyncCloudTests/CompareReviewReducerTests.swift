@@ -192,6 +192,15 @@ import Testing
         })
         #expect(listed == declared,
                 "everyEvent and the enum disagree — an event outside the invariant loop can quietly diverge: declared \(declared.sorted()), listed \(listed.sorted())")
+
+        // The scan above holds one exemplar PER CASE, so it cannot see three of tabSwitched's
+        // four payload combinations quietly disappearing from the list. The count pins what the
+        // set cannot: the branching case keeps its full truth table in the loop.
+        let tabSwitchedCombos = Self.everyEvent.filter {
+            Mirror(reflecting: $0).children.first?.label == "tabSwitched"
+        }
+        #expect(tabSwitchedCombos.count == 4,
+                "tabSwitched has two Bools — all four combinations belong in everyEvent, found \(tabSwitchedCombos.count)")
     }
 
     /// The teardown invariants, for EVERY event in every state — the properties no handler may
