@@ -1792,7 +1792,24 @@ public class FileSyncManager: ObservableObject {
     @Published public var activeProgress: Progress? = nil
     /// Short-lived banner for in-app operation completion toasts. The severity drives the UI's
     /// icon, tint, and dismissal behavior.
-    @Published public var banner: OperationBanner? = nil
+    ///
+    /// Every banner is also logged here, at the severity it wears, prefixed `[banner]`. This is
+    /// the choke point that keeps refusals findable after the fact: a dozen guards across this
+    /// class refuse an operation with nothing but a banner, and a banner is gone in seconds —
+    /// a report of "I clicked sync and nothing happened" was undiagnosable from the log alone.
+    /// Sites that also log their own richer line will produce a near-duplicate pair; that is
+    /// accepted, because the `[banner]` line records what the USER was shown, which the richer
+    /// line does not.
+    @Published public var banner: OperationBanner? = nil {
+        didSet {
+            guard let banner, banner.id != oldValue?.id else { return }
+            switch banner.severity {
+            case .success: Logger.shared.info("[banner] \(banner.message)")
+            case .warning: Logger.shared.warning("[banner] \(banner.message)")
+            case .error: Logger.shared.error("[banner] \(banner.message)")
+            }
+        }
+    }
     
     /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
     public let refreshSubject = PassthroughSubject<Void, Never>()

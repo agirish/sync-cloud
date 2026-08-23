@@ -96,13 +96,15 @@ public enum DisplayCycleTrace {
               let replacement = class_getInstanceMethod(
                 NSWindow.self, #selector(NSWindow.syncCloud_tracedUpdateConstraintsIfNeeded))
         else {
-            Logger.shared.info("[cycle] display-cycle trace could not install — hook absent")
+            Logger.shared.debug("[cycle] display-cycle trace could not install — hook absent")
             return
         }
         method_exchangeImplementations(original, replacement)
         swizzled = true
         installObserver()
-        Logger.shared.info(
+        // .debug like the [cycle] reports themselves — see the [hitch] armed line for why an
+        // announcement must not outrank what it announces.
+        Logger.shared.debug(
             "[cycle] display-cycle trace ARMED — logging any window that spends \(floor)+ "
             + "update-constraints passes in one cycle (docs/columns-layout-loop.md)")
     }

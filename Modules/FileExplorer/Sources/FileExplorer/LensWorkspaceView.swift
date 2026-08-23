@@ -241,7 +241,7 @@ public struct LensWorkspaceView: View {
     /// nil when this machine has no filing profile to update, which withholds the item rather than
     /// offering one that would do nothing.
     private let onUpdateFolderMemory: (() -> Void)?
-    /// Opens Settings ▸ Organize, where the cloud backend is set up. Optional so the previews and
+    /// Opens Settings ▸ Intelligence, where the cloud backend is set up. Optional so the previews and
     /// the tests that mount this view without a host don't have to fake a Settings overlay; nil
     /// simply withholds the "Refine with Claude…" invitation, which is the honest outcome for a
     /// host that has no Settings to open.
@@ -2069,7 +2069,7 @@ public struct LensWorkspaceView: View {
             .chromeHover()
             .controlSize(.small)
             .help("These suggestions came from the free on-device pass. Set up Claude in "
-                  + "Settings ▸ Organize to re-ask a stronger model about them — billed to your "
+                  + "Settings ▸ Intelligence to re-ask a stronger model about them — billed to your "
                   + "own API key, and never used by a scan.")
         }
     }

@@ -162,7 +162,15 @@ public enum PaneTabsStore {
                   stackDepth: $0.browsePath.depth, pinned: $0.isPinned)
         }
         guard let data = try? JSONEncoder().encode(entries),
-              let raw = String(data: data, encoding: .utf8) else { return }
+              let raw = String(data: data, encoding: .utf8) else {
+            // A silent return here means the strip quietly stops persisting — every tab mutation
+            // from now on is lost on quit while the UI looks fine. Unreachable for these plain
+            // string fields, which is exactly when a branch must announce itself if it ever fires.
+            Task { @MainActor in
+                Logger.shared.error("The \(isLeft ? "left" : "right") pane's tab strip could not be encoded for saving — tab changes from this session will not survive a relaunch")
+            }
+            return
+        }
         let key = keys(isLeft: isLeft)
         defaults.set(raw, forKey: key.tabs)
         defaults.set(min(max(0, selected), max(0, entries.count - 1)), forKey: key.selected)

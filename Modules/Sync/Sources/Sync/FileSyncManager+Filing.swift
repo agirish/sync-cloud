@@ -186,7 +186,7 @@ extension FileSyncManager {
     ///
     /// Not the toggle: with cloud switched on and nothing stored, a toggle-based answer promises a
     /// model the router will not use, and the pass comes back "no better homes found" having asked
-    /// nothing. The invitation is the honest control there — it opens Settings ▸ Organize, which is
+    /// nothing. The invitation is the honest control there — it opens Settings ▸ Intelligence, which is
     /// where the missing key goes.
     ///
     /// **Not the real route either, and that is the point of ``filingCloudRefineConfigured``.**
@@ -814,7 +814,7 @@ extension FileSyncManager {
     ///
     /// The refine PASS keeps its dialog, and keeps showing a cap breach as an informational alert —
     /// that pass is a deliberate bulk action the user asked to price. A single card is not, and the
-    /// remedy for a hit cap is the same either way: Settings ▸ Organize.
+    /// remedy for a hit cap is the same either way: Settings ▸ Intelligence.
     func cloudSpendWithinCapsWithoutPrompting(files: [FilingCandidateFile],
                                               taxonomyFolders: [String]) -> Bool {
         switch filingSpendGate(files: files, taxonomyFolders: taxonomyFolders) {
@@ -828,7 +828,7 @@ extension FileSyncManager {
                 + "(est \(FilingSpendFormat.cost(preflight.estCostUSD)), this month "
                 + "\(FilingSpendFormat.cost(preflight.monthlySpentUSD)), lifetime "
                 + "\(FilingSpendFormat.cost(preflight.totalSpentUSD))). Using the free on-device "
-                + "suggestion; raise the cap in Settings ▸ Organize to keep using Claude.")
+                + "suggestion; raise the cap in Settings ▸ Intelligence to keep using Claude.")
             return false
         }
     }
@@ -877,13 +877,13 @@ extension FileSyncManager {
         // So the pass stands down and keeps the free on-device suggestions, which is the same
         // graceful degradation `CloudFilingClassifier` already applies when the spend record
         // cannot be read: no paid call may be made while no cap can be enforced against it. The
-        // log names the model, because the remedy is one Settings ▸ Organize change away.
+        // log names the model, because the remedy is one Settings ▸ Intelligence change away.
         guard let estCost = CloudFilingProtocol.estimatedCostUSD(
                 model: model, taxonomyFolders: taxonomyFolders, files: files) else {
             Logger.shared.warning("Filing: cloud classify skipped for \(files.count) file(s) — no price "
                 + "is known for model “\(model)”, so the cost could not be quoted and neither budget "
                 + "cap could be enforced against it. Using the free on-device suggestions; pick one of "
-                + "the offered models in Settings ▸ Organize to use Claude.")
+                + "the offered models in Settings ▸ Intelligence to use Claude.")
             return .blocked
         }
         // Spend and caps must come from the SAME store, or the preflight compares this month's

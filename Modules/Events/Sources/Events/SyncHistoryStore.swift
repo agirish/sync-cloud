@@ -149,6 +149,9 @@ public final class SyncHistoryStore: ObservableObject {
 
     /// Empties both the in-memory mirror and the on-disk file.
     public func clear() {
+        // The one destructive clear in the app that had no line: a history that is suddenly empty
+        // should be attributable to this action, not read as the store failing to load.
+        Logger.shared.info("Sync history cleared — \(records.count) record(s) removed")
         records.removeAll()
         writer.clear()
     }
