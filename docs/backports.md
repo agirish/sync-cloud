@@ -464,13 +464,15 @@ cherry-pick touching that file will conflict on the note: resolve by keeping eac
 sibling list); and the liveProfile gate-report companions (all three reported suites are
 main-only).
 
-**Not landed anywhere yet, will need triage when fixed:** the review's two parked defect-test
-suites (the `PaneBarArrangement` decode→edit write-back destroying a newer build's token, and
-`SettingsManager`'s five sibling properties lacking the folderSources `.unreadable` salvage).
-They document open defects on `main`; the `SettingsManager` read-tolerantly-write-unconditionally
-shape exists on all three lines, so when the salvage lands it is a candidate for both — check the
-five keys' presence per line then (`disabledProviderIds`, `ignorePatterns`, `defaultSortOption`,
-`folderNameRuleProvider`, `conflictDefaultPolicy`).
+**Both parked defect fixes LANDED on all three lines, 2026-08-23.** The `SettingsManager`
+salvage (`readSetting`, mirroring folderSources' `.unreadable` preservation) covers five keys on
+`main`/`v3.x` and four on `v2.x`, which never carried `folderNameRuleProvider` — checked by key
+grep, not assumed. The `PaneBarArrangement` write-back fix (unknown tokens carried through
+`encoded`) went to all three lines too: the earlier "pane-bar suites are main-only" reading was
+about the TEST suites — the arrangement type and customize sheet, defect included, are on every
+line (the file-level check that catches exactly this is what this document exists for). Per-line
+adaptations: `v2.x` has no `PaneBarMigration` (it arrived with the search control in 3.x), so its
+write-back suite pins the sheet path alone and uses that line's own case names.
 
 ## The unaudited surface, honestly
 
