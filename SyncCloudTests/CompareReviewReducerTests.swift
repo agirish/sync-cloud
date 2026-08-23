@@ -104,4 +104,93 @@ import Testing
         #expect(effects(back, state(review: true)) == [.refocusCopies])
         #expect(effects(back, state(review: false)) == [])
     }
+
+    // MARK: Every event, by construction
+
+    /// One value per case (every payload combination for the branching `tabSwitched`). The enum
+    /// cannot be `CaseIterable` — three cases carry payloads — so the completeness scan below is
+    /// what keeps this list total: a ninth case fails that scan until it is added here, and adding
+    /// it here is what puts it under the invariant loop.
+    private static let everyEvent: [CompareReviewEvent] = [
+        .tabSwitched(toCompare: false, fromCompare: false),
+        .tabSwitched(toCompare: false, fromCompare: true),
+        .tabSwitched(toCompare: true, fromCompare: false),
+        .tabSwitched(toCompare: true, fromCompare: true),
+        .providerSwitched(isLeft: true), .providerSwitched(isLeft: false),
+        // This line has no `.tabChangedSource` — browse tabs are v4. The completeness scan reads
+        // THIS line's enum, so the list stays per-line by construction.
+        .comparisonRootEdited,
+        .panesSwapped,
+        .compareCopiesStarted,
+        .reviewDone,
+        .rightCopyTrashed,
+    ]
+
+    /// The event type's own doc claims its teardown invariant "is now checked for every event" —
+    /// which was aspirational while nine hand-written tests enforced it: a tenth case added
+    /// tomorrow got zero coverage and the comment stayed wrong. This makes the claim structural.
+    @Test func theEventListNamesEveryDeclaredCase() throws {
+        let source = try macAppFile("CompareReviewReducer.swift")
+        let header = try #require(source.range(of: "enum CompareReviewEvent: Equatable {"),
+                                  "the event enum moved or was respelled — update this anchor")
+        let afterHeader = source[header.upperBound...]
+        // The enum is top-level, so the first column-0 close is its own; nested braces are indented.
+        let end = try #require(afterHeader.range(of: "\n}"), "the event enum never closes")
+        let body = afterHeader[..<end.lowerBound]
+        let declared = Set(body.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("case ") && !$0.hasPrefix("case .") }
+            .compactMap { line in
+                line.dropFirst("case ".count).prefix(while: { $0.isLetter || $0.isNumber || $0 == "_" })
+            }
+            .map(String.init)
+            .filter { !$0.isEmpty })
+        try #require(declared.count > 5, "only \(declared.count) cases parsed — the parser is broken, not the enum")
+
+        let listed = Set(Self.everyEvent.map { event in
+            Mirror(reflecting: event).children.first?.label ?? String(describing: event)
+        })
+        #expect(listed == declared,
+                "everyEvent and the enum disagree — an event outside the invariant loop can quietly diverge: declared \(declared.sorted()), listed \(listed.sorted())")
+    }
+
+    /// The teardown invariants, for EVERY event in every state — the properties no handler may
+    /// break whatever new event arrives:
+    /// - a review is only ever cleared while one is set;
+    /// - restoring the pre-review comparison always accompanies clearing (never a restore of a
+    ///   review that stays);
+    /// - the pin undo is likewise only an accessory to a clear;
+    /// - clearing while a guided review runs must also end the guided review (the review it was
+    ///   framed on is going away);
+    /// - and `endGuidedReview` is exact — never emitted when no guided review is running.
+    @Test func everyEventKeepsTheTeardownInvariantsInEveryState() {
+        for event in Self.everyEvent {
+            for review in [false, true] {
+                for active in [false, true] {
+                    for guided in [false, true] {
+                        let s = state(review: review, active: active, guided: guided)
+                        let out = effects(event, s)
+                        let clears = out.contains(.clearDuplicateReview)
+                        if clears {
+                            #expect(review, "\(event) cleared a review that was not set (state \(s))")
+                        }
+                        if out.contains(.restoreCompareState) {
+                            #expect(clears, "\(event) restored without dropping the review (state \(s))")
+                        }
+                        if out.contains(where: { if case .undoProviderPin = $0 { return true }; return false }) {
+                            #expect(clears, "\(event) undid the pin of a review it kept (state \(s))")
+                        }
+                        if clears, guided {
+                            #expect(out.contains(.endGuidedReview),
+                                    "\(event) dropped the review a guided session was framed on without ending it (state \(s))")
+                        }
+                        if !guided {
+                            #expect(!out.contains(.endGuidedReview),
+                                    "\(event) ended a guided review that was not running (state \(s))")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
