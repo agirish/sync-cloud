@@ -86,4 +86,34 @@ import Foundation
             }
         }
     }
+
+    // MARK: - The single-row menu's one WRITE
+
+    /// The per-row menu was left on the captured row when the bulk menu was converted, and most of
+    /// it should stay that way: Get Info, Reveal and Copy Path name a side of the row the user
+    /// pointed at. The ignore toggle is different in kind — it WRITES `ignoredPaths`, keyed on the
+    /// row's paths, and an NSMenu outlives the table state it was built from.
+    @Test func theSingleRowIgnoreToggleResolvesItsRowWhenItFires() throws {
+        let source = try Self.viewSource()
+        let start = try #require(source.range(of: "private func singleRowMenu("),
+                                 "singleRowMenu was renamed — this scan is measuring nothing")
+        let rest = source[start.upperBound...]
+        let end = rest.range(of: "\n    /// ") ?? rest.range(of: "\n    private func ")
+        let body = String(rest[..<(end?.lowerBound ?? rest.endIndex)])
+
+        #expect(body.contains("DifferencesShortcutRules.rows(displayRows.sorted, matching: [id])"),
+                "the ignore toggle still writes from the row captured at menu-build")
+        #expect(body.contains("toggledIgnoredPaths(\n                for: live,"),
+                "the toggle does not use the resolved row")
+    }
+
+    /// **And the read-only items deliberately still take the captured row.** Stated as an
+    /// assertion so the distinction is a decision rather than an accident — converting them would
+    /// make Reveal do nothing for a row that scrolled out of the filtered list, which is worse than
+    /// revealing what the user pointed at.
+    @Test func theInspectionItemsStillTakeTheClickedRow() throws {
+        let source = try Self.viewSource()
+        #expect(source.contains("inspectionMenuItems(for: difference)"),
+                "the inspection items were converted too — they should name the row that was clicked")
+    }
 }

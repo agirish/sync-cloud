@@ -789,7 +789,64 @@ extension FileSyncManager {
     /// cheaply enough to ask per render, which is deliberately weaker than "will this be billed".
     /// Money reads ``filingRoutesToCloud(_:)``, which resolves the route for real.
     func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String]) -> Bool {
-        guard filingRoutesToCloud(.refine) else { return true }
+        switch filingSpendGate(files: files, taxonomyFolders: taxonomyFolders) {
+        case .notBilled:
+            return true
+        case .blocked:
+            // Already logged with its reason by the gate.
+            return false
+        case .billable(let preflight):
+            if filingCloudSpendConfirmer(preflight) { return true }
+            let monthNote = preflight.monthlyCapUSD > 0 ? " / month cap \(FilingSpendFormat.cost(preflight.monthlyCapUSD))" : ""
+            let totalNote = preflight.totalCapUSD > 0 ? " / total cap \(FilingSpendFormat.cost(preflight.totalCapUSD))" : ""
+            Logger.shared.info("Filing: cloud classify skipped for \(files.count) file(s) — spend guardrail declined (est \(FilingSpendFormat.cost(preflight.estCostUSD)), this month \(FilingSpendFormat.cost(preflight.monthlySpentUSD))\(monthNote), lifetime \(FilingSpendFormat.cost(preflight.totalSpentUSD))\(totalNote))")
+            return false
+        }
+    }
+
+    /// The same guardrail **without the dialog**, for the per-card re-ask.
+    ///
+    /// `tryAnotherFolder` routes to `.refine` — the paid tier — and consulted no spend gate at all:
+    /// the one billable path in the app with no pre-flight, recorded as a known gap in its own
+    /// comment. A modal per card click really would be worse than the gap, so this takes the half
+    /// of the gate that is not a conversation: an unpriced model and a cap breach both refuse and
+    /// say so in the log, and the click falls back to the free on-device answer.
+    ///
+    /// The refine PASS keeps its dialog, and keeps showing a cap breach as an informational alert —
+    /// that pass is a deliberate bulk action the user asked to price. A single card is not, and the
+    /// remedy for a hit cap is the same either way: Settings ▸ Organize.
+    func cloudSpendWithinCapsWithoutPrompting(files: [FilingCandidateFile],
+                                              taxonomyFolders: [String]) -> Bool {
+        switch filingSpendGate(files: files, taxonomyFolders: taxonomyFolders) {
+        case .notBilled:
+            return true
+        case .blocked:
+            return false
+        case .billable(let preflight):
+            guard preflight.wouldExceedCap else { return true }
+            Logger.shared.info("Filing: cloud re-ask skipped — it would pass a budget cap "
+                + "(est \(FilingSpendFormat.cost(preflight.estCostUSD)), this month "
+                + "\(FilingSpendFormat.cost(preflight.monthlySpentUSD)), lifetime "
+                + "\(FilingSpendFormat.cost(preflight.totalSpentUSD))). Using the free on-device "
+                + "suggestion; raise the cap in Settings ▸ Organize to keep using Claude.")
+            return false
+        }
+    }
+
+    /// What a prospective cloud call costs, or why it must not be made — shared by the refine
+    /// pass's dialog and the re-ask's silent check so the two can never price a call differently.
+    enum FilingSpendGate {
+        /// Not routed to cloud, so nothing will be billed and nothing needs confirming.
+        case notBilled
+        /// Must not run, and the reason has been logged already.
+        case blocked
+        /// Will be billed, priced as the classifier will price it.
+        case billable(FilingSpendPreflight)
+    }
+
+    private func filingSpendGate(files: [FilingCandidateFile],
+                                 taxonomyFolders: [String]) -> FilingSpendGate {
+        guard filingRoutesToCloud(.refine) else { return .notBilled }
         // Resolve the same way the classifier does, so the cost the user confirms is priced for the
         // model the call will actually name.
         let model = CloudFilingProtocol.currentModel(
@@ -827,7 +884,7 @@ extension FileSyncManager {
                 + "is known for model “\(model)”, so the cost could not be quoted and neither budget "
                 + "cap could be enforced against it. Using the free on-device suggestions; pick one of "
                 + "the offered models in Settings ▸ Organize to use Claude.")
-            return false
+            return .blocked
         }
         // Spend and caps must come from the SAME store, or the preflight compares this month's
         // spend in one place against a cap set in another. Production resolves both to `.standard`;
@@ -838,16 +895,11 @@ extension FileSyncManager {
         let totalSpent = FilingSpendStore.totals(defaults: filingContentDefaults).costUSD
         let monthlyCap = filingContentDefaults.double(forKey: Self.monthlyBudgetCapKey)
         let totalCap = Self.totalBudgetCap(in: filingContentDefaults)
-        let preflight = FilingSpendPreflight(
+        return .billable(FilingSpendPreflight(
             fileCount: files.count, model: model,
             estInputTokens: estTokens.input, estOutputTokens: estTokens.output,
             estCostUSD: estCost, monthlySpentUSD: monthlySpent, monthlyCapUSD: monthlyCap,
-            totalSpentUSD: totalSpent, totalCapUSD: totalCap)
-        if filingCloudSpendConfirmer(preflight) { return true }
-        let monthNote = monthlyCap > 0 ? " / month cap \(FilingSpendFormat.cost(monthlyCap))" : ""
-        let totalNote = totalCap > 0 ? " / total cap \(FilingSpendFormat.cost(totalCap))" : ""
-        Logger.shared.info("Filing: cloud classify skipped for \(files.count) file(s) — spend guardrail declined (est \(FilingSpendFormat.cost(estCost)), this month \(FilingSpendFormat.cost(monthlySpent))\(monthNote), lifetime \(FilingSpendFormat.cost(totalSpent))\(totalNote))")
-        return false
+            totalSpentUSD: totalSpent, totalCapUSD: totalCap))
     }
 
     static func modificationYear(_ date: Date?) -> String? {
@@ -1337,11 +1389,18 @@ extension FileSyncManager {
         // explicit click asking the preferred backend for a better answer. Routing it to the free
         // tier would re-ask the model that already produced the destination being rejected.
         //
-        // **Known gap, unchanged by the tier split:** a re-ask has never consulted
-        // `cloudSpendAllows`, so on the cloud backend it spends without a pre-flight. A modal per
-        // card click would be worse than the gap, and the hard monthly/total caps inside
-        // `CloudFilingClassifier` still bound it — but it is the one paid path with no dialog, and
-        // naming the tier is what makes that visible rather than incidental.
+        // **The gap this comment used to record is closed, and closed the way it argued for.** A
+        // re-ask consulted no spend gate at all: the one billable path in the app with no
+        // pre-flight. A modal per card click really would be worse than the gap, so this takes the
+        // half of the guardrail that is not a conversation — an unpriced model and a cap breach
+        // both refuse, silently on screen and loudly in the log, and the click keeps the free
+        // on-device suggestion it already had.
+        //
+        // The refine PASS keeps its dialog: that is a bulk action the user asked to price. This is
+        // one card.
+        guard cloudSpendWithinCapsWithoutPrompting(files: [file], taxonomyFolders: taxonomyFolders) else {
+            return
+        }
         let verdicts = await classifier(filingContext(taxonomyFolders: taxonomyFolders), [file], .refine)
         // The verdict was computed against THIS invocation's pre-await snapshots — its taxonomy,
         // its rejections, its session. If the filing state moved on while the classifier was out,

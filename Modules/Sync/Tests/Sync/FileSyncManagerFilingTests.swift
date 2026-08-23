@@ -994,6 +994,76 @@ private final class SnippetBox: @unchecked Sendable {
         #expect(seen.snippet == nil)
     }
 
+    // MARK: - The re-ask is billable, so it answers to the caps
+
+    /// **A re-ask consulted no spend gate at all** — the one billable path in the app with no
+    /// pre-flight, recorded as a known gap in its own comment. It now takes the half of the
+    /// guardrail that is not a conversation: a cap breach refuses, silently on screen and loudly in
+    /// the log, and the click keeps the free on-device suggestion it already had. A modal per card
+    /// click would be worse than the gap, so there is none — the refine PASS keeps its dialog.
+    @MainActor
+    @Test func tryAnotherFolderStandsDownWhenACapWouldBePassed() async throws {
+        let defaults = ScratchDefaults("reaskCap-\(UUID().uuidString)")
+        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        defaults.set(CloudFilingProtocol.defaultModel, forKey: FileSyncManager.cloudModelDefaultsKey)
+        // A cap below the cost of any real call, so a single priced file breaches it. Set
+        // explicitly rather than seeding spend just under the shipped $5: a one-file Haiku estimate
+        // is a fraction of a cent, so "$4.99 spent" does NOT breach $5 — the fixture has to make
+        // the estimate matter, and this one does it without depending on the price of a model.
+        defaults.set(0.0001, forKey: FileSyncManager.totalBudgetCapKey)
+
+        let manager = FileSyncManager()
+        manager.filingContentDefaults = defaults
+        manager.filingRuleDefaults = defaults
+        manager.filingBackendIdentity = { _ in "cloud:\(CloudFilingProtocol.defaultModel)" }
+
+        let seen = SnippetBox()
+        manager.filingClassifier = { _, files, tier in
+            seen.record(tier: tier, snippet: files.first?.contentSnippet)
+            return [:]
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/Scan.pdf", fileName: "Scan.pdf",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.publishFilingSuggestions([s])
+
+        await manager.tryAnotherFolder(for: s)
+
+        #expect(seen.tier == nil, "the re-ask reached the paid classifier with the lifetime cap already passed")
+    }
+
+    /// **And it still runs when there is room** — the guard must not become "never re-ask". Same
+    /// fixture with no recorded spend, so the same click goes through to the paid tier.
+    @MainActor
+    @Test func tryAnotherFolderStillRunsWhenTheCapsHaveRoom() async throws {
+        let defaults = ScratchDefaults("reaskRoom-\(UUID().uuidString)")
+        defaults.set(true, forKey: FileSyncManager.usesCloudDefaultsKey)
+        defaults.set(CloudFilingProtocol.defaultModel, forKey: FileSyncManager.cloudModelDefaultsKey)
+
+        let manager = FileSyncManager()
+        manager.filingContentDefaults = defaults
+        manager.filingRuleDefaults = defaults
+        manager.filingBackendIdentity = { _ in "cloud:\(CloudFilingProtocol.defaultModel)" }
+
+        let seen = SnippetBox()
+        manager.filingClassifier = { _, files, tier in
+            seen.record(tier: tier, snippet: files.first?.contentSnippet)
+            return [:]
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/Scan.pdf", fileName: "Scan.pdf",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.publishFilingSuggestions([s])
+
+        await manager.tryAnotherFolder(for: s)
+
+        #expect(seen.tier == .refine, "a re-ask with budget left was refused")
+    }
+
     /// Each "Try another" click fires its own unstructured Task; without a guard two rapid
     /// clicks run two classifier round-trips for the same card and whichever RETURNS last wins.
     /// A second call while the first is parked at the classifier must be a no-op.

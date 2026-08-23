@@ -1944,7 +1944,9 @@ public struct DifferencesView: View {
     @ViewBuilder
     private func differenceContextMenu(for ids: Set<FileDifference.ID>, in visible: [FileDifference]) -> some View {
         if ids.count == 1, let id = ids.first, let difference = visible.first(where: { $0.id == id }) {
-            singleRowMenu(for: difference)
+            // The row for the LABELS and the inspection items, the id for the one action that
+            // WRITES — see `singleRowMenu`.
+            singleRowMenu(for: difference, id: id)
         } else if ids.count > 1 {
             // Both halves: the IDS decide what the actions operate on, resolved against the live
             // rows when they fire; the snapshot is only what the labels count.
@@ -1953,14 +1955,27 @@ public struct DifferencesView: View {
     }
 
     /// Per-row menu (#14): the inspection items plus the same ignore toggle the tree panes offer.
+    /// **The read-only items take the clicked ROW; the one that writes takes the ID.**
+    ///
+    /// Get Info, Reveal and Copy Path name a side of the row the user pointed at, and that is what
+    /// they should keep doing — a menu built on a row is allowed to inspect that row. The ignore
+    /// toggle is different in kind: it WRITES `syncManager.ignoredPaths`, keyed on the row's paths,
+    /// and an NSMenu outlives the table state it was built from. Acting on the captured value could
+    /// ignore a path the row no longer has, which is the same staleness the bulk menu was converted
+    /// for — its actions resolve ids against the live rows when they fire.
+    ///
+    /// Resolved to nothing means the row is gone from the visible list, and the toggle does
+    /// nothing, exactly as the bulk items do with an empty resolution.
     @ViewBuilder
-    private func singleRowMenu(for difference: FileDifference) -> some View {
+    private func singleRowMenu(for difference: FileDifference, id: FileDifference.ID) -> some View {
         inspectionMenuItems(for: difference)
         Divider()
         let isIgnored = DifferenceRowMenu.isIgnored(difference, ignoredPaths: syncManager.ignoredPaths)
         Button {
+            guard let live = DifferencesShortcutRules.rows(displayRows.sorted, matching: [id]).first
+            else { return }
             syncManager.ignoredPaths = DifferenceRowMenu.toggledIgnoredPaths(
-                for: difference,
+                for: live,
                 ignoredPaths: syncManager.ignoredPaths
             )
         } label: {
