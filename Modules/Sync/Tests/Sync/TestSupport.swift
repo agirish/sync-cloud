@@ -92,8 +92,11 @@ final class LockedBox<Value>: @unchecked Sendable {
 /// cannot collide with a deliberately short budget, and it costs a passing wait nothing: the loop
 /// still returns the moment the condition holds.
 ///
-/// **Keep this in step with the copy in `SyncCloudTests/TestSupport.swift`**, which the app target
-/// cannot share. The two bodies are identical on purpose.
+/// **Keep this in step with the copies in `SyncCloudTests/TestSupport.swift` and
+/// `Modules/Dashboard/Tests/Dashboard/WaitSupport.swift`**, which cannot import this one — a test
+/// target's code is not visible to another target. All three bodies are identical on purpose.
+/// Dashboard joined them on 2026-08-22, replacing a suite-local wait that returned silently when it
+/// gave up; the failure that cost is in `docs/flaky-tests.md` under "Fixed pumps and fixed sleeps".
 @MainActor
 func waitUntil(
     _ what: Comment,

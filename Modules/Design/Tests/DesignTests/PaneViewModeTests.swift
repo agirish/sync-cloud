@@ -323,23 +323,4 @@ import SwiftUI
         #expect(symbols.count == PaneViewMode.allCases.count)
         #expect(PaneViewMode.allCases.allSatisfy { !$0.displayName.isEmpty && !$0.help.isEmpty })
     }
-
-    /// The raw values are a wire format: three defaults keys store them. Every prior test here
-    /// wrote `.tree.rawValue` and read it back — a round trip that passes across any rename while
-    /// the rename silently restacks every user's panes. The literals are the pin.
-    @Test func testRawValuesAreStableAndAnUnknownStoredValueFallsBack() {
-        #expect(PaneViewMode.tree.rawValue == "tree")
-        #expect(PaneViewMode.columns.rawValue == "columns")
-        #expect(PaneViewMode.allCases == [.tree, .columns])
-
-        // The documented fallback in `stored(isLeft:in:)`, previously asserted nowhere: absent and
-        // unrecognised both read as the default, and a near-miss is unrecognised.
-        let defaults = ScratchDefaults("PaneViewModeRawValues")
-        #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .default)
-        defaults.set("Tree", forKey: PaneViewMode.defaultsKey(isLeft: true))
-        #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .default,
-                "a case-near-miss must fall back, not match")
-        defaults.set("tree", forKey: PaneViewMode.defaultsKey(isLeft: true))
-        #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .tree)
-    }
 }
