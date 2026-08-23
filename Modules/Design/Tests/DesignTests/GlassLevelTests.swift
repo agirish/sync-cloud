@@ -85,6 +85,10 @@ struct GlassLevelTests {
     /// unknown-value probes keep the tolerant fallbacks honest about being fallbacks.
     @Test func glassLevelRawValuesAreStable() {
         #expect(GlassLevel.allCases.map(\.rawValue) == ["clear", "frosted", "solid"])
+        // Honest scope: for a synthesized String raw-value init these two can only fail if
+        // someone later adds a custom case-insensitive `init(rawValue:)` — they are tripwires
+        // for that, not coverage of the `?? .frosted` destinations, which live in private view
+        // properties this suite cannot reach.
         #expect(GlassLevel(rawValue: "Frosted") == nil, "raw values are case-exact — a near-miss must fall back, not match")
         #expect(GlassLevel(rawValue: "medium") == nil)
     }

@@ -583,4 +583,41 @@ import Testing
         #expect(m.automationDryRun == nil)
         #expect(!m.automationDryRunLifecycle.hasCompleted)
     }
+
+    /// `clearAutomationDryRun`'s FIRST line is a task cancel, and clearing after a completed
+    /// preview — the test above — never exercises it. This is the half the provider-switch path
+    /// actually leans on: a clear that only dropped the standing report would let the old
+    /// provider's in-flight scan finish and publish AFTER the clear, which is the stale-preview-
+    /// under-another-provider defect with a one-step-longer fuse.
+    @Test func clearAbandonsAnInFlightPreviewEntirely() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("scan0042.pdf", in: dir, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "Lease", conditions: [.mentionsAll(["lease"])],
+                           destinationTemplate: "Home/Lease")
+        ])
+        let entered = Flag(), released = Flag(), timedOut = Flag()
+        m.filingSnippetExtractor = { _ in
+            entered.value = true
+            await parkUntilReleased(released, timedOut: timedOut)
+            return "lease agreement for unit 4"
+        }
+        // Collect every publish: the end state alone cannot distinguish "the scan was cancelled"
+        // from "the scan published and something cleared again afterwards".
+        var publishedRoots: [String?] = []
+        let subscription = m.$automationDryRun.dropFirst().sink { publishedRoots.append($0?.root) }
+        defer { subscription.cancel() }
+
+        m.startAutomationDryRun(root: dir, destinationRoot: dir, providerName: nil)
+        await waitUntil("the preview reached the extractor") { entered.value }
+        m.clearAutomationDryRun()
+        released.value = true
+        _ = await m.automationDryRunTask?.value
+        try #require(!timedOut.value, "the parked extractor was never released")
+
+        #expect(m.automationDryRun == nil)
+        #expect(!m.automationDryRunLifecycle.hasCompleted)
+        #expect(publishedRoots.filter { $0 != nil }.isEmpty,
+                "a cleared in-flight preview must never publish its report — got \(publishedRoots)")
+    }
 }
