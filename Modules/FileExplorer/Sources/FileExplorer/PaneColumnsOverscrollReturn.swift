@@ -587,11 +587,15 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
             guard max(abs(home.x - origin.x), abs(home.y - origin.y)) >= Self.tolerance else { return }
             // Every pull is logged — fractional, because `%.0f` is exactly how a sub-point
             // correction loop hid as "pull (0, 0) → (0, 0)" for a night of 18,000 lines.
-            Logger.shared.debug(String(
-                format: "[stack] pull (%.2f, %.2f) → (%.2f, %.2f), doc %.1f×%.1f clip %.1f×%.1f",
-                origin.x, origin.y, home.x, home.y,
-                clip.documentView?.frame.width ?? -1, clip.documentView?.frame.height ?? -1,
-                clip.bounds.width, clip.bounds.height))
+            // Gated like the sibling probes: that night is also what an UNGATED per-frame line
+            // does to the 1000-entry buffer, so the trace flag is the price of seeing it.
+            if PaneScrollTrace.isEnabled {
+                Logger.shared.debug(String(
+                    format: "[stack] pull (%.2f, %.2f) → (%.2f, %.2f), doc %.1f×%.1f clip %.1f×%.1f",
+                    origin.x, origin.y, home.x, home.y,
+                    clip.documentView?.frame.width ?? -1, clip.documentView?.frame.height ?? -1,
+                    clip.bounds.width, clip.bounds.height))
+            }
             if pullDuration > 0 {
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = pullDuration

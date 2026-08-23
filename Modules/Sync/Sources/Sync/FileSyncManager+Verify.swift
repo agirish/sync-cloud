@@ -78,9 +78,15 @@ extension FileSyncManager {
         // than it was, and verify writes nothing — the confirm-time guards would see an unmoved
         // epoch and wave the old list through.
         guard !toVerify.isEmpty else {
+            if verifiedIdenticalForCopy != nil {
+                Logger.shared.debug("Verify All: no eligible pairs in the selection — retracted the standing verified-copy offer")
+            }
             verifiedIdenticalForCopy = nil
             return
         }
+        // The banner below reports how this pass ENDED; this is the only record that one began —
+        // a verify that hangs or is force-quit mid-hash otherwise leaves no trace at all.
+        Logger.shared.info("Verify All: hashing \(toVerify.count) same-size pair(s)")
 
         // The differences being hashed belong to this scan generation. A rescan can complete
         // during the long parallel hashing (a finished file op fires refreshSubject), replacing
@@ -166,6 +172,9 @@ extension FileSyncManager {
             // reading "Verify All cancelled". The two surfaces contradicted each other, and the
             // expensive one won. Those partial verdicts are sound, but nobody asked for them:
             // re-run Verify All to get an offer.
+            if verifiedIdenticalForCopy != nil {
+                Logger.shared.debug("Verify All: \(progress.isCancelled ? "cancelled" : "nothing verified identical") — retracted the standing verified-copy offer")
+            }
             verifiedIdenticalForCopy = nil
         } else if scanRequestGeneration == startGeneration,
                   fileOperationsEpoch == startOperationsEpoch {
@@ -180,6 +189,10 @@ extension FileSyncManager {
             verifiedIdenticalForCopy = VerifiedCopyOffer(
                 differences: verifiedIdentical, asOf: startOperationsEpoch
             )
+            // The offer is a standing permission for a bulk overwrite with no per-file prompt —
+            // the log should show it was extended, not only (via the bulk copy's own lines)
+            // whether it was taken.
+            Logger.shared.info("Verify All: \(verifiedIdentical.count) pair(s) verified identical — offering copy left→right")
         }
         var parts: [String] = []
         if !verifiedIdentical.isEmpty { parts.append("\(verifiedIdentical.count) identical") }
@@ -280,6 +293,8 @@ extension FileSyncManager {
             return nil
         }
         verifiedIdenticalForCopy = nil
+        // The moment the standing permission is exercised — the counterpart of the offer line.
+        Logger.shared.info("Verified-copy confirmed: bulk-copying \(offer.differences.count) file(s) left→right without per-file prompts")
         // Hand the stamp on so the run can re-check it at the moment it orders the write; these
         // readings are already several main-actor hops old by the time that happens.
         return Task { await self.bulkCopyDifferencesLeftToRight(offer.differences, asOf: offer.asOf) }

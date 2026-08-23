@@ -169,9 +169,15 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
             let home = PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: origin, clip: clip)
             let tolerance = PaneColumnsOverscrollReturn.WatchdogView.tolerance
             guard max(abs(home.x - origin.x), abs(home.y - origin.y)) >= tolerance else { return }
-            Logger.shared.debug(String(
-                format: "[col] %@ pull (%.2f, %.2f) → (%.2f, %.2f)",
-                label, origin.x, origin.y, home.x, home.y))
+            // Gated like the travel log below and the other scroll probes: a pull is rare in a
+            // healthy session, but under a correction-loop regression it fires per frame, and an
+            // ungated per-frame line evicts the 1000-entry buffer's real context. The night this
+            // regresses, `paneScrollTraceEnabled` is the switch that shows it.
+            if PaneScrollTrace.isEnabled {
+                Logger.shared.debug(String(
+                    format: "[col] %@ pull (%.2f, %.2f) → (%.2f, %.2f)",
+                    label, origin.x, origin.y, home.x, home.y))
+            }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.25
                 context.allowsImplicitAnimation = true

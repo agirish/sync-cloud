@@ -263,7 +263,9 @@ extension FileSyncManager {
                 destinationDirectory: containers.to
             ))
             guard userConfirmed else {
-                Logger.shared.debug("Bulk \(isMove ? "move" : "sync") of \(total) item(s) cancelled at the confirmation prompt")
+                // .info like the single-transfer decline: a bulk run's start is visible at Info
+                // level, so its cancellation has to be too, or the trace shows a run that never ends.
+                Logger.shared.info("Bulk \(isMove ? "move" : "sync") of \(total) item(s) cancelled at the confirmation prompt")
                 return
             }
         }
