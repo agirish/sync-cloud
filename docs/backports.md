@@ -450,6 +450,20 @@ added on any line fails that line's scan until listed. Main-only by rule: the `S
 render-all loop (`MacApp/SetupArtwork.swift` exists on neither line — cherry-pick's rename
 detection maps it onto `FirstRunOverlay.swift`, which is a different view; discard that half).
 
+**The P3 wave (2026-08-23, CI-gating structure and the CLI shell), triaged the same way.** To
+all three lines: the CLI shell's first test target (`SyncCloudCommand.swift` is byte-identical on
+all three; `flushingLogToDisk` opened to internal everywhere) and the Core default-seam test. To
+`v3.x` additionally: the `machinePinned` marks for `FolderSourceMarkTests` and
+`DetailsWhereItLivesTests`, whose copies there read pixels byte-identically to `main`. Main-only,
+each checked rather than assumed: the other six suite marks and the per-test pin conversion (the
+suites do not exist on the lines); the `LensHeaderCard` marks (the lines' copies read ZERO pixels
+— the pixel reads arrived later); the app-target gate and `layoutMetrics` reason (no
+`SyncCloudTests` on the lines, and the reason's only users are main-only suites — note the
+`MachinePinned.swift` sibling-list header now differs between main and the lines, so a future
+cherry-pick touching that file will conflict on the note: resolve by keeping each line's own
+sibling list); and the liveProfile gate-report companions (all three reported suites are
+main-only).
+
 **Not landed anywhere yet, will need triage when fixed:** the review's two parked defect-test
 suites (the `PaneBarArrangement` decode→edit write-back destroying a newer build's token, and
 `SettingsManager`'s five sibling properties lacking the folderSources `.unreadable` salvage).
