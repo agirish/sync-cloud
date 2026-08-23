@@ -87,6 +87,20 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
 public struct PaneBarArrangement: Equatable, Sendable {
     public private(set) var items: [PaneBarItem]
 
+    /// Tokens in the stored string that no case of THIS build's `PaneBarItem` names — a newer
+    /// build's controls, seen after a downgrade. Never drawn, never offered, never counted against
+    /// `maxItems`; their whole job is to ride through `encoded` so that the customize sheet's
+    /// write-back does not destroy them. Without this, `init(encoded:)`'s downgrade-survival
+    /// promise held only until the first edit: `PaneBarCustomizeSheet.commit` writes the re-encoded
+    /// arrangement over the stored one, so downgrade → edit → re-upgrade silently lost whatever the
+    /// older build could not name. Carried at the tail rather than in place — the known items get
+    /// inserted, removed and reordered, so original positions stop meaning anything the moment the
+    /// sheet is used, and the newer build's own normalizer re-places them on the next read.
+    ///
+    /// Bounded like `items`: a corrupt or hand-edited value does not get to smuggle an unbounded
+    /// payload that every later write faithfully re-persists.
+    private var unknownTokens: [String] = []
+
     /// A ceiling on how long a bar can get. Not a UI limit anyone will hit with the palette — it
     /// bounds what a corrupt or hand-edited defaults value can do to the layout ladder.
     ///
@@ -134,13 +148,19 @@ public struct PaneBarArrangement: Equatable, Sendable {
 
     /// One defaults string, comma-joined. A list rather than JSON because it is read by `@AppStorage`,
     /// which stores strings, and because a human looking at the plist should be able to see what
-    /// their bar is.
-    public var encoded: String { items.map(\.rawValue).joined(separator: ",") }
+    /// their bar is. Unknown tokens this arrangement is carrying (see `unknownTokens`) are appended
+    /// after the items, so a downgrade's edits round-trip them back to disk.
+    public var encoded: String { (items.map(\.rawValue) + unknownTokens).joined(separator: ",") }
 
-    /// Unknown tokens are dropped, not rejected: that is what makes a bar arranged on a newer build
-    /// survive a downgrade instead of resetting to the default.
+    /// Unknown tokens are dropped from the BAR, not rejected — and carried through `encoded`, not
+    /// discarded: both halves are what make a bar arranged on a newer build survive a downgrade
+    /// instead of resetting to the default. Dropping them from the bar alone only survived the
+    /// *reading*; the first edit on the older build wrote the pruned list back, and the newer
+    /// build's control was gone for good.
     public init(encoded: String) {
-        self.init(encoded.split(separator: ",").compactMap { PaneBarItem(rawValue: String($0)) })
+        let tokens = encoded.split(separator: ",").map(String.init)
+        self.init(tokens.compactMap { PaneBarItem(rawValue: $0) })
+        unknownTokens = Array(tokens.filter { PaneBarItem(rawValue: $0) == nil }.prefix(Self.maxItems))
     }
 
     // MARK: Editing
