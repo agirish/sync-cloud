@@ -440,6 +440,16 @@ landing time — nothing from these waves is deferred.
 - `BrowseTabRestorePlan` and its suite: browse tabs are v4.2+; `MacApp/ContentView+PaneTabs.swift`
   is absent on both lines.
 
+**The P2 wave (2026-08-22, same session), triaged the same way.** To all three lines: the Design
+raw-value pins and the `AppAppearance.pin` seam + tests (files identical or case sets identical),
+the pane-republish skip-fix (identical), and — adapted per line — the condition roll-call and the
+review-event totality loop. The adaptation is the point, not a compromise: both suites derive the
+"every case" set from the line's OWN enum, so each line's hand list matches its own case set
+(`v2.x`/`v3.x` have neither `personIs` nor `unrecognized`, and no `.tabChangedSource`) and a case
+added on any line fails that line's scan until listed. Main-only by rule: the `SetupArt.Art`
+render-all loop (`MacApp/SetupArtwork.swift` exists on neither line — cherry-pick's rename
+detection maps it onto `FirstRunOverlay.swift`, which is a different view; discard that half).
+
 **Not landed anywhere yet, will need triage when fixed:** the review's two parked defect-test
 suites (the `PaneBarArrangement` decode→edit write-back destroying a newer build's token, and
 `SettingsManager`'s five sibling properties lacking the folderSources `.unreadable` salvage).
