@@ -53,8 +53,26 @@ import SwiftUI
         let before = code[..<manage.lowerBound]
         let lastGate = before.range(of: "if let onChooseFolder", options: .backwards)
         if let lastGate {
-            let between = code[lastGate.upperBound..<manage.lowerBound]
-            #expect(between.contains("}"),
+            // Walked, not `contains("}")`: any Button between the gate and the item closes ITS
+            // OWN braces, so a lone "is there a }" check passes with the item inside the gate —
+            // the exact regression it names. And not a raw net-depth count either: the Manage
+            // button's own `label:` closure legitimately holds depth +1 at the item's text. The
+            // question is precisely whether the gate's block CLOSES before the item appears.
+            let afterGate = code[lastGate.upperBound...]
+            let open = try #require(afterGate.firstIndex(of: "{"), "the gate has no block")
+            var depth = 0
+            var gateClose: String.Index?
+            var i = open
+            while i < afterGate.endIndex {
+                if afterGate[i] == "{" { depth += 1 }
+                if afterGate[i] == "}" {
+                    depth -= 1
+                    if depth == 0 { gateClose = i; break }
+                }
+                i = afterGate.index(after: i)
+            }
+            let close = try #require(gateClose, "the gate's block never closes — the scan is broken")
+            #expect(close < manage.lowerBound,
                     "Manage sources… appears inside the onChooseFolder gate — it must be reachable from every surface")
         }
     }
@@ -63,7 +81,11 @@ import SwiftUI
         let code = Self.codeOnly(try Self.source())
         #expect(code.contains(".fixedSize(horizontal: false, vertical: true)"),
                 "the vertical-only fixedSize is the ballooning-label fix — full fixedSize ignores the width proposal")
-        #expect(!code.contains(".fixedSize()"),
-                "a bare .fixedSize() reintroduces the ballooning-label regression")
+        // Exactly one .fixedSize in the file, and the line above pins its spelling — which bans
+        // the bare `.fixedSize()` AND the expanded `.fixedSize(horizontal: true, …)` in one count,
+        // where a bare-spelling ban alone let the expanded form balloon the label all the same.
+        let uses = code.components(separatedBy: ".fixedSize").count - 1
+        #expect(uses == 1,
+                "found \(uses) .fixedSize uses — any spelling other than the vertical-only one reintroduces the ballooning-label regression")
     }
 }
