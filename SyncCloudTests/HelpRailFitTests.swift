@@ -16,7 +16,7 @@ import Testing
 ///
 /// Two lines rather than one is the bar because that is what the row now does; a third would make
 /// a rail row taller than the article's own heading, which is where "too long" really begins.
-@Suite struct HelpRailFitTests {
+@Suite(.machinePinned(.layoutMetrics)) struct HelpRailFitTests {
 
     /// The height one line of the row's own font takes at this size. Measured rather than derived
     /// from a point size: `scaledFont` applies a knee curve, so the line height is not the

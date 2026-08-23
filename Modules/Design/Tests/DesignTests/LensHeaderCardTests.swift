@@ -22,7 +22,7 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
 }
 
 @MainActor
-@Suite(.serialized) struct LensHeaderCardTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct LensHeaderCardTests {
 
     // MARK: Fixtures
 

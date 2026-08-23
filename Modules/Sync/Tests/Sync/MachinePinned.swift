@@ -1,14 +1,15 @@
 import Foundation
 import Testing
 
-// NOTE: This helper is intentionally duplicated (verbatim) in the other four test
+// NOTE: This helper is intentionally duplicated (verbatim) in the other five test
 // targets — SPM offers no clean way to share test-support code across packages without
 // minting a production library product, and the harness must stay test-only. If you change
 // this file, change the copies too:
+//   Modules/FileExplorer/Tests/FileExplorer/MachinePinned.swift
 //   Modules/Dashboard/Tests/Dashboard/MachinePinned.swift
 //   Modules/Design/Tests/DesignTests/MachinePinned.swift
-//   Modules/FileExplorer/Tests/FileExplorer/MachinePinned.swift
 //   Modules/Settings/Tests/Settings/MachinePinned.swift
+//   SyncCloudTests/MachinePinned.swift
 /// Why a suite only produces a trustworthy verdict on the machine that recorded it.
 ///
 /// These suites are not flaky and they are not wrong — they are *pinned*: they compare
@@ -24,6 +25,11 @@ enum MachinePinnedReason: String {
     case pixelSampling
     /// Asserts latency thresholds calibrated on this hardware.
     case calibratedTiming
+    /// Measures laid-out text and control geometry (`fittingSize`, intrinsic widths, wrap
+    /// points) that tracks the OS's fonts and rendering metrics: the same code answers
+    /// differently across macOS releases and display configurations, so a different host fails
+    /// these for machine reasons rather than code reasons.
+    case layoutMetrics
     /// Reads the developer's **live** filing profile and real document tree.
     ///
     /// Pinned for two separate reasons, and the second is the one that bit. It is *semantically*

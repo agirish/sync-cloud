@@ -15,7 +15,7 @@ import Sync
 /// rendering — to make SwiftUI commit their async-loaded state (see `mount`). Two suites driving
 /// window renders at once repaint each other, which no amount of settling can wait out.
 @MainActor
-@Suite(.serialized) struct DetailsWhereItLivesTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct DetailsWhereItLivesTests {
 
     // MARK: The supporting fact — every state, including the unproducible ones
 

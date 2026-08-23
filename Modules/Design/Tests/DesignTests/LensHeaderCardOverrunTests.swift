@@ -16,7 +16,7 @@ import Testing
 /// column. That is the defect stated as a measurement: not "is it wide", but "does it paint where
 /// it was not given room".
 @MainActor
-@Suite struct LensHeaderCardOverrunTests {
+@Suite(.machinePinned(.pixelSampling)) struct LensHeaderCardOverrunTests {
 
     /// The column the workspace actually gets at the split's floor.
     static let column: CGFloat = 340

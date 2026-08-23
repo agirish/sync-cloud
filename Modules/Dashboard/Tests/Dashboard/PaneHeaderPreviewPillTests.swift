@@ -22,7 +22,7 @@ import Design
 /// `.machinePinned(.referenceImages)`, so it never runs on CI at all.) Counting the pixels that
 /// DIFFER between the two states has neither problem.
 @MainActor
-@Suite(.serialized) struct PaneHeaderPreviewPillTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneHeaderPreviewPillTests {
 
     /// The pill measures 26×22pt at this control size, so a state change that repaints its fill and
     /// its glyph moves several hundred pixels. The floor is set well under what the accent fill

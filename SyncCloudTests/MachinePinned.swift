@@ -5,6 +5,7 @@ import Testing
 // targets — SPM offers no clean way to share test-support code across packages without
 // minting a production library product, and the harness must stay test-only. If you change
 // this file, change the copies too:
+//   Modules/FileExplorer/Tests/FileExplorer/MachinePinned.swift
 //   Modules/Dashboard/Tests/Dashboard/MachinePinned.swift
 //   Modules/Design/Tests/DesignTests/MachinePinned.swift
 //   Modules/Settings/Tests/Settings/MachinePinned.swift

@@ -12,7 +12,7 @@ import Testing
 /// about the code looks incorrect. `HelpView` is a SwiftUI `View` with `@State` and `@AppStorage`
 /// and cannot be built in a test, so a clamp written inline there would be a clamp nothing could
 /// flip.
-@Suite struct HelpCardSizeTests {
+@Suite(.machinePinned(.layoutMetrics)) struct HelpCardSizeTests {
 
     static let room = CGSize(width: 2000, height: 1400)
 

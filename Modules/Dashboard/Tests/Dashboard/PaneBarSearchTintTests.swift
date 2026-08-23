@@ -18,7 +18,7 @@ import Design
 /// the mechanism instead, so a change that lets a query outlive its field fails here and the tint
 /// becomes necessary again with a test already saying so.
 @MainActor
-@Suite(.serialized) struct PaneBarSearchTintTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarSearchTintTests {
 
     /// Collapsing clears the query, in one transaction. This is the whole invariant.
     @Test func testCollapsingClearsTheQuery() {

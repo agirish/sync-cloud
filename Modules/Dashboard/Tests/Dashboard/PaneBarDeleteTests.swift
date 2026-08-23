@@ -13,7 +13,7 @@ import Design
 /// that produced it would be the model compared to itself. What a person actually sees is a red
 /// trash or a grey one, so that is what is counted.
 @MainActor
-@Suite(.serialized) struct PaneBarDeleteTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarDeleteTests {
 
     // MARK: - Availability
 

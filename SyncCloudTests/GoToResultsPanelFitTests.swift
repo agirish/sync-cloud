@@ -28,7 +28,7 @@ import FileExplorer
 /// exactly that reason: raise `listMaxHeight`, or grow the footer, and nothing else in the app
 /// reports that ⌘K has started losing its first rows on a short window.
 @MainActor
-@Suite struct GoToResultsPanelFitTests {
+@Suite(.machinePinned(.layoutMetrics)) struct GoToResultsPanelFitTests {
 
     /// The chrome under the list — divider plus the ↑↓ ↩ esc footer — **measured, not assumed**, by
     /// rendering more rows than the list can show so its own height is exactly `listMaxHeight`.

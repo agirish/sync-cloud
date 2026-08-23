@@ -17,7 +17,7 @@ import AppKit
 /// can only ever fail for the wrong reason. `testTheRendererSeesAShippedIllustration` is the
 /// control: if the renderer cannot see `DuplicatesArt`, which has shipped since the tour existed, then
 /// it cannot see any of them and the Browse check below is not evidence.
-@Suite struct SetupArtworkRenderTests {
+@Suite(.machinePinned(.pixelSampling)) struct SetupArtworkRenderTests {
 
     /// Renders one page's artwork at the size the card gives it, and returns the bitmap.
     ///

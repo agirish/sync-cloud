@@ -100,7 +100,7 @@ import Design
 
 /// **The column, rendered.** Geometry cannot say whether a row is dimmed or which one is current.
 @MainActor
-@Suite struct FolderSidebarRenderTests {
+@Suite(.machinePinned(.pixelSampling)) struct FolderSidebarRenderTests {
 
     static let canvas = CGSize(width: FolderSidebarView.width, height: 320)
 

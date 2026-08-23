@@ -18,7 +18,7 @@ import Testing
 /// offered, so `fittingSize` taken on the card answers the card's own height however tall the step
 /// inside it is — a guard written that way passes with a step twice the size of its opening.
 @MainActor
-@Suite struct SetupSheetFitTests {
+@Suite(.machinePinned(.layoutMetrics)) struct SetupSheetFitTests {
 
     /// A window on a 1280×800-class display, after the app's own chrome.
     ///
