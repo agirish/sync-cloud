@@ -28,7 +28,12 @@ import Design
 /// **`.machinePinned(.pixelSampling)`** — it reads pixels back out of a live renderer, the repo-wide
 /// marker for a suite that only produces a trustworthy verdict on the recording Mac.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct OrganizeRailTests {
+// The pin moved from the suite to the tests that earn it: 33 of these read painted pixels
+// (directly or through the ink helpers) and stay machine-pinned; the other 12 — the shedding
+// arithmetic, the glyph table, the label composition, the width models — are ordinary
+// behavioral tests that were hostage to the suite-level trait, vanishing wholesale the day the
+// runner leaves the recording Mac.
+@Suite(.serialized) struct OrganizeRailTests {
 
     /// **1400, not 900.** At 900 the rail sheds its labels (see ``OrganizeRailMetrics``), so a
     /// suite on that canvas would measure the glyph-only state throughout and leave the spelled-out
@@ -444,7 +449,7 @@ import Design
 
     // MARK: The rule, ported across the row break — a capsule is a control
 
-    @Test("The rail row wears capsules and the readout row does not")
+    @Test("The rail row wears capsules and the readout row does not", .machinePinned(.pixelSampling))
     func onlyTheControlRowWearsCapsules() throws {
         let host = mount(Self.manager(queue: 24, names: 17), lens: .toFile)
         let rail = try #require(strip(host, Self.railZone))
@@ -466,7 +471,7 @@ import Design
                 "the readout painted \(Int(readoutDensity)) wash px/pt — it is wearing capsules, so a number that does nothing when clicked looks exactly as pressable as the rail above it")
     }
 
-    @Test("The readout still says its numbers")
+    @Test("The readout still says its numbers", .machinePinned(.pixelSampling))
     func theReadoutIsNotSimplyGone() throws {
         // The cheapest way to pass the test above is to draw no readout at all. So pin that it
         // still tracks the scan: same queue length, different confidence mix, which moves `ready`
@@ -484,7 +489,7 @@ import Design
 
     // MARK: The rail is on screen, and it is the rail
 
-    @Test("Every rail item reaches the screen")
+    @Test("Every rail item reaches the screen", .machinePinned(.pixelSampling))
     func theRailPaints() throws {
         let rail = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
                                       Self.railZone))
@@ -493,7 +498,7 @@ import Design
         #expect(counts(rail).ink > 600, "row 1 is nearly empty — the rail is not drawing")
     }
 
-    @Test("The rail draws on a lens whose apparatus is not the filing one")
+    @Test("The rail draws on a lens whose apparatus is not the filing one", .machinePinned(.pixelSampling))
     func theRailSurvivesTheApparatusSwitch() throws {
         // **The defect that shipped.** The rail was built inside the summary arm that only the
         // filing apparatus reaches, so standing on Duplicates or Rules drew that lens's own pills
@@ -511,7 +516,7 @@ import Design
                 "the rail rendered identically on two different selections — the ring is not tracking the lens")
     }
 
-    @Test("The selected item is ringed")
+    @Test("The selected item is ringed", .machinePinned(.pixelSampling))
     func theSelectedItemIsRinged() throws {
         // An `.overlay` that never draws is invisible to every geometry assertion, so the ring is
         // pixels or it is nothing — and it has to be measured as the RING. Deleting the stroke
@@ -524,7 +529,7 @@ import Design
                 "the selected item painted \(edge) full-strength accent pixels — the ring is not drawing, and only the fill is left to say which lens you are on")
     }
 
-    @Test("Moving the selection moves the ring")
+    @Test("Moving the selection moves the ring", .machinePinned(.pixelSampling))
     func theRingFollowsTheSelection() throws {
         // A ring that drew on a fixed item would satisfy the test above forever. Both states are
         // ringed, so this is the pixel diff — here it IS the right instrument, because the
@@ -538,7 +543,7 @@ import Design
                 "selecting a different rail item changed almost nothing — the ring is pinned to one item")
     }
 
-    @Test("The overview rings its own item, and no lens")
+    @Test("The overview rings its own item, and no lens", .machinePinned(.pixelSampling))
     func theOverviewRingsAll() throws {
         // **This assertion is inverted from what it used to be, and the inversion is change B.**
         // The overview was the rail's unselected state with no control of its own, so this test
@@ -573,7 +578,7 @@ import Design
 
     // MARK: Badges — absent at zero, present with a finding
 
-    @Test("A badge appears only when its lens has something to report")
+    @Test("A badge appears only when its lens has something to report", .machinePinned(.pixelSampling))
     func aBadgeIsAbsentAtZero() throws {
         // The surviving half of the chips' argument. The ITEM is unconditional — that is what
         // pointed invocation lands on — so this compares two renders of the same six items and
@@ -588,7 +593,7 @@ import Design
         #expect(counts(none).ink > 600, "the rail lost an item at zero — a place is not a badge")
     }
 
-    @Test("The badge carries the count, not just a dot")
+    @Test("The badge carries the count, not just a dot", .machinePinned(.pixelSampling))
     func theCountReachesTheBadge() throws {
         // Two non-zero counts of different digit widths. If the badge were a presence indicator
         // rather than a number these would render identically.
@@ -600,7 +605,7 @@ import Design
                 "3 and 17 risky names painted the same badge — it is not carrying the count")
     }
 
-    @Test("The Restructure badge reports the findings the overview reports")
+    @Test("The Restructure badge reports the findings the overview reports", .machinePinned(.pixelSampling))
     func theRestructureBadgeTracksTheDetector() throws {
         // **The defect this pins.** `railCount` returned a literal `0` for restructure, under a
         // comment saying there were no detectors — written before the detector landed in the same
@@ -627,7 +632,7 @@ import Design
 
     // MARK: Shedding — the rail yields width to the controls
 
-    @Test("The rail spells its items out when the header is wide enough")
+    @Test("The rail spells its items out when the header is wide enough", .machinePinned(.pixelSampling))
     func theRailKeepsItsLabelsWhenThereIsRoom() throws {
         let wide = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
                                       Self.railZone))
@@ -636,7 +641,7 @@ import Design
         #expect(counts(wide).ink > 600, "the rail is not drawing its labels at 1400pt")
     }
 
-    @Test("At 900pt the rail spells itself out, and the controls are on row 2")
+    @Test("At 900pt the rail spells itself out, and the controls are on row 2", .machinePinned(.pixelSampling))
     func theRailKeepsItsNamesAtNineHundred() throws {
         // **This is change A, stated where it can fail.** The controls used to share row 1 with the
         // rail, so the reserve was 490 for To File and the rail wanted 1,183pt of card before it
@@ -670,7 +675,7 @@ import Design
 
     // MARK: The three states — reporting, clean, never looked
 
-    @Test("A lens with findings is tinted; one that ran and found nothing is not")
+    @Test("A lens with findings is tinted; one that ran and found nothing is not", .machinePinned(.pixelSampling))
     func theTintSaysHasWorkNotIsClickable() throws {
         // **The wash used to mean "this is a control" and now means "this has work".** Every item
         // wore `accent.opacity(0.14)` whether it had found 722 things or nothing, so the only
@@ -940,7 +945,7 @@ import Design
                                                    state: Self.states([.duplicates: 24])))
     }
 
-    @Test("The leading model matches what row 1 draws at every text size the app ships",
+    @Test("The leading model matches what row 1 draws at every text size the app ships", .machinePinned(.pixelSampling),
           arguments: FontSize.allCases)
     func theLeadingModelMatchesWhatTheRowDraws(size: FontSize) throws {
         // **The test the arithmetic was missing, and the reason the truncation shipped.** Every
@@ -984,7 +989,7 @@ import Design
                 "at \(size.scale)× the model budgets \(model)pt for a leading side that draws \(drawn)pt — \(model - drawn)pt of slack sheds the labels early")
     }
 
-    @Test("The divider never draws against nothing")
+    @Test("The divider never draws against nothing", .machinePinned(.pixelSampling))
     func theRowTwoDividerIsPairedWithItsControls() throws {
         // `hasRowTwoActions` is a hand-written copy of `lensActions`'s own gates — a `@ViewBuilder`
         // cannot be asked whether it produced anything, so the divider's condition had to be
@@ -1014,7 +1019,7 @@ import Design
                 "row 2's trailing edge inked \(counts(scanned).ink) with a finished scan — the controls are not drawing where the divider says they are")
     }
 
-    @Test("A stale readout leaves the row empty — it does not borrow the overview's")
+    @Test("A stale readout leaves the row empty — it does not borrow the overview's", .machinePinned(.pixelSampling))
     func aStaleLensDoesNotBorrowTheOverviewsReadout() throws {
         // **The `else` of a compound condition catches both its arms, and that is the bug.**
         // `organizeSummary` read `if let organizeLens, !stale { … } else { overviewSummary }`, so a
@@ -1036,7 +1041,7 @@ import Design
                 "a selected lens inked \(counts(onToFile).ink) against the overview's \(counts(onOverview).ink) while its own scan was running — it is drawing the overview's readout instead of leaving the row empty")
     }
 
-    @Test("Row 1's reserve seats what row 1 actually draws, at every text size",
+    @Test("Row 1's reserve seats what row 1 actually draws, at every text size", .machinePinned(.pixelSampling),
           arguments: FontSize.allCases)
     func theRowOneReserveSeatsWhatRowOneDraws(size: FontSize) throws {
         // **The test `searchToggleWidth`'s doc claimed existed, and did not.** The doc named this
@@ -1090,7 +1095,7 @@ import Design
 
     // MARK: The moment the labels appear, the actions must still have their words
 
-    @Test("At the width the rail first spells itself out, the actions are not truncated")
+    @Test("At the width the rail first spells itself out, the actions are not truncated", .machinePinned(.pixelSampling))
     func theShedThresholdIsNotOneCharacterTooLate() throws {
         // **The defect this pins, and the one the suite above could not see.** Every render here
         // was at 900 (shed) or 1400 (roomy); nothing rendered at the threshold itself. Between
@@ -1137,7 +1142,7 @@ import Design
         }
     }
 
-    @Test("To File seats its own actions at the width it starts spelling the rail out, at every text size",
+    @Test("To File seats its own actions at the width it starts spelling the rail out, at every text size", .machinePinned(.pixelSampling),
           arguments: FontSize.allCases)
     func theToFileThresholdSeatsItsOwnActions(size: FontSize) throws {
         // **The same invariant, on the lens the test above does not reach — and it was failing.**
@@ -1246,7 +1251,7 @@ import Design
         return CGFloat(last.1 - last.0) / scale
     }
 
-    @Test("A long survey report leaves the actions untouched")
+    @Test("A long survey report leaves the actions untouched", .machinePinned(.pixelSampling))
     func theSurveyReportDoesNotTakeTheActionsWords() throws {
         // The reported defect. `FilingSurveyReport.summary` is prose whose length is a property of
         // the last survey — "12 folders changed, 340 documents read, 8 followed a move, 3 left the
@@ -1276,7 +1281,7 @@ import Design
                 "the actions render differently with a folder-memory report present — the caption is taking the buttons' words to make room for itself, which is the defect that moved it off row 1 in the first place")
     }
 
-    @Test("The report still says what the survey found, and is not a stub")
+    @Test("The report still says what the survey found, and is not a stub", .machinePinned(.pixelSampling))
     func theSurveyReportSaysItsNumbers() throws {
         // **The move has to carry the meaning, not just the pixels.** The whole reason this line
         // exists is that "Update folder memory" usually changes nothing and would otherwise look
@@ -1311,7 +1316,7 @@ import Design
                 "12 folders changed and 7 folders changed rendered identically — the report is a stub, so moving it here bought nothing")
     }
 
-    @Test("The survey says it is working, on the same row it reports from")
+    @Test("The survey says it is working, on the same row it reports from", .machinePinned(.pixelSampling))
     func theRunningSurveyShowsItsProgressOnRowTwo() throws {
         // **`folderMemoryStatus` has two branches and the move carried both; only one was tested.**
         // The in-flight one is the whole reason the line exists — the menu item reads a few folder
@@ -1339,7 +1344,7 @@ import Design
                 "the actions render differently while the folder-memory survey is running — the progress line is taking their words")
     }
 
-    @Test("The report stays inside the filing apparatus it describes")
+    @Test("The report stays inside the filing apparatus it describes", .machinePinned(.pixelSampling))
     func theSurveyReportDoesNotFollowYouToTheOtherLenses() throws {
         // **The gate is the whole of what the move had to preserve, and nothing else pinned it.**
         // On row 1 the status inherited its visibility from `lensActions`' `.rename, .filing` arm;
@@ -1365,7 +1370,7 @@ import Design
                 "the folder-memory report painted \(onDuplicates) inked pixels on Duplicates — it has escaped the filing apparatus and is describing a scan this lens never ran")
     }
 
-    @Test("The report grows with the app's text size, like everything beside it")
+    @Test("The report grows with the app's text size, like everything beside it", .machinePinned(.pixelSampling))
     func theSurveyReportTakesTheAppsTextSize() throws {
         // **Pins `scaledFont`, which a mutation showed nothing else did.** Reverting the report to a
         // plain `.font(.caption)` changed no pixel any other test in this suite looks at, because
@@ -1388,7 +1393,7 @@ import Design
                 "the survey report painted \(plain)pt wide at 1.0× and \(large)pt at 1.3× — it is not taking the app's text size, so it will sit at 11pt beside a readout that grew")
     }
 
-    @Test("The report is the thing that shortens when row 2 runs out of room")
+    @Test("The report is the thing that shortens when row 2 runs out of room", .machinePinned(.pixelSampling))
     func theSurveyReportIsWhatGivesWay() throws {
         // Row 2's leading readout says what the scan found and its trailing "N of M" says how much
         // of it is showing; both describe the list on screen, while this describes a menu action.
@@ -1454,7 +1459,7 @@ import Design
 
     // MARK: The control — Rescan outlives the queue
 
-    @Test("Rescan is there once a scan has run, even with nothing left to file")
+    @Test("Rescan is there once a scan has run, even with nothing left to file", .machinePinned(.pixelSampling))
     func rescanSurvivesAnEmptyQueue() throws {
         // The reported state: everything filed, findings still standing. The trailing half used to be
         // empty here, because Rescan sat inside the gate that draws "File all".
@@ -1464,7 +1469,7 @@ import Design
                 "the action band painted nothing with an empty queue beside 17 risky names — Rescan is gated on the queue again")
     }
 
-    @Test("…and is absent before the first scan, where there is nothing to re-scan")
+    @Test("…and is absent before the first scan, where there is nothing to re-scan", .machinePinned(.pixelSampling))
     func rescanIsAbsentBeforeAnyScan() throws {
         // The other direction, and what stops the test above from being satisfied by a button that
         // is simply always drawn.
@@ -1486,7 +1491,7 @@ import Design
 
     // MARK: The control — pointing Organize somewhere new
 
-    @Test("Organize “<folder>” draws before the first scan, on the overview")
+    @Test("Organize “<folder>” draws before the first scan, on the overview", .machinePinned(.pixelSampling))
     func theMovedButtonDrawsBeforeAnyScan() throws {
         // The reported defect, rendered. Nothing scanned, no scope, the pane browsed into a
         // subfolder, standing on "All" — which is where the app now lands, and where no lens's
@@ -1502,7 +1507,7 @@ import Design
                 "the overview's trailing band painted nothing with the pane in a subfolder — there is no way to point Organize at what you are browsing")
     }
 
-    @Test("…and stands down on To File, where the setup card is already asking")
+    @Test("…and stands down on To File, where the setup card is already asking", .machinePinned(.pixelSampling))
     func theMovedButtonYieldsToTheIntroCard() throws {
         // The over-reach in the first cut of this fix. Ungating the moved branch everywhere put
         // `Organize "Aditi"` in the header while To File's pre-scan card underneath it said "File
@@ -1519,7 +1524,7 @@ import Design
                 "To File drew a header control before its first scan — the setup card below it is already the invitation, naming the same folder")
     }
 
-    @Test("…but still draws on a lens that has no intro card of its own")
+    @Test("…but still draws on a lens that has no intro card of its own", .machinePinned(.pixelSampling))
     func theMovedButtonSurvivesOnRenames() throws {
         // The direction that stops `filingIntroOwnsInvitation` from being written as a bare
         // `!hasSuggestedFiling`. Renames shares To File's apparatus but renders an empty
@@ -1533,7 +1538,7 @@ import Design
                 "Renames lost the moved button — the stand-down is keyed on the scan flag rather than on To File")
     }
 
-    @Test("The stand-down has something to stand down for")
+    @Test("The stand-down has something to stand down for", .machinePinned(.pixelSampling))
     func theToFileIntroIsActuallyOnScreen() throws {
         // **The premise `theMovedButtonYieldsToTheIntroCard` rests on, which that test cannot
         // check.** An empty header band is equally what you get if To File's setup card stopped
@@ -1562,7 +1567,7 @@ import Design
                 """)
     }
 
-    @Test("…and does not, when the pane is at the top of the tree")
+    @Test("…and does not, when the pane is at the top of the tree", .machinePinned(.pixelSampling))
     func theMovedButtonIsAbsentAtTheProviderRoot() throws {
         // The direction that keeps the fix honest. Unscoped Organize already answers about
         // everything, so a pane at the provider root has not moved off anything and an offer to
@@ -1578,7 +1583,7 @@ import Design
                 "the overview drew a control with the pane at the provider root — Organize is offering to re-aim at what it is already aimed at")
     }
 
-    @Test("The actions band is over the actions")
+    @Test("The actions band is over the actions", .machinePinned(.pixelSampling))
     func theActionsBandIsWhereTheActionsAre() throws {
         // `actionsZone` is a hard-coded rectangle over a laid-out row, the kind of constant that
         // goes stale silently — and a band that has slid off the buttons makes

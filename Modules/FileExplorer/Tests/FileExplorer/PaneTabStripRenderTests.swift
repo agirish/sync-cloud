@@ -21,7 +21,9 @@ import Design
 ///
 /// `.machinePinned(.pixelSampling)` — it reads pixels out of a live renderer.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneTabStripRenderTests {
+// Pin moved from the suite to the tests that read pixels, so the behavioral remainder is no
+// longer hostage to the machine gate — see OrganizeRailTests for the pattern's account.
+@Suite(.serialized) struct PaneTabStripRenderTests {
 
     func item(_ title: String, active: Bool = false, mark: String = "folder.fill",
                      path: String = "/Users/x/Documents", pinned: Bool = false) -> PaneTabStrip.Item {
@@ -133,7 +135,7 @@ import Design
 
     /// Everything below asserts ink somewhere. A harness that rendered an empty canvas would make
     /// the *comparisons* pass while proving nothing, so this is the floor they all stand on.
-    @Test func theStripDrawsSomethingAtAll() {
+    @Test(.machinePinned(.pixelSampling)) func theStripDrawsSomethingAtAll() {
         let rep = render(items: [item("Finance", active: true), item("Photos")], width: 620)
         #expect(inked(rep) > 400, "the strip rendered blank — every test below is vacuous")
     }
@@ -142,7 +144,7 @@ import Design
 
     /// Which tab is live. Without this the strip is five identical chips and nothing on screen says
     /// which folder the pane belongs to.
-    @Test func theActiveTabIsDrawnDifferentlyFromTheParkedOnes() {
+    @Test(.machinePinned(.pixelSampling)) func theActiveTabIsDrawnDifferentlyFromTheParkedOnes() {
         let ids = [UUID(), UUID()]
         func strip(activeIndex: Int) -> [PaneTabStrip.Item] {
             [PaneTabStrip.Item(id: ids[0], title: "Finance", markImageName: "folder.fill",
@@ -159,7 +161,7 @@ import Design
 
     /// The accent rule itself, in both appearances. `.quaternary` grounds are appearance-dependent
     /// and can vanish in one scheme while surviving in the other — the rule must not.
-    @Test func theAccentRuleUnderTheActiveTabIsPaintedInBothAppearances() {
+    @Test(.machinePinned(.pixelSampling)) func theAccentRuleUnderTheActiveTabIsPaintedInBothAppearances() {
         for scheme in [ColorScheme.light, .dark] {
             let live = render(items: [item("Finance", active: true), item("Photos")],
                               width: 620, scheme: scheme)
@@ -177,7 +179,7 @@ import Design
     /// ACTIVE chip and passed with the `Text` replaced by `Text("")` — the active tab's raised
     /// ground inks that box on its own. Rendering the same strip with the title blanked and
     /// subtracting is the only form of this claim that the ground cannot satisfy.
-    @Test func aChipAtTheFloorStillDrawsItsName() {
+    @Test(.machinePinned(.pixelSampling)) func aChipAtTheFloorStillDrawsItsName() {
         let ids = (0..<5).map { _ in UUID() }
         func five(firstTitle: String) -> [PaneTabStrip.Item] {
             let titles = [firstTitle, "Photos", "Legal", "Medical", "Immigration"]
@@ -213,7 +215,7 @@ import Design
 
     /// The case the mark is on the chip for: two tabs with the SAME name from different sources.
     /// With the mark dropped these two strips would be pixel-identical.
-    @Test func theProviderMarkTellsTwoSameNamedTabsApart() {
+    @Test(.machinePinned(.pixelSampling)) func theProviderMarkTellsTwoSameNamedTabsApart() {
         let same = render(items: [item("Documents", active: true, mark: "folder.fill"),
                                   item("Documents", mark: "folder.fill")], width: 620)
         let mixed = render(items: [item("Documents", active: true, mark: "folder.fill"),
@@ -224,7 +226,7 @@ import Design
 
     /// The narrow rung the Organize/Storage rail gets. What must survive at 220pt is the active
     /// tab's NAME — never a row of marks.
-    @Test func theRailWidthStillNamesTheActiveTab() {
+    @Test(.machinePinned(.pixelSampling)) func theRailWidthStillNamesTheActiveTab() {
         let five = [item("Immigration", active: true), item("Photos"), item("Legal"),
                     item("Medical"), item("Finance")]
         let layout = PaneTabStripLadder.layout(available: 220, titles: five.map(\.title), scale: 1)
@@ -242,7 +244,7 @@ import Design
 
     /// The chip rung draws the count of parked tabs — the number is the only thing on that rung
     /// that says the strip holds more than the one folder it names.
-    @Test func theChipRungDrawsHowManyTabsAreParked() {
+    @Test(.machinePinned(.pixelSampling)) func theChipRungDrawsHowManyTabsAreParked() {
         let five = [item("Immigration", active: true), item("Photos"), item("Legal"),
                     item("Medical"), item("Finance")]
         let two = [item("Immigration", active: true), item("Photos")]
@@ -272,7 +274,7 @@ import Design
     /// **View ▸ Tab Bar at one tab draws a real chip, not a bare ＋.** The ladder used to answer
     /// "zero wide" for a one-tab strip on the reasoning that one tab draws no strip — true of the
     /// PANE's decision, and false of this one, which is the state that switch exists to produce.
-    @Test func aOneTabStripDrawsItsTab() {
+    @Test(.machinePinned(.pixelSampling)) func aOneTabStripDrawsItsTab() {
         let rep = render(items: [item("Finance", active: true)], width: 620)
         let named = render(items: [item("Finance", active: true)], width: 620)
         let blank = render(items: [item("", active: true)], width: 620)
@@ -293,7 +295,7 @@ import Design
     /// occupies the same box in each render — leaving the ✕ as the only thing that can differ
     /// there. Comparing a one-tab strip against a two-tab one at their own widths compares two
     /// different boxes, and an ink count inside the active chip's ground saturates either way.
-    @Test func aLoneTabHasNoCloseButton() {
+    @Test(.machinePinned(.pixelSampling)) func aLoneTabHasNoCloseButton() {
         let alone = render(items: [item("Finance", active: true)], width: 900)
         let paired = render(items: [item("Finance", active: true), item("Finance")], width: 900)
         let width = PaneTabStripLadder.layout(available: 890, titles: ["Finance"], scale: 1).tabWidth
@@ -327,7 +329,7 @@ import Design
     /// - the parked chip's slot is **empty**, and
     /// - a glyph really would have been seen there — the same slot in a strip whose second tab is
     ///   PINNED carries its pin, on the same groundless backdrop.
-    @Test func anUnhoveredParkedTabDrawsNoCloseButton() {
+    @Test(.machinePinned(.pixelSampling)) func anUnhoveredParkedTabDrawsNoCloseButton() {
         // Two chips with the same title in a wide pane, so both strips lay out identically and the
         // second chip's close slot is the same box in each.
         let plain = render(items: [item("Finance", active: true), item("Finance")], width: 900)
@@ -391,7 +393,7 @@ import Design
     /// The chip is **located from its accent rule** rather than from the ladder's `tabWidth`: the
     /// chip takes its NATURAL width up to that cap (112.5pt against a 156.5pt cap on this fixture),
     /// and the whole question here is how much wider than its contents that natural width is.
-    @Test func theChipRungWearsAChevron() {
+    @Test(.machinePinned(.pixelSampling)) func theChipRungWearsAChevron() {
         let five = [item("Immigration", active: true), item("Photos"), item("Legal"),
                     item("Medical"), item("Finance")]
         #expect(PaneTabStripLadder.layout(available: 210, titles: five.map(\.title), scale: 1).rung == .chip,
@@ -610,7 +612,7 @@ import Design
 
     /// A pinned chip wears a pin where an unpinned one wears its ✕ — the two strips are otherwise
     /// identical, so the box isolates that slot.
-    @Test func aPinnedTabWearsAPinInsteadOfItsCloseButton() {
+    @Test(.machinePinned(.pixelSampling)) func aPinnedTabWearsAPinInsteadOfItsCloseButton() {
         let ids = [UUID(), UUID()]
         func strip(pinnedFirst: Bool) -> [PaneTabStrip.Item] {
             [PaneTabStrip.Item(id: ids[0], title: "Finance", markImageName: "folder.fill",
@@ -662,7 +664,7 @@ import Design
 
     /// An empty strip is not a state the app can reach, but this view is public and every rung
     /// indexes into `items`. Drawing nothing beats trapping inside a pane's body.
-    @Test func anEmptyStripDrawsNothingRatherThanTrapping() {
+    @Test(.machinePinned(.pixelSampling)) func anEmptyStripDrawsNothingRatherThanTrapping() {
         let rep = render(items: [], width: 620)
         #expect(inked(rep) < 50, "an empty strip painted something")
     }
@@ -676,7 +678,7 @@ import Design
     /// clamp is also not a clip: SwiftUI's `.frame(height:)` lets content overflow, so a rung that
     /// wanted two rows paints *outside* the row rather than growing it, and the pane below wears
     /// the difference. So the question is asked in pixels, below the row where nothing may be.
-    @Test func theStripIsOneRowAtEveryRung() {
+    @Test(.machinePinned(.pixelSampling)) func theStripIsOneRowAtEveryRung() {
         let canvasHeight = PaneTabStripLadder.stripHeight * 3
         for width in [CGFloat(900), 620, 340, 220] {
             let items = [item("Finance", active: true), item("Photos"), item("Legal"),

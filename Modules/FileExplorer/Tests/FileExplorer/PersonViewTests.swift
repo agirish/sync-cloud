@@ -12,7 +12,9 @@ import Design
 /// read back in light and dark before this suite existed — the two-theme check is what catches a
 /// foreground that vanishes into its own background.
 @MainActor
-@Suite(.serialized, .machinePinned(.pixelSampling)) struct PersonViewTests {
+// Pin moved from the suite to the tests that read pixels, so the behavioral remainder is no
+// longer hostage to the machine gate — see OrganizeRailTests for the pattern's account.
+@Suite(.serialized) struct PersonViewTests {
 
     private static let canvas = CGSize(width: 760, height: 480)
     /// The header, above the divider.
@@ -119,7 +121,7 @@ import Design
         return n
     }
 
-    @Test("Both groups reach the screen, in both themes")
+    @Test("Both groups reach the screen, in both themes", .machinePinned(.pixelSampling))
     func bothGroupsPaint() {
         // Both themes, because a foreground that vanishes into its own background is invisible to
         // every geometry assertion and to a light-only render.
@@ -131,7 +133,7 @@ import Design
         }
     }
 
-    @Test("The elsewhere group is what disappears when there is nothing misfiled")
+    @Test("The elsewhere group is what disappears when there is nothing misfiled", .machinePinned(.pixelSampling))
     func theElsewhereGroupIsConditional() {
         // The payoff group is the reason to open this view, so its absence has to be real absence
         // rather than an empty heading — and its presence has to be what changes, not the folders
@@ -148,7 +150,7 @@ import Design
                 "the folder group changed too — the elsewhere band is measuring the wrong region")
     }
 
-    @Test("Gathering says so, in both themes")
+    @Test("Gathering says so, in both themes", .machinePinned(.pixelSampling))
     func theGatheringStatePaints() {
         // The interval this covers is exactly the one where a silent slot made the accept look
         // like it did nothing. The band starts at x=38 to exclude the spinner, whose animation
@@ -170,7 +172,7 @@ import Design
                 "the header paints the same with and without an answer — the count capsule is showing mid-sweep")
     }
 
-    @Test("A missing corpus is said in the slot, in both themes")
+    @Test("A missing corpus is said in the slot, in both themes", .machinePinned(.pixelSampling))
     func theFailedStateSaysWhy() {
         // This used to be a transient banner — gone by the time the still-empty slot made anyone
         // wonder why accepting did nothing.
@@ -189,7 +191,7 @@ import Design
                 "failed and gathering paint the same words")
     }
 
-    @Test("A person with nothing gets an answer, not a blank panel")
+    @Test("A person with nothing gets an answer, not a blank panel", .machinePinned(.pixelSampling))
     func theEmptyStateSaysSo() {
         let empty = PersonFileSet(personId: "divit", ownFolders: [], elsewhere: [])
         let host = mount(empty, name: "Divit")
@@ -198,7 +200,7 @@ import Design
         #expect(ink(host, Self.headerZone) > 200, "the header lost its name and count")
     }
 
-    @Test("The count in the header is the whole set, not the rows on screen")
+    @Test("The count in the header is the whole set, not the rows on screen", .machinePinned(.pixelSampling))
     func theHeaderCountsEverything() {
         // The folder list truncates at 8; the header must still answer the question that was asked.
         //
@@ -261,7 +263,7 @@ import Design
                       ])
     }
 
-    @Test("The review group paints, in both themes")
+    @Test("The review group paints, in both themes", .machinePinned(.pixelSampling))
     func theReviewGroupPaints() {
         for scheme in [ColorScheme.light, .dark] {
             let host = mount(Self.aditiWithReview, scheme: scheme)
@@ -271,7 +273,7 @@ import Design
 
     /// **A group that has nothing to ask must not paint a heading.** An empty "Waiting for review"
     /// is itself a claim that there is something to review.
-    @Test("The review group is absent when there is nothing to review")
+    @Test("The review group is absent when there is nothing to review", .machinePinned(.pixelSampling))
     func theReviewGroupIsConditional() {
         let without = mount(Self.aditi)
         let with = mount(Self.aditiWithReview)
@@ -294,7 +296,7 @@ import Design
     ///
     /// Measured inside the capsule itself — a band over the whole trailing group would count the
     /// row's text and pass with no fill at all.
-    @Test("The confirm button is a filled control, in both themes")
+    @Test("The confirm button is a filled control, in both themes", .machinePinned(.pixelSampling))
     func theConfirmButtonPaintsFilled() {
         let capsule = CGRect(x: 612, y: 298, width: 38, height: 10)
         for scheme in [ColorScheme.light, .dark] {
@@ -323,7 +325,7 @@ import Design
     /// Folding them into one total would be the view asserting exactly what the queue exists to
     /// ask. The two fixtures share every claimed row, so the chip is the only thing that can move
     /// these pixels.
-    @Test("The review count is its own chip, not folded into the total")
+    @Test("The review count is its own chip, not folded into the total", .machinePinned(.pixelSampling))
     func theReviewCountIsSeparate() {
         #expect(differingPixels(mount(Self.aditiWithReview), mount(Self.aditi), Self.headerZone) > 20,
                 "the header paints the same with and without questions — the chip is missing")
@@ -341,7 +343,7 @@ import Design
     /// every one of the thirteen tests across both suites still passed. This is the one that fails.
     ///
     /// Two names, one set: the only thing that can differ in the heading band is the name.
-    @Test("The folders group is headed with the person's name")
+    @Test("The folders group is headed with the person's name", .machinePinned(.pixelSampling))
     func theOwnFoldersTitleNamesThePerson() {
         let aditi = mount(Self.aditi, name: "Aditi")
         let bartholomew = mount(Self.aditi, name: "Bartholomew")
@@ -354,7 +356,7 @@ import Design
 
     /// And the band above measures the heading rather than bleeding from the panel header, which
     /// shows the name as well. The rows carry paths and counts, so they must not move at all.
-    @Test("The folder rows below the heading do not carry the name")
+    @Test("The folder rows below the heading do not carry the name", .machinePinned(.pixelSampling))
     func theFoldersRowsBelowDoNotCarryTheName() {
         let aditi = mount(Self.aditi, name: "Aditi")
         let bartholomew = mount(Self.aditi, name: "Bartholomew")
