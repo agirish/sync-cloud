@@ -474,6 +474,28 @@ line (the file-level check that catches exactly this is what this document exist
 adaptations: `v2.x` has no `PaneBarMigration` (it arrived with the search control in 3.x), so its
 write-back suite pins the sheet path alone and uses that line's own case names.
 
+**The log tier (2026-08-23, the coverage review's second half), triaged the same way.** To all
+three lines: the banner→log choke point (`FileSyncManager.banner` didSet; `OperationBanner`
+carries the per-publish `id` the dedup needs on all three) with `BannerLogChokePointTests`; the
+two cross-volume permanent-delete lines and the revert report in `FileOperations+Primitives.swift`
+(all three lines carry the `replaceItem` rewrite, so the hunks anchor cleanly); the Verify All
+lifecycle lines; the history-clear line at `SyncHistoryView.clearIfConfirmed` — at the CONFIRM,
+not inside `SyncHistoryStore.clear()`, which reddened main's CI once (fixture cleanups vs
+Logger's exact-count suite in the same package); the `TopPaneVisibility` and `FolderJumpStore`
+encode-failure lines (the lines' jump store has only `persistPinned` — recents arrived later);
+the scroll-probe pull-log gating behind `PaneScrollTrace.isEnabled` (`v2.x`'s OverscrollReturn is
+NEWER than `v3.x`'s there — it has the `pullDuration` structure — so the gate was fitted per
+line); the `[hitch]` armed-line demotion; the two cancelled-at-the-prompt promotions to `.info`;
+and the Quit-Anyway rewording. To `v3.x` additionally: the `folderSources` encode guard in
+`SettingsManager` (`v2.x` has no `folderSources` — plain-folder sources are a 3.x feature) and
+the `[cycle]` armed-line demotion (`DisplayCycleTrace` is not on `v2.x`). Main-only, each
+checked: `PaneTabsStore`'s encode-failure line (tabs are v4), and every
+"Settings ▸ Organize"→"Intelligence" copy correction (the lines have no Intelligence tab; their
+strings name the tab that really holds their key — do NOT backport these). Checked and
+deliberately NOT changed anywhere: the per-item "Replaced … recoverable" `.info` breadcrumb (its
+comment defends the level) and the Duplicates same-instance warning the review had called dead
+(rewritten since into a documented fail-open guard).
+
 ## The unaudited surface, honestly
 
 Neither line has been audited commit-by-commit. These are the sizes as of 2026-08-20, narrowing from
