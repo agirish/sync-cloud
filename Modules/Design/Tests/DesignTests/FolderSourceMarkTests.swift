@@ -5,7 +5,7 @@ import Testing
 
 /// How a folder source is marked, as against a cloud account: a colourless hue rather than a brand
 /// one, and an SF Symbol rather than a bundled logo.
-@Suite(.machinePinned(.pixelSampling)) struct FolderSourceMarkTests {
+@Suite struct FolderSourceMarkTests {
 
     // MARK: The hue
 
@@ -73,7 +73,7 @@ import Testing
     /// either way — so a size assertion here passes with the fallback deleted and nothing on
     /// screen. Only counting ink can tell the difference.
     @MainActor
-    @Test func aSymbolNameActuallyPaints() throws {
+    @Test(.machinePinned(.pixelSampling)) func aSymbolNameActuallyPaints() throws {
         let painted = try paintedFraction(ProviderLogo("folder.fill", size: 40))
         #expect(painted > 0.05,
                 "folder.fill painted \(painted) of the frame — the SF Symbol fallback is not firing")
@@ -88,7 +88,7 @@ import Testing
     /// comes out blank, which is the failure the branch could actually introduce. Which branch each
     /// name takes in the shipped app is a question for the app, and is checked there by eye.
     @MainActor
-    @Test func aCloudAccountsMarkStillPaints() throws {
+    @Test(.machinePinned(.pixelSampling)) func aCloudAccountsMarkStillPaints() throws {
         let painted = try paintedFraction(ProviderLogo("icloud", size: 40))
         #expect(painted > 0.05, "the icloud mark painted \(painted) of the frame")
     }
@@ -96,7 +96,7 @@ import Testing
     /// The outer frame is the same whichever path is taken — that is what keeps the three call
     /// sites' 16/26/28pt layouts honest when a folder source appears among the cloud accounts.
     @MainActor
-    @Test func bothPathsOccupyTheSameOuterFrame() {
+    @Test(.machinePinned(.layoutMetrics)) func bothPathsOccupyTheSameOuterFrame() {
         for name in ["folder.fill", "icloud"] {
             let host = NSHostingView(rootView: ProviderLogo(name, size: 26))
             host.layoutSubtreeIfNeeded()

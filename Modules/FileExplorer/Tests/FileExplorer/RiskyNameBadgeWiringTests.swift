@@ -58,7 +58,7 @@ import Design
     /// The two rows differ ONLY in `riskyReason`: same node, same name, same density, same fonts.
     /// Varying the name instead would change the text's own width and the delta would prove
     /// nothing about the badge.
-    @Test func aPaneRowIsWiderWhenItsNameIsRisky() {
+    @Test(.machinePinned(.layoutMetrics)) func aPaneRowIsWiderWhenItsNameIsRisky() {
         let node = rowInfo(name: "Q3: final.pdf")
         let badged = fittingWidth(
             FileRowView(node: node, isIgnored: false, diffStatus: nil, containedDiffCount: 0,
@@ -74,7 +74,7 @@ import Design
 
     /// The same row at compact density, because the badge takes the pane's resolved fonts and a
     /// density change is exactly the sort of thing that quietly drops a trailing element.
-    @Test func aCompactPaneRowCarriesTheBadgeToo() {
+    @Test(.machinePinned(.layoutMetrics)) func aCompactPaneRowCarriesTheBadgeToo() {
         let node = rowInfo(name: "Q3: final.pdf")
         let badged = fittingWidth(
             FileRowView(node: node, isIgnored: false, diffStatus: nil, containedDiffCount: 0,
@@ -96,7 +96,7 @@ import Design
     /// the name fixed and moving the ruleset leaves the badge as the only thing that can change,
     /// and it pins the per-provider answer this surface exists for: a colon is fatal on OneDrive
     /// and fine on iCloud.
-    @Test func aDifferencesRowBadgesANameOnlyTheDestinationRejects() {
+    @Test(.machinePinned(.layoutMetrics)) func aDifferencesRowBadgesANameOnlyTheDestinationRejects() {
         let row = difference("Q3: final.pdf")
 
         let strict = fittingWidth(
@@ -112,7 +112,7 @@ import Design
 
     /// A keep silences the badge on this surface too. Same row, same ruleset — only the kept set
     /// differs, so this cannot pass by the name having been fine all along.
-    @Test func aKeptNameDropsTheDifferencesBadge() {
+    @Test(.machinePinned(.layoutMetrics)) func aKeptNameDropsTheDifferencesBadge() {
         let risky = difference("Q3: final.pdf")
 
         let badged = fittingWidth(
@@ -135,7 +135,7 @@ import Design
     /// So sample the row for the badge's colour. `SemanticColor.caution` is what Organize's chip
     /// and its list rows wear, and the doc comment on `RiskyNameBadge` makes matching them the
     /// point — a finding that changes appearance by surface reads as two findings.
-    @Test func theBadgeActuallyPaintsItsCautionColour() throws {
+    @Test(.machinePinned(.pixelSampling)) func theBadgeActuallyPaintsItsCautionColour() throws {
         let node = rowInfo(name: "Q3: final.pdf")
         let canvas = CGSize(width: 320, height: 28)
 

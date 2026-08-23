@@ -16,7 +16,7 @@ import Sync
 /// comparison is blind to small controls anyway. The two arms differ in exactly one input — whether
 /// the pane arrives with a parked column stack — so every differing pixel is that difference.
 @MainActor
-@Suite struct PaneColumnCarryOverRenderTests {
+@Suite(.machinePinned(.pixelSampling)) struct PaneColumnCarryOverRenderTests {
 
     /// The pane's actions are irrelevant here: nothing in this fixture clicks.
     private struct StubDelegate: FileActionDelegate {

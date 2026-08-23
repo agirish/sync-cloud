@@ -75,14 +75,14 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     /// The whole spec in one number: at rest the card occupies 86pt in its parent — 2.5 inset +
     /// 81 visible + 2.5 inset — so its VISIBLE bottom edge lands at 83.5, exactly where the file
     /// pane's header meets its list (`cardInset` + `headerHeight`).
-    @Test func restsAt86Total() {
+    @Test(.machinePinned(.layoutMetrics)) func restsAt86Total() {
         #expect(laidOutHeight(Self.card(), width: 700) == 86.0)
     }
 
     /// The visible height, stated against the constant BOTH headers read. If `PaneHeader` and
     /// this card ever disagree, one of this test and `paneHeaderRestsAtHeaderHeight` (in the
     /// Dashboard suite) fails — they are pinned to the same number from opposite sides.
-    @Test func restsAt81Visible() {
+    @Test(.machinePinned(.layoutMetrics)) func restsAt81Visible() {
         let visible = laidOutHeight(Self.card(), width: 700) - 2 * LiquidGlass.cardInset
         #expect(visible == LiquidGlass.headerHeight)
         #expect(visible == 81.0)
@@ -101,13 +101,13 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     /// Search open: +8 gap +28 field = 122 total. The card GROWS rather than swapping the field
     /// in over the pills — the pills are the filter's live readout (12 groups → 3), which is most
     /// of the value of typing.
-    @Test func searchOpenGrowsTo122() {
+    @Test(.machinePinned(.layoutMetrics)) func searchOpenGrowsTo122() {
         #expect(laidOutHeight(Self.card(isSearchExpanded: true), width: 700) == 122.0)
     }
 
     /// A parsed token adds the chip row: +8 gap +22 chips = 152 total. Only once a token
     /// actually parses — free text alone leaves the card at 122.
-    @Test func chipsGrowTo152() {
+    @Test(.machinePinned(.layoutMetrics)) func chipsGrowTo152() {
         let chips = [
             TokenChipsRow.Item(label: "kind: pdf", word: "kind:pdf", isActive: true),
             TokenChipsRow.Item(label: "> 5 MB", word: ">5mb", isActive: true)
@@ -117,13 +117,13 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     }
 
     /// Free text with no parsable token stays at the open height — no empty chip row.
-    @Test func freeTextWithoutTokensStaysAt122() {
+    @Test(.machinePinned(.layoutMetrics)) func freeTextWithoutTokensStaysAt122() {
         #expect(laidOutHeight(Self.card(searchText: "invoice", isSearchExpanded: true), width: 700) == 122.0)
     }
 
     /// A live query keeps the field showing even if the host clears `isSearchExpanded`: a filter
     /// narrowing the list must never be on behind a hidden field.
-    @Test func liveQueryKeepsFieldShowing() {
+    @Test(.machinePinned(.layoutMetrics)) func liveQueryKeepsFieldShowing() {
         #expect(laidOutHeight(Self.card(searchText: "invoice", isSearchExpanded: false), width: 700) == 122.0)
     }
 
@@ -132,7 +132,7 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     /// The empty/scanning state — no results, so no pills and no actions — is still 86. This is
     /// the property the old two-mechanism header could not hold: it rendered at 42/53/83/115pt
     /// depending on lens and state, because it was gated on having results.
-    @Test func emptyStateHoldsTheSameHeight() {
+    @Test(.machinePinned(.layoutMetrics)) func emptyStateHoldsTheSameHeight() {
         let bare = LensHeaderCard(
             searchText: .constant(""),
             isSearchExpanded: .constant(false),
@@ -148,7 +148,7 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
 
     /// Cards mode adds a shadow and a hairline but must not change the height — the inset is the
     /// same half-gutter in both shapes.
-    @Test func cardsShapeHoldsTheSameHeight() {
+    @Test(.machinePinned(.layoutMetrics)) func cardsShapeHoldsTheSameHeight() {
         let cards = LensHeaderCard(
             searchText: .constant(""),
             isSearchExpanded: .constant(false),

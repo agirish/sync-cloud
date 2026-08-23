@@ -110,7 +110,7 @@ import Sync
     ///
     /// Measured against the LAID-OUT height rather than any constant, at three widths, because the
     /// failure only exists where the row is already under pressure.
-    @Test("Annotating a row never makes it taller")
+    @Test("Annotating a row never makes it taller", .machinePinned(.layoutMetrics))
     func theAnnotationNeverGrowsTheRow() {
         let long = "Quarterly Tax Return and Supporting Schedules 2025 final.pdf"
         let info = FileRowInfo(FileNode(id: "/r/\(long)", name: long, isDirectory: false))
@@ -134,7 +134,7 @@ import Sync
     /// size — the row is width-constrained either way. The difference is entirely whether anything
     /// is drawn, and the annotation is the only tinted thing on the row, so its own colour is the
     /// probe. A test that measured geometry here passed against the truncating version.
-    @Test("Where it cannot fit, the annotation is omitted rather than left as an ellipsis")
+    @Test("Where it cannot fit, the annotation is omitted rather than left as an ellipsis", .machinePinned(.pixelSampling))
     func theAnnotationDegradesToNothing() {
         let long = "Quarterly Tax Return and Supporting Schedules 2025 final.pdf"
         let info = FileRowInfo(FileNode(id: "/r/\(long)", name: long, isDirectory: false))

@@ -23,7 +23,7 @@ import Sync
 /// something DIFFERENT from revealing another. A resolver that always opened the first group would
 /// satisfy every "something changed" case in here and fail only that one.
 @MainActor
-@Suite struct DuplicateRevealLandingTests {
+@Suite(.machinePinned(.pixelSampling)) struct DuplicateRevealLandingTests {
 
     private static let canvas = CGSize(width: 520, height: 620)
 
