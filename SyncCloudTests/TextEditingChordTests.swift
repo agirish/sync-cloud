@@ -94,6 +94,13 @@ import Design
     /// Hand-written, so it is guarded against registry drift by the set-equality test below: a NEW
     /// chord landing on a text-editing key fails that test until it is named here, and naming it
     /// here is what puts its registration under the routing scan.
+    ///
+    /// The scheme's boundary, stated rather than implied: it derives from `AppChord.registry`, so
+    /// a chord registered as a bare `.keyboardShortcut("c", modifiers: .command)` literal never
+    /// enters it and is invisible here. `ShortcutsReferenceTests`' literal scan polices that
+    /// boundary for the quoted-key spelling (it forces such a chord into the reference table,
+    /// where a text-editing key would be conspicuous) — a chord built from a variable would evade
+    /// both, and nothing in the repo registers one that way today.
     private static let collidingRegistrations: [(spelling: String, chords: [AppChord])] = [
         ("AppChord.selectAll.key", [.selectAll]),
         ("AppChord.cut.key", [.cut]),
@@ -123,17 +130,29 @@ import Design
     /// This is the test whose absence was the finding: `route` was unit-tested to perfection while
     /// nothing pinned that any chord CALLED it — deleting the route from ⌘C would have shipped
     /// "⌘C over a caret copies files" with every suite green.
-    @Test func everyCollidingChordRegistrationRoutesThroughTextEditingChord() throws {
-        let source = try shortcutCommandsSource()
-        // Comment text can legitimately name a chord's spelling (and does); only code decides.
+    /// The file cut into per-command blocks, comments stripped first — comment text can
+    /// legitimately name a chord's spelling (and does); only code decides.
+    ///
+    /// Top-level struct declarations delimit the blocks; nested types are indented and don't
+    /// split. The modifier normalization matters: a `private struct` (the file already has
+    /// twenty-odd) would otherwise merge silently into the preceding block, and a route call
+    /// there would vouch for a command that lost its own.
+    private static func registrationBlocks(of source: String) -> [String] {
         let code = source.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> Substring in
                 if let slash = line.range(of: "//") { return line[line.startIndex..<slash.lowerBound] }
                 return line
             }
             .joined(separator: "\n")
-        // Top-level struct declarations delimit the blocks; nested types are indented and don't split.
-        let blocks = code.components(separatedBy: "\nstruct ")
+        let normalized = code.replacing(
+            #/\n(?:@[A-Za-z]+ )*(?:(?:private|fileprivate|internal|public) )?struct /#,
+            with: "\nstruct ")
+        return normalized.components(separatedBy: "\nstruct ")
+    }
+
+    @Test func everyCollidingChordRegistrationRoutesThroughTextEditingChord() throws {
+        let source = try shortcutCommandsSource()
+        let blocks = Self.registrationBlocks(of: source)
         try #require(blocks.count > 10, "ShortcutCommands.swift split into \(blocks.count) blocks — the scan is broken")
 
         for (spelling, chords) in Self.collidingRegistrations {
@@ -156,8 +175,9 @@ import Design
     /// spelling that exists nowhere must be reported as stale, proving `#require(!registering
     /// .isEmpty)` really is reachable.
     @Test func theRoutingScanRefusesAStaleSpelling() throws {
-        let source = try shortcutCommandsSource()
-        let blocks = source.components(separatedBy: "\nstruct ")
+        // The same pipeline the real scan uses — a decoy probed against a differently prepared
+        // source would prove reachability for a matcher nothing runs.
+        let blocks = Self.registrationBlocks(of: try shortcutCommandsSource())
         let registering = blocks.filter { $0.contains(".keyboardShortcut(") && $0.contains("AppChord.decoyNeverRegistered.key") }
         #expect(registering.isEmpty, "the decoy is supposed to match nothing")
     }
