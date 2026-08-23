@@ -28,7 +28,21 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("src.txt")
-        let dst = root.appendingPathComponent("dst.txt")
+        // The overwrite below routes the old destination through the real `trashItem`, which
+        // lands in the developer's actual Trash — one stray file per run, forever, that the
+        // temp-dir cleanup cannot reach. The run-unique name is what makes the sweep safe: only
+        // a file THIS run created can match it.
+        let marker = "cli-env-dst-\(UUID().uuidString)"
+        let dst = root.appendingPathComponent("\(marker).txt")
+        defer {
+            let trash = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".Trash")
+            if let entries = try? FileManager.default.contentsOfDirectory(
+                at: trash, includingPropertiesForKeys: nil) {
+                for entry in entries where entry.lastPathComponent.hasPrefix(marker) {
+                    try? FileManager.default.removeItem(at: entry)
+                }
+            }
+        }
         try Data("new contents".utf8).write(to: src)
 
         let env = makeDefaultEnvironment()

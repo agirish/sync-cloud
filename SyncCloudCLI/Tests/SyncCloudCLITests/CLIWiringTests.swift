@@ -39,6 +39,25 @@ import SyncCloudCLICore
                 "repeated --ignore must accumulate, not replace")
     }
 
+    /// The sync subcommand's own wire surface — its name, the strategy short, `-y`, `--verify`,
+    /// and the `customLong` fail-fast, which is exactly the spelling class a rename breaks with
+    /// every other suite green. The first landing of this file stopped at Scan; `sync` is the
+    /// subcommand that MOVES files, so its scripts have the most to lose from a renamed flag.
+    @Test func theSyncSubcommandsDocumentedSpellingsAllParse() throws {
+        let parsed = try SyncCloudCommand.parseAsRoot(
+            ["sync", "-L", "/a", "-R", "/b", "-s", "keep-both", "-y", "--fail-fast", "--verify"])
+        let sync = try #require(parsed as? SyncFiles,
+                                "`sync` no longer names the SyncFiles subcommand — parsed \(type(of: parsed))")
+        #expect(sync.options.left == "/a" && sync.options.right == "/b")
+        #expect(sync.strategy == .keepBoth)
+        #expect(sync.yes)
+        #expect(sync.failFast)
+        #expect(sync.verify)
+
+        let providers = try SyncCloudCommand.parseAsRoot(["providers"])
+        #expect(providers is Providers, "`providers` no longer names its subcommand")
+    }
+
     /// The flag strings are the wire format scripts speak; `DifferenceProcessingTests` pins the
     /// raw values from Core's side, and this pins that ArgumentParser still maps the flags onto
     /// them — the half a rename of the conformance would break with Core's pins green.
@@ -85,10 +104,13 @@ import SyncCloudCLICore
         }
     }
 
-    /// The barrier half: a line logged by a failing command body is on DISK by the time the
-    /// wrapper rethrows. Without the flush it races process exit — the CLI's whole reason for
-    /// wrapping — and under `swift test` the logger writes a per-process temp file, so this reads
-    /// the real path the barrier protects without touching `~/sync-cloud.log`.
+    /// Durability across the wrapper: a line logged before a failing body is on DISK once
+    /// `flushingLogToDisk` rethrows. Honest scope: the writer appends from its own serial queue,
+    /// so a deleted flush would usually STILL land the line during this test's suspension points —
+    /// what this pins is the observable contract (line durable when the wrapper returns), not the
+    /// flush call's presence; the barrier's own semantics are Events' to test. Under `swift test`
+    /// the logger writes a per-process temp file, so this reads the real path the wrapper
+    /// protects without touching `~/sync-cloud.log`.
     @Test func aFailedBodysLogLineIsOnDiskWhenTheWrapperRethrows() async throws {
         let tag = "cli-flush-\(UUID().uuidString)"
         struct Boom: Error {}
