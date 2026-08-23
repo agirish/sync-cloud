@@ -6,6 +6,15 @@ public struct ProviderResolutionError: Error, Equatable, Sendable {
     public let message: String
 }
 
+/// An absolute, symlink-free spelling of `path`, for comparing two ways of naming one folder.
+///
+/// `URL(fileURLWithPath:)` makes a relative argument absolute against the working directory, which
+/// is what `fileExists` already resolved it against, and `resolvingSymlinksInPath` collapses the
+/// `~/iCloud` → iCloud Drive convention onto the provider's own root.
+func canonicalPath(_ path: String) -> String {
+    URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+}
+
 /// Expands a leading tilde in a user-supplied path.
 public func expandPath(_ path: String) -> String {
     (path as NSString).expandingTildeInPath
@@ -29,6 +38,31 @@ public func resolveProviderOrPath(
     fileManager: FileManaging = FileManager.default
 ) throws -> CloudProvider {
     if let provider = providers.first(where: { $0.id == value || $0.displayName == value }) {
+        // **An argument that names BOTH a provider and a real directory is refused, not guessed.**
+        // The provider branch wins by position, so `-L Dropbox` run beside a local folder called
+        // `Dropbox` silently addressed the provider's root instead of the folder in front of the
+        // user — and `sync` is a mass copy, so guessing wrong here is not a wrong listing, it is
+        // the whole of one tree written into another.
+        //
+        // Neither precedence is defensible: reversing it just moves the same silent misfire onto
+        // whoever meant the provider. The CLI cannot know which was meant, and saying so costs one
+        // command re-run, while being wrong costs a sync. Both spellings that disambiguate are
+        // offered, and both work — a provider id never contains a slash, so `./Dropbox` and an
+        // absolute path both miss this branch and land on the path branch below.
+        // **Only when the two readings are DIFFERENT trees.** `~/iCloud` symlinked to iCloud Drive
+        // is a common convention, and there the provider and the directory are the same folder —
+        // refusing would be pedantry with no hazard behind it. Compared after resolving symlinks,
+        // which is what makes that case identical rather than merely similar.
+        let asPath = expandPath(value)
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: asPath, isDirectory: &isDirectory), isDirectory.boolValue,
+           canonicalPath(asPath) != canonicalPath(expandPath(provider.path)) {
+            throw ProviderResolutionError(
+                message: "'\(value)' for \(label) names both the provider '\(provider.displayName)' "
+                    + "(\(provider.path)) and a directory at \(asPath). "
+                    + "Use './\(value)' or an absolute path for the directory, "
+                    + "or rename the directory to address the provider by name.")
+        }
         try requireDirectory(
             atPath: expandPath(provider.path),
             fileManager: fileManager,

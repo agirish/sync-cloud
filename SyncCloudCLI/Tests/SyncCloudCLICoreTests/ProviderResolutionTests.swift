@@ -77,12 +77,37 @@ private let providers = [
         }
     }
 
-    @Test func testProviderMatchWinsOverPathCheck() throws {
-        // A provider id resolves even if a same-named path exists on disk.
+    /// **This used to assert that the provider wins, and that is the behaviour being changed.**
+    ///
+    /// It read "a provider id resolves even if a same-named path exists on disk" — stated, with no
+    /// reason given for preferring one reading. The fixture is the hazardous case: a directory
+    /// named `iCloud` in the working directory against a provider rooted somewhere else entirely.
+    /// `sync` is a mass copy, so resolving that silently is one whole tree written into another,
+    /// and neither precedence is defensible — reversing it only moves the misfire onto whoever
+    /// meant the provider. It is refused now, with both disambiguating spellings named.
+    ///
+    /// The narrower case where both readings are the SAME folder still resolves — see below.
+    @Test func testAProviderThatShadowsADifferentSameNamedDirectoryIsRefused() {
+        #expect(throws: ProviderResolutionError.self) {
+            try resolveProviderOrPath(
+                value: "iCloud", label: "Left", providers: providers,
+                fileManager: StubFileManager(directories: ["/icloud/docs", "iCloud"]))
+        }
+    }
+
+    /// **`~/iCloud` symlinked to iCloud Drive is a common convention, and there is no hazard in
+    /// it** — both readings are one folder, so the guard must not fire. Compared after resolving
+    /// symlinks, which is what makes the two identical rather than merely similar.
+    @Test func testAProviderWhoseRootIsTheSameFolderAsThePathStillResolves() throws {
+        // The provider's root IS what the relative value canonicalises to, which is the shape the
+        // symlink convention produces on a real machine.
+        let sameTree = canonicalPath("iCloud")
+        let shadowing = [CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
+                                       path: sameTree, type: .iCloud)]
         let resolved = try resolveProviderOrPath(
-            value: "iCloud", label: "Left", providers: providers,
-            fileManager: StubFileManager(directories: ["/icloud/docs", "iCloud"]))
-        #expect(resolved.path == "/icloud/docs")
+            value: "iCloud", label: "Left", providers: shadowing,
+            fileManager: StubFileManager(directories: [sameTree, "iCloud"]))
+        #expect(resolved.id == "iCloud", "one folder named two ways was refused as an ambiguity")
     }
 
     // MARK: Root validation
@@ -195,5 +220,58 @@ private let providers = [
             value: "Dropbox", label: "Left", providers: tilded,
             fileManager: StubFileManager(directories: ["\(home)/Dropbox"]))
         #expect(resolved.id == "Dropbox")
+    }
+
+    // MARK: - An argument that names both is refused, not guessed
+
+    /// **`-L Dropbox` beside a local folder called `Dropbox` addressed the PROVIDER.**
+    ///
+    /// The provider branch wins by position, so the CLI silently took the provider's root instead
+    /// of the directory in front of the user — and `sync` is a mass copy, so guessing wrong is not
+    /// a wrong listing, it is one whole tree written into another.
+    ///
+    /// Reversing the precedence would move the same silent misfire onto whoever meant the
+    /// provider, so neither order is defensible and the ambiguity is refused instead. The cost is
+    /// one re-run with a disambiguating spelling; the cost of being wrong is a sync.
+    @Test func testRefusesAValueThatIsBothAProviderAndADirectory() {
+        let fm = StubFileManager(directories: ["/icloud/docs", "iCloud"])
+        #expect(throws: ProviderResolutionError.self) {
+            try resolveProviderOrPath(value: "iCloud", label: "Left", providers: providers,
+                                      fileManager: fm)
+        }
+    }
+
+    /// The refusal has to be usable: it names both readings and the spelling that picks each.
+    @Test func testTheAmbiguityMessageOffersBothWaysOut() {
+        let fm = StubFileManager(directories: ["/icloud/docs", "iCloud"])
+        do {
+            _ = try resolveProviderOrPath(value: "iCloud", label: "Left", providers: providers,
+                                          fileManager: fm)
+            Issue.record("expected a refusal")
+        } catch let error as ProviderResolutionError {
+            #expect(error.message.contains("/icloud/docs"), "the provider reading is not named")
+            #expect(error.message.contains("./iCloud"), "the message does not say how to mean the directory")
+        } catch {
+            Issue.record("expected ProviderResolutionError, got \(error)")
+        }
+    }
+
+    /// **And the way out actually works.** A provider id never contains a slash, so `./name` misses
+    /// the provider branch and resolves as a path — asserted, because a refusal that pointed at a
+    /// spelling which also failed would be worse than the guess it replaced.
+    @Test func testTheDotSlashSpellingResolvesToTheDirectory() throws {
+        let fm = StubFileManager(directories: ["/icloud/docs", "./iCloud"])
+        let resolved = try resolveProviderOrPath(value: "./iCloud", label: "Left",
+                                                 providers: providers, fileManager: fm)
+        #expect(resolved.path == "./iCloud", "the escape hatch the refusal offers does not work")
+    }
+
+    /// An unambiguous provider name still resolves — the guard fires only where both readings
+    /// exist, and must not have made every provider argument a refusal.
+    @Test func testAProviderWithNoSameNamedDirectoryStillResolves() throws {
+        let resolved = try resolveProviderOrPath(
+            value: "iCloud", label: "Left", providers: providers,
+            fileManager: StubFileManager(directories: ["/icloud/docs"]))
+        #expect(resolved.id == "iCloud")
     }
 }
