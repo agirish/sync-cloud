@@ -495,6 +495,42 @@ still unmigrated there — and its floored count is lower because it has neither
 the window-based original. It does now carry `poll` and `LayoutPumpWaitPollTests`, which is where
 this fix landed first. Re-run the sweep on the line you are on; do not cherry-pick the count.
 
+**A bound whose expiry is discarded says nothing when it expires, 2026-08-22.**
+`waitUntil` in `Modules/Dashboard/Tests/Dashboard/FileActionHandlerOperationTests.swift` polls up
+to 200 × 20ms and then **returns normally**. Nothing reads the outcome, so when the budget runs out
+the test simply carries on and asserts against state that never arrived:
+
+```swift
+private func waitUntil(_ condition: () -> Bool) async throws {
+    for _ in 0..<200 where !condition() { try await Task.sleep(nanoseconds: 20_000_000) }
+}
+```
+
+`testCopyItemsFromLeftCopiesToRightPane` failed on the two lines *after* that wait — the banner's
+message `nil` against `Copied "copy-me.txt" to RightSide`, and `isUndoable` `nil` against `true` —
+19.7 seconds in. **Neither message mentions waiting**, so the run reads as "the banner is wrong"
+when what happened is "the banner had not been published yet". That is this mechanism wearing the
+face of a behavioural defect, which is the reason it is filed rather than retuned.
+
+**The tell is both assertions failing with `nil` on the left.** State that arrives *wrong* fails one
+assertion with a value in it; state that has not arrived at all fails every assertion about the same
+object, all of them nil. A void-returning wait cannot tell you which, and that is what to fix — the
+expiry has to be a failure carrying its own message, not a `return`.
+
+Environmental, and measured both ways: it failed in run `32595371148` on the self-hosted runner —
+**which is this Mac**, the same fact "Load-scaled benchmarks" records — while a full Dashboard
+package run was executing locally beside it at load average 16. The same 490-test suite is green
+locally in 46.3s and green on CI in run `32597536957` in 41.3s.
+
+**Two more things in the same file, both the shape this mechanism warns about.**
+`for _ in 0..<200 where !condition()` does not exit early: `where` skips the *iteration*, so the
+condition is evaluated 200 times and only the sleep is skipped once it holds. Harmless today, but it
+reads like a break-on-success loop and is not one, so anyone tuning the budget down is shortening a
+wait they believe already returns. And `waitForOperationsToFinish` returns as soon as
+`activeFileOperationsCount == 0` — **including before the operation has started**, which is
+"quiescence cannot tell finished from not started" verbatim. Here it is covered by the `waitUntil`
+on the file landing that runs before it; on its own it is not a wait at all.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
 `3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
 `33bcc30d` — *Wait out the New Folder undo instead of guessing 100ms at it*;
