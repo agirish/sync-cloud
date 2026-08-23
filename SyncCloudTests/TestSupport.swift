@@ -16,7 +16,7 @@ import Foundation
 /// more. The Sync copy carries the measurements; the short version is that a poll's nominal cost is
 /// its 10 ms sleep and the worst rate measured under load was 223 ms, so the deadline shrinks — in
 /// the only unit that matters — exactly when the wait needs it most. Keep the floor in step with
-/// that copy along with everything else here.
+/// the other two copies (Sync's, and Dashboard's `WaitSupport.swift`) along with everything else here.
 @MainActor
 func waitUntil(
     _ what: Comment,

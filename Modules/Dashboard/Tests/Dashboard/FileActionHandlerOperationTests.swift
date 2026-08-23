@@ -69,24 +69,40 @@ import Settings
         return url
     }
 
-    /// Polls until `condition` holds (or ~4s elapse); outcome-based so a Task that starts late
-    /// under main-actor contention is still awaited, per the cut-paste test's pattern.
+    /// Waits for the manager's file-operation bookkeeping to drain.
+    ///
+    /// **On its own this is not a wait at all, and every caller is what makes it one.** The old
+    /// body returned the moment `activeFileOperationsCount == 0` — *including before the operation
+    /// had started*, which is "quiescence cannot tell finished from not started" verbatim
+    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). It is safe here only because every
+    /// call site waits for the operation's own OUTCOME first, with `waitUntil` on the file
+    /// appearing or disappearing. Keep that order: outcome, then drain — polling for zero cannot
+    /// distinguish the two ends on its own, and no change to this helper can make it.
+    ///
+    /// **What is fixed here** is the pair that could fail in silence: it gave up after a fixed 50
+    /// iterations, a budget that shrinks under load exactly when it is needed, and then returned as
+    /// though it had drained. The drain now goes through the shared `waitUntil`, which has a poll
+    /// floor and says so at the caller when the condition never holds.
+    ///
+    /// **The trailing settle stays, and it stays because removing it failed.** `FileOperations
+    /// .swift` documents building its history records synchronously so a caller waiting on
+    /// completion cannot observe done early, which is easy to read as "`banner` is published before
+    /// the count reaches zero". It is not: dropping this sleep failed
+    /// `testCopyItemsFromLeftCopiesToRightPane` on an **idle** machine — load 4.1, banner `nil`, in
+    /// 2.9s — so the publication lands on a later turn than the decrement.
+    ///
+    /// It is a fixed pump, which this repo's own flake doc names as a smell, and it is left as one
+    /// **knowingly**. The honest fix is for the tests that assert a banner to wait on
+    /// `manager.banner` instead of on the drain — a dozen assertions, six of which assert the
+    /// banner is *absent* and would need the wait written the other way round. Worth doing; not
+    /// this commit.
     @MainActor
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<200 where !condition() {
-            try await Task.sleep(nanoseconds: 20_000_000)
+    private func waitForOperationsToFinish(_ manager: FileSyncManager,
+                                           sourceLocation: SourceLocation = #_sourceLocation) async {
+        await waitUntil("the file operations to drain", sourceLocation: sourceLocation) {
+            manager.activeFileOperationsCount == 0
         }
-    }
-
-    @MainActor
-    private func waitForOperationsToFinish(_ manager: FileSyncManager) async {
-        for _ in 0..<50 {
-            if manager.activeFileOperationsCount == 0 {
-                try? await Task.sleep(nanoseconds: 10_000_000)
-                return
-            }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
+        try? await Task.sleep(nanoseconds: 10_000_000)
     }
 
     // MARK: - Clipboard
@@ -127,11 +143,14 @@ import Settings
         handler.pasteItems([node], to: dirNode, isCut: false)
 
         let copied = dst.appendingPathComponent("copy-me.txt")
-        try await waitUntil { FileManager.default.fileExists(atPath: copied.path) }
+        await waitUntil("the copy to appear at \(copied.lastPathComponent)") {
+            FileManager.default.fileExists(atPath: copied.path)
+        }
         await waitForOperationsToFinish(manager)
 
         #expect(FileManager.default.fileExists(atPath: copied.path))
         #expect(FileManager.default.fileExists(atPath: file.path)) // copy, not move
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message.hasPrefix("Copied \"copy-me.txt\"") == true)
         #expect(manager.banner?.severity == .success)
         #expect(manager.banner?.isUndoable == true)
@@ -157,7 +176,9 @@ import Settings
         handler.pasteItems([node], to: fileTarget, isCut: false)
 
         let copied = dst.appendingPathComponent("copy-me.txt")
-        try await waitUntil { FileManager.default.fileExists(atPath: copied.path) }
+        await waitUntil("the copy to appear at \(copied.lastPathComponent)") {
+            FileManager.default.fileExists(atPath: copied.path)
+        }
         await waitForOperationsToFinish(manager)
 
         #expect(FileManager.default.fileExists(atPath: copied.path))
@@ -214,7 +235,9 @@ import Settings
         handler.pasteClipboard(to: FileNode(id: dst.path, name: dst.lastPathComponent, isDirectory: true))
 
         let copied = dst.appendingPathComponent("clip.txt")
-        try await waitUntil { FileManager.default.fileExists(atPath: copied.path) }
+        await waitUntil("the copy to appear at \(copied.lastPathComponent)") {
+            FileManager.default.fileExists(atPath: copied.path)
+        }
         await waitForOperationsToFinish(manager)
 
         #expect(FileManager.default.fileExists(atPath: copied.path))
@@ -242,7 +265,7 @@ import Settings
         handler.pasteClipboard(toPath: dst.path)
 
         let moved = dst.appendingPathComponent("cut.txt")
-        try await waitUntil {
+        await waitUntil("the cut-paste to move the file and clear the clipboard") {
             FileManager.default.fileExists(atPath: moved.path) && manager.clipboardNodes.isEmpty
         }
         await waitForOperationsToFinish(manager)
@@ -251,6 +274,7 @@ import Settings
         #expect(!FileManager.default.fileExists(atPath: file.path))
         #expect(manager.clipboardNodes.isEmpty)
         #expect(manager.clipboardIsCut == false)
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message.hasPrefix("Moved \"cut.txt\"") == true)
     }
 
@@ -287,6 +311,7 @@ import Settings
         #expect(FileManager.default.fileExists(atPath: landed.path))
         #expect(!FileManager.default.fileExists(atPath: file.path))
         let expectedTarget = fromLeft ? "RightSide" : "LeftSide"
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message == "Moved \"move-me.txt\" to \(expectedTarget)")
         #expect(manager.banner?.isUndoable == true)
     }
@@ -324,11 +349,14 @@ import Settings
         handler.copyItems([node], fromLeft: true, leftProviderId: "L", rightProviderId: "R")
 
         let landed = right.appendingPathComponent("copy-me.txt")
-        try await waitUntil { FileManager.default.fileExists(atPath: landed.path) }
+        await waitUntil("the copy to land in the other pane") {
+            FileManager.default.fileExists(atPath: landed.path)
+        }
         await waitForOperationsToFinish(manager)
 
         #expect(FileManager.default.fileExists(atPath: landed.path))
         #expect(FileManager.default.fileExists(atPath: file.path)) // copy keeps the source
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message == "Copied \"copy-me.txt\" to RightSide")
         #expect(manager.banner?.isUndoable == true)
     }
@@ -399,6 +427,9 @@ import Settings
         await waitForOperationsToFinish(manager)
 
         #expect(moved.isEmpty)
+        // No wait for a banner here, deliberately: this test's contract is that **no success
+        // banner appears**, and `banner?.severity != .success` is satisfied by `nil`. Waiting for
+        // one would spend five seconds proving the opposite of what the test is named for.
         #expect(manager.banner?.severity != .success)
     }
 
@@ -448,17 +479,20 @@ import Settings
 
         handler.confirmDelete([FileNode(id: file.path, name: "trash-me.txt", isDirectory: false)])
 
-        try await waitUntil { !FileManager.default.fileExists(atPath: file.path) }
+        await waitUntil("the delete to remove \(file.lastPathComponent)") {
+            !FileManager.default.fileExists(atPath: file.path)
+        }
         await waitForOperationsToFinish(manager)
 
         #expect(!FileManager.default.fileExists(atPath: file.path))
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message == "Deleted \"trash-me.txt\"")
         #expect(manager.banner?.isUndoable == true)
 
         // Cleanup: restore from Trash via the registered undo (best-effort).
         if undoManager.canUndo {
             undoManager.undo()
-            try? await waitUntil { FileManager.default.fileExists(atPath: file.path) }
+            await waitBestEffort { FileManager.default.fileExists(atPath: file.path) }
             await waitForOperationsToFinish(manager)
         }
     }
@@ -488,7 +522,9 @@ import Settings
 
         handler.confirmDelete([FileNode(id: file.path, name: "silent.txt", isDirectory: false)])
 
-        try await waitUntil { !FileManager.default.fileExists(atPath: file.path) }
+        await waitUntil("the delete to remove \(file.lastPathComponent)") {
+            !FileManager.default.fileExists(atPath: file.path)
+        }
         await waitForOperationsToFinish(manager)
 
         #expect(confirmerCalls == 0)
@@ -497,7 +533,7 @@ import Settings
         // Cleanup: restore from Trash via the registered undo (best-effort).
         if undoManager.canUndo {
             undoManager.undo()
-            try? await waitUntil { FileManager.default.fileExists(atPath: file.path) }
+            await waitBestEffort { FileManager.default.fileExists(atPath: file.path) }
             await waitForOperationsToFinish(manager)
         }
     }
@@ -608,7 +644,9 @@ import Settings
         handler.beginRename(FileNode(id: file.path, name: "before.txt", isDirectory: false))
 
         let renamed = dir.appendingPathComponent("after.txt")
-        try await waitUntil { FileManager.default.fileExists(atPath: renamed.path) }
+        await waitUntil("the rename to produce \(renamed.lastPathComponent)") {
+            FileManager.default.fileExists(atPath: renamed.path)
+        }
         await waitForOperationsToFinish(manager)
 
         #expect(FileManager.default.fileExists(atPath: renamed.path))
@@ -655,7 +693,9 @@ import Settings
         handler.beginCreateFolder(in: dir.path)
 
         let created = dir.appendingPathComponent("Fresh Folder")
-        try await waitUntil { FileManager.default.fileExists(atPath: created.path) }
+        await waitUntil("the new folder \(created.lastPathComponent) to exist") {
+            FileManager.default.fileExists(atPath: created.path)
+        }
         await waitForOperationsToFinish(manager)
 
         var isDir: ObjCBool = false
