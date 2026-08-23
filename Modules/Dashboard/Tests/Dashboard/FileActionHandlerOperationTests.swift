@@ -121,6 +121,7 @@ import Settings
 
         #expect(FileManager.default.fileExists(atPath: copied.path))
         #expect(FileManager.default.fileExists(atPath: file.path)) // copy, not move
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message.hasPrefix("Copied \"copy-me.txt\"") == true)
         #expect(manager.banner?.severity == .success)
         #expect(manager.banner?.isUndoable == true)
@@ -239,6 +240,7 @@ import Settings
         #expect(!FileManager.default.fileExists(atPath: file.path))
         #expect(manager.clipboardNodes.isEmpty)
         #expect(manager.clipboardIsCut == false)
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message.hasPrefix("Moved \"cut.txt\"") == true)
     }
 
@@ -274,6 +276,7 @@ import Settings
         #expect(FileManager.default.fileExists(atPath: landed.path))
         #expect(!FileManager.default.fileExists(atPath: file.path))
         let expectedTarget = fromLeft ? "RightSide" : "LeftSide"
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message == "Moved \"move-me.txt\" to \(expectedTarget)")
         #expect(manager.banner?.isUndoable == true)
     }
@@ -317,6 +320,7 @@ import Settings
 
         #expect(FileManager.default.fileExists(atPath: landed.path))
         #expect(FileManager.default.fileExists(atPath: file.path)) // copy keeps the source
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message == "Copied \"copy-me.txt\" to RightSide")
         #expect(manager.banner?.isUndoable == true)
     }
@@ -384,6 +388,9 @@ import Settings
         await waitForOperationsToFinish(manager)
 
         #expect(moved.isEmpty)
+        // No wait for a banner here, deliberately: this test's contract is that **no success
+        // banner appears**, and `banner?.severity != .success` is satisfied by `nil`. Waiting for
+        // one would spend five seconds proving the opposite of what the test is named for.
         #expect(manager.banner?.severity != .success)
     }
 
@@ -439,6 +446,7 @@ import Settings
         await waitForOperationsToFinish(manager)
 
         #expect(!FileManager.default.fileExists(atPath: file.path))
+        await waitUntil("the completion banner to publish") { manager.banner != nil }
         #expect(manager.banner?.message == "Deleted \"trash-me.txt\"")
         #expect(manager.banner?.isUndoable == true)
 
