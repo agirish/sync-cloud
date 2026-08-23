@@ -89,9 +89,18 @@ public enum AppAppearance {
     /// inherit from `NSApp` (their `appearance` stays nil under `.system`), so the pass never
     /// needs re-running for them.
     public static func apply(_ mode: AppearanceMode) {
+        pin(mode, onto: NSApplication.shared, windows: NSApplication.shared.windows)
+    }
+
+    /// The whole of `apply`, with its targets handed in. Internal for one reason: a test of the
+    /// per-window pass must run against ITS OWN windows — the production pass writes
+    /// `window.appearance` on every open window, and under a parallel test run that would clobber
+    /// the explicit appearance a render suite just pinned on its window, turning this test into a
+    /// flake vector for every pixel-measuring suite in the target.
+    static func pin(_ mode: AppearanceMode, onto app: NSApplication, windows: [NSWindow]) {
         let appearance = mode.nsAppearance
-        NSApplication.shared.appearance = appearance
-        for window in NSApplication.shared.windows {
+        app.appearance = appearance
+        for window in windows {
             window.appearance = appearance
         }
     }
