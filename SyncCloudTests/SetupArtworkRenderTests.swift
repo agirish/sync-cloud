@@ -92,4 +92,18 @@ import AppKit
         }
         #expect(runs == 3, "expected three separated columns, found \(runs) run(s) of ink")
     }
+
+    /// Every page's art paints — by construction, not by roll-call. This suite rendered 2 of 6
+    /// cases for its first weeks, so a blank illustration on four tour pages (or on whatever case
+    /// is added next — `Art` is `CaseIterable` for exactly this loop) would have shipped with the
+    /// suite green. The floor is far below any shipped illustration's ink but far above the noise
+    /// of an art view that never ran its `onAppear` reveal or lost its body: the control test
+    /// above establishes that the renderer sees a shipped illustration at all, so a blank here is
+    /// the ART, not the harness.
+    @MainActor
+    @Test(arguments: SetupArt.Art.allCases)
+    func testEveryTourPagePaintsItsIllustration(art: SetupArt.Art) throws {
+        let (painted, _) = Self.ink(try Self.render(art))
+        #expect(painted > 300, "\(art) renders as a blank band — its page ships with no illustration")
+    }
 }

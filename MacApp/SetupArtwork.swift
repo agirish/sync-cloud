@@ -23,7 +23,9 @@ enum SetupArt {
     /// every case to be used any more, which is why the old
     /// `testEveryIllustrationIsUsedByExactlyOnePage` did not survive the fold. What replaced it is
     /// the other direction: `everyPanelsArtworkIsDrawn` fails on a panel whose art nothing renders.
-    enum Art: Hashable, Sendable { case welcome, browse, compare, transfer, duplicates, filing }
+    // CaseIterable so the render suite covers every page's art by construction — a case added
+    // here is rendered by `testEveryTourPagePaintsItsIllustration` without anyone remembering to.
+    enum Art: Hashable, Sendable, CaseIterable { case welcome, browse, compare, transfer, duplicates, filing }
 }
 // MARK: - The illustrations
 
