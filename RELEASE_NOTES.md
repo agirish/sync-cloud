@@ -9,7 +9,7 @@ User-facing changes, newest first. For the full commit history see the
 
 > **This section is a draft.** v4.3 has not been cut and this is not final copy. Work is
 > still landing, so entries will be added and existing ones may change or be withdrawn.
-> Covers `v4.2..5315961c` — 122 commits, of which these are the ones worth your time.
+> Covers `v4.2..665d1b33` — 155 commits, of which these are the ones worth your time.
 > Every claim was checked against the `v4.2` tag: a fix to work that landed *inside* this
 > range earns no entry, because no user of v4.2 was ever exposed to it. That rule removed
 > most of the range — three review waves followed the first fixes, and a repair to a repair
@@ -54,6 +54,15 @@ first.
   could not read aside under a name no later rescue can take, and refuses the write until
   that has actually landed. The re-survey's write over an unreadable `filing-memory.json` is
   closed the same way.
+- **A setting only a newer build understands survives your next edit of it.** Five of the
+  persisted settings read tolerantly — anything unexpected falls back to the default, which is
+  right, because the app has to start whatever is on disk — and then wrote the live value back on
+  the next change. So a value this build could not interpret (a foreign type, or a raw value a
+  newer build introduced) read as the default and was overwritten by it the first time you touched
+  that setting. Five disabled providers became one on the next toggle; a sort order chosen in a
+  newer build vanished on the first edit after going back. The original is now kept beside the
+  setting before the default is used, and the log says so. The same read-then-overwrite shape is
+  closed for a pane tab's own stored fields.
 - **A key written on a person survives an edit.** Notes and unknown keys sitting *beside*
   `people` in the roster were already carried across a save; keys written *on* a person were
   not. The model reads five fields, drops the rest, and the whole file is rewritten — so a
@@ -90,6 +99,12 @@ first.
   which stops being true the moment something replaces it. Delete a file, ⌘Z, let a different
   file land on that path, ⌘⇧Z, and the replacement went to the Trash with no banner and no
   log line.
+- **A "press ⌘Z to undo" stops standing after the step it points at.** The banner carries a flag
+  that retires the offer once anything else registers an undo, and the rename pass and the name
+  normalizer put the sentence in the text without setting it. So after either of them, running any
+  other operation left the offer on screen — by then pointing at that operation instead. The merge
+  banner had the opposite half missing: a merge that folded and trashed nothing registers no undo
+  at all, and still offered one, which sent ⌘Z at whatever you had done before the merge.
 - **File operations run strictly in the order you asked for them.** The serial queue's
   prologue hopped off the main actor and back before claiming its slot, so two operations
   starting together could chain onto the same predecessor and run concurrently. The worst
@@ -146,6 +161,20 @@ first.
   missing price as zero — and missing means "this build has no rate for that model id", which
   a hand-set model reaches in ordinary use. Zero is the one substitute that fails every
   consumer in the same direction: the estimate reads as free and the cap cannot bind.
+- **"Try another folder" answers to your budget caps.** It routes to the paid tier — it is the
+  one click in the app whose whole point is asking the better model again — and it consulted no
+  spend check at all, so it could bill past a cap the rest of the app respects. It now stands down
+  when the caps are reached or the model has no known price, keeps the free on-device suggestion,
+  and says which of the two happened and where to change it.
+- **"Try another folder" sends the page it already read.** The re-ask went out with the file's
+  name and nothing else, even though the scan had already extracted its first page and was holding
+  it. A name-only answer is one the card refuses anyway, so that was a paid round trip that could
+  not change anything. Nothing extra is read from disk — the page was already in hand.
+- **A file whose date cannot be read is asked again rather than answered from a stale verdict.**
+  The classification cache keyed an unreadable modification date as `1970-01-01` and an unreadable
+  size as `0 bytes` — two values a real file can genuinely have. A document whose date stayed
+  unreadable while its contents changed therefore kept the same key and was served the old,
+  already-paid-for answer. Such a file is now simply left out of the cache in both directions.
 - **A file whose scan never came back is no longer stuck.** The in-flight set that "Read
   scan" holds a file in was released only when the round trip returned, and the extractor has
   no timeout — so a render that never came back left the file latched, every later attempt a
@@ -185,6 +214,14 @@ first.
 
 - The ⌘K results panel no longer paints dark notches at its corners, and the bulk difference
   menu acts on rows as they are when you pick an item rather than when you right-clicked.
+- A symbolic link can be moved into the folder it points at. The check that stops a folder being
+  moved inside itself followed the link first, so an alias and its target read as one container and
+  an ordinary move was refused.
+- A folder name typed into "Create as" no longer follows you to a different destination. Pressing
+  "Try another folder" replaced the suggestion under the same card while the field kept what you
+  had typed, so "File here" could apply a name meant for one folder to another one entirely.
+- `synccloud` refuses an argument that names both a configured provider and a different folder on
+  disk, instead of silently picking one.
 - The Help book now covers what v4.2 added — the file clipboard, the Storage bars and the ⌘K
   redesign shipped without ever being described in the book that describes the app.
 
