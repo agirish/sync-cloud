@@ -5,15 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v4.3 — DRAFT, not released
-
-> **This section is a draft.** v4.3 has not been cut and this is not final copy. Work is
-> still landing, so entries will be added and existing ones may change or be withdrawn.
-> Covers `v4.2..665d1b33` — 155 commits, of which these are the ones worth your time.
-> Every claim was checked against the `v4.2` tag: a fix to work that landed *inside* this
-> range earns no entry, because no user of v4.2 was ever exposed to it. That rule removed
-> most of the range — three review waves followed the first fixes, and a repair to a repair
-> reached nobody.
+## v4.3
 
 **Mostly repair, and one new thing.** v4.2 built the setup form and filled in the menu bar.
 v4.3 is what three reviews of the shipped code found underneath, and most of it is one
@@ -225,10 +217,10 @@ first.
 - The Help book now covers what v4.2 added — the file clipboard, the Storage bars and the ⌘K
   redesign shipped without ever being described in the book that describes the app.
 
-### Still to come in v4.3
+### Known limitations
 
-- **Browse's folder sidebar** is built and reachable from nothing. It joins the list above
-  when something opens it.
+- **Browse's folder sidebar** is built and reachable from nothing. It is not listed above
+  because nothing you can press opens it. It ships when something does.
 
 ---
 
