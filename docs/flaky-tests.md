@@ -1840,7 +1840,7 @@ capture funnel rather than reasoning about who ran first. And when a failure mes
 check that the cause is what actually moved the pixels — this one cost an entire investigation
 aimed at the wrong subsystem.
 
-### 17. The control that stops an absence being vacuous is itself load-dependent
+### 17. The control that stops an absence being vacuous is itself load-dependent — FIXED
 
 **Symptom.** The test fails on its **control**, not on the thing it is testing. Every substantive
 assertion passes; the one that fails is the one asserting the test was in a position to observe
@@ -1895,4 +1895,43 @@ and the loop that produces it must be driven by the operation, not by a clock. A
 "N sleeps means enough looking" is the same throughput bet "Fixed pumps and fixed sleeps" names,
 wearing the clothes of a correctness guard.
 
+**Fixed, 2026-08-23, after a third occurrence** (`samples → 19` in main run `32660175614`, again
+one-to-two short of the floor with everything substantive green). The fix is a **rendezvous**: the
+fixture's slow trash raises an `inTrash` flag around the trash call and does not return until the
+sampler acknowledges having taken a sample while the flag was up (bounded by a deadline so a wedged
+sampler fails the test rather than hanging the pool thread). The premise assertion is now "a sample
+was taken while the merge was suspended inside its trash operation" — the very thing the count was
+approximating — and no longer mentions a count at all. Two properties worth copying: the evidence
+is produced by the code under observation, so no amount of load can shrink it below the floor; and
+the suspension now lasts exactly as long as it needs to be observed, so the healthy case got
+*faster* than the fixed 0.3 s sleep it replaced.
+
 [silent-half]: flaky-triage.md#the-silent-half--read-before-writing-any-absence-assertion
+
+### 18. A named NSPasteboard is machine-global, so two test PROCESSES share it
+
+**Symptom.** A pasteboard assertion fails with a value from a fixture **this process never
+created** — the diff's actual side names a temp path whose UUID belongs to no directory this run
+made. Fails only when two test processes overlap on the machine: CI beside a local `swift test`,
+or two worktree sessions. Measured once either way it is gone; re-running alone always passes.
+
+**Mechanism.** `NSPasteboard(name:)` resolves in the **pasteboard server**, not in the process:
+every process on the machine asking for `"SyncCloudTests.handoff.owned-theirs"` gets the *same*
+board. The suites here already learned the in-process half of this — one board per test, because
+parallel siblings interleave — but a fixed per-test name still collides with the same test running
+in another process. This machine makes that overlap ordinary: it is the CI runner *and* the
+development box, so "CI red while a local run was in flight" is the signature. First caught
+2026-08-23 in main run `32660175614`
+(`aCompletedCutDoesNotClearSomebodyElsesClipboard`): the board held `theirs.txt` from another
+process's UUID-stamped temp directory.
+
+**Fix.** Suffix the board name with `ProcessInfo.processInfo.processIdentifier` — per-test label
+for the siblings, pid for the neighbours. All three test pasteboard helpers here carry it now
+(`SystemClipboardTests` ×2, `FileActionHandlerOperationTests.scratchPasteboard`); any new one
+must. `clearContents()` at the top of a test defends against nothing across processes: the other
+process writes *after* you clear.
+
+**The general rule** is mechanism 3 one ring out: defaults suites, pasteboards, Keychain items,
+and anything else brokered by a system daemon is shared across every process on the machine, and
+a per-process suffix is the only isolation that holds when this machine runs CI and a session at
+once.

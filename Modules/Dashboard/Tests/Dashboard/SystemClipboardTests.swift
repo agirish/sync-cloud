@@ -64,8 +64,12 @@ import Settings
 @MainActor
 @Suite struct SystemClipboardTests {
 
+    // The pid scopes the board to this process: named boards live in the machine-global
+    // pasteboard server, and a concurrent test process (CI beside a local run) shares an
+    // unsuffixed name — see `board(_:)` in the handoff suite below for the incident.
     private func pasteboard(_ label: String) -> NSPasteboard {
-        let board = NSPasteboard(name: NSPasteboard.Name("SyncCloudTests.\(label)"))
+        let board = NSPasteboard(name: NSPasteboard.Name(
+            "SyncCloudTests.\(label).\(ProcessInfo.processInfo.processIdentifier)"))
         board.clearContents()
         return board
     }
@@ -203,8 +207,15 @@ import Settings
     /// `await` is a race, because swift-testing is free to run a sibling while this one is suspended
     /// and `clearContents()` at the top of each is no defence against a sibling *writing*. Two new
     /// tests failed naming another test's file, which is the tell.
+    /// …and per **process**, which was found the same way. A named `NSPasteboard` lives in the
+    /// pasteboard SERVER, so it is machine-global: a CI run and a local `swift test` executing
+    /// this suite at the same time share the board, and one process's write lands in the other's
+    /// assertion. The tell is a diff whose actual value names a temp path with a foreign UUID —
+    /// a fixture directory this process never created. The pid in the name scopes the board to
+    /// this process; `clearContents()` handles reuse within it.
     private func board(_ label: String) -> NSPasteboard {
-        let board = NSPasteboard(name: NSPasteboard.Name("SyncCloudTests.handoff.\(label)"))
+        let board = NSPasteboard(name: NSPasteboard.Name(
+            "SyncCloudTests.handoff.\(label).\(ProcessInfo.processInfo.processIdentifier)"))
         board.clearContents()
         return board
     }
@@ -225,27 +236,28 @@ import Settings
         return dir
     }
 
-    /// Polls for the **outcome**, then drains.
-    ///
-    /// Waiting on `activeFileOperationsCount == 0` alone returns instantly, before the paste's
-    /// `Task` has started — which is the shape `FileActionHandlerOperationTests` documents and the
-    /// first cut of these three tests walked straight into: every one of them read the destination
-    /// while it was still legitimately empty.
-    private func waitUntil(_ condition: () -> Bool) async {
+    /// The one wait here that is ALLOWED to give up silently, and it exists for exactly one
+    /// caller: `textCopiedElsewhereWritesNothing` polls for a write it asserts never happens, so
+    /// "the budget elapsed with the condition still false" IS its success path. Every outcome
+    /// wait in this suite goes through the shared `waitUntil`, which fails loudly at the caller
+    /// when the condition never holds — do not route an outcome through this.
+    private func waitOutTheAbsenceBudget(_ condition: () -> Bool) async {
         for _ in 0..<200 {
             if condition() { return }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
     }
 
-    private func settle(_ manager: FileSyncManager) async {
-        for _ in 0..<50 {
-            if manager.activeFileOperationsCount == 0 {
-                try? await Task.sleep(nanoseconds: 10_000_000)
-                return
-            }
-            try? await Task.sleep(nanoseconds: 20_000_000)
+    /// Waits for the operation bookkeeping to drain, then one settle. The same contract as
+    /// `FileActionHandlerOperationTests.waitForOperationsToFinish`, for the same reasons: safe
+    /// only because every caller waits for the operation's own OUTCOME first, and the old body's
+    /// fixed 50 iterations gave up silently under load and returned as though it had drained.
+    private func settle(_ manager: FileSyncManager,
+                        sourceLocation: SourceLocation = #_sourceLocation) async {
+        await waitUntil("the file operations to drain", sourceLocation: sourceLocation) {
+            manager.activeFileOperationsCount == 0
         }
+        try? await Task.sleep(nanoseconds: 10_000_000)
     }
 
     /// **⌘C here, ⌘V in Finder.** The half that did not exist: every `NSPasteboard` use in the app
@@ -309,7 +321,7 @@ import Settings
 
         handler.pasteClipboard(toPath: destination.path)
         let landed = destination.appendingPathComponent("from-finder.txt").path
-        await waitUntil { FileManager.default.fileExists(atPath: landed) }
+        await waitUntil("the paste to land") { FileManager.default.fileExists(atPath: landed) }
         await settle(manager)
 
         #expect(FileManager.default.fileExists(atPath: landed))
@@ -337,7 +349,7 @@ import Settings
                                       isCut: true)
         handler.pasteClipboard(toPath: destination.path)
         let landed = destination.appendingPathComponent("cut-me.txt").path
-        await waitUntil { FileManager.default.fileExists(atPath: landed) }
+        await waitUntil("the paste to land") { FileManager.default.fileExists(atPath: landed) }
         await settle(manager)
 
         #expect(FileManager.default.fileExists(atPath: landed))
@@ -391,7 +403,7 @@ import Settings
                                       isCut: true)
         handler.pasteClipboard(toPath: destination.path)
         let landed = destination.appendingPathComponent("gone.txt").path
-        await waitUntil { FileManager.default.fileExists(atPath: landed) }
+        await waitUntil("the paste to land") { FileManager.default.fileExists(atPath: landed) }
         await settle(manager)
         try #require(FileManager.default.fileExists(atPath: landed), "the move never happened")
 
@@ -428,7 +440,9 @@ import Settings
         // holds the cut, and pasting it is still a move of those files.
         SystemClipboard.write(paths: [theirFile.path], to: pasteboard)
         handler.pasteItems(manager.clipboardNodes, toPath: destination.path, isCut: true)
-        await waitUntil { FileManager.default.fileExists(atPath: destination.appendingPathComponent("mine.txt").path) }
+        await waitUntil("the cut's move to land") {
+            FileManager.default.fileExists(atPath: destination.appendingPathComponent("mine.txt").path)
+        }
         await settle(manager)
 
         #expect(SystemClipboard.fileURLs(from: pasteboard).map(\.path) == [theirFile.path],
@@ -459,7 +473,7 @@ import Settings
         handler.pasteClipboard(toPath: destination.path)
         // Nothing to wait FOR, so this waits for the whole budget the other two poll within —
         // an assertion that a write did not happen is only worth what it waited.
-        await waitUntil { !((try? FileManager.default.contentsOfDirectory(atPath: destination.path))?.isEmpty ?? true) }
+        await waitOutTheAbsenceBudget { !((try? FileManager.default.contentsOfDirectory(atPath: destination.path))?.isEmpty ?? true) }
         await settle(manager)
 
         #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)

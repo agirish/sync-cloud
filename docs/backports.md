@@ -517,6 +517,15 @@ suite→per-test conversions). Main-only, each checked: the chord-scan splitter 
 surface), the gate-report trait binding and ground-truth `.enabled(if:)` (suites absent), the
 restore-plan tests (v4), and the pixel pins for files the lines do not carry.
 
+**The flake-fix pass (2026-08-23) is main-only, checked rather than assumed.** The merge-sampler
+rendezvous (`MergeUndoGroupingAndGateTests`) and the pid-scoped test pasteboards
+(`SystemClipboardTests`, `FileActionHandlerOperationTests.scratchPasteboard`) fix tests that exist
+on `main` alone: neither suite is on either line, and the lines' `FileActionHandlerOperationTests`
+predates the clipboard feature and constructs no pasteboard at all (grep for `NSPasteboard(name:`
+comes back empty on both). The flaky-tests.md mechanism entries ("the control that stops an
+absence being vacuous", "a named NSPasteboard is machine-global") stay main-only for the same
+reason — each line's copy of that doc carries only the mechanisms with an instance on that line.
+
 ## The unaudited surface, honestly
 
 Neither line has been audited commit-by-commit. These are the sizes as of 2026-08-20, narrowing from

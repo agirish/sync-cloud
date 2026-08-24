@@ -33,8 +33,13 @@ import Settings
     ///
     /// `SystemClipboard.hasFiles`'s memo is keyed on `(name, changeCount)` for this reason too, so
     /// distinct names keep the memo honest as well as the board.
+    /// The pid scopes the board to this process on top of the per-test label: named boards live
+    /// in the machine-global pasteboard server, so a concurrent test process — CI beside a local
+    /// run on this same machine — shares an unsuffixed name and writes into its sibling's
+    /// assertions (see `SystemClipboardTests.board(_:)` for the incident).
     static func scratchPasteboard(_ label: String) -> NSPasteboard {
-        let board = NSPasteboard(name: NSPasteboard.Name("SyncCloudTests.fileActionHandler.\(label)"))
+        let board = NSPasteboard(name: NSPasteboard.Name(
+            "SyncCloudTests.fileActionHandler.\(label).\(ProcessInfo.processInfo.processIdentifier)"))
         board.clearContents()
         return board
     }

@@ -31,13 +31,30 @@ import Events
         }
     }
 
-    /// A real `FileManager` that takes a measurable moment to trash, so the merge really is
-    /// SUSPENDED for a stretch a main-actor sampler can observe. Bounded and single: one 0.3 s
-    /// sleep, on the one pool thread running this operation's body, released unconditionally —
-    /// nothing else in the test parks, so it cannot starve the releases anything is waiting on.
-    private final class SlowTrash: FileManager, @unchecked Sendable {
+    /// A real `FileManager` whose trash holds the merge suspended until the test's main-actor
+    /// sampler has provably taken a sample during the suspension — the rendezvous that replaced
+    /// the `samples > 20` premise floor (flaky-tests.md, "The control that stops an absence being
+    /// vacuous is itself load-dependent"). The old shape slept a fixed 0.3 s and the sampler
+    /// counted its own wakeups, so the count was `merge_duration / actual_sleep_interval` and the
+    /// denominator was the machine's: under CI load the same merge yielded 19–20 samples against
+    /// a floor of 20, and the premise guard reddened runs in which nothing was wrong.
+    ///
+    /// Here the evidence is event-derived instead: `inTrash` is raised around the trash call, the
+    /// sampler acknowledges seeing it, and the trash does not return until acknowledged — so "a
+    /// sample was taken while the merge was suspended in the stretch the hazard lives across" is
+    /// guaranteed by construction, not bet on scheduler throughput. Bounded by a deadline so a
+    /// wedged sampler fails the test instead of hanging the pool thread; on an idle machine the
+    /// 2 ms sampler acknowledges within one or two 10 ms checks, faster than the old fixed sleep.
+    private final class SamplerObservedTrash: FileManager, @unchecked Sendable {
+        let inTrash = LockedBox<Bool>(false)
+        let sampledDuringTrash = LockedBox<Bool>(false)
         override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            Thread.sleep(forTimeInterval: 0.3)
+            inTrash.withLock { $0 = true }
+            defer { inTrash.withLock { $0 = false } }
+            let deadline = Date().addingTimeInterval(10)
+            while !sampledDuringTrash.withLock({ $0 }) && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
             try super.trashItem(at: url, resultingItemURL: resultingItemURL)
         }
     }
@@ -110,7 +127,8 @@ import Events
             at: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")) }
         let fixture = try makeGroup(base, redundantNames: [rName])
 
-        let manager = FileSyncManager(fileManager: SlowTrash())
+        let trash = SamplerObservedTrash()
+        let manager = FileSyncManager(fileManager: trash)
         let undo = UndoManager()
         undo.groupsByEvent = false
         manager.undoManager = undo
@@ -124,20 +142,23 @@ import Events
         }
 
         // Sample from the main actor for as long as the merge runs. Bounded by a deadline as well
-        // as by the flag, so a wedged merge fails the test instead of hanging it.
+        // as by the flag, so a wedged merge fails the test instead of hanging it. When a sample
+        // lands while the trash holds the merge suspended, say so — that acknowledgement is what
+        // releases the trash, and it is the premise the old wall-clock sample floor only bet on.
         var maxLevel = 0
-        var samples = 0
         let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while !finished.withLock({ $0 }) && ContinuousClock.now < deadline {
             maxLevel = max(maxLevel, undo.groupingLevel)
-            samples += 1
+            if trash.inTrash.withLock({ $0 }) {
+                trash.sampledDuringTrash.withLock { $0 = true }
+            }
             try? await Task.sleep(nanoseconds: 2_000_000)
         }
         let ok = await merge.value
 
         #expect(ok == true, "the merge did not complete, so the samples below describe nothing")
-        #expect(samples > 20,
-                "only \(samples) samples were taken — too few to have observed the merge's suspensions, so a zero reading proves nothing")
+        #expect(trash.sampledDuringTrash.withLock { $0 },
+                "no sample was taken while the merge was suspended in its trash operation — a zero reading below proves nothing")
         #expect(maxLevel == 0,
                 "an undo group was open (level \(maxLevel)) while the merge was suspended — anything else registering an undo in that window nests into the merge's step")
         // The premise: this run really did suspend in the places the hazard lived — it copied and
