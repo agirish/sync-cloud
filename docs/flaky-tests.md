@@ -1100,6 +1100,26 @@ other way suites-in-parallel decides a verdict.
 - An **absence** assertion **passes**, having looked at nothing at all. There is no symptom. That is
   the symptom.
 
+**A third shape, and it reddened `main`: a GROWING window.** A test that checks one entry, then two,
+then three is asking its FIRST entry to outlive everything the rest of the run logs in between — so
+the failure names the NEWEST assertion while the actual loss is at the oldest end, and reads as
+though a line was never written. `BannerLogChokePointTests.everySeverityLogsAtItsOwnLevel` did
+exactly this at `b96299f5`: it PASSED `[.info]` and then FAILED `[.info, .warning, .error]` three
+lines later with `[.warning, .error]`, having lost only `.info` — the entry it had published itself.
+Nothing was wrong with the choke point, and the message pointed at a log LEVEL rather than at the
+logger. **Tell: the missing entries are the oldest, and an earlier assertion over the same marker
+passed.** Fixed in `b895c3cd` (with `52242ad4` on `v2.x` and `c9c0beaf` on `v3.x`, where the suite
+was byte-identical) by reading the window from the per-process file through `logLines(tag:during:)`
+and checking levels **by name** — `INFO`/`WARN`/`ERROR` parsed out of the canonical line — rather
+than by position in a window that can lose its front.
+
+Two things worth copying from that fix. Asserting on the level NAME rather than on an index means a
+lost line changes the sequence's contents instead of shifting everything left, so the next failure
+of this kind says what went missing. And it was mutation-verified in three directions — flattening
+every severity to `.info` fails all four tests, dropping the same-id dedup fails only
+`reassigningTheSameBannerLogsOnce`, logging dismissals fails only `dismissalLogsNothing` — which is
+what separates "the suite is green again" from "the suite still tests what it claimed to".
+
 **Mechanism.** `Logger.shared` is one process-wide singleton, `entries` is one published array
 (`Modules/Events/Sources/Events/Logger.swift:159`), and it is capped at the newest **1000** lines —
 `Modules/Events/Sources/Events/Logger.swift:354`:
