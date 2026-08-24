@@ -457,8 +457,9 @@ enum HelpBook {
                         "On-device AI (Apple Intelligence) — free, private, and the first pass. Where it isn't available, Organize falls back to names and metadata.",
                         "Reading file contents on-device — more to go on for a file whose name says nothing.",
                         "Refine with Claude — the opt-in second pass. Once a scan has results, a Refine button re-asks Claude about them, billed to an API key you supply and kept in the macOS Keychain.",
+                        "“Try another” on a single suggestion is the other route that can spend, asking the better model again about that one file. It has no confirmation of its own, on purpose — a dialog on every card would cost more attention than it saves — so it is the one paid click you make without being asked twice.",
                     ]),
-                    .paragraph("The cloud pass never runs on its own. You press Refine, and you see a cost estimate to confirm before each one. Two caps pause it as well: a monthly cap, off by default, and a lifetime cap that ships at $5 as a backstop. Reaching either leaves the free on-device suggestions working until you raise it."),
+                    .paragraph("The cloud pass never runs on its own. You press Refine, and you see a cost estimate to confirm before each one — it is a bulk action, so it is priced before you agree to it. Both routes answer to the same two caps: a monthly one, off by default, and a lifetime cap that ships at $5 as a backstop. Reaching either stands the paid work down and leaves the free on-device suggestions in place, and so does a model this build has no price for — silently on screen for a single card, and in the Activity Log either way."),
                     .tip("A file that hasn't been edited, renamed, or moved keeps the suggestion it already had, so scanning the same folder again doesn't ask the model — or pay for it — a second time."),
                 ],
                 related: ["file-loose-items", "automation-rules", "staying-safe"]
