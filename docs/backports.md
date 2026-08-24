@@ -526,6 +526,20 @@ comes back empty on both). The flaky-tests.md mechanism entries ("the control th
 absence being vacuous", "a named NSPasteboard is machine-global") stay main-only for the same
 reason — each line's copy of that doc carries only the mechanisms with an instance on that line.
 
+**The banner-suite eviction fix (2026-08-24) went to all three lines, oldest-first.**
+`BannerLogChokePointTests` was byte-identical on every line (the log tier put it there), so its
+defect was too: it asserted a cumulative level sequence over `Logger.shared.entries`, which the
+newest-1000 trim evicts the front of during a parallel package run. Landed on `v2.x` first
+(`52242ad4`), cherry-picked to `v3.x` (`c9c0beaf`) and `main` (`b895c3cd`). **The maintenance
+lines needed one extra hunk**: `logLines(tag:during:)` did not exist in their
+`Modules/Sync/Tests/Sync/TestSupport.swift` and was backported with the fix (their `Logger`
+already carries `logFileURL` and `flushToDisk`, checked rather than assumed, and their
+`TestSupport` gained `import Events` for it). `main` needed only the suite. `loggedLineOnDisk`
+was NOT backported — nothing on the lines calls it; take it when something does. The mechanism's
+\"growing window\" paragraph in `docs/flaky-tests.md` (`aa9620ff` here) went to both lines with
+it (`6a9d8d64`, `ef4c555f`), since the instance it describes was on every line; the section that
+hosts it is present on all three and only its NUMBER differs.
+
 ## The unaudited surface, honestly
 
 Neither line has been audited commit-by-commit. These are the sizes as of 2026-08-20, narrowing from
