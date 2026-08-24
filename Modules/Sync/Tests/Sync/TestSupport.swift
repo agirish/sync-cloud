@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Events
 @testable import Sync
 
 /// Awaits a semaphore off the main actor (a blocking `wait` on the test's actor would deadlock
@@ -352,4 +353,54 @@ final class ScratchDefaults: UserDefaults {
     }
 
     deinit { wipeDefaultsSuite(scratchSuiteName) }
+}
+
+/// Reads the log lines one operation produced, from the on-disk log rather than
+/// `Logger.shared.entries`.
+///
+/// **`entries` cannot carry a window across a multi-step operation in a parallel run.** It is
+/// trimmed to the newest 1000 (`Logger.flushPendingEntries`) and every suite in the process writes
+/// to the same array, so an opening marker written before the operation is routinely EVICTED before
+/// the assertion reads it. Measured on `main` at `140d4773` (this line shares the logger and the hazard): four tests across three suites pass
+/// under `swift test --no-parallel` and fail under plain `swift test`, three of them reporting the
+/// marker itself as `nil` — the failure names the missing marker, not the missing log line, so it
+/// reads like the production code stopped logging when nothing of the sort happened.
+///
+/// The per-process temp file the test logger writes to (`Logger.defaultLogFileURL`) does not have
+/// that problem: it holds every line, in call order, at any volume a test run reaches. Other suites
+/// still interleave their lines into it — that is why the window is still delimited by a unique tag,
+/// and why callers should filter for a line only they could have written.
+///
+/// **The bytes do not arrive by themselves, and this used to assume they did.** `Logger.log` calls
+/// `logWriter.append`, which is `queue.async` on a serial queue at **`qos: .background`** — the call
+/// is synchronous, the WRITE is not, and background QoS is exactly what the scheduler starves when
+/// the machine is busy. This helper polled for the marker instead, on the belief that the append
+/// "needs no flush marker to become visible"; measured across repeated full-package serial runs,
+/// that poll expired after 250+ real polls (so: not a starved wait — five seconds of genuine
+/// asking) with BOTH markers still absent, and the test it hit moved from run to run because
+/// swift-testing randomizes order. `Logger.flushToDisk()` is `queue.sync {}`: it blocks until the
+/// writer drains AND boosts the background queue's priority to the caller's for the duration, which
+/// is the half a poll can never supply. Its own doc said so all along.
+///
+/// - Parameter tag: Something unique to this test — a `UUID().uuidString`. It goes in both markers.
+/// - Returns: The lines strictly between this window's markers, in call order.
+@MainActor
+func logLines(tag: String, during body: () async throws -> Void) async throws -> [String] {
+    let url = Logger.shared.logFileURL
+    await Logger.shared.debug("log-window opens \(tag)").value
+    try await body()
+    await Logger.shared.debug("log-window closes \(tag)").value
+
+    // Drain the writer, rather than waiting for a background-QoS queue to get around to it. This
+    // returns only once every append issued above has hit the file, so the read below needs no
+    // poll and cannot expire — a marker missing after this is a real absence, which is what the
+    // two `#require`s are entitled to claim.
+    Logger.shared.flushToDisk()
+    let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    let opened = try #require(lines.firstIndex { $0.contains("log-window opens \(tag)") },
+                              "the log window's opening marker never reached disk — this read would be vacuous")
+    let closed = try #require(lines.lastIndex { $0.contains("log-window closes \(tag)") },
+                              "the log window's closing marker never reached disk — this read would be vacuous")
+    return Array(lines[(opened + 1)..<closed])
 }
