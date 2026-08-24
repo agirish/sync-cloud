@@ -517,6 +517,19 @@ suite→per-test conversions). Main-only, each checked: the chord-scan splitter 
 surface), the gate-report trait binding and ground-truth `.enabled(if:)` (suites absent), the
 restore-plan tests (v4), and the pixel pins for files the lines do not carry.
 
+**The banner-suite eviction fix (2026-08-24) went to all three lines, oldest-first.**
+`BannerLogChokePointTests` was byte-identical on every line (the log tier put it there), so its
+defect was too: it asserted a cumulative level sequence over `Logger.shared.entries`, which the
+newest-1000 trim evicts the front of during a parallel package run. Landed on `v2.x` first
+(`52242ad4`), cherry-picked to `v3.x` (`c9c0beaf`) and `main` (`b895c3cd`). **The maintenance
+lines needed one extra hunk**: `logLines(tag:during:)` did not exist in their
+`Modules/Sync/Tests/Sync/TestSupport.swift` and was backported with the fix (their `Logger`
+already carries `logFileURL` and `flushToDisk`, checked rather than assumed, and their
+`TestSupport` gained `import Events` for it). `main` needed only the suite. `loggedLineOnDisk`
+was NOT backported — nothing on the lines calls it; take it when something does. The mechanism's
+"growing window" paragraph in `docs/flaky-tests.md` came with it, since the instance it describes
+was on every line (the section that hosts it is present on all three; only its NUMBER differs).
+
 ## The unaudited surface, honestly
 
 Neither line has been audited commit-by-commit. These are the sizes as of 2026-08-20, narrowing from
