@@ -195,9 +195,34 @@ nothing here said to write them. They live in two places:
   `<article class="rel draft">` with `<span class="tag draft">In development</span>`, the previous
   release **keeps** `latest`, and the footer reads `Changes so far: <tag>...main`, because the
   compare link cannot name a tag that does not exist yet. `RELEASE_NOTES.md` gets the matching
-  `## <version> — DRAFT, not released` heading and a blockquote. All four flip together in step 1 of
+  `## <version> — DRAFT, not released` heading and a blockquote. These flip in step 1 of
   **Cutting it**. v4.2 shipped its notes with `latest` already on them and had to be corrected on a
   live site; `586333f8` is the v4.1 cut that did it right.
+
+  **Do not treat that as a checklist of everything to flip — a draft says "not released" in prose
+  too, and prose has no markup to enumerate.** This used to read "all four flip together", and the
+  v4.3 draft carried two more that the four could not name: an HTML comment reading
+  `<!-- v4.3 — DRAFT, not released. Keep the Latest badge on v4.2 … -->` where every other article
+  carries a plain `<!-- vX.Y -->`, and a `<b>Not released yet</b> — this is what is on main today`
+  clause opening the `<p class="lede">`, which is the **first sentence a reader sees**. Both survived
+  a flip that moved every one of the four correctly. Neither was reachable from a markup checklist,
+  because neither existed when it was written — and the next draft will invent its own. So after
+  flipping, **grep both files for the words rather than the markup**, and account for every hit:
+
+  ```sh
+  grep -in 'draft\|not released\|still to come\|changes so far\|in development' \
+       RELEASE_NOTES.md docs/releases.html
+  ```
+
+  It does not come back empty, so read it rather than counting it: at the v4.3 cut the surviving
+  hits were the three `.rel.draft` CSS rules and two v4.1 bullets using "draft" about a *person
+  name*. A hit inside the release being cut is the finding; everything else must be named.
+
+  **A "Still to come in <version>" section cannot survive the cut it was written ahead of.** What is
+  still missing at the tag is a limitation of the release, not a promise inside it: rename the
+  heading to `### Known limitations` in `RELEASE_NOTES.md` and reword the HTML `<p class="known">`
+  from "Still to come in vX.Y." to "**Not in vX.Y.**" — the shape `v4.1` already uses for the folder
+  profile it shipped with nothing able to reach it.
 
 **Then audit every claim against the previous tag before publishing** — one command per claim, did
 the thing this describes exist at the last tag?
@@ -243,7 +268,11 @@ stay empty. Work in a worktree as always.
    `RELEASE_NOTES.md`'s DRAFT heading and blockquote go; on `docs/releases.html` the article loses
    `class="rel draft"`, its tag goes `draft`/"In development" → `latest`, the previous release trades
    `latest` for a theme tag, and the footer goes `Changes so far: <prev>...main` →
-   `Full changelog: <prev>...<new>`.
+   `Full changelog: <prev>...<new>`. Then convert the "Still to come" section and **run the word-grep
+   from "Writing the notes" above, before you commit** — the markup list is not the whole set. v4.3's
+   flip got every marker right and still landed with two "not released" sentences intact, and because
+   Pages publishes on the push, the live page carried a `Latest` badge over a lede reading "Not
+   released yet" until the follow-up commit caught it.
 2. **Regenerate and update the test marker.** Run `xcodegen`, and set `versionMarker` in
    `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` to the same string — that literal is
    what gives `theVersionLineFitsTheRailOnOneLine` something real to measure (see below).
