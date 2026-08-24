@@ -269,20 +269,21 @@ enum HelpBook {
                 blocks: [
                     .paragraph("Open it from the Review button below the differences list, from Compare ▸ Review Differences, or with ⇧⌘R — then work through the queue from the keyboard."),
                     .bullets([
-                        "Return copies the current item.",
-                        "Delete skips it.",
-                        "Space opens Quick Look.",
-                        "Esc ends the review.",
+                        "↩ takes the item — copying or moving it, whichever that row calls for. The keypad's Enter does the same thing.",
+                        "⌫ skips it. A skipped row does not come back around, so both keys act once per press: holding one down will not run through the queue behind your back.",
+                        "Both want a plain keystroke, and both want the card itself to have focus. ⌘↩ and ⇧⌫ do nothing here, and with Full Keyboard Access on, an ↩ aimed at the focused Skip button no longer moves anything — a Mac button answers Space, not Return.",
+                        "Space opens Quick Look. Esc ends the review.",
                     ]),
                 ],
                 related: ["reading-differences", "keyboard-shortcuts"]
             )),
             Topic(id: "undo-redo", title: "Undo and redo", systemImage: "arrow.uturn.backward", article: Article(
-                intro: "Every file operation is undoable. If a copy or move wasn't what you wanted, take it straight back.",
+                intro: "If a copy or move wasn't what you wanted, take it straight back — ⌘Z reverses it. The one thing undo cannot reach is a removal that never went to the Trash, because there is nothing to bring back from.",
                 blocks: [
                     .bullets([
                         "⌘Z undoes the last operation; ⇧⌘Z redoes it.",
                         "Undoing a move restores the file to where it came from.",
+                        "A removal offers an undo only when all of it reached the Trash. If even one item in the batch had to be destroyed outright, no undo is offered at all — rather than one that would restore part of it and leave the rest gone without saying so.",
                         "The Activity Log records every operation with a timestamp.",
                     ]),
                     .tip("Undo won't overwrite a file that changed in the meantime — it refuses rather than clobber your newer copy."),
@@ -471,6 +472,7 @@ enum HelpBook {
                         "Folders — anywhere SyncCloud has surveyed, plus recent and pinned folders. Type a path and it will take you there.",
                         "Sources — point the pane at another cloud account or folder.",
                         "Actions — Rescan, New Folder…, Choose Folder…, Find in Pane…, Settings…, Keyboard Shortcuts, Activity Log.",
+                        "Settings — one row per tab, titled “Settings ▸ Appearance”, and matched on the words of the controls on that page rather than on the tab's own name: “glass”, “accent” and “log level” each find the page that carries them. These appear once you type. The empty field answers with where you have been and where you can go, and “Settings…” in Actions is the honest reply there — somebody who has typed nothing has not named a tab.",
                     ]),
                     .paragraph("It answers to your words rather than the menu's: “keys” finds Keyboard Shortcuts, “preferences” finds Settings…, “search” finds Find in Pane…, and “refresh” finds Rescan — not one of which is the item's own name."),
                     .bullets([
@@ -505,8 +507,9 @@ enum HelpBook {
                 blocks: [
                     .bullets([
                         "Confirmations before transfers, overwrites, and deletes — each tunable in Settings.",
-                        "Removed files go to the Trash, never a hard delete, and the last copy is always kept.",
-                        "⌘Z undoes any operation, and undo refuses to overwrite something that changed underneath it.",
+                        "Removed files go to the Trash wherever the volume has one, and the last copy is always kept.",
+                        "Some volumes have no Trash — a network share, most often — and there is nowhere to put a file on the way out. SyncCloud says so and asks before removing anything there, naming the files it is about to destroy rather than counting them. That removal is permanent, and no undo is offered for it.",
+                        "⌘Z undoes an operation — the permanent removal above is the one exception — and undo refuses to overwrite something that changed underneath it.",
                         "Quitting mid-operation warns you first, so a sync is never left half-done.",
                         "Organize proposes and never acts: Restructure cannot change a file at all, and every other section asks before it moves, renames, or trashes anything.",
                     ]),
