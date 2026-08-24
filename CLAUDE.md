@@ -75,6 +75,20 @@ not a scratch space — do not edit it while work is in progress.
    - Commit on the worktree branch (imperative subject; prose body explaining *why*; trailer
      `Co-Authored-By: <model> <noreply@anthropic.com>`).
    - Rebase onto the latest `origin/<line>` if the line moved.
+   - **Drop the empty `WIP` commit from step 1 — it is scaffolding, not work.** Nothing else in
+     this step removes it, and every landing verb here takes the WHOLE branch: `merge --ff-only`
+     and `push <task>:<line>` both carry it onto the line, where it is permanent. Four sit in
+     `main`'s history (`33c25bd2`, `8456c9d0`, `ea6441bf`, `a6622782`) from sessions that followed
+     every other line of this step exactly — which is the point: the rule that mints the commit
+     has to be the rule that retires it.
+     ```sh
+     git rebase --onto origin/<line> <the-WIP-sha> <task>   # replays the real work only
+     git log --oneline --format='%H %s' origin/<line>..<task> |
+       while read sha rest; do [ -z "$(git show --stat --format= $sha)" ] && echo "EMPTY: $sha $rest"; done
+     ```
+     The second command prints nothing when the branch is clean, and names the offender when it is
+     not. Run it before landing, not after: removing one afterwards needs a force-push to a branch
+     other sessions are working on, which is why the four above are staying.
    - Fast-forward the primary checkout — **no merge commits**. The primary tracks `main`; to land on
      a maintenance line, push the branch straight to it:
      ```sh

@@ -231,8 +231,16 @@ struct RestructureLens: View {
             accent: accent,
             triggerTitle: "Set up the survey",
             triggerSymbol: "gearshape",
+            // These three are REQUIRED by `LensSetupCard` and, with `onStart: nil` below, are
+            // never rendered — the card draws its trigger, and that trigger's `.help`, only
+            // inside `if let onStart`. Kept true anyway: this one used to end "Opens Settings ▸
+            // Organize", which names a real tab (`SettingsTab.filing` is shown as "Organize") and
+            // is exactly the promise the paragraph above says was withdrawn — that tab has no
+            // survey control, and no screen in the app builds a survey at all. Copy nothing
+            // renders is copy nothing checks, so it stays stale silently and becomes wrong AND
+            // visible the moment somebody wires a trigger here.
             triggerHelp: "Restructure reads the survey of your tree rather than the disk, so it "
-                + "needs that survey first. Opens Settings ▸ Organize.",
+                + "needs that survey first.",
             samplesTitle: "What a finding looks like",
             samplesAccessibility: samplesAccessibility,
             onStart: nil,
