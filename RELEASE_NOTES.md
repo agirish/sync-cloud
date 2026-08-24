@@ -54,7 +54,8 @@ first.
   that setting. Five disabled providers became one on the next toggle; a sort order chosen in a
   newer build vanished on the first edit after going back. The original is now kept beside the
   setting before the default is used, and the log says so. The same read-then-overwrite shape is
-  closed for a pane tab's own stored fields.
+  closed for the pane bar's arrangement, where a control added by a newer build was dropped the first
+  time you edited the bar on an older one.
 - **A key written on a person survives an edit.** Notes and unknown keys sitting *beside*
   `people` in the roster were already carried across a save; keys written *on* a person were
   not. The model reads five fields, drops the rest, and the whole file is rewritten — so a
@@ -153,11 +154,13 @@ first.
   missing price as zero — and missing means "this build has no rate for that model id", which
   a hand-set model reaches in ordinary use. Zero is the one substitute that fails every
   consumer in the same direction: the estimate reads as free and the cap cannot bind.
-- **"Try another folder" answers to your budget caps.** It routes to the paid tier — it is the
-  one click in the app whose whole point is asking the better model again — and it consulted no
-  spend check at all, so it could bill past a cap the rest of the app respects. It now stands down
-  when the caps are reached or the model has no known price, keeps the free on-device suggestion,
-  and says which of the two happened and where to change it.
+- **"Try another folder" says no before it spends, not after.** It routes to the paid tier — it
+  is the one click in the app whose whole point is asking the better model again — and it ran no
+  pre-flight at all: no estimate, no cap warning, and no refusal for a model this build has no rate
+  for. The hard lifetime and monthly caps still stopped the call, but only once it was already
+  assembled, and nothing on screen said so. The check now happens on the click: it stands down when
+  the caps are reached or the model has no known price, keeps the free on-device suggestion, and
+  says which of the two happened and where to change it.
 - **"Try another folder" sends the page it already read.** The re-ask went out with the file's
   name and nothing else, even though the scan had already extracted its first page and was holding
   it. A name-only answer is one the card refuses anyway, so that was a paid round trip that could
