@@ -282,8 +282,15 @@ import Testing
         #expect(grafted.isUnexplored == nil, "the folder still reads as unread, so the column says “Can’t be read” over rows it now has")
         #expect(manager.rawTreeGeneration > generationBefore,
                 "the index's stamp did not move, so `PaneChildrenIndex` compares equal and the column never re-resolves")
-        #expect(manager.columnGraftsInFlightPaths(isLeft: true).isEmpty,
-                "the request never cleared — the column spins forever over a folder that is filled")
+
+        // **A second wait, not a second assertion.** The in-flight key is dropped in a `defer` that
+        // runs after the tree write AND after the `applyFilters()` await, so at the moment the
+        // graft is visible the request legitimately still is too — `emptyCaption`'s `isUnexplored`
+        // conjunction exists for precisely that overlap. Read as an immediate expectation this
+        // passed alone and failed under a parallel run, which is a test measuring the machine.
+        await waitUntil("the request clears once the listing has landed") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
     }
 
     /// **And into the cache the next navigation serves from.** `loadTree`'s fast path returns
