@@ -9,8 +9,15 @@ import Design
 /// This renders a real preview per copy, keeper sealed, so "probably safe" becomes "obviously safe".
 ///
 /// Generation crosses an actor boundary, so under the Swift 6 language mode nothing non-Sendable may
-/// travel with it: the background generator hands back PNG `Data` (Sendable) and the `NSImage` is
-/// built and cached on the main actor.
+/// travel with it. What travels is the immutable `CGImage` QuickLook produced, in a box that
+/// asserts what the compiler cannot see (``RenderedThumbnail``); the `NSImage` wrapper is built and
+/// cached on the main actor.
+///
+/// **It used to travel as PNG `Data`, and the round trip was the whole cost.** `Data` is Sendable
+/// without an assertion, so the hop was paid for by compressing the thumbnail on QuickLook's queue
+/// and decompressing it again — the decompression landing on the main thread at DRAW time, since
+/// `NSImage(data:)` is lazy, which is to say during the scroll that asked for it. Neither half was
+/// wanted; both existed to satisfy `Sendable`, and an immutable reference satisfies it for free.
 enum DuplicateThumbnail {
     /// Bounded, self-purging cache of decoded previews — an unbounded dict would grow with every
     /// duplicate file viewed across a session, and `NSCache` also drops entries under memory
@@ -40,33 +47,47 @@ enum DuplicateThumbnail {
         // The key carries the modification date, so a file whose CONTENT changed gets a new key
         // and a fresh attempt — a refusal is remembered for one version of one file, not forever.
         if declined.contains(key) { return nil }
-        guard let data = await pngData(path: path, side: side, scale: scale),
-              let image = NSImage(data: data) else {
+        guard let rendered = await render(path: path, side: side, scale: scale) else {
             if declined.count >= maxDeclined { declined.removeAll() }
             declined.insert(key)
             return nil
         }
+        // Sized in PIXELS, which is what the PNG round trip also produced: `NSBitmapImageRep`
+        // carried the CGImage's pixel dimensions at 72dpi, and reading the PNG back gave an
+        // `NSImage` of that same size. The view draws `.resizable().aspectRatio(.fit)` inside a
+        // fixed frame, so only the RATIO reaches the screen — but matching the old size exactly
+        // keeps that an observation rather than something to re-verify.
+        let image = NSImage(cgImage: rendered.cgImage,
+                            size: CGSize(width: rendered.cgImage.width, height: rendered.cgImage.height))
         imageCache.setObject(image, forKey: key as NSString)
         return image
     }
 
-    /// Renders the best QuickLook thumbnail and returns it as PNG `Data` — Sendable, so it can cross
-    /// back to the main actor. Runs the render on QuickLook's own queue; returns nil when the file
-    /// can't be previewed (unreadable, vanished, or an opaque type), and the caller falls back to the
-    /// file-type icon.
-    nonisolated private static func pngData(path: String, side: CGFloat, scale: CGFloat) async -> Data? {
+    /// The immutable `CGImage` ferried back from QuickLook's queue.
+    ///
+    /// `@unchecked` because `CGImage` carries no Sendable conformance, not because anything here is
+    /// unsound: a `CGImage` is immutable once created, this one is created inside the generator
+    /// callback and never handed anywhere else, and nothing on either side of the hop mutates it.
+    private struct RenderedThumbnail: @unchecked Sendable {
+        let cgImage: CGImage
+    }
+
+    /// Renders the best QuickLook thumbnail. Runs the render on QuickLook's own queue; returns nil
+    /// when the file can't be previewed (unreadable, vanished, or an opaque type), and the caller
+    /// falls back to the file-type icon.
+    nonisolated private static func render(path: String, side: CGFloat, scale: CGFloat) async -> RenderedThumbnail? {
         let request = QLThumbnailGenerator.Request(
             fileAt: URL(fileURLWithPath: path),
             size: CGSize(width: side, height: side),
             scale: scale,
             representationTypes: .thumbnail)
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+        return await withCheckedContinuation { (continuation: CheckedContinuation<RenderedThumbnail?, Never>) in
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { representation, _ in
                 guard let cgImage = representation?.cgImage else {
                     continuation.resume(returning: nil)
                     return
                 }
-                continuation.resume(returning: NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]))
+                continuation.resume(returning: RenderedThumbnail(cgImage: cgImage))
             }
         }
     }
