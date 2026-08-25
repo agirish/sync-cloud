@@ -314,6 +314,13 @@ new feature, which `CLAUDE.md` puts on `main` alone — not a fix that a mainten
   mitigation is the one they already have: point sources at folders, not at `~` or `/`. Recorded
   in both directions so the next audit of `06700fce`/`2481ac24`/`8ba64f29`/`b7d208e8` and their
   review fixes does not re-derive this. Filed 2026-08-25.
+- **`contentContains` unified to one substring semantic** (`416ecd64`, 2026-08-25). The
+  two-semantics defect is genuinely present on both maintenance lines — each carries the
+  token-subset fallback (`isSubset(of: facts.contentTokens)` in `AutomationEvaluator.swift`
+  greps to 1 on both), so on those lines too the Organize scan can move a file the Automations
+  preview said would not match. Main-only by rule all the same: removing the fallback changes
+  which files EXISTING rules move on a user's real tree, which is a behaviour change a
+  maintenance line does not take. His call, made 2026-08-25, for the v4 line only.
 - **The folder sidebar family** (v4.4, `cfe0dae8..3650a68e` and the review fixes after): a new
   feature end to end. The one shared file it touches is
   `Modules/Dashboard/Sources/Dashboard/FolderJumpStore.swift`, checked symbol-level when Stage B
