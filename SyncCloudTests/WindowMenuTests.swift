@@ -118,19 +118,19 @@ import AppKit
         return out + String(chord.key.character).lowercased()
     }
 
-    /// **There is no View ▸ Sidebar, anywhere in the bar** — the column is held for v4.3
-    /// (`FolderSidebarModel.isEnabled`), and the item and its chord were deleted rather than
-    /// disabled.
+    /// **View ▸ Sidebar is in the bar, and it carries ⌃⌘S** — the column is on for v4.4 (item #13),
+    /// and the item is disabled off Browse rather than deleted.
     ///
-    /// This test used to assert the opposite, and the swap is the point: a menu item is built from
-    /// a `Commands` declaration whether or not anything answers it, so switching the column off in
-    /// `Dashboard` would have left the tick, the chord and the greyed row exactly where they were —
-    /// ⌃⌘S doing nothing, in the place a Mac user reaches for a sidebar. Re-adding
-    /// `ToggleFolderSidebarCommand` compiles and reads correctly in review; this is what says no.
+    /// **This test has now asserted both directions, and the swap each way is the point.** A menu
+    /// item is built from a `Commands` declaration whether or not anything answers it, so while the
+    /// column was held it would have been possible to leave the tick, the chord and a greyed row
+    /// exactly where they were — ⌃⌘S doing nothing, in the place a Mac user reaches for a sidebar.
+    /// This is what said no then, and it is what says the item is really registered now: neither
+    /// direction is visible in review, because both compile and both read correctly.
     ///
-    /// Both halves, because either alone can come back: an item retitled "Pinned Folders" passes a
-    /// title check and still takes Finder's chord.
-    @Test func theSidebarSwitchIsGoneFromEveryMenu() throws {
+    /// Both halves, because either alone can go missing: an item titled "Sidebar" that lost its key
+    /// equivalent passes a title check and leaves Finder's chord dead.
+    @Test func theSidebarSwitchIsInTheViewMenu() throws {
         var titles: [String] = []
         var chorded: [String] = []
         func walk(_ menu: NSMenu) {
@@ -144,12 +144,13 @@ import AppKit
             }
         }
         walk(try #require(NSApp.mainMenu, "the app built no menu bar — this check would be vacuous"))
-        // The walk can see a switch that IS there, or every absence below is an absence of reading.
+        // The walk can see a switch that IS there, or every check below is a check on an empty list.
         #expect(titles.contains("Tab Bar"), "the walk cannot see View ▸ Tab Bar — it is not reading the bar")
 
-        #expect(!titles.contains { $0.localizedCaseInsensitiveContains("sidebar") },
-                "a menu item names a sidebar: \(titles.filter { $0.localizedCaseInsensitiveContains("sidebar") })")
-        #expect(chorded.isEmpty, "⌃⌘S is registered by \(chorded) — it is the held sidebar's chord")
+        #expect(titles.contains("Sidebar"),
+                "no menu item is titled Sidebar — the column has a chord and a toolbar button with no menu home")
+        #expect(chorded == ["Sidebar"],
+                "⌃⌘S is registered by \(chorded) — it belongs to View ▸ Sidebar and to nothing else")
     }
 
     /// Help keeps what is genuinely help, and nothing that is a window.

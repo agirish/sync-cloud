@@ -79,6 +79,7 @@ enum ShortcutsReference {
             Item(keys: "⌘ [ / ⌘ ]", action: "Back / forward in the focused pane"),
             Item(keys: "⌘ R", action: "Scan both panes for changes"),
             Item(keys: "⇧⌘ N", action: "New folder in the focused pane's current folder"),
+            Item(keys: "⌃⌘ S", action: "Show or hide the sidebar"),
             Item(keys: "⇧⌘ .", action: "Show or hide hidden files"),
             Item(keys: "⇧⌘ P", action: "Show or hide the Columns preview"),
             Item(keys: "⌘ ⌫", action: "Delete the selected items, after confirming"),
@@ -172,19 +173,26 @@ struct ShortcutsReferenceView: View {
     /// telling the truth about how little was left. 780 left 37pt, comparable to the 34 the raise
     /// before it left, and still cleared a 13" display's usable height.
     ///
-    /// **780 → 740 when that row left again** (2026-08-20): the sidebar is held for v4.3
+    /// **780 → 740 when that row left again** (2026-08-20): the sidebar was held for v4.3
     /// (`FolderSidebarModel.isEnabled`), and a row describing a column that cannot appear is the
-    /// same failure `testNoRowAdvertisesDragAndDrop` exists to catch — a row describing something
-    /// the app does not have. Content
-    /// **measured 707pt** with the row gone, so 740 leaves 33pt — comparable to the 34 and 37pt the
-    /// last two raises left, and now held there from both sides by
-    /// `theReferenceFitsItsWindowWithoutScrolling`, which fails on an empty band as well as on an
-    /// overflow. **The first time this window has come back down**, and it comes
-    /// down for the reason it went up: the number is what the rows measure, not a high-water mark.
-    /// Not 720 (its value before the row): the rows either side of that raise are not the rows here
-    /// now, and 707 is measured where 686 is remembered. Whoever re-adds the row in v4.3 raises it
-    /// again, and `theReferenceFitsItsWindowWithoutScrolling` is what will say so.
-    static let windowSize = CGSize(width: 880, height: 740)
+    /// same failure `testNoRowAdvertisesDragAndDrop` exists to catch. Content **measured 707pt**
+    /// with the row gone, so 740 left 33pt. **The first time this window came back down**, and it
+    /// came down for the reason it went up: the number is what the rows measure, not a high-water
+    /// mark.
+    ///
+    /// **740 → 760 when the row returned for v4.4** (item #13, the sidebar switched on). The fifth
+    /// time this has moved, and the first where the prediction in the paragraph above was wrong in
+    /// an interesting way: one row usually costs ~36pt and 780 was expected back, but the content
+    /// **measured 728pt** — a 21pt rise, because the row landed in *Panes* and `balancedSplit`
+    /// re-broke the two columns around it. So 740 still fit, with 12pt to spare.
+    ///
+    /// **Raised anyway, and 12pt is the reason.** Every other raise here left 33–37pt, and this
+    /// window neither scrolls nor resizes — 12pt is inside one line of ordinary text reflow, so
+    /// "it fits today" and "it fits after a system font metric moves" are different claims. 760
+    /// leaves **32pt**, squarely in the band the last four raises settled into, and stays under the
+    /// 60pt ceiling `theReferenceFitsItsWindowWithoutScrolling` puts on empty space. Measured, not
+    /// guessed: the number came from rendering `ShortcutsReferenceContent` at this width.
+    static let windowSize = CGSize(width: 880, height: 760)
 
     var body: some View {
         ScrollView {

@@ -148,8 +148,15 @@ enum PaneLogic {
         results.query != previous.query
     }
 
-    /// Which pane the pane-scoped chords act on — ⌘F, ⌘[, ⌘], ⇧⌘N and ⇧⌘P, all of which route
-    /// through here so "the focused pane" can never mean two different panes to two shortcuts.
+    /// **Which pane the user is working in — the single answer, for every surface that has to pick
+    /// one.** The pane-scoped chords (⌘F, ⌘[, ⌘], ⇧⌘N, ⇧⌘P), the file-action bar, the lens scans
+    /// and the folder sidebar all route through here, so "the focused pane" cannot come to mean two
+    /// different panes to two features.
+    ///
+    /// It was named `searchTargetIsLeft` and answered for ⌘F alone, while the action bar and the
+    /// lens scans read `activePane` (a selection) and the sidebar read a toggle of its own. Three
+    /// rules for one question is how a window comes to contradict itself: the accent border can say
+    /// one pane while Copy names the other. There is one rule now, and this is it.
     ///
     /// **`focusedSide` is the answer whenever there is one.** It is set by ⌃⇥ and by clicking in a
     /// pane (`ContentView.paneSelectionBinding`), which makes it the one fact that survives letting
@@ -167,9 +174,9 @@ enum PaneLogic {
     /// `ContentView.paneContext`) and is the only pane on screen, so a right answer there would open
     /// a field on a pane nobody can see — including a stale `focusedSide` left over from Compare,
     /// which is why the rail's guard comes first.
-    static func searchTargetIsLeft(isSingleSource: Bool,
-                                   focusedSide: PaneTree.Side?,
-                                   activePane: ActivePane?) -> Bool {
+    static func focusedPaneIsLeft(isSingleSource: Bool,
+                                  focusedSide: PaneTree.Side?,
+                                  activePane: ActivePane?) -> Bool {
         guard !isSingleSource else { return true }
         if let focusedSide { return focusedSide == .left }
         return activePane != .right
@@ -217,9 +224,9 @@ enum PaneLogic {
     static func focusSwitchTarget(isSingleSource: Bool,
                                   focusedSide: PaneTree.Side?,
                                   activePane: ActivePane?) -> PaneTree.Side {
-        searchTargetIsLeft(isSingleSource: isSingleSource,
-                           focusedSide: focusedSide,
-                           activePane: activePane) ? .right : .left
+        focusedPaneIsLeft(isSingleSource: isSingleSource,
+                          focusedSide: focusedSide,
+                          activePane: activePane) ? .right : .left
     }
 
     /// SF Symbols for the action bar's Copy/Move buttons, drawn from the shared `TransferGlyph`
@@ -427,6 +434,10 @@ enum PaneLogic {
     static func lensTargetsRightPane(isCompare: Bool, activePane: ActivePane?) -> Bool {
         isCompare && activePane == .right
     }
+
+    /// The clear strip between the sidebar and what follows it, which carries the drag handle.
+    /// One point wide and real: it is in the row, so any layout dividing the row has to spend it.
+    static let sidebarSeamWidth: CGFloat = 1
 
     /// Whether a ⌘K "organize <folder>" aimed at the RIGHT pane can only be honoured by swapping
     /// the panes first.

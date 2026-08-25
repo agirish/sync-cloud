@@ -43,6 +43,27 @@ enum Workspace: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// **Whether the folder sidebar can appear here.** One place, because three surfaces ask —
+    /// the View menu item, the toolbar button and the column itself — and the whole point of
+    /// `FolderSidebarModel.appliesTo` is that they cannot come to different answers.
+    ///
+    /// Every workspace, since 2026-08-24 — which is worth stating as a rule rather than as a list,
+    /// because the list is now "all of them" and a future case should have to argue its way OUT.
+    ///
+    /// Browse re-roots its full-width pane; the lens workspaces re-root the rail, which Organize's
+    /// scope and Storage's root both already follow (`lensScanRootExpanded` reads the targeted
+    /// pane's current directory). Compare re-roots whichever pane you are working in
+    /// (`PaneLogic.lensTargetsRightPane`) and **says which that is** — the caption the other three
+    /// do not need and Compare cannot do without, see `SidebarTarget`.
+    ///
+    /// Still `switch`ed with no `default:`. A workspace added later should be a decision here, not
+    /// an inheritance.
+    var supportsFolderSidebar: Bool {
+        switch self {
+        case .browse, .filing, .storage, .compare: return true
+        }
+    }
+
     /// The label in the workspace bar. Separate from `rawValue` so these can be reworded without
     /// breaking a stored selection.
     var title: String {

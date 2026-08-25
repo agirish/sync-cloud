@@ -136,6 +136,22 @@ struct ContentView: View {
     /// app asked for one afternoon, and re-defaulting it to `false` would bring the column back for
     /// exactly the people who turned it off.
     @AppStorage("browseSidebarVisible") var browseSidebarVisible: Bool = true
+    /// The sidebar's width, dragged by the user and clamped to
+    /// `FolderSidebarView.minWidth ... .maxWidth`. Stored as a `Double` because `@AppStorage`
+    /// has no `CGFloat` overload.
+    @AppStorage("browseSidebarWidth") var browseSidebarWidthRaw: Double = 180
+    /// **Which Compare pane the sidebar opens folders in.** The user's, and persisted: it is a mode
+    /// they set deliberately, and losing it on every launch would make them set it again every
+    /// time. Meaningless outside Compare, where there is one pane — see
+    /// `folderSidebarTargetIsLeft`.
+
+    /// Which sections are folded, comma-joined — see `folderSidebarCollapsedSections`.
+    @AppStorage("browseSidebarCollapsed") var browseSidebarCollapsed: String = ""
+    /// Which places sit in Favorites, JSON-encoded — see `SidebarFavoritePlaces`. Empty means the
+    /// key has never been written, which is not the same as "no favorites"; that distinction is
+    /// what lets a first run get Desktop, Documents and Downloads while someone who removed all
+    /// three keeps them removed.
+    @AppStorage("browseSidebarFavoritePlaces") var browseSidebarFavoritePlacesRaw: String = ""
     /// The sidebar's rows, resolved rather than recomputed in `body`.
     ///
     /// `FolderJumpStore.reachable` touches the disk — one `stat` for the root, then one per
@@ -145,6 +161,12 @@ struct ContentView: View {
     /// answer can change instead: appearing, the provider changing, the pane moving, and the store
     /// publishing a pin or a visit.
     @State var folderSidebarRows: [FolderSidebarRow] = []
+    @State var folderSidebarLocationRows: [SidebarSourceRow] = []
+    @State var folderSidebarShortcutRows: [SidebarSourceRow] = []
+    /// A promotion that can still be taken back, until the next one or a workspace change.
+    @State var folderSidebarNotice: FolderSidebarNotice?
+    /// The sidebar width when the current resize drag began — see `folderSidebarResizeHandle`.
+    @State var folderSidebarDragOrigin: CGFloat?
 
     /// Active "compare two duplicate copies" handoff from the Duplicates lens: the keeper (left pane) and the
     /// redundant copy (right pane) opened in Compare, plus the duplicate scan root to re-scan once
@@ -3092,9 +3114,10 @@ struct ContentView: View {
             FolderJumpStore.shared.recordVisit(root: settings.path(for: rightProviderId),
                                                relativePath: rel, name: (rel as NSString).lastPathComponent)
         }
-        // The other three moments the sidebar's answer can change: first appearance, a provider
-        // switch (a different root is a different pair of lists), and the store publishing a pin
-        // made anywhere else — the pane header's jump menu and the breadcrumb both write to it.
+        // The other moments the sidebar's answer can change: first appearance, a provider switch
+        // (a different root is a different pair of lists), the set of sources changing, and the
+        // store publishing a favorite made anywhere else — the pane header's jump menu and the
+        // breadcrumb both write to it.
         //
         // `objectWillChange` fires BEFORE the store mutates, so the handler hops a run-loop turn;
         // reading inline would re-read the lists as they were.
@@ -3113,6 +3136,20 @@ struct ContentView: View {
         // person would read as "my pins are gone". The guard and these two are one change.
         .onChange(of: browseSidebarVisible) { _, _ in refreshFolderSidebarRows() }
         .onChange(of: selectedWorkspace) { _, _ in refreshFolderSidebarRows() }
+        // **The third**, added when collapsing the panes joined the gate. The paragraph above got
+        // this exactly right and I still missed it: every input to
+        // `FolderSidebarModel.isShowing` needs a trigger, because the guard drops whatever fires
+        // while the column is hidden and nothing re-runs it on the way back. Expanding the panes
+        // was landing on a list resolved before the collapse. `FolderSidebarWiringTests` now pins
+        // that the set of triggers matches the set of gate inputs, since this is the second time.
+        .onChange(of: panesHiddenForCurrentTab) { _, _ in refreshFolderSidebarRows() }
+        // **And the set of sources itself**, which is new in v4.4 because the column now draws one
+        // row per source. Adding a folder source, removing one, or switching one off in Settings
+        // all change what the Sources section should say — and one of those paths is the sidebar's
+        // own promotion, which would otherwise leave the row it just added still reading as a
+        // local shortcut nobody has heard of. Keyed on the ids rather than the array: `CloudProvider`
+        // carries a mutable `path`, so an unrelated Location edit would fire this on every keystroke.
+        .onChange(of: settings.enabledProviders.map(\.id)) { _, _ in refreshFolderSidebarRows() }
         .onReceive(FolderJumpStore.shared.objectWillChange) { _ in
             DispatchQueue.main.async { refreshFolderSidebarRows() }
         }
@@ -3262,7 +3299,8 @@ struct ContentView: View {
             // Resolved at fire time, not captured: a menu held open is not re-armed by a republish,
             // and the active tab can have moved under it.
             onCloseTab: { closeTab(id: syncManager.paneTabs(isLeft: pane.isLeft).active.id,
-                                   isLeft: pane.isLeft) })
+                                   isLeft: pane.isLeft) },
+            onToggleFolderFavorite: { node in toggleFavorite(forPaneFolder: node, isLeft: pane.isLeft) })
     }
 
     @ViewBuilder

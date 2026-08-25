@@ -11,6 +11,8 @@ import Design
 /// this file can live outside ContentView.swift.
 extension ContentView {
 
+    /// **Which pane holds a selection**, and nothing more. Once the fallback inside
+    /// `PaneLogic.focusedPaneIsLeft`; read `focusedPane` for "which pane is the user working in".
     var activePane: PaneLogic.ActivePane? {
         PaneLogic.activePane(
             leftSelection: syncManager.selectedLeftPaths,
@@ -18,17 +20,27 @@ extension ContentView {
         )
     }
 
+    /// **The pane the user is working in**, which is what the action bar, the lens scans, the
+    /// pane-scoped chords and the folder sidebar all act on — and what the accent border draws.
+    ///
+    /// Never nil, unlike `activePane`: `focusedPaneIsLeft` floors at the left pane, so there is
+    /// always a pane to name. That floor is why the border can be a resting indicator rather than
+    /// something that appears and disappears — on a cold window the answer is "left", not "none".
+    var focusedPane: PaneLogic.ActivePane {
+        PaneLogic.focusedPaneIsLeft(isSingleSource: layoutMode == .singleSource,
+                                    focusedSide: syncManager.focusedPaneSide,
+                                    activePane: activePane) ? .left : .right
+    }
+
     /// The selected nodes in whichever pane is active. Resolves paths via the sync manager's cached
     /// path→node index (O(selection)), so — unlike the old per-render tree walk — it's cheap to read
     /// and no longer gates the action bar's appearance on a ~40k-node traversal.
     var activeSelectionNodes: [FileNode] {
-        switch activePane {
-        case .left?:
+        switch focusedPane {
+        case .left:
             return syncManager.leftNodes(for: syncManager.selectedLeftPaths)
-        case .right?:
+        case .right:
             return syncManager.rightNodes(for: syncManager.selectedRightPaths)
-        case nil:
-            return []
         }
     }
 
@@ -259,6 +271,46 @@ extension ContentView {
     /// the panes' contextual action bar.
     @ToolbarContentBuilder
     var mainToolbar: some ToolbarContent {
+        // **The sidebar toggle, mirrored from the Info toggle at the far end of the bar.** Same
+        // shape, opposite edge: `sidebar.left` against `sidebar.right`, ⌃⌘S against ⌘I, the accent
+        // tint on the label while open in both, the keycap on the LABEL rather than the item (a
+        // toolbar item's own bounds are AppKit's), and the same silence during a destination pick.
+        //
+        // **The one asymmetry is deliberate: Info is on every workspace, this is Browse only**
+        // (`FolderSidebarModel.appliesTo`). Disabled rather than hidden — a toolbar that reflowed
+        // as you switched workspace is unsettling, and a live button that quietly moved you to
+        // The tooltip says WHY it is greyed, because that is the question someone reaching for a
+        // disabled switch is actually asking — and there are now two answers with different
+        // remedies. See `FolderSidebarModel.unavailableReason`.
+        ToolbarItem(placement: .navigation) {
+            let available = FolderSidebarModel.appliesTo(
+                workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
+                panesCollapsed: panesHiddenForCurrentTab)
+            let showing = available && browseSidebarVisible
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { browseSidebarVisible.toggle() }
+            } label: {
+                Label("Sidebar", systemImage: "sidebar.left")
+                    .foregroundStyle(showing ? AnyShapeStyle(glassHue.accentColor)
+                                             : AnyShapeStyle(.primary))
+                    .shortcutKeycap(AppChord.folderSidebar.display)
+            }
+            .help(available
+                  ? ShortcutHint.tooltip(showing ? "Hide the sidebar" : "Show the sidebar",
+                                         AppChord.folderSidebar.display)
+                  // No chord on this one: naming a keystroke that cannot fire here is the same
+                  // failure as publishing a chord for a column that cannot appear.
+                  : (FolderSidebarModel.unavailableReason(
+                        workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
+                        panesCollapsed: panesHiddenForCurrentTab) ?? ""))
+            .accessibilityLabel(showing ? "Hide sidebar" : "Show sidebar")
+            // **Both halves of one control agree**, the rule the Info button below states at
+            // length: the menu item is `nil`-disabled off Browse and silenced by the publisher
+            // during a pick, so the button must be too, or a mouse user could reach what a
+            // keyboard user could not.
+            .disabled(!available || pendingDestination != nil)
+        }
+
         // `.navigation` puts the bar immediately after the traffic lights. There's no window title
         // competing for the space — the window is `.hiddenTitleBar`.
         ToolbarItem(placement: .navigation) {

@@ -234,12 +234,11 @@ extension ContentView {
             // it. This also keeps `browseLayout`'s "one structure whether or not a gather is up"
             // rule intact: the sidebar's presence changes nothing about the VStack beside it.
             //
-            // **False throughout v4.2**: the column is held for v4.3 (`FolderSidebarModel.isEnabled`),
-            // so this branch and its divider never run. The placement above is the design v4.3
-            // starts from, which is why it is written down rather than deleted with the item.
+            // False from 2026-08-20 until v4.4, while the column was held: the branch and its
+            // divider were written, reviewed and unreachable. Live since #13 landed.
             if folderSidebarIsShowing {
-                folderSidebar
-                Divider()
+                folderSidebar(width: browseSidebarWidth)
+                folderSidebarResizeHandle(displayedWidth: browseSidebarWidth)
             }
             VStack(spacing: 0) {
                 paneColumn(isLeft: true)
@@ -258,6 +257,55 @@ extension ContentView {
             .coordinateSpace(.named(Self.verticalStackSpace))
         }
         .frame(width: geo.size.width, height: geo.size.height)
+    }
+
+    /// **The sidebar's drag handle**, and the seam between it and the pane.
+    ///
+    /// The column was fixed at 180 through v4.3 on the reasoning that "the pane beside it is the
+    /// resizable one". With eleven sources listed and several needing an account to tell them apart,
+    /// 180 leaves about 136pt for a name plus its account, so the width becomes the user's own
+    /// answer to how much name they want to pay for.
+    ///
+    /// **A clear 1pt strip, not a `Divider`** — the same construction as the Info inspector's edge,
+    /// for the same reason: both sides of this seam are cards now, so the gutter between them draws
+    /// the separation and a rule down the middle of it would be a third edge between two that are
+    /// already there. Only the hit target remains, straddling the gap.
+    ///
+    /// **It clamps, it never closes.** Dragged past either end the width stops; it does not collapse
+    /// the column, because a panel that closes itself when you resize it is the behaviour people
+    /// file bugs about, and ⌃⌘S is right there. The stored value is clamped on read as well as on
+    /// write — see `browseSidebarWidth`.
+    /// - Parameter displayedWidth: the width the column is currently DRAWN at, which the drag
+    ///   measures from. Not `browseSidebarWidth`: in a lens workspace at a narrow window the stored
+    ///   value can exceed what fits, and starting the drag from the stored number would make the
+    ///   column jump to it the moment the pointer moved.
+    @ViewBuilder
+    func folderSidebarResizeHandle(displayedWidth: CGFloat) -> some View {
+        Color.clear.frame(width: PaneLogic.sidebarSeamWidth)
+            .overlay {
+                // `ResizeHandle`, not a hand-rolled gesture: this was the one seam in the window
+                // that wrote its own, and it paid for it twice — an `NSCursor.push()`/`pop()` pair
+                // in `onHover` that leaks a pushed cursor if the column is hidden mid-hover (⌃⌘S
+                // is one keystroke away), and a pointer that read as a resize while the shared
+                // component's `.columnResize` is what every other seam shows.
+                ResizeHandle(
+                    axis: .horizontal,
+                    thickness: 10,
+                    minimumDistance: 1,
+                    coordinateSpace: .global,
+                    onDrag: { value in
+                        // From the width at the START of this drag, not from the live value: adding
+                        // each frame's translation to an already-updated width compounds it, and the
+                        // column runs away from the pointer.
+                        let base = folderSidebarDragOrigin ?? displayedWidth
+                        if folderSidebarDragOrigin == nil { folderSidebarDragOrigin = base }
+                        browseSidebarWidthRaw = Double(min(max(base + value.translation.width,
+                                                               FolderSidebarView.minWidth),
+                                                           FolderSidebarView.maxWidth))
+                    },
+                    onCommit: { folderSidebarDragOrigin = nil }
+                )
+            }
     }
 
     /// The collapsed source rail: a thin, clickable spine that expands the pane when clicked (the

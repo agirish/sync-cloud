@@ -24,16 +24,34 @@ import AppKit
 public struct ProviderLogo: View {
     private let imageName: String
     private let size: CGFloat
+    private let isMonochrome: Bool
 
-    public init(_ imageName: String, size: CGFloat) {
+    /// - Parameter monochrome: draws the mark as a template — its **shape** in whatever colour the
+    ///   caller's `foregroundStyle` supplies, rather than its brand colours.
+    ///
+    ///   For the Browse sidebar, where a row is a line of text with a glyph and a full-colour badge
+    ///   halfway down a quiet column would be the loudest thing on screen — Finder's own sidebar
+    ///   draws every location in one ink for the same reason.
+    ///
+    ///   **The seams survive, which is what makes this worth doing at all.** These marks carry no
+    ///   opaque near-white pixels (measured, all four): Dropbox's folded-box seams, Drive's triangle
+    ///   joins and the gap between OneDrive's lobes are all *transparent*, supplied by the page
+    ///   behind. A template render masks on alpha, so those gaps stay gaps and each mark keeps its
+    ///   silhouette instead of flattening into a blob — the failure that would make this idea not
+    ///   work. The same property is why a light plate was needed in dark mode; here it pays.
+    public init(_ imageName: String, size: CGFloat, monochrome: Bool = false) {
         self.imageName = imageName
         self.size = size
+        self.isMonochrome = monochrome
     }
 
     public var body: some View {
         if hasBundledAsset {
             Image(imageName)
                 .resizable()
+                // `.original` stated rather than left to the default, so the two modes read as one
+                // choice at the call site instead of one branch and one absence.
+                .renderingMode(isMonochrome ? .template : .original)
                 .scaledToFit()
                 .frame(width: size, height: size)
         } else {
@@ -41,18 +59,30 @@ public struct ProviderLogo: View {
             // the same field as a symbol (rather than adding a second, mutually-exclusive field to
             // `CloudProvider` that every construction site would have to get right) keeps one
             // "what mark does this source wear" answer, at all three call sites and all three
-            // sizes. Tinted `.secondary`: a folder has no brand, and the app accent is spoken for
-            // — `ProviderHue.folder` uses it for the name, and two accents in one row read as one
-            // smear.
-            Image(systemName: imageName)
+            // sizes.
+            //
+            // **Monochrome applies no style at all, rather than a different one.** The first cut
+            // passed `.foreground` here and it was wrong in a way only rendering showed: an
+            // explicit style *overrides* the caller's, so a `folder.fill` came out near-black in a
+            // row of grey brand marks. Inheriting means the sidebar's own
+            // `isCurrent ? accent : .secondary` reaches every mark, brand asset and symbol alike.
+            let symbol = Image(systemName: imageName)
                 .resizable()
                 .scaledToFit()
                 .fontWeight(.regular)
-                .foregroundStyle(.secondary)
-                // A symbol fills its frame edge-to-edge where a logo asset carries its own
-                // padding; at 0.82 the folder sits on the same optical rung as the brand marks.
-                .frame(width: size * 0.82, height: size * 0.82)
-                .frame(width: size, height: size)
+            Group {
+                if isMonochrome {
+                    symbol
+                } else {
+                    // A folder has no brand, and the app accent is spoken for — `ProviderHue.folder`
+                    // uses it for the name, and two accents in one row read as one smear.
+                    symbol.foregroundStyle(.secondary)
+                }
+            }
+            // A symbol fills its frame edge-to-edge where a logo asset carries its own padding; at
+            // 0.82 the folder sits on the same optical rung as the brand marks.
+            .frame(width: size * 0.82, height: size * 0.82)
+            .frame(width: size, height: size)
         }
     }
 

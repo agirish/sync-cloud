@@ -229,10 +229,10 @@ extension ContentView {
     }
 
     /// What ⌘F opens — and, through `shortcutTargetIsLeft`, what ⌘[, ⌘], ⇧⌘N and ⇧⌘P act on. The
-    /// rule itself is `PaneLogic.searchTargetIsLeft`, where it can be tested; this only supplies
+    /// rule itself is `PaneLogic.focusedPaneIsLeft`, where it can be tested; this only supplies
     /// the three live facts.
     var paneSearchTargetIsLeft: Bool {
-        PaneLogic.searchTargetIsLeft(isSingleSource: layoutMode == .singleSource,
+        PaneLogic.focusedPaneIsLeft(isSingleSource: layoutMode == .singleSource,
                                      focusedSide: syncManager.focusedPaneSide,
                                      activePane: activePane)
     }
@@ -259,8 +259,9 @@ extension ContentView {
         // pane's search field was tried as a way to make the chord produce something visible, and
         // it is not worth it: the field holds a query the user typed, `isExpanded` is the only
         // thing hiding it, and discarding a search to animate a focus move trades real state for
-        // decoration. What this does not yet have is a resting indicator of which pane is focused
-        // — see the note in `ROADMAP.md`.
+        // decoration. The resting indicator this used to say it lacked now exists: the focused
+        // pane wears an accent border on its cards (`ActivePaneMark`), so ⌃⇥ moves something
+        // visible even when both panes hold the same folder and neither has a selection.
         return PaneFocusSwitch(targetName: name) {
             syncManager.noteFocusedPane(target, because: "⌃⇥ (View ▸ Focus Other Pane)")
         }

@@ -103,6 +103,9 @@ struct PaneActionDelegate: FileActionDelegate {
     let onNewTabHere: (String) -> Void
     /// Closes this pane's active tab.
     let onCloseTab: () -> Void
+    /// Adds a folder to Favorites or takes it out — see ``handleToggleFolderFavorite(_:)``.
+    /// Defaulted so the delegate's own tests need not name a route they are not testing.
+    var onToggleFolderFavorite: (FileNode) -> Void = { _ in }
 
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
@@ -247,6 +250,53 @@ struct PaneActionDelegate: FileActionDelegate {
 
     /// A real pane is behind this delegate, so it has a strip to open a tab in.
     var canOpenInNewTab: Bool { true }
+
+    /// A real sidebar is behind this delegate, so Favorites is a list that exists.
+    var canFavoriteFolder: Bool { true }
+
+    /// **Answered against THIS pane's root**, which is the whole reason the delegate is built per
+    /// pane. A SwiftUI context menu does not move focus, so a right-click in the pane that is not
+    /// focused would otherwise be answered against the other pane's root — the same trap
+    /// `providerRootExpanded(forProviderId:)` documents, and one this would fall into silently:
+    /// the wrong root usually still relativizes, so the menu would read "Remove from Favorites"
+    /// about a folder of the same name in the other account.
+    func isFolderFavorite(_ node: FileNode) -> Bool {
+        guard let place = favoritePlace(for: node) else { return false }
+        return FolderJumpStore.shared.pinnedPaths(forRoot: place.root).contains(place.relativePath)
+    }
+
+    func handleToggleFolderFavorite(_ node: FileNode) {
+        // Folders only — Favorites is a list of places you go, and a file is not somewhere a pane
+        // can be pointed. Asserted here as well as in the menu, so the guarantee travels with the
+        // handler rather than with its one respectful caller.
+        guard node.isDirectory else { return }
+        onToggleFolderFavorite(node)
+    }
+
+    /// This pane's root plus the node's path within it, or nil when the node is not inside the
+    /// pane's scope at all.
+    ///
+    /// **A root favorite is refused**, which is the same rule the pane header's jump menu applies:
+    /// a source's own root is always reachable from the sidebar's Locations section, so favoriting
+    /// it would add a second row for a place that already has one.
+    func favoritePlace(for node: FileNode) -> (root: String, relativePath: String)? {
+        Self.favoritePlace(nodePath: node.id, isDirectory: node.isDirectory, paneRoot: paneRootPath)
+    }
+
+    /// The rule on its own, so it can be asserted without building a pane. `nonisolated` because
+    /// it touches nothing but its arguments — the actor hop would be the only reason a test of a
+    /// pure path rule needed the main actor.
+    nonisolated static func favoritePlace(nodePath: String, isDirectory: Bool,
+                              paneRoot: String) -> (root: String, relativePath: String)? {
+        guard isDirectory else { return nil }
+        let root = (paneRoot as NSString).expandingTildeInPath
+        guard !root.isEmpty, let relative = PathBoundary.relativize(nodePath, under: root),
+              !relative.isEmpty else { return nil }
+        return (FolderJumpStore.key(forRoot: root), relative)
+    }
+
+    /// The root of the pane this delegate belongs to — never "the focused pane's root".
+    var paneRootPath: String { settings.path(for: isLeft ? leftProviderId : rightProviderId) }
 
     /// Only past a second tab: at one, the sole thing left to close is the window, and an item
     /// reading "Close Tab" that closes the window is a trap. Read from the manager rather than

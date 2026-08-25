@@ -1798,7 +1798,7 @@ public class FileSyncManager: ObservableObject {
 
     /// Which pane the pane-scoped chords act on, once something has said so explicitly — ⌃⇥, or a
     /// click that selects in a pane. `nil` until then, which hands the question to the
-    /// selection-derived fallback in `PaneLogic.searchTargetIsLeft`.
+    /// selection-derived fallback in `PaneLogic.focusedPaneIsLeft`.
     ///
     /// A second stored fact next to the selection was the thing to avoid, so this deliberately
     /// does NOT feed the action bar: that bar is about a selection and draws where the selection

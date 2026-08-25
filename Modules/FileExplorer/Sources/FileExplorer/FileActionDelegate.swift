@@ -140,6 +140,21 @@ public protocol FileActionDelegate: Sendable {
     /// you are in. Folders only: a tab is a location.
     func handleOpenInNewTab(_ node: FileNode)
 
+    /// Whether this host keeps a Favorites list at all. Gated like the three above: a conformer
+    /// with no sidebar behind it would draw a verb that changes nothing anybody can see.
+    var canFavoriteFolder: Bool { get }
+
+    /// Whether this folder is already in Favorites, so the menu can say which way it goes.
+    ///
+    /// **Read when the menu opens, not held.** A context menu's body runs at open time, which is
+    /// what lets this be a live question rather than a snapshot the pane would have to invalidate
+    /// itself on — the same reasoning `ignoreStateToken` spells out for the opposite case.
+    func isFolderFavorite(_ node: FileNode) -> Bool
+
+    /// Adds this folder to Favorites, or takes it out. **Folders only** — Favorites is a list of
+    /// places you go, and a file is not somewhere a pane can be pointed.
+    func handleToggleFolderFavorite(_ node: FileNode)
+
     /// A new tab on the folder the pane is showing — the background menu's version of ⌘T.
     ///
     /// **The only right-click route to a tab that works at ONE tab.** The row menu's "Open in New
@@ -217,6 +232,9 @@ extension FileActionDelegate {
     /// Same default, same reason, and declared as requirements above for the same one.
     public var canOpenInNewTab: Bool { false }
     public func handleOpenInNewTab(_ node: FileNode) {}
+    public var canFavoriteFolder: Bool { false }
+    public func isFolderFavorite(_ node: FileNode) -> Bool { false }
+    public func handleToggleFolderFavorite(_ node: FileNode) {}
     public func handleNewTab(at path: String) {}
     public var canCloseTab: Bool { false }
     public func handleCloseTab() {}

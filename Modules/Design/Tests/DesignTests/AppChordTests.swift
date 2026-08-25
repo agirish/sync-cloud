@@ -23,6 +23,7 @@ import Foundation
         #expect(AppChord.paneForward.display == "⌘]")
         #expect(AppChord.rescan.display == "⌘R")
         #expect(AppChord.newFolder.display == "⇧⌘N")
+        #expect(AppChord.folderSidebar.display == "⌃⌘S")
         #expect(AppChord.hiddenFiles.display == "⇧⌘.")
         #expect(AppChord.previewColumn.display == "⇧⌘P")
         #expect(AppChord.deleteSelection.display == "⌘⌫")

@@ -1299,7 +1299,33 @@ struct FileContextMenu: View {
                     // places rather than chips: this has to land somewhere before any scan has
                     // found anything.
                     if delegate.canOrganizeFolder {
-                        Button("Organize This Folder…") { delegate.handleOrganizeFolder(singleNode) }
+                        // **Glyphed like everything around it.** AppKit indents a menu's titles to
+                        // clear the widest image in the menu, so ONE item without an image does not
+                        // sit tighter — it sits at the same indent with nothing in front of it, and
+                        // reads as a hanging line. This menu is otherwise fully glyphed.
+                        Button {
+                            delegate.handleOrganizeFolder(singleNode)
+                        } label: {
+                            Label("Organize This Folder…", systemImage: "folder.badge.gearshape")
+                        }
+                        Divider()
+                    }
+                    // **The same list the sidebar's own rows manage**, reached from the folder
+                    // itself. Until now a folder could only become a favorite from Browse's
+                    // sidebar — which lists the folders you have ALREADY been to — or from the
+                    // pane header's jump menu, which acts on the folder the pane is showing rather
+                    // than the one under the pointer. Neither is where you are when you decide a
+                    // folder is worth keeping.
+                    if delegate.canFavoriteFolder {
+                        Button {
+                            delegate.handleToggleFolderFavorite(singleNode)
+                        } label: {
+                            // A star, and a struck-through star for the reverse — the pair Finder
+                            // and Safari both use for a list you curate.
+                            let isFavorite = delegate.isFolderFavorite(singleNode)
+                            Label(isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                                  systemImage: isFavorite ? "star.slash" : "star")
+                        }
                         Divider()
                     }
                     SharedFileMenuItems.newFolder(at: singleNode.id, delegate: delegate)

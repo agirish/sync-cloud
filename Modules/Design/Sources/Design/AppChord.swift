@@ -130,15 +130,18 @@ public extension AppChord {
     /// ⌥-hold reveal (see `foldAllDifferences`).
     static let tabBar = AppChord("t", [.shift, .command])
 
-    // **No chord for Browse's folder sidebar, and that is deliberate.** ⌃⌘S was declared here and
-    // registered on `View ▸ Sidebar` until 2026-08-20, when the column was held back for v4.3
-    // (`FolderSidebarModel.isEnabled`). A declared chord is not free: the registry drives the ⌘/
-    // reference, so leaving it would have published a keystroke for a column that cannot appear.
-    //
-    // The choice it recorded is worth keeping for whoever re-adds it: **⌃⌘S**, which is Finder's
-    // own Show/Hide Sidebar and free here — `switchPaneFocus` is the only other ⌃ chord in the
-    // registry and it is ⌃⇥. ⌘S is not available and was never a candidate: it means Save
-    // everywhere on the platform, in an app whose every action is already on disk.
+    /// View ▸ Sidebar — Browse's Favorites / Sources / Recents column.
+    ///
+    /// **⌃⌘S, which is Finder's own Show/Hide Sidebar** and free here: `switchPaneFocus` is the
+    /// only other ⌃ chord in the registry and it is ⌃⇥. ⌘S was never a candidate — it means Save
+    /// everywhere on the platform, in an app whose every action is already on disk.
+    ///
+    /// Declared here from v4.2 until 2026-08-20, when the column was held back and this went with
+    /// it: a declared chord is not free, because the registry drives the ⌘/ reference, and leaving
+    /// it would have published a keystroke for a column that could not appear. Restored for v4.4
+    /// with the column itself (item #13), and the reference row and its window height came back in
+    /// the same commit for the same reason.
+    static let folderSidebar = AppChord("s", [.control, .command])
 
     // Differences
     /// ⌘← / ⌘→ copy the differences selection across; ⇧ makes it a move.
@@ -209,7 +212,8 @@ public extension AppChord {
     static let registry: [AppChord] = [
         settings, infoInspector, activityLog, shortcutsReference, commandPalette,
         selectAll, cut, copy, paste,
-        findInPane, paneBack, paneForward, rescan, newFolder, hiddenFiles, previewColumn,
+        findInPane, paneBack, paneForward, rescan, newFolder,
+        folderSidebar, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
         newTab, closeTab, nextTab, previousTab, tabBar,
         reviewDifferences, verifyDifferences, differencesList, foldAllDifferences,

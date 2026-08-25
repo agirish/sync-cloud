@@ -269,11 +269,10 @@ struct SyncCloudApp: App {
         manager.filingCloudSpendConfirmer = { preflight in
             SyncOperationAlerts.promptForFilingSpend(preflight)
         }
-        // A whole-tree pass probes the folder's size first and stops to ask when it is big enough
-        // that the real pass would take minutes. Named as a rule rather than as a list — the set is
-        // `LargeWalkPreflight.Pass` and it has already grown once, from two to four. Only fires past
-        // the probe budget, so it never appears for an ordinary source. The Sync default is to
-        // REFUSE, so this wiring is what makes a large folder analysable at all.
+        // Whole-tree passes (Storage, Find Duplicates) probe the folder's size first and stop to
+        // ask when it is big enough that the real pass would take minutes. Only fires past the
+        // probe budget, so it never appears for an ordinary source. The Sync default is to REFUSE,
+        // so this wiring is what makes a large folder analysable at all — see `largeWalkConfirmer`.
         manager.largeWalkConfirmer = { preflight in
             SyncOperationAlerts.confirmLargeWalk(preflight)
         }
@@ -604,11 +603,12 @@ struct SyncCloudApp: App {
             CommandGroup(after: .sidebar) {
                 WorkspaceCommands()
                 Divider()
-                // **No Sidebar item, and no ⌃⌘S.** It was first here — the only switch that changes
-                // the window's *structure* rather than what a pane shows — until the column was held
-                // for v4.3 (`FolderSidebarModel.isEnabled`). Deleted rather than disabled: a greyed
-                // item is still an item, and it is the tick the user reaches for when a column they
-                // cannot see is the thing they are looking for.
+                // **Sidebar first**, because it is the only switch here that changes the window's
+                // *structure* rather than what a pane shows. Absent from 2026-08-20 until v4.4
+                // while the column was held; back with it, and disabled rather than deleted off
+                // Browse — the same rule as the toolbar button, so the two halves of one control
+                // cannot disagree.
+                ToggleFolderSidebarCommand()    // ⌃⌘S
                 ToggleTabBarCommand()           // ⇧⌘T
                 ToggleHiddenFilesCommand()      // ⇧⌘.
                 TogglePreviewColumnCommand()    // ⇧⌘P
