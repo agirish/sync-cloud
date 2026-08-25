@@ -1438,6 +1438,22 @@ public class FileSyncManager: ObservableObject {
     /// `resortTreesAndRefilter()` against clobbering trees a load published mid-sort.
     internal var rawTreeGeneration = 0
 
+    /// Directories whose deferred column listing is running — see `loadColumnChildren`. Keyed by
+    /// absolute path, so a column re-rendering while its walk is in flight does not queue a second
+    /// walk of the same directory.
+    /// A deferred column listing, identified by the pane that asked as well as the folder.
+    ///
+    /// **The side is part of the key**, and leaving it out was a real defect: keyed by path alone,
+    /// two panes on the SAME source — comparing a folder against itself, an ordinary thing to do
+    /// here — meant the left pane's request suppressed the right's as a duplicate. The right column
+    /// then never filled, because its `onAppear` had already fired and nothing re-asks.
+    internal struct ColumnGraftKey: Hashable {
+        let isLeft: Bool
+        let path: String
+    }
+
+    @Published internal var columnGraftsInFlight: Set<ColumnGraftKey> = []
+
     /// Raw file tree for the left pane (before hidden/ignored filtering).
     internal var rawLeftTree: [FileNode] = []
     /// Filtered file tree for the left pane (used by the UI).

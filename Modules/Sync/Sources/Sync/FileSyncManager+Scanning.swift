@@ -185,7 +185,10 @@ extension FileSyncManager {
             }
 
             let deepStart = Elapsed()
-            let tree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm)
+            let tree = await Self.buildTree(
+                url: focusURL, sortOption: sortOp, fileManager: fm,
+                budget: NodeBudget(Self.paneNodeBudget,
+                                   note: "Scan: this folder is larger than a pane walks in one pass — the rest is shown as unexplored, not empty, and columns load it when you open them"))
             let deepWalk = deepStart.text
 
             guard !Task.isCancelled else {
@@ -911,15 +914,52 @@ extension FileSyncManager {
     
     // MARK: - Internal Engine Operations
     
+    /// **The pane's deep walk stops here**, and every directory past it is marked unexplored —
+    /// present, expandable, and loaded by `PaneColumnsView` the moment a column opens it.
+    ///
+    /// A pane is the one `buildTree` caller that can be pointed at an arbitrary folder by a single
+    /// click, so it is the one that needs a ceiling. The number is chosen against measurement, not
+    /// taste: the largest real source here walks ~40k nodes in ~700 ms (`TreeWalkBenchmark`,
+    /// Release), so this is **5x the largest tree that works today** — every source that loads
+    /// fully now still loads fully, and the budget only ever bites a tree that was going to hang.
+    ///
+    /// The cap on `~` costs **1.31 s** warm for 200,399 nodes, 3,534 of them left unexplored
+    /// (`PaneNodeBudgetBenchmark`, Release, 2026-08-24) — against an unbounded walk of the same
+    /// tree that had not finished in ten minutes. The overshoot is 399 nodes, 0.2%: exhaustion is
+    /// checked before a listing, so a spent budget stops the next descent rather than the current
+    /// level.
+    ///
+    /// **The comparison scan's cold branch uses this same number**, and that is a correctness
+    /// requirement rather than reuse for tidiness. The scan has two branches: warm, deriving its
+    /// maps from the cached pane trees — which this caps — and cold, walking the disk through
+    /// `FileDiffEngine.getFilesInDirectory`. Two different caps would make one comparison of one
+    /// pair of folders return two different answers depending on nothing but cache state, which is
+    /// the least debuggable kind of wrong. Split them only with a reason better than that.
+    ///
+    /// **What this is still not:** a bound for the storage lens or the Organize passes, which walk
+    /// unbounded *by necessity* — they total sizes and group duplicates, where a truncated tree is
+    /// a wrong ANSWER rather than a partial view, so a budget is the wrong instrument entirely.
+    nonisolated static let paneNodeBudget = 200_000
+
     /// Walks the directory tree off the main actor. Cancelling the calling task aborts the walk:
     /// the detached worker doesn't inherit cancellation, so it is forwarded explicitly below —
     /// that is what makes the `Task.isCancelled` checks inside `buildNode` effective.
+    ///
     /// `maxDepth` caps the walk (1 = immediate children only) for the progressive first paint;
     /// capped directories come back with `children: []` and `isUnexplored: true` — present and
     /// expandable-looking, but never mistakable for a genuinely empty folder — and nil means
     /// unlimited (subject to the cycle guard and hard depth cap, which mark the same way).
     /// A root that cannot be LISTED at all (permission denied) comes back as `[root node]`
     /// marked unexplored — never a bare `[]`, which would read as authoritatively empty.
+    ///
+    /// `budget` caps the walk by SIZE rather than by shape, and directories past it are marked
+    /// the same way again. It exists because `maxDepth` and `hardDepthCap` are both guards against
+    /// a tree that is *deep*, and the tree that actually hangs the app is one that is *wide*: the
+    /// home folder measures 196,726 directories (93.5k of them under `~/Library` alone) against
+    /// ~40k nodes for the largest real cloud source, and `/` is worse. Nothing bounded that until
+    /// the sidebar's Locations section put both one click away. Opt-in per call, and deliberately
+    /// so — a whole-tree analysis (duplicates, the storage lens, the filing taxonomy) must stay
+    /// unbounded, because there a partial tree is a wrong ANSWER rather than a partial display.
     ///
     /// On the real filesystem an unlimited walk fans sibling directory subtrees out across
     /// cores at the first two levels that have siblings (`TreeBuilder.maxFanLevel`, bounded
@@ -937,7 +977,7 @@ extension FileSyncManager {
     /// Kept anyway: 1.2x on the pane's slowest phase is worth having, and none of it is on the
     /// main actor. But do not reach for more parallelism here expecting the missing 10x — it was
     /// never there, and the enumeration is the floor.
-    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil) async -> [FileNode] {
+    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil, budget: NodeBudget? = nil) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder: Sendable {
                 let fileManager: FileManaging
@@ -987,10 +1027,15 @@ extension FileSyncManager {
                 }
                 let unreadableLog = UnreadableListingLog()
 
-                init(fileManager: FileManaging, sortOption: SortOption, maxDepth: Int?) {
+                /// `nil` for every unbounded walk; see `FileSyncManager.NodeBudget`.
+                let budget: FileSyncManager.NodeBudget?
+
+                init(fileManager: FileManaging, sortOption: SortOption, maxDepth: Int?,
+                     budget: FileSyncManager.NodeBudget?) {
                     self.fileManager = fileManager
                     self.sortOption = sortOption
                     self.maxDepth = maxDepth
+                    self.budget = budget
                     let includeTags = sortOption == .tags
                     self.includeTags = includeTags
                     var keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .typeIdentifierKey]
@@ -1208,6 +1253,14 @@ extension FileSyncManager {
                     }
                     var branchVisited = visited
                     branchVisited.insert(identity)
+                    // **Budget check before the listing, not after.** The listing is the expensive
+                    // half, so a spent budget must stop the walk without paying for one more —
+                    // and the directory comes back marked exactly as the depth cap marks it, which
+                    // is why nothing downstream needs a new state to understand it.
+                    if let budget, budget.isExhausted {
+                        budget.noteStopped(fullURL.path)
+                        return cappedNode(fullURL, s)
+                    }
                     let listing = childURLs(of: fullURL)
                     // A directory whose LISTING failed (permission denied, I/O error) is not an
                     // empty directory: mark it unexplored — the same shape as the depth cap — so
@@ -1217,6 +1270,7 @@ extension FileSyncManager {
                         unreadableLog.note(fullURL.path)
                         return cappedNode(fullURL, s)
                     }
+                    budget?.charge(listing.urls.count)
                     var children = await walkChildren(listing.urls, depth: depth + 1, fanLevel: fanLevel, visited: branchVisited)
                     children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
                     return folderNode(fullURL, s, children: children)
@@ -1295,7 +1349,7 @@ extension FileSyncManager {
                 }
             }
 
-            let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth)
+            let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth, budget: budget)
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
 

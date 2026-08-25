@@ -25,6 +25,16 @@ public struct PaneChildrenIndex: Equatable, Sendable {
     /// Every directory in the tree → its child rows. Directories with no children map to `[]`, so
     /// membership answers `isDirectory` without a second map. Files are absent.
     private let childrenByPath: [String: [PaneRow]]
+    /// Every directory the walk reported but did not read — a shallow-pass cap, a cycle guard, or a
+    /// directory the OS refused.
+    ///
+    /// **Kept beside the children because the children cannot express it.** `childrenByPath` maps a
+    /// directory with nothing in it to `[]` and a directory nobody has walked yet to `[]` as well,
+    /// so a column reading only that map has to guess — and it guessed "Empty", which is a claim the
+    /// walk never made. `FileSyncManager` logs the same distinction from the other side ("shown as
+    /// unexplored, not empty"), and `DestinationFolderListing` already carries it for the
+    /// destination picker's columns; this is the pane's half of the same fact.
+    private let unexploredPaths: Set<String>
 
     /// Builds the index for one published tree.
     ///
@@ -38,9 +48,11 @@ public struct PaneChildrenIndex: Equatable, Sendable {
         self.treeRoot = PaneBrowsePath.normalized(treeRoot)
 
         var map: [String: [PaneRow]] = [:]
+        var unexplored: Set<String> = []
         map[self.treeRoot] = tree.rows
-        Self.index(tree.rows, into: &map)
+        Self.index(tree.rows, into: &map, unexplored: &unexplored)
         childrenByPath = map
+        unexploredPaths = unexplored
     }
 
     /// Keys every directory by its own absolute path.
@@ -49,15 +61,25 @@ public struct PaneChildrenIndex: Equatable, Sendable {
     /// projection preserves `nil` for a leaf and `[]` for an empty directory, and a directory that
     /// somehow arrived without children must still read as a directory — otherwise `pruned` would
     /// treat it as deleted and silently walk the user back out of a folder that exists.
-    private static func index(_ rows: [PaneRow], into map: inout [String: [PaneRow]]) {
+    private static func index(_ rows: [PaneRow], into map: inout [String: [PaneRow]],
+                              unexplored: inout Set<String>) {
         for row in rows {
             if row.info.isDirectory {
                 map[row.node.id] = row.children ?? []
+                if row.node.isUnexplored == true { unexplored.insert(row.node.id) }
             }
             if let children = row.children {
-                index(children, into: &map)
+                index(children, into: &map, unexplored: &unexplored)
             }
         }
+    }
+
+    /// Whether the walk reported `path` as a directory without reading what is in it.
+    ///
+    /// False for anything this index has never heard of, which is the safe direction: an unknown
+    /// path is not a claim that a folder went unread.
+    public func isUnexplored(atPath path: String) -> Bool {
+        unexploredPaths.contains(PaneBrowsePath.normalized(path))
     }
 
     /// Rows for the column rooted at `path`; `nil` when the path is not a directory in this tree.

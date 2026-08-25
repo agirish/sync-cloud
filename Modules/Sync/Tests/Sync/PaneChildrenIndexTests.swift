@@ -95,3 +95,66 @@ import Events
                 == PaneChildrenIndex(tree: tree(), treeRoot: "/r/"))
     }
 }
+
+/// **The fact the children map cannot express.**
+///
+/// `childrenByPath` gives `[]` both for a folder with nothing in it and for one the walk reported
+/// without reading — so a column reading only that map has to guess, and it guessed "Empty". That
+/// is a claim the walk never made: `FileSyncManager` logs the same distinction from the other side
+/// ("shown as unexplored, not empty").
+@Suite struct PaneChildrenIndexUnexploredTests {
+
+    private func node(_ path: String, isDirectory: Bool = true,
+                      children: [FileNode]? = [], unexplored: Bool? = nil) -> FileNode {
+        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: isDirectory,
+                 children: children, isUnexplored: unexplored)
+    }
+
+    private func index(_ nodes: [FileNode], root: String = "/r") -> PaneChildrenIndex {
+        PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: nodes), treeRoot: root)
+    }
+
+    /// A directory the walk reported but did not read is flagged.
+    @Test func anUnexploredDirectoryIsFlagged() {
+        let idx = index([node("/r/held", unexplored: true)])
+        #expect(idx.isUnexplored(atPath: "/r/held"))
+    }
+
+    /// **And one that is genuinely empty is not** — the whole point of keeping the two apart. Both
+    /// answer `[]` from the children map, which is why that map could not be the source of truth.
+    @Test func aGenuinelyEmptyDirectoryIsNotFlagged() {
+        let idx = index([node("/r/empty", children: [])])
+        #expect(!idx.isUnexplored(atPath: "/r/empty"))
+        #expect(idx.children(atPath: "/r/empty")?.isEmpty == true,
+                "the two states must still be indistinguishable in the children map — otherwise this flag is not what fixes it")
+    }
+
+    /// A populated directory is not flagged either.
+    @Test func aPopulatedDirectoryIsNotFlagged() {
+        let idx = index([node("/r/full", children: [node("/r/full/a", isDirectory: false, children: nil)])])
+        #expect(!idx.isUnexplored(atPath: "/r/full"))
+    }
+
+    /// The flag is found at any depth, not only among the top-level rows — a column can be opened
+    /// several levels down, which is exactly where the caption shows.
+    @Test func anUnexploredDirectoryIsFoundAtDepth() {
+        let deep = node("/r/a/b/c", unexplored: true)
+        let idx = index([node("/r/a", children: [node("/r/a/b", children: [deep])])])
+        #expect(idx.isUnexplored(atPath: "/r/a/b/c"))
+        #expect(!idx.isUnexplored(atPath: "/r/a/b"))
+    }
+
+    /// **A path this index has never heard of is not a claim that a folder went unread.** False is
+    /// the safe direction: the caption falls back to whatever the rows say.
+    @Test func anUnknownPathIsNotFlagged() {
+        #expect(!index([node("/r/a")]).isUnexplored(atPath: "/r/nowhere"))
+        #expect(!index([node("/r/a")]).isUnexplored(atPath: ""))
+    }
+
+    /// Paths are normalised on the way in and on the way out, so a trailing slash asks the same
+    /// question — the same rule `children(atPath:)` already follows.
+    @Test func theLookupNormalisesItsPath() {
+        let idx = index([node("/r/held", unexplored: true)])
+        #expect(idx.isUnexplored(atPath: "/r/held/"))
+    }
+}

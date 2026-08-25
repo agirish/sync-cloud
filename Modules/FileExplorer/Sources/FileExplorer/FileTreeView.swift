@@ -128,6 +128,13 @@ public struct FileTreeView: View, Equatable {
     /// Applies a new column stack. The host owns this because the seam link makes a column drill a
     /// two-pane move; defaults to writing the binding for callers with no sibling pane.
     public let onColumnNavigate: ((PaneBrowsePath) -> Void)?
+    /// **Walks a directory the pane's budgeted walk did not read.** Passed straight through to
+    /// `PaneColumnsView`, which is the only thing that can see when a column needs it — see
+    /// `FileSyncManager.loadColumnChildren`, which this ends up calling.
+    public let onNeedChildren: ((String) -> Void)?
+    /// Directories whose deferred listing is running — passed straight to `PaneColumnsView`, which
+    /// needs it to tell "being read" from "could not be read". See its `graftsInFlight`.
+    public let graftsInFlight: Set<String>
     /// A plain click on the pane's empty space, carrying the depth of the column it landed in
     /// (`nil` in Tree mode, and past the last column, where nothing is truncated).
     ///
@@ -261,7 +268,7 @@ public struct FileTreeView: View, Equatable {
     /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
     var badgeMemoRoot: String { currentPath }
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, search: PaneSearchResults? = nil, searchHitIndex: Int = 0, searchRevealNonce: Int = 0, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, previewEnabled: Binding<Bool> = .constant(PaneViewMode.previewColumnDefault), childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onNeedChildren: ((String) -> Void)? = nil, graftsInFlight: Set<String> = [], onBackgroundDeselect: ((Int?) -> Void)? = nil, onQuickLook: ((URL) -> Void)? = nil, downloadChannel: NotificationCenter = .default) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -297,6 +304,8 @@ public struct FileTreeView: View, Equatable {
         self.childrenIndex = childrenIndex
         self._browsePath = browsePath
         self.onColumnNavigate = onColumnNavigate
+        self.onNeedChildren = onNeedChildren
+        self.graftsInFlight = graftsInFlight
         self.onBackgroundDeselect = onBackgroundDeselect
         self.onQuickLook = onQuickLook
         self.downloadChannel = downloadChannel
@@ -336,6 +345,9 @@ public struct FileTreeView: View, Equatable {
             // survive a re-render, and a nonce filtered out here would never fire one.
             && lhs.searchRevealNonce == rhs.searchRevealNonce
             && lhs.isActivePane == rhs.isActivePane
+            // Without this a graft landing or finishing cannot redraw the pane, and the spinner
+            // it drives would be stuck in whichever state the last unrelated update left it.
+            && lhs.graftsInFlight == rhs.graftsInFlight
             && lhs.viewMode == rhs.viewMode
             // The VALUE, not the binding's identity. `Binding` is not `Equatable` and two bindings onto
             // the same `@AppStorage` are fresh structs every render, so comparing anything else here
@@ -783,8 +795,11 @@ public struct FileTreeView: View, Equatable {
                 selection: $selection, otherSelection: otherSelection,
                 isLeft: isLeft, delegate: delegate, diffIndex: diffIndex, otherPaneName: otherPaneName,
                 isSingleSource: isSingleSource, density: density, isActivePane: isActivePane,
+                isLoading: isLoading,
                 placement: placement, onBarEdgeFlip: onBarEdgeFlip,
                 onQuickLook: { presentQuickLook($0) },
+                onNeedChildren: onNeedChildren ?? { _ in },
+                graftsInFlight: graftsInFlight,
                 onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
                 awaitingDownloads: downloads.requests,
                 fonts: rowFonts,
@@ -882,7 +897,8 @@ public struct FileTreeView: View, Equatable {
             // handing it the raw `[FileNode]` puts the recursive `FileNode.==` straight back into
             // the view graph — which is exactly what `PaneTree` alone failed to prevent. That was
             // true of `OutlineGroup` and is equally true of the `ForEach` inside `PaneOutlineRows`.
-            PaneOutlineRows(rows: tree.rows, expanded: $expanded) { row in
+            PaneOutlineRows(rows: tree.rows, expanded: $expanded,
+                            onNeedChildren: onNeedChildren ?? { _ in }) { row in
                 treeRow(for: row)
             }
         }

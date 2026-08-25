@@ -24,20 +24,33 @@ struct PaneOutlineRows<Row: View>: View {
     /// The paths whose children are showing. Owned by the pane (so the search can write it), shared
     /// by every level of the recursion.
     @Binding var expanded: Set<String>
+    /// **Asks for a directory the walk did not read**, when one is opened here.
+    ///
+    /// The Columns presentation has had this since the node budget landed; the outline did not, and
+    /// the gap was invisible because it looks like an ordinary empty folder — past
+    /// `FileSyncManager.paneNodeBudget` a directory arrives with `children: []` and `isUnexplored`,
+    /// which draws a disclosure triangle that opens onto nothing and stays that way for as long as
+    /// the pane is on that root. Same fix as the column's, at the moment the user asks: expanding
+    /// IS the request.
+    let onNeedChildren: (String) -> Void
     let row: (PaneRow) -> Row
 
     init(rows: [PaneRow], expanded: Binding<Set<String>>,
+         onNeedChildren: @escaping (String) -> Void = { _ in },
          @ViewBuilder row: @escaping (PaneRow) -> Row) {
         self.rows = rows
         self._expanded = expanded
+        self.onNeedChildren = onNeedChildren
         self.row = row
     }
 
     var body: some View {
         ForEach(rows) { paneRow in
             if let children = paneRow.children {
-                DisclosureGroup(isExpanded: isExpanded(paneRow.node.id)) {
-                    PaneOutlineRows(rows: children, expanded: $expanded, row: row)
+                DisclosureGroup(isExpanded: isExpanded(paneRow.node.id,
+                                                       isUnexplored: paneRow.node.isUnexplored == true)) {
+                    PaneOutlineRows(rows: children, expanded: $expanded,
+                                    onNeedChildren: onNeedChildren, row: row)
                 } label: {
                     row(paneRow)
                 }
@@ -53,11 +66,29 @@ struct PaneOutlineRows<Row: View>: View {
     /// into it opens the row on the next render whether or not that row is currently realized —
     /// which is the point. `List` recycles rows freely, and a row that has never been on screen must
     /// still come back open if the search opened it.
-    private func isExpanded(_ id: String) -> Binding<Bool> {
+    /// The expansion binding for one row, reachable from tests.
+    ///
+    /// `isExpanded` is private and called from the view body, so the decision it carries — that
+    /// opening an unread row IS the request for its contents — could otherwise only be checked by
+    /// mounting a `DisclosureGroup` and testing SwiftUI rather than this rule.
+    func expansionBindingForTesting(_ row: PaneRow) -> Binding<Bool> {
+        isExpanded(row.node.id, isUnexplored: row.node.isUnexplored == true)
+    }
+
+    /// - Parameter isUnexplored: whether this row's children were never walked. Opening such a row
+    ///   is the request for them — see `onNeedChildren`. Asked on OPEN only: a request on close
+    ///   would fire on the way out of a folder somebody is done with, and the collapse animation is
+    ///   the worst moment to start a directory listing.
+    private func isExpanded(_ id: String, isUnexplored: Bool) -> Binding<Bool> {
         Binding(
             get: { expanded.contains(id) },
             set: { isOpen in
-                if isOpen { expanded.insert(id) } else { expanded.remove(id) }
+                if isOpen {
+                    expanded.insert(id)
+                    if isUnexplored { onNeedChildren(id) }
+                } else {
+                    expanded.remove(id)
+                }
             }
         )
     }

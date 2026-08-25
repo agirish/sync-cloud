@@ -38,12 +38,34 @@ struct PaneColumnsView: View {
     let isSingleSource: Bool
     let density: ListDensity
     let isActivePane: Bool
+    /// Whether the pane's walk is still running. Defaulted so the many test call sites that
+    /// predate it keep compiling and keep asking the question they were written to ask.
+    var isLoading: Bool = false
     /// Shared placement scratch space; column rows report their bottoms into it exactly as tree
     /// rows do, so the action bar keeps flipping edges. `nil` on surfaces with no action bar.
     let placement: PaneBarPlacement?
     let onBarEdgeFlip: (() -> Void)?
     /// Presents a Quick Look preview; owned by the hosting `FileTreeView`.
     let onQuickLook: (URL) -> Void
+    /// **Asks the host to walk a directory the pane's budgeted walk did not read.**
+    ///
+    /// A column opened past `FileSyncManager.paneNodeBudget` has no rows and never would have: the
+    /// walk stopped before reaching it. Requesting it here rather than at navigation is what makes
+    /// the request unconditional — a column can be opened by a click, by a restored stack, by a
+    /// search reveal, or by the seam link mirroring the other pane, and only the column itself sees
+    /// all four.
+    ///
+    /// Defaulted to a no-op so the many test call sites that predate it keep compiling. That
+    /// default can also silently swallow a real wiring mistake, so `PaneColumnsGraftWiringTests`
+    /// pins that the app's own chain actually connects it.
+    var onNeedChildren: (String) -> Void = { _ in }
+    /// Directories whose deferred listing is running right now — `FileSyncManager`'s in-flight set.
+    ///
+    /// Without it a column cannot tell "being read" from "could not be read": both are empty
+    /// children plus `isUnexplored`, and it called both of them "Can't be read". That is a claim
+    /// about the second which is false about the first, and the first is the common case — every
+    /// budgeted-out folder passes through it on the way to being filled.
+    var graftsInFlight: Set<String> = []
     /// A plain click on empty space, carrying the depth of the column it landed in — `nil` when it
     /// landed past the last column, where there is nothing to truncate to. Routed to the host for
     /// the same reason `onNavigate` is: clearing the selection is a two-pane decision (the pane
@@ -668,15 +690,88 @@ struct PaneColumnsView: View {
     ///
     /// A `List` per column rather than a `LazyVStack`, so `onDeleteCommand`, the selection binding
     /// and `PaneListSelectionStyler` keep working instead of being reimplemented three times over.
-    /// Whether a column overlays its small tertiary "Empty" caption.
+    /// What a column with no rows says about itself.
     ///
-    /// **Never at depth 0**: an empty tree already draws the pane's "Folder is empty"
-    /// placeholder in the same space, and the two captions rendered stacked — this one clipped
-    /// against the placeholder's folder glyph. The caption exists for columns opened *into* an
-    /// empty subfolder, where the big placeholder deliberately does not show.
+    /// **Three states, where there used to be one.** A column drew "Empty" whenever it had no rows,
+    /// which is a claim the walk never made: `FileSyncManager` marks a directory it reported but did
+    /// not read as `isUnexplored` and logs precisely that ("shown as unexplored, not empty"), and
+    /// `PaneChildrenIndex` now carries it through. Reported as one, the three were
+    /// indistinguishable on screen — a folder with nothing in it, a folder the walk has not reached
+    /// yet, and a folder the OS refused. The destination picker's columns learned this first
+    /// (`DestinationFolderListing.emptyMessage`); this is the pane's half.
+    ///
+    /// The wording is that surface's, deliberately, so the app says one thing about one state.
+    ///
+    /// **Never at depth 0**: an empty tree already draws the pane's "Folder is empty" placeholder in
+    /// the same space, and the two rendered stacked — this one clipped against the placeholder's
+    /// folder glyph. The caption exists for columns opened *into* a subfolder, where the big
+    /// placeholder deliberately does not show.
+    ///
     /// `nonisolated` and pure so the rule can be asserted without mounting the column stack.
-    nonisolated static func showsEmptyCaption(rowsEmpty: Bool, depth: Int) -> Bool {
-        rowsEmpty && depth > 0
+    nonisolated static func emptyCaption(rowsEmpty: Bool, depth: Int, isUnexplored: Bool,
+                                         isLoading: Bool, isBeingRead: Bool) -> Caption? {
+        guard rowsEmpty, depth > 0 else { return nil }
+        // **Loading outranks unexplored**, because during the shallow first paint every directory
+        // is unexplored — `loadTree` paints at `maxDepth: 1` so the pane appears at once, and the
+        // children arrive with the deep walk. Saying "can't be read" about a folder that is simply
+        // next in the queue is the same wrong answer as "Empty", one word further from the truth.
+        if isLoading { return .loading }
+        // **A listing on its way outranks "can't be read", but only while the answer is still
+        // unknown.** Past the node budget a folder is unexplored because nobody has walked it YET,
+        // and the column has just asked — calling that "can't be read" is the same mistake as
+        // calling it "Empty".
+        //
+        // `&& isUnexplored` is load-bearing and was missing at first. The in-flight set is cleared
+        // in a `defer` that runs AFTER the graft publishes, so for one render a folder can be
+        // walked, genuinely empty, and still listed as in flight. Without the conjunction that
+        // render draws a spinner over a folder whose answer is already known and already correct.
+        if isBeingRead, isUnexplored { return .loading }
+        return isUnexplored ? .unreadable : .empty
+    }
+
+    /// The three things a column with no rows can be.
+    enum Caption: Equatable {
+        case empty
+        case unreadable
+        case loading
+
+        /// `nil` while loading: that state draws a spinner, and a caption beside it would be the
+        /// same sentence twice.
+        var text: String? {
+            switch self {
+            case .empty: return "Empty"
+            // `DestinationFolderListing.emptyMessage`'s wording, curly apostrophe included, so the
+            // two surfaces cannot drift into two phrasings for one state.
+            case .unreadable: return "Can’t be read"
+            case .loading: return nil
+            }
+        }
+    }
+
+    /// Asks for a directory's contents only when the pane genuinely does not have them.
+    ///
+    /// Two conditions, and each one alone would be wrong. Not while the walk runs, because a
+    /// directory is unexplored during the shallow paint for a reason that resolves itself. And not
+    /// unless the index says unexplored, because a genuinely empty folder is not a missing one —
+    /// asking for it would relist an empty directory on every render.
+    ///
+    /// **No guard for the tree root**, though one was written here first. The root is never in
+    /// `unexploredPaths`: `PaneChildrenIndex` keys it into the children map directly and only
+    /// *walks* the rows beneath it, so it is not visited as a node and cannot be marked — and
+    /// `adoptRawTree` unwraps the unreadable-root marker before the index ever sees it. A guard
+    /// that cannot fire is not caution, it is a claim about the index that nothing checks.
+    /// This column's caption, with the four state questions answered from the column's own inputs.
+    private func caption(rowsEmpty: Bool, depth: Int, directory: String) -> Caption? {
+        Self.emptyCaption(rowsEmpty: rowsEmpty, depth: depth,
+                          isUnexplored: childrenIndex.isUnexplored(atPath: directory),
+                          isLoading: isLoading,
+                          isBeingRead: graftsInFlight.contains(directory))
+    }
+
+    private func requestChildrenIfNeeded(_ directory: String) {
+        guard !isLoading else { return }
+        guard childrenIndex.isUnexplored(atPath: directory) else { return }
+        onNeedChildren(directory)
     }
 
     @ViewBuilder
@@ -697,6 +792,13 @@ struct PaneColumnsView: View {
         // `.onChange` alone never fires for the case that matters most.
         .onChange(of: searchRevealTarget) { _, target in revealRow(target, in: rows, proxy: proxy) }
         .onAppear { revealRow(searchRevealTarget, in: rows, proxy: proxy) }
+        // **On appear, and again when the pane's walk finishes.** A column opened while the deep
+        // walk is still running must not ask — every directory is unexplored during the shallow
+        // first paint, so asking then would queue a listing for each one and duplicate the walk
+        // that is already coming. `isLoading` falling is the moment the question becomes real, and
+        // for a column already on screen `onAppear` has long since fired.
+        .onAppear { requestChildrenIfNeeded(directory) }
+        .onChange(of: isLoading) { _, _ in requestChildrenIfNeeded(directory) }
         .listStyle(.sidebar)
         .tint(glassHue.accentColor)
         .background(PaneListSelectionStyler())
@@ -716,11 +818,20 @@ struct PaneColumnsView: View {
             if !selected.isEmpty { delegate.handleDelete(selected) }
         }
         .overlay {
-            if Self.showsEmptyCaption(rowsEmpty: rows.isEmpty, depth: depth) {
-                Text("Empty")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.tertiary)
-                    .allowsHitTesting(false)
+            // Resolved in a helper, not inline: with five inputs the type checker gave up on the
+            // expression ("unable to type-check in reasonable time"), which is SwiftUI's way of
+            // saying a view body has grown a decision in it.
+            if let caption = caption(rowsEmpty: rows.isEmpty, depth: depth, directory: directory) {
+                Group {
+                    if let text = caption.text {
+                        Text(text)
+                            .scaledFont(.caption)
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .allowsHitTesting(false)
             }
         }
         .contextMenu {
