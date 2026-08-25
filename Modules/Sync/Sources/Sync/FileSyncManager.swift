@@ -2395,8 +2395,11 @@ public class FileSyncManager: ObservableObject {
             }
         }
         if !ignorePatterns.isEmpty {
+            // Compiled ONCE for the whole pass. `matches(_:patterns:)` folds every pattern on
+            // every call, and this call is per differing item.
+            let compiledIgnores = IgnoreRules.Compiled(ignorePatterns)
             filteredDifferences = filteredDifferences.filter { diff in
-                !IgnoreRules.matches(diff.relativePath, patterns: ignorePatterns)
+                !IgnoreRules.matches(diff.relativePath, compiled: compiledIgnores)
             }
         }
         if !verifiedSameDifferenceIds.isEmpty {
