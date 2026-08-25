@@ -244,7 +244,7 @@ Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise th
 
 ### Settled after being filed as owed
 
-**The whole-volume source named `/` — sent to `v3.x` as `8946a482`, 2026-08-25.** Found owed by
+**The whole-volume source named `/` — sent to `v3.x` as `f86ee70b`, 2026-08-25.** Found owed by
 the v4.4 release review: `FolderSource.defaultDisplayName`'s pre-fix fallback was verbatim on this
 line, so a source over the startup disk read `/` in the pane header capsule, ⌘K and Settings. The
 cherry-pick of `main`'s `08d652af` carried one adaptation — the test pinning that the name reaches
