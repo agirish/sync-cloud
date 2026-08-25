@@ -1592,6 +1592,45 @@ cannot afford citations that rot without saying so — `grep -n` costs the reade
 "the rolled log window" — a bare number goes stale the moment a text is cherry-picked between lines,
 and a commit on `v2.x` already refers to that line's entry by this one's number.
 
+#### Seen: `DuplicateBatchRedesignTests.batchRefusalsAreLoggedPerGroupWithKeeperAndCopyPaths`, 2026-08-25
+
+Red on CI (`main`, run 32869408710), green on the re-run, green in isolation three times for three,
+and green in two subsequent full local package runs — which each lost a *different* set of tests, so
+the victim moves with the load rather than with the code. The commit it failed on changed nothing in
+`Modules/Sync` or `Modules/Events`: `git diff <parent>..<sha> -- Modules/Sync Modules/Events` is
+empty, and Sync's only package dependency is Events, so the failing binary was byte-identical to the
+one that had just gone green.
+
+The tell is the shape of the failure, not that it failed. The test makes **two** `#require`s on two
+refusal lines written by the **same** call, and the first passed while the second returned nil.
+
+**Four candidate mechanisms ruled out, so the next reader does not re-derive them:**
+
+- **Not the 1000-entry cap.** The production code logs the drifted group's refusal before the
+  no-baseline group's (`FileSyncManager+Duplicates.swift`, in that order), so the line that
+  *survived* is the OLDER of the two and the trim drops oldest first. The cap predicts the exact
+  opposite of what was observed.
+- **Not the 5 MB file trim** described above: this suite's `loggedLine(containing:)` is a private
+  copy that reads `Logger.shared.entries`, not the file.
+- **Not the shared-fragment collision** of the leaked-suites mechanism: both fragments are scoped by
+  a per-run `token`, so no other suite can write them.
+- **Not the `minimumLevel` gate silently voiding the flush marker.** That was the promising one —
+  `log()` returns a bare `Task {}` for a filtered level, which would make the helper's
+  `await …debug(…).value` barrier a no-op and the read a straight race. It does not apply: under a
+  test runner `persistedMinimumLevel` forces `.debug` regardless of the machine's stored setting,
+  `MinimumLevelBox` defaults to `.debug`, and nothing in this target raises it (`UndoDriftIdentity-
+  Tests` says so in a comment of its own).
+
+**So the residual is unpinned and this entry says so** rather than picking the nearest story. What
+is established is the substrate: six suites in this package carry a private `loggedLine(containing:)`
+reading `entries`, while `loggedLineOnDisk(containing:)` and `logLines(tag:during:)` exist a few
+hundred lines above precisely because the file is the better one and drains its writer first. Anyone
+returning to this should start by converting this helper and seeing whether the failure survives —
+that is a cheap experiment with a documented destination, and it is the one nobody has run.
+
+**Main-only.** `DuplicateBatchRedesignTests` exists on neither maintenance line, so an entry naming
+it is one a `v2.x` or `v3.x` reader cannot act on.
+
 **See.** `f87d9e11` — *Account for a rollback and a widening the log could not explain* (where it was
 first measured); `flushPendingEntries()` in `Modules/Events/Sources/Events/Logger.swift` for the cap
 itself.
