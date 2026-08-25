@@ -287,9 +287,14 @@ public struct FileDiffEngine {
                 try Task.checkCancellation()
                 // Checked before the entry is statted, not after it is recorded: the `resourceValues`
                 // fetch below is what this walk actually pays for, so a spent budget must stop
-                // before one more rather than after. `return` and not `break` — this function
-                // recurses for symlinked directories, and a `break` would leave the outer walk
-                // free to keep enumerating past the cap.
+                // before one more rather than after.
+                //
+                // This is the ONE stop, and it holds for the nested walks too: `walk` recurses for
+                // symlinked directories, and whichever level runs out, every enclosing level hits
+                // this same test on its next entry and returns as well. (`break` would read the
+                // same here — nothing follows the loop — so `return` is a statement of intent
+                // rather than a difference in behaviour, and the `!truncated` guard on the symlink
+                // descent below is redundant with this test rather than a second stop.)
                 if let maxEntries, result.count >= maxEntries {
                     truncated = true
                     return
@@ -419,9 +424,12 @@ public struct FileDiffEngine {
         // incomplete — so it mints the same record. `result[""] == nil` because an unreadable root
         // has already said something strictly stronger about the same side.
         if truncated, result[""] == nil {
+            // Counted BEFORE the synthetic root record is added. Taken after, the line reported
+            // `limit + 1` entries against `limit` — an overshoot the walk did not have, in the one
+            // sentence anyone tuning the cap would read.
+            let counted = result.count
             result[""] = FileInfo(url: url, modificationDate: nil, fileSize: nil,
                                   isDirectory: true, isUnexplored: true)
-            let counted = result.count
             let limit = maxEntries ?? 0
             let root = url.path
             Task { @MainActor in

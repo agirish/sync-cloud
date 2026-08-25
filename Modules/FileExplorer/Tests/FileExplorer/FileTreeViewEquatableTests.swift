@@ -82,6 +82,8 @@ import Design
         childrenIndex: PaneChildrenIndex? = nil,
         browsePath: PaneBrowsePath = PaneBrowsePath(),
         onColumnNavigate: ((PaneBrowsePath) -> Void)? = { _ in },
+        onNeedChildren: ((String) -> Void)? = { _ in },
+        graftsInFlight: Set<String> = [],
         onBackgroundDeselect: ((Int?) -> Void)? = { _ in },
         onQuickLook: ((URL) -> Void)? = { _ in },
         downloadChannel: NotificationCenter = .default
@@ -97,6 +99,7 @@ import Design
             search: search, searchHitIndex: searchHitIndex, searchRevealNonce: searchRevealNonce, isActivePane: isActivePane,
             viewMode: viewMode, previewEnabled: .constant(previewEnabled), childrenIndex: childrenIndex,
             browsePath: .constant(browsePath), onColumnNavigate: onColumnNavigate,
+            onNeedChildren: onNeedChildren, graftsInFlight: graftsInFlight,
             onBackgroundDeselect: onBackgroundDeselect, onQuickLook: onQuickLook,
             downloadChannel: downloadChannel)
     }
@@ -265,6 +268,21 @@ import Design
         #expect(pane() != pane(onBarEdgeFlip: noFlip))
         #expect(pane() != pane(onColumnNavigate: noNavigate))
         #expect(pane() != pane(onBackgroundDeselect: noDeselect))
+        let noChildren: ((String) -> Void)? = nil
+        #expect(pane() != pane(onNeedChildren: noChildren))
+    }
+
+    /// **The set of directories being read right now.** It drives the column's spinner, and a
+    /// spinner is a claim that changes twice per graft — on when the listing starts, off when it
+    /// lands. Left out of the gate, neither edge redraws the pane on its own: the spinner appears
+    /// or clears only when some unrelated republish happens to re-render it, so a folder reads
+    /// "Can't be read" while it is being read, or spins after it is filled.
+    @Test("The in-flight graft set is noticed — it is what turns the column's spinner on and off")
+    func graftsInFlightIsCompared() {
+        #expect(pane() != pane(graftsInFlight: ["/root/deep"]))
+        #expect(pane(graftsInFlight: ["/root/a"]) != pane(graftsInFlight: ["/root/b"]))
+        #expect(pane(graftsInFlight: ["/root/a"]) == pane(graftsInFlight: ["/root/a"]),
+                "equal sets must not defeat the gate — the pane would re-render on every render")
     }
 
     @Test("A delegate that says it is different is treated as different")

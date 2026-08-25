@@ -139,11 +139,37 @@ import Testing
         #expect(p.rootName == root.lastPathComponent, "the prompt would print a whole path")
     }
 
-    /// The root's own name, not an empty string, when the folder is a volume root. `/` has no last
-    /// path component, and a prompt reading “” is a folder nobody can identify.
-    @Test func aVolumeRootStillHasAName() {
+    /// **The prompt names a folder the way the rest of the app names it**, through
+    /// `FolderSource.defaultDisplayName` rather than a second rule of its own.
+    ///
+    /// The two roots this guard exists for are the two that rule was written for. Its own
+    /// last-component answer called the home folder “abhishek” — a person, in a sentence about a
+    /// folder — and the startup disk “/”, which is a path separator, not a name. Both are the
+    /// prompt's most likely subjects: they are the trees big enough to trip the probe.
+    @Test func theHomeFolderIsNamedAsAPlaceNotAsAnAccount() {
+        let p = LargeWalkPreflight(pass: .storageLens, rootPath: NSHomeDirectory(), probeLimit: 1)
+        #expect(p.rootName == "Home folder")
+    }
+
+    /// The startup disk answers with the volume's name, read from the real disk — this is the one
+    /// assertion here that the delegation actually happened rather than being reasoned about.
+    ///
+    /// Compared against the lookup rather than against “Macintosh HD”, which would be a test of
+    /// whoever is running it. `FolderSourceTests` covers the rule itself, injected and offline,
+    /// including the fallback for a volume that declines to name itself.
+    @Test func theStartupDiskTakesTheVolumesName() throws {
+        let volume = try #require(FolderSource.volumeName(of: "/"),
+                                  "the startup disk did not name itself — a mounted volume always does; if this is ever legitimate the rule falls back to “/” and there is nothing here to compare")
         let p = LargeWalkPreflight(pass: .storageLens, rootPath: "/", probeLimit: 1)
-        #expect(p.rootName == "/")
+        #expect(p.rootName == volume, "the prompt says “/” where the sidebar says “\(volume)”")
+    }
+
+    /// An ordinary folder still answers with its own last component — the rule change must not have
+    /// reached the common case.
+    @Test func anOrdinaryFolderKeepsItsOwnName() {
+        let p = LargeWalkPreflight(pass: .duplicates, rootPath: "/Volumes/Backup/Photos",
+                                   probeLimit: 1)
+        #expect(p.rootName == "Photos")
     }
 
     @Test func eachPassNamesItselfInTheUsersVocabulary() {

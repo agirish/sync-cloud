@@ -158,6 +158,38 @@ import Foundation
     /// and `mirrored()` preserves ids — the verified rows must not resurface), while the
     /// pending copy-identical offer is dropped (its captured rows and left→right wording
     /// are pre-swap).
+    /// **The coverage claim is side-labelled, so it swaps with the sources it is read beside.**
+    ///
+    /// `partialComparisonMessage` pairs `lastScanCoverage.left` with `lastScanProviders.left`. That
+    /// pair is mirrored here; if the coverage is not, the banner does not merely go stale — it
+    /// names the source that WAS read in full and stays silent about the one that was not. The rows
+    /// survive a swap (they are mirrored, not cleared), so the banner survives with them and there
+    /// is no rescan to correct it.
+    @MainActor
+    @Test func testSwapPanesMirrorsTheScanCoverageWithTheProviders() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+
+        manager.lastScanCoverage = PartialComparison(left: true, right: false)
+        try #require(manager.swapPanes(), "the swap was refused — this measures nothing")
+
+        #expect(manager.lastScanCoverage == PartialComparison(left: false, right: true),
+                "the banner now names the side that was read in full")
+
+        // Its own inverse, like everything else here.
+        try #require(manager.swapPanes())
+        #expect(manager.lastScanCoverage == PartialComparison(left: true, right: false))
+    }
+
+    /// A complete comparison stays complete through a swap — the mirror must not invent a partial
+    /// side out of two falses.
+    @MainActor
+    @Test func testSwapPanesLeavesACompleteComparisonComplete() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        try #require(manager.lastScanCoverage.isComplete)
+        try #require(manager.swapPanes())
+        #expect(manager.lastScanCoverage.isComplete)
+    }
+
     @MainActor
     @Test func testSwapPanesKeepsVerifiedIdsButDropsPendingCopyOffer() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())

@@ -231,3 +231,104 @@ import Testing
                 "the right pane sees the left's request and would spin a column it never asked about")
     }
 }
+
+/// **That the graft actually lands**, which the pure `grafting` above cannot say.
+///
+/// `ColumnGraftKeyTests` checks what a request STARTS; this checks what it finishes. Between the
+/// two sits everything the pure function is not: the unexplored guard against the raw tree, the
+/// re-read after the await, the generation bump that makes the index compare unequal, and the write
+/// back into `prefetchedTrees`. Each is a line that can be deleted with every other test still
+/// green — the cache write especially, whose whole symptom is that walking out of a folder and back
+/// re-blanks the column, one navigation later than anyone is looking.
+@Suite struct ColumnGraftLandingTests {
+
+    @MainActor
+    private func fixture() throws -> URL {
+        let root = try makeCanonicalTempRoot(prefix: "graftland")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("deep"),
+                                                withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: root.appendingPathComponent("deep/f.txt"))
+        return root
+    }
+
+    private func node(_ path: String, in tree: [FileNode]) -> FileNode? {
+        for node in tree {
+            if node.id == path { return node }
+            if let hit = self.node(path, in: node.children ?? []) { return hit }
+        }
+        return nil
+    }
+
+    /// The listing lands in the pane's raw tree and clears the mark, so the column can draw it.
+    @MainActor
+    @Test func theListingReachesThePanesTree() async throws {
+        let root = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let deep = root.appendingPathComponent("deep").path
+
+        let manager = FileSyncManager()
+        manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
+        try #require(FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+                     "the fixture arrived already walked — this measures nothing")
+        let generationBefore = manager.rawTreeGeneration
+
+        manager.loadColumnChildren(atPath: deep, isLeft: true)
+        await waitUntil("the listing grafts into the pane's tree") {
+            self.node(deep, in: manager.rawLeftTree)?.children?.isEmpty == false
+        }
+
+        let grafted = try #require(node(deep, in: manager.rawLeftTree))
+        #expect(grafted.children?.map(\.name) == ["f.txt"])
+        #expect(grafted.isUnexplored == nil, "the folder still reads as unread, so the column says “Can’t be read” over rows it now has")
+        #expect(manager.rawTreeGeneration > generationBefore,
+                "the index's stamp did not move, so `PaneChildrenIndex` compares equal and the column never re-resolves")
+        #expect(manager.columnGraftsInFlightPaths(isLeft: true).isEmpty,
+                "the request never cleared — the column spins forever over a folder that is filled")
+    }
+
+    /// **And into the cache the next navigation serves from.** `loadTree`'s fast path returns
+    /// `prefetchedTrees[focusPath]` without touching disk, so an ungrafted entry there un-does this
+    /// the moment the user walks out of the folder and back — silently, and only on the second
+    /// visit.
+    @MainActor
+    @Test func theListingReachesTheCachedTreeToo() async throws {
+        let root = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let deep = root.appendingPathComponent("deep").path
+
+        let manager = FileSyncManager()
+        let shallow = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
+        manager.rawLeftTree = shallow
+        manager.lastLoadedLeftFocusPath = root.path
+        manager.prefetchedTrees[root.path] = shallow
+
+        manager.loadColumnChildren(atPath: deep, isLeft: true)
+        await waitUntil("the listing grafts into the pane's tree") {
+            self.node(deep, in: manager.rawLeftTree)?.children?.isEmpty == false
+        }
+
+        let cached = try #require(manager.prefetchedTrees[root.path],
+                                  "the cache entry was dropped rather than updated")
+        #expect(node(deep, in: cached)?.children?.map(\.name) == ["f.txt"],
+                "the cached tree is still the ungrafted one — walking away and back re-blanks the column")
+    }
+
+    /// A folder the walk already read is not re-listed. The call site is a view modifier that fires
+    /// for reasons a view cannot see, so this guard is what stops an ordinary column from asking
+    /// for its own contents on every appearance.
+    @MainActor
+    @Test func aWalkedFolderIsNotRelisted() async throws {
+        let root = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let deep = root.appendingPathComponent("deep").path
+
+        let manager = FileSyncManager()
+        manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name)
+        try #require(!FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+                     "the fixture is unwalked — the guard under test would be right to fire")
+
+        manager.loadColumnChildren(atPath: deep, isLeft: true)
+        #expect(manager.columnGraftsInFlightPaths(isLeft: true).isEmpty,
+                "a directory the walk already read was queued for a second listing")
+    }
+}

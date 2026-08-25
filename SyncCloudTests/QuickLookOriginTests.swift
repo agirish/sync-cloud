@@ -138,9 +138,14 @@ import Foundation
         #expect(body.contains("toggleQuickLook(URL(fileURLWithPath: targetPath), followsPane: true)"),
                 "Space opens a pane preview that will not follow the selection")
         let content = try Self.source("ContentView.swift")
-        let treeView = try #require(content.range(of: "FileTreeView("),
-                                    "the pane is no longer built here")
-        let call = String(content[treeView.upperBound...].prefix(4_000))
+        // **The whole argument list, not a character budget.** A `prefix(4_000)` window read this
+        // call until v4.4 added two parameters ahead of `onQuickLook:` — the argument moved 90
+        // characters past the end of the window, and the suite failed claiming the row menu was no
+        // longer routed to the host's panel, which was never true. A window measured in characters
+        // reports "your wiring is wrong" when the truth is "your call got longer", and it does it
+        // to whoever touches the call next rather than to whoever wrote the number. `argumentList`
+        // is this suite's own answer to that and stops at the call's own closing paren.
+        let call = try Self.argumentList(after: "FileTreeView(", in: content)
         #expect(call.contains("onQuickLook: { toggleQuickLook($0, followsPane: true) }"),
                 "the pane's row menu is not routed to the host's panel — it presents its own, which nothing can keep current")
 

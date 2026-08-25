@@ -686,10 +686,6 @@ struct PaneColumnsView: View {
         }
     }
 
-    /// One column: the rows of `directory`, or a placeholder when it has none.
-    ///
-    /// A `List` per column rather than a `LazyVStack`, so `onDeleteCommand`, the selection binding
-    /// and `PaneListSelectionStyler` keep working instead of being reimplemented three times over.
     /// What a column with no rows says about itself.
     ///
     /// **Three states, where there used to be one.** A column drew "Empty" whenever it had no rows,
@@ -748,19 +744,7 @@ struct PaneColumnsView: View {
         }
     }
 
-    /// Asks for a directory's contents only when the pane genuinely does not have them.
-    ///
-    /// Two conditions, and each one alone would be wrong. Not while the walk runs, because a
-    /// directory is unexplored during the shallow paint for a reason that resolves itself. And not
-    /// unless the index says unexplored, because a genuinely empty folder is not a missing one —
-    /// asking for it would relist an empty directory on every render.
-    ///
-    /// **No guard for the tree root**, though one was written here first. The root is never in
-    /// `unexploredPaths`: `PaneChildrenIndex` keys it into the children map directly and only
-    /// *walks* the rows beneath it, so it is not visited as a node and cannot be marked — and
-    /// `adoptRawTree` unwraps the unreadable-root marker before the index ever sees it. A guard
-    /// that cannot fire is not caution, it is a claim about the index that nothing checks.
-    /// This column's caption, with the four state questions answered from the column's own inputs.
+    /// This column's caption, with the three state questions answered from the column's own inputs.
     private func caption(rowsEmpty: Bool, depth: Int, directory: String) -> Caption? {
         Self.emptyCaption(rowsEmpty: rowsEmpty, depth: depth,
                           isUnexplored: childrenIndex.isUnexplored(atPath: directory),
@@ -768,12 +752,38 @@ struct PaneColumnsView: View {
                           isBeingRead: graftsInFlight.contains(directory))
     }
 
+    /// **Whether this column should ask for its directory's contents.**
+    ///
+    /// Two conditions, and each one alone would be wrong. Not while the walk runs, because during
+    /// the shallow first paint EVERY directory is unexplored — `loadTree` paints at `maxDepth: 1`
+    /// so the pane appears at once — and asking then queues a listing per visible folder,
+    /// duplicating by hand the deep walk that is already on its way. And not unless the index says
+    /// unexplored, because a genuinely empty folder is not a missing one: asking for it relists an
+    /// empty directory on every render, forever, since the answer never changes the mark.
+    ///
+    /// **No guard for the tree root**, though one was written here first. The root is never in
+    /// `unexploredPaths`: `PaneChildrenIndex` keys it into the children map directly and only
+    /// *walks* the rows beneath it, so it is not visited as a node and cannot be marked — and
+    /// `adoptRawTree` unwraps the unreadable-root marker before the index ever sees it. A guard
+    /// that cannot fire is not caution, it is a claim about the index that nothing checks.
+    ///
+    /// `nonisolated` and pure for `emptyCaption`'s reason: the rule is the whole content of a
+    /// method whose call sites are two view modifiers, and neither can be fired from a test.
+    nonisolated static func asksForChildren(isLoading: Bool, isUnexplored: Bool) -> Bool {
+        !isLoading && isUnexplored
+    }
+
     private func requestChildrenIfNeeded(_ directory: String) {
-        guard !isLoading else { return }
-        guard childrenIndex.isUnexplored(atPath: directory) else { return }
+        guard Self.asksForChildren(isLoading: isLoading,
+                                   isUnexplored: childrenIndex.isUnexplored(atPath: directory))
+        else { return }
         onNeedChildren(directory)
     }
 
+    /// One column: the rows of `directory`, or a placeholder when it has none.
+    ///
+    /// A `List` per column rather than a `LazyVStack`, so `onDeleteCommand`, the selection binding
+    /// and `PaneListSelectionStyler` keep working instead of being reimplemented three times over.
     @ViewBuilder
     private func column(directory: String, depth: Int, previewSupported: Bool) -> some View {
         let rows = childrenIndex.children(atPath: directory) ?? []

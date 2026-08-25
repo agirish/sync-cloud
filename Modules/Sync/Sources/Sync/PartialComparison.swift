@@ -47,15 +47,24 @@ public struct PartialComparison: Equatable, Sendable {
     /// What the banner reads, or nil when the comparison was complete.
     ///
     /// Names the side by its **source**, not by "left" and "right": the panes can be swapped, and
-    /// the sentence has to survive being read a minute later.
+    /// the sentence has to survive being read a minute later. (`swapPanes` mirrors this value with
+    /// the providers for the same reason.)
+    ///
+    /// **Both losses are named, because there are two.** The obvious one is the suppression:
+    /// `compare` mints no Missing row against a side whose view is unknown, so nothing shows as
+    /// missing there. The other is quieter — a walk stopped by the node budget did not record the
+    /// entries past it at all, so those files are in no map, produce no rows in EITHER direction,
+    /// and are not compared. An earlier wording named only the first ("anything present only on the
+    /// other side is not listed"), which reads as a precise, bounded caveat about one direction and
+    /// is a promise the result cannot keep.
     public func message(leftName: String, rightName: String) -> String? {
         let names = [left ? leftName : nil, right ? rightName : nil].compactMap { $0 }
         guard !names.isEmpty else { return nil }
         let subject = names.count == 2 ? "\(names[0]) and \(names[1])" : names[0]
         let verb = names.count == 2 ? "were" : "was"
-        return "\(subject) \(verb) too large to read in full, so anything present only on "
-            + (names.count == 2 ? "one of them" : "the other side")
-            + " is not listed here."
+        let side = names.count == 2 ? "either side" : "that side"
+        return "\(subject) \(verb) too large to read in full, so this list is incomplete: "
+            + "nothing is reported as missing on \(side), and whatever went unread was not compared."
     }
 
     /// The headline above it. One sentence, and it says what is wrong with the NUMBER, because the

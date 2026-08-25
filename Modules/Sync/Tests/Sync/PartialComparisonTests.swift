@@ -67,6 +67,31 @@ import Foundation
     @Test func theSentenceSaysWhatIsNotListed() throws {
         let coverage = PartialComparison.of(left: ["": info(unexplored: true)], right: [:])
         let message = try #require(coverage.message(leftName: "iCloud", rightName: "Dropbox"))
-        #expect(message.contains("not listed"))
+        #expect(message.contains("incomplete"))
+    }
+
+    /// **Both losses, not one.** The sentence used to name only the suppression — "anything present
+    /// only on the other side is not listed" — which is a precise claim about one direction and a
+    /// promise the result cannot keep: a walk stopped by the node budget never recorded the entries
+    /// past it, so those files are in neither map and produce no row in EITHER direction. A reader
+    /// who takes the narrow wording literally concludes that what the partial side holds uniquely
+    /// IS listed, and it is not.
+    @Test func theSentenceNamesTheUnreadEntriesToo() throws {
+        let coverage = PartialComparison.of(left: ["": info(unexplored: true)], right: [:])
+        let message = try #require(coverage.message(leftName: "iCloud", rightName: "Dropbox"))
+        #expect(message.contains("nothing is reported as missing on that side"),
+                "the suppression — no Missing row is minted against a side whose view is unknown")
+        #expect(message.contains("not compared"),
+                "the quieter loss: entries the walk never reached are in no map at all")
+    }
+
+    /// Two partial sides say "either side", not "that side" — the singular reads as a claim about
+    /// one of the two and leaves the reader deciding which.
+    @Test func bothSidesPartialNamesBoth() throws {
+        let coverage = PartialComparison.of(left: ["": info(unexplored: true)],
+                                            right: ["": info(unexplored: true)])
+        let message = try #require(coverage.message(leftName: "iCloud", rightName: "Dropbox"))
+        #expect(message.contains("either side"))
+        #expect(!message.contains("that side"))
     }
 }

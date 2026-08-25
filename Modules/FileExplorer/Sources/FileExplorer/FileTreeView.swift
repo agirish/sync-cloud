@@ -361,6 +361,9 @@ public struct FileTreeView: View, Equatable {
             && (lhs.onOpenSettings == nil) == (rhs.onOpenSettings == nil)
             && (lhs.onBarEdgeFlip == nil) == (rhs.onBarEdgeFlip == nil)
             && (lhs.onColumnNavigate == nil) == (rhs.onColumnNavigate == nil)
+            // Presence, like its neighbours: a pane that has it can fill a folder the walk skipped
+            // and one that does not leaves that column blank forever, which is a different pane.
+            && (lhs.onNeedChildren == nil) == (rhs.onNeedChildren == nil)
             && (lhs.onBackgroundDeselect == nil) == (rhs.onBackgroundDeselect == nil)
             // Presence only, like its neighbours — but presence here is load-bearing rather than
             // incidental: it is what decides whether the row menu presents through the host's panel

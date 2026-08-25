@@ -1491,9 +1491,6 @@ public class FileSyncManager: ObservableObject {
     /// `resortTreesAndRefilter()` against clobbering trees a load published mid-sort.
     internal var rawTreeGeneration = 0
 
-    /// Directories whose deferred column listing is running — see `loadColumnChildren`. Keyed by
-    /// absolute path, so a column re-rendering while its walk is in flight does not queue a second
-    /// walk of the same directory.
     /// A deferred column listing, identified by the pane that asked as well as the folder.
     ///
     /// **The side is part of the key**, and leaving it out was a real defect: keyed by path alone,
@@ -1505,6 +1502,9 @@ public class FileSyncManager: ObservableObject {
         let path: String
     }
 
+    /// The listings running right now — see `loadColumnChildren`. Deduping on this is what stops a
+    /// column re-rendering mid-walk from queueing a second listing of the same directory, and
+    /// publishing it is what lets that column say "being read" rather than "can't be read".
     @Published internal var columnGraftsInFlight: Set<ColumnGraftKey> = []
 
     /// Raw file tree for the left pane (before hidden/ignored filtering).

@@ -141,3 +141,43 @@ import Testing
                                              isLoading: true, isBeingRead: true) == .loading)
     }
 }
+
+/// **When a column asks for a directory the walk did not read** — the other half of the same rule.
+///
+/// The caption above says what the column DRAWS; this says what it DOES, and the two failure modes
+/// are opposite. Ask too eagerly and the pane re-lists directories by hand: during the shallow
+/// first paint every folder is unexplored, so a rule missing the `isLoading` term queues one
+/// listing per visible row and duplicates the deep walk that is already coming. Ask too rarely —
+/// drop the request entirely — and a column past `FileSyncManager.paneNodeBudget` is blank for as
+/// long as the pane stays on that root, which is the state the budget was introduced to avoid.
+///
+/// Both live in a `private func` whose only call sites are `.onAppear` and `.onChange`, neither of
+/// which a test can fire, so the decision is a pure static and this is what checks it.
+@Suite struct PaneColumnRequestRuleTests {
+
+    /// The one state that asks: the walk has settled and this folder was left unread.
+    @Test func aSettledPaneAsksForAnUnreadFolder() {
+        #expect(PaneColumnsView.asksForChildren(isLoading: false, isUnexplored: true))
+    }
+
+    /// **Never mid-walk.** Every directory is unexplored during the shallow paint.
+    @Test func aLoadingPaneNeverAsks() {
+        #expect(!PaneColumnsView.asksForChildren(isLoading: true, isUnexplored: true))
+        #expect(!PaneColumnsView.asksForChildren(isLoading: true, isUnexplored: false))
+    }
+
+    /// **Never for a folder that was read.** An empty folder is not a missing one, and the mark is
+    /// what separates them — a request here would relist the same empty directory on every render,
+    /// because the answer can never clear a mark that is not set.
+    @Test func aWalkedFolderIsNeverAskedFor() {
+        #expect(!PaneColumnsView.asksForChildren(isLoading: false, isUnexplored: false))
+    }
+
+    /// Stated as the whole table, so a third term added later has to decide about these four cells
+    /// rather than inheriting them.
+    @Test func theRuleIsBothConditionsAndNothingElse() {
+        let asked = [(false, true), (false, false), (true, true), (true, false)]
+            .filter { PaneColumnsView.asksForChildren(isLoading: $0.0, isUnexplored: $0.1) }
+        #expect(asked.count == 1, "the rule asks in \(asked.count) of the four states, not 1")
+    }
+}

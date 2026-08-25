@@ -57,8 +57,17 @@ public struct LargeWalkPreflight: Sendable, Equatable {
     }
 
     /// The folder's display name, for a prompt that should not read as a path dump.
+    ///
+    /// **The same rule a source is named by**, not a second one — `FolderSource.defaultDisplayName`
+    /// — because the two answer the same question about the same folders. The two roots this guard
+    /// exists for are exactly the two that rule was written for: the home folder (196,726
+    /// directories) and the startup disk. Its own leaf-component answer called them “abhishek” and
+    /// “/”; the rule calls them “Home folder” and whatever the volume calls itself. A prompt is a
+    /// worse place than a sidebar row to print a path separator and expect it to be recognised.
+    ///
+    /// Reads one cached resource value for a path with no last component, and nothing at all
+    /// otherwise — see `FolderSource.volumeName(of:)`.
     public var rootName: String {
-        let leaf = (rootPath as NSString).lastPathComponent
-        return leaf.isEmpty || leaf == "/" ? rootPath : leaf
+        FolderSource.defaultDisplayName(forPath: rootPath, volumeName: FolderSource.volumeName(of:))
     }
 }

@@ -596,6 +596,13 @@ extension FileSyncManager {
         // side labels flip with everything else. Same for the Path column's root names.
         lastScanProviders = lastScanProviders.map { ($0.right, $0.left) }
         lastScanRootNames = lastScanRootNames.map { ($0.right, $0.left) }
+        // **And the coverage claim, which is side-labelled too.** It is a pair of booleans read
+        // beside `lastScanProviders` to name the source that came back partial, so leaving it
+        // un-mirrored while that pair flips does not merely stale the banner — it makes the banner
+        // name the side that WAS read in full and say nothing about the one that was not. Wrong is
+        // worse than absent here: the whole point of the sentence is that the count is a floor.
+        lastScanCoverage = PartialComparison(left: lastScanCoverage.right,
+                                             right: lastScanCoverage.left)
 
         // Same stale-filter-pass insurance as invalidateComparisonState: a pass holding a
         // pre-swap snapshot may publish after this method; a fresh pass over the swapped
