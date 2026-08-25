@@ -88,6 +88,21 @@ first.
   applies to the part that was not. Either way the count is a floor rather than a total.
 - **A source covering the whole startup disk is named after the disk**, not `/`.
 
+### Appearance
+
+- **The Tint slider now sets how coloured the whole window is, and Subtle finally means subtle.**
+  It moved only the panes and the Differences area before, and its own bottom end painted nothing
+  at all — so "less tint" had nothing left to take away, while the window behind those panes
+  carried the accent at full strength whatever the slider said. That is why the two ends of the
+  slider looked so alike. Every surface answers to it now, down to a quarter strength at Subtle:
+  faint, but still recognisably the accent you picked, because a slider that ended in grey would
+  quietly override the accent chosen directly above it. Vivid is unchanged, so a setting you
+  already liked still paints what it painted. The bottom of the range also moves more slowly than
+  the top, which is where the choosing actually happens.
+- **The pane's tab strip takes the tint with the rest of the pane.** It was the one part of a pane
+  that never did, so at a strong tint it read as a pale stripe across the top of the pane it
+  belongs to.
+
 ---
 
 ## v4.3
