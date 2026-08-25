@@ -1091,6 +1091,25 @@ released look identical from the outside — that is the whole reason `releasedB
 `awaitSignal`); mechanism 8 above for why the bound records its own expiry; mechanism 3 for the
 other way suites-in-parallel decides a verdict.
 
+#### Seen: `ProgressAccountingTests.testQueuedOperationDoesNotClobberRunningProgress`, 2026-08-25
+
+Observed on `main`, in a full `Modules/Sync` package run — **41.6 s, three issues in the one test** —
+and green in the next full run of the same commit, and in isolation. Three expiries at roughly the
+bound apiece is this mechanism's shape rather than a slow test: the bound is being reached, not
+approached.
+
+Recorded here because **this line carries the same suite unchanged**: `GatedFileManager` holds its
+in-flight copy and move on `DispatchSemaphore` (`copyGate`, `moveGate`, parked in `park(_:)`), so
+each gated operation blocks a cooperative-pool thread while the `waitUntil` that would release it
+needs a thread from that same pool — and this suite parks two at once.
+
+**The remedy `main` has is not here yet.** There, `DuplicateBatchRedesignTests` parks an enqueued
+operation on a continuation-backed `Latch` actor and cites this section in its own comment; that
+suite does not exist on this line, so the pattern has to be written rather than copied from a
+neighbour. Nothing about this test needs a semaphore — it needs the operation held, not a thread
+held — and whatever replaces it must be mutation-tested, since a gate that no longer engages and a
+gate that engages and is released look identical from the outside.
+
 ### 11. A log assertion reading a window that has already rolled
 
 **Symptom.** Two shapes, and it is the second that earns this entry.
