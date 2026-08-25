@@ -7,7 +7,10 @@ import AppKit
 
 /// Popular hue options for the liquid glass background gradient.
 public enum LiquidGlassHue: String, CaseIterable, Identifiable {
-    /// No accent: neutral materials only, following the system accent color — the stock macOS look.
+    /// No accent: no hue wash anywhere, and controls follow the system accent color. In light the
+    /// background whitens toward paper (`LiquidGlass.noneLightVeil`) so "no accent" reads as clean
+    /// white rather than as the material's gray — which was near-indistinguishable from Graphite's
+    /// faint neutral wash at low Tint. Dark keeps the stock deep neutral ground.
     case none
     case blue
     case cyan
@@ -19,9 +22,10 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
     case purple
     case indigo
     case slate
-    /// A true neutral gray — the monochrome accent. Unlike `.none` (no wash, controls follow the
-    /// system accent) and `.slate` (a cool blue-gray), Graphite washes the surfaces in a colorless
-    /// gray, for a fully monochrome-but-still-tinted look using the same machinery as every hue.
+    /// A true neutral gray — the monochrome accent. Unlike `.none` (white ground in light, controls
+    /// follow the system accent) and `.slate` (a cool blue-gray), Graphite washes the surfaces in a
+    /// colorless gray, for a fully monochrome-but-still-tinted look using the same machinery as
+    /// every hue.
     case graphite
 
     public var id: String { rawValue }
@@ -340,6 +344,30 @@ public extension LiquidGlass {
     /// window background reads as the accent at any level — the difference between them is how much
     /// shows through, not what colour it is.
     static let clearAccentStrength: Double = 0.5
+}
+
+// MARK: - The "None" white ground
+
+public extension LiquidGlass {
+    /// The white film painted over the background material in light when the accent is "None".
+    ///
+    /// Without it, None's background is just the bare material — a light gray that sits within a
+    /// few points of Graphite's faint neutral wash at low Tint, so the two accents were told apart
+    /// by their swatches and nothing else. White is what "no accent" should look like in light:
+    /// visibly *no* wash, rather than a gray that reads as the faintest one.
+    ///
+    /// A constant, not Tint-scaled: None has no hue for the slider to strengthen, and it opts out
+    /// of every accent paint in the background (`BackgroundHuePaintsScaleTests` polices hue paints
+    /// only — this is deliberately not one). Light-only by design: white over dark's deep base
+    /// would gray it, and dark None already reads apart from dark Graphite (which keeps its wash
+    /// and glow). `.clear` is also exempt — it is see-through by contract, and `clearLightVeil`
+    /// already whitens what shows through.
+    ///
+    /// The value is measured, not eyeballed — `NoneHueWhitenessRenderTests` renders the real
+    /// modifier and asserts the separation from Graphite survives. 0.7 closes about three
+    /// quarters of the gap between the bare material and pure white while the material still
+    /// supplies texture; 0.5 rendered half-way — a lighter gray, not white.
+    static let noneLightVeil: Double = 0.7
 }
 
 // MARK: - The Tint slider's curve
@@ -845,8 +873,10 @@ public extension View {
 // a free function) purely so it can read `@Environment(\.colorScheme)`; the light branch of each
 // reproduces the original rendering exactly, so only dark changes.
 
-/// The app background. **Light** reproduces the original exactly: the accent diagonal gradient over a
-/// `.thinMaterial` base at `0.45 + 0.20·t`. **Dark** adds the two things the flat slab was missing —
+/// The app background. **Light** is the original — the accent diagonal gradient over a
+/// `.thinMaterial` base at `0.45 + 0.20·t` — plus, for "None" only, a white film over the material
+/// (`LiquidGlass.noneLightVeil`) so no-accent reads white rather than material gray. **Dark** adds
+/// the two things the flat slab was missing —
 /// a deep, faintly-cool near-black gradient *under* the material so the ground grades with depth, and
 /// a soft pool of the accent hue at the top edge *over* the material so the accent actually reads —
 /// and thins the material so that deep base shows through. The accent diagonal also lifts its opacity
@@ -962,6 +992,16 @@ private struct LiquidGlassBackground: ViewModifier {
                         Spacer(minLength: 0)
                     }
                     .ignoresSafeArea()
+                }
+
+                // The "None" white ground, light only — see `LiquidGlass.noneLightVeil`. OVER the
+                // material rather than under it, so the whitening is not diluted by the material's
+                // own opacity and lands the same at Frosted and Solid. The titlebar band passes
+                // roughly three quarters of what is beneath it (see `clearTitlebarBoost`), so it
+                // whitens with the rest of the window.
+                if !dark && !seeThrough && hue == .none {
+                    Color.white.opacity(LiquidGlass.noneLightVeil)
+                        .ignoresSafeArea()
                 }
 
                 // Dark accent glow: a soft pool of the hue at the top so the accent reads. Fires at
