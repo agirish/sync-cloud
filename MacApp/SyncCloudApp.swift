@@ -605,9 +605,9 @@ struct SyncCloudApp: App {
                 Divider()
                 // **Sidebar first**, because it is the only switch here that changes the window's
                 // *structure* rather than what a pane shows. Absent from 2026-08-20 until v4.4
-                // while the column was held; back with it, and disabled rather than deleted off
-                // Browse — the same rule as the toolbar button, so the two halves of one control
-                // cannot disagree.
+                // while the column was held; back with it, and disabled rather than deleted while
+                // the panes are collapsed — the same rule as the toolbar button, so the two halves
+                // of one control cannot disagree.
                 ToggleFolderSidebarCommand()    // ⌃⌘S
                 ToggleTabBarCommand()           // ⇧⌘T
                 ToggleHiddenFilesCommand()      // ⇧⌘.

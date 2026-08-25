@@ -130,7 +130,7 @@ public extension AppChord {
     /// ⌥-hold reveal (see `foldAllDifferences`).
     static let tabBar = AppChord("t", [.shift, .command])
 
-    /// View ▸ Sidebar — Browse's Favorites / Sources / Recents column.
+    /// View ▸ Sidebar — the Favorites / Sources / Recents column, carried by every workspace.
     ///
     /// **⌃⌘S, which is Finder's own Show/Hide Sidebar** and free here: `switchPaneFocus` is the
     /// only other ⌃ chord in the registry and it is ⌃⇥. ⌘S was never a candidate — it means Save

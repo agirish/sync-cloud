@@ -818,19 +818,6 @@ extension ContentView {
         return { reopenClosedTab(isLeft: isLeft) }
     }
 
-    /// View ▸ Tab Bar — **ticked and disabled while a strip on screen holds a second tab**, so the
-    /// switch can never hide a strip whose tabs would then be unreachable.
-    ///
-    /// **It has to ask both panes, because the strip's visibility rule does.** This used to ask only
-    /// `shortcutTabTargetIsLeft` — the focused pane — while `PaneTabStripVisibility.shows` decides
-    /// from `own` *and* `sibling`. In Compare with two tabs in the unfocused pane only, the rule put
-    /// a strip on screen and the menu item read unticked and live, so the switch offered to hide a
-    /// strip it did not describe and the tabs in it became unreachable — which is the exact case the
-    /// disabling exists to prevent, arrived at from the other side.
-    ///
-    /// The condition is `PaneTabStripVisibility.forcesTabBarSwitch`, which is defined as the
-    /// visibility rule with the switch's own term removed — so the two cannot drift again. Inlining
-    /// the disjunction here is what let them drift the first time.
     /// View ▸ Sidebar's binding, and `nil` wherever the column cannot be drawn.
     ///
     /// The gate is the workspace and not `layoutMode`, and it is asked through
@@ -850,6 +837,19 @@ extension ContentView {
         return Binding(get: { browseSidebarVisible }, set: { browseSidebarVisible = $0 })
     }
 
+    /// View ▸ Tab Bar — **ticked and disabled while a strip on screen holds a second tab**, so the
+    /// switch can never hide a strip whose tabs would then be unreachable.
+    ///
+    /// **It has to ask both panes, because the strip's visibility rule does.** This used to ask only
+    /// `shortcutTabTargetIsLeft` — the focused pane — while `PaneTabStripVisibility.shows` decides
+    /// from `own` *and* `sibling`. In Compare with two tabs in the unfocused pane only, the rule put
+    /// a strip on screen and the menu item read unticked and live, so the switch offered to hide a
+    /// strip it did not describe and the tabs in it became unreachable — which is the exact case the
+    /// disabling exists to prevent, arrived at from the other side.
+    ///
+    /// The condition is `PaneTabStripVisibility.forcesTabBarSwitch`, which is defined as the
+    /// visibility rule with the switch's own term removed — so the two cannot drift again. Inlining
+    /// the disjunction here is what let them drift the first time.
     var shortcutTabBar: TabBarSwitch {
         let isLeft = shortcutTabTargetIsLeft
         let forced = PaneTabStripVisibility.forcesTabBarSwitch(
@@ -1522,13 +1522,15 @@ struct ToggleInspectorCommand: View {
     }
 }
 
-/// **View ▸ Sidebar** — Browse's Favorites / Sources / Recents column, ⌃⌘S.
+/// **View ▸ Sidebar** — the Favorites / Sources / Recents column, ⌃⌘S.
 ///
-/// `nil` — and therefore disabled — off Browse, which is the workspace gate
-/// `FolderSidebarModel.appliesTo(workspaceSupportsSidebar:panesCollapsed:)` decides once for the item, the column and the refresh
-/// together. **Disabled rather than absent**, matching the toolbar button beside it: a toolbar that
-/// reflowed as you changed workspace is unsettling, and a greyed row still answers "where did the
-/// sidebar go" where a missing one leaves the reader looking for it.
+/// `nil` — and therefore disabled — wherever the column cannot be drawn, which
+/// `FolderSidebarModel.appliesTo(workspaceSupportsSidebar:panesCollapsed:)` decides once for the
+/// item, the column and the refresh together. Every shipping workspace supports the column as of
+/// v4.4, so in practice the live `nil` is the collapsed-panes one — see `shortcutFolderSidebar`
+/// for the reasoning. **Disabled rather than absent**, matching the toolbar button beside it: a
+/// toolbar that reflowed as the gate flipped is unsettling, and a greyed row still answers "where
+/// did the sidebar go" where a missing one leaves the reader looking for it.
 struct ToggleFolderSidebarCommand: View {
     @FocusedValue(\.folderSidebarVisible) private var folderSidebar
 

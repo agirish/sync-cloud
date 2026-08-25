@@ -2773,10 +2773,9 @@ struct ContentView: View {
                 // act, and the pane the user happens to be looking at is the one they will reach
                 // for.
                 onCancelScan: { syncManager.cancelScan() },
-                // The ring goes on whichever pane the chords act on — the same resolved answer
-                // ⌃⇥ flips and ⌘F opens on, so the indicator cannot claim one pane while the
-                // shortcuts use the other. Compare only: on a single-source workspace the rail is
-                // the one pane on screen and a ring would distinguish it from nothing.
+                // One switch across both panes — hidden-file visibility is `syncManager`'s, not
+                // per-pane state. (The focused-pane mark is no longer a header parameter; see
+                // `ActivePaneMark` on the card below.)
                 showHiddenFiles: $syncManager.showHiddenFiles,
                 // The rail and Browse get the switch too, each bound to its own key.
                 viewMode: resolvedViewModeBinding(isLeft: isLeft),

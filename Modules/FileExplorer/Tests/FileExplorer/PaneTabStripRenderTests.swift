@@ -489,9 +489,10 @@ import Design
     /// the ground the chip is drawn on", sampled out of the same render — a per-pixel difference
     /// against the local surface, which is what makes a glyph visible and a flat fill invisible.
     ///
-    /// The chip is **located from its accent rule** rather than from the ladder's `tabWidth`: the
-    /// chip takes its NATURAL width up to that cap (112.5pt against a 156.5pt cap on this fixture),
-    /// and the whole question here is how much wider than its contents that natural width is.
+    /// The chip is **located from the parked-render differential** (`activeChipBounds`) rather than
+    /// from the ladder's `tabWidth`: the chip takes its NATURAL width up to that cap (112.5pt
+    /// against a 156.5pt cap on this fixture), and the whole question here is how much wider than
+    /// its contents that natural width is.
     @Test(.machinePinned(.pixelSampling)) func theChipRungWearsAChevron() {
         let five = [item("Immigration", active: true), item("Photos"), item("Legal"),
                     item("Medical"), item("Finance")]
@@ -552,16 +553,15 @@ import Design
                 "something is drawn in the chip's trailing padding")
     }
 
-    /// The bounding box of the accent-coloured pixels — the 2pt rule under the active chip, which is
-    /// the one thing on the strip that reports where that chip is in the drawn image.
     /// **Where the active chip is, measured rather than assumed** — the bounding box of everything
     /// that changes when the same strip is rendered with that chip parked instead.
     ///
-    /// It used to be the bounds of *accent-coloured* pixels, which worked only because the chip
-    /// carried an accent rule. With the rule gone the anchor is the chip's raised ground, and a
-    /// colour test cannot find that: `.quaternary` is a different grey in each appearance and is
-    /// deliberately close to the backdrop. A differential finds it in either scheme without naming
-    /// a colour at all.
+    /// It used to be the bounds of *accent-coloured* pixels, anchored on the chip's 2pt accent
+    /// rule. The rule was removed and put back the same day (2026-08-24 — `activeGround` keeps the
+    /// story), but the colour anchor did not come back with it: a differential against the parked
+    /// render finds the chip's whole raised ground in either appearance without naming a colour —
+    /// `.quaternary` is a different grey in each appearance and deliberately close to the backdrop
+    /// — and it keeps finding the chip whatever marker the chip happens to carry.
     func activeChipBounds(_ live: NSBitmapImageRep, parked: NSBitmapImageRep) -> NSRect {
         var minX = Int.max, maxX = Int.min, minY = Int.max, maxY = Int.min
         guard live.pixelsWide == parked.pixelsWide, live.pixelsHigh == parked.pixelsHigh else { return .zero }
@@ -596,9 +596,10 @@ import Design
     /// that is bare.
     ///
     /// The band comes from the LADDER now. It used to be located from the accent rule under the
-    /// chip — `accentBounds(rep).minY - 2` — which stopped existing when the rule was removed on
-    /// 2026-08-24. `stripHeight` and `tabHeight` are the same two numbers the strip lays itself out
-    /// from, and the chip is centred between them, so this needs no render to find.
+    /// chip — `accentBounds(rep).minY - 2` — an anchor that vanished when the rule was briefly
+    /// removed on 2026-08-24; the rule came back the same day, the render-derived anchor did not.
+    /// `stripHeight` and `tabHeight` are the same two numbers the strip lays itself out from, and
+    /// the chip is centred between them, so this needs no render to find.
     func glyphPixels(_ rep: NSBitmapImageRep, from x0: CGFloat, to x1: CGFloat,
                      ground: NSColor) -> Int {
         guard x1 > x0 else { return -1 }

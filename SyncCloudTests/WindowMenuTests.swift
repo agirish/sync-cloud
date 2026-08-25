@@ -119,7 +119,7 @@ import AppKit
     }
 
     /// **View ▸ Sidebar is in the bar, and it carries ⌃⌘S** — the column is on for v4.4 (item #13),
-    /// and the item is disabled off Browse rather than deleted.
+    /// and where it cannot be drawn (collapsed panes) the item is disabled rather than deleted.
     ///
     /// **This test has now asserted both directions, and the swap each way is the point.** A menu
     /// item is built from a `Commands` declaration whether or not anything answers it, so while the
