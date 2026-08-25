@@ -52,14 +52,41 @@ public struct FolderSource: Codable, Equatable, Sendable, Identifiable {
     /// "Home folder" for the home directory itself — whose last path component is the account's
     /// short name (`abhishek`), which reads as a person, not a place.
     public var defaultDisplayName: String {
+        Self.defaultDisplayName(forPath: path, volumeName: Self.volumeName(of:))
+    }
+
+    /// The rule, with the one thing it cannot compute injected.
+    ///
+    /// **The startup disk is the case this exists for.** Every other path answers from its own last
+    /// component — `/Volumes/Backup` is "Backup" — but `/` has no last component, and the fallback
+    /// was the path itself. That is what a source over the startup disk was called: `/`. It reached
+    /// further than the sidebar row that produced it, because a tab sitting at a provider root
+    /// wears the *source's* name (`PaneTab.displayName(providerName:)`), so the tab strip, the pane
+    /// header capsule, ⌘K and Settings all read `/` too.
+    ///
+    /// `volumeName` is injected rather than read here so the rule is testable without a disk, and
+    /// so this stays a pure function — the same reason `FolderJumpStore.reachable` takes its
+    /// `isDirectory`.
+    static func defaultDisplayName(forPath path: String, volumeName: (String) -> String?) -> String {
         let expanded = (path as NSString).expandingTildeInPath
         let standardized = URL(fileURLWithPath: expanded).standardizedFileURL.path
         if standardized == URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path {
             return "Home folder"
         }
         let name = (standardized as NSString).lastPathComponent
-        // A volume root ("/Volumes/Backup") has a real last component; "/" does not.
-        return name.isEmpty || name == "/" ? standardized : name
+        guard name.isEmpty || name == "/" else { return name }
+        // Still the path if the volume will not name itself — a name that is merely unhelpful beats
+        // one that is missing, and this is the shape the app had before the volume lookup existed.
+        return volumeName(standardized).flatMap { $0.isEmpty ? nil : $0 } ?? standardized
+    }
+
+    /// What the filesystem calls the volume at `path`.
+    ///
+    /// Only ever consulted for a path with no last component — in practice `/` — so this is one
+    /// resource read per source at discovery, on the one source that needs it, against a value the
+    /// OS keeps cached.
+    static func volumeName(of path: String) -> String? {
+        (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeNameKey]))?.volumeName
     }
 
     /// `path` with the home directory folded back to `~`. `NSString.abbreviatingWithTildeInPath`
