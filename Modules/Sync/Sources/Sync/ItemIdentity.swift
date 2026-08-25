@@ -278,7 +278,7 @@ public extension ItemIdentity {
         // skips only `deepIdentityIgnoredNames`.
         let canonical = "tree-3\n" + lines.joined(separator: "\n")
         let digest = SHA256.hash(data: Data(canonical.utf8))
-        return (.directoryTree(contentDigest: digest.map { String(format: "%02x", $0) }.joined()), nil)
+        return (.directoryTree(contentDigest: HexEncoding.string(digest)), nil)
     }
 
     /// Compares a recorded identity against what is on disk now.

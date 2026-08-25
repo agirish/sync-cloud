@@ -43,13 +43,13 @@ public struct FilingMemory: Sendable, Equatable {
     /// known token/salt pair against a literal.
     static func hash(_ token: String, salt: String) -> String {
         let digest = SHA256.hash(data: Data((salt + token).utf8))
-        var hex = ""
-        hex.reserveCapacity(16)
-        for byte in digest {
-            hex += String(format: "%02x", byte)
-            if hex.count >= 16 { break }
-        }
-        return String(hex.prefix(16))
+        // The first EIGHT bytes, which is the same sixteen characters the hand-rolled loop
+        // produced: it appended two characters per byte and broke once it had sixteen, so it
+        // always stopped mid-digest at byte eight and the trailing `prefix(16)` never trimmed
+        // anything. Spelled as the prefix here because that is what it always meant — and
+        // `FilingProfileStoreTests/theIdentifierHashMatchesTheBuilder` pins the result against a
+        // literal, so a change in the value would be caught rather than absorbed.
+        return HexEncoding.string(digest.prefix(8))
     }
 }
 

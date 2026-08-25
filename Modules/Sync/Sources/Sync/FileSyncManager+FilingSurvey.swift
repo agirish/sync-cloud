@@ -323,6 +323,6 @@ extension FileSyncManager {
     /// A fresh salt for a tree that has never been surveyed. 16 bytes of hex, the same shape the
     /// offline builder mints.
     static func newSurveySalt() -> String {
-        (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+        HexEncoding.string((0..<16).map { _ in UInt8.random(in: 0...255) })
     }
 }

@@ -235,7 +235,7 @@ public enum FilingProfileStore {
             hasher.update(data: name == "people.json" ? classifyingBytes(ofPeople: data) : data)
         }
         guard any else { return "" }
-        return hasher.finalize().prefix(8).map { String(format: "%02x", $0) }.joined()
+        return HexEncoding.string(hasher.finalize().prefix(8))
     }
 
     /// The part of `people.json` that can actually change a classification: the roster, and the

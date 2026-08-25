@@ -128,7 +128,7 @@ public enum FileContentVerifier {
             }
             guard totalBytes == size else { return .unverifiable }
             let digest = hasher.finalize()
-            let hex = digest.map { String(format: "%02x", $0) }.joined()
+            let hex = HexEncoding.string(digest)
             if let cache, let cacheKey {
                 await cache.store(hex, for: cacheKey)
             }

@@ -141,7 +141,7 @@ public enum ContentFingerprint {
             canonical += "\(key) \(counts[key]!);"
         }
         let digest = SHA256.hash(data: Data(canonical.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
+        return HexEncoding.string(digest)
     }
 
     /// Maximal runs of ASCII alphanumerics, lowercased.
