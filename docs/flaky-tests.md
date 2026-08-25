@@ -1176,6 +1176,14 @@ this suite's whole subject is operation *accounting*; the conversion wants its o
 (park engaged vs. park released must stay distinguishable — see `releasedByTimeout` above) rather
 than riding along with an unrelated landing.
 
+**Where this is filed.** `v2.x` carries it too, written for that line — the suite is there unchanged,
+but `DuplicateBatchRedesignTests` is not, so the remedy has to be written there rather than copied
+from a neighbour. **`v3.x` does not have it, because `v3.x` has no section to file it under**: this
+mechanism was never brought forward to that line, which that line's own register records as a
+genuine gap, noting that `ParkGate` is used by six of its test files so the mechanism can fire there
+exactly as it does here. So the entry is owed to `v3.x` only *behind* the section itself. Anyone
+closing that gap should take this entry with it.
+
 ---
 
 ### 11. Five palette tests the fixture dismissed out from under itself — FIXED
