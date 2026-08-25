@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v4.4 — DRAFT, not released
-
-> These notes describe what is on `main` today. They are published ahead of the tag so the
-> work can be read as it lands, and they may still change before v4.4 is cut.
+## v4.4
 
 **Every workspace gets a folder sidebar.** SyncCloud has always known which folders you keep
 and which you were last in — it just had nowhere to put them, so the only routes were the pane
