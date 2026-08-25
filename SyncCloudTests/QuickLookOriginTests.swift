@@ -29,6 +29,23 @@ import Foundation
         return text
     }
 
+    /// The balanced argument list following `opening`, so a scan of one call cannot read the next.
+    static func argumentList(after opening: String, in source: String) throws -> String {
+        let start = try #require(source.range(of: opening), "\(opening) is gone — the scan is vacuous")
+        var depth = 1
+        var out = ""
+        for character in source[start.upperBound...] {
+            if character == "(" { depth += 1 }
+            if character == ")" {
+                depth -= 1
+                if depth == 0 { return out }
+            }
+            out.append(character)
+        }
+        Issue.record("\(opening) never closes — the scan would read the rest of the file")
+        return out
+    }
+
     /// Every call to `toggleQuickLook(` across the app, as written.
     static func callSites() throws -> [String] {
         var sites: [String] = []
@@ -74,9 +91,14 @@ import Foundation
                     "a pane Space handler opens a preview that will not follow the selection")
         }
         let content = try Self.source("ContentView.swift")
-        let treeView = try #require(content.range(of: "FileTreeView("),
-                                    "the pane is no longer built here")
-        let call = String(content[treeView.upperBound...].prefix(4_000))
+        // **The whole argument list, not a character budget.** On `main`, a `prefix(4_000)`
+        // window read this call until two new parameters pushed `onQuickLook:` ninety characters
+        // past its end, and the suite failed claiming the row menu was no longer routed to the
+        // host's panel — which was never true. A window measured in characters reports "your
+        // wiring is wrong" when the truth is "your call got longer", and it does it to whoever
+        // touches the call next rather than to whoever wrote the number. `argumentList` stops at
+        // the call's own closing paren and cannot be outgrown.
+        let call = try Self.argumentList(after: "FileTreeView(", in: content)
         #expect(call.contains("onQuickLook: { toggleQuickLook($0, followsPane: true) }"),
                 "the pane's row menu is not routed to the host's panel — it presents its own, which nothing can keep current")
     }
