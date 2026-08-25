@@ -342,6 +342,61 @@ public extension LiquidGlass {
     static let clearAccentStrength: Double = 0.5
 }
 
+// MARK: - The Tint slider's curve
+//
+// Tint is the app's ONE hue-strength knob. It used to drive only the accent wash on the content
+// surfaces (`contentSurface`), while the window background's own accent paint was fixed by the
+// Glass effect (`GlassLevel.backgroundIntensity`). That made Tint 0 a setting that could not be
+// reached: the wash was already at opacity 0 there, so "less tint" had nothing left to remove and
+// the app still read as a solid sheet of the accent hue. The whole slider moved only the panes,
+// which is why 0% and 100% look so alike — the background, the gutters and the toolbar band did
+// not move at all between them.
+//
+// Now every hue paint in the app scales with it. **That set is not written down here** — an
+// enumerating comment cannot notice a fifth paint, and a new one added at full strength would sit
+// unmoved at Tint 0 while every numeric test still passed. `BackgroundHuePaintsScaleTests` derives
+// the set from `LiquidGlassBackground`'s own source instead, so whatever it paints tomorrow is
+// what gets checked. Two curves, one input:
+//
+//   - `tintRamp` — 0 at Tint 0, 1 at Tint 100. Drives the surface wash, which still starts at
+//     nothing: at 0% a pane is the background, not a wash over it.
+//   - `backgroundHueStrength` — `tintFloor` at Tint 0, 1 at Tint 100. The background never goes
+//     colourless: the app is still recognisably the chosen hue at 0%, just faintly.
+//
+// **Tint 100 is the ceiling and it is unchanged** — both curves return exactly 1 there, so every
+// constant below and above this block still paints what it painted before. Only the range under
+// 100% is redistributed.
+
+public extension LiquidGlass {
+    /// How much of the background's accent paint survives at Tint 0, as a fraction of what it
+    /// paints at Tint 100.
+    ///
+    /// Not 0. A colourless floor would make "None" of every hue at the bottom of the slider — the
+    /// accent picker above it would stop meaning anything until you moved this one, and the two
+    /// controls would disagree about what colour the app is. A quarter is enough for the hue to be
+    /// named at a glance and far short of reading as a wash.
+    static let tintFloor: Double = 0.25
+
+    /// The exponent on the slider's travel. Above 1, so the bottom of the range moves slowly and
+    /// the top moves fast — the subtle end is where the choosing happens, and a linear ramp spent
+    /// most of its precision on differences between two already-saturated settings.
+    ///
+    /// Deliberately mild: a steeper curve makes the readout lie about what the slider is doing
+    /// (50% would paint far less than half).
+    static let tintCurve: Double = 1.35
+
+    /// The slider's travel, shaped by `tintCurve` and clamped — 0 at Tint 0, 1 at Tint 100.
+    static func tintRamp(_ tint: Double) -> Double {
+        pow(max(0.0, min(1.0, tint)), tintCurve)
+    }
+
+    /// The multiplier every hue paint in the *window background* takes. Floors at `tintFloor`
+    /// rather than 0 (see it), and reaches exactly 1 at Tint 100 so the ceiling is untouched.
+    static func backgroundHueStrength(forTint tint: Double) -> Double {
+        tintFloor + (1.0 - tintFloor) * tintRamp(tint)
+    }
+}
+
 /// How the content surfaces are *shaped* against the app's glass background — the other half of
 /// the Appearance model, orthogonal to `GlassLevel`. Stored via `LiquidGlass.surfaceStyleKey`.
 ///
@@ -495,8 +550,13 @@ public extension View {
     /// shared light-tuned constants collapse to a flat gray slab on a dark appearance, so dark
     /// gets a deep graded near-black base *under* the material and a soft accent glow *over* it,
     /// and the accent diagonal lifts its opacity to survive the darker base. Light is unchanged.
-    func liquidGlassAppBackground(level: GlassLevel, hue: LiquidGlassHue = .blue) -> some View {
-        modifier(LiquidGlassBackground(level: level, hue: hue))
+    /// `tint` is the Tint slider, 0...1. The background's accent paint scales with it (down to
+    /// `LiquidGlass.tintFloor`, never to nothing) so the slider moves the whole window rather than
+    /// only the content surfaces — see "The Tint slider's curve". No default: both call sites read
+    /// the stored value, and a default here would let one of them sit silently at full strength.
+    func liquidGlassAppBackground(level: GlassLevel, hue: LiquidGlassHue = .blue,
+                                  tint: Double) -> some View {
+        modifier(LiquidGlassBackground(level: level, hue: hue, tint: tint))
     }
 
     /// An accent-TINTED glass capsule for small chrome (the selection action bar, status pills):
@@ -650,7 +710,7 @@ public extension View {
         // A transparent wash at tint 0, up to a clear-but-legible accent at tint 1. "None" gets no
         // wash at any tint: its accentColor falls back to the system accent (for controls), which
         // would repaint the surfaces with it here.
-        let wash = hue == .none ? Color.clear : hue.accentColor.opacity(max(0.0, min(1.0, tint)) * 0.32)
+        let wash = hue == .none ? Color.clear : hue.accentColor.opacity(LiquidGlass.tintRamp(tint) * 0.32)
         self.background(wash)
     }
 
@@ -796,6 +856,8 @@ public extension View {
 private struct LiquidGlassBackground: ViewModifier {
     let level: GlassLevel
     let hue: LiquidGlassHue
+    /// The Tint slider, 0...1 — scales every accent paint below.
+    let tint: Double
     @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
@@ -810,10 +872,17 @@ private struct LiquidGlassBackground: ViewModifier {
         // the toolbar band are the only places the background is uncovered, and at 0 they came out
         // gray-white while Solid's read as the accent.
         let accentT = seeThrough ? LiquidGlass.clearAccentStrength : t
+        // Every accent paint below is scaled by this ONE value, so none of them can drift apart at
+        // the low end and shout over the rest. Resolved once here rather than per paint for the
+        // same reason — two call sites computing their own floor is how they would diverge — and
+        // `BackgroundHuePaintsScaleTests` derives the set from this source and fails any paint that
+        // does not carry it, including one added after this comment was written.
+        let hueStrength = LiquidGlass.backgroundHueStrength(forTint: tint)
         let opacities: [Double] = dark
             ? [0.19 + 0.28 * accentT, 0.15 + 0.23 * accentT, 0.10 + 0.16 * accentT]
             : [0.06 + 0.16 * accentT, 0.05 + 0.14 * accentT, 0.04 + 0.10 * accentT]
-        let gradientColors = zip(hue.gradientColors, opacities).map { $0.0.opacity($0.1) }
+        let gradientColors = zip(hue.gradientColors, opacities)
+            .map { $0.0.opacity($0.1 * hueStrength) }
 
         content.background {
             ZStack {
@@ -870,7 +939,7 @@ private struct LiquidGlassBackground: ViewModifier {
                     // bottom-right would otherwise be noticeably grayer than those at the top-left.
                     // `.none` opts out: its accentColor is the system accent, which would repaint
                     // the background in a hue the user didn't choose.
-                    hue.accentColor.opacity(LiquidGlass.clearAccentVeil)
+                    hue.accentColor.opacity(LiquidGlass.clearAccentVeil * hueStrength)
                         .ignoresSafeArea()
 
                     // Extra accent under the titlebar band, which dilutes what it covers — see
@@ -882,8 +951,8 @@ private struct LiquidGlassBackground: ViewModifier {
                                 // Hold the boost flat across the band itself, then fade: a gradient
                                 // that starts falling immediately leaves the band's lower edge short
                                 // of the content it sits against.
-                                .init(color: hue.accentColor.opacity(LiquidGlass.clearTitlebarBoost), location: 0),
-                                .init(color: hue.accentColor.opacity(LiquidGlass.clearTitlebarBoost), location: 0.62),
+                                .init(color: hue.accentColor.opacity(LiquidGlass.clearTitlebarBoost * hueStrength), location: 0),
+                                .init(color: hue.accentColor.opacity(LiquidGlass.clearTitlebarBoost * hueStrength), location: 0.62),
                                 .init(color: .clear, location: 1)
                             ],
                             startPoint: .top,
@@ -901,7 +970,7 @@ private struct LiquidGlassBackground: ViewModifier {
                 // to the system accent).
                 if dark && hue != .none {
                     RadialGradient(
-                        colors: [hue.accentColor.opacity(seeThrough ? 0.18 : 0.26 + 0.10 * t), .clear],
+                        colors: [hue.accentColor.opacity((seeThrough ? 0.18 : 0.26 + 0.10 * t) * hueStrength), .clear],
                         center: .top,
                         startRadius: 0,
                         endRadius: 700

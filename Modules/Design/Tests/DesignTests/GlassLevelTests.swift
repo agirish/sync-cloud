@@ -55,8 +55,10 @@ struct GlassLevelTests {
     // MARK: - Background intensity
 
     @Test func frostedKeepsTheRetiredSliderDefault() {
-        // 0.65 was the old `liquidGlassIntensity` default, so a migrated install's window
-        // background is pixel-identical to what it rendered before the rework.
+        // 0.65 was the old `liquidGlassIntensity` default. It used to be the whole story — a
+        // migrated install's window background was pixel-identical to what it rendered before the
+        // rework. It is now only half of it: the Tint slider scales this, so the background is
+        // pixel-identical at Tint 100 and fainter below it, which is what the slider is for.
         #expect(GlassLevel.frosted.backgroundIntensity == 0.65)
     }
 

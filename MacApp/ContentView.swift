@@ -872,7 +872,7 @@ struct ContentView: View {
         // root view rather than from the Settings picker so it re-applies whoever writes the key
         // and whether or not the Settings overlay happens to be on screen; App.init covers launch.
         .onChange(of: appearanceModeRaw) { AppAppearance.applyPersisted() }
-        .liquidGlassAppBackground(level: glassLevel, hue: glassHue)
+        .liquidGlassAppBackground(level: glassLevel, hue: glassHue, tint: surfaceTint)
         // Render the glass as if the window were always key. SwiftUI materials/`glassEffect` thin out
         // and desaturate to gray when the window loses focus (the whole surface visibly shifts as you
         // click away); pinning the active state keeps the panes and chrome looking identical whether

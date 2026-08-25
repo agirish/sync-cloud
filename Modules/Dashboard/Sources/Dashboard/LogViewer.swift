@@ -293,6 +293,10 @@ public struct LogViewer: View {
     /// matches the hue every other window passes to the same components — the lens workspace hands this exact
     /// tint to `TokenChipsRow`; the Log window used to hardcode `Color.accentColor` instead.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    /// The Tint slider. Read here for the same reason the level and hue are: this window paints the
+    /// main window's background, so it has to scale its accent by the same amount or the Activity
+    /// Log comes up at full strength beside a faintly-tinted app.
+    @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
     /// tightens the row spacing so more log lines fit on screen.
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
@@ -594,7 +598,7 @@ public struct LogViewer: View {
         .animation(.easeOut(duration: 0.14), value: isSearchExpanded)
         // Match the main window's glass: same level + hue background, so the Activity Log reads as
         // the same frosted (or, at Clear, whiter see-through) surface instead of a plain window.
-        .liquidGlassAppBackground(level: glassLevel, hue: glassHue)
+        .liquidGlassAppBackground(level: glassLevel, hue: glassHue, tint: surfaceTint)
         // Keep the glass from graying out when this window isn't key (see the main window).
         .environment(\.controlActiveState, .active)
     }

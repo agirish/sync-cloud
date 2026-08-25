@@ -453,7 +453,7 @@ enum HelpBook {
                 blocks: [
                     .bullets([
                         "Theme — System follows macOS (including its light/dark schedule); Light and Dark pin SyncCloud regardless of the system setting.",
-                        "Accent color and tint for the translucent surfaces.",
+                        "Accent color — the hue everything is tinted with — and Tint, how strongly the window carries it. Subtle keeps a faint tint rather than removing it; for none at all, pick the None accent.",
                         "Glass effect — Clear, Frosted, or Solid surfaces.",
                         "Content surface — Unified or Cards panes.",
                     ]),

@@ -975,8 +975,8 @@ struct AppearanceSettingsTab: View {
             SettingsSection(
                 "Tint",
                 caption: selectedHue == .none
-                    ? "Choose an accent color above to tint the panes and Differences area."
-                    : "Washes the panes and Differences area with the accent color chosen above."
+                    ? "Choose an accent color above to tint the window."
+                    : "How strongly the accent color colors the window. Subtle keeps a faint tint rather than removing it — for none at all, choose the None accent above."
             ) {
                 HStack(spacing: 12) {
                     // The slider's own label is hidden, not dropped: the section title above
