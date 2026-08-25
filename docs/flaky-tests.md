@@ -1184,6 +1184,29 @@ genuine gap, noting that `ParkGate` is used by six of its test files so the mech
 exactly as it does here. So the entry is owed to `v3.x` only *behind* the section itself. Anyone
 closing that gap should take this entry with it.
 
+#### Seen: `DeepFolderIdentityTests.anUndoInvokedBeforeTheIdentityWalkResolvesWaitsForItInsteadOfNoOping`, 2026-08-25
+
+Failed in `main`'s CI package run at `1aac1e18` (run 32905010113) — the one issue in a 2822-test,
+256-suite Sync run, on a tip whose three new commits touch `Modules/Design` and docs only. The
+test failed after **10.495 s** with `FirstAttributesGate.releasedByTimeout → true`: the 10 s bound
+was reached, not approached, which is this mechanism's shape. A failed-jobs re-run of the same
+commit passed clean the same day.
+
+`FirstAttributesGate` is a new gate to this list but the same contract, and it says so in its own
+doc comment: the mirror of `FirstStatGate`, gating the registration walk's first
+`attributesOfItem` over the mock disk instead of `fileExists` over the real one. Its
+`gateIfFirst()` parks `release.wait(timeout: .now() + 10)` on whichever thread the walk stat'd
+from — a cooperative-pool thread under a package run — while the test's async side needs that same
+pool to reach `fm.release.signal()`. Defined privately in
+`Modules/Sync/Tests/Sync/DeepFolderIdentityTests.swift`, so a sweep of `TestSupport.swift`'s gates
+will not see it.
+
+The `#require(!fm.releasedByTimeout, …)` that failed is the honest-expiry check doing its job —
+the held race silently un-held itself, and the test surfaced that instead of asserting against a
+state it never held. Nothing about the test is wrong; it is one more semaphore-park added to the
+same start-of-run thundering herd, and any remedy is the section's third option (park on a thread
+outside the cooperative pool), weighed with the same care as `ProgressAccountingTests` above.
+
 ---
 
 ### 11. Five palette tests the fixture dismissed out from under itself — FIXED
