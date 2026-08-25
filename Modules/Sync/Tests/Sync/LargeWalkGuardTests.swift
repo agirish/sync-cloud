@@ -121,6 +121,115 @@ import Testing
         #expect(report.totalBytes == 3 * 8)
     }
 
+    // MARK: - The other call sites' declines
+    //
+    // Testing the decline on the storage lens alone proves the SEAM declines; only each pass's own
+    // call site proves that pass consults it — the lesson `aTreeExactlyAtTheBudgetRunsWithoutAsking`
+    // records, pointed at the other four walks. Each test's premise is the recorded preflight: a
+    // pass that never asked either never probed or ran unbounded, and both are the finding.
+
+    /// Find Duplicates declined must publish no groups — the fixture holds a real identical pair,
+    /// so an empty result here is the decline working rather than a tree with nothing to find.
+    @MainActor
+    @Test func decliningTheDuplicatesWalkPublishesNoGroups() async throws {
+        let root = try fixture(files: 12)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("A/report.pdf"), bytes: 64)
+        try write(root.appendingPathComponent("B/report.pdf"), bytes: 64)
+
+        let manager = FileSyncManager()
+        manager.wholeTreeProbeBudget = 4
+        var seen: LargeWalkPreflight?
+        manager.largeWalkConfirmer = { seen = $0; return false }
+        await manager.findDuplicates(root: root)
+
+        let p = try #require(seen, "the duplicates pass never asked — its walk ran unbounded, or unprobed")
+        #expect(p.pass == .duplicates)
+        #expect(p.rootPath == root.path)
+        #expect(manager.duplicateGroups.isEmpty,
+                "a declined scan published groups — computed from the probe's truncated tree, so a duplicate group here is a duplicate MISSED elsewhere")
+        #expect(!manager.hasFoundDuplicates,
+                "a declined scan reported completion — an empty 'no duplicates' over a tree it refused to read")
+    }
+
+    /// Rename declined must report no risky names. The fixture plants a name the detector is
+    /// proven to flag (`NameNormalizerTests` pins the zero-width space for iCloud), so an empty
+    /// list is the decline and not a clean tree.
+    @MainActor
+    @Test func decliningTheRenameWalkReportsNoRiskyNames() async throws {
+        let root = try fixture(files: 12)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("photo\u{200B}.jpg"), bytes: 8)
+
+        let manager = FileSyncManager()
+        manager.wholeTreeProbeBudget = 4
+        var seen: LargeWalkPreflight?
+        manager.largeWalkConfirmer = { seen = $0; return false }
+        await manager.scanNames(root: root, provider: .iCloud)
+
+        let p = try #require(seen, "the rename pass never asked — its walk ran unbounded, or unprobed")
+        #expect(p.pass == .rename)
+        #expect(manager.riskyNames.isEmpty,
+                "a declined scan reported risky names — found in the probe's partial tree, which reads as 'these are all of them'")
+        #expect(!manager.nameScanLifecycle.hasCompleted,
+                "a declined scan reported completion, which is indistinguishable from a clean tree")
+    }
+
+    /// Filing declined must publish nothing — no suggestions, and no risky names either, because
+    /// `detectRiskyNames` runs on the taxonomy the gate protects and sits on the line after it.
+    @MainActor
+    @Test func decliningTheFilingWalkPublishesNothing() async throws {
+        let root = try fixture(files: 12)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("photo\u{200B}.jpg"), bytes: 8)
+
+        let manager = FileSyncManager()
+        manager.wholeTreeProbeBudget = 4
+        var seen: LargeWalkPreflight?
+        manager.largeWalkConfirmer = { seen = $0; return false }
+        await manager.findFilingSuggestions(folder: root, providerRoot: root, nameProvider: .iCloud)
+
+        let p = try #require(seen, "the filing pass never asked — its taxonomy walk ran unbounded, or unprobed")
+        #expect(p.pass == .filing)
+        #expect(p.rootPath == root.path)
+        #expect(manager.filingSuggestions.isEmpty,
+                "a declined scan published suggestions — routed against a taxonomy missing the folders the probe never reached")
+        #expect(manager.riskyNames.isEmpty,
+                "the decline let the risky-name detection run on the probe's truncated taxonomy")
+        #expect(!manager.filingScanLifecycle.hasCompleted)
+    }
+
+    /// **The folder-memory re-survey, which is the pass that WRITES.** Declined, it must open no
+    /// document and leave no artifact — a re-survey that proceeded on the probe's truncated tree
+    /// would not merely be slow, it would merge what it happened to read over the corpus.
+    ///
+    /// Reuses `FilingResurveyTests.makeTree`, the one fixture that stands up the survey's
+    /// preconditions (profile directory, folder profile, recording extractor); its recorder is
+    /// this test's second premise, proving the pass read nothing rather than merely reported
+    /// nothing.
+    @MainActor
+    @Test func decliningTheResurveyWalkWritesNothingAndReadsNothing() async throws {
+        let (manager, docs, profiles, reads) = try FilingResurveyTests.makeTree()
+        defer { try? FileManager.default.removeItem(at: profiles.deletingLastPathComponent()) }
+        manager.wholeTreeProbeBudget = 2
+        var seen: LargeWalkPreflight?
+        manager.largeWalkConfirmer = { seen = $0; return false }
+
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        let p = try #require(seen, "the re-survey never asked — the one Organize-reachable whole-tree walk is unbounded again")
+        #expect(p.pass == .filing, "the prompt should name the feature the memory belongs to")
+        #expect(p.rootPath == docs.path)
+        #expect(report == .none, "a declined re-survey reported work: \(report.summary)")
+        #expect(reads.paths.isEmpty,
+                "the declined pass opened \(reads.paths.count) document(s) — the cost the guard exists to ask about first")
+        #expect(!FileManager.default.fileExists(atPath: profiles.appendingPathComponent("t/filing-corpus.json").path),
+                "a declined re-survey wrote a corpus")
+        #expect(!FileManager.default.fileExists(atPath: profiles.appendingPathComponent("t/filing-memory.json").path),
+                "a declined re-survey wrote a memory")
+        #expect(manager.filingMemory == nil, "a declined re-survey published a memory")
+    }
+
     // MARK: - What the prompt is told
 
     @MainActor

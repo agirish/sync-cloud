@@ -24,7 +24,12 @@ public struct SidebarSourceRow: Identifiable, Equatable, Sendable {
         /// macOS's Desktop & Documents syncing creates, where `~/Desktop` is a link into
         /// `com~apple~CloudDocs`. Clicking navigates there inside the owning source; nothing is
         /// added, because adding it would mean two sources scanning one tree.
-        case inside(sourceName: String)
+        ///
+        /// Carries the owner's **id, and its name only for display**: `owningSource` resolves the
+        /// owner precisely, and a handler re-resolving it by display name would pick the wrong one
+        /// of two same-named sources — name collisions being the very case this section's
+        /// qualifiers exist for.
+        case inside(sourceId: String, sourceName: String)
         /// A local shortcut SyncCloud does not know about. Drawn dimmed. Clicking adds it as a
         /// folder source, scans it, and says so with an inline Remove.
         case unknown

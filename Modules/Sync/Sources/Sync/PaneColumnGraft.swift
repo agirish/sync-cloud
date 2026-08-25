@@ -126,12 +126,16 @@ extension FileSyncManager {
         // Captured before the await, compared after: a swap in that window moves this path to the
         // other pane, and `key.isLeft` would then name the tree it is NOT about.
         let orientation = paneOrientationGeneration
+        // Also captured-and-compared: the sort option. The listing is built in this option's
+        // order, and a sort change while it runs re-sorts the live trees before it lands — a
+        // graft in the old order would then be the one out-of-order column on screen.
+        let builtWith = sortOption
 
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.columnGraftsInFlight.remove(key) }
-            let children = await Self.buildTree(url: URL(fileURLWithPath: path),
-                                                sortOption: self.sortOption,
+            var children = await Self.buildTree(url: URL(fileURLWithPath: path),
+                                                sortOption: builtWith,
                                                 fileManager: self.fileManager, maxDepth: 1)
             guard !Task.isCancelled else { return }
             // **The panes swapped while this ran.** `swapPanes` has already cleared the in-flight
@@ -153,6 +157,20 @@ extension FileSyncManager {
             // listing ran, in which case this answer is about a tree that is gone. `grafting`
             // returns nil for exactly that and the answer is dropped.
             let current = isLeft ? self.rawLeftTree : self.rawRightTree
+            // **And re-ask the question the graft exists to answer.** The pre-await guard ran
+            // against a tree that may have been replaced since: a refresh or the deep walk itself
+            // can publish this node FULLY WALKED while the listing runs (the same path is still
+            // present, so `grafting` alone would not notice). Grafting then would overwrite a
+            // deep subtree with a one-level listing whose child directories are re-marked
+            // unexplored — and, through the cache write below, poison the next warm scan. The
+            // outline row's open fires this request ungated, so the race is ordinary, not exotic.
+            guard Self.isUnexplored(atPath: path, in: current) else { return }
+            // A sort change during the listing has already re-sorted the live trees; bring the
+            // listing into the same order before it joins them. (The cache write below is safe
+            // either way — a sort change clears `prefetchedTrees`, so the `!= nil` guard skips it.)
+            if self.sortOption != builtWith {
+                children = Self.sort(nodes: children, by: self.sortOption)
+            }
             guard let grafted = Self.grafting(children: children, atPath: path, into: current) else { return }
             self.rawTreeGeneration += 1
             if isLeft { self.rawLeftTree = grafted } else { self.rawRightTree = grafted }

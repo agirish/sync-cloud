@@ -56,6 +56,25 @@ struct PaneClickReporter: NSViewRepresentable {
         /// asserted the safety property over the one input that could not exercise it.
         var currentEventType: () -> NSEvent.EventType? = { NSApp.currentEvent?.type }
 
+        /// **How the report leaves the click's own routing window.** `hitTest` runs while the
+        /// event is still being routed — before the clicked control has seen its mouseDown — and
+        /// the report is a `@Published` write the clicked List is itself bound to. Publishing
+        /// there is the `aa9d407` ordering mistake with an earlier timestamp: the pending
+        /// invalidation can flush inside the table's mouse-down tracking loop and reload the List
+        /// mid-commit, dropping the click — the two-clicks-to-select bug this codebase has had
+        /// once already. `paneSelectionBinding` orders its own focus write *after* the selection
+        /// commit for exactly this reason; the reporter, firing earliest of all, defers instead.
+        ///
+        /// `.default` runloop mode, NOT `DispatchQueue.main.async`: the main queue drains in the
+        /// common modes, which include event tracking, so an async hop can still land inside the
+        /// very loop it is trying to stay out of. Nothing reads the focus synchronously out of
+        /// the same click — the context menu is keyed to the row's pane by design, and the
+        /// selection path writes focus itself after its commit — so arriving a turn later changes
+        /// no answer, only the ordering.
+        var deliver: (@escaping () -> Void) -> Void = { block in
+            RunLoop.main.perform(inModes: [.default], block: block)
+        }
+
         /// Always returns nil — see the type's doc. One exit, so "declines the click" is a property
         /// of the member rather than of whichever branch a reader happens to check.
         ///
@@ -66,8 +85,9 @@ struct PaneClickReporter: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? {
             if PaneClickReporter.shouldReport(currentEventType()),
                let superview,
-               bounds.contains(convert(point, from: superview)) {
-                onClick?()
+               bounds.contains(convert(point, from: superview)),
+               let onClick {
+                deliver(onClick)
             }
             return nil
         }

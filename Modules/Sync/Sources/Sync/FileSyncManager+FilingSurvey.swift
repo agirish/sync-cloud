@@ -103,8 +103,27 @@ extension FileSyncManager {
         if let taxonomy {
             walked = taxonomy
         } else {
-            walked = await Self.buildTree(url: root, sortOption: .name,
-                                          fileManager: fileManager, maxDepth: nil)
+            // **The same ask-first the other whole-tree passes make.** "Update folder memory" is
+            // one click in Organize, and the sidebar has made promoting `~` or a whole volume to
+            // a source a one-click act too — this was the one Organize-reachable whole-tree walk
+            // left unbounded after the four gates landed. Reuses `.filing`: the memory belongs to
+            // the Filing feature, and the prompt should name what the user knows.
+            let probe = NodeBudget(wholeTreeProbeBudget)
+            var tree = await Self.buildTree(url: root, sortOption: .name,
+                                            fileManager: fileManager, maxDepth: nil, budget: probe)
+            if Task.isCancelled { return .none }
+            if probe.didStopADescent {
+                let preflight = LargeWalkPreflight(pass: .filing, rootPath: root.path,
+                                                   probeLimit: probe.limit)
+                guard largeWalkConfirmer(preflight) else {
+                    Logger.shared.info("Folder memory: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not re-surveyed")
+                    return .none
+                }
+                tree = await Self.buildTree(url: root, sortOption: .name,
+                                            fileManager: fileManager, maxDepth: nil)
+                if Task.isCancelled { return .none }
+            }
+            walked = tree
         }
         if Task.isCancelled { return .none }
         // **A root that could not be listed must never reach the merge.** `buildTree` reports a

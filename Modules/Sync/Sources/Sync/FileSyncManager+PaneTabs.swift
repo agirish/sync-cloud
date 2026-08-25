@@ -73,7 +73,7 @@ extension FileSyncManager {
         if PaneTabArrival.needsReload(arrivingAt: tab,
                                       fromProvider: currentProviderId,
                                       fromFocus: isLeft ? leftRelativePath : rightRelativePath) {
-            if tab.providerId != currentProviderId { prefetchedTrees.removeAll() }
+            if tab.providerId != currentProviderId { dropPrefetchedTrees() }
             invalidatePaneTree(isLeft: isLeft)
             invalidateDifferencesForPaneRetarget()
             clearSessionIgnoredPaths()

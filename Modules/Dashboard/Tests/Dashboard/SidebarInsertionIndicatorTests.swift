@@ -43,8 +43,9 @@ import Design
                          isAvailable: true)
     }
 
-    private func render(drag: FolderSidebarView.DragInFlight?, current: String = "") -> NSBitmapImageRep? {
-        let column = FolderSidebarView(folderRows: [], locationRows: Self.locations,
+    private func render(drag: FolderSidebarView.DragInFlight?, current: String = "",
+                        folderRows: [FolderSidebarRow] = []) -> NSBitmapImageRep? {
+        let column = FolderSidebarView(folderRows: folderRows, locationRows: Self.locations,
                                        shortcutRows: Self.shortcuts,
                                        currentRoot: "/loc0", currentRelativePath: "",
                                        currentSourceId: current,
@@ -152,6 +153,30 @@ import Design
         let pitch = try rowMidY(1) - first
         #expect(line < first, "the line for a top drop sits below the row it should sit above")
         #expect(first - line < pitch, "the line for a top drop is more than a row above it")
+    }
+
+    /// **An unarmed recents drag paints no line at all.** The line is the promise that releasing
+    /// commits, and a recents drag whose pointer has not reached the Favorites band is a cancel —
+    /// `DragInFlight.willDrop` false. Drawing it anyway is how a ≥5pt slip on a recent came to read
+    /// as an honest insertion offer for a membership change the release then persisted.
+    ///
+    /// The armed render of the SAME drag is the premise: a fixture that cannot paint an indicator
+    /// for this drag would report "no line" for reasons that have nothing to do with the bit.
+    @Test func anUnarmedRecentsDragDrawsNoLine() throws {
+        let recents = [FolderSidebarRow(group: .recents, root: "/loc0", sourceName: nil,
+                                        relativePath: "Notes", name: "Notes", detail: nil,
+                                        isAvailable: true)]
+        func recentsDrag(willDrop: Bool) -> FolderSidebarView.DragInFlight {
+            .init(section: .recents, from: 0, to: 0, translation: -40, willDrop: willDrop)
+        }
+
+        let armed = try #require(render(drag: recentsDrag(willDrop: true), folderRows: recents))
+        try #require(lineY(armed) != nil,
+                     "the ARMED render of this drag paints no line either — the fixture cannot see the bit, and the assertion below would pass vacuously")
+
+        let unarmed = try #require(render(drag: recentsDrag(willDrop: false), folderRows: recents))
+        #expect(lineY(unarmed) == nil,
+                "an unarmed recents drag painted an insertion line — promising a commit the release must refuse")
     }
 
     /// **The mark is an insertion caret, not a rule.** A bare bar is the same shape as the divider

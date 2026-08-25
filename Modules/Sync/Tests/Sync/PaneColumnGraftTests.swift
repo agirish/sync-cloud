@@ -357,6 +357,103 @@ import Testing
                 "the cached tree is still the ungrafted one — walking away and back re-blanks the column")
     }
 
+    /// **A listing must not land on a folder that was fully walked while it ran.**
+    ///
+    /// The pre-await guard asks the tree that existed when the column asked; a refresh or the deep
+    /// walk itself can publish this node FULLY WALKED before the listing lands, and the path is
+    /// still present — so `grafting` alone would happily overwrite the deep subtree with a
+    /// one-level listing whose child directories are re-marked unexplored, and the cache write
+    /// would hand that poorer tree to the next warm scan. The outline row's open fires the request
+    /// ungated, so the race is ordinary, not exotic.
+    ///
+    /// Driven by replacing the raw tree between the request and the landing, which is exactly the
+    /// window the post-await re-check exists for; the replacement is synchronous with the call, so
+    /// it lands before the graft's task first runs — the same timing the swap test above relies on.
+    @MainActor
+    @Test func aListingIsDroppedWhenTheFolderWasFullyWalkedWhileItRan() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "graftstale")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("deep/sub"),
+                                                withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: root.appendingPathComponent("deep/sub/inner.txt"))
+        let deep = root.appendingPathComponent("deep").path
+
+        let manager = FileSyncManager()
+        manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
+        try #require(FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+                     "the fixture arrived already walked — this measures nothing")
+
+        manager.loadColumnChildren(atPath: deep, isLeft: true)
+        // The window: before the listing lands, a full walk publishes the node explored — into the
+        // raw tree AND the cache, which is what the deep walk's adopt does.
+        let full = await FileSyncManager.buildTree(url: root, sortOption: .name)
+        try #require(node(deep, in: full)?.isUnexplored == nil,
+                     "the replacement tree still reads as unread — the guard under test would be right to graft")
+        // The path is still present, so the pre-existing `grafting != nil` guard alone would NOT
+        // drop this answer — only the post-await unexplored re-check can.
+        try #require(FileSyncManager.grafting(children: [], atPath: deep, into: full) != nil,
+                     "the path is gone from the replaced tree — the older not-found guard drops this and the re-check is never exercised")
+        manager.rawLeftTree = full
+        manager.lastLoadedLeftFocusPath = root.path
+        manager.prefetchedTrees[root.path] = full
+
+        await waitUntil("the request clears, whether or not it grafted") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
+
+        let sub = try #require(node(root.appendingPathComponent("deep/sub").path, in: manager.rawLeftTree))
+        #expect(sub.children?.map(\.name) == ["inner.txt"],
+                "the stale one-level listing overwrote a fully walked subtree — sub's children are gone")
+        #expect(sub.isUnexplored == nil,
+                "sub was re-marked unexplored by a listing that answered a question already answered better")
+        let cachedSub = try #require(node(root.appendingPathComponent("deep/sub").path,
+                                          in: manager.prefetchedTrees[root.path] ?? []))
+        #expect(cachedSub.children?.map(\.name) == ["inner.txt"],
+                "the cache took the stale graft — the next warm scan compares a poisoned tree")
+    }
+
+    /// **A sort change during the listing lands the graft in the LIVE order.** The listing is
+    /// built in the option captured at request time; a change while it runs re-sorts the pane's
+    /// trees, and a graft in the old order would be the one out-of-order column on screen.
+    ///
+    /// Real filesystem, because a mock-built tree carries no sizes (`TreeBuilder.stat` reads
+    /// metadata only from a real `FileManager`) and every sort option ties back to name order
+    /// without them. The change is made synchronously after the request, on the main actor, so it
+    /// is in place before the landing can possibly run — and the assertion is confined to the
+    /// GRAFTED children, deliberately: `resortTreesAndRefilter` discards itself when the graft's
+    /// generation bump beats it, so the root level's final order depends on scheduling, but the
+    /// grafted children are size-ordered on every interleaving only if the landing re-sorts them.
+    @MainActor
+    @Test func aListingLandsReSortedWhenTheSortChangedWhileItRan() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "graftsort")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("deep"),
+                                                withIntermediateDirectories: true)
+        // Name order [apple, zebra]; size order [zebra, apple]. If the two agreed, the assertion
+        // below could not tell the captured option from the live one.
+        try Data("x".utf8).write(to: root.appendingPathComponent("deep/apple.txt"))
+        try Data("xxx".utf8).write(to: root.appendingPathComponent("deep/zebra.txt"))
+        let deep = root.appendingPathComponent("deep").path
+
+        let manager = FileSyncManager()
+        manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
+        try #require(FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+                     "the fixture arrived already walked — this measures nothing")
+        try #require(manager.sortOption == .name, "the fixture does not start from the captured option")
+
+        manager.loadColumnChildren(atPath: deep, isLeft: true)
+        // Synchronous with the call above, exactly like the swap test's generation bump: the task
+        // has not run yet, so the listing is built under .name and lands under .size.
+        manager.sortOption = .size
+
+        await waitUntil("the listing grafts into the pane's tree") {
+            self.node(deep, in: manager.rawLeftTree)?.children?.isEmpty == false
+        }
+        let grafted = try #require(node(deep, in: manager.rawLeftTree))
+        #expect(grafted.children?.map(\.name) == ["zebra.txt", "apple.txt"],
+                "the graft landed in the order it was requested under (\(grafted.children?.map(\.name) ?? [])) — the one out-of-order column on screen")
+    }
+
     /// A folder the walk already read is not re-listed. The call site is a view modifier that fires
     /// for reasons a view cannot see, so this guard is what stops an ordinary column from asking
     /// for its own contents on every appearance.

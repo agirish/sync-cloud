@@ -120,6 +120,28 @@ import Design
         #expect(rows.map(\.root) == ["/iCloud", "/Dropbox"])
     }
 
+    /// **Two sources on one root must not crash the sidebar.** `SettingsManager.existingSource`
+    /// keeps two enabled providers off one root today, but a hand-edited plist or a future entry
+    /// point is all it takes — and the builder used `uniqueKeysWithValues:`, which TRAPS on the
+    /// duplicate, turning that guard's gap into a crash on every refresh. First-wins instead, so
+    /// every row resolves against the source Settings lists first: with the two sources disagreeing
+    /// on availability and name, a row crediting the second would be visible here.
+    @Test func twoSourcesOnOneRootDrawWithoutTrappingAndTheFirstWins() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "Personal", ["Legal"]),
+                      Self.source("/iCloud", "Impostor", ["Legal"], available: false)],
+            recents: [])
+        // Both favorites lists still contribute rows — membership is per source; only the lookup
+        // by root collapses.
+        #expect(rows.count == 2, "a duplicate root dropped rows rather than resolving them")
+        #expect(rows.allSatisfy { $0.isAvailable },
+                "a row took the duplicate's availability — the first listed source must win")
+        // Top-level collision, so the qualifier is the owning source's name: first-wins is what
+        // keeps it reading "Personal" rather than crediting the duplicate.
+        #expect(rows.allSatisfy { $0.detail == "Personal" },
+                "a row was qualified by the duplicate source's name: \(rows.map(\.detail))")
+    }
+
     /// The badge names the source once more than one contributes rows.
     @Test func theBadgeAppearsOnlyWhenMoreThanOneSourceContributes() {
         let single = FolderSidebarModel.rows(
@@ -606,5 +628,74 @@ import Design
         let left = try #require(code.range(of: "\"Open in Left Pane\""))
         let right = try #require(code.range(of: "\"Open in Right Pane\""))
         #expect(left.lowerBound < right.lowerBound)
+    }
+}
+
+/// **The recents-drag arming rule, read off the view's source.**
+///
+/// A recents drag becomes a favorite — a persisted membership change — and it must arm only once
+/// the pointer has actually reached the Favorites band. The rule lives in the gesture's `onChanged`
+/// closure, which no test process can drive (a `DragGesture` needs a real event stream), and its
+/// two consumers sit in `onEnded` and the indicator overlay — so this is scanned the way
+/// `SidebarRowSideMenuTests` scans the same file: comments stripped, with premise anchors so a
+/// renamed member fails loudly instead of passing over an empty match.
+///
+/// What went wrong without it: any ≥5pt slip on a recent — a sloppy trackpad click — favorited the
+/// row irrevocably, because the insertion index was clamped into Favorites' band and every release
+/// committed. `SidebarInsertionIndicatorTests` proves the unarmed drag paints no line; these prove
+/// the release and the overlay consult the same bit the line does.
+@Suite struct SidebarRecentsDragArmingScanTests {
+
+    static func source() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Dashboard/FolderSidebar.swift")
+        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
+                               "cannot read FolderSidebar.swift — this scan would be vacuous")
+        try #require(raw.count > 3000, "the file is implausibly short — the scan is vacuous")
+        // Comments stripped, as every source scan here does: the arming rule is QUOTED in the doc
+        // comments explaining it, and a scan that reads comments asserts what the code says about
+        // itself rather than what it does.
+        return raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let comment = line.range(of: "//") else { return line }
+                return line[..<comment.lowerBound]
+            }
+            .joined(separator: "\n")
+    }
+
+    /// The rule itself: armed only above Locations' measured top, and `.infinity` when the column
+    /// is unmeasured — an unmeasured column stays armed rather than dead.
+    @Test func theArmingRuleComparesAgainstLocationsTop() throws {
+        let code = try Self.source()
+        #expect(code.contains("let willDrop = section != .recents"),
+                "the arming rule is gone, or no longer exempts within-section drags")
+        #expect(code.contains("value.location.y < (sectionTops[.locations] ?? .infinity)"),
+                "the boundary is no longer Locations' measured top with an armed fallback — an unmeasured column would go dead, or a slip would commit")
+    }
+
+    /// **The release consults the bit.** The `.recents` case of `onEnded` must guard on
+    /// `willDrop` before it calls `onFavoriteRecent` — an unarmed release is a cancel, not a
+    /// no-op variant, and this guard is the only thing between a sloppy click and a persisted
+    /// membership change.
+    @Test func theRecentsDropGuardsOnTheArmedBit() throws {
+        let code = try Self.source()
+        let ended = try #require(code.range(of: ".onEnded {"),
+                                 "the drag's onEnded is gone — this scan is aimed at nothing")
+        let recents = try #require(code.range(of: "case .recents:", range: ended.upperBound..<code.endIndex),
+                                   "onEnded no longer switches into a .recents case")
+        let commit = try #require(code.range(of: "onFavoriteRecent(", range: recents.upperBound..<code.endIndex),
+                                  "the recents drop no longer commits at all — this scan is aimed at nothing")
+        let branch = code[recents.upperBound..<commit.lowerBound]
+        #expect(branch.contains("guard inFlight.willDrop else { return }"),
+                "the recents drop does not guard on willDrop — every ≥5pt slip on a recent favorites it irrevocably")
+    }
+
+    /// **The indicator consults the same bit**, so the line and the release cannot disagree: the
+    /// line is the promise that releasing commits, and an unarmed drag must promise nothing.
+    @Test func theIndicatorOverlayGuardsOnTheSameBit() throws {
+        let code = try Self.source()
+        #expect(code.contains("if let drag, drag.willDrop, !collapsed.contains(dropTarget(for: drag.section))"),
+                "the insertion line no longer reads willDrop — it would promise a commit the release refuses, or vice versa")
     }
 }

@@ -86,7 +86,7 @@ import Foundation
         let code = try Self.source()
         #expect(code.contains("func openFolderSidebarRow(_ row: FolderSidebarRow, inNewTab: Bool, side: Bool? = nil)"))
         #expect(code.contains("func openFolderSidebarSource(_ source: SidebarSourceRow, inNewTab: Bool, side: Bool? = nil)"))
-        #expect(code.contains("inNewTab: inNewTab,\n                                                    isLeft: isLeft)"),
+        #expect(code.contains("inNewTab: inNewTab, isLeft: isLeft)"),
                 "the inside-its-owner branch does not receive the resolved side — it re-reads the target")
         #expect(!code.contains("""
                                                  inNewTab: Bool) {

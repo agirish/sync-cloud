@@ -1171,7 +1171,7 @@ public class FileSyncManager: ObservableObject {
         didSet {
             guard sortOption != oldValue else { return }
             // Invalidate prefetch cache for roots as they need re-sorting or re-scanning
-            prefetchedTrees.removeAll()
+            dropPrefetchedTrees()
             if sortOption == .tags {
                 // Trees are built WITHOUT Finder tags unless sorting by them (the per-file
                 // xattr fetch dominated large scans — see TreeBuilder.includeTags), so the
@@ -1191,7 +1191,7 @@ public class FileSyncManager: ObservableObject {
     @Published public var showHiddenFiles: Bool = false {
         didSet {
             guard showHiddenFiles != oldValue else { return }
-            prefetchedTrees.removeAll()
+            dropPrefetchedTrees()
             Task { await self.applyFilters() }
         }
     }
@@ -1674,6 +1674,23 @@ public class FileSyncManager: ObservableObject {
     /// instead of serving its artificial empty children. Cleared by file operations, sort
     /// changes, and force refresh.
     public var prefetchedTrees: [String: [FileNode]] = [:]
+    /// The cache entries whose deep walk `paneNodeBudget` STOPPED — provenance the trees
+    /// themselves cannot carry, because a budget-stopped directory and a permission-denied one
+    /// wear the same `isUnexplored` mark. Read by the warm scan branch, which must banner a
+    /// comparison over a truncated tree (`PartialComparison.of`'s walk-stopped overload) even
+    /// though its per-directory suppression stays precise. Written only beside a cache write;
+    /// a bit is never read without its `prefetchedTrees` entry, so a cleared cache cannot leak
+    /// a stale bit into a verdict.
+    public var prefetchedTreeWalkStopped: Set<String> = []
+
+    /// Drops every cached pane tree AND its walk-stopped provenance — one verb, so the two stores
+    /// cannot part company at an invalidation site. Every invalidation of `prefetchedTrees` goes
+    /// through here; a site that cleared the trees alone would leave provenance bits to be
+    /// re-read the next time the same focus path is cached by a slice.
+    public func dropPrefetchedTrees() {
+        prefetchedTrees.removeAll()
+        prefetchedTreeWalkStopped.removeAll()
+    }
     /// Focused-folder path each pane's published tree was last loaded for; distinguishes a
     /// same-focus refresh (keep showing the current tree while rebuilding) from a focus
     /// change (repaint shallow immediately) in `loadTree`.
@@ -1978,7 +1995,7 @@ public class FileSyncManager: ObservableObject {
     /// in-flight one instead (matching the file-operation and setting-change supersede paths).
     /// `noteScanConfigChanged` is `internal`, so the app can't do this itself — hence this entry.
     public func prepareForcedRescan() {
-        prefetchedTrees.removeAll()
+        dropPrefetchedTrees()
         noteScanConfigChanged()
     }
 
@@ -2154,7 +2171,7 @@ public class FileSyncManager: ObservableObject {
             let res = await operation()
             await MainActor.run { [weak self] in
                 // File operations mutate the filesystem; cached prefetched roots are stale after any write.
-                self?.prefetchedTrees.removeAll()
+                self?.dropPrefetchedTrees()
                 // A refresh already in flight walked mid-operation disk state; the post-op
                 // refresh below must supersede it, not dedupe against it.
                 self?.noteScanConfigChanged()

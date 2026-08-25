@@ -182,8 +182,9 @@ public struct FileDiffEngine {
     ///
     /// The consequence is real and worth knowing: for one folder pair large enough to truncate, a
     /// COLD scan reports no Missing rows at all while a WARM one reports the legitimate ones. Both
-    /// say in the log that they are partial, so the difference is visible rather than silent —
-    /// which is the most that can be done about it from here.
+    /// banner as partial — this branch through the `""` record, the warm branch through the cached
+    /// tree's walk-stopped provenance (`PartialComparison.of`'s overload) — so the difference in
+    /// suppression is declared rather than silent, which is the most that can be done from here.
     ///
     /// - Parameters:
     ///   - url: The root directory URL to scan.

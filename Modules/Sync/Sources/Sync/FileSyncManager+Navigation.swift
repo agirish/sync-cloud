@@ -448,7 +448,7 @@ extension FileSyncManager {
         // Drop the prefetch cache too (keyed by absolute path): after a provider/root change the
         // old root's fully-walked tree is dead weight, and this method documents clearing "both
         // pane trees" — the fast-path cache is part of that state and its rescan repopulates it.
-        prefetchedTrees.removeAll()
+        dropPrefetchedTrees()
         rawLeftTree = []
         rawRightTree = []
         if !leftTree.isEmpty { leftTree = [] }

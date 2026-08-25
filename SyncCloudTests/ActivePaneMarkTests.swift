@@ -175,11 +175,21 @@ import AppKit
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("MacApp/ContentView.swift")
         let code = try #require(try? String(contentsOf: url, encoding: .utf8))
-        #expect(code.contains("ActivePaneMark(isFocused: paneIsFocusedPane(isLeft: isLeft)"),
+        // Counted inside `paneColumn`'s own body, not across the file: a fourth surface elsewhere
+        // adopting the spelling while a pane card lost it would keep a file-wide count at three —
+        // the assertion is about the column the test names.
+        let start = try #require(code.range(of: "func paneColumn"),
+                                 "paneColumn is gone — the mark has no home to be asserted in")
+        let rest = String(code[start.upperBound...])
+        // Member indentation only (4–5 spaces): a looser `\s*` would stop at the first LOCAL
+        // `var` inside the body and truncate the slice above the cards it is counting.
+        let end = rest.range(of: #"\n {4,5}(private )?(func|var) "#, options: .regularExpression)
+        let column = end.map { String(rest[..<$0.lowerBound]) } ?? rest
+        #expect(column.contains("ActivePaneMark(isFocused: paneIsFocusedPane(isLeft: isLeft)"),
                 "the pane column does not carry the mark")
         // Every card in the column, not some of them: a stack with one bordered card reads as that
         // card being active rather than the pane.
-        #expect(code.components(separatedBy: "accentBorder: paneCardAccent(isLeft: isLeft)").count - 1 == 3,
+        #expect(column.components(separatedBy: "accentBorder: paneCardAccent(isLeft: isLeft)").count - 1 == 3,
                 "the column's three cards do not all take the accent border")
     }
 
@@ -235,7 +245,36 @@ import AppKit
         let count = Count()
         reporter.onClick = { count.n += 1 }
         reporter.currentEventType = { event }
+        // Delivery made synchronous so these tests assert the REPORTING rule (which presses, at
+        // which points) without also spinning a runloop. The deferral itself is pinned by
+        // `theReportLeavesTheClicksOwnRoutingWindow`, which keeps the production `deliver`.
+        reporter.deliver = { $0() }
         return (reporter, { count.n })
+    }
+
+    /// **The report arrives OUTSIDE the click's own routing window.** `hitTest` runs while the
+    /// event is being routed, and the report is a `@Published` write the clicked List is bound
+    /// to — delivered synchronously it is the `aa9d407` two-clicks-to-select ordering, pending
+    /// inside the table's mouse-down tracking loop. This pins the production `deliver`: nothing
+    /// fires inside `hitTest`, and the report lands on the next `.default`-mode turn.
+    @Test func theReportLeavesTheClicksOwnRoutingWindow() {
+        let host = NSView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        let reporter = PaneClickReporter.ClickReportingView(
+            frame: CGRect(x: 100, y: 0, width: 100, height: 200))
+        host.addSubview(reporter)
+        final class Count { var n = 0 }
+        let count = Count()
+        reporter.onClick = { count.n += 1 }
+        reporter.currentEventType = { .leftMouseDown }
+        #expect(reporter.hitTest(CGPoint(x: 150, y: 100)) == nil)
+        #expect(count.n == 0,
+                "the report published inside the click's own routing window — the ordering aa9d407 exists to forbid")
+        // Bounded: spin `.default` until the deferred report lands or the budget is spent.
+        let deadline = Date().addingTimeInterval(2)
+        while count.n == 0, Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        #expect(count.n == 1, "the deferred report never arrived — the click would no longer move focus at all")
     }
 
     /// **It answers nil to every hit test**, so the press continues to whatever lies beneath. A

@@ -171,7 +171,7 @@ extension ContentView {
                 detail: container.map { "in \($0.name)" },
                 symbol: place.symbol, absolutePath: place.path, band: place.band,
                 state: owner != nil ? .configured
-                     : container.map { .inside(sourceName: $0.name) } ?? .unknown,
+                     : container.map { .inside(sourceId: $0.id, sourceName: $0.name) } ?? .unknown,
                 isAvailable: Self.isMountedFolder(place.path))
         }
 
@@ -496,7 +496,13 @@ extension ContentView {
         // `focusOn` takes a path relative to whatever root the pane is already on, so without this
         // the pane would resolve `Health` against the wrong account and land somewhere real and
         // wrong, which is worse than landing nowhere.
-        if FolderJumpStore.key(forRoot: folderSidebarRoot) != row.root {
+        //
+        // Asked of the pane the row is OPENING ON — `isLeft`, which the context menu can point at
+        // the non-target pane — not of `folderSidebarRoot`, which always describes the target.
+        // Asking the target answers for the wrong pane exactly when `side` is doing its job.
+        let paneRoot = (settings.path(for: isLeft ? leftProviderId : rightProviderId) as NSString)
+            .expandingTildeInPath
+        if FolderJumpStore.key(forRoot: paneRoot) != row.root {
             guard let provider = folderSidebarProviders.first(where: {
                 FolderJumpStore.key(forRoot: ($0.path as NSString).expandingTildeInPath) == row.root
             }) else {
@@ -610,9 +616,9 @@ extension ContentView {
             } else {
                 setFolderSidebarProvider(source.id, isLeft: isLeft)
             }
-        case .inside(let owner):
-            openFolderSidebarShortcutInsideItsOwner(source, owner: owner, inNewTab: inNewTab,
-                                                    isLeft: isLeft)
+        case .inside(let ownerId, let owner):
+            openFolderSidebarShortcutInsideItsOwner(source, ownerId: ownerId, owner: owner,
+                                                    inNewTab: inNewTab, isLeft: isLeft)
         case .unknown:
             promoteFolderSidebarShortcut(source, isLeft: isLeft, inNewTab: inNewTab)
         case .revealOnly:
@@ -635,16 +641,25 @@ extension ContentView {
     ///   inside another source would silently have opened it on the target side instead. One of
     ///   three `.state` branches behaving differently from the other two is precisely the kind of
     ///   thing nobody would think to try.
-    func openFolderSidebarShortcutInsideItsOwner(_ source: SidebarSourceRow, owner: String,
-                                                 inNewTab: Bool, isLeft: Bool) {
+    func openFolderSidebarShortcutInsideItsOwner(_ source: SidebarSourceRow, ownerId: String,
+                                                 owner: String, inNewTab: Bool, isLeft: Bool) {
         let resolved = Self.resolved(source.absolutePath)
-        guard let provider = folderSidebarProviders.first(where: { $0.displayName == owner }) else {
+        // By ID, never by display name: `.inside` carries the id `owningSource` resolved precisely
+        // so that two same-named sources — the collision this section's qualifiers exist for —
+        // cannot make this pick the wrong one and count-strip against the wrong root.
+        guard let provider = folderSidebarProviders.first(where: { $0.id == ownerId }) else {
             Logger.shared.warning("Sidebar: \(source.name) claims to be in \(owner), which is not an enabled source")
             return
         }
         let root = Self.resolved((provider.path as NSString).expandingTildeInPath)
         // The path relative to the owning source's root — `focusOn` takes a relative path, and the
-        // shortcut only knows its absolute one.
+        // shortcut only knows its absolute one. Containment re-checked rather than assumed: the
+        // row was built earlier, and a source path edited since would make a blind count-strip
+        // produce a garbage relative path against the new root.
+        guard SidebarSourceModel.contains(resolved, under: root) || SidebarSourceModel.isSameFolder(resolved, root) else {
+            Logger.shared.warning("Sidebar: \(source.name) is no longer inside \(owner) — its source has moved")
+            return
+        }
         let relative = resolved.count > root.count
             ? String(resolved.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             : ""
@@ -652,7 +667,12 @@ extension ContentView {
             openInNewTab(absolutePath: resolved, isLeft: isLeft)
             return
         }
-        if provider.id != folderSidebarProviderId { setFolderSidebarProvider(provider.id, isLeft: isLeft) }
+        // Compared against the pane being opened on, matching the `setFolderSidebarProvider` call
+        // beside it — comparing the target pane's provider here while setting the `isLeft` pane's
+        // was the missed half of the fix this function's own doc describes.
+        if provider.id != (isLeft ? leftProviderId : rightProviderId) {
+            setFolderSidebarProvider(provider.id, isLeft: isLeft)
+        }
         if !relative.isEmpty { syncManager.focusOn(relativePath: relative, isLeft: isLeft) }
     }
 
@@ -669,8 +689,22 @@ extension ContentView {
         // account "knows things about that folder that a folder source would throw away". So this
         // is safe even if the containment check above missed a case: the worst outcome is a switch
         // to the source that was already there.
+        // Whether the call MINTED a source, decided by membership taken BEFORE the call — taken
+        // after, it cannot tell "just added" from "already existed". The row can name a folder
+        // that is already a source, merely a *disabled* one the enabled-only builder cannot see;
+        // on that path the after-the-fact test answered true, put "Added" on screen, and offered
+        // a Remove that would have deleted a source the user configured long ago.
+        let knownBefore = Set(settings.folderSources.map(\.id) + settings.availableProviders.map(\.id))
         let id = settings.addFolderSource(path: source.absolutePath)
-        let wasAdded = settings.folderSources.contains { $0.id == id }
+        let wasAdded = !knownBefore.contains(id)
+        // A pre-existing source reached from a "not added yet" row can only be a disabled one —
+        // enabled sources draw as `.configured`. The click means "use this folder", so switch it
+        // back on; pointing the pane at a disabled provider would land in a state the pane
+        // header's own menu cannot reach.
+        if !wasAdded && !settings.isEnabled(id) {
+            settings.setEnabled(true, for: id)
+            Logger.shared.info("Sidebar: re-enabled \(source.name) (\(id)) — promoted while disabled")
+        }
         // **No rename here, deliberately.** A promoted volume root used to be called `/`, and this
         // wrote the sidebar's own word over it — until `FolderSource.defaultDisplayName` learned to
         // ask the volume for its name, which fixes it at the source for every way a source can be
@@ -799,10 +833,6 @@ extension ContentView {
     /// cloud band is the provider list minus two, and every index past the first claimed one
     /// addressed the wrong source. Dragging one cloud row reordered a different one, and dragging
     /// a device row indexed past the end and silently did nothing.
-    ///
-    /// Records the order **in Settings** rather than in the sidebar. One order, read by everything:
-    /// a sidebar and a pane-header dropdown showing the same eleven accounts in two different
-    /// sequences is the drift that makes a user distrust both.
     ///
     /// **Rows that are not sources contribute nothing**, and sources not drawn here keep their
     /// existing positions — see `SidebarReorder.reordering`. Writing the visible ones out followed

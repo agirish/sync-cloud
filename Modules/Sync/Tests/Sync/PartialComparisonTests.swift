@@ -95,6 +95,72 @@ import Foundation
         #expect(!message.contains("that side"))
     }
 
+    // MARK: - The warm-branch overload, whose conjunction is load-bearing in both directions
+
+    /// **The bit plus a surviving unexplored directory is partial.** This is the warm scan of a
+    /// budget-stopped tree: the root was readable so no `""` record exists, and the truncation
+    /// lives only in per-directory marks an ordinary locked folder also wears. The provenance bit
+    /// is what lets the overload read those marks as coverage rather than as noise — without it
+    /// this exact input is the case that published `.complete` with no banner.
+    @Test func aStoppedWalkWithASurvivingUnexploredDirectoryIsPartial() {
+        let coverage = PartialComparison.of(left: ["Deep": info(unexplored: true)], right: [:],
+                                            leftWalkStopped: true, rightWalkStopped: false)
+        #expect(coverage.left, "the cached tree's stopped walk left directories unread and the banner stayed down")
+        #expect(!coverage.right, "the right side inherited the left's provenance")
+    }
+
+    /// **The bit alone is not partial.** A stopped walk whose every unexplored directory has since
+    /// been grafted in (columns opened them) really did cover everything by the time this
+    /// comparison ran — bannering it would claim rows were suppressed that were not.
+    @Test func aStoppedWalkWhoseGapsWereAllGraftedInIsComplete() {
+        let coverage = PartialComparison.of(left: ["Deep": info(unexplored: false)], right: [:],
+                                            leftWalkStopped: true, rightWalkStopped: false)
+        #expect(coverage.isComplete,
+                "the provenance bit alone bannered a comparison whose every directory was read")
+    }
+
+    /// **The marks alone are not partial either.** An unexplored directory with no stopped walk
+    /// behind it is an ordinary locked folder, and `compare` already suppresses exactly the rows
+    /// under it — bannering every scan of a disk holding one is the plain overload's refusal, and
+    /// the overload must not undo it.
+    @Test func anOrdinaryLockedFolderStillDoesNotBanner() {
+        let coverage = PartialComparison.of(left: ["Locked": info(unexplored: true)], right: [:],
+                                            leftWalkStopped: false, rightWalkStopped: false)
+        #expect(coverage.isComplete,
+                "a locked folder deep in the tree bannered without a stopped walk — the warning people learn to stop reading")
+    }
+
+    /// An unexplored FILE does not arm the conjunction: only a directory can hold unwalked rows,
+    /// and a file wearing the mark is a shape the walk never produces.
+    @Test func anUnexploredFileDoesNotArmTheStoppedWalk() {
+        let coverage = PartialComparison.of(left: ["odd.txt": info(unexplored: true, isDirectory: false)],
+                                            right: [:],
+                                            leftWalkStopped: true, rightWalkStopped: false)
+        #expect(coverage.isComplete)
+    }
+
+    /// **The `""` record still wins regardless of the bit** — an unlistable root is partial with
+    /// the bit down, and no more partial with it up. The overload extends the plain rule; it must
+    /// not replace it.
+    @Test func theRootRecordWinsWhateverTheBitSays() {
+        for stopped in [false, true] {
+            let coverage = PartialComparison.of(left: ["": info(unexplored: true)], right: [:],
+                                                leftWalkStopped: stopped, rightWalkStopped: false)
+            #expect(coverage.left,
+                    "an unread root stopped bannering when leftWalkStopped == \(stopped)")
+        }
+    }
+
+    /// Each side reads its own bit and its own map — a stopped left walk must not banner the
+    /// right, and vice versa, or the sentence names the wrong account.
+    @Test func theSidesDoNotShareProvenance() {
+        let coverage = PartialComparison.of(left: [:],
+                                            right: ["Deep": info(unexplored: true)],
+                                            leftWalkStopped: true, rightWalkStopped: true)
+        #expect(!coverage.left, "the left has no unexplored directory and bannered anyway")
+        #expect(coverage.right)
+    }
+
     /// **The sentence must not name a cause, because the value it is built from does not carry
     /// one.** `of(left:right:)` reads a single boolean per side, and `FileDiffEngine.compare` mints
     /// that same `""` record both for a root it could not LIST (permission denied) and for a walk it

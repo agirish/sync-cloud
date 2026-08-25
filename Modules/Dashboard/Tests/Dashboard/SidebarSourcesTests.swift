@@ -90,6 +90,26 @@ import Foundation
         #expect(SidebarSourceModel.contains("/Users/u/Downloads/A", under: "/Users/u/Downloads"))
     }
 
+    /// **Two same-named sources resolve by ID, and the id survives into `.inside`.** Name
+    /// collisions are the very case this section's qualifiers exist for — three Google Drive
+    /// accounts all render one word — so a handler re-resolving the owner by display name would
+    /// pick whichever "Drive" came first and count-strip the path against the wrong root. The id
+    /// `owningSource` returns is what `.inside(sourceId:sourceName:)` carries; this pins that a
+    /// path inside the SECOND of two same-named roots identifies the second.
+    @Test func aPathInsideTheSecondOfTwoSameNamedSourcesResolvesToTheSecond() throws {
+        let roots = [(id: "drive-personal", name: "Drive", path: "/Users/u/Drive"),
+                     (id: "drive-work", name: "Drive", path: "/Volumes/Work/Drive")]
+        let owner = try #require(SidebarSourceModel.owningSource(
+            of: "/Volumes/Work/Drive/Projects", among: roots) { $0 })
+        #expect(owner.id == "drive-work",
+                "the owner's name is “Drive” either way — only the id says which account, and it named the wrong one")
+        #expect(owner.name == "Drive")
+        // The state built from that answer carries the id beside the display name, so no handler
+        // downstream has to resolve the name again.
+        let state = SidebarSourceRow.State.inside(sourceId: owner.id, sourceName: owner.name)
+        #expect(state == .inside(sourceId: "drive-work", sourceName: "Drive"))
+    }
+
     /// Case is folded, because the default macOS volume is case-insensitive and the two spellings
     /// name one folder. Claiming is the safe direction: a wrong claim costs a navigation the user
     /// can see, a missed one costs a duplicate source they will not.
@@ -238,7 +258,7 @@ import Foundation
     /// And every row that can act draws at full strength, whatever clicking it will do.
     @Test func everyReachableRowIsFullStrength() {
         #expect(!row(.configured).isDimmed)
-        #expect(!row(.inside(sourceName: "iCloud Drive")).isDimmed)
+        #expect(!row(.inside(sourceId: "icloud", sourceName: "iCloud Drive")).isDimmed)
         #expect(!row(.revealOnly).isDimmed)
     }
 }

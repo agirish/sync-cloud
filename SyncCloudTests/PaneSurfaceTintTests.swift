@@ -90,9 +90,33 @@ import Testing
                 "the wash is applied after the card clips — it will poke past the rounded corners")
     }
 
+    /// The `PaneHeader` type's own slice: from its declaration to the file's next top-level
+    /// declaration. Structural, like `stripModifiers` above, and for the same reason — a
+    /// character budget truncates under unrelated edits, and a file-level `contains` is worse:
+    /// a wash anywhere else in DashboardViews.swift would keep it green while the header lost
+    /// its own, which is precisely the drift the strip's slice exists to rule out.
+    private static func paneHeaderSlice(in source: String) throws -> String {
+        let start = try #require(source.range(of: "struct PaneHeader"),
+                                 "PaneHeader is gone — the wash has no home to be asserted in")
+        let rest = String(source[start.upperBound...])
+        // The next declaration at column zero ends the type. Anchored to the line start so a
+        // nested type inside PaneHeader's body cannot end the slice early.
+        let end = rest.range(of: #"\n(public |private |internal |final )*(struct|enum|class|extension)\s"#,
+                             options: .regularExpression)
+        return end.map { String(rest[..<$0.lowerBound]) } ?? rest
+    }
+
     @Test func theHeaderTakesTheWash() throws {
         let source = try Self.repoFile("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
-        #expect(source.contains(Self.wash))
+        let header = try Self.paneHeaderSlice(in: source)
+        // The slice is the header's own body, not the whole file: a modifier the header has
+        // carried since the height rule landed anchors it, and the boundary really cut something.
+        try #require(header.contains(".frame(height: LiquidGlass.headerHeight)"),
+                     "the slice does not contain the header's own height pin — it is not the right region")
+        try #require(header.count < source.count,
+                     "the slice is the whole file — the boundary matched nothing and this is the file-level check again")
+        #expect(header.contains(Self.wash),
+                "the header does not paint the tint — the middle of the pane's three surfaces reads as a pale band")
     }
 
     @Test func theFileListTakesTheWash() throws {

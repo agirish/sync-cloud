@@ -118,6 +118,13 @@ extension FileSyncManager {
         }
 
         // The same walk the panes do. Names and counts only — no document is opened.
+        //
+        // **Unbounded, and deliberately so — a setup-scope decision, not an oversight.** The
+        // three setup walks (this one, `proposePlaces`, `proposePeople`) run over the profile
+        // root the user just pointed the sheet at, in a flow where three consecutive size prompts
+        // would cost more than they protect. The four Organize/Storage passes and the folder-
+        // memory re-survey all gate through `largeWalkConfirmer`; if setup ever grows a path onto
+        // an unvetted root, these three join them.
         let tree = await Self.buildTree(url: root, sortOption: .name)
 
         let recordedRoot = Self.recordedRoot(for: root)

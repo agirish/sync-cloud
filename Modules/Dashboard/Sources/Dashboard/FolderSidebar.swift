@@ -134,7 +134,11 @@ public enum FolderSidebarModel {
     ///   rule the reorder handler applies, called from the one place that draws.
     public static func rows(sources: [Source], recents: [RememberedVisit],
                             favoriteOrder: [String] = []) -> [FolderSidebarRow] {
-        let byRoot = Dictionary(uniqueKeysWithValues: sources.map { ($0.root, $0) })
+        // First-wins on a duplicate root, not `uniqueKeysWithValues:` — that spelling TRAPS, and
+        // while `SettingsManager.existingSource` keeps two enabled providers off one root today,
+        // a hand-edited plist or a future entry point would turn that guard's gap into a crash on
+        // every sidebar refresh. Same spelling as this file's other builders.
+        let byRoot = Dictionary(sources.map { ($0.root, $0) }, uniquingKeysWith: { a, _ in a })
         // Only sources that actually contribute a row count toward "is this multi-source" — a
         // second account with nothing remembered in it should not put a badge on every row.
         var contributing = Set(sources.filter { !$0.favorites.isEmpty }.map(\.root))
@@ -563,6 +567,15 @@ public struct FolderSidebarView: View {
         var to: Int
         /// How far the pointer has moved, so the lifted row can follow it.
         var translation: CGFloat
+        /// Whether releasing now commits. Always true for a within-section reorder — those have
+        /// `isNoOp` for the do-nothing case — but a *recents* drag becomes a favorite, a persisted
+        /// membership change, and it only arms once the pointer has actually reached the Favorites
+        /// band. Without this, any ≥5pt slip on a recent — a sloppy trackpad click — favorited the
+        /// row irrevocably: the insertion index was computed against Favorites' midpoints and
+        /// clamped into its band, so every release, including one back on the row it came from,
+        /// still committed. Releasing anywhere below Favorites is a cancel, matching what the
+        /// hidden insertion line promises.
+        var willDrop: Bool = true
     }
 
     public init(folderRows: [FolderSidebarRow],
@@ -671,7 +684,9 @@ public struct FolderSidebarView: View {
                     // rows and no reported top to aim at, so `insertionY`'s last fallback put the
                     // caret at y = 0, at the very top of the column and pointing at a heading three
                     // sections away from where the row was going.
-                    if let drag, !collapsed.contains(dropTarget(for: drag.section)),
+                    // …and nothing is drawn for an unarmed recents drag: the line is the promise
+                    // that releasing commits, and below the Favorites band releasing cancels.
+                    if let drag, drag.willDrop, !collapsed.contains(dropTarget(for: drag.section)),
                        let y = insertionY(for: drag, in: dropTarget(for: drag.section)) {
                         insertionIndicator
                             .offset(y: y - Self.insertionIndicatorHeight / 2)
@@ -690,9 +705,6 @@ public struct FolderSidebarView: View {
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    /// **Which pane a click lands in**, pinned above the scroll area so it cannot be scrolled away
-    /// from — it describes every row below it, not the rows currently in view.
-    ///
     /// **Which pane a click lands in, said out loud** — pinned above the scroll area so it cannot
     /// be scrolled away from, because it describes every row below it and not the rows in view.
     ///
@@ -704,8 +716,10 @@ public struct FolderSidebarView: View {
     /// second setter here would compete with the pane for authority over a value that now governs
     /// the action bar and the lens scans too.
     ///
-    /// What it says is therefore the SOURCE, not the side: the border has the side covered, and the
-    /// rows below belong to one source's tree.
+    /// What it says is the SIDE — "Opens on Left/Right", `SidebarTarget.openingDescription`. It
+    /// named the source for one build on the reasoning that the border already carries the side,
+    /// and that wording implied the rows below were one source's, which they are not; the whole
+    /// story is on `SidebarTarget`.
     private func targetHeader(_ target: SidebarTarget) -> some View {
         HStack(spacing: 4) {
             Image(systemName: SidebarTarget.symbol(targetsRight: target.targetsRight))
@@ -892,11 +906,13 @@ public struct FolderSidebarView: View {
             }
             ForEach(Array(devices.enumerated()), id: \.element.id) { index, source in
                 // **Indices continue across the rule**, because it is a visual break inside one
-                // section rather than a second list — the stored order is one sequence. A drop
-                // does NOT cross it, though: the bands are re-applied when the rows are built, so
-                // `clampedDrop` stops a drag at its own band rather than letting the insertion line
-                // promise a landing the column will not draw.
-                draggableRow(section: .locations, index: clouds.count + index) { sourceRow(for: source) }
+                // section rather than a second list — the stored order is one sequence. Device
+                // rows do not drag at all, though: their half of the band is drawn home-first
+                // then volumes-by-name, never from the stored order, so no device reorder can
+                // ever render — see `draggableRow`'s `draggable:`.
+                draggableRow(section: .locations, index: clouds.count + index, draggable: false) {
+                    sourceRow(for: source)
+                }
             }
         }
     }
@@ -1021,8 +1037,14 @@ public struct FolderSidebarView: View {
     }
 
     /// One row, wrapped so it reports its midpoint and can be picked up.
+    /// - Parameter draggable: pass false for a row that reports its midpoint but cannot be picked
+    ///   up — the device rows, whose band is drawn home-first-then-volumes-by-name and never from
+    ///   the stored order, so no device reorder can ever render. Letting them lift anyway drew an
+    ///   honest-looking insertion line whose drop always snapped back — and, with two
+    ///   provider-backed device rows, silently rewrote the persisted provider order while the
+    ///   sidebar showed nothing changed.
     @ViewBuilder
-    private func draggableRow<Content: View>(section: Section, index: Int,
+    private func draggableRow<Content: View>(section: Section, index: Int, draggable: Bool = true,
                                              @ViewBuilder content: () -> Content) -> some View {
         let isLifted = drag?.section == section && drag?.from == index
         content()
@@ -1065,9 +1087,17 @@ public struct FolderSidebarView: View {
                         let raw = SidebarReorder.insertionIndex(
                             forY: value.location.y,
                             midpoints: orderedMidpoints(dropTarget(for: section)))
+                        // A recents drag arms only above the Locations band — i.e. once the
+                        // pointer is really over Favorites, the section it would drop into. See
+                        // `DragInFlight.willDrop`; Locations always draws (a first run has at
+                        // least one source), so its top is the boundary that exists to measure
+                        // against. `.infinity` keeps an unmeasured column armed rather than dead.
+                        let willDrop = section != .recents
+                            || value.location.y < (sectionTops[.locations] ?? .infinity)
                         drag = DragInFlight(section: section, from: index,
                                             to: clampedDrop(raw, section: section, from: index),
-                                            translation: value.translation.height)
+                                            translation: value.translation.height,
+                                            willDrop: willDrop)
                     }
                     .onEnded { _ in
                         defer { drag = nil }
@@ -1080,11 +1110,16 @@ public struct FolderSidebarView: View {
                             guard !SidebarReorder.isNoOp(from: inFlight.from, to: inFlight.to) else { return }
                             onMoveSource(inFlight.from, inFlight.to)
                         case .recents:
+                            // The unarmed release is a cancel, not a no-op variant: the pointer
+                            // never reached Favorites, so committing would persist a membership
+                            // change the (hidden) insertion line never promised.
+                            guard inFlight.willDrop else { return }
                             let recents = FolderSidebarModel.rows(folderRows, in: .recents)
                             guard recents.indices.contains(inFlight.from) else { return }
                             onFavoriteRecent(recents[inFlight.from], inFlight.to)
                         }
-                    })
+                    },
+                    including: draggable ? .all : .subviews)
     }
 
     // MARK: - Rows
@@ -1169,7 +1204,7 @@ public struct FolderSidebarView: View {
         guard source.isAvailable else { return "\(source.name) — not available right now" }
         switch source.state {
         case .configured: return source.absolutePath
-        case .inside(let owner): return "\(source.absolutePath) — in \(owner)"
+        case .inside(_, let owner): return "\(source.absolutePath) — in \(owner)"
         case .unknown: return "Add \(source.name) as a source and open it"
         case .revealOnly: return "Open \(source.name) in Finder"
         }
@@ -1180,7 +1215,7 @@ public struct FolderSidebarView: View {
         if let detail = source.detail { label += ", \(detail)" }
         switch source.state {
         case .configured: break
-        case .inside(let owner): label += ", in \(owner)"
+        case .inside(_, let owner): label += ", in \(owner)"
         case .unknown: label += ", not added yet"
         case .revealOnly: label += ", opens in Finder"
         }

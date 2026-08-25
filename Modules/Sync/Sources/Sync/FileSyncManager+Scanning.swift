@@ -135,6 +135,14 @@ extension FileSyncManager {
             let cached = prefetchedTrees[focusPath]
                 ?? Self.subtree(atPath: focusPath, in: prefetchedTrees[rootURL.path])
             if let cached {
+                // A slice inherits the root walk's stopped provenance: the budget stopped
+                // SOMEWHERE, and this subtree may hold some of what went unwalked. Inheriting
+                // liberally is safe — the warm scan re-checks the maps for surviving unexplored
+                // directories before it banners, so an over-inherited bit on a whole slice
+                // costs nothing.
+                if prefetchedTreeWalkStopped.contains(rootURL.path) {
+                    prefetchedTreeWalkStopped.insert(focusPath)
+                }
                 prefetchedTrees[focusPath] = cached
                 self.adoptRawTree(cached, isLeft: isLeft, focusPath: focusPath)
                 await self.applyFilters()
@@ -185,10 +193,15 @@ extension FileSyncManager {
             }
 
             let deepStart = Elapsed()
+            // Held rather than inlined: after the walk, `didStopADescent` is the one fact that
+            // says whether this tree is the whole folder — the cached tree's provenance, which
+            // the warm scan needs to report partial coverage (see `PartialComparison.of`'s
+            // walk-stopped overload). Discarding it here is what left a warm scan of a truncated
+            // tree publishing `.complete` with no banner.
+            let paneBudget = NodeBudget(Self.paneNodeBudget,
+                                        note: "Scan: this folder is larger than a pane walks in one pass — the rest is shown as unexplored, not empty, and columns load it when you open them")
             let tree = await Self.buildTree(
-                url: focusURL, sortOption: sortOp, fileManager: fm,
-                budget: NodeBudget(Self.paneNodeBudget,
-                                   note: "Scan: this folder is larger than a pane walks in one pass — the rest is shown as unexplored, not empty, and columns load it when you open them"))
+                url: focusURL, sortOption: sortOp, fileManager: fm, budget: paneBudget)
             let deepWalk = deepStart.text
 
             guard !Task.isCancelled else {
@@ -198,7 +211,8 @@ extension FileSyncManager {
 
             let publishStart = CFAbsoluteTimeGetCurrent()
             let published = await self.adoptFreshDeepTree(tree, builtWith: sortOp, isLeft: isLeft, focusPath: focusPath,
-                                                          loadToken: loadToken, configToken: configToken)
+                                                          loadToken: loadToken, configToken: configToken,
+                                                          walkStopped: paneBudget.didStopADescent)
             // `adoptFreshDeepTree` can bail without publishing (cancelled during its off-actor
             // re-sort), which the old "Tree Loaded. Count:" line reported as a completion
             // regardless — it ran unconditionally on the line after. Distinguish them.
@@ -234,8 +248,11 @@ extension FileSyncManager {
     ///   as a superseded load rather than a completion — its old completion line sat on the
     ///   statement after this call and so claimed a load that had published nothing.
     @discardableResult
+    /// - Parameter walkStopped: whether `paneNodeBudget` stopped the walk that built `tree` — the
+    ///   cached tree's provenance, recorded beside the cache entry so a later warm scan can say
+    ///   its coverage is partial. Defaults to false for the tests that adopt hand-built trees.
     func adoptFreshDeepTree(_ tree: [FileNode], builtWith sortOp: SortOption, isLeft: Bool, focusPath: String,
-                            loadToken: Int, configToken: Int) async -> Bool {
+                            loadToken: Int, configToken: Int, walkStopped: Bool = false) async -> Bool {
         var tree = tree
         let liveSort = sortOption
         if liveSort != sortOp {
@@ -282,6 +299,13 @@ extension FileSyncManager {
         //    poor tree. Cache only the genuine, unmodified build.
         if sortOption == sortOp, liveSort == sortOp, scanConfigGeneration == configToken, !Task.isCancelled {
             prefetchedTrees[focusPath] = tree
+            // The provenance travels with the entry, in both directions — a fresh complete walk
+            // must also RETIRE a stale stopped mark, or the banner would outlive the truncation.
+            if walkStopped {
+                prefetchedTreeWalkStopped.insert(focusPath)
+            } else {
+                prefetchedTreeWalkStopped.remove(focusPath)
+            }
         }
         return true
     }
@@ -564,7 +588,7 @@ extension FileSyncManager {
                 Logger.shared.debug("Swept \(removed) orphaned .tmp_ working file(s)")
                 // The swept entries are baked into the cached deep trees; drop the cache
                 // so navigation reloads from disk instead of serving ghost entries.
-                self.prefetchedTrees.removeAll()
+                self.dropPrefetchedTrees()
             }
         }
         return true
@@ -718,6 +742,13 @@ extension FileSyncManager {
         let newDifferences: ScanOutcome?
         if let cachedLeft = prefetchedTrees[leftURL.path], let cachedRight = prefetchedTrees[rightURL.path] {
             Logger.shared.debug("[scan] \(scanTag) from cached trees (no directory enumeration)")
+            // Read on the main actor with the trees, carried into the compute: whether each
+            // cached tree's walk was budget-stopped. The maps alone cannot say — the root is
+            // readable, so no `""` record exists — and without this bit a warm scan of a
+            // truncated tree published `.complete` and showed no banner, the silent floor the
+            // banner was built to end (the cold branch of the very same pair banners).
+            let leftWalkStopped = prefetchedTreeWalkStopped.contains(leftURL.path)
+            let rightWalkStopped = prefetchedTreeWalkStopped.contains(rightURL.path)
 
             let computeTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 guard !Task.isCancelled else { return nil }
@@ -771,7 +802,9 @@ extension FileSyncManager {
                         caseInsensitive: caseInsensitive,
                         dateToleranceSeconds: dateTolerance
                     ),
-                    coverage: PartialComparison.of(left: leftFilesInfo, right: rightFilesInfo))
+                    coverage: PartialComparison.of(left: leftFilesInfo, right: rightFilesInfo,
+                                                   leftWalkStopped: leftWalkStopped,
+                                                   rightWalkStopped: rightWalkStopped))
             }
             newDifferences = await withTaskCancellationHandler {
                 await computeTask.value

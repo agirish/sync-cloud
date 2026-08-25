@@ -153,7 +153,7 @@ import Foundation
     /// A row's section is decided by its band alone — not by its state — so being a source, being
     /// inside one, or being neither all land in the same place.
     @Test func theSectionDoesNotDependOnWhetherThePlaceIsASource() {
-        let states: [SidebarSourceRow.State] = [.configured, .unknown, .inside(sourceName: "iCloud")]
+        let states: [SidebarSourceRow.State] = [.configured, .unknown, .inside(sourceId: "icloud", sourceName: "iCloud")]
         for state in states {
             let row = SidebarSourceRow(id: "x", name: "Desktop", detail: nil, symbol: "doc",
                                        absolutePath: "/d", band: .shortcut, state: state,

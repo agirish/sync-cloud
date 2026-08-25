@@ -282,3 +282,116 @@ import Foundation
                 "\(writes) assignments to browseSidebarFavoritePlacesRaw — every write but the funnel's own can overwrite bytes this build could not read")
     }
 }
+
+/// **Which pane a sidebar open ASKS ABOUT, read off the three handlers' own bodies.**
+///
+/// All three route through `isLeft`, which the context menu can point at the non-target pane — and
+/// each of them had, or nearly had, a spelling that consulted the TARGET's state instead
+/// (`folderSidebarRoot`, `folderSidebarProviderId`), which answers for the wrong pane exactly when
+/// `side` is doing its job. `ContentView` cannot be instantiated in a test, so the derivations are
+/// pinned the way this file pins wiring: one named file, comments stripped, each check scoped to
+/// the member it is about — a spelling adopted elsewhere in the file must not answer for the
+/// handler that lost it — and premise-anchored so a renamed member fails loudly.
+@Suite struct FolderSidebarOpenTargetingTests {
+
+    static func sidebarSource() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
+        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
+                               "cannot read ContentView+FolderSidebar.swift — this scan would be vacuous")
+        try #require(raw.count > 5000, "the file is implausibly short — the scan is vacuous")
+        // Comments stripped, as this file's other scans do — these fixes are QUOTED in the doc
+        // comments that explain them, so an unstripped scan would find the prose with the code
+        // reverted.
+        return raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let comment = line.range(of: "//") else { return line }
+                return line[..<comment.lowerBound]
+            }
+            .joined(separator: "\n")
+    }
+
+    /// One member's body: from its declaration to the next member declaration at the extension's
+    /// own indentation. Structural, not a character budget — a budget is the window that
+    /// truncated under an unrelated edit and failed a test about something else entirely.
+    /// Member indentation only (4–5 spaces), so a LOCAL `var` inside the body does not end the
+    /// slice early; continuation lines of a multi-line signature are indented deeper and cannot
+    /// match either.
+    static func body(of declaration: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> String {
+        let code = try sidebarSource()
+        let start = try #require(code.range(of: declaration),
+                                 "\(declaration) is gone — this scan is aimed at nothing",
+                                 sourceLocation: sourceLocation)
+        let rest = String(code[start.upperBound...])
+        let end = rest.range(of: #"\n {4,5}(private )?(func|var) "#, options: .regularExpression)
+        return end.map { String(rest[..<$0.lowerBound]) } ?? rest
+    }
+
+    /// **`openFolderSidebarRow` asks the pane it is opening on.** The source-switch guard compares
+    /// the row's root against the `isLeft` pane's provider path — not `folderSidebarRoot`, which
+    /// always describes the target and so switched the wrong pane's source from the context menu.
+    @Test func theRowOpenDerivesItsGuardFromTheOpeningPane() throws {
+        let body = try Self.body(of: "func openFolderSidebarRow(")
+        try #require(body.contains("syncManager.focusOn(relativePath: row.relativePath, isLeft: isLeft)"),
+                     "the open no longer focuses — this slice is not the member it claims to be")
+        #expect(body.contains("settings.path(for: isLeft ? leftProviderId : rightProviderId)"),
+                "the guard no longer derives the pane root from the pane being opened on")
+        #expect(!body.contains("FolderJumpStore.key(forRoot: folderSidebarRoot)"),
+                "the guard asks the TARGET's root — it answers for the wrong pane exactly when `side` points the other way")
+    }
+
+    /// **`openFolderSidebarShortcutInsideItsOwner` resolves its owner by ID.** `.inside` carries
+    /// the id `owningSource` resolved precisely so two same-named sources cannot make this pick
+    /// the wrong one and count-strip against the wrong root.
+    @Test func theInsideOpenResolvesItsOwnerById() throws {
+        let body = try Self.body(of: "func openFolderSidebarShortcutInsideItsOwner(")
+        try #require(body.contains("folderSidebarProviders.first(where:"),
+                     "the owner lookup is gone — this slice is not the member it claims to be")
+        #expect(body.contains("$0.id == ownerId"),
+                "the owner is not resolved by id — two same-named sources and this picks whichever came first")
+        #expect(!body.contains("displayName == owner"),
+                "the owner is resolved by display name, the collision this section's qualifiers exist for")
+    }
+
+    /// And it compares against the pane being opened on, matching the `setFolderSidebarProvider`
+    /// call beside it — comparing the target pane's provider while setting the `isLeft` pane's was
+    /// the missed half of the same fix.
+    @Test func theInsideOpenComparesTheOpeningPanesProvider() throws {
+        let body = try Self.body(of: "func openFolderSidebarShortcutInsideItsOwner(")
+        #expect(body.contains("provider.id != (isLeft ? leftProviderId : rightProviderId)"),
+                "the switch decision reads some other pane's provider than the one it sets")
+        #expect(!body.contains("provider.id != folderSidebarProviderId"),
+                "the switch decision reads the TARGET pane's provider while setting the `isLeft` pane's")
+    }
+
+    /// **`promoteFolderSidebarShortcut` decides "minted" by membership taken BEFORE the call.**
+    /// Taken after, it cannot tell "just added" from "already existed": a disabled source's row
+    /// draws as not-added, the after-the-fact test answered true, and the inline Remove would have
+    /// deleted a source the user configured long ago.
+    @Test func thePromotionTakesMembershipBeforeItAdds() throws {
+        let body = try Self.body(of: "func promoteFolderSidebarShortcut(")
+        let before = try #require(body.range(of: "let knownBefore"),
+                                  "the before-the-call membership set is gone — wasAdded can no longer tell added from existed")
+        let add = try #require(body.range(of: "settings.addFolderSource(path:"),
+                               "the promotion no longer adds — this slice is not the member it claims to be")
+        #expect(before.lowerBound < add.lowerBound,
+                "membership is taken AFTER addFolderSource — at that point the id is always known and wasAdded is always false")
+        #expect(body.contains("let wasAdded = !knownBefore.contains(id)"),
+                "wasAdded is not derived from the before-the-call set")
+        #expect(!body.contains("let wasAdded = settings.folderSources.contains"),
+                "wasAdded is read off the after-the-fact list, which cannot tell added from existed")
+    }
+
+    /// **A promotion that reached an existing source re-enables it.** A "not added yet" row over a
+    /// pre-existing source can only mean a DISABLED one — enabled sources draw as `.configured` —
+    /// and pointing the pane at a disabled provider lands in a state the pane header's own menu
+    /// cannot reach.
+    @Test func thePromotionReEnablesADisabledExistingSource() throws {
+        let body = try Self.body(of: "func promoteFolderSidebarShortcut(")
+        #expect(body.contains("if !wasAdded && !settings.isEnabled(id)"),
+                "the not-minted path no longer checks for the disabled source it can only be")
+        #expect(body.contains("settings.setEnabled(true, for: id)"),
+                "the disabled source is not switched back on — the click said “use this folder”")
+    }
+}
