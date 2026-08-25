@@ -123,6 +123,9 @@ extension FileSyncManager {
         guard !columnGraftsInFlight.contains(key) else { return }
         guard Self.isUnexplored(atPath: path, in: isLeft ? rawLeftTree : rawRightTree) else { return }
         columnGraftsInFlight.insert(key)
+        // Captured before the await, compared after: a swap in that window moves this path to the
+        // other pane, and `key.isLeft` would then name the tree it is NOT about.
+        let orientation = paneOrientationGeneration
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -131,6 +134,13 @@ extension FileSyncManager {
                                                 sortOption: self.sortOption,
                                                 fileManager: self.fileManager, maxDepth: 1)
             guard !Task.isCancelled else { return }
+            // **The panes swapped while this ran.** `swapPanes` has already cleared the in-flight
+            // set, so the `defer` above removes nothing; what this stops is the graft itself, which
+            // would otherwise write a listing taken for one pane into whichever tree `isLeft` now
+            // points at. The listing is correct for its absolute path, which is exactly what makes
+            // the mistake survivable enough to go unnoticed — two panes on one source would graft
+            // it into a tree that really does contain the path, and the wrong pane would fill.
+            guard self.paneOrientationGeneration == orientation else { return }
             // An unreadable directory comes back as the ROOT itself marked unexplored, never as a
             // bare `[]` — `buildTree`'s own note explains why. Grafting that would nest the folder
             // inside itself; leaving the node alone keeps its unexplored mark, which is what makes

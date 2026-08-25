@@ -259,6 +259,43 @@ import Testing
         return nil
     }
 
+    /// **A listing started before a swap must not land after it.**
+    ///
+    /// `loadColumnChildren` captures `isLeft` and comes back on the main actor some time later. A
+    /// swap in that window makes the capture name the other pane, and the graft would write a
+    /// directory read for one pane into the other pane's tree. It survives casual inspection
+    /// because the listing is CORRECT for its absolute path — two panes on one source would fill
+    /// the wrong column with entirely plausible rows.
+    ///
+    /// Driven by bumping the generation directly rather than by calling `swapPanes`: the point
+    /// under test is that the graft consults it, and going through the swap would also exchange the
+    /// trees, so a green could come from the path no longer being found rather than from the guard.
+    @MainActor
+    @Test func aListingIsDroppedWhenThePanesSwappedWhileItRan() async throws {
+        let root = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let deep = root.appendingPathComponent("deep").path
+
+        let manager = FileSyncManager()
+        manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
+        try #require(FileSyncManager.isUnexplored(atPath: deep, in: manager.rawLeftTree),
+                     "the fixture arrived already walked — this measures nothing")
+
+        manager.loadColumnChildren(atPath: deep, isLeft: true)
+        // Synchronous with the call above: the request is registered before the task suspends, so
+        // this lands inside the window the guard is about.
+        manager.paneOrientationGeneration += 1
+
+        await waitUntil("the request clears, whether or not it grafted") {
+            manager.columnGraftsInFlightPaths(isLeft: true).isEmpty
+        }
+        let after = try #require(node(deep, in: manager.rawLeftTree))
+        #expect(after.children?.isEmpty != false,
+                "the listing was grafted into a pane it was no longer about")
+        #expect(after.isUnexplored == true,
+                "the folder must still read as unread, so the column asks again for the side it is now on")
+    }
+
     /// The listing lands in the pane's raw tree and clears the mark, so the column can draw it.
     @MainActor
     @Test func theListingReachesThePanesTree() async throws {

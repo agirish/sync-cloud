@@ -430,6 +430,31 @@ public enum SidebarFavoritePlaces {
         return list
     }
 
+    /// **Whether `raw` holds bytes this build could not read** — the third state, and the only one
+    /// that must never be written over.
+    ///
+    /// `places(from:)` answers the standard three for both an untouched key and an unreadable one,
+    /// which is right for a READ: a column that has silently lost its Favorites is worse than one
+    /// reset to a state the user recognises. It is wrong for the WRITE that follows, and the write
+    /// is where the loss happens — the next Add, Remove or drag encodes those three over the key
+    /// and the real list is gone. Absent, empty and unreadable are three states; the encoding can
+    /// already say the first two, and this is what lets a caller notice the third.
+    ///
+    /// `FolderJumpStore.salvageKey(for:)` draws the same line for the pinned and recent maps, and
+    /// for the same reason: the bytes are kept rather than overwritten, which loses nothing either
+    /// way. See ``salvageKey``.
+    public static func isUnreadable(_ raw: String) -> Bool {
+        guard !raw.isEmpty else { return false }
+        guard let data = raw.data(using: .utf8),
+              (try? JSONDecoder().decode([String].self, from: data)) != nil else { return true }
+        return false
+    }
+
+    /// Where bytes this build cannot decode are put, instead of being overwritten —
+    /// `FolderJumpStore.salvageKey(for:)`'s spelling, so the two stores are recoverable the same
+    /// way.
+    public static let salvageKey = "browseSidebarFavoritePlaces.unreadable"
+
     public static func encoded(_ places: [String]) -> String {
         guard let data = try? JSONEncoder().encode(places),
               let text = String(data: data, encoding: .utf8) else { return "" }

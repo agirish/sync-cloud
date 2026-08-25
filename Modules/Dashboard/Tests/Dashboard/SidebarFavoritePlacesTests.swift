@@ -187,4 +187,44 @@ import Foundation
     @Test func nothingVisibleChangesNothing() {
         #expect(SidebarReorder.resplicing(["/a", "/b"], visibleInNewOrder: []) == ["/a", "/b"])
     }
+
+    // MARK: - Absent, empty and unreadable are three states
+
+    /// **The state `places(from:)` cannot express, and the write that destroys it.**
+    ///
+    /// An unreadable value reads as the standard three, which is the right thing to SHOW. What must
+    /// not follow is encoding those three back over the key — the loss happens on the write, not on
+    /// the read, which is what let the same shape sit in six stores until v4.3 went looking.
+    @Test func unreadableBytesAreNotMistakenForAnUntouchedKey() {
+        #expect(SidebarFavoritePlaces.isUnreadable("{not json"))
+        #expect(SidebarFavoritePlaces.isUnreadable("[1, 2, 3]"),
+                "valid JSON of the wrong shape is still bytes this build cannot use")
+        #expect(SidebarFavoritePlaces.isUnreadable("\"/Desktop\""),
+                "a bare string is not the list this key holds")
+    }
+
+    /// The two states that are NOT unreadable, and the ones a salvage must never fire for.
+    @Test func absentAndEmptyAreBothReadable() {
+        #expect(!SidebarFavoritePlaces.isUnreadable(""), "an untouched key has nothing to salvage")
+        #expect(!SidebarFavoritePlaces.isUnreadable("[]"),
+                "removing every favorite is a decision, and a decision is readable")
+        #expect(!SidebarFavoritePlaces.isUnreadable(SidebarFavoritePlaces.encoded(["/Desktop"])))
+    }
+
+    /// `isUnreadable` and `places(from:)` must agree about which values they are each talking
+    /// about: everything the first calls unreadable is a value the second answers `standard` for,
+    /// which is precisely the overlap that makes the write dangerous.
+    @Test func everyUnreadableValueReadsAsTheStandardThree() {
+        for raw in ["{not json", "[1, 2, 3]", "\"/Desktop\""] {
+            #expect(SidebarFavoritePlaces.isUnreadable(raw))
+            #expect(SidebarFavoritePlaces.places(from: raw) == SidebarFavoritePlaces.standard,
+                    "“\(raw)” reads as something other than the first-run answer")
+        }
+    }
+
+    /// Round-tripping is what makes the salvage recoverable rather than merely preserved.
+    @Test func anEncodedListDecodesBackToItself() {
+        let places = ["/Users/x/Desktop", "/Volumes/Off/Notes"]
+        #expect(SidebarFavoritePlaces.places(from: SidebarFavoritePlaces.encoded(places)) == places)
+    }
 }

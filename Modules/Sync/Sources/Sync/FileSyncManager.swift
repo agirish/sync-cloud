@@ -1505,7 +1505,25 @@ public class FileSyncManager: ObservableObject {
     /// The listings running right now — see `loadColumnChildren`. Deduping on this is what stops a
     /// column re-rendering mid-walk from queueing a second listing of the same directory, and
     /// publishing it is what lets that column say "being read" rather than "can't be read".
+    ///
+    /// **Cleared by `swapPanes`, because every key in it names a side.** After a swap the tree a
+    /// key's `isLeft` points at belongs to the other pane, so the set would claim the pane that is
+    /// NOT loading is being read and leave the one that is saying "Can't be read" — the precise
+    /// distinction this is published to make, inverted. `paneOrientationGeneration` is what stops
+    /// the listings themselves landing on the wrong side.
     @Published internal var columnGraftsInFlight: Set<ColumnGraftKey> = []
+
+    /// **Bumped when the panes change sides**, and nothing else.
+    ///
+    /// A column listing is started for a side and lands on the main actor some time later, holding
+    /// an `isLeft` captured before the await. A swap in that window makes that capture name the
+    /// other pane's tree — the answer is about a folder that is now on the other side, and grafting
+    /// it where the key says would write one pane's listing into the other's tree.
+    ///
+    /// Its own counter rather than `rawTreeGeneration`, which bumps on every raw-tree publish
+    /// INCLUDING each successful graft: guarding on that would make two columns filling at once
+    /// cancel each other, which is the ordinary case rather than the exceptional one.
+    internal var paneOrientationGeneration = 0
 
     /// Raw file tree for the left pane (before hidden/ignored filtering).
     internal var rawLeftTree: [FileNode] = []

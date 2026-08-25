@@ -244,4 +244,41 @@ import Foundation
         #expect(!handler.contains("PathBoundary.relativize("),
                 "the containment rule is spelled a second time here — it belongs to favoritePlace alone")
     }
+
+    /// **Every write to the Favorites places goes through the salvaging funnel**, and this is what
+    /// makes that a property of the file rather than of the three verbs that happen to be in it
+    /// today.
+    ///
+    /// `SidebarFavoritePlaces.places(from:)` answers the standard three for an unreadable value as
+    /// well as an untouched one. Encoding that answer straight back over the key is what turns a
+    /// value this build could not read into a value nobody can — and the verb that does it is
+    /// whichever one the user reaches for first, so no single call site looks wrong. A fourth verb
+    /// added later would be written the same way this scan exists to catch.
+    ///
+    /// Scoped and proved like the scan above: one named file, comments stripped, and a required
+    /// anchor so a scan that matches nothing fails rather than passes.
+    @Test func everyFavoritePlacesWriteGoesThroughTheFunnel() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView+FolderSidebar.swift")
+        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
+                               "cannot read ContentView+FolderSidebar.swift — this scan would be vacuous")
+        let source = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                guard let comment = line.range(of: "//") else { return line }
+                return line[..<comment.lowerBound]
+            }
+            .joined(separator: "\n")
+
+        try #require(source.contains("func writeFolderSidebarFavoritePlaces("),
+                     "the funnel is gone, so this scan is asserting nothing")
+        try #require(source.contains("SidebarFavoritePlaces.isUnreadable("),
+                     "the funnel no longer salvages, which is the whole point of routing through it")
+
+        // The funnel itself holds the one legitimate assignment; anything beyond it is a verb
+        // writing the key directly.
+        let writes = source.components(separatedBy: "browseSidebarFavoritePlacesRaw =").count - 1
+        #expect(writes == 1,
+                "\(writes) assignments to browseSidebarFavoritePlacesRaw — every write but the funnel's own can overwrite bytes this build could not read")
+    }
 }

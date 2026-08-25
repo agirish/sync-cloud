@@ -5,8 +5,8 @@ import Settings
 import Sync
 import Design
 
-/// **Browse's sidebar** — the host half. The column itself is `Dashboard.FolderSidebarView`; what
-/// lives here is where its rows come from and what a click does.
+/// **The folder sidebar** — the host half. The column itself is `Dashboard.FolderSidebarView`;
+/// what lives here is where its rows come from and what a click does.
 ///
 /// Held and unreachable from 2026-08-20 until v4.4, so that the column could arrive Finder-shaped
 /// rather than as two ungrouped lists under one source. Live since item #13 landed.
@@ -16,13 +16,11 @@ extension ContentView {
 
     /// **The pane a sidebar row acts on**, written as a question rather than as `true`.
     ///
-    /// Browse has one pane, so this is the left one today and `lensTargetIsRight` always answers
-    /// `false` in a single-source workspace. It is written this way because the sidebar is expected
-    /// to reach other workspaces, and Compare is the case that decides the shape: two panes and two
-    /// sources, where a source row has to act on the focused one and the header capsules are what
-    /// make that legible. Hardcoding `isLeft: true` here — which is what the v4.2 draft did
-    /// throughout — is precisely the surgery that expansion would have to undo, and asking
-    /// `PaneLogic.lensTargetsRightPane` instead costs nothing today.
+    /// In a single-source workspace this is always the left pane, which is the only one there is.
+    /// Compare is the case that decides the shape: two panes and two sources, where a row has to
+    /// act on the one the user is working in. Hardcoding `isLeft: true` here — which is what the
+    /// v4.2 draft did throughout — is precisely the surgery reaching those workspaces would have
+    /// had to undo, and it did not have to be undone.
     var folderSidebarTargetIsLeft: Bool {
         // **The pane the user is working in — the same answer the action bar and the lens scans
         // get, and the one the accent border draws.**
@@ -201,6 +199,27 @@ extension ContentView {
     /// The places the user has in Favorites, decoded.
     var folderSidebarFavoritePlaces: [String] {
         SidebarFavoritePlaces.places(from: browseSidebarFavoritePlacesRaw)
+    }
+
+    /// **Every write to the Favorites places goes through here**, so bytes this build could not
+    /// read are salvaged rather than overwritten.
+    ///
+    /// `SidebarFavoritePlaces.places(from:)` answers the standard three for an unreadable value as
+    /// well as an absent one, which is the right thing to SHOW. It is the wrong thing to then write
+    /// back: the next Add, Remove or drag would encode those three over a key that still held the
+    /// user's real list, and the loss would happen on the write rather than on the read that caused
+    /// it — the shape six stores were carrying when v4.3 went looking for it.
+    ///
+    /// One funnel rather than a guard at each of the three call sites, because a fourth verb added
+    /// later would be written without it; and the salvage runs before the write rather than at
+    /// launch so it cannot fire for a value nothing was about to destroy.
+    func writeFolderSidebarFavoritePlaces(_ places: [String]) {
+        if SidebarFavoritePlaces.isUnreadable(browseSidebarFavoritePlacesRaw) {
+            UserDefaults.standard.set(browseSidebarFavoritePlacesRaw,
+                                      forKey: SidebarFavoritePlaces.salvageKey)
+            Logger.shared.warning("Sidebar: the stored Favorites places could not be read — kept under “\(SidebarFavoritePlaces.salvageKey)” rather than overwritten")
+        }
+        browseSidebarFavoritePlacesRaw = SidebarFavoritePlaces.encoded(places)
     }
 
     /// **Re-bands every place row against the user's Favorites list**, which is the one thing that
@@ -532,7 +551,7 @@ extension ContentView {
         // symlink does not add a second entry naming the same folder.
         let stored = places.first { Self.resolved($0) == Self.resolved(source.absolutePath) }
         let next = SidebarFavoritePlaces.toggling(stored ?? source.absolutePath, in: places)
-        browseSidebarFavoritePlacesRaw = SidebarFavoritePlaces.encoded(next)
+        writeFolderSidebarFavoritePlaces(next)
         Logger.shared.info("Sidebar: \(stored == nil ? "added" : "removed") favorite place “\(source.name)” (\(source.absolutePath))")
         refreshFolderSidebarRows()
     }
@@ -569,7 +588,7 @@ extension ContentView {
 
     /// Puts Desktop, Documents and Downloads back, leaving everything else where it is.
     func restoreStandardFolderSidebarFavorites() {
-        browseSidebarFavoritePlacesRaw = SidebarFavoritePlaces.encoded(
+        writeFolderSidebarFavoritePlaces(
             SidebarFavoritePlaces.restoring(folderSidebarFavoritePlaces))
         Logger.shared.info("Sidebar: restored the standard Favorites folders")
         refreshFolderSidebarRows()
@@ -729,8 +748,7 @@ extension ContentView {
         // visible rows followed by the leftovers moved every one of those to the end, so dragging
         // Desktop up sent an unplugged disk to the bottom of a list nothing on screen mentioned.
         let next = SidebarReorder.resplicing(stored.map(Self.resolved), visibleInNewOrder: moved)
-        browseSidebarFavoritePlacesRaw = SidebarFavoritePlaces.encoded(
-            next.compactMap { byResolved[$0] })
+        writeFolderSidebarFavoritePlaces(next.compactMap { byResolved[$0] })
         Logger.shared.info("Sidebar: moved favorite place “\(folderSidebarShortcutRows[from].name)” to position \(min(to, moved.count))")
         refreshFolderSidebarRows()
     }

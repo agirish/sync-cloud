@@ -316,9 +316,8 @@ public final class FolderJumpStore: ObservableObject {
     /// removes it, so the same menu item toggles.
     /// Public since v4.2, for the Browse sidebar — a second surface onto the same two lists, where
     /// a pin it could show but not remove would send the user back to the menu it replaces.
-    /// **That surface is held for v4.3** (`FolderSidebarModel.isEnabled`), so the only caller of
-    /// this outside the module is currently inert; the access level is kept rather than narrowed
-    /// because the caller is still there and still correct.
+    /// That surface shipped in v4.4, and the sidebar's own verbs are the caller — Add to and
+    /// Remove from Favorites, on a row and on a pane's folder alike.
     public func togglePin(root: String, relativePath: String, name: String) {
         let key = Self.key(forRoot: root)
         var list = pinnedByRoot[key] ?? []
@@ -412,9 +411,7 @@ public final class FolderJumpStore: ObservableObject {
         relatives.filter { !$0.isEmpty && $0 != "." }
     }
 
-    /// Pure move-to-front dedupe + cap (newest first). Extracted so the recents ordering is testable
-    /// without the store's persistence.
-    /// **The most recent visits across every root, newest first** — the Browse sidebar's Recents
+    /// **The most recent visits across every root, newest first** — the sidebar's Recents
     /// section, which is one global list of eight rather than eight per source.
     ///
     /// Decided 2026-08-24. With eleven sources connected, per-source recents means the section
@@ -492,6 +489,12 @@ public final class FolderJumpStore: ObservableObject {
         defaults.set(favoriteOrder, forKey: Self.favoriteOrderKey)
     }
 
+    /// Pure move-to-front dedupe + cap (newest first). Extracted so the recents ordering is
+    /// testable without the store's persistence.
+    ///
+    /// Its doc sat on `mostRecentAcrossRoots` for a while: v4.4 inserted the cross-source members
+    /// between the two, and a doc comment attaches to whatever declaration follows it, so the note
+    /// moved to a member it did not describe while this one went bare.
     static func inserting(_ location: JumpLocation, into list: [JumpLocation], cap: Int) -> [JumpLocation] {
         var result = list.filter { $0.relativePath != location.relativePath }
         result.insert(location, at: 0)

@@ -3,9 +3,11 @@ import Design
 
 /// **Marks the pane the user is working in — on that pane's own card edges.**
 ///
-/// The `Left | Right` control in the sidebar says which pane is armed, and it lives in the
-/// sidebar's header — so confirming the target meant looking away from the panes, up to a corner
-/// that was not part of the work. This puts the same answer on the destination itself.
+/// Which pane a sidebar row opens into used to be stated by a `Left | Right` control in the
+/// sidebar's header, so confirming the target meant looking away from the panes, up to a corner
+/// that was not part of the work — and by a control that could disagree with everything else on
+/// screen. The capsules went with `focusedPaneIsLeft`; this puts the answer on the destination
+/// itself, where the header above the column now only describes it.
 ///
 /// **The mark is the card border, and that is a correction.** It began as a 2.5pt accent bar across
 /// the top of the column, which rendering in place showed to be the wrong object: a pane in

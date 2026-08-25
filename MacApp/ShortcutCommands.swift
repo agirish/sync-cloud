@@ -631,8 +631,8 @@ struct ShortcutValuePublisher: ViewModifier {
     let cycleTab: ((Bool) -> Void)?
     let reopenClosedTab: (() -> Void)?
     let tabBar: TabBarSwitch?
-    /// `nil` off Browse — the only workspace with a sidebar, and `nil` there too while the column
-    /// `nil` off Browse, which is the only workspace the column exists on.
+    /// `nil` wherever the column cannot be drawn — see `shortcutFolderSidebar`, which is the one
+    /// place that decides it.
     let folderSidebar: Binding<Bool>?
     let organizeLens: OrganizeLensSwitch?
     let organizeVerbs: OrganizeVerbs?
@@ -831,14 +831,14 @@ extension ContentView {
     /// The condition is `PaneTabStripVisibility.forcesTabBarSwitch`, which is defined as the
     /// visibility rule with the switch's own term removed — so the two cannot drift again. Inlining
     /// the disjunction here is what let them drift the first time.
-    /// View ▸ Sidebar's binding, and `nil` on every workspace but Browse — **and `nil` on Browse
-    /// too, for as long as the column is held for v4.3.**
+    /// View ▸ Sidebar's binding, and `nil` wherever the column cannot be drawn.
     ///
-    /// The gate is the workspace and not `layoutMode`: the lens workspaces are single-source too,
-    /// and their pane is the 220pt-clamped rail, which has no room for a 180pt column beside it.
-    /// `appliesTo` answers `FolderSidebarModel.isEnabled && isBrowse`, so this returns `nil`
-    /// everywhere and the value it publishes is read by nothing — the menu item was deleted with
-    /// the chord. Left in place as the one seam v4.3 re-attaches to.
+    /// The gate is the workspace and not `layoutMode`, and it is asked through
+    /// `FolderSidebarModel.appliesTo` so the menu item, the toolbar button and the column itself
+    /// cannot come to disagree about where a sidebar is possible. Every shipping workspace supports
+    /// one as of v4.4 — the lens workspaces were excluded on the reasoning that their 220pt-clamped
+    /// rail left no room, which `PaneLogic.lensSidebarWidth` answered with a clamp instead — so in
+    /// practice the live `nil` is the collapsed-panes one.
     var shortcutFolderSidebar: Binding<Bool>? {
         // **`appliesTo`, not `isShowing`**: the item is live with the column switched off, because
         // the item is how it gets switched on. Asking `isShowing` here would make the

@@ -574,6 +574,15 @@ extension FileSyncManager {
         // a snapshot of the pane it travelled with.
         swap(&leftPaneTabs, &rightPaneTabs)
 
+        // **In-flight column listings are dropped, not mirrored.** Each carries the side it was
+        // asked for, and after this line that side names the other pane's tree — so the answer is
+        // about a folder that has moved. Bumping the generation makes every listing already in
+        // flight drop its result rather than graft it into the wrong pane, and clearing the set
+        // stops the column captions claiming the wrong pane is being read. The column re-asks on
+        // its own; that is the same self-healing path a re-root already relies on.
+        paneOrientationGeneration += 1
+        columnGraftsInFlight.removeAll()
+
         swap(&rawLeftTree, &rawRightTree)
         swap(&leftTree, &rightTree)
         swap(&leftItemCount, &rightItemCount)

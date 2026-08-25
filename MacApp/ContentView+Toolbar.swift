@@ -282,12 +282,15 @@ extension ContentView {
         // tint on the label while open in both, the keycap on the LABEL rather than the item (a
         // toolbar item's own bounds are AppKit's), and the same silence during a destination pick.
         //
-        // **The one asymmetry is deliberate: Info is on every workspace, this is Browse only**
-        // (`FolderSidebarModel.appliesTo`). Disabled rather than hidden — a toolbar that reflowed
-        // as you switched workspace is unsettling, and a live button that quietly moved you to
+        // **The one asymmetry is deliberate: Info is available unconditionally, this is not**
+        // (`FolderSidebarModel.appliesTo` — a workspace that carries no column, or panes collapsed
+        // behind a destination pick). Disabled rather than hidden: a toolbar that reflowed as you
+        // switched workspace is unsettling, and a button that vanished would leave nothing to
+        // explain itself.
+        //
         // The tooltip says WHY it is greyed, because that is the question someone reaching for a
-        // disabled switch is actually asking — and there are now two answers with different
-        // remedies. See `FolderSidebarModel.unavailableReason`.
+        // disabled switch is actually asking — and there are two answers with different remedies.
+        // See `FolderSidebarModel.unavailableReason`.
         ToolbarItem(placement: .navigation) {
             let available = FolderSidebarModel.appliesTo(
                 workspaceSupportsSidebar: selectedWorkspace.supportsFolderSidebar,
@@ -311,9 +314,9 @@ extension ContentView {
                         panesCollapsed: panesHiddenForCurrentTab) ?? ""))
             .accessibilityLabel(showing ? "Hide sidebar" : "Show sidebar")
             // **Both halves of one control agree**, the rule the Info button below states at
-            // length: the menu item is `nil`-disabled off Browse and silenced by the publisher
-            // during a pick, so the button must be too, or a mouse user could reach what a
-            // keyboard user could not.
+            // length: the menu item is `nil`-disabled wherever the column cannot be drawn and
+            // silenced by the publisher during a pick, so the button must be too, or a mouse user
+            // could reach what a keyboard user could not.
             .disabled(!available || pendingDestination != nil)
         }
 

@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import Design
 
-/// One row of the Browse sidebar: a remembered folder, under the heading that remembered it.
+/// One row of the folder sidebar: a remembered folder, under the heading that remembered it.
 public struct FolderSidebarRow: Identifiable, Equatable, Sendable {
 
     /// Why this folder is listed. The two lists are `FolderJumpStore`'s, unchanged — favorites are
@@ -200,8 +200,8 @@ public enum FolderSidebarModel {
     /// unasserted the day this flips again.
     public static let isEnabled = true
 
-    /// **Where the sidebar can exist at all** — Browse, and nowhere else, and not while
-    /// ``isEnabled`` is false.
+    /// **Where the sidebar can exist at all** — a workspace that carries one, with its panes
+    /// showing, and not while ``isEnabled`` is false.
     ///
     /// This is what the View item, the toolbar button and the column are each gated on, so all
     /// three appear and disappear together and none can disagree about where a sidebar is possible.
@@ -329,11 +329,14 @@ public enum FolderSidebarModel {
     }
 }
 
-/// **Browse's sidebar** — Favorites, Sources and Recents, in that order.
+/// **The folder sidebar** — Favorites, Locations and Recents, in that order.
 ///
 /// The favorites and recents `FolderJumpStore` holds were reachable only through the pane header's
-/// jump menu and the ⌘K field; Browse is one pane at full width and has the room to keep them on
-/// screen. Since v4.4 both span every source, and the Sources section is here too.
+/// jump menu and the ⌘K field; a column down the left keeps all three answers on screen at once.
+/// Since v4.4 the favorites and recents span every source, and Locations is here too. Drawn on
+/// every workspace that answers `Workspace.supportsFolderSidebar` — which is all four — with the
+/// lens workspaces and Compare taking a clamped width rather than an exclusion
+/// (`PaneLogic.lensSidebarWidth`, `PaneLogic.compareSidebarWidth`).
 ///
 /// **The Sources section reverses a deliberate removal, and the reversal is scoped.** The Left/Right
 /// provider sidebar went when the provider became a header dropdown, and this file used to say the

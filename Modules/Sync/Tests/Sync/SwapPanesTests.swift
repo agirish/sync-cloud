@@ -36,6 +36,48 @@ import Foundation
         #expect(manager.focusedPaneSide == nil)
     }
 
+    /// **A swap invalidates every column listing in flight**, because each one names a side.
+    ///
+    /// `ColumnGraftKey` carries `isLeft`, and after a swap that side names the OTHER pane's tree.
+    /// Left alone the published set inverts the one distinction it exists to draw: the column that
+    /// really is being read says "Can't be read", and the pane that is not says it is being read.
+    /// Mirroring the keys instead was the other candidate and is worse — the listing itself was
+    /// taken for a pane that has moved, so there is nothing correct left to say about it.
+    @MainActor
+    @Test func testSwapPanesDropsColumnListingsInFlight() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        manager.columnGraftsInFlight = [
+            FileSyncManager.ColumnGraftKey(isLeft: true, path: "/left/deep"),
+            FileSyncManager.ColumnGraftKey(isLeft: false, path: "/right/deep"),
+        ]
+
+        manager.swapPanes()
+
+        #expect(manager.columnGraftsInFlight.isEmpty,
+                "a key naming a side cannot survive the sides changing")
+        #expect(manager.columnGraftsInFlightPaths(isLeft: true).isEmpty)
+        #expect(manager.columnGraftsInFlightPaths(isLeft: false).isEmpty)
+    }
+
+    /// The generation is what stops a listing already off the main actor grafting into the pane its
+    /// captured `isLeft` now names. Asserted separately from the set above because the two failures
+    /// are different: an un-cleared set draws a wrong caption, a missed generation writes one
+    /// pane's directory listing into the other pane's tree.
+    @MainActor
+    @Test func testSwapPanesAdvancesThePaneOrientationGeneration() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let before = manager.paneOrientationGeneration
+
+        manager.swapPanes()
+        #expect(manager.paneOrientationGeneration == before + 1)
+
+        // A refused swap must NOT advance it: an in-flight listing is still about the orientation
+        // it was started in, and dropping its answer would cost a column its fill for nothing.
+        manager.activeFileOperationsCount = 1
+        #expect(manager.swapPanes() == false)
+        #expect(manager.paneOrientationGeneration == before + 1)
+    }
+
     @MainActor
     @Test func testSwapPanesExchangesPathsSelectionsAndHistories() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
