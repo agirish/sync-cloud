@@ -244,6 +244,13 @@ Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise th
 
 ### Settled after being filed as owed
 
+**The whole-volume source named `/` — sent to `v3.x` as `8946a482`, 2026-08-25.** Found owed by
+the v4.4 release review: `FolderSource.defaultDisplayName`'s pre-fix fallback was verbatim on this
+line, so a source over the startup disk read `/` in the pane header capsule, ⌘K and Settings. The
+cherry-pick of `main`'s `08d652af` carried one adaptation — the test pinning that the name reaches
+a pane TAB stays on `main`, because `PaneTab` does not exist here (the test file says so where the
+test would have been). Not owed to `v2.x`: the file is absent there.
+
 **`theFloorIsOnlyLoweredByItsOwnTests` — present on all three lines.** Checked 2026-08-21; this
 stood above as owed item 2 until then, on the strength of a `v2.x`-only sighting. The scan that
 keeps every real wait on `LayoutPumpWait`'s default floor landed once per line, in its own commit
@@ -296,6 +303,24 @@ new feature, which `CLAUDE.md` puts on `main` alone — not a fix that a mainten
   Symbols to check if this is ever revisited: `LiquidGlass.tintFloor` and
   `LiquidGlass.backgroundHueStrength(forTint:)` in `Modules/Design/Sources/Design/LiquidGlassStyle
   .swift`. Checked 2026-08-25.
+- **The large-folder budget family** (v4.4): `NodeBudget`, the pane walk's `paneNodeBudget`, the
+  on-demand column graft, the partial-comparison banner, and `LargeWalkPreflight`'s ask-first
+  gates. The defect they answer is genuinely present on both maintenance lines — both carry
+  `FileSyncManager+Scanning.swift` with an unbounded deep walk (`NodeBudget` greps to zero on
+  each), so a pane pointed at `~` or a whole volume still hangs there. Main-only by rule all the
+  same: this is a feature-sized redesign — new public types, new UI (the banner, the preflight
+  prompt, column captions), and a change to what every pane shows over a large source — not a
+  patch a maintenance line can take without becoming a different app. A maintenance-line user's
+  mitigation is the one they already have: point sources at folders, not at `~` or `/`. Recorded
+  in both directions so the next audit of `06700fce`/`2481ac24`/`8ba64f29`/`b7d208e8` and their
+  review fixes does not re-derive this. Filed 2026-08-25.
+- **The folder sidebar family** (v4.4, `cfe0dae8..3650a68e` and the review fixes after): a new
+  feature end to end. The one shared file it touches is
+  `Modules/Dashboard/Sources/Dashboard/FolderJumpStore.swift`, checked symbol-level when Stage B
+  landed (recorded then only in `5391c685`'s commit body, which is what this row fixes):
+  `visitedAt`, `favoriteOrder`, `recentVisitsAcrossRoots` and the sidebar's decode tolerance are
+  all additions serving sidebar features neither line draws — nothing behind them is a fix those
+  lines' own jump menus are missing. Filed 2026-08-25.
 
 - **`flaky-tests.md`'s "The control that stops an absence being vacuous is itself load-dependent".**
   The mechanism is real on any line, but the only test that has ever produced it —
@@ -377,6 +402,15 @@ Owed here exactly as to `v3.x`, and **this is the line to fix first** — see it
 and the same seamless `MaterializationStatus.isCloudOnly(atPath:)`. No vocabulary adaptation is
 needed: the change is inside a private function and touches no user-facing copy.
 
+### Settled: the QuickLook scan's character-budget window — sent as `79c5b7ce`, 2026-08-25
+
+Found owed by the v4.4 release review. `QuickLookOriginTests` read the pane's `FileTreeView` call
+through `prefix(4_000)`; on `main` two new parameters pushed `onQuickLook:` past the window and the
+suite went red blaming the wiring — `b7d208e8` replaced the window with the balanced
+`argumentList(after:in:)`, and this line carried the identical window one signature-growth from the
+same false red. Test-only, so it goes to every line carrying the file; `v3.x` does not carry it.
+Verified with a full app-target run on this line (295 tests, 28 suites, green).
+
 ### Nothing else confirmed
 
 Every safety family above is present on `v2.x`, and it is the line the `DeleteOutcome` family
@@ -395,6 +429,9 @@ the 2026-08-16 audit or this one.
   written out under `v3.x` above — the wash formula and the untinted background *are* both here, so
   this is a decision rather than an absence, and the reasoning is worth reading before re-deriving
   it. Checked 2026-08-25.
+- **The large-folder budget family and the folder sidebar** (v4.4). Main-only by rule for the
+  reasons written out under `v3.x` above; the unbounded deep walk is present here too
+  (`NodeBudget` greps to zero), and the same mitigation applies. Checked 2026-08-25.
 
 ---
 
