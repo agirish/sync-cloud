@@ -23,7 +23,9 @@ extension ContentView {
     @ViewBuilder
     var panesSplit: some View {
         GeometryReader { geo in
-            let minPane: CGFloat = 250
+            // Named on `PaneLogic` so the sidebar's width clamp reasons about the SAME number —
+            // two copies of a layout minimum is how a clamp comes to disagree with what it clamps.
+            let minPane = PaneLogic.minComparePaneWidth
             let totalWidth = geo.size.width
             // Clamp so neither pane goes below minPane (degrades gracefully in a too-narrow window).
             let minFraction = PaneLogic.horizontalMinFraction(totalWidth: totalWidth, minPane: minPane)
@@ -107,21 +109,47 @@ extension ContentView {
                 let fraction = PaneLogic.clampedFraction(verticalDragFraction ?? bottomPaneFraction,
                                                          lower: minFraction, upper: maxFraction)
                 let bottomHeight = panesHeight * fraction
-                VStack(spacing: 0) {
-                    panesSplit
-                        .panesRegionFrame(surfaceStyle, level: glassLevel)
-                        .frame(maxHeight: .infinity)
-                    verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction, maxFraction: maxFraction)
-                        .frame(height: dividerHeight)
-                        .opacity(collapsed ? 0 : 1)
-                        .allowsHitTesting(!collapsed)
-                    bottomPaneView
-                        // nil height when collapsed → the bottom pane hugs its header strip; a fixed
-                        // fraction height when expanded. Same modifier either way, so identity holds.
-                        .frame(height: collapsed ? nil : bottomHeight)
+                // **Leading and OUTSIDE the vertical stack**, exactly as in `browseLayout` and for
+                // the same reason: the remembered folders belong to the panes' sources, not to the
+                // Differences table stacked under them, so the column spans the whole height rather
+                // than shrinking when the bottom pane grows.
+                //
+                // `sidebarSlot` is subtracted into its own name and never into `geo.size.width` —
+                // shadowing that is what put the sidebar outside the window in the lens layout
+                // (see `PaneLogic.LensRow`). The row keeps its true width; only the stack beside
+                // the column is narrowed.
+                let sidebarWidth = folderSidebarIsShowing
+                    ? PaneLogic.compareSidebarWidth(stored: browseSidebarWidth,
+                                                    totalWidth: geo.size.width,
+                                                    minSidebar: FolderSidebarView.minWidth,
+                                                    gutter: LiquidGlass.cardGutter)
+                    : 0
+                // The seam strip is in this slot too — see `PaneLogic.LensRow.sidebarSlot` for the
+                // 1pt overflow that leaving it out costs.
+                let sidebarSlot = folderSidebarIsShowing
+                    ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.cardGutter) : 0
+                HStack(spacing: 0) {
+                    if folderSidebarIsShowing {
+                        folderSidebar(width: sidebarWidth)
+                        folderSidebarResizeHandle(displayedWidth: sidebarWidth)
+                    }
+                    VStack(spacing: 0) {
+                        panesSplit
+                            .panesRegionFrame(surfaceStyle, level: glassLevel)
+                            .frame(maxHeight: .infinity)
+                        verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction, maxFraction: maxFraction)
+                            .frame(height: dividerHeight)
+                            .opacity(collapsed ? 0 : 1)
+                            .allowsHitTesting(!collapsed)
+                        bottomPaneView
+                            // nil height when collapsed → the bottom pane hugs its header strip; a fixed
+                            // fraction height when expanded. Same modifier either way, so identity holds.
+                            .frame(height: collapsed ? nil : bottomHeight)
+                    }
+                    .frame(width: geo.size.width - sidebarSlot)
+                    .coordinateSpace(.named(Self.verticalStackSpace))
                 }
                 .frame(width: geo.size.width, height: totalHeight)
-                .coordinateSpace(.named(Self.verticalStackSpace))
             case .singleExpanded, .singleCollapsed:
                 // Single-source: the source rail docked left of a full-height workspace,
                 // laid out horizontally — collapsed to a spine, or expanded to a resizable pane.
@@ -148,21 +176,55 @@ extension ContentView {
             }
             .frame(width: totalWidth, height: geo.size.height)
         } else {
-            let minRail: CGFloat = 220
-            let minWorkspace: CGFloat = 340
-            let lower = minRail / max(totalWidth, 1)
-            let upper = 1 - minWorkspace / max(totalWidth, 1)
+            // **The sidebar comes off the top, and the rest divides as it always did.**
+            //
+            // Taking its width out of `totalWidth` before the fractions are computed is what keeps
+            // the rail and the lens panel honest: they go on being measured against the room they
+            // actually have, so their minimums mean the same thing whether or not a sidebar is up,
+            // and `railFraction` keeps describing the split between those two rather than silently
+            // becoming a three-way share.
+            //
+            // The width itself is clamped, not the stored one — see `PaneLogic.lensSidebarWidth`.
+            // Browse can afford whatever the user stored; here three things divide one row, and at
+            // the 760 window floor the rail and panel claim 560 of it.
+            let sidebarWidth = folderSidebarIsShowing
+                ? PaneLogic.lensSidebarWidth(stored: browseSidebarWidth, totalWidth: totalWidth,
+                                             minSidebar: FolderSidebarView.minWidth,
+                                             gutter: LiquidGlass.cardGutter)
+                : 0
+            // **`splitWidth`, never a shadowed `totalWidth`.** The fractions and the two minimums
+            // are measured against the room the rail and the workspace actually divide, while the
+            // ROW is still the full width — and conflating those two is not a hypothetical: the
+            // first version of this shadowed `totalWidth`, the reduced value reached the row's own
+            // `.frame(width:)`, and the sidebar rendered outside the window. See `PaneLogic.LensRow`.
+            let splitWidth = totalWidth - (folderSidebarIsShowing
+                ? sidebarWidth + PaneLogic.sidebarOverhead(gutter: LiquidGlass.cardGutter) : 0)
+            let minRail = PaneLogic.minRailWidth
+            let minWorkspace = PaneLogic.minLensWorkspaceWidth
+            let lower = minRail / max(splitWidth, 1)
+            let upper = 1 - minWorkspace / max(splitWidth, 1)
             // In a very narrow window the two minimums can't both be honored; pin to the rail min.
             let fraction = (lower <= upper)
                 ? PaneLogic.clampedFraction(railDragFraction ?? railFraction, lower: lower, upper: upper)
                 : lower
-            let railWidth = totalWidth * fraction
+            let row = PaneLogic.lensRow(totalWidth: totalWidth, sidebarWidth: sidebarWidth,
+                                        showsSidebar: folderSidebarIsShowing,
+                                        gutter: LiquidGlass.cardGutter, fraction: fraction)
             HStack(spacing: 0) {
+                // Leading, exactly as in `browseLayout` — the remembered folders belong to the
+                // pane's source, and here that pane is the rail. Organize's scope and Storage's
+                // root both already follow it (`lensScanRootExpanded` reads the targeted pane's
+                // current directory), so a click here moves the lens with the pane and needs no
+                // workspace-specific wiring at all.
+                if folderSidebarIsShowing {
+                    folderSidebar(width: sidebarWidth)
+                    folderSidebarResizeHandle(displayedWidth: sidebarWidth)
+                }
                 // Space → Quick Look rides inside `paneColumn`, on the file list — not out here on
                 // the whole column. See `paneQuickLook()`.
                 paneColumn(isLeft: true)
                     .panesRegionFrame(surfaceStyle, level: glassLevel)
-                    .frame(width: railWidth)
+                    .frame(width: row.railWidth)
                 // **The workspace may not paint on the pane beside it.** A `LensHeaderCard` whose
                 // row 2 holds `.fixedSize()` prose and a control does not shrink to the width it is
                 // offered — its own `.frame(maxWidth: .infinity)` reports the LARGER of the proposal
@@ -178,13 +240,16 @@ extension ContentView {
                 // resolved 600pt and is a no-op — measured, 6,678 pixels of ink outside the column
                 // either way (`LensHeaderCardOverrunTests`).
                 bottomPaneView
-                    .frame(width: totalWidth - railWidth)
+                    .frame(width: row.workspaceWidth)
                     .clipped()
             }
             .frame(width: totalWidth, height: geo.size.height)
             .overlay(alignment: .leading) {
-                railResizeHandle(totalWidth: totalWidth, lower: lower, upper: upper)
-                    .offset(x: railWidth - 6)
+                // Offset from the ROW's leading edge, which is not the rail's once a sidebar sits
+                // in front of it — see `LensRow.railHandleOffset`.
+                railResizeHandle(splitWidth: row.splitWidth, sidebarSlot: row.sidebarSlot,
+                                 lower: lower, upper: upper)
+                    .offset(x: row.railHandleOffset)
             }
             .coordinateSpace(.named(Self.railRowSpace))
         }
@@ -344,13 +409,21 @@ extension ContentView {
     /// Invisible drag handle on the rail/workspace boundary — mirrors `paneResizeHandle` but writes
     /// the rail fraction and reads the rail-row coordinate space.
     @ViewBuilder
-    private func railResizeHandle(totalWidth: CGFloat, lower: Double, upper: Double) -> some View {
+    /// - Parameters:
+    ///   - splitWidth: the room the rail and the workspace divide — what `railFraction` is a
+    ///     fraction OF. Not the row: a sidebar is not part of this split.
+    ///   - sidebarSlot: how far the split's leading edge sits from the row's. The drag reads
+    ///     `railRowSpace`, which is anchored to the ROW, so the pointer's x has to be rebased or
+    ///     every drag lands one sidebar-width to the right of where the cursor is.
+    private func railResizeHandle(splitWidth: CGFloat, sidebarSlot: CGFloat,
+                                  lower: Double, upper: Double) -> some View {
         ResizeHandle(
             axis: .horizontal,
             coordinateSpace: .named(Self.railRowSpace),
             onDrag: { value in
-                guard totalWidth > 0, lower <= upper else { return }
-                let f = PaneLogic.horizontalDragFraction(locationX: value.location.x, totalWidth: totalWidth)
+                guard splitWidth > 0, lower <= upper else { return }
+                let f = PaneLogic.horizontalDragFraction(locationX: value.location.x - sidebarSlot,
+                                                         totalWidth: splitWidth)
                 railDragFraction = PaneLogic.clampedFraction(f, lower: lower, upper: upper)
             },
             onCommit: {

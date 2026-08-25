@@ -444,9 +444,124 @@ enum PaneLogic {
                                   activePane: activePane)
     }
 
+    /// **How wide the folder sidebar may actually be in a lens workspace**, which is not always the
+    /// width the user stored.
+    ///
+    /// Browse gives the sidebar the window minus one pane, so its stored width always fits. The lens
+    /// workspaces do not: their row is sidebar + rail + workspace panel, and the rail and the panel
+    /// carry hard minimums of 220 and 340. At the window floor of 760 that leaves exactly 200pt,
+    /// which the 180 default fits with 15 to spare and the 280 maximum overruns by 85.
+    ///
+    /// **The sidebar is what gives way**, because of the three it is the newcomer and the one whose
+    /// job survives being narrower — a rail under 220 cannot show a file name and a lens panel under
+    /// 340 reflows into nonsense (`LensHeaderCardOverrunTests` measures what that costs). This is a
+    /// clamp and never a collapse, matching the resize divider: below its own `minWidth` it stops
+    /// shrinking rather than disappearing, and 150 fits at the window floor with 45pt to spare, so
+    /// that floor is reachable but never crossed.
+    ///
+    /// - Parameters:
+    ///   - stored: the user's remembered width, already clamped to the sidebar's own bounds.
+    ///   - totalWidth: the whole row the three share.
+    ///   - gutter: the gap between the sidebar card and the rail.
+    static func lensSidebarWidth(stored: CGFloat, totalWidth: CGFloat,
+                                 minSidebar: CGFloat, gutter: CGFloat) -> CGFloat {
+        sidebarWidthSharingRow(stored: stored, totalWidth: totalWidth,
+                               roomForOthers: minRailWidth + minLensWorkspaceWidth,
+                               minSidebar: minSidebar, gutter: gutter)
+    }
+
+    /// The same clamp for Compare, whose row holds two panes rather than a rail and a lens panel.
+    ///
+    /// It needs 500 against the lens workspaces' 560, so Compare has *more* slack at the window
+    /// floor, not less — 260pt against 200. Written as its own entry point rather than sharing a
+    /// constant, because the two rows are made of different things and a single "room for others"
+    /// number would have to be the larger of them, needlessly clamping Compare.
+    static func compareSidebarWidth(stored: CGFloat, totalWidth: CGFloat,
+                                    minSidebar: CGFloat, gutter: CGFloat) -> CGFloat {
+        sidebarWidthSharingRow(stored: stored, totalWidth: totalWidth,
+                               roomForOthers: minComparePaneWidth * 2,
+                               minSidebar: minSidebar, gutter: gutter)
+    }
+
+    /// One pane's hard minimum in Compare — `panesSplit`'s own `minPane`, named here so the clamp
+    /// and the split cannot come to disagree about it.
+    static let minComparePaneWidth: CGFloat = 250
+
+    /// The shared core: give the row's other occupants their minimums first, and let the sidebar
+    /// have what is left — never below its own floor.
+    static func sidebarWidthSharingRow(stored: CGFloat, totalWidth: CGFloat, roomForOthers: CGFloat,
+                                       minSidebar: CGFloat, gutter: CGFloat) -> CGFloat {
+        // `sidebarOverhead`, not `gutter`: the seam strip is part of what a shown sidebar costs the
+        // row, and reserving one point less than it takes is how the clamp comes to disagree with
+        // the layout it is clamping for.
+        max(minSidebar, min(stored, totalWidth - roomForOthers - sidebarOverhead(gutter: gutter)))
+    }
+
+    /// **The three widths a lens workspace's row divides into**, computed once so they cannot
+    /// disagree.
+    ///
+    /// Written as a value because doing it inline got it wrong on the first attempt in a way no
+    /// test could see. The sidebar's width was subtracted into a SHADOWED `totalWidth`, and the
+    /// shadowed value then reached the row's own `.frame(width:)` — so the row was framed narrower
+    /// than the three things inside it, SwiftUI centred the overflow, and the sidebar rendered
+    /// outside the window. That is the identical failure the comment beside `bottomPaneView`
+    /// already describes for the lens card; it simply had a second cause nobody had met yet.
+    ///
+    /// The invariant that catches it is arithmetic, not pixels: `sidebarSlot + rail + workspace`
+    /// must equal the row. `theWidthsAlwaysSumToTheRow` asserts exactly that, over the whole
+    /// range, and fails on the shadowed version.
+    struct LensRow: Equatable {
+        /// What the sidebar occupies in total — its own width, the card gutter, AND the 1pt seam
+        /// strip that carries its drag handle. **All three, because all three are in the row.**
+        ///
+        /// The seam was left out at first and cost a 1pt overflow in every lens and Compare row: a
+        /// clear `Color.clear.frame(width: 1)` sits between the sidebar and the fixed-width content
+        /// beside it, so the parts summed to `totalWidth + 1` and SwiftUI centred the difference.
+        /// Half a point each side is invisible, which is exactly why it needed the arithmetic
+        /// rather than an eye — it is the same failure that put the whole sidebar off-window,
+        /// scaled down by 184 points. Browse never showed it because the stack beside its sidebar
+        /// is flexible and simply absorbed the point.
+        let sidebarSlot: CGFloat
+        /// The width handed to the sidebar column itself.
+        let sidebarWidth: CGFloat
+        let railWidth: CGFloat
+        let workspaceWidth: CGFloat
+        /// The room the rail and the workspace divide — what `railFraction` is a fraction OF, so
+        /// it keeps meaning the same thing whether or not a sidebar is up.
+        let splitWidth: CGFloat
+
+        /// Where the rail's drag handle sits, measured from the ROW's leading edge — which is not
+        /// the rail's. The overlay carrying it is aligned to the row, so a sidebar in front of the
+        /// rail moves the seam and the handle has to move with it.
+        var railHandleOffset: CGFloat { sidebarSlot + railWidth - 6 }
+    }
+
     /// The clear strip between the sidebar and what follows it, which carries the drag handle.
     /// One point wide and real: see `LensRow.sidebarSlot`.
     static let sidebarSeamWidth: CGFloat = 1
+
+    /// Everything a shown sidebar costs a row beyond the column itself.
+    static func sidebarOverhead(gutter: CGFloat) -> CGFloat { gutter + sidebarSeamWidth }
+
+    static func lensRow(totalWidth: CGFloat, sidebarWidth: CGFloat, showsSidebar: Bool,
+                        gutter: CGFloat, fraction: Double) -> LensRow {
+        let slot = showsSidebar ? sidebarWidth + sidebarOverhead(gutter: gutter) : 0
+        let split = totalWidth - slot
+        let rail = split * CGFloat(fraction)
+        return LensRow(sidebarSlot: slot,
+                       sidebarWidth: showsSidebar ? sidebarWidth : 0,
+                       railWidth: rail,
+                       workspaceWidth: split - rail,
+                       splitWidth: split)
+    }
+
+    /// The rail's hard minimum in a lens workspace — below this it cannot show a file name.
+    /// Named here rather than left as a literal in `singleSourceLayout` because
+    /// `lensSidebarWidth` has to reason about the same number, and two copies of a layout
+    /// minimum is how a clamp comes to disagree with the thing it is clamping against.
+    static let minRailWidth: CGFloat = 220
+    /// The lens panel's hard minimum, for the same reason.
+    static let minLensWorkspaceWidth: CGFloat = 340
 
     /// Whether a ⌘K "organize <folder>" aimed at the RIGHT pane can only be honoured by swapping
     /// the panes first.
