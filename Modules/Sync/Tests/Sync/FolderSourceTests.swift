@@ -224,3 +224,49 @@ import Testing
         #expect(shape(asFolders) == shape(try differences(as: .dropBox)))
     }
 }
+
+/// **What a source over a whole volume is called.**
+///
+/// Reported from the running build on 2026-08-24: clicking `Macintosh HD` in the sidebar added `/`
+/// as a folder source, and the tab strip then read `/`. The tab was only where it showed — a tab at
+/// a provider root wears the *source's* name — so the pane header capsule, ⌘K and Settings ▸ Sources
+/// all had it too.
+@Suite struct FolderSourceVolumeNameTests {
+
+    /// The startup disk takes the volume's name, not its path.
+    @Test func theStartupDiskIsNamedForItsVolume() {
+        let name = FolderSource.defaultDisplayName(forPath: "/") { path in
+            path == "/" ? "Macintosh HD" : nil
+        }
+        #expect(name == "Macintosh HD")
+    }
+
+    /// **A volume that will not name itself keeps the old answer.** Unhelpful beats missing, and
+    /// this is exactly the behaviour the app had before the lookup existed — so a filesystem that
+    /// declines the resource value costs nothing.
+    @Test func aVolumeThatWillNotNameItselfFallsBackToThePath() {
+        #expect(FolderSource.defaultDisplayName(forPath: "/") { _ in nil } == "/")
+        #expect(FolderSource.defaultDisplayName(forPath: "/") { _ in "" } == "/",
+                "an empty volume name is used verbatim, so the source is called nothing at all")
+    }
+
+    /// **Every other path is unaffected**, and that matters: the lookup must not fire for the
+    /// ordinary case. `/Volumes/Backup` already has a real last component and answers from it.
+    @Test func aNamedVolumeAndAnOrdinaryFolderDoNotConsultTheVolume() {
+        var consulted = 0
+        let resolver: (String) -> String? = { _ in consulted += 1; return "WRONG" }
+        #expect(FolderSource.defaultDisplayName(forPath: "/Volumes/Backup", volumeName: resolver) == "Backup")
+        #expect(FolderSource.defaultDisplayName(forPath: "/Users/u/Projects", volumeName: resolver) == "Projects")
+        #expect(consulted == 0, "the volume was consulted \(consulted) times for a path that names itself")
+    }
+
+    /// The home folder keeps its own special case, which predates this and is a different problem:
+    /// its last component is the account's short name, which reads as a person rather than a place.
+    @Test func theHomeFolderKeepsItsOwnName() {
+        #expect(FolderSource.defaultDisplayName(forPath: NSHomeDirectory()) { _ in "WRONG" } == "Home folder")
+        #expect(FolderSource.defaultDisplayName(forPath: "~") { _ in "WRONG" } == "Home folder")
+    }
+
+    // (main also pins that the name reaches a pane TAB at the provider root — `PaneTab` does not
+    // exist on this line, so that assertion stays with the tabs feature.)
+}
