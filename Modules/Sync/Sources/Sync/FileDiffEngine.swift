@@ -153,11 +153,46 @@ public struct FileDiffEngine {
 
     /// Recursively scans a directory and aggregates `FileInfo` objects in a dictionary keyed by relative path.
     /// Uses high-performance resource value fetching in standard production, and fallback attributes for mocks.
+    ///
+    /// **`maxEntries` bounds it, and the bound has to exist because this is the scan's COLD path.**
+    /// The comparison has two branches: when both sides are already in `prefetchedTrees` it derives
+    /// its maps from those trees, which `FileSyncManager.paneNodeBudget` caps — and when they are
+    /// not, it lands here, on a walk that went through nothing of the sort. That is the branch a
+    /// first switch to a source takes, so it is the one that ran during the ten-minute hang
+    /// reported on 2026-08-24, on a home folder of 196,726 directories.
+    ///
+    /// **Truncation is recorded as the root being unexplored**, under the `""` key — the same
+    /// record an unlistable root already mints a few lines below, read by `computeDifferences` as
+    /// "this side's ENTIRE view is unknown". That is the honest reading of a stopped walk and it is
+    /// safe in the only direction that matters: no Missing row may be minted against a side whose
+    /// view is incomplete, so a partial scan can never offer to copy or "restore" something the
+    /// walk simply did not reach. Differences between entries BOTH sides did see are unaffected,
+    /// and so are Missing rows against the *other* (complete) side, which the walk really did
+    /// observe. Reusing that record rather than inventing a second one is deliberate: it is
+    /// already understood by both passes of `computeDifferences` and already pinned by tests.
+    ///
+    /// **The warm branch suppresses more precisely than this one, and that asymmetry is inherent
+    /// rather than an oversight.** A truncated pane TREE marks the individual directories it did
+    /// not descend into, so `filesInfo(fromTree:)` produces per-directory `isUnexplored` entries
+    /// and only the rows beneath those ancestors are suppressed. This walk cannot do the same: it
+    /// is a flat enumeration that stops at an arbitrary point in ENUMERATION order, and that is not
+    /// tree order — what it missed is scattered, not a subtree, so there is no set of directories
+    /// it could name. Whole-side is the honest answer for a walk with this much information, and it
+    /// errs toward suppressing rows rather than inventing them.
+    ///
+    /// The consequence is real and worth knowing: for one folder pair large enough to truncate, a
+    /// COLD scan reports no Missing rows at all while a WARM one reports the legitimate ones. Both
+    /// say in the log that they are partial, so the difference is visible rather than silent —
+    /// which is the most that can be done about it from here.
+    ///
     /// - Parameters:
     ///   - url: The root directory URL to scan.
     ///   - fileManager: The file manager to use for scanning (supports injected mocks).
+    ///   - maxEntries: Stop after recording this many entries, marking the root unexplored. `nil`
+    ///     is unbounded — which every caller outside the comparison scan still is.
     /// - Returns: A map of relative paths to `FileInfo` metadata.
-    public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
+    public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default,
+                                           maxEntries: Int? = nil) throws -> [String: FileInfo] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]
         let keySet = Set(keys)
 
@@ -174,6 +209,8 @@ public struct FileDiffEngine {
         // (disk-walk) branch silently skipped the subtree and the other side's files showed up
         // as phantom actionable "Missing" rows.
         var unreadableDirKeys = Set<String>()
+        /// Set when `maxEntries` stopped the walk — see the note on this function.
+        var truncated = false
 
         /// Stable identity of the directory a URL ultimately refers to (through symlinks), for
         /// the symlink-descent cycle guard below — the disk-walk counterpart of the tree walk's
@@ -248,6 +285,15 @@ public struct FileDiffEngine {
                 // A superseded scan's results are discarded wholesale (generation-gated publish);
                 // abort mid-walk instead of holding the scanning slot for a walk nobody will read.
                 try Task.checkCancellation()
+                // Checked before the entry is statted, not after it is recorded: the `resourceValues`
+                // fetch below is what this walk actually pays for, so a spent budget must stop
+                // before one more rather than after. `return` and not `break` — this function
+                // recurses for symlinked directories, and a `break` would leave the outer walk
+                // free to keep enumerating past the cap.
+                if let maxEntries, result.count >= maxEntries {
+                    truncated = true
+                    return
+                }
                 do {
                     var isReg = true
                     var modDate: Date? = nil
@@ -334,7 +380,8 @@ public struct FileDiffEngine {
                             // directory the link lives in.
                             let hostID = canonicalIdentity(fileURL.deletingLastPathComponent())
                             let pointsIntoAncestor = hostID == targetID || hostID.hasPrefix(targetID + "/")
-                            if !branchVisited.contains(targetID) && !pointsIntoAncestor && depth < symlinkDepthCap {
+                            if !branchVisited.contains(targetID) && !pointsIntoAncestor && depth < symlinkDepthCap
+                                && !truncated {
                                 try walk(fileURL.resolvingSymlinksInPath(), prefix: keyPath,
                                          branchVisited: branchVisited.union([targetID]))
                             }
@@ -367,6 +414,19 @@ public struct FileDiffEngine {
         if unreadableDirKeys.contains(""), result[""] == nil {
             result[""] = FileInfo(url: url, modificationDate: nil, fileSize: nil,
                                   isDirectory: true, isUnexplored: true)
+        }
+        // A stopped walk makes the same claim an unlistable root does — this side's view is
+        // incomplete — so it mints the same record. `result[""] == nil` because an unreadable root
+        // has already said something strictly stronger about the same side.
+        if truncated, result[""] == nil {
+            result[""] = FileInfo(url: url, modificationDate: nil, fileSize: nil,
+                                  isDirectory: true, isUnexplored: true)
+            let counted = result.count
+            let limit = maxEntries ?? 0
+            let root = url.path
+            Task { @MainActor in
+                Logger.shared.warning("Scan: stopped reading “\(root)” after \(counted) entries (limit \(limit)) — the comparison covers what was read and reports nothing on this side as missing")
+            }
         }
 
         if unreadableCount > 0 {

@@ -489,6 +489,9 @@ extension FileSyncManager {
         lastScanProviders = nil
         lastScanRootNames = nil
         lastScanDate = nil
+        // The coverage claim belongs to the rows above it — see `lastScanCoverage`. Left standing
+        // it would warn about a comparison that has just been dropped.
+        if !lastScanCoverage.isComplete { lastScanCoverage = .complete }
         if hasScanned { hasScanned = false }
 
         // A filter pass that snapshotted state before this clear may still publish after it.

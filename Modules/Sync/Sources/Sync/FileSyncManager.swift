@@ -64,7 +64,12 @@ public class FileSyncManager: ObservableObject {
     /// a scan lands (tests, CLI cold start) — destinations are then not name-checked, which
     /// preserves the pure pre-seam behavior. Cleared with the rest of the comparison state
     /// on provider changes and swapped in `swapPanes`.
-    var lastScanProviders: (left: CloudProvider, right: CloudProvider)?
+    ///
+    /// Readable outside the module — like `lastScanRootNames` beside it, and for the same reason:
+    /// it names the pair the published rows came from, which is what a caption ABOUT those rows has
+    /// to use. Reading the panes instead would let a navigation after the scan rename the sources a
+    /// caption is describing. Set only here.
+    public internal(set) var lastScanProviders: (left: CloudProvider, right: CloudProvider)?
 
     /// The last path component of each compared folder at the moment the most recent scan's
     /// results were published — what the differences table's Path column anchors its paths to,
@@ -314,6 +319,17 @@ public class FileSyncManager: ObservableObject {
 
     /// The defaults key holding ``LastScanSummary`` as JSON.
     public static let lastScanSummaryKey = "compareLastScanSummary"
+
+    /// **Whether the last completed Compare scan could read both sides in full.**
+    ///
+    /// Not persisted, unlike `lastScanSummary`: it describes rows that are on screen right now, and
+    /// a coverage claim restored beside a table nobody has rebuilt would be a warning about a scan
+    /// that is not there. Cleared by `invalidateComparisonState` with the rows it belongs to.
+    ///
+    /// See ``PartialComparison`` for what it costs the result — the short version is that a side
+    /// whose root came back unread mints no Missing rows at all, so the count is a floor and
+    /// nothing on screen said so.
+    @Published public internal(set) var lastScanCoverage: PartialComparison = .complete
 
     /// What the last completed Compare scan found, restored at launch. See ``LastScanSummary``.
     ///

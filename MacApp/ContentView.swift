@@ -3497,6 +3497,43 @@ struct ContentView: View {
     /// The tabbed workspace at the bottom of the file explorer.
     /// It dynamically switches between `DifferencesView` and `DetailsSidebar`.
     @ViewBuilder
+    /// The sentence for an incomplete comparison, or nil when the last scan read both sides in
+    /// full — which is every ordinary scan.
+    ///
+    /// Named off `lastScanProviders`, the pair the ROWS came from, so navigating a pane after the
+    /// scan cannot make the banner name a source that was never compared. Nil once there is no
+    /// scan to describe: `invalidateDifferencesForPaneRetarget` clears the coverage with the rows.
+    var partialComparisonMessage: String? {
+        guard syncManager.hasScanned, let pair = syncManager.lastScanProviders else { return nil }
+        return syncManager.lastScanCoverage.message(leftName: pair.left.displayName,
+                                                    rightName: pair.right.displayName)
+    }
+
+    /// **A warning, not an error, and not dismissible.** Nothing failed — the scan ran and the rows
+    /// it produced are correct; what is wrong is the ones it could not know about. A dismiss button
+    /// would let the qualifier be closed while the number it qualifies stays on screen, which is
+    /// the state this exists to prevent.
+    @ViewBuilder
+    func partialComparisonBanner(_ message: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .scaledFont(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(syncManager.lastScanCoverage.title)
+                    .scaledFont(.system(size: 12, weight: .semibold))
+                Text(message)
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        // No fill or divider of its own — the host mounts it as a `bottomSectionCard`, the same
+        // way `duplicateReviewBanner` is mounted directly above.
+    }
+
     var bottomPaneView: some View {
         // Stable outer container: keeps this bottom pane's identity constant across tab
         // switches, so selecting Details doesn't reset the vertical split or collapse the panes.
@@ -3507,6 +3544,12 @@ struct ContentView: View {
         // from the reviewed copies, so the scoped trash can't fire against the wrong folder.
         if selectedWorkspace == .compare, let review = duplicateReview, reviewCoordinator.duplicateReviewActive(review) {
             reviewCoordinator.duplicateReviewBanner(review)
+                .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+        }
+        // **A count that is a floor has to say so.** Above the table rather than beside the count,
+        // because the fact is about every row that is NOT there — see `PartialComparison`.
+        if selectedWorkspace == .compare, let message = partialComparisonMessage {
+            partialComparisonBanner(message)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         }
         // **A person gather takes the slot from whatever was in it**, in every workspace. It is

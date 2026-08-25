@@ -707,10 +707,19 @@ extension FileSyncManager {
         // forward this task's cancellation in explicitly, mirroring `buildTree`: detached tasks
         // don't inherit cancellation, and a superseded scan otherwise holds `isScanning` for a
         // full double disk walk whose results are guaranteed to be discarded.
-        let newDifferences: [FileDifference]?
+        /// The two things a completed compute produces, carried together so the coverage fact
+        /// lands under the SAME publish gate as the rows it describes. Hopped to the main actor on
+        /// its own — the shape the incomplete-scan warning uses — a superseded scan could overwrite
+        /// a newer scan's coverage, and the banner would then describe a comparison nobody ran.
+        struct ScanOutcome: Sendable {
+            let differences: [FileDifference]
+            let coverage: PartialComparison
+        }
+        let newDifferences: ScanOutcome?
         if let cachedLeft = prefetchedTrees[leftURL.path], let cachedRight = prefetchedTrees[rightURL.path] {
             Logger.shared.debug("[scan] \(scanTag) from cached trees (no directory enumeration)")
-            let computeTask = Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
+
+            let computeTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 guard !Task.isCancelled else { return nil }
                 // This branch skips the directory ENUMERATION, which is not the same as touching
                 // no disk — the line above used to claim "no disk walk". `filesInfo(fromTree:)`
@@ -725,6 +734,23 @@ extension FileSyncManager {
                 let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path)
                 let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path)
                 let flatten = Self.durationText(since: flattenStart)
+                // **Say when the comparison is partial.** A pane tree can be truncated by
+                // `paneNodeBudget`, and a diff derived from one covers only what was walked — the
+                // cold branch already warns about its own truncation, and a warm scan that stayed
+                // silent would make "no differences" mean two different things depending on cache
+                // state. Warned rather than debugged: this changes what the result MEANS.
+                //
+                // Read off the MAPS, inside this detached task, and that placement is the point.
+                // The first version walked both trees on the main actor before the hop — up to
+                // 200,000 nodes per scan, which is precisely the shape (`PaneChildrenIndex`'s note
+                // records it) that once put 16.9 s of node comparison on the main thread. These
+                // maps are already built and already carry the marking.
+                for (side, info) in [("left", leftFilesInfo), ("right", rightFilesInfo)]
+                where info.values.contains(where: { $0.isDirectory && $0.isUnexplored }) {
+                    Task { @MainActor in
+                        Logger.shared.warning("Scan: the \(side) tree is incomplete — this comparison covers what was walked, and reports nothing under an unread folder as missing")
+                    }
+                }
                 guard !Task.isCancelled else { return nil }
                 let diffStart = CFAbsoluteTimeGetCurrent()
                 defer {
@@ -734,16 +760,18 @@ extension FileSyncManager {
                         Logger.shared.debug("[scan] \(scanTag) cached-tree compute: flatten \(flatten), diff \(diff) (\(counts))")
                     }
                 }
-                return FileDiffEngine.computeDifferences(
-                    left: request.left,
-                    leftURL: leftURL,
-                    right: request.right,
-                    rightURL: rightURL,
-                    leftFilesInfo: leftFilesInfo,
-                    rightFilesInfo: rightFilesInfo,
-                    caseInsensitive: caseInsensitive,
-                    dateToleranceSeconds: dateTolerance
-                )
+                return ScanOutcome(
+                    differences: FileDiffEngine.computeDifferences(
+                        left: request.left,
+                        leftURL: leftURL,
+                        right: request.right,
+                        rightURL: rightURL,
+                        leftFilesInfo: leftFilesInfo,
+                        rightFilesInfo: rightFilesInfo,
+                        caseInsensitive: caseInsensitive,
+                        dateToleranceSeconds: dateTolerance
+                    ),
+                    coverage: PartialComparison.of(left: leftFilesInfo, right: rightFilesInfo))
             }
             newDifferences = await withTaskCancellationHandler {
                 await computeTask.value
@@ -751,7 +779,7 @@ extension FileSyncManager {
                 computeTask.cancel()
             }
         } else {
-            let walkTask = Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
+            let walkTask = Task.detached(priority: .userInitiated) { () -> ScanOutcome? in
                 do {
                     let fm = await MainActor.run { self.fileManager }
 
@@ -762,11 +790,18 @@ extension FileSyncManager {
                     // soon as it exists, so a clock started below them would already have missed
                     // the beginning of the work it claims to measure.
                     let walkStart = Elapsed()
+                    // **`paneNodeBudget`, and sharing it is a correctness requirement.** The warm
+                    // branch above derives its maps from the cached PANE trees, which that constant
+                    // caps; two different caps would make one comparison of one folder pair answer
+                    // differently depending on nothing but cache state. Do not split them without a
+                    // better reason than tidiness — see the constant's own note.
                     let leftWalk = Task.detached(priority: .userInitiated) {
-                        try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm)
+                        try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm,
+                                                               maxEntries: Self.paneNodeBudget)
                     }
                     let rightWalk = Task.detached(priority: .userInitiated) {
-                        try FileDiffEngine.getFilesInDirectory(rightURL, fileManager: fm)
+                        try FileDiffEngine.getFilesInDirectory(rightURL, fileManager: fm,
+                                                               maxEntries: Self.paneNodeBudget)
                     }
                     let (leftFilesInfo, rightFilesInfo) = try await withTaskCancellationHandler {
                         (try await leftWalk.value, try await rightWalk.value)
@@ -784,16 +819,18 @@ extension FileSyncManager {
                         }
                     }
 
-                    return FileDiffEngine.computeDifferences(
-                        left: request.left,
-                        leftURL: leftURL,
-                        right: request.right,
-                        rightURL: rightURL,
-                        leftFilesInfo: leftFilesInfo,
-                        rightFilesInfo: rightFilesInfo,
-                        caseInsensitive: caseInsensitive,
-                        dateToleranceSeconds: dateTolerance
-                    )
+                    return ScanOutcome(
+                        differences: FileDiffEngine.computeDifferences(
+                            left: request.left,
+                            leftURL: leftURL,
+                            right: request.right,
+                            rightURL: rightURL,
+                            leftFilesInfo: leftFilesInfo,
+                            rightFilesInfo: rightFilesInfo,
+                            caseInsensitive: caseInsensitive,
+                            dateToleranceSeconds: dateTolerance
+                        ),
+                        coverage: PartialComparison.of(left: leftFilesInfo, right: rightFilesInfo))
 
                 } catch is CancellationError {
                     // Superseded mid-walk; the publish gate below discards the scan anyway.
@@ -818,7 +855,11 @@ extension FileSyncManager {
         // and only reaches its own scanDirectories (bumping the generation) after both pane
         // loads finish — until then this scan is still "latest" but its results are for
         // folders the panes are navigating away from.
-        if !Task.isCancelled, isLatestRequest, let results = newDifferences {
+        if !Task.isCancelled, isLatestRequest, let outcome = newDifferences {
+            let results = outcome.differences
+            // Published with the rows, so the banner and the count can never describe two
+            // different scans.
+            self.lastScanCoverage = outcome.coverage
             self.rawDifferences = results
             self.lastRightProviderType = request.right.type
             // The provider pair the destination name check attributes transfer targets to.
