@@ -360,8 +360,15 @@ public extension LiquidGlass {
     /// of every accent paint in the background (`BackgroundHuePaintsScaleTests` polices hue paints
     /// only — this is deliberately not one). Light-only by design: white over dark's deep base
     /// would gray it, and dark None already reads apart from dark Graphite (which keeps its wash
-    /// and glow). `.clear` is also exempt — it is see-through by contract, and `clearLightVeil`
-    /// already whitens what shows through.
+    /// and glow).
+    ///
+    /// It fires at EVERY light level, `.clear` included. The first cut exempted Clear as
+    /// "see-through by contract", and the exemption was wrong in front of a real window: at Clear
+    /// the background is the behind-window vibrancy plus `clearLightVeil` (22%), which reads as
+    /// exactly the flat gray this constant exists to remove — reported on the running app,
+    /// 2026-08-25, on a Clear/None/light install. Over the vibrancy the film whitens the window
+    /// while the blur underneath still reads as depth, so Clear keeps its character the way
+    /// Frosted keeps its material texture.
     ///
     /// The value is measured, not eyeballed — `NoneHueWhitenessRenderTests` renders the real
     /// modifier and asserts the separation from Graphite survives. 0.7 closes about three
@@ -995,11 +1002,11 @@ private struct LiquidGlassBackground: ViewModifier {
                 }
 
                 // The "None" white ground, light only — see `LiquidGlass.noneLightVeil`. OVER the
-                // material rather than under it, so the whitening is not diluted by the material's
-                // own opacity and lands the same at Frosted and Solid. The titlebar band passes
-                // roughly three quarters of what is beneath it (see `clearTitlebarBoost`), so it
-                // whitens with the rest of the window.
-                if !dark && !seeThrough && hue == .none {
+                // material (and, at Clear, over the vibrancy + `clearLightVeil`) rather than under,
+                // so the whitening is not diluted by what it sits on and lands at every level. The
+                // titlebar band passes roughly three quarters of what is beneath it (see
+                // `clearTitlebarBoost`), so it whitens with the rest of the window.
+                if !dark && hue == .none {
                     Color.white.opacity(LiquidGlass.noneLightVeil)
                         .ignoresSafeArea()
                 }

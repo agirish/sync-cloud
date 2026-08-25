@@ -22,8 +22,9 @@ final class NoneHueWhitenessRenderTests: XCTestCase {
 
     /// Renders the app background for one hue at one appearance and returns its pixels.
     @MainActor
-    private func render(hue: LiquidGlassHue, tint: Double, dark: Bool) throws -> NSBitmapImageRep {
-        try renderView(AnyView(Color.clear.liquidGlassAppBackground(level: .frosted, hue: hue, tint: tint)),
+    private func render(hue: LiquidGlassHue, tint: Double, dark: Bool,
+                        level: GlassLevel = .frosted) throws -> NSBitmapImageRep {
+        try renderView(AnyView(Color.clear.liquidGlassAppBackground(level: level, hue: hue, tint: tint)),
                        dark: dark)
     }
 
@@ -89,6 +90,19 @@ final class NoneHueWhitenessRenderTests: XCTestCase {
         XCTAssertGreaterThan(white, graphite + 0.02, "Graphite renders as white — the gap this measures is gone")
         XCTAssertLessThan(white - none, (white - graphite) * 0.4,
                           "None reads gray, not white — none \(none), graphite \(graphite), white \(white)")
+    }
+
+    /// Clear is NOT exempt — the exemption was the first cut's mistake, found on a real
+    /// Clear/None/light install that stayed exactly as gray as before the veil existed. At Clear
+    /// the veil sits over the vibrancy + `clearLightVeil` instead of over the material; the fact
+    /// that must survive is the same one as at Frosted: None separates from Graphite.
+    @MainActor
+    func testClearNoneIsWhiterThanClearGraphiteInLight() throws {
+        let none = try brightness(render(hue: .none, tint: 0, dark: false, level: .clear))
+        let graphite = try brightness(render(hue: .graphite, tint: 0, dark: false, level: .clear))
+        print("[none-whiteness] clear light tint0 — none \(none), graphite \(graphite)")
+        XCTAssertGreaterThan(none, graphite + 0.02,
+                             "Clear None does not separate from Clear Graphite — none \(none), graphite \(graphite)")
     }
 
     /// The veil is light-only by design: white over dark's deep near-black base would gray it.
