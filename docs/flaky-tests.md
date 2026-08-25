@@ -1155,6 +1155,27 @@ released look identical from the outside — that is the whole reason `releasedB
 `awaitSignal`); mechanism 8 above for why the bound records its own expiry; mechanism 3 for the
 other way suites-in-parallel decides a verdict.
 
+#### Seen: `ProgressAccountingTests.testQueuedOperationDoesNotClobberRunningProgress`, 2026-08-25
+
+Failed in a full `Modules/Sync` package run — **41.6 s, three issues in the one test** — and passed
+in the next full run of the same commit, and in isolation. Three expiries at ~14 s apiece is this
+mechanism's shape rather than a slow test: the bound is being reached, not approached.
+
+`GatedFileManager` holds its in-flight copy and move on `DispatchSemaphore` (`copyGate`,
+`moveGate`, parked in `park(_:)`), so each gated operation blocks a cooperative-pool thread while
+the `waitUntil` that would release it needs a thread from that same pool. Under a package run the
+pool is already spoken for, and this suite parks two at once.
+
+**The remedy is already in the tree**, which is why this is worth recording rather than shrugging
+at: `DuplicateBatchRedesignTests` parks an enqueued operation on a continuation-backed `Latch`
+actor and cites this section in the comment above it. Nothing about `ProgressAccountingTests` needs
+a semaphore — it needs the operation held, not a thread held.
+
+**Not yet done, deliberately.** Converting it is a change to what the test proves it is holding, and
+this suite's whole subject is operation *accounting*; the conversion wants its own mutation test
+(park engaged vs. park released must stay distinguishable — see `releasedByTimeout` above) rather
+than riding along with an unrelated landing.
+
 ---
 
 ### 11. Five palette tests the fixture dismissed out from under itself — FIXED
