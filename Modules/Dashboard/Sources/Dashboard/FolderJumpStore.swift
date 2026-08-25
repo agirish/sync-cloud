@@ -8,7 +8,49 @@ import Events
 struct JumpLocation: Codable, Equatable, Identifiable, Hashable, Sendable {
     let relativePath: String
     let name: String
+    /// When this folder was last visited — **optional, and the optionality is the migration.**
+    ///
+    /// Recents were stored as `{relativePath, name}` with no clock until v4.4, which made a
+    /// cross-source "eight most recent" *uncomputable*: the per-root lists are each ordered, but
+    /// two ordered lists cannot be interleaved without a time. The sidebar's global Recents section
+    /// needs that interleaving, so the field arrives here.
+    ///
+    /// **`nil` means unknown, never "the beginning of time".** Every entry written before this
+    /// build decodes with no date, and a defaulted `.distantPast` would be a claim — that those
+    /// folders were visited longest ago — where the truth is that nobody recorded it. Unknown
+    /// sorts *after* everything dated (``FolderJumpStore/mostRecentAcrossRoots``) and earns a real
+    /// date the next time the folder is visited, so the list corrects itself through use rather
+    /// than through a migration pass.
+    ///
+    /// Additive and therefore safe both ways, which matters because `FolderJumpStore.swift` is
+    /// carried on all three release lines and they share a defaults domain: a v2.x or v3.x build
+    /// writing an entry without this key produces exactly the `nil` this handles, and a v4.4 build
+    /// writing one with it is an unknown key those decoders ignore.
+    var visitedAt: Date?
     var id: String { relativePath }
+}
+
+/// One remembered visit **with the root it happened under** — what a cross-source list needs and
+/// what the per-root accessors cannot express.
+///
+/// `JumpLocation` is deliberately root-less: it is stored *inside* a per-root list, so repeating the
+/// root in every element would be a second place for the key to be wrong. That works right up until
+/// the caller wants one list spanning every root, at which point the root stops being context and
+/// becomes data — which is this type.
+public struct RememberedVisit: Equatable, Sendable {
+    /// The provider root, already normalised through `FolderJumpStore.key(forRoot:)`.
+    public let root: String
+    public let relativePath: String
+    public let name: String
+    /// `nil` for an entry recorded before v4.4 — see ``JumpLocation/visitedAt``.
+    public let visitedAt: Date?
+
+    public init(root: String, relativePath: String, name: String, visitedAt: Date?) {
+        self.root = root
+        self.relativePath = relativePath
+        self.name = name
+        self.visitedAt = visitedAt
+    }
 }
 
 /// Both remembered lists as they should be drawn, and whether the root was there to be asked.
@@ -46,10 +88,28 @@ public final class FolderJumpStore: ObservableObject {
     /// Pins are curated and outlive the session, so they persist.
     @Published private(set) var pinnedByRoot: [String: [JumpLocation]] = [:]
 
+    /// The user's dragged order, empty until they drag something. **Public because the row builder
+    /// outside this module has to apply it** — see `FolderSidebarModel.rows(sources:recents:favoriteOrder:)`.
+    @Published public private(set) var favoriteOrder: [String] = []
+
     private let defaults: UserDefaults
     static let pinnedKey = "folderJumpPinnedByRoot"
     static let recentsKey = "folderJumpRecentsByRoot"
-    static let maxRecents = 8
+    /// How many recents are kept **per root**, and — since v4.4 — how many the sidebar's one global
+    /// list shows. Public because the sidebar is outside this module and asks for the same eight;
+    /// two constants meaning "how many recents" is how they come to disagree.
+    public static let maxRecents = 8
+    /// The user's own order for the Favorites section, as `root\u{0}relativePath` keys.
+    ///
+    /// **A separate key rather than a field on `JumpLocation`, and separate from `pinnedByRoot`'s
+    /// own array order.** Favorites span every source, so the section is a concatenation of
+    /// per-root lists — and a drag that moves a Dropbox favorite above an iCloud one has no
+    /// representation in per-root arrays at all. The section is one flat list with source badges
+    /// and no visible group boundary inside it, so an order that stopped at a source would be an
+    /// invisible constraint: the row would snap back for no reason the user can see.
+    ///
+    /// `pinnedByRoot` stays the truth about *membership*; this is the truth about *sequence*.
+    static let favoriteOrderKey = "folderJumpFavoriteOrder"
 
     /// Where bytes this build cannot decode are put, instead of being overwritten.
     ///
@@ -108,6 +168,47 @@ public final class FolderJumpStore: ObservableObject {
             }
             out[key] = Array(list.prefix(Self.maxRecents))
         }
+        // **Not seeded, and never written on load.** An empty order means "the user has not dragged
+        // anything", and `orderedFavorites` falls through to the deterministic default for every
+        // key it does not name — the same shape `visitedAt` uses for entries written before it
+        // existed. Seeding it here would mean writing to defaults during a read, which is exactly
+        // how a misread destroys the thing it misread (see `storedMap`'s three states).
+        favoriteOrder = defaults.stringArray(forKey: Self.favoriteOrderKey) ?? []
+    }
+
+    /// The composite key one favorite is identified by across the whole section.
+    ///
+    /// `\u{0}` as the separator because it is the one byte that cannot occur in a POSIX path — a
+    /// `/` or a `:` would make `("a/b", "c")` and `("a", "b/c")` the same key, and those are two
+    /// different folders in two different sources.
+    public nonisolated static func favoriteKey(root: String, relativePath: String) -> String {
+        "\(root)\u{0}\(relativePath)"
+    }
+
+    /// **The Favorites section in the user's own order.**
+    ///
+    /// Entries the stored order names come first, in that order; anything it does not name follows,
+    /// in the deterministic root-sorted order the section had before anyone dragged. That second
+    /// half is what makes this safe without a migration: a favorite added after the last drag, or
+    /// every favorite on an install that has never dragged, simply appends rather than jumping to
+    /// the front or vanishing.
+    ///
+    /// Keys in the stored order that name nothing are ignored, so a favorite removed while its key
+    /// lingers cannot leave a hole or resurrect itself.
+    nonisolated static func orderedFavorites(_ favorites: [RememberedVisit],
+                                             order: [String]) -> [RememberedVisit] {
+        guard !order.isEmpty else { return favorites }
+        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        // A stable partition rather than one `sorted(by:)` over an optional rank: `sorted(by:)` is
+        // not a stable sort in Swift, so the unranked tail would be free to shuffle between runs.
+        var ranked: [(RememberedVisit, Int)] = []
+        var unranked: [RememberedVisit] = []
+        for favorite in favorites {
+            let key = favoriteKey(root: favorite.root, relativePath: favorite.relativePath)
+            if let index = rank[key] { ranked.append((favorite, index)) } else { unranked.append(favorite) }
+        }
+        ranked.sort { $0.1 < $1.1 }
+        return ranked.map(\.0) + unranked
     }
 
     /// One of the two stored maps, **with bytes this build cannot read preserved rather than
@@ -160,7 +261,11 @@ public final class FolderJumpStore: ObservableObject {
     /// Expansion plus a trailing-slash trim, and deliberately no more: case-folding would merge two
     /// genuinely distinct roots on a case-sensitive volume, and symlink resolution would make a key
     /// depend on disk state that can change under a persisted pin.
-    nonisolated static func key(forRoot root: String) -> String {
+    /// **The one spelling of a root.** Public since v4.4: `FolderSidebarRow.root` is normalised
+    /// through this, so a host comparing a row's root against a provider's path has to normalise
+    /// the same way or the two spellings never meet — which is the exact defect the migration in
+    /// `init` exists to repair.
+    public nonisolated static func key(forRoot root: String) -> String {
         var path = (root as NSString).expandingTildeInPath
         while path.count > 1, path.hasSuffix("/") { path.removeLast() }
         return path
@@ -195,9 +300,13 @@ public final class FolderJumpStore: ObservableObject {
     /// Records a visited folder, moving it to the front and capping the list. The provider root
     /// itself is never "recent" — it is always one crumb click away — so an empty relative path is
     /// ignored.
-    public func recordVisit(root: String, relativePath: String, name: String) {
+    /// - Parameter at: injected rather than read here, for the reason `opensInNewTab(_:)` takes its
+    ///   modifiers and `reachable` takes its `isDirectory`: a `Date()` inside this call can only be
+    ///   asserted against another `Date()`, so the ordering rule it feeds would be pinned by tests
+    ///   that race the clock they are testing.
+    public func recordVisit(root: String, relativePath: String, name: String, at: Date = Date()) {
         guard !relativePath.isEmpty, !name.isEmpty else { return }
-        let visited = JumpLocation(relativePath: relativePath, name: name)
+        let visited = JumpLocation(relativePath: relativePath, name: name, visitedAt: at)
         let key = Self.key(forRoot: root)
         recentsByRoot[key] = Self.inserting(visited, into: recentsByRoot[key] ?? [], cap: Self.maxRecents)
         persistRecents()
@@ -220,7 +329,10 @@ public final class FolderJumpStore: ObservableObject {
         let before = list.count
         list.removeAll { $0.relativePath == relativePath }
         if list.count == before {
-            list.append(JumpLocation(relativePath: relativePath, name: name))
+            // **No date on a favorite.** Favorites are held in the order the user curated them, so
+            // a timestamp here would be a field nothing reads — and one that would then have to be
+            // kept correct. Recents are the only list that is ordered by time.
+            list.append(JumpLocation(relativePath: relativePath, name: name, visitedAt: nil))
         }
         pinnedByRoot[key] = list
         persistPinned()
@@ -302,6 +414,84 @@ public final class FolderJumpStore: ObservableObject {
 
     /// Pure move-to-front dedupe + cap (newest first). Extracted so the recents ordering is testable
     /// without the store's persistence.
+    /// **The most recent visits across every root, newest first** — the Browse sidebar's Recents
+    /// section, which is one global list of eight rather than eight per source.
+    ///
+    /// Decided 2026-08-24. With eleven sources connected, per-source recents means the section
+    /// changes under you whenever you switch source, and can never take you back to a folder in a
+    /// different account — which is the one thing a cross-source sidebar can do that Finder cannot.
+    /// The ⌘K palette keeps its per-root list, and that is not an inconsistency: a palette aimed at
+    /// one pane should answer for that pane.
+    ///
+    /// **The per-root cap stays.** `maxRecents` still bounds what is *stored* per root; this bounds
+    /// what is *shown*. Nothing about the store's size changes.
+    ///
+    /// Three rules, in order:
+    ///
+    /// 1. **Favorites are subtracted**, per root, exactly as `recentPaths(forRoot:)` does it — a
+    ///    folder listed twice under two headings is one wasted row in a list of eight.
+    /// 2. **Dated entries first, newest first.**
+    /// 3. **Undated entries after every dated one** — see ``JumpLocation/visitedAt``: `nil` is
+    ///    unknown, not `.distantPast`, but "we do not know when" is still weaker evidence of
+    ///    recency than any actual date, so unknown yields to known. Among themselves they are
+    ///    ordered by root and then by position in that root's list, which is arbitrary but
+    ///    *stable*: dictionary iteration order is not, and a Recents section that reshuffled on
+    ///    every launch would look broken.
+    ///
+    /// Pure, `static` and `nonisolated` — so the rule can be asserted without a store, a disk, a
+    /// clock or a main actor, the same way `reachable` and `key(forRoot:)` are.
+    nonisolated static func mostRecentAcrossRoots(recents: [String: [JumpLocation]],
+                                      favorites: [String: [JumpLocation]],
+                                      limit: Int) -> [RememberedVisit] {
+        guard limit > 0 else { return [] }
+        var dated: [(RememberedVisit, Date)] = []
+        var undated: [RememberedVisit] = []
+        for root in recents.keys.sorted() {
+            let pinned = Set((favorites[root] ?? []).map(\.relativePath))
+            for visit in recents[root] ?? [] where !pinned.contains(visit.relativePath) {
+                let entry = RememberedVisit(root: root, relativePath: visit.relativePath,
+                                            name: visit.name, visitedAt: visit.visitedAt)
+                if let at = visit.visitedAt { dated.append((entry, at)) } else { undated.append(entry) }
+            }
+        }
+        // `sorted(by:)` is not a stable sort in Swift, so two visits sharing a date could swap on
+        // any run. The root and path break the tie and make the whole order reproducible.
+        dated.sort {
+            if $0.1 != $1.1 { return $0.1 > $1.1 }
+            if $0.0.root != $1.0.root { return $0.0.root < $1.0.root }
+            return $0.0.relativePath < $1.0.relativePath
+        }
+        return Array((dated.map(\.0) + undated).prefix(limit))
+    }
+
+    /// ``mostRecentAcrossRoots(recents:favorites:limit:)`` against this store's two maps.
+    public func recentVisitsAcrossRoots(limit: Int = FolderJumpStore.maxRecents) -> [RememberedVisit] {
+        Self.mostRecentAcrossRoots(recents: recentsByRoot, favorites: pinnedByRoot, limit: limit)
+    }
+
+    /// **Every favorite, across every root**, in each root's curated order with the roots sorted —
+    /// the sidebar's Favorites section, which spans sources exactly as Recents now does.
+    ///
+    /// Sorted by root rather than left to dictionary order for the reason above: the order has to
+    /// be the same on every launch. Within a root the user's own order is preserved untouched.
+    public func favoriteVisitsAcrossRoots() -> [RememberedVisit] {
+        let flat = pinnedByRoot.keys.sorted().flatMap { root in
+            (pinnedByRoot[root] ?? []).map {
+                RememberedVisit(root: root, relativePath: $0.relativePath,
+                                name: $0.name, visitedAt: $0.visitedAt)
+            }
+        }
+        return Self.orderedFavorites(flat, order: favoriteOrder)
+    }
+
+    /// **Records the order a drag produced.** The whole sequence is written, not a delta, so the
+    /// stored list is always a complete answer for what is on screen — a delta would leave the
+    /// unranked tail's meaning depending on when each entry was added.
+    public func setFavoriteOrder(_ ordered: [RememberedVisit]) {
+        favoriteOrder = ordered.map { Self.favoriteKey(root: $0.root, relativePath: $0.relativePath) }
+        defaults.set(favoriteOrder, forKey: Self.favoriteOrderKey)
+    }
+
     static func inserting(_ location: JumpLocation, into list: [JumpLocation], cap: Int) -> [JumpLocation] {
         var result = list.filter { $0.relativePath != location.relativePath }
         result.insert(location, at: 0)

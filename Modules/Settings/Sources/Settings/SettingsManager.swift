@@ -84,6 +84,42 @@ public class SettingsManager: ObservableObject {
         availableProviders.filter { !disabledProviderIds.contains($0.id) }
     }
 
+    /// The user's dragged source order, empty until they drag one.
+    @Published public private(set) var sourceOrder: [String] = []
+
+    /// Records the order a drag produced, and republishes the list in it.
+    ///
+    /// The whole sequence is written rather than a delta, so what is stored is always a complete
+    /// answer for what was on screen.
+    public func setSourceOrder(_ ids: [String]) {
+        guard ids != sourceOrder else { return }
+        sourceOrder = ids
+        userDefaults.set(ids, forKey: Self.sourceOrderKey)
+        availableProviders = Self.inUserOrder(availableProviders, order: ids)
+    }
+
+    /// **Providers in the user's order**, with anything the order does not name kept in discovery
+    /// order behind those it does.
+    ///
+    /// The same shape `FolderJumpStore.orderedFavorites` uses, and for the same reason: it needs no
+    /// migration and no seed. An install that has never dragged has an empty order and gets exactly
+    /// the discovery order it had before; a newly connected account appends rather than jumping to
+    /// the front, which is where a rank-defaulting sort would have put it.
+    ///
+    /// A stable partition rather than one `sorted(by:)` over an optional rank, because Swift's sort
+    /// is not stable — the unnamed tail would otherwise be free to shuffle between launches.
+    nonisolated static func inUserOrder(_ providers: [CloudProvider], order: [String]) -> [CloudProvider] {
+        guard !order.isEmpty else { return providers }
+        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        var ranked: [(CloudProvider, Int)] = []
+        var unranked: [CloudProvider] = []
+        for provider in providers {
+            if let index = rank[provider.id] { ranked.append((provider, index)) } else { unranked.append(provider) }
+        }
+        ranked.sort { $0.1 < $1.1 }
+        return ranked.map(\.0) + unranked
+    }
+
     /// The cloud ground the discovered sources cover, for the *Where it lives* inspector row and
     /// the `⌂ on this Mac only` row badge — see `FileLocation`.
     ///
@@ -146,6 +182,13 @@ public class SettingsManager: ObservableObject {
     private static let rememberIgnoredItemsKey = "rememberIgnoredItems"
     private static let ignorePatternsKey = "ignorePatterns"
     private static let folderSourcesKey = "folderSources"
+    /// The user's own order for the source list, as provider ids.
+    ///
+    /// **One order, read by everything.** It arrived for the Browse sidebar's Sources section, where
+    /// the rows can be dragged — but a sidebar-only order would put the sidebar and the pane
+    /// header's dropdown in different sequences for the same list, which is exactly the drift that
+    /// makes a user distrust both. So it lives here and `availableProviders` is published in it.
+    private static let sourceOrderKey = "sourceOrder"
     private static let folderNameRuleKey = "folderNameRuleProvider"
 
     /// The UserDefaults domain the app persists settings to — its bundle identifier, which is what
@@ -511,13 +554,17 @@ public class SettingsManager: ObservableObject {
         // first publish instead of flashing the default path and a wrong badge.
         let pathOverrides = overridesByProviderId(keyPrefix: Self.overrideKeyPrefix)
         let nameOverrides = overridesByProviderId(keyPrefix: Self.nameOverrideKeyPrefix)
-        self.availableProviders = Self.mapProviders(
+        // Read before the seed is ordered by it. Never seeded and never written on load: an empty
+        // order means "the user has not dragged anything", and `inUserOrder` falls through to
+        // discovery order for every id it does not name.
+        self.sourceOrder = userDefaults.stringArray(forKey: Self.sourceOrderKey) ?? []
+        self.availableProviders = Self.inUserOrder(Self.mapProviders(
             cloudStorageFolders: [],
             iCloudDefaultPath: Self.iCloudDefaultPath,
             folderSources: self.folderSources,
             pathOverride: { pathOverrides[$0] },
             nameOverride: { nameOverrides[$0] }
-        )
+        ), order: self.sourceOrder)
         self.pathValidity = Self.validity(of: self.availableProviders, using: self.validatePath)
 
         if autoDiscover {
@@ -754,9 +801,13 @@ public class SettingsManager: ObservableObject {
                 + "~/Library/CloudStorage is readable.")
         }
 
+        // **Ordered before the comparison**, not after: comparing the discovery order against a
+        // published list already in the user's order would differ every time and re-render every
+        // observer on every save.
+        let ordered = Self.inUserOrder(providers, order: sourceOrder)
         // Skip no-op publishes so unrelated saves don't re-render every observer.
-        if availableProviders != providers {
-            availableProviders = providers
+        if availableProviders != ordered {
+            availableProviders = ordered
         }
         if pathValidity != validity {
             pathValidity = validity
