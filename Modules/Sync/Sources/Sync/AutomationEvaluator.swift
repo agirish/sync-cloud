@@ -18,8 +18,9 @@ public struct AutomationFileFacts: Sendable, Equatable {
     /// On-device text excerpt (PDFKit / OCR / plain text), already lowercased. nil = not read.
     public var snippet: String?
     /// Canonical tokens extracted from the file's *contents* (the Organize scan supplies these from
-    /// its content pass; the dry run derives them from `snippet`). Feeds `mentionsAll` and, when no
-    /// raw snippet is available, `contentContains`. Empty = no content read.
+    /// its content pass; the dry run derives them from `snippet`). Feeds `mentionsAll` alone —
+    /// `contentContains` reads the raw `snippet` only, so "contains" means the same substring on
+    /// every surface. Empty = no content read.
     public var contentTokens: Set<String>
     /// Which household members this document is about, as ``Person`` ids.
     ///
@@ -236,12 +237,17 @@ public enum AutomationEvaluator {
         case .contentContains(let term):
             let needle = term.trimmingCharacters(in: .whitespaces).lowercased()
             guard !needle.isEmpty else { return false }
-            if let snippet = facts.snippet { return snippet.contains(needle) }
-            // No raw excerpt (the Organize scan extracts tokens, not text): fall back to a
-            // token-subset test — every word of the term must appear among the content tokens.
-            let needleTokens = FilingEngine.nameTokens(needle)
-            return !facts.contentTokens.isEmpty && !needleTokens.isEmpty
-                && needleTokens.isSubset(of: facts.contentTokens)
+            // **Substring of the raw excerpt, and nothing else.** There was a token-subset
+            // fallback here for facts carrying content tokens but no snippet, and it was a second
+            // semantic wearing the first's name: "tax return" matched any file with "tax"
+            // somewhere and "return" somewhere else — order and adjacency gone — and the broad
+            // reading lived on the Organize scan, the path that MOVES files, while the preview
+            // answered with the strict one. Both surfaces gate their snippet fetch identically
+            // (`contentCouldStillDecide`), so any file this condition could act on has its text
+            // here; no snippet now means the text was not read — reads-contents off, or an
+            // extractor-less host — and a condition about text that was never read holds nothing.
+            // Word-of-the-term matching is `mentionsAll`'s job, and it still does it.
+            return facts.snippet?.contains(needle) ?? false
         case .mentionsAll(let tokens):
             let trigger = Set(tokens.map { $0.lowercased() }.filter { !$0.isEmpty })
             guard !trigger.isEmpty else { return false }

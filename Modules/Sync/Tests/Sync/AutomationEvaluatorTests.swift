@@ -266,22 +266,40 @@ import Testing
             facts("scan svc.pdf", modified: now), now: now))
     }
 
-    @Test func contentContainsFallsBackToTokensWithoutASnippet() {
+    /// **One semantic: substring of the raw excerpt, on every surface.** There was a token-subset
+    /// fallback for facts carrying content tokens but no snippet, and it was a second meaning
+    /// wearing the first's name — "acme invoice" matched a file whose page said "invoice …
+    /// acme", order and adjacency gone. The broad reading lived on the Organize scan (the path
+    /// that MOVES files) while the preview answered with the strict one, so the preview honestly
+    /// described a different rule than the one that executed. Decided 2026-08-25: contains means
+    /// contains; a file whose text was never read matches no text condition. The first two
+    /// expectations here are the mutation test for the fallback — reintroduce it and both flip.
+    @Test func contentContainsNeverMatchesOnTokensAlone() {
         var f = facts("scan.pdf", modified: now)
         f.contentTokens = ["invoice", "acme"]
-        // No raw snippet: every word of the term must appear among the content tokens.
-        #expect(AutomationEvaluator.matches(
+        // Tokens without text: the text was not read, so a text condition holds nothing — even
+        // when every word of the term is among the tokens.
+        #expect(!AutomationEvaluator.matches(
             AutomationRule(name: "T", conditions: [.contentContains("acme invoice")], destinationTemplate: "X"),
             f, now: now))
         #expect(!AutomationEvaluator.matches(
-            AutomationRule(name: "T", conditions: [.contentContains("acme receipt")], destinationTemplate: "X"),
-            f, now: now))
-        // A raw snippet keeps exact substring semantics.
+            AutomationRule(name: "T", conditions: [.contentContains("invoice")], destinationTemplate: "X"),
+            f, now: now),
+            "a single-word term matched on tokens alone — the fallback is back, and the scan and the preview disagree again")
+        // A raw snippet answers by exact substring: the phrase must appear as written…
         f.snippet = "invoice from acme corp"
         f.contentTokens = []
         #expect(AutomationEvaluator.matches(
             AutomationRule(name: "T", conditions: [.contentContains("acme corp")], destinationTemplate: "X"),
             f, now: now))
+        // …so a term whose words are all present but not adjacent does NOT match. This is the
+        // half the old fallback got wrong, and `mentionsAll` is the condition for that meaning.
+        #expect(!AutomationEvaluator.matches(
+            AutomationRule(name: "T", conditions: [.contentContains("corp invoice")], destinationTemplate: "X"),
+            f, now: now))
+        #expect(AutomationEvaluator.matches(
+            AutomationRule(name: "T", conditions: [.mentionsAll(["corp", "invoice"])], destinationTemplate: "X"),
+            { var g = f; g.contentTokens = ["invoice", "acme", "corp"]; return g }(), now: now))
     }
 
     // MARK: Rule model

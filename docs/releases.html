@@ -136,6 +136,20 @@
 <div class="timeline">
 
   <!-- v4.4 -->
+  <!-- v4.5 -->
+  <article class="rel draft">
+    <div class="rel-head"><span class="v">v4.5</span><span class="tag draft">In development</span></div>
+    <p class="lede"><b>Early days — one Organize fix so far.</b> On the v4 line, so it <b>requires macOS 26</b>.</p>
+    <div class="grp">
+      <h3>Organize</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128269;</span><span><b>"Text contains" now means one thing everywhere: the exact phrase, in the file's own text.</b> It had two readings &#8212; the exact substring where a raw excerpt had been read, and a looser word-by-word reading where only extracted tokens were on hand &#8212; and the looser one lived on the Organize scan, the path that actually moves files, while the Automations preview answered with the strict one. So "tax return" could move a document that merely said "tax" and "return" pages apart, after a preview that said it would not. The word-by-word reading is gone: the scan matches the same excerpt the preview matches, and a file whose text has not been read &#8212; contents-reading switched off &#8212; matches no text condition at all rather than guessing from tokens. Matching separate words is still available, deliberately, as "Mentions all of".</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v4.4...main">v4.4...main</a></p>
+  </article>
+
+  <!-- v4.4 -->
   <article class="rel">
     <div class="rel-head"><span class="v">v4.4</span><span class="tag latest">Latest</span></div>
     <p class="lede"><b>Every workspace gets a folder sidebar.</b> SyncCloud has always known which folders you keep and which you were last in — it just had nowhere to put them, so the only routes were the pane header's dropdown and the &#8984;K field. There is now a column down the left of Browse, Compare, Organize and Storage holding all three answers at once: <b>Favorites</b>, the folders and places you keep; <b>Locations</b>, every account you have signed into plus your home folder, your disks and the Trash; and <b>Recents</b>, the folders you were last in. Favorites and Recents span every source — a favorite in Dropbox is removable without visiting Dropbox first, and Recents is one list ordered by when you were there rather than one list per account. On the v4 line, so it <b>requires macOS 26</b> — coming from 3.x or 2.x, read the v4.0 entry first.</p>

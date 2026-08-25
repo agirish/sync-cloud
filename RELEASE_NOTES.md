@@ -5,6 +5,25 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v4.5 — DRAFT, not released
+
+> These notes describe what is on `main` today. They are published ahead of the tag so the
+> work can be read as it lands, and they may still change before v4.5 is cut.
+
+### Organize
+
+- **"Text contains" now means one thing everywhere: the exact phrase, in the file's own text.**
+  It had two readings — the exact substring where a raw excerpt had been read, and a looser
+  word-by-word reading where only extracted tokens were on hand — and the looser one lived on
+  the Organize scan, the path that actually moves files, while the Automations preview answered
+  with the strict one. So "tax return" could move a document that merely said "tax" and "return"
+  pages apart, after a preview that said it would not. The word-by-word reading is gone: the
+  scan matches the same excerpt the preview matches, and a file whose text has not been read —
+  contents-reading switched off — matches no text condition at all rather than guessing from
+  tokens. Matching separate words is still available, deliberately, as "Mentions all of".
+
+---
+
 ## v4.4
 
 **Every workspace gets a folder sidebar.** SyncCloud has always known which folders you keep
