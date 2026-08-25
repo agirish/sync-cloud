@@ -549,8 +549,9 @@ extension FocusedValues {
         set { self[TabBarVisibleKey.self] = newValue }
     }
 
-    /// What **View ▸ Sidebar** reads. `nil` off Browse, which is the only workspace with a column —
-    /// a plain `Binding<Bool>` rather than `TabBarSwitch` because nothing ever forces it on.
+    /// What **View ▸ Sidebar** reads. `nil` wherever the column cannot be drawn at all — see
+    /// `shortcutFolderSidebar`, which is the one place that decides it — and a plain
+    /// `Binding<Bool>` rather than `TabBarSwitch` because nothing ever forces it on.
     ///
     /// Carried nothing from 2026-08-20 until v4.4, while the column was held: the channel stayed
     /// live and empty rather than being deleted, which is why re-attaching the item was one `Toggle`
@@ -839,8 +840,8 @@ extension ContentView {
     /// everywhere and the value it publishes is read by nothing — the menu item was deleted with
     /// the chord. Left in place as the one seam v4.3 re-attaches to.
     var shortcutFolderSidebar: Binding<Bool>? {
-        // **`appliesTo`, not `isShowing`**: the item is live on Browse with the column switched
-        // off, because the item is how it gets switched on. Asking `isShowing` here would make the
+        // **`appliesTo`, not `isShowing`**: the item is live with the column switched off, because
+        // the item is how it gets switched on. Asking `isShowing` here would make the
         // tick the only way to reach the tick. This call carried the v4.2/v4.3 hold too, through
         // `appliesTo`'s `isEnabled` — one condition, never a second one written at this site.
         guard FolderSidebarModel.appliesTo(

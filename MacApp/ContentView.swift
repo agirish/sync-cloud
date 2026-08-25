@@ -126,25 +126,21 @@ struct ContentView: View {
     /// "do I want a tab bar" is a question about the app, not about one of three surfaces that all
     /// draw the same pane.
     @AppStorage("browseTabBarVisible") var tabBarVisible: Bool = false
-    /// Browse's pinned-and-recent folders column. **On by default**: the store has always held
-    /// both lists and nothing but a menu ever showed them, so shipping this off would have left the
-    /// item exactly as discoverable as the menu it replaced.
+    /// The folder sidebar's column. **On by default**: the store has always held the pinned and
+    /// recent lists and nothing but a menu ever showed them, so shipping this off would have left
+    /// the item exactly as discoverable as the menu it replaced.
     ///
-    /// **Read by nothing that can answer yes in v4.2.** The column is held for v4.3
-    /// (`FolderSidebarModel.isEnabled`), which gates `folderSidebarIsShowing` ahead of this value.
-    /// Kept, and kept defaulting to `true`, on purpose: it is somebody's answer to a question the
-    /// app asked for one afternoon, and re-defaulting it to `false` would bring the column back for
-    /// exactly the people who turned it off.
+    /// **One preference across every workspace that draws the column**, not Browse's — Browse,
+    /// Compare, Organize and Storage all carry it (`Workspace.supportsFolderSidebar`), and
+    /// `folderSidebarIsShowing` is the one rule that reads this value. The KEY keeps its `browse`
+    /// spelling from when Browse was the only one: renaming it would re-default the column to `true`
+    /// for everyone who had switched it off, which is the same reason the key survived the v4.2/v4.3
+    /// hold rather than being deleted with the column.
     @AppStorage("browseSidebarVisible") var browseSidebarVisible: Bool = true
     /// The sidebar's width, dragged by the user and clamped to
     /// `FolderSidebarView.minWidth ... .maxWidth`. Stored as a `Double` because `@AppStorage`
     /// has no `CGFloat` overload.
     @AppStorage("browseSidebarWidth") var browseSidebarWidthRaw: Double = 180
-    /// **Which Compare pane the sidebar opens folders in.** The user's, and persisted: it is a mode
-    /// they set deliberately, and losing it on every launch would make them set it again every
-    /// time. Meaningless outside Compare, where there is one pane — see
-    /// `folderSidebarTargetIsLeft`.
-
     /// Which sections are folded, comma-joined — see `folderSidebarCollapsedSections`.
     @AppStorage("browseSidebarCollapsed") var browseSidebarCollapsed: String = ""
     /// Which places sit in Favorites, JSON-encoded — see `SidebarFavoritePlaces`. Empty means the
