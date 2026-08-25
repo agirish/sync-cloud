@@ -232,18 +232,28 @@ public actor ContentHashCache {
     /// serialize every concurrent `hash(for:)` behind it — and the load is kicked off at launch,
     /// exactly when a scan is most likely to already be hashing. The adoption itself is a run of
     /// dictionary inserts and belongs on the actor, which is where it stays.
+    ///
+    /// **The ordering sort is off the actor for the same reason, and used not to be.** `adopt`
+    /// opened by sorting the records it had just been handed — at the entry cap, a sort of a
+    /// hundred thousand, on the actor, serializing exactly the concurrent `hash(for:)` calls the
+    /// paragraph above moved the decode to protect. The decode crossed the boundary and the sort
+    /// stayed behind it; nothing failed, because the cost is invisible unless a scan happens to be
+    /// hashing while the launch load runs, which is precisely when it is paid.
     public nonisolated func enablePersistence(at url: URL, now: Date = Date()) async -> Int {
-        let records = ContentHashIndexStore.load(from: url)
+        let records = ContentHashIndexStore.load(from: url).sorted { $0.storedAt < $1.storedAt }
         return await adopt(records, from: url, now: now)
     }
 
     /// Points the cache at `url` and merges `records` into it. Split out of `enablePersistence`
     /// only so the decode can happen off the actor; nothing else should call this.
+    ///
+    /// - Precondition: `records` arrives oldest first (`storedAt` ascending), so the adopted run is
+    ///   itself a FIFO queue. The CALLER sorts — a sort is not a dictionary insert, and this
+    ///   function's whole reason to exist is that only dictionary inserts run here.
     private func adopt(_ records: [ContentHashRecord], from url: URL, now: Date) -> Int {
         persistenceURL = url
         var adoptedKeys: [ContentHashKey] = []
-        // Oldest first, so the adopted run is itself a FIFO queue.
-        for record in records.sorted(by: { $0.storedAt < $1.storedAt }) {
+        for record in records {
             guard now.timeIntervalSince(record.storedAt) <= Self.maxEntryAge else { continue }
             let key = ContentHashKey(path: record.path, mtime: record.mtime, size: record.size)
             guard entries[key] == nil else { continue }
