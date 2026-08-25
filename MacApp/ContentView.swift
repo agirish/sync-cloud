@@ -2707,6 +2707,13 @@ struct ContentView: View {
                     onReorder: { id, index in moveTab(id: id, to: index, isLeft: isLeft) },
                     onSetPinned: { id, pinned in setTabPinned(pinned, id: id, isLeft: isLeft) },
                     onNew: { openNewTabHere(isLeft: isLeft) })
+                    // The same wash the header and the list below it take, so the pane reads as
+                    // one surface. The strip was the only pane-owned surface without it — at a high
+                    // Tint it was a pale stripe cut through the top of the pane. Ordered before the
+                    // card, which clips: `surfaceCard` clip-shapes first, so a wash applied after it
+                    // would square off the rounded corners (`bottomSectionCard` stacks these the
+                    // same way, and for the same reason).
+                    .contentSurface(hue: glassHue, tint: surfaceTint)
                     .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
                     // **The strip's arrival IS the feedback for ⌘T** (roadmap Fig. 10): the new tab
                     // opens on the folder you are already in, so both chips say the same thing and

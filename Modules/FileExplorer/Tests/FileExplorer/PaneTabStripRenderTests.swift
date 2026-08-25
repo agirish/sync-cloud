@@ -67,6 +67,82 @@ import Design
         return rep
     }
 
+    /// The strip as the PANE mounts it: the accent wash applied outside the view, over an opaque
+    /// backdrop, exactly as `paneColumn` stacks `.contentSurface` under `.paneCardIfNeeded`.
+    ///
+    /// The wash goes between the strip and the backdrop, which is what makes it readable here at
+    /// all — sampling the strip alone would read the flat fill whatever the tint said.
+    func renderWashed(items: [PaneTabStrip.Item], width: CGFloat,
+                      hue: LiquidGlassHue, tint: Double,
+                      scheme: ColorScheme = .light) -> NSBitmapImageRep {
+        let subject = PaneTabStrip(items: items,
+                                   onSelect: { _ in }, onClose: { _ in }, onCloseOthers: { _ in },
+                                   onDuplicate: { _ in }, onCopyPath: { _ in }, onNew: {})
+            .frame(width: width, height: PaneTabStripLadder.stripHeight)
+            .contentSurface(hue: hue, tint: tint)
+            .background(scheme == .dark ? Color(red: 0.13, green: 0.14, blue: 0.15)
+                                        : Color(red: 0.95, green: 0.95, blue: 0.96))
+            .environment(\.colorScheme, scheme)
+            .environment(\.controlActiveState, .active)
+        let host = NSHostingView(rootView: AnyView(subject))
+        host.frame = CGRect(x: 0, y: 0, width: width, height: PaneTabStripLadder.stripHeight)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        window.colorSpace = .sRGB
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            fatalError("no bitmap rep")
+        }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    /// A point in the strip's empty stretch — right of the last chip, left of the ＋. With two
+    /// chips on a 520pt strip nothing is drawn here, so it reads the wash and only the wash.
+    private func emptyStretchColor(_ rep: NSBitmapImageRep) -> NSColor {
+        rep.colorAt(x: Int(Double(rep.pixelsWide) * 0.72), y: rep.pixelsHigh / 2)!
+    }
+
+    // MARK: - The pane's wash reaches the strip
+
+    /// The strip painted no wash at all until `d76e885f`: the header and both list branches called
+    /// `contentSurface` and the strip had only its card, so at a high Tint it was a pale stripe cut
+    /// across the top of the pane.
+    ///
+    /// **This asks whether the wash SURVIVES the strip, which the call-site scan cannot.**
+    /// `PaneSurfaceTintTests` proves the modifier is written at the call site; a background of the
+    /// strip's own — an opaque fill anywhere in its body — would paint straight over it and leave
+    /// that scan green with the stripe still there.
+    @Test(.machinePinned(.pixelSampling)) func theWashIsVisibleThroughTheStrip() {
+        let items = [item("Documents", active: true), item("Invoices")]
+        let bare = emptyStretchColor(renderWashed(items: items, width: 520, hue: .purple, tint: 0))
+        let full = emptyStretchColor(renderWashed(items: items, width: 520, hue: .purple, tint: 1))
+        // Purple over a near-white ground: blue holds up while green falls away, so the gap
+        // between the two channels is the tint, and it cannot be produced by dimming.
+        let bareGap = bare.blueComponent - bare.greenComponent
+        let fullGap = full.blueComponent - full.greenComponent
+        #expect(fullGap - bareGap > 0.05,
+                "the strip's empty stretch barely moved between Tint 0 and Tint 100 (gap \(bareGap) -> \(fullGap)) — the wash is not reaching it")
+    }
+
+    /// The floor's other half, and the reason the wash keeps a ramp that starts at zero: at Tint 0
+    /// a pane is the background rather than a wash over it. A strip that painted its own faint
+    /// accent regardless would pass the test above and still be wrong here.
+    @Test(.machinePinned(.pixelSampling)) func atZeroTintTheStripPaintsNoWashAtAll() {
+        let items = [item("Documents", active: true), item("Invoices")]
+        let zero = emptyStretchColor(renderWashed(items: items, width: 520, hue: .purple, tint: 0))
+        let none = emptyStretchColor(renderWashed(items: items, width: 520, hue: .none, tint: 1))
+        // `.none` paints `Color.clear` at every tint, so it IS the unwashed ground — comparing
+        // against it needs no hand-built reference colour.
+        #expect(abs(zero.redComponent - none.redComponent) < 0.01)
+        #expect(abs(zero.greenComponent - none.greenComponent) < 0.01)
+        #expect(abs(zero.blueComponent - none.blueComponent) < 0.01)
+    }
+
     /// Pixels differing from the image's own corner — its background — which is read out of the
     /// same sRGB bitmap rather than built by hand (`NSColor(white:)` is in the generic gray space
     /// and throws on `redComponent`).
