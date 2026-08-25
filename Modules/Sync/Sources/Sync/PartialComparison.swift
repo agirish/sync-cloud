@@ -57,13 +57,22 @@ public struct PartialComparison: Equatable, Sendable {
     /// and are not compared. An earlier wording named only the first ("anything present only on the
     /// other side is not listed"), which reads as a precise, bounded caveat about one direction and
     /// is a promise the result cannot keep.
+    ///
+    /// **It names no CAUSE, because this type cannot tell them apart.** `of(left:right:)` reads one
+    /// boolean per side off the `""` record, and `FileDiffEngine.compare` mints that same record for
+    /// both a root it could not list and a walk it had to stop — deliberately, so the suppression
+    /// rule has one input. So the earlier "too large to read in full" was right for the budget case
+    /// and false for the permission-denied one, which is the case where the reader most needs to
+    /// know it is a permission problem and not a size problem. "Not read in full" is true of both.
+    /// Naming the cause needs the cause carried through the record; it is not free, and a wrong
+    /// cause is worse than none.
     public func message(leftName: String, rightName: String) -> String? {
         let names = [left ? leftName : nil, right ? rightName : nil].compactMap { $0 }
         guard !names.isEmpty else { return nil }
         let subject = names.count == 2 ? "\(names[0]) and \(names[1])" : names[0]
         let verb = names.count == 2 ? "were" : "was"
         let side = names.count == 2 ? "either side" : "that side"
-        return "\(subject) \(verb) too large to read in full, so this list is incomplete: "
+        return "\(subject) \(verb) not read in full, so this list is incomplete: "
             + "nothing is reported as missing on \(side), and whatever went unread was not compared."
     }
 

@@ -94,4 +94,24 @@ import Foundation
         #expect(message.contains("either side"))
         #expect(!message.contains("that side"))
     }
+
+    /// **The sentence must not name a cause, because the value it is built from does not carry
+    /// one.** `of(left:right:)` reads a single boolean per side, and `FileDiffEngine.compare` mints
+    /// that same `""` record both for a root it could not LIST (permission denied) and for a walk it
+    /// had to STOP at the node budget. The wording was "too large to read in full", which is true of
+    /// the second and false of the first — and false in the direction that matters, since a reader
+    /// told their locked folder is "too large" will go looking for a size problem. Asserted as an
+    /// absence of size words rather than as an exact string so a later rewording still has to keep
+    /// the claim honest.
+    @Test func theSentenceDoesNotBlameSize() throws {
+        for coverage in [PartialComparison(left: true, right: false),
+                         PartialComparison(left: false, right: true),
+                         PartialComparison(left: true, right: true)] {
+            let message = try #require(coverage.message(leftName: "iCloud", rightName: "Dropbox"))
+            for word in ["too large", "too big", "size", "large to read"] {
+                #expect(!message.lowercased().contains(word),
+                        "an unlistable root mints the same record as a stopped walk, so the sentence cannot claim size: “\(message)”")
+            }
+        }
+    }
 }
