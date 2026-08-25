@@ -229,6 +229,30 @@ Oldest-first: land on `v2.x`, cherry-pick to `v3.x`. Verify with `xcodebuild tes
 target, not `build` — `MacApp/` is in no SPM package. Symbols to check when settling:
 `isEvictediCloudFile`, `MaterializationStatus.StatFlags`, `realStatFlags`.
 
+### 6. The four performance items landed on `main` 2026-08-25 — OPEN, owed to BOTH lines, DEFERRED BY DECISION
+
+Not an oversight and not a scope call about whether the code applies: it plainly does. All four touch
+files carried on both maintenance lines, and none of them changes behaviour, so the working
+agreement's default is oldest-line-first with a cherry-pick forward. **He directed that they land on
+`main` only, with backports deferred until he decides they are worth the landings.** Recorded here so
+the next audit finds a decision rather than a gap.
+
+| Landed on `main` | Files | Note for a later pick |
+|---|---|---|
+| `Sort the hash index off the actor…` | `ContentHashCache.swift` | Self-contained; moves one `sorted(by:)` from the actor-isolated `adopt` into its `nonisolated` caller |
+| `Encode digests with a nibble table…` | new `HexEncoding.swift` + 7 call sites + `HexEncodingTests.swift` | Adds a file, so a pick needs the new file first. `FilingMemory.hash`'s rewrite as `digest.prefix(8)` is the one non-mechanical site |
+| `Fold ignore patterns once per scan…` | `IgnoreRules.swift`, `FileSyncManager.swift` | `IgnoreRules.swift` is **byte-identical across all three lines**, so that half picks clean |
+| `Carry the thumbnail across the actor hop as a CGImage…` | `DuplicateThumbnail.swift` | Self-contained |
+
+**Expect conflicts, because the direction is backwards from the usual one.** These were written
+against `main`, not against the oldest line, which is the shape the working agreement exists to
+avoid. Measured 2026-08-25: `FileContentVerifier.swift` differs from `main` by 4 lines on both
+maintenance lines, `FileNode.swift` by 13 on `v2.x` and 2 on `v3.x`; `IgnoreRules.swift` is identical
+on all three.
+
+None of the four is user-visible on its own — they are scan-time and scroll-time costs — so a line
+that never receives them is slower, not wrong. That is the whole reason deferring them was reasonable.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -425,6 +449,12 @@ suite went red blaming the wiring — `b7d208e8` replaced the window with the ba
 `argumentList(after:in:)`, and this line carried the identical window one signature-growth from the
 same false red. Test-only, so it goes to every line carrying the file; `v3.x` does not carry it.
 Verified with a full app-target run on this line (295 tests, 28 suites, green).
+
+### The four performance items landed on `main` 2026-08-25 — OPEN, DEFERRED BY DECISION
+
+Same entry as `v3.x` item 6 above, and owed on the same terms — see it for the commit list, the
+per-file pick notes and the measured divergences. Deferred by his decision on 2026-08-25, not by a
+judgement that the code does not apply: it does, on every one of the four files.
 
 ### Nothing else confirmed
 
