@@ -328,6 +328,14 @@ new feature, which `CLAUDE.md` puts on `main` alone — not a fix that a mainten
   `visitedAt`, `favoriteOrder`, `recentVisitsAcrossRoots` and the sidebar's decode tolerance are
   all additions serving sidebar features neither line draws — nothing behind them is a fix those
   lines' own jump menus are missing. Filed 2026-08-25.
+- **The "None" accent's white ground in light** (v4.5 draft). `LiquidGlass.noneLightVeil` and a
+  light-only `Color.white` paint in `LiquidGlassBackground`, so "None" reads white rather than
+  the material's gray — which sat within a couple of points of Graphite's neutral wash at low
+  Tint. The ambiguity is arguably present on the lines too (both carry `.graphite` and a `.none`
+  that paints nothing — `noneLightVeil` greps to zero on each), but this is the Tint-slider
+  precedent above verbatim: a re-tune of what every install's stored setting looks like, and a
+  maintenance line takes no behaviour changes. A user who chose None on 3.x would open a visibly
+  whiter app after a patch release. Filed 2026-08-25.
 
 - **`flaky-tests.md`'s "The control that stops an absence being vacuous is itself load-dependent".**
   The mechanism is real on any line, but the only test that has ever produced it —
