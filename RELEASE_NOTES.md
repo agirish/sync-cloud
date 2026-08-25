@@ -22,6 +22,16 @@ User-facing changes, newest first. For the full commit history see the
   contents-reading switched off — matches no text condition at all rather than guessing from
   tokens. Matching separate words is still available, deliberately, as "Mentions all of".
 
+### Appearance
+
+- **The "None" accent now reads white in light, not the faintest gray.** With no accent chosen
+  the background was just the bare material — a light gray sitting within a few points of
+  Graphite's neutral wash at the bottom of the Tint slider, so the two accents were told apart
+  by their swatches and nothing else. "None" now lays a white ground over the material in light:
+  no accent looks like no accent — clean white window chrome, titlebar included — while Graphite
+  keeps its deliberate monochrome gray wash. Dark is untouched; its deep neutral ground was
+  never ambiguous.
+
 ---
 
 ## v4.4

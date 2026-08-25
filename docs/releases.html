@@ -139,11 +139,17 @@
   <!-- v4.5 -->
   <article class="rel draft">
     <div class="rel-head"><span class="v">v4.5</span><span class="tag draft">In development</span></div>
-    <p class="lede"><b>Early days — one Organize fix so far.</b> On the v4 line, so it <b>requires macOS 26</b>.</p>
+    <p class="lede"><b>Early days — an Organize fix and an Appearance fix so far.</b> On the v4 line, so it <b>requires macOS 26</b>.</p>
     <div class="grp">
       <h3>Organize</h3>
       <ul class="flist">
         <li><span class="ic">&#128269;</span><span><b>"Text contains" now means one thing everywhere: the exact phrase, in the file's own text.</b> It had two readings &#8212; the exact substring where a raw excerpt had been read, and a looser word-by-word reading where only extracted tokens were on hand &#8212; and the looser one lived on the Organize scan, the path that actually moves files, while the Automations preview answered with the strict one. So "tax return" could move a document that merely said "tax" and "return" pages apart, after a preview that said it would not. The word-by-word reading is gone: the scan matches the same excerpt the preview matches, and a file whose text has not been read &#8212; contents-reading switched off &#8212; matches no text condition at all rather than guessing from tokens. Matching separate words is still available, deliberately, as "Mentions all of".</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Appearance</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9675;</span><span><b>The "None" accent now reads white in light, not the faintest gray.</b> With no accent chosen the background was just the bare material &#8212; a light gray sitting within a few points of Graphite's neutral wash at the bottom of the Tint slider, so the two accents were told apart by their swatches and nothing else. "None" now lays a white ground over the material in light: no accent looks like no accent &#8212; clean white window chrome, titlebar included &#8212; while Graphite keeps its deliberate monochrome gray wash. Dark is untouched; its deep neutral ground was never ambiguous.</span></li>
       </ul>
     </div>
     <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v4.4...main">v4.4...main</a></p>
