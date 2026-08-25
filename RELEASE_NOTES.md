@@ -14,8 +14,8 @@ User-facing changes, newest first. For the full commit history see the
 and which you were last in — it just had nowhere to put them, so the only routes were the pane
 header's dropdown and the ⌘K field. There is now a column down the left of Browse, Compare,
 Organize and Storage that holds all three answers at once: **Favorites**, the folders and places
-you keep; **Locations**, every account you have signed into plus your disks and the Trash; and
-**Recents**, the folders you were last in.
+you keep; **Locations**, every account you have signed into plus your home folder, your disks
+and the Trash; and **Recents**, the folders you were last in.
 
 Favorites and Recents span every source. A favorite in Dropbox is removable without visiting
 Dropbox first, and Recents is one list ordered by when you were there rather than one list per
@@ -42,9 +42,11 @@ first.
   in one ink rather than five brand colours down a quiet column — and where two rows would read
   the same word, the account name is added beside it. Three Google Drive accounts all render
   "Google Drive" otherwise.
-- **Drag a row to reorder it.** Favorites and Locations both hold your own order. The Locations
-  order is the one Settings stores, so the sidebar and the pane header's dropdown cannot show
-  the same accounts in two different sequences.
+- **Drag a row to reorder it — and drag a recent up into Favorites to keep it.** Favorites and
+  Locations both hold your own order, and a recent dropped into Favorites becomes one, which is
+  the quickest way in for a folder the sidebar already knows. The Locations order is the one
+  Settings stores, so the sidebar and the pane header's dropdown cannot show the same accounts
+  in two different sequences.
 - **Right-click a row** for Open in New Tab, Add to or Remove from Favorites, and — in Compare —
   Open in Left Pane / Open in Right Pane, which sends one folder to one side without changing
   where the next click will land.
@@ -62,7 +64,7 @@ first.
   Left" or "Opens on Right" and describes every row below it.
 - **The focused pane is drawn with a faint accent border** along its own card edges, so the
   answer is on screen rather than something you have to remember. It is the same pane the file
-  action bar, ⌘F, and the folder-scoped verbs act on — three separate answers to "which pane"
+  action bar, ⌘F, and the folder-scoped verbs act on — two separate answers to "which pane"
   before this, only one of which survived clicking into empty space.
 
 ### Very large folders
@@ -74,9 +76,11 @@ first.
 - **A folder the pane has not read yet no longer claims to be empty.** The first paint is
   deliberately shallow so a pane appears at once, which means every child folder arrives unread
   — and the display drew "empty" over the difference. On a large source that state lasts long
-  enough to look like an answer.
-- **Every whole-tree pass asks before walking a folder that large** — Storage, Find Duplicates,
-  Renames and Filing — instead of starting a pass that will take minutes with nothing on screen
+  enough to look like an answer. A column being read shows that it is, and a folder that
+  genuinely cannot be listed says "Can't be read" rather than "Empty".
+- **Every whole-tree pass a workspace can start asks before walking a folder that large** —
+  Storage, Find Duplicates, Renames, Filing, and updating folder memory —
+  instead of starting a pass that will take minutes with nothing on screen
   saying so. The prompt says "more than", never a total: the probe that found the folder too big
   stopped early, so it does not know how much it did not see.
 - **A comparison that could not read one side in full now says so**, above the differences. Two
@@ -94,8 +98,9 @@ first.
   It moved only the panes and the Differences area before, and its own bottom end painted nothing
   at all — so "less tint" had nothing left to take away, while the window behind those panes
   carried the accent at full strength whatever the slider said. That is why the two ends of the
-  slider looked so alike. Every surface answers to it now, down to a quarter strength at Subtle:
-  faint, but still recognisably the accent you picked, because a slider that ended in grey would
+  slider looked so alike. Every surface answers to it now: at Subtle the panes' own wash fades
+  out entirely while the window behind them keeps a quarter of its strength — faint, but still
+  recognisably the accent you picked, because a slider that ended in grey would
   quietly override the accent chosen directly above it. Vivid is unchanged, so a setting you
   already liked still paints what it painted. The bottom of the range also moves more slowly than
   the top, which is where the choosing actually happens.

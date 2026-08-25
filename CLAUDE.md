@@ -131,8 +131,9 @@ anywhere, which is what makes changing it safe:
 they are copies, so nothing fails when they drift:
 
 - the `versionMarker` literal in `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` (step 2)
-- the branch table above, and the two spellings below it (the example block just above, and
-  `main` sits at … under **The two numbers**)
+- the branch table above, and the example block just above this list (a compaction removed the
+  third spelling this once pointed at — under **The two numbers** nothing repeats the tip marker
+  any more)
 - `MacApp/Info.plist`, which xcodegen regenerates
 
 The table is the one that gets missed — the v4.2 re-bump moved `project.yml` and the test literal but

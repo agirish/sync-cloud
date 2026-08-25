@@ -1600,11 +1600,15 @@ cannot afford citations that rot without saying so — `grep -n` costs the reade
 "the rolled log window" — a bare number goes stale the moment a text is cherry-picked between lines,
 and a commit on `v2.x` already refers to that line's entry by this one's number.
 
+**See.** `f87d9e11` — *Account for a rollback and a widening the log could not explain* (where it was
+first measured); `flushPendingEntries()` in `Modules/Events/Sources/Events/Logger.swift` for the cap
+itself.
+
 #### Seen: `DuplicateBatchRedesignTests.batchRefusalsAreLoggedPerGroupWithKeeperAndCopyPaths`, 2026-08-25
 
-Red on CI (`main`, run 32869408710), green on the re-run, green in isolation three times for three,
-and green in two subsequent full local package runs — which each lost a *different* set of tests, so
-the victim moves with the load rather than with the code. The commit it failed on changed nothing in
+Red on CI (`main`, run 32869408710), green on the re-run, and green in isolation three times for
+three. In two subsequent full local package runs it stayed green while each run failed a *different*
+set of other tests, so the victim moves with the load rather than with the code. The commit it failed on changed nothing in
 `Modules/Sync` or `Modules/Events`: `git diff <parent>..<sha> -- Modules/Sync Modules/Events` is
 empty, and Sync's only package dependency is Events, so the failing binary was byte-identical to the
 one that had just gone green.
@@ -1638,10 +1642,6 @@ that is a cheap experiment with a documented destination, and it is the one nobo
 
 **Main-only.** `DuplicateBatchRedesignTests` exists on neither maintenance line, so an entry naming
 it is one a `v2.x` or `v3.x` reader cannot act on.
-
-**See.** `f87d9e11` — *Account for a rollback and a widening the log could not explain* (where it was
-first measured); `flushPendingEntries()` in `Modules/Events/Sources/Events/Logger.swift` for the cap
-itself.
 
 ### 13. The build failed before any test ran
 
