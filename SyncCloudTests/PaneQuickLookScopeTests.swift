@@ -137,7 +137,14 @@ import Foundation
         let spaceLine = try #require(codeLines.firstIndex { $0.contains(".onKeyPress(.space)") },
                                      "the Space handler is gone from the list's modifiers")
         let between = codeLines[..<spaceLine].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        #expect(between == ["                .paneCardIfNeeded(surfaceStyle, level: glassLevel)"],
+        // The card line is matched by its head, not in full. It used to be pinned verbatim, and
+        // adding the active-pane border — an ARGUMENT to the same modifier, inserting nothing and
+        // moving nothing — failed this with a diff of the argument list, reported as the Quick Look
+        // handler having drifted. What the test protects is that exactly one modifier stands
+        // between the list and the handler and that it is the card; what the card is passed is the
+        // card's business.
+        #expect(between.count == 1
+                    && between[0].hasPrefix("                .paneCardIfNeeded("),
                 """
                 the Space handler is no longer the first thing after the card — it is now preceded \
                 by \(between.count) modifier line(s): \(between). Anything inserted here is a \

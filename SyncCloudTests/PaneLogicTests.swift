@@ -129,19 +129,40 @@ import Sync
 
     @Test func testASingleSourceScanAlwaysTargetsLeftEvenWithStaleRightSelection() {
         // The single-source rail IS the left pane, so single-source mode must never target the right pane —
-        // even when a selection lingers in the hidden right pane from a prior Compare session (which
-        // would otherwise make `activePane` resolve to `.right` and aim the scan at the wrong provider).
-        #expect(!PaneLogic.lensTargetsRightPane(isCompare: false, activePane: .right))
-        #expect(!PaneLogic.lensTargetsRightPane(isCompare: false, activePane: .left))
-        #expect(!PaneLogic.lensTargetsRightPane(isCompare: false, activePane: nil))
+        // even when a selection lingers in the hidden right pane from a prior Compare session, and
+        // even when a focused side lingers there too. Both are reachable: `focusedPaneSide` is not
+        // cleared on the way out of Compare.
+        for focused: PaneTree.Side? in [nil, .left, .right] {
+            for active: PaneLogic.ActivePane? in [nil, .left, .right] {
+                #expect(!PaneLogic.lensTargetsRightPane(isCompare: false, focusedSide: focused,
+                                                       activePane: active),
+                        "a single-source scan targeted the right pane (focused: \(String(describing: focused)), active: \(String(describing: active)))")
+            }
+        }
     }
 
+    /// **A lens scan in Compare follows the FOCUSED pane, not the selection** — the same rule the
+    /// accent border draws from, so the pane wearing it is the pane the scan reads.
     @Test func testALensScanInCompareFollowsTheFocusedPane() {
-        // In compare mode a lens scan launched from a menu targets the pane the user is working in.
-        #expect(PaneLogic.lensTargetsRightPane(isCompare: true, activePane: .right))
-        #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, activePane: .left))
-        // No selection → left is the natural default (the caller falls back to the left pane).
-        #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, activePane: nil))
+        #expect(PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: .right, activePane: nil))
+        #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: .left, activePane: nil))
+    }
+
+    /// **The focused side beats the selection**, which is the whole reason this moved. It read
+    /// `activePane` alone, so with nothing selected every Compare lens scan went to the left pane
+    /// whatever the user was looking at, and the only way to aim one right was to select a file
+    /// there first.
+    @Test func testTheFocusedPaneOutranksALingeringSelection() {
+        #expect(PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: .right, activePane: .left))
+        #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: .left, activePane: .right))
+    }
+
+    /// With no focus recorded the selection is still the fallback, and the left pane the floor
+    /// under that — a cold window has neither, and a scan still has to go somewhere.
+    @Test func testALensScanFallsBackToTheSelectionThenLeft() {
+        #expect(PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: nil, activePane: .right))
+        #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: nil, activePane: .left))
+        #expect(!PaneLogic.lensTargetsRightPane(isCompare: true, focusedSide: nil, activePane: nil))
     }
 
     // MARK: fullPath

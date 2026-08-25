@@ -56,7 +56,13 @@ extension ContentView {
     func paneActionBarSideActive(isLeft: Bool) -> Bool {
         guard layoutMode == .compare else { return false }
         let side: PaneLogic.ActivePane = isLeft ? .left : .right
-        return activePane == side
+        // **The FOCUSED pane, not the pane holding the selection.** Those agree after a row click —
+        // a selection write moves focus, and the one-pane-selected invariant clears the other side
+        // — and they part company only when a click changed focus without changing a selection: a
+        // background click (which clears both), or a press on the other pane's chrome. There the
+        // bar leaves with the focus, which is the point: the accent border and the "Copy to …"
+        // button must never name two different panes.
+        return focusedPane == side
     }
 
     /// The nodes the action bar acts on: resolved once here (a tree walk) so `paneColumn` can pass
@@ -93,8 +99,8 @@ extension ContentView {
     /// supplies the strings and the handlers, which are the only parts that need the app's state.
     @ViewBuilder
     func paneActionBar(isLeft: Bool, selectionNodes: [FileNode]) -> some View {
-        let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
-        let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
+        let copyTarget = PaneLogic.copyTargetName(activePane: focusedPane, paneNames: paneNames)
+        let actionSymbols = PaneLogic.actionBarSymbols(activePane: focusedPane)
         PaneActionBar(
             summaryText: SelectionSummary.text(for: selectionNodes),
             showsCompare: selectionNodes.count == 1 && selectionNodes[0].isDirectory,

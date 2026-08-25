@@ -2152,7 +2152,16 @@ import Sync
     @Test func theStripArrivesWithAnAnimation() throws {
         let content = try Self.source("ContentView.swift")
         let column = try #require(content.range(of: "func paneColumn(isLeft: Bool)"))
-        let body = String(content[column.upperBound...].prefix(20_000))
+        // **Cut at the member boundary, not at a character budget.** This read
+        // `prefix(20_000)`, and a comment added inside `paneColumn` pushed the animation line to
+        // +20,020 — so the window stopped 20 characters short and the test reported it as "the
+        // strip appears with no transition", naming a regression that was not there. A budget can
+        // only ever fail this way (a `contains` that falls outside is loud, never vacuous), but a
+        // loud failure that names the wrong cause costs a session all the same.
+        let rest = String(content[column.upperBound...])
+        let end = try #require(rest.range(of: "\n    func ")?.lowerBound,
+                               "no member follows paneColumn — the cut would run to end of file")
+        let body = String(rest[..<end])
         #expect(body.contains(".transition(.move(edge: .top)"),
                 "the strip appears with no transition — nothing marks the arrival ⌘T is fed back by")
         // Keyed on PRESENCE, not on the tab count: opening a third tab while the strip is already

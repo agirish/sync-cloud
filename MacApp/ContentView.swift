@@ -1887,7 +1887,9 @@ struct ContentView: View {
     /// (the rail is the left pane), so a stale right-pane selection can't silently aim the scan at the
     /// hidden provider. In compare mode the focused pane wins. See `PaneLogic.lensTargetsRightPane`.
     var lensTargetIsRight: Bool {
-        PaneLogic.lensTargetsRightPane(isCompare: layoutMode == .compare, activePane: activePane)
+        PaneLogic.lensTargetsRightPane(isCompare: layoutMode == .compare,
+                                       focusedSide: syncManager.focusedPaneSide,
+                                       activePane: activePane)
     }
 
     /// The provider name for the pane a lens scan targets: the single-source rail is always the left
@@ -2709,7 +2711,7 @@ struct ContentView: View {
                     onReorder: { id, index in moveTab(id: id, to: index, isLeft: isLeft) },
                     onSetPinned: { id, pinned in setTabPinned(pinned, id: id, isLeft: isLeft) },
                     onNew: { openNewTabHere(isLeft: isLeft) })
-                    .paneCardIfNeeded(surfaceStyle, level: glassLevel)
+                    .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
                     // **The strip's arrival IS the feedback for ⌘T** (roadmap Fig. 10): the new tab
                     // opens on the folder you are already in, so both chips say the same thing and
                     // nothing else on screen changes. Sliding in from the top is what tells you it
@@ -2772,7 +2774,6 @@ struct ContentView: View {
                 // ⌃⇥ flips and ⌘F opens on, so the indicator cannot claim one pane while the
                 // shortcuts use the other. Compare only: on a single-source workspace the rail is
                 // the one pane on screen and a ring would distinguish it from nothing.
-                isFocused: layoutMode == .compare && paneSearchTargetIsLeft == isLeft,
                 showHiddenFiles: $syncManager.showHiddenFiles,
                 // The rail and Browse get the switch too, each bound to its own key.
                 viewMode: resolvedViewModeBinding(isLeft: isLeft),
@@ -2824,9 +2825,9 @@ struct ContentView: View {
             // edge stay exactly where they were. In Unified `paneCardIfNeeded` is a no-op, so the
             // pane stays one continuous surface and the two styles read differently — which is the
             // point of having both.
-            .paneCardIfNeeded(surfaceStyle, level: glassLevel)
+            .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
             treeView(pane)
-                .paneCardIfNeeded(surfaceStyle, level: glassLevel)
+                .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: isLeft))
                 // Space → Quick Look, scoped to the FILE LIST — see `paneQuickLook()`.
                 //
                 // Left on the single-key overload deliberately. It takes modified presses and
@@ -2896,6 +2897,38 @@ struct ContentView: View {
                 // Quick fade on appear/disappear only (keyed on presence, not the edge), so clicking
                 // a file shows the bar at once and clearing the selection fades it out.
                 .animation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
+        }
+        // **The pane the sidebar opens into, marked on the pane.**
+        //
+        // The `Left | Right` control says which pane is armed, and it lives in the sidebar's
+        // header — so confirming meant looking away from the panes to a corner you were not using.
+        // This is the other half: the answer sits on the destination.
+        //
+        // **Decoration, never layout.** Both of `PaneHeader`'s rows are pinned by measurement —
+        // `PaneHeaderHeightTests` holds the header to `LiquidGlass.headerHeight` and
+        // `PaneBarLadderTests` measures the top row overflowing a 250pt pane — so a chip in either
+        // would burst a rung, which is exactly what that file says happened to the search field.
+        // A background wash and a top edge cost nothing and cannot collide with anything.
+        //
+        // **Reads as a destination, not as a selection.** This marks the region's edge, where the
+        // selection wash is per row (`PaneSelectionWash`) and the inactive pane's dimming is a
+        // property of ROWS too — so the two signals never occupy the same surface.
+        .modifier(ActivePaneMark(isFocused: paneIsFocusedPane(isLeft: isLeft),
+                                accent: glassHue.accentColor,
+                                surfaceStyle: surfaceStyle))
+        // **Any click in this column means the user is working here.** Covers what the tab verbs
+        // and the selection write cannot see between them: the empty space under the last row, the
+        // header card's chrome, the breadcrumb, a right-click. Reports and declines every press, so
+        // nothing below it loses a click — see `PaneClickReporter`.
+        //
+        // Compare only. The single-source workspaces have one pane, which `focusedPaneIsLeft`
+        // already floors to, so a reporter there would write a value that was never in question.
+        .overlay {
+            if layoutMode == .compare {
+                PaneClickReporter {
+                    syncManager.noteFocusedPane(isLeft: isLeft, because: "a click in this pane")
+                }
+            }
         }
         // Keyed on the strip's PRESENCE, not on the tab count: a tab opening or closing while the
         // strip is already up must not animate the header and list below it.

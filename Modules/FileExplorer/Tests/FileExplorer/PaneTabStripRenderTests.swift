@@ -12,8 +12,8 @@ import Design
 /// shipped past 988 green tests — so the claims that matter here are made in pixels:
 ///
 /// - **The active tab is visibly the active one.** The whole strip is otherwise five identical
-///   chips, and the accent rule under the live tab is the only thing that says which folder the
-///   pane below is showing.
+///   chips, and the live tab's raised ground plus the accent rule under it are the only things that
+///   say which folder the pane below is showing.
 /// - **Each chip draws its name.** A chip squeezed to the floor with its title clipped out of it is
 ///   exactly the failure the measured floor exists to prevent, and it is invisible to the ladder.
 /// - **The mark distinguishes two tabs with the same name**, which is the case the mark is on the
@@ -84,6 +84,7 @@ import Design
         }
         return count
     }
+
 
     /// Recognisably-accent pixels — the rule under the active tab.
     func accentPixels(_ rep: NSBitmapImageRep) -> Int {
@@ -159,8 +160,30 @@ import Design
         #expect(differingPixels(first, second) > 300)
     }
 
-    /// The accent rule itself, in both appearances. `.quaternary` grounds are appearance-dependent
-    /// and can vanish in one scheme while surviving in the other — the rule must not.
+    /// **Which tab is live, in BOTH appearances** — the whole treatment, ground and rule together.
+    ///
+    /// `.quaternary` grounds are appearance-dependent and can vanish in one scheme while surviving
+    /// in the other, so this is a claim about pixels rather than about code, and it has to be made
+    /// per appearance rather than once.
+    @Test(.machinePinned(.pixelSampling)) func theActiveTabIsDistinguishableInBothAppearances() {
+        for scheme in [ColorScheme.light, .dark] {
+            let live = render(items: [item("Finance", active: true), item("Photos")],
+                              width: 620, scheme: scheme)
+            let parked = render(items: [item("Finance"), item("Photos")], width: 620, scheme: scheme)
+            #expect(differingPixels(live, parked) > 300,
+                    "nothing distinguishes the live tab from a parked one in \(scheme)")
+        }
+    }
+
+    /// **The accent rule specifically**, and it needs its own assertion because the test above
+    /// cannot see it: that one measures "the live chip differs from a parked one", which the raised
+    /// ground satisfies on its own.
+    ///
+    /// **That gap is not hypothetical — it is why this test exists twice.** The rule was removed on
+    /// 2026-08-24 as a duplicate of the pane's new accent card border, and the differential test
+    /// stayed green throughout, because the ground alone does distinguish the chip. It went back in
+    /// the same day: the border says which PANE is focused, this says which TAB is live, and no
+    /// measurement of "are they different" can tell one missing marker from two present ones.
     @Test(.machinePinned(.pixelSampling)) func theAccentRuleUnderTheActiveTabIsPaintedInBothAppearances() {
         for scheme in [ColorScheme.light, .dark] {
             let live = render(items: [item("Finance", active: true), item("Photos")],
@@ -401,10 +424,12 @@ import Design
         let rep = render(items: five, width: 220)
         let perPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
 
-        // The chip's span, off the accent rule under it (inset 3pt each side by `activeGround`).
-        let accent = accentBounds(rep)
-        let chipStart = accent.minX / perPoint - 3
-        let chipEnd = accent.maxX / perPoint + 3
+        // The chip's span, off its raised ground — which IS the chip, so there is no inset to undo
+        // (the accent rule this used to measure was inset 3pt each side by `activeGround`).
+        let parkedRep = render(items: five.map { item($0.title) }, width: 220)
+        let chip = activeChipBounds(rep, parked: parkedRep)
+        let chipStart = chip.minX / perPoint
+        let chipEnd = chip.maxX / perPoint
         let titleStart = LiquidGlass.cardGutter + PaneTabStripLadder.tabPadding
             + PaneTabStripLadder.markSide + PaneTabStripLadder.contentGap
         let titleEnd = titleStart + LabelMetrics.width(of: "Immigration",
@@ -453,12 +478,23 @@ import Design
 
     /// The bounding box of the accent-coloured pixels — the 2pt rule under the active chip, which is
     /// the one thing on the strip that reports where that chip is in the drawn image.
-    func accentBounds(_ rep: NSBitmapImageRep) -> NSRect {
+    /// **Where the active chip is, measured rather than assumed** — the bounding box of everything
+    /// that changes when the same strip is rendered with that chip parked instead.
+    ///
+    /// It used to be the bounds of *accent-coloured* pixels, which worked only because the chip
+    /// carried an accent rule. With the rule gone the anchor is the chip's raised ground, and a
+    /// colour test cannot find that: `.quaternary` is a different grey in each appearance and is
+    /// deliberately close to the backdrop. A differential finds it in either scheme without naming
+    /// a colour at all.
+    func activeChipBounds(_ live: NSBitmapImageRep, parked: NSBitmapImageRep) -> NSRect {
         var minX = Int.max, maxX = Int.min, minY = Int.max, maxY = Int.min
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                if c.blueComponent - c.redComponent > 0.25 && c.blueComponent > 0.4 {
+        guard live.pixelsWide == parked.pixelsWide, live.pixelsHigh == parked.pixelsHigh else { return .zero }
+        for y in 0..<live.pixelsHigh {
+            for x in 0..<live.pixelsWide {
+                guard let a = live.colorAt(x: x, y: y), let b = parked.colorAt(x: x, y: y) else { continue }
+                if abs(a.redComponent - b.redComponent) > 0.01
+                    || abs(a.greenComponent - b.greenComponent) > 0.01
+                    || abs(a.blueComponent - b.blueComponent) > 0.01 {
                     minX = min(minX, x); maxX = max(maxX, x)
                     minY = min(minY, y); maxY = max(maxY, y)
                 }
@@ -479,14 +515,20 @@ import Design
     /// Pixels between `x0` and `x1` (in points) that differ from `ground`, over the chip's interior
     /// rows only.
     ///
-    /// The rows matter: the chip is 24pt tall inside a 34pt strip, so a full-height band would count
-    /// the backdrop above and below it as "unlike the ground" and report hundreds of pixels for a
-    /// band that is bare. The accent rule locates the chip's bottom, and the rule itself is excluded.
+    /// The rows matter: the chip is shorter than the strip, so a full-height band would count the
+    /// backdrop above and below it as "unlike the ground" and report hundreds of pixels for a band
+    /// that is bare.
+    ///
+    /// The band comes from the LADDER now. It used to be located from the accent rule under the
+    /// chip — `accentBounds(rep).minY - 2` — which stopped existing when the rule was removed on
+    /// 2026-08-24. `stripHeight` and `tabHeight` are the same two numbers the strip lays itself out
+    /// from, and the chip is centred between them, so this needs no render to find.
     func glyphPixels(_ rep: NSBitmapImageRep, from x0: CGFloat, to x1: CGFloat,
                      ground: NSColor) -> Int {
         guard x1 > x0 else { return -1 }
         let perPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
-        let bottom = Int(accentBounds(rep).minY) - 2
+        let inset = (PaneTabStripLadder.stripHeight - PaneTabStripLadder.tabHeight) / 2
+        let bottom = Int((PaneTabStripLadder.stripHeight - inset - 3) * perPoint)
         let top = max(0, bottom - Int((PaneTabStripLadder.tabHeight - 6) * perPoint))
         var count = 0
         for y in top..<min(rep.pixelsHigh, bottom) {

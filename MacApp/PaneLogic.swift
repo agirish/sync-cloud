@@ -425,18 +425,27 @@ enum PaneLogic {
         isSingleSource ? paneHasSelection : hasActionBarSelection
     }
 
-    /// Which pane a single-source lens scan/inspect should target. The single-source rail is always the LEFT
+    /// Which pane a lens scan/inspect should target. The single-source rail is always the LEFT
     /// pane, so in single-source mode the answer is always "left" — even when a selection lingers in
-    /// the (hidden) right pane from a prior Compare session, which would otherwise make `activePane`
-    /// resolve to `.right` and silently aim the lens scans (Find Duplicates / Organize / Rename /
-    /// Storage) at the wrong provider while the rail shows the left one. In compare mode the focused
-    /// pane still wins, so a lens scan launched from a Compare menu targets the pane the user is in.
-    static func lensTargetsRightPane(isCompare: Bool, activePane: ActivePane?) -> Bool {
-        isCompare && activePane == .right
+    /// the (hidden) right pane from a prior Compare session, which would otherwise aim the lens
+    /// scans (Find Duplicates / Organize / Rename / Storage) at the wrong provider while the rail
+    /// shows the left one.
+    ///
+    /// **In Compare this now follows the focused pane, not the selection.** It read `activePane`,
+    /// which is nil whenever nothing is selected — so on a cold window every lens scan launched
+    /// from a Compare menu went to the left pane whatever the user was looking at, and there was no
+    /// way to aim one at the right pane except by selecting a file in it first. The accent border
+    /// draws from this same rule, so the pane wearing it is the pane the scan will read.
+    static func lensTargetsRightPane(isCompare: Bool,
+                                     focusedSide: PaneTree.Side?,
+                                     activePane: ActivePane?) -> Bool {
+        guard isCompare else { return false }
+        return !focusedPaneIsLeft(isSingleSource: false, focusedSide: focusedSide,
+                                  activePane: activePane)
     }
 
     /// The clear strip between the sidebar and what follows it, which carries the drag handle.
-    /// One point wide and real: it is in the row, so any layout dividing the row has to spend it.
+    /// One point wide and real: see `LensRow.sidebarSlot`.
     static let sidebarSeamWidth: CGFloat = 1
 
     /// Whether a ⌘K "organize <folder>" aimed at the RIGHT pane can only be honoured by swapping

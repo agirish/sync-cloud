@@ -139,12 +139,13 @@ import Foundation
                 "Space opens a pane preview that will not follow the selection")
         let content = try Self.source("ContentView.swift")
         // **The whole argument list, not a character budget.** A `prefix(4_000)` window read this
-        // call until v4.4 added two parameters ahead of `onQuickLook:` — the argument moved 90
-        // characters past the end of the window, and the suite failed claiming the row menu was no
-        // longer routed to the host's panel, which was never true. A window measured in characters
-        // reports "your wiring is wrong" when the truth is "your call got longer", and it does it
-        // to whoever touches the call next rather than to whoever wrote the number. `argumentList`
-        // is this suite's own answer to that and stops at the call's own closing paren.
+        // call until v4.4 added parameters ahead of `onQuickLook:` — the argument moved past the
+        // end of the window, and the suite failed claiming the row menu was no longer routed to the
+        // host's panel, which was never true. That is the SECOND time this scan has failed for a
+        // reason that has nothing to do with Quick Look (see the note on `paneQuickLook` above): a
+        // window measured in characters has to be re-tuned every time an unrelated argument is
+        // added, and it accuses whoever touches the call next rather than whoever wrote the number.
+        // `argumentList` is this suite's own answer to that and stops at the call's closing paren.
         let call = try Self.argumentList(after: "FileTreeView(", in: content)
         #expect(call.contains("onQuickLook: { toggleQuickLook($0, followsPane: true) }"),
                 "the pane's row menu is not routed to the host's panel — it presents its own, which nothing can keep current")

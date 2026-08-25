@@ -400,6 +400,21 @@ public struct PaneTabStrip: View {
     /// **Not an accent FILL.** The workspace bar 40pt above already owns that treatment, and two
     /// accent-filled rows stacked read as one smear with a gap in it — the same reason
     /// `ProviderLogo` refuses the accent for a folder's mark.
+    ///
+    /// **The rule was removed on 2026-08-24 and put back the same day, and the mistake is worth
+    /// keeping.** It went out alongside the provider capsule's focus ring, on one argument covering
+    /// both: an accent marker inside a pane whose cards now carry an accent border
+    /// (`ActivePaneMark`) is a second marker for a fact already stated.
+    ///
+    /// That argument is true of the capsule ring and false of this rule, because **they mark
+    /// different facts**. The border says which PANE is focused; this says which TAB inside that
+    /// pane's strip is live — a question the border cannot answer and that has no other carrier
+    /// here. Sharing a colour is not the same as sharing a meaning, and grouping the two by how
+    /// they looked is what put this on the list.
+    ///
+    /// The ground alone does distinguish the live chip in both appearances — that was measured, not
+    /// assumed — but "distinguishable under inspection" is a weaker claim than "obvious at a
+    /// glance" over a strip of five, which is what a marker in a tab bar has to be.
     @ViewBuilder
     private func activeGround(_ item: Item) -> some View {
         if item.isActive {

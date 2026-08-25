@@ -12,23 +12,23 @@ import Sync
     /// The pane holding the selection is the pane every other pane-scoped affordance points at —
     /// where the action bar draws, whose wash is strong — so it is where Find has to land too.
     @Test func testFindFollowsTheSelectedPane() {
-        #expect(PaneLogic.searchTargetIsLeft(isSingleSource: false, focusedSide: nil, activePane: .left))
-        #expect(!PaneLogic.searchTargetIsLeft(isSingleSource: false, focusedSide: nil, activePane: .right))
+        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: nil, activePane: .left))
+        #expect(!PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: nil, activePane: .right))
     }
 
     /// `activePane` is nil whenever nothing is selected, which is most of the time. That is not an
     /// answer, so Find needs a floor rather than a shrug — without one ⌘F would do nothing at all
     /// on a freshly opened window.
     @Test func testFindFallsBackToTheLeftPaneWithNoSelection() {
-        #expect(PaneLogic.searchTargetIsLeft(isSingleSource: false, focusedSide: nil, activePane: nil))
+        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: nil, activePane: nil))
     }
 
     /// The rail IS the left pane on another surface, and it is the only pane on screen — a right
     /// answer here would open a field nobody can see, including when the RIGHT pane (hidden behind
     /// the rail) happens to be the one holding a selection.
     @Test func testTheSingleSourceRailAlwaysSearchesItself() {
-        #expect(PaneLogic.searchTargetIsLeft(isSingleSource: true, focusedSide: nil, activePane: .right))
-        #expect(PaneLogic.searchTargetIsLeft(isSingleSource: true, focusedSide: nil, activePane: nil))
+        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: true, focusedSide: nil, activePane: .right))
+        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: true, focusedSide: nil, activePane: nil))
     }
 
     // MARK: - Explicit focus (⌃⇥)
@@ -37,20 +37,20 @@ import Sync
     /// the two inputs in DISAGREEMENT, because a fixture where they agree cannot tell which one the
     /// rule read — and "focused wins" is the only claim being made here.
     @Test func testExplicitFocusOutranksTheSelectedPane() {
-        #expect(PaneLogic.searchTargetIsLeft(isSingleSource: false, focusedSide: .left, activePane: .right))
-        #expect(!PaneLogic.searchTargetIsLeft(isSingleSource: false, focusedSide: .right, activePane: .left))
+        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: .left, activePane: .right))
+        #expect(!PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: .right, activePane: .left))
     }
 
     /// The case that motivated the whole change: nothing selected anywhere, so the fallback floors
     /// at the left pane and there was previously no way to reach the right one at all.
     @Test func testExplicitFocusAnswersWhenNothingIsSelected() {
-        #expect(!PaneLogic.searchTargetIsLeft(isSingleSource: false, focusedSide: .right, activePane: nil))
+        #expect(!PaneLogic.focusedPaneIsLeft(isSingleSource: false, focusedSide: .right, activePane: nil))
     }
 
     /// A `focusedSide` left over from Compare must not survive into the rail, which is the only
     /// pane on screen — the rail's guard has to come FIRST, before the focus is consulted.
     @Test func testTheRailIgnoresAStaleRightFocus() {
-        #expect(PaneLogic.searchTargetIsLeft(isSingleSource: true, focusedSide: .right, activePane: nil))
+        #expect(PaneLogic.focusedPaneIsLeft(isSingleSource: true, focusedSide: .right, activePane: nil))
     }
 
     /// ⌃⇥ flips the pane that is IN EFFECT, not the stored value. With focus still implicit (nil)

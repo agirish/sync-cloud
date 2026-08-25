@@ -336,6 +336,34 @@ extension ContentView {
         return SidebarTarget(targetsRight: !folderSidebarTargetIsLeft)
     }
 
+    /// **Whether this pane is the one the user is working in**, and therefore whether it wears the
+    /// accent border.
+    ///
+    /// Compare only: everywhere else there is one pane, and marking it would answer a question
+    /// nobody asked.
+    ///
+    /// **It used to require the sidebar to be on screen, and that gate is gone deliberately.** The
+    /// mark named a sidebar destination then. It names the focused pane now — the pane ⌘F opens on,
+    /// the pane Copy and Move act on, and the pane a lens scan reads — none of which care whether
+    /// the folder column is showing. Keeping the gate would have hidden the answer in exactly the
+    /// state that has no other way to reach it, which is what `focusedPaneSide`'s own comment means
+    /// by having no resting indicator.
+    func paneIsFocusedPane(isLeft: Bool) -> Bool {
+        guard selectedWorkspace == .compare else { return false }
+        return isLeft == folderSidebarTargetIsLeft
+    }
+
+    /// **The accent this pane's cards border themselves with**, or nil when it is not the
+    /// destination — resolved once here so the column's three `paneCardIfNeeded` calls cannot come
+    /// to disagree about whether the pane is marked, which is the one way a stack of cards can
+    /// contradict itself.
+    func paneCardAccent(isLeft: Bool) -> Color? {
+        ActivePaneMark.cardAccent(
+            isFocused: paneIsFocusedPane(isLeft: isLeft),
+            accent: glassHue.accentColor,
+            surfaceStyle: surfaceStyle)
+    }
+
     // MARK: - The column
 
     /// **A card, framed exactly as the Info inspector is** — the same `bottomSectionCard` call with

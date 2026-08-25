@@ -391,6 +391,31 @@ public enum LiquidGlass {
     /// Don't reintroduce per-container padding: that's what broke it.
     public static let cardGutter: CGFloat = 5
 
+    /// The width and strength of the accent border marking the active pane.
+    ///
+    /// **Both numbers were set by rendering, and both came down.** At 2pt and full accent — which
+    /// looked right in isolation — the border is far too loud in the running app, because a pane is
+    /// never in isolation: the source chip, the view-mode button, the breadcrumb and every folder
+    /// icon are already accent-coloured, so three fully saturated outlines around them read as an
+    /// alarm rather than as a state. Reported from the running build on 2026-08-24.
+    ///
+    /// 45% at 1.5pt was the quietest pairing that still reads in BOTH themes, which is the
+    /// constraint that stopped it going quieter still. 1pt at 55% is softer in light and was the
+    /// better answer there, but dark cards carry a light specular hairline of their own
+    /// (`DarkBoldCardChrome`), and against it that combination falls back toward looking like
+    /// ordinary card chrome. The border is the only thing on screen saying which pane Copy, Move
+    /// and Delete will act on, so "subtle" has a floor: it may recede, it may not become ambiguous.
+    public static let activeCardBorderWidth: CGFloat = 1.5
+
+    /// How much of the accent the border carries. See `activeCardBorderWidth`.
+    public static let activeCardBorderOpacity: Double = 0.45
+
+    /// The accent, at border strength — one place, so the `.cards` borders and the `.unified` ring
+    /// cannot drift into two different blues.
+    public static func activeBorder(_ accent: Color) -> Color {
+        accent.opacity(activeCardBorderOpacity)
+    }
+
     /// What one card insets itself by, and what the content root pads by — half a gutter each, so
     /// every pairing (card↔card, card↔window edge) sums to `cardGutter`.
     public static var cardInset: CGFloat { cardGutter / 2 }
@@ -637,7 +662,10 @@ public extension View {
     /// edge for a top-lit white specular hairline and deepens the shadow so each card lifts off the
     /// deep background. Light is unchanged — the explicit-chrome path keeps its `.quaternary`
     /// hairline + soft shadow, native glass keeps neither.
-    func surfaceCard(_ level: GlassLevel, cornerRadius: CGFloat = LiquidGlass.cardCornerRadius) -> some View {
+    /// `accentBorder` draws the card's own edge in the accent instead of adding anything beside it
+    /// — see `LiquidGlass.activeCardBorderWidth` for why it is a border rather than a bar.
+    func surfaceCard(_ level: GlassLevel, cornerRadius: CGFloat = LiquidGlass.cardCornerRadius,
+                     accentBorder: Color? = nil) -> some View {
         // Clip the content to the card shape first — the pane's contentSurface tint wash is a
         // square fill, and without this it pokes past the rounded corners into the gutters
         // (bottomSectionCard already clips the same way).
@@ -648,13 +676,29 @@ public extension View {
             .modifier(DarkBoldCardChrome(
                 cornerRadius: cornerRadius,
                 lightBorder: explicit, lightShadow: explicit, darkShadow: true))
+            // `strokeBorder`, never `stroke`: it draws INSIDE the shape, so the accent replaces the
+            // card's hairline in place. A centred `stroke` would spill half its width into the
+            // gutter and read as a gap that shrank. Above the chrome so it wins over the hairline
+            // it is standing in for, and never a hit target — the card's content owns every click.
+            .overlay {
+                if let accentBorder {
+                    shape.strokeBorder(accentBorder, lineWidth: LiquidGlass.activeCardBorderWidth)
+                        .allowsHitTesting(false)
+                }
+            }
             .padding(LiquidGlass.cardInset)
     }
 
     /// Wraps a file pane as a floating card for `.cards`; leaves it untouched otherwise.
+    ///
+    /// `accentBorder` is how a pane says it is the active one in `.cards`, where a pane is not one
+    /// card but a stack of them (tab strip, header, list) separated by real gutters. Every card in
+    /// the stack takes the border, so the stack reads as one active object. `.unified` has no
+    /// per-pane card to border, so the caller rings the pane's own bounds there instead.
     @ViewBuilder
-    func paneCardIfNeeded(_ style: SurfaceStyle, level: GlassLevel) -> some View {
-        if style == .cards { self.surfaceCard(level) } else { self }
+    func paneCardIfNeeded(_ style: SurfaceStyle, level: GlassLevel,
+                          accentBorder: Color? = nil) -> some View {
+        if style == .cards { self.surfaceCard(level, accentBorder: accentBorder) } else { self }
     }
 
     /// Frames the whole panes region (both flush panes) so the top of the window reads as a
