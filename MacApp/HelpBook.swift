@@ -166,7 +166,33 @@ enum HelpBook {
                     ]),
                     .tip("Browse and Compare's left pane share the same spot, so switching over keeps you in the folder you were just browsing — tabs and all. To aim Organize at a folder, use “Organize This Folder…” from its right-click menu."),
                 ],
-                related: ["what-is-synccloud", "choose-folders", "command-palette"]
+                related: ["what-is-synccloud", "folder-sidebar", "choose-folders", "command-palette"]
+            )),
+            Topic(id: "folder-sidebar", title: "The folder sidebar", systemImage: "sidebar.left", article: Article(
+                intro: "The column down the left of every workspace holds the folders you keep, the accounts you have signed into, and the folders you were last in. View ▸ Sidebar shows or hides it, and ⌃⌘S does the same from the keyboard.",
+                blocks: [
+                    .paragraph("It has three sections, and each heading folds away — a folded one says how many rows are behind it, so it never reads as empty. The column's own edge sets its width."),
+                    .legend([
+                        LegendItem(systemImage: "star", mood: .accent, title: "Favorites",
+                                   detail: "The folders and places you keep. It starts as Desktop, Documents and Downloads."),
+                        LegendItem(systemImage: "externaldrive", mood: .neutral, title: "Locations",
+                                   detail: "Every account you have signed into, then your home folder, your disks and the Trash."),
+                        LegendItem(systemImage: "clock", mood: .neutral, title: "Recents",
+                                   detail: "The folders you were last in, newest first."),
+                    ]),
+                    .paragraph("Favorites and Recents span every source, not one account at a time. A folder you keep in Dropbox is right there while you are looking at iCloud, and Recents is a single list ordered by when you were there — which is what “the folder I was in five minutes ago” actually means."),
+                    .bullets([
+                        "Put a place in Favorites by right-clicking it in Locations, and take one out by right-clicking it in Favorites. A place moves between the two rather than appearing in both.",
+                        "Keep a folder you are looking at by right-clicking it in a pane and choosing “Add to Favorites”. The same menu removes it again.",
+                        "“Restore Standard Folders”, on the Favorites heading, brings Desktop, Documents and Downloads back without disturbing anything you have added. It appears only when one of them is missing.",
+                        "Drag a row to put the section in your own order. Locations shares its order with the pane header's source menu, so the two always agree.",
+                        "“Show in Enclosing Folder” opens the folder a favorite or a recent lives in, rather than the folder itself — what you want when two folders share a name.",
+                        "A row for a local folder SyncCloud has not been given yet says so before it becomes a source, and offers to take it back. The Trash opens in Finder and is never scanned.",
+                    ]),
+                    .paragraph("In Compare the column acts on one pane, and says which above its first row: “Opens on Left” or “Opens on Right”. That is the pane you last clicked in — anywhere in it, not only on a row — and it is drawn with a faint border around its cards so you can see which one is listening. To send a single folder to the other side without changing that, right-click the row and choose “Open in Left Pane” or “Open in Right Pane”."),
+                    .tip("A row's right-click menu also holds “Open in New Tab”, which is the quickest way to keep the folder you are in and open another beside it."),
+                ],
+                related: ["browse-workspace", "choose-folders", "command-palette"]
             )),
             Topic(id: "choose-folders", title: "Choose your folders", systemImage: "cloud", article: Article(
                 intro: "SyncCloud finds your cloud providers automatically, and any folder on this Mac can be a source too. Each pane names the one it's showing, right in its header — click that name to point the pane somewhere else.",

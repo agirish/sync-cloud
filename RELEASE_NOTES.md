@@ -5,6 +5,91 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v4.4 — DRAFT, not released
+
+> These notes describe what is on `main` today. They are published ahead of the tag so the
+> work can be read as it lands, and they may still change before v4.4 is cut.
+
+**Every workspace gets a folder sidebar.** SyncCloud has always known which folders you keep
+and which you were last in — it just had nowhere to put them, so the only routes were the pane
+header's dropdown and the ⌘K field. There is now a column down the left of Browse, Compare,
+Organize and Storage that holds all three answers at once: **Favorites**, the folders and places
+you keep; **Locations**, every account you have signed into plus your disks and the Trash; and
+**Recents**, the folders you were last in.
+
+Favorites and Recents span every source. A favorite in Dropbox is removable without visiting
+Dropbox first, and Recents is one list ordered by when you were there rather than one list per
+account — which is what a folder you were in five minutes ago actually means.
+
+On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0 section
+first.
+
+### The sidebar
+
+- **Three sections, and View ▸ Sidebar (⌃⌘S) shows or hides the column.** Each heading folds,
+  and a folded one says how many rows are behind it so it does not read as empty. Drag the
+  column's edge to set its width, between 150 and 280 points.
+- **Favorites is yours.** It starts as Desktop, Documents and Downloads — Finder's own three —
+  and every row in it can be taken out. Right-click any place in Locations to add it, or any
+  place in Favorites to remove it; a place moves between the two sections rather than appearing
+  in both. **Restore Standard Folders**, on the Favorites heading, brings the three back without
+  disturbing what you have added, and is offered only when one of them is actually missing.
+- **Add a folder to Favorites from the pane you are looking at.** Right-click any folder in a
+  pane. The sidebar's own rows can only manage folders that are already listed, and the pane
+  header's jump menu acts on the folder the pane is showing rather than the one under the
+  pointer — neither is where you are standing when you decide a folder is worth keeping.
+- **Each account draws its own mark.** Dropbox's folds, Drive's triangle, OneDrive's lobe, all
+  in one ink rather than five brand colours down a quiet column — and where two rows would read
+  the same word, the account name is added beside it. Three Google Drive accounts all render
+  "Google Drive" otherwise.
+- **Drag a row to reorder it.** Favorites and Locations both hold your own order. The Locations
+  order is the one Settings stores, so the sidebar and the pane header's dropdown cannot show
+  the same accounts in two different sequences.
+- **Right-click a row** for Open in New Tab, Add to or Remove from Favorites, and — in Compare —
+  Open in Left Pane / Open in Right Pane, which sends one folder to one side without changing
+  where the next click will land.
+- **Show in Enclosing Folder** opens the folder a favorite or a recent lives in, rather than the
+  folder itself. The question you ask when a name has stopped being enough: two `Legal` folders
+  in one account, or a recent you no longer recognise.
+- **A local folder that is not a source yet says so before it becomes one**, and can be taken
+  back from the row itself. The Trash opens in Finder and is never scanned, hashed, or filed
+  into.
+
+### In Compare, the sidebar says which pane it opens into
+
+- **One rule decides which pane, and it is the pane you last clicked in.** Anywhere in it — a
+  row, the tab strip, the source chip, empty chrome. The header above the column reads "Opens on
+  Left" or "Opens on Right" and describes every row below it.
+- **The focused pane is drawn with a faint accent border** along its own card edges, so the
+  answer is on screen rather than something you have to remember. It is the same pane the file
+  action bar, ⌘F, and the folder-scoped verbs act on — three separate answers to "which pane"
+  before this, only one of which survived clicking into empty space.
+
+### Very large folders
+
+- **A pane pointed at a folder with hundreds of thousands of directories in it no longer
+  hangs.** The deep walk was bounded for depth and not for width, so a home folder or a whole
+  startup disk was walked to the end however long that took. It now stops at a budget, and a
+  folder the budget skipped is read on demand when you open a column into it.
+- **A folder the pane has not read yet no longer claims to be empty.** The first paint is
+  deliberately shallow so a pane appears at once, which means every child folder arrives unread
+  — and the display drew "empty" over the difference. On a large source that state lasts long
+  enough to look like an answer.
+- **Every whole-tree pass asks before walking a folder that large** — Storage, Find Duplicates,
+  Renames and Filing — instead of starting a pass that will take minutes with nothing on screen
+  saying so. The prompt says "more than", never a total: the probe that found the folder too big
+  stopped early, so it does not know how much it did not see.
+- **A comparison that could not read one side in full now says so**, above the differences. Two
+  things put it there. A folder that cannot be listed at all — permission denied — has always made
+  SyncCloud report nothing on that side as missing, because it cannot tell an absence from
+  something it never read; what is new there is only that the table admits it instead of looking
+  complete. The second reason is new in this release: the comparison's own scan now stops at the
+  same budget the pane does, so a source large enough to reach it is read in part and the same rule
+  applies to the part that was not. Either way the count is a floor rather than a total.
+- **A source covering the whole startup disk is named after the disk**, not `/`.
+
+---
+
 ## v4.3
 
 **Mostly repair, and one new thing.** v4.2 built the setup form and filled in the menu bar.

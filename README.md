@@ -11,7 +11,9 @@
 </p>
 
 SyncCloud has four workspaces, and opens in **Browse** — the plain file browser: one provider's
-tree, full width, nothing proposed, for the moves you make by hand. **Compare** puts two folders
+tree, full width, nothing proposed, for the moves you make by hand. A **folder sidebar** runs down
+the left of all four, holding the folders you keep, every account you have signed into, and the
+folders you were last in. **Compare** puts two folders
 side by side and shows exactly what differs — what's missing on each side, what's newer, what
 only *looks* the same — and lets you copy, move, or reconcile items with one click. **Organize**
 points a single provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**,
@@ -27,6 +29,19 @@ clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of i
 ---
 
 ## Highlights
+
+### 📁 Browse — your folders, one click away
+- **A folder sidebar in every workspace** (**⌃⌘S**), in three sections: **Favorites**, the folders
+  and places you keep; **Locations**, every account you have signed into plus your disks and the
+  Trash; and **Recents**, the folders you were last in. Favorites and Recents span every source, so
+  a favorite in Dropbox is reachable without switching to Dropbox first.
+- **Favorites you curate.** Starts as Desktop, Documents and Downloads; right-click any place in
+  Locations to add it, any row in Favorites to remove it, or any folder in a pane to keep it.
+  **Restore Standard Folders** brings the three back.
+- **Drag a row to reorder** either section. Locations shares its order with the pane header's
+  source dropdown, so the two can't disagree.
+- **Column browsing** the way Finder does it, with an inline preview beside the stack, per-pane
+  **tabs**, and a **pane bar** you arrange yourself.
 
 ### 🔍 Compare — two folders, side by side
 - **Two-pane comparison** between any two providers (or plain folders), with a per-pane provider

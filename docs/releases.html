@@ -135,6 +135,43 @@
 
 <div class="timeline">
 
+  <!-- v4.4 -->
+  <article class="rel draft">
+    <div class="rel-head"><span class="v">v4.4</span><span class="tag draft">In development</span></div>
+    <p class="lede"><b>Every workspace gets a folder sidebar.</b> SyncCloud has always known which folders you keep and which you were last in — it just had nowhere to put them, so the only routes were the pane header's dropdown and the &#8984;K field. There is now a column down the left of Browse, Compare, Organize and Storage holding all three answers at once: <b>Favorites</b>, the folders and places you keep; <b>Locations</b>, every account you have signed into plus your disks and the Trash; and <b>Recents</b>, the folders you were last in. Favorites and Recents span every source — a favorite in Dropbox is removable without visiting Dropbox first, and Recents is one list ordered by when you were there rather than one list per account. On the v4 line, so it <b>requires macOS 26</b> — coming from 3.x or 2.x, read the v4.0 entry first.</p>
+    <div class="grp">
+      <h3>The sidebar</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9707;</span><span><b>Three sections, and View &#9656; Sidebar (&#8963;&#8984;S) shows or hides the column.</b> Each heading folds, and a folded one says how many rows are behind it so it does not read as empty. Drag the column's edge to set its width, between 150 and 280 points.</span></li>
+        <li><span class="ic">&#9733;</span><span><b>Favorites is yours.</b> It starts as Desktop, Documents and Downloads — Finder's own three — and every row in it can be taken out. Right-click any place in Locations to add it, or any place in Favorites to remove it; a place moves between the two sections rather than appearing in both. <b>Restore Standard Folders</b>, on the Favorites heading, brings the three back without disturbing what you have added, and is offered only when one of them is actually missing.</span></li>
+        <li><span class="ic">&#128193;</span><span><b>Add a folder to Favorites from the pane you are looking at.</b> Right-click any folder in a pane. The sidebar's own rows can only manage folders that are already listed, and the pane header's jump menu acts on the folder the pane is showing rather than the one under the pointer — neither is where you are standing when you decide a folder is worth keeping.</span></li>
+        <li><span class="ic">&#9729;</span><span><b>Each account draws its own mark.</b> Dropbox's folds, Drive's triangle, OneDrive's lobe, all in one ink rather than five brand colours down a quiet column — and where two rows would read the same word, the account name is added beside it. Three Google Drive accounts all render "Google Drive" otherwise.</span></li>
+        <li><span class="ic">&#8597;</span><span><b>Drag a row to reorder it.</b> Favorites and Locations both hold your own order. The Locations order is the one Settings stores, so the sidebar and the pane header's dropdown cannot show the same accounts in two different sequences.</span></li>
+        <li><span class="ic">&#8631;</span><span><b>Right-click a row</b> for Open in New Tab, Add to or Remove from Favorites, and — in Compare — Open in Left Pane / Open in Right Pane, which sends one folder to one side without changing where the next click will land.</span></li>
+        <li><span class="ic">&#8599;</span><span><b>Show in Enclosing Folder</b> opens the folder a favorite or a recent lives in, rather than the folder itself — the question you ask when a name has stopped being enough: two <code>Legal</code> folders in one account, or a recent you no longer recognise.</span></li>
+        <li><span class="ic">&#128465;</span><span>A local folder that is not a source yet says so before it becomes one, and can be taken back from the row itself. The Trash opens in Finder and is never scanned, hashed, or filed into.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>In Compare, the sidebar says which pane it opens into</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9704;</span><span><b>One rule decides which pane, and it is the pane you last clicked in.</b> Anywhere in it — a row, the tab strip, the source chip, empty chrome. The header above the column reads "Opens on Left" or "Opens on Right", and describes every row below it.</span></li>
+        <li><span class="ic">&#9635;</span><span><b>The focused pane is drawn with a faint accent border</b> along its own card edges, so the answer is on screen rather than something to remember. It is the same pane the file action bar, &#8984;F and the folder-scoped verbs act on — there were three separate answers to "which pane" before this, only one of which survived clicking into empty space.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Very large folders</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9203;</span><span><b>A pane pointed at a folder with hundreds of thousands of directories in it no longer hangs.</b> The deep walk was bounded for depth and not for width, so a home folder or a whole startup disk was walked to the end however long that took. It now stops at a budget, and a folder the budget skipped is read on demand when you open a column into it.</span></li>
+        <li><span class="ic">&#128194;</span><span><b>A folder the pane has not read yet no longer claims to be empty.</b> The first paint is deliberately shallow so a pane appears at once, which means every child folder arrives unread — and the display drew "empty" over the difference. On a large source that state lasts long enough to look like an answer.</span></li>
+        <li><span class="ic">&#9888;</span><span><b>Every whole-tree pass asks before walking a folder that large</b> &#8212; Storage, Find Duplicates, Renames and Filing &#8212; instead of starting a pass that will take minutes with nothing on screen saying so. The prompt says "more than", never a total: the probe that found the folder too big stopped early, so it does not know how much it did not see.</span></li>
+        <li><span class="ic">&#9432;</span><span><b>A comparison that could not read one side in full now says so</b>, above the differences. Two things put it there. A folder that cannot be listed at all &#8212; permission denied &#8212; has always made SyncCloud report nothing on that side as missing, because it cannot tell an absence from something it never read; what is new there is only that the table admits it instead of looking complete. The second reason is new in this release: the comparison&#8217;s own scan now stops at the same budget the pane does, so a source large enough to reach it is read in part and the same rule applies to the part that was not. Either way the count is a floor rather than a total.</span></li>
+        <li><span class="ic">&#128190;</span><span>A source covering the whole startup disk is named after the disk, not <code>/</code>.</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v4.3...main">v4.3...main</a></p>
+  </article>
+
   <!-- v4.3 -->
   <article class="rel">
     <div class="rel-head"><span class="v">v4.3</span><span class="tag latest">Latest</span></div>
