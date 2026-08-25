@@ -280,6 +280,22 @@ new feature, which `CLAUDE.md` puts on `main` alone — not a fix that a mainten
   .baseSize` (704 → 624), which changes the sheet every tab is drawn in.
 - **`SizePreset` / `SizePresetRow` / `SizeSpacingPreview`.** New types with no counterpart to fix
   on either line.
+- **The Tint slider becoming the app's one hue-strength knob** (v4.4). The defect it fixes is
+  genuinely present on both maintenance lines and was checked symbol by symbol, which is why this
+  row is here rather than absent: `origin/v3.x` and `origin/v2.x` both carry
+  `contentSurface`'s `hue.accentColor.opacity(clamp(tint) * 0.32)`, both carry
+  `liquidGlassAppBackground(level:hue:)` with no tint parameter, and both carry the Settings slider
+  (`Slider(value: $surfaceTint, in: 0.0...1.0)`) — so on those lines too, Tint 0 paints nothing
+  while the window keeps the accent at full strength. It is still main-only, because the fix is a
+  re-tune of what **every** install looks like at its stored setting, and a maintenance line takes
+  no behaviour changes. A 2.x user who has never touched the slider would open a visibly different
+  app after a patch release.
+  The half that is *not* portable at all is the tab-strip wash: `PaneTabStrip.swift` is absent from
+  both lines (`git ls-tree -r --name-only origin/v3.x -- …/PaneTabStrip.swift` returns nothing), so
+  there is no stripe to fix there.
+  Symbols to check if this is ever revisited: `LiquidGlass.tintFloor` and
+  `LiquidGlass.backgroundHueStrength(forTint:)` in `Modules/Design/Sources/Design/LiquidGlassStyle
+  .swift`. Checked 2026-08-25.
 
 - **`flaky-tests.md`'s "The control that stops an absence being vacuous is itself load-dependent".**
   The mechanism is real on any line, but the only test that has ever produced it —
@@ -375,6 +391,10 @@ the 2026-08-16 audit or this one.
 - **The text-size percentage and the Readability tab.** Main-only by rule for the same reasons
   spelled out under `v3.x` above — a public type changing shape, a stored default changing with it,
   and a new Settings tab. Nothing here is a fix `v2.x` is missing.
+- **The Tint slider becoming the app's one hue-strength knob.** Main-only by rule, for the reason
+  written out under `v3.x` above — the wash formula and the untinted background *are* both here, so
+  this is a decision rather than an absence, and the reasoning is worth reading before re-deriving
+  it. Checked 2026-08-25.
 
 ---
 
