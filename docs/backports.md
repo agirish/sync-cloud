@@ -402,7 +402,7 @@ Owed here exactly as to `v3.x`, and **this is the line to fix first** — see it
 and the same seamless `MaterializationStatus.isCloudOnly(atPath:)`. No vocabulary adaptation is
 needed: the change is inside a private function and touches no user-facing copy.
 
-### Settled: the QuickLook scan's character-budget window — sent as `79c5b7ce`, 2026-08-25
+### Settled: the QuickLook scan's character-budget window — sent as `2f34f9b4`, 2026-08-25
 
 Found owed by the v4.4 release review. `QuickLookOriginTests` read the pane's `FileTreeView` call
 through `prefix(4_000)`; on `main` two new parameters pushed `onQuickLook:` past the window and the
