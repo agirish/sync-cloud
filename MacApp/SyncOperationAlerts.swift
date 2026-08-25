@@ -254,6 +254,41 @@ struct SyncOperationAlerts {
         return isConfirmed(alert.runModal())
     }
 
+    /// Confirms a whole-tree pass whose probe found the folder too large to analyse quickly.
+    ///
+    /// **The message says "more than", never a total**, and that is not hedging: the probe stopped,
+    /// so it genuinely does not know how much of the tree it did not see. A figure here would be a
+    /// number the app invented.
+    ///
+    /// Return proceeds, Escape cancels. Not `.critical` — nothing is destroyed either way, the
+    /// pass is cancellable once started, and a red badge on "this will be slow" is the kind of
+    /// alarm that trains people to dismiss alarms.
+    static func confirmLargeWalk(_ p: LargeWalkPreflight) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = largeWalkMessage(p)
+        alert.informativeText = largeWalkInformativeText(p)
+        alert.addButton(withTitle: "Continue")   // Return key default
+        alert.addButton(withTitle: "Cancel")     // Escape
+        return isConfirmed(alert.runModal())
+    }
+
+    /// Split out, `nonisolated` and pure so the wording can be asserted without running a modal —
+    /// an NSAlert in a test suite is a hang, not a test.
+    nonisolated static func largeWalkMessage(_ p: LargeWalkPreflight) -> String {
+        "“\(p.rootName)” is a very large folder"
+    }
+
+    nonisolated static func largeWalkInformativeText(_ p: LargeWalkPreflight) -> String {
+        let counted = p.probeLimit.formatted(.number.grouping(.automatic))
+        // Asked of the pass rather than tested against one case: `readsFileContents` is the
+        // property that decides, and four passes go through here now. `p.pass == .duplicates`
+        // silently gave Filing the cheaper sentence when Filing joined.
+        let what = p.pass.readsFileContents
+            ? "\(p.pass.title) also reads the contents of files it cannot judge by name, so this can take several minutes."
+            : "\(p.pass.title) has to walk all of it, which can take several minutes."
+        return "It holds more than \(counted) items. \(what) You can cancel once it starts."
+    }
+
     /// Confirms reversing the most recent sync run before it touches any files, itemizing exactly
     /// what will be undone (from `preview`, which the manager only produces when that run is still
     /// the top of the undo stack). Reversal reuses the app's existing undo stack (safeMove-back,

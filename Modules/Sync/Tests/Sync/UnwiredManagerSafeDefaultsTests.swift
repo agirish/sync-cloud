@@ -48,6 +48,20 @@ import Foundation
         #expect(manager.transferConfirmer(summary) == true)
     }
 
+    /// The default large-walk confirmer refuses, without UI.
+    ///
+    /// Weaker harm than the permanent delete beside it — nothing is destroyed by proceeding, only
+    /// time is spent — but the same direction, because the failure it guards IS the pass never
+    /// finishing. An unwired manager that proceeded would reintroduce the hang this exists to
+    /// prevent, in the one configuration where nobody is watching it happen.
+    @MainActor
+    @Test func testDefaultLargeWalkConfirmerRefuses() {
+        let manager = FileSyncManager()
+        let preflight = LargeWalkPreflight(pass: .storageLens, rootPath: "/Users/x",
+                                           probeLimit: 400_000)
+        #expect(manager.largeWalkConfirmer(preflight) == false)
+    }
+
     /// The default permanent-delete confirmer refuses, without UI.
     @MainActor
     @Test func testDefaultPermanentDeleteConfirmerRefuses() {

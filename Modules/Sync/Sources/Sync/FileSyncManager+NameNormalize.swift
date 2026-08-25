@@ -33,8 +33,24 @@ extension FileSyncManager {
             endScan(\.nameScanLifecycle)
         }
 
-        let tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager, maxDepth: nil)
+        // Budgeted first, as a probe — same shape and reason as `buildStorageLens`, which carries
+        // the reasoning in full. This pass cannot take a budget for its answer either: a risky name
+        // it never reached is a rename never offered, which reads as "there is nothing wrong here".
+        let probe = NodeBudget(wholeTreeProbeBudget)
+        var tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
+                                        maxDepth: nil, budget: probe)
         if Task.isCancelled { return }
+        if probe.didStopADescent {
+            let preflight = LargeWalkPreflight(pass: .rename, rootPath: root.path,
+                                               probeLimit: probe.limit)
+            guard largeWalkConfirmer(preflight) else {
+                Logger.shared.info("Rename: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not scanned")
+                return
+            }
+            tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
+                                        maxDepth: nil)
+            if Task.isCancelled { return }
+        }
         // A permission-denied root comes back as a single root-identity unexplored marker (same
         // shape adoptRawTree unwraps). Feeding it to the detector would flag the unreadable root
         // ITSELF as a rename candidate — and "Fix all" would rename a folder we can't even list

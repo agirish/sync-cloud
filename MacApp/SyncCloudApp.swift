@@ -269,6 +269,14 @@ struct SyncCloudApp: App {
         manager.filingCloudSpendConfirmer = { preflight in
             SyncOperationAlerts.promptForFilingSpend(preflight)
         }
+        // A whole-tree pass probes the folder's size first and stops to ask when it is big enough
+        // that the real pass would take minutes. Named as a rule rather than as a list — the set is
+        // `LargeWalkPreflight.Pass` and it has already grown once, from two to four. Only fires past
+        // the probe budget, so it never appears for an ordinary source. The Sync default is to
+        // REFUSE, so this wiring is what makes a large folder analysable at all.
+        manager.largeWalkConfirmer = { preflight in
+            SyncOperationAlerts.confirmLargeWalk(preflight)
+        }
         // Destination names the target provider forbids (trailing space/dot on Dropbox,
         // reserved names on OneDrive, …) prompt before any I/O, offering the sanitized name.
         // No standing-policy shortcut here: each violation names a specific item and the

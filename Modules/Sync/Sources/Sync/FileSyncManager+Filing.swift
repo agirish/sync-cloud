@@ -278,8 +278,24 @@ extension FileSyncManager {
         if Task.isCancelled { return }
 
         enter(.learningFolders)
-        let taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name, fileManager: fileManager, maxDepth: nil)
+        // Budgeted first, as a probe — see `buildStorageLens`. A taxonomy missing the folders the
+        // walk never reached does not fail; it quietly suggests the wrong home, which is the most
+        // expensive way for this pass to be wrong.
+        let taxonomyProbe = NodeBudget(wholeTreeProbeBudget)
+        var taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name,
+                                            fileManager: fileManager, maxDepth: nil, budget: taxonomyProbe)
         if Task.isCancelled { return }
+        if taxonomyProbe.didStopADescent {
+            let preflight = LargeWalkPreflight(pass: .filing, rootPath: providerRoot.path,
+                                               probeLimit: taxonomyProbe.limit)
+            guard largeWalkConfirmer(preflight) else {
+                Logger.shared.info("Filing: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not scanned")
+                return
+            }
+            taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name,
+                                            fileManager: fileManager, maxDepth: nil)
+            if Task.isCancelled { return }
+        }
 
         // Names, on the pass that is already here. This walk covers the whole provider — the same
         // ground the standalone Rename scan used to cover — so folding the check in loses no

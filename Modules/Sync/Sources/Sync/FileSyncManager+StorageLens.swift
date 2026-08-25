@@ -112,8 +112,36 @@ extension FileSyncManager {
         }
 
         // 1. Walk the full subtree (off-main inside buildTree). maxDepth: nil = unlimited.
-        let tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager, maxDepth: nil)
+        //
+        // **Budgeted first, as a probe.** This pass cannot take a budget for its answer — a storage
+        // total computed from part of a tree is a wrong number, not a partial picture — but it can
+        // use one to find out how big the tree is before committing. Under the budget the probe IS
+        // the tree and nothing is spent twice, which is every ordinary source. Over it, the walk
+        // stopped early and we now know the real pass would cost minutes, so we ask before paying.
+        //
+        // This exists because the sidebar's Locations section puts the home folder and the boot
+        // volume one click from this workspace, and on 2026-08-24 the equivalent walk behind a pane
+        // hung the app for ten minutes on a 196,726-directory home folder.
+        let probe = NodeBudget(wholeTreeProbeBudget)
+        var tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
+                                        maxDepth: nil, budget: probe)
         if Task.isCancelled { return }
+        if probe.didStopADescent {
+            let preflight = LargeWalkPreflight(pass: .storageLens, rootPath: root.path,
+                                               probeLimit: probe.limit)
+            guard largeWalkConfirmer(preflight) else {
+                // Not silent, and the previous report stays on screen rather than being replaced by
+                // an empty one — `hasCompleted` never flips, exactly as for a cancelled build.
+                Logger.shared.info("Storage: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not analysed")
+                return
+            }
+            // Confirmed: pay for the real walk. The probe's tree is discarded rather than extended,
+            // because a budgeted walk's unexplored nodes are indistinguishable from the cycle guard's
+            // and the permission-denied ones, so there is no honest way to resume from it.
+            tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
+                                        maxDepth: nil)
+            if Task.isCancelled { return }
+        }
 
         // 2. Analyze (pure, no disk) — DETACHED, like the hashing phase of the duplicate scan:
         // the analyzer walks the whole tree, which on a 40k-node provider blocked the main actor

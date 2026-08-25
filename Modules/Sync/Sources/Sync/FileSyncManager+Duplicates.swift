@@ -174,8 +174,29 @@ extension FileSyncManager {
         }
 
         // 1. Walk the full subtree (off-main inside buildTree).
-        let tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager, maxDepth: nil)
+        //
+        // **Budgeted first, as a probe** — same shape and same reason as the storage lens; see
+        // `buildStorageLens` for the reasoning in full. The short version: this pass cannot take a
+        // budget for its answer, because a duplicate group computed from part of a tree is a
+        // duplicate MISSED rather than a partial list, but it can use one to learn the tree's size
+        // before committing. And the cost here is worse than the lens's, not better: past the walk
+        // this hashes every size-colliding file, so a tree big enough to stop the probe is a tree
+        // whose scan is measured in reads of real file content.
+        let probe = NodeBudget(wholeTreeProbeBudget)
+        var tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
+                                        maxDepth: nil, budget: probe)
         if Task.isCancelled { return }
+        if probe.didStopADescent {
+            let preflight = LargeWalkPreflight(pass: .duplicates, rootPath: root.path,
+                                               probeLimit: probe.limit)
+            guard largeWalkConfirmer(preflight) else {
+                Logger.shared.info("Duplicates: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not scanned")
+                return
+            }
+            tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
+                                        maxDepth: nil)
+            if Task.isCancelled { return }
+        }
 
         // 2. Only files whose size collides with another can possibly be identical — hash just
         //    those. Everything else gets a unique placeholder so folder signatures still compute

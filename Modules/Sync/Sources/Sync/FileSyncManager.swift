@@ -103,6 +103,43 @@ public class FileSyncManager: ObservableObject {
         return true
     }
 
+    /// Confirms a whole-tree pass whose PROBE ran out of budget — the tree is bigger than the pass
+    /// can analyse without a wait worth warning about.
+    ///
+    /// Consulted only when the probe actually stopped, so on every ordinary source it never fires
+    /// and costs nothing: the probe walk under its budget IS the tree the pass then uses.
+    ///
+    /// **Defaults to `false` — refuse — and that is the fail-safe direction here.** Proceeding costs
+    /// time rather than data, so this is a weaker claim than `permanentDeleteConfirmer`'s, but the
+    /// failure it guards is precisely a pass that never finishes: an unwired manager that proceeded
+    /// would reintroduce the hang this exists to prevent, in the one configuration where nobody is
+    /// watching. A refusal is not silent — the caller logs it and leaves the previous result
+    /// standing. The app wires an NSAlert-backed prompt at construction.
+    public var largeWalkConfirmer: @MainActor (LargeWalkPreflight) -> Bool = { _ in
+        return false
+    }
+
+    /// **How much a whole-tree pass reads before it stops to ask.**
+    ///
+    /// Deliberately larger than `paneNodeBudget`, and the two are answering different questions. A
+    /// pane must stay responsive, so its budget is about latency and it truncates silently because
+    /// a partial view is still a useful view. These passes are deliberate acts with a progress bar
+    /// and a cancel, so theirs is about whether the work is worth starting — and they cannot
+    /// truncate at all, because a storage total or a duplicate group computed from part of a tree
+    /// is a wrong ANSWER rather than a partial one.
+    ///
+    /// Measured (`PaneNodeBudgetBenchmark`, Release, warm, on a 196,726-directory home folder): a
+    /// 400,000-entry walk costs ~2.3-2.5 s, which is a tolerable price for finding out that the
+    /// real answer would cost minutes. Below this, no prompt appears and nothing is spent — the
+    /// probe's tree is handed straight to the pass.
+    nonisolated public static let defaultWholeTreeProbeBudget = 400_000
+
+    /// The live probe budget. An instance property rather than the constant directly, so a test can
+    /// drive the guard against a fixture of a dozen files instead of one of four hundred thousand —
+    /// which is the difference between the confirm/decline paths being covered and being reasoned
+    /// about.
+    public var wholeTreeProbeBudget: Int = FileSyncManager.defaultWholeTreeProbeBudget
+
     /// The durable, structured Sync History (X2) every copy/move/delete is recorded into —
     /// separate from the in-memory Activity Log so it survives quit and can be filtered,
     /// exported, and reversed by run. Injected (defaults to the shared singleton) so tests get
