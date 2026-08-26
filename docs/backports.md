@@ -4,9 +4,22 @@ What each maintenance line is **owed**, what it is **deliberately not** owed, an
 surface **nobody has looked at**. One file, carried identically on all three lines, so a maintainer
 sitting on `v2.x` can see what `v2.x` is missing without reading `main`'s history.
 
-The rule this tracks is in [`CLAUDE.md`](../CLAUDE.md): land a change on the **oldest line that
-carries the code**, then cherry-pick forward. Only breaking changes, removals and restructures are
-`main`-only. "Applies" means *the code is there*, not that a user would notice.
+**The rule this tracks changed on 2026-08-26, and this file is now a RECORD rather than a to-do
+list.** The standing direction is *no backporting* — land on `main`, given without a scope limit
+(`e2b35dad`), and it governs new work generally rather than one batch. What these rows are for is
+what a future audit needs if that direction ever changes, and what a maintainer sitting on `v2.x`
+needs in order to know what their line actually carries. See [`CLAUDE.md`](../CLAUDE.md).
+
+**So read the status word, not the word "owed".** Rows filed before the direction still say "owed"
+in their bodies where they were written that way; the heading is authoritative:
+
+| Status | Means |
+|---|---|
+| `RECORDED — not owed` | The line carries the defect. It is not being sent, by standing direction. The pick notes are kept because they are the expensive half to reconstruct. |
+| `DEFERRED — scope call` | Not simply a direction call: the pick has a prerequisite or a coherence problem of its own, spelled out in the row. |
+| `CLOSED` | Settled — sent, or checked and found not to apply. |
+
+"Applies" means *the code is there*, not that a user would notice.
 
 ## How to check one thing
 
@@ -26,7 +39,7 @@ audit made that exact mistake and every "MISSING" came back "Y".)
 
 ## `v3.x` — owed
 
-### 1. The `DeleteOutcome` family — OPEN, deliberately deferred
+### 1. The `DeleteOutcome` family — DEFERRED, scope call
 
 `Modules/Sync/Sources/Sync/DeleteOutcome.swift` is absent on this line and `deleteItems` still
 answers an `Int`, so it cannot report whether an item reached the Trash or was destroyed
@@ -48,7 +61,7 @@ package suites and a red app-target step.
 **This has a deadline.** `v3.x` sits at `3.2-dev`. Cutting v3.2 before this lands ships the
 ⌘Z-after-permanent-delete promise again, in a release, knowingly.
 
-### 2. The filing walkthrough's bare ⏎/→/esc key equivalents, and the review card's unguarded ⏎/⌫ — OPEN, owed to BOTH lines
+### 2. The filing walkthrough's bare ⏎/→/esc key equivalents, and the review card's unguarded ⏎/⌫ — RECORDED, not owed
 
 Filed 2026-08-21, when the fix landed on `main` as `d25dafef`. The walkthrough's File and Skip
 buttons carry `.keyboardShortcut(.return, modifiers: [])` / `(.rightArrow, modifiers: [])`, and
@@ -152,7 +165,7 @@ walkthrough's two suites.
 0 on `v2.x`, 1 on `v3.x`). So on `v2.x` a VoiceOver user gets the card's label and no statement of
 what any of its keys do. Small, self-contained, and independent of everything above.
 
-### 3. The folder-duplicate drift gate rebuilt on per-file snapshots — OPEN, filed 2026-08-21
+### 3. The folder-duplicate drift gate rebuilt on per-file snapshots — RECORDED, not owed (filed 2026-08-21)
 
 Fixed on `main`, 2026-08-21, as two commits — *Judge folder duplicate drift per file, against a
 snapshot the scan records* (engine) and *Give the Compare review's directory gate the shared
@@ -179,7 +192,7 @@ The first (P1-4) defect is user-visible on any Finder-touched folder, which argu
 the scope argues for doing it deliberately. Symbols to check when settling: `FolderContentSnapshot`,
 `folderContentsMatchScan`, `contentSnapshot` on `DuplicateCopy`.
 
-### 4. The copy-undo's shallow folder identity — OPEN, owed to BOTH lines
+### 4. The copy-undo's shallow folder identity — DEFERRED, scope call (rides item 1)
 
 Filed 2026-08-21, when the deep identity landed on `main` (*Give the copy-undo a deep folder
 identity so ⌘Z cannot trash an edited copy*). Both lines carry the defect, symbol-checked:
@@ -194,7 +207,7 @@ family — a deep identity that refuses an undo cannot say *why* honestly on a l
 a trashed item from a permanently deleted one. Settle item 1 first; this rides the same file.
 Symbols to check when settling: `deepSnapshot`, `.directoryTree` in `ItemIdentity.swift`.
 
-### 5. The classifier's cloud guard knows only iCloud — OPEN, owed to BOTH lines, filed 2026-08-22
+### 5. The classifier's cloud guard knows only iCloud — RECORDED, not owed (filed 2026-08-22)
 
 Both lines download cloud-only Dropbox, OneDrive, Google Drive and Box files behind the user's back
 during filing classification. `MacApp/ContentSignalExtractor.swift` guards `extractTextSync` with its
@@ -229,13 +242,13 @@ Oldest-first: land on `v2.x`, cherry-pick to `v3.x`. Verify with `xcodebuild tes
 target, not `build` — `MacApp/` is in no SPM package. Symbols to check when settling:
 `isEvictediCloudFile`, `MaterializationStatus.StatFlags`, `realStatFlags`.
 
-### 6. The four performance items landed on `main` 2026-08-25 — OPEN, owed to BOTH lines, DEFERRED BY DECISION
+### 6. The four performance items landed on `main` 2026-08-25 — RECORDED, not owed
 
 Not an oversight and not a scope call about whether the code applies: it plainly does. All four touch
-files carried on both maintenance lines, and none of them changes behaviour, so the working
-agreement's default is oldest-line-first with a cherry-pick forward. **He directed that they land on
-`main` only, with backports deferred until he decides they are worth the landings.** Recorded here so
-the next audit finds a decision rather than a gap.
+files carried on both maintenance lines, and none of them changes behaviour. **They landed on `main`
+only by direction** — first for this batch, then generally (`e2b35dad`), which is the standing
+direction the header describes and which rows 7–10 were filed under. Recorded here so the next audit
+finds a decision rather than a gap.
 
 | Landed on `main` | Files | Note for a later pick |
 |---|---|---|
@@ -253,7 +266,7 @@ on all three.
 None of the four is user-visible on its own — they are scan-time and scroll-time costs — so a line
 that never receives them is slower, not wrong. That is the whole reason deferring them was reasonable.
 
-### 7. Three visual-polish items landed on `main` 2026-08-25 — CLOSED, not owed: no backporting, by standing direction
+### 7. Three visual-polish items landed on `main` 2026-08-25 — CLOSED, not owed (standing direction)
 
 The sibling of item 6, from the same proposal document. Filed on 2026-08-25 as an open question,
 because these three were landed `main`-only by consistency with item 6's instruction rather than by
@@ -282,7 +295,7 @@ markers that blink, and a first-run sheet whose controls do not respond to the p
 real difference from item 6's "slower, not wrong" — it is why this was worth asking about once, and
 it is what the maintenance lines are knowingly keeping.
 
-### 8. Two more performance items landed on `main` 2026-08-26 — CLOSED, not owed: no backporting, by standing direction
+### 8. Two more performance items landed on `main` 2026-08-26 — CLOSED, not owed (standing direction)
 
 Same standing answer as item 7, so this is a record of what `main` has that the other lines do not,
 not a question being re-raised. Both were landed `main`-only without asking, which is what
@@ -300,7 +313,7 @@ Neither is user-visible on its own: a line that never receives them keeps a filt
 allocates per path component and ~5 ms of main-actor work per rebuild. Slower, not wrong — the same
 standing as item 6's four.
 
-### 9. The in-flight flag stamped row by row landed on `main` 2026-08-26 — CLOSED, not owed: no backporting, by standing direction
+### 9. The in-flight flag stamped row by row landed on `main` 2026-08-26 — CLOSED, not owed (standing direction)
 
 Same standing answer as items 7 and 8. Recorded because it is the largest user-visible performance
 gap of the three, not because the question is open.
@@ -317,7 +330,7 @@ copying and m `objectWillChange` sends for m rows of n. Measured at 29,000 rows 
 Unlike items 6–8 this one IS user-visible on its own: a line that never receives it keeps a
 ~22-second main-thread freeze around every bulk sync on a large comparison.
 
-### 10. The filter gate's log line landed on `main` 2026-08-26 — CLOSED, not owed: no backporting, by standing direction
+### 10. The filter gate's log line landed on `main` 2026-08-26 — CLOSED, not owed (standing direction)
 
 Observability for item 8's second entry, so it is owed only where that is. Recorded so a line that
 ever does take the reconcile skip picks the line that says whether the skip is working with it.
@@ -508,21 +521,21 @@ between the lines) and why it is an adaptation rather than a pick. Two extra cos
   label and nothing about its keys. Independent of the key fix and much smaller; take it while the
   file is open.
 
-### The folder-duplicate drift gate — OPEN, filed 2026-08-21
+### The folder-duplicate drift gate — RECORDED, not owed (filed 2026-08-21)
 
 Owed here exactly as to `v3.x` — see item 3 under **`v3.x` — owed** for the three defects, the
 symbol checks, and why it is a scope call rather than a cherry-pick. `v2.x` carries
 `folderDriftedInPlace` and the existence-only directory verdict too, and its "provider" vocabulary
 means the `MacApp/` half will need adaptation, not a pick.
 
-### The copy-undo's shallow folder identity — OPEN, filed 2026-08-21
+### The copy-undo's shallow folder identity — DEFERRED, scope call (rides `v3.x` item 1)
 
 Owed here exactly as to `v3.x` — see item 4 under **`v3.x` — owed**. `v2.x` carries the shallow
 `case directory(modified:childCount:)` too (symbol-checked). Unlike `v3.x` this line has the
 `DeleteOutcome` family, so the port is closer to a pick here — but the undo file has drifted, so
 verify `deepSnapshot`'s seams before assuming.
 
-### The classifier's cloud guard knows only iCloud — OPEN, filed 2026-08-22
+### The classifier's cloud guard knows only iCloud — RECORDED, not owed (filed 2026-08-22)
 
 Owed here exactly as to `v3.x`, and **this is the line to fix first** — see item 5 under
 **`v3.x` — owed** for the mechanism, the symbol checks and the seam that has to come with it.
@@ -539,13 +552,13 @@ suite went red blaming the wiring — `b7d208e8` replaced the window with the ba
 same false red. Test-only, so it goes to every line carrying the file; `v3.x` does not carry it.
 Verified with a full app-target run on this line (295 tests, 28 suites, green).
 
-### The four performance items landed on `main` 2026-08-25 — OPEN, DEFERRED BY DECISION
+### The four performance items landed on `main` 2026-08-25 — RECORDED, not owed
 
 Same entry as `v3.x` item 6 above, and owed on the same terms — see it for the commit list, the
 per-file pick notes and the measured divergences. Deferred by his decision on 2026-08-25, not by a
 judgement that the code does not apply: it does, on every one of the four files.
 
-### Three visual-polish items landed on `main` 2026-08-25 — CLOSED: no backporting, by standing direction
+### Three visual-polish items landed on `main` 2026-08-25 — CLOSED, not owed (standing direction)
 
 Same entry as `v3.x` item 7 above — see it for the commit list and the per-file pick notes.
 **Closed by his standing "No backporting" of 2026-08-25**, given in reply to this exact question and
@@ -557,21 +570,21 @@ surface, so check `Workspace.allCases` exists here before planning that pick at 
 sheet's hover conversion reads `Radius.chip` at four sites, which does not exist on this line —
 substitute the literal `6` or take the radius scale first, and the radius scale is main-only by rule.
 
-### Two more performance items landed on `main` 2026-08-26 — CLOSED: no backporting, by standing direction
+### Two more performance items landed on `main` 2026-08-26 — CLOSED, not owed (standing direction)
 
 The `v2.x` half of item 8 above, and the same verdict. `v2.x` carries both prerequisites — the
 original `isHiddenPath` expression and the reconcile pass in `applyFilters()` — so both would apply;
 neither is being sent. Pick notes are in item 8; the second of the two must not be picked without
 `computeFilteredState`'s unconditional `isSyncing` postcondition, which is what makes its skip sound.
 
-### The in-flight flag stamped row by row landed on `main` 2026-08-26 — CLOSED: no backporting, by standing direction
+### The in-flight flag stamped row by row landed on `main` 2026-08-26 — CLOSED, not owed (standing direction)
 
 The `v2.x` half of item 9 above, and the same verdict. `v2.x` carries both loops byte-identical to
 `v4.4`'s, so it applies verbatim; it is not being sent. Pick notes are in item 9. This is the one
 item in the 2026-08-25/26 run that a `v2.x` user would actually notice — the rest are slower, not
 wrong; this one freezes the window for about eleven seconds at each end of a bulk sync.
 
-### The Reduce Motion `withAnimation` gap landed on `main` 2026-08-26 — CLOSED: no backporting, by standing direction
+### The Reduce Motion `withAnimation` gap landed on `main` 2026-08-26 — CLOSED, not owed (standing direction)
 
 Four animations that only a `withAnimation` was driving now honour the setting: the expanding
 search field's reveal, Browse's folder sidebar, an Activity Log run's disclosure, the Differences
