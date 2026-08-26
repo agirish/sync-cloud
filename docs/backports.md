@@ -253,6 +253,28 @@ on all three.
 None of the four is user-visible on its own — they are scan-time and scroll-time costs — so a line
 that never receives them is slower, not wrong. That is the whole reason deferring them was reasonable.
 
+### 7. Three visual-polish items landed on `main` 2026-08-25 — OPEN, owed to BOTH lines, DEFERRED PENDING HIS CALL
+
+The sibling of item 6, from the same proposal document, and recorded on the same terms — but the
+deferral here is **weaker evidence than item 6's**, and the difference matters. Item 6 carries an
+explicit instruction. These three were landed `main`-only by consistency with it, on the same day,
+and **he has not been asked about this batch**. Treat this as an open question, not a settled
+decision: if the next audit wants them, ask rather than assuming the answer is the same.
+
+| Landed on `main` | Files | Note for a later pick |
+|---|---|---|
+| `Roll a count that changes instead of cutting to it` | `Pill.swift`, `StatPill.swift` | Self-contained; two `.contentTransition` + `.animation` pairs. Picks clean unless the pill fonts have drifted |
+| `Slide the selection markers instead of blinking them` | `ContentView.swift`, `ContentView+Toolbar.swift`, `PaneTabStrip.swift` | **Check the surfaces exist first.** The workspace bar is v4 (`Workspace.allCases`, the four-workspace rail); a line without it can only take the `PaneTabStrip` half |
+| `Let the first-run sheet answer the pointer` | `SetupSheet.swift` | **Depends on the radius scale below** — four sites read `Radius.chip`. Either pick that first or substitute the literal `6` |
+
+The fourth item in the batch — `Give the app one radius scale and one overlay elevation` — is
+**main-only by rule** and is filed under *Main-only by rule, so never owed* below, not here.
+
+All three are visible to a user, unlike item 6's four: a maintenance line that never receives them
+keeps counts that hard-cut, markers that blink, and a first-run sheet whose controls do not respond
+to the pointer. That is a real difference from item 6's "slower, not wrong", and it is the argument
+for asking rather than letting the deferral stand by inertia.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -311,6 +333,14 @@ new feature, which `CLAUDE.md` puts on `main` alone — not a fix that a mainten
   .baseSize` (704 → 624), which changes the sheet every tab is drawn in.
 - **`SizePreset` / `SizePresetRow` / `SizeSpacingPreview`.** New types with no counterpart to fix
   on either line.
+- **The `Radius` / `Space` scales and `overlayShadow`** (2026-08-25). A restructure by definition:
+  it introduces a design-system vocabulary and rewrites 80 call sites onto it, and 28 of those
+  deliberately move by 1pt to collapse near-duplicate radii. Nothing is broken on a maintenance line
+  without it — those lines simply keep the eleven hand-written radii, which is a tidiness cost, not
+  a defect. Porting it would mean re-styling a shipped release to no user benefit. Symbols if this
+  is ever revisited: `Radius`, `Space` and `View.overlayPanelShadow()` in
+  `Modules/Design/Sources/Design/GeometryScale.swift`. Note that `v3.x` item 7's setup-sheet pick
+  depends on `Radius.chip`, so taking that one means substituting the literal.
 - **The Tint slider becoming the app's one hue-strength knob** (v4.4). The defect it fixes is
   genuinely present on both maintenance lines and was checked symbol by symbol, which is why this
   row is here rather than absent: `origin/v3.x` and `origin/v2.x` both carry
@@ -455,6 +485,18 @@ Verified with a full app-target run on this line (295 tests, 28 suites, green).
 Same entry as `v3.x` item 6 above, and owed on the same terms — see it for the commit list, the
 per-file pick notes and the measured divergences. Deferred by his decision on 2026-08-25, not by a
 judgement that the code does not apply: it does, on every one of the four files.
+
+### Three visual-polish items landed on `main` 2026-08-25 — OPEN, DEFERRED PENDING HIS CALL
+
+Same entry as `v3.x` item 7 above, and owed on the same terms — see it for the commit list and the
+per-file pick notes. **The deferral here is by consistency with the performance batch, not by a
+decision he was asked for**, which is the one thing to carry forward: unlike the entry above it,
+this one is an open question.
+
+Two extra notes for this line specifically. The workspace bar the marker-slide half targets is a v4
+surface, so check `Workspace.allCases` exists here before planning that pick at all. And the setup
+sheet's hover conversion reads `Radius.chip` at four sites, which does not exist on this line —
+substitute the literal `6` or take the radius scale first, and the radius scale is main-only by rule.
 
 ### Nothing else confirmed
 
