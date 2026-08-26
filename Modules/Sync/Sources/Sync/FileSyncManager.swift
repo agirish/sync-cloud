@@ -2383,14 +2383,19 @@ public class FileSyncManager: ObservableObject {
         //
         // **Skipped entirely when neither input moved, which is the ordinary case.** Both halves
         // are then provably no-ops: every row in `state.differences` was filtered FROM the same
-        // `rawDifferences`, so none can be missing from it, and `computeFilteredState` already
-        // stamped `isSyncing` from the same set (it skips that loop when the set is empty, which
-        // is the same answer — `FileDifference.isSyncing` defaults to false). Measured over
-        // 29,000 differences, the two together are ~5 ms of MAIN-ACTOR time per pass, on a
-        // function reached from sixteen call sites.
+        // `rawDifferences`, so none can be missing from it, and `computeFilteredState`'s
+        // postcondition is that every row it returns already carries the flag this loop would
+        // stamp — unconditionally, the empty set included, which is the half that had to be made
+        // true rather than assumed. Measured over 29,000 differences, the two together are ~5 ms
+        // of MAIN-ACTOR time per pass, on a function reached from sixteen call sites.
+        //
+        // Whether the skip was taken, kept rather than re-derived: the publish gate below needs
+        // the same answer, and two spellings of one condition is a thing that drifts the day a
+        // third input joins the reconcile pass.
+        let reconcileWasSkipped = rawDifferencesVersion == entryRawDifferencesVersion
+            && syncingDifferenceIdsVersion == entrySyncingVersion
         let reconciledDifferences: [FileDifference]
-        if rawDifferencesVersion == entryRawDifferencesVersion
-            && syncingDifferenceIdsVersion == entrySyncingVersion {
+        if reconcileWasSkipped {
             reconciledDifferences = state.differences
         } else {
             reconcilePassesRun += 1
@@ -2419,13 +2424,12 @@ public class FileSyncManager: ObservableObject {
         if self.leftItemCount != state.leftItemCount { self.leftItemCount = state.leftItemCount }
         if self.rightItemCount != state.rightItemCount { self.rightItemCount = state.rightItemCount }
         // The rows' deep compare, trusted from the detached pass on the same terms as the trees':
-        // only while nothing wrote the published list since entry, AND while the two inputs the
-        // reconcile pass re-applies also held — because it is those that make
-        // `reconciledDifferences` and `state.differences` the same value. Any of the three moving
-        // drops to the live compare, which is what this line always did.
-        let differencesNeedPublishing = publishedDifferencesVersion == entryDifferencesVersion
-            && rawDifferencesVersion == entryRawDifferencesVersion
-            && syncingDifferenceIdsVersion == entrySyncingVersion
+        // only while nothing wrote the published list since entry, AND while the reconcile pass
+        // was skipped — because it is the skip that makes `reconciledDifferences` and
+        // `state.differences`, which is what was compared off-main, the same value. Either
+        // condition failing drops to the live compare, which is what this line always did.
+        let differencesNeedPublishing = reconcileWasSkipped
+            && publishedDifferencesVersion == entryDifferencesVersion
             ? differencesChanged
             : self.differences != reconciledDifferences
         if differencesNeedPublishing { self.differences = reconciledDifferences }
@@ -2477,7 +2481,17 @@ public class FileSyncManager: ObservableObject {
         }
         // Re-stamp the in-flight flag from the authoritative set: raw differences never carry
         // `isSyncing`, so a rebuild mid-operation would otherwise strip it from every row.
-        if !syncingDifferenceIds.isEmpty {
+        //
+        // **The postcondition is unconditional: every returned row satisfies
+        // `isSyncing == syncingDifferenceIds.contains(id)`, the empty set included.**
+        // `applyFilters()` skips its own reconcile pass when nothing moved mid-compute, and that
+        // skip is sound only because of this. Leaving the flag alone on the empty set — which is
+        // what the guard used to do — would rest it instead on "nothing ever writes `isSyncing`
+        // into `rawDifferences`": true today, enforced nowhere, and its failure is a spinner on a
+        // row with no operation behind it, which no test would see. So the guard now asks exactly
+        // "is this loop provably a no-op?", and the added half is an O(n) read that short-circuits
+        // on the first flag, off the main actor, standing in for an O(n) write.
+        if !syncingDifferenceIds.isEmpty || filteredDifferences.contains(where: \.isSyncing) {
             for i in filteredDifferences.indices {
                 filteredDifferences[i].isSyncing = syncingDifferenceIds.contains(filteredDifferences[i].id)
             }
@@ -2567,6 +2581,11 @@ public class FileSyncManager: ObservableObject {
     /// the better answer — the kernel sees a leading dot — but it is a different answer, and this
     /// change is a performance change. `theScanAgreesWithTheOriginalExpression` pins the equivalence
     /// over an exhaustive sweep of that alphabet; change the fallback and it fails.
+    ///
+    /// The fallback is also what keeps the two hidden-file deciders in one window agreeing:
+    /// ``filterTree`` filters the pane trees on `node.name.hasPrefix(".")`, this same grapheme
+    /// comparison, so a byte-only answer here would drop such a name from the difference list
+    /// while the pane beside it still listed the file. Same window, same name, two answers.
     ///
     /// Reading UTF-8 rather than Characters is safe for the same reason in reverse: UTF-8 is
     /// self-synchronising, so the bytes for `.` and `/` never occur inside a multi-byte scalar.

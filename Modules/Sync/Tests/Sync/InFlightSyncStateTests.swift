@@ -2,6 +2,14 @@ import Testing
 import Foundation
 @testable import Sync
 
+/// Every attempt to catch a filter pass mid-compute lost the race. Thrown rather than swallowed:
+/// the alternative is a test that quietly stops testing the reconcile pass.
+private struct FilterPassWindowMissed: Error, CustomStringConvertible {
+    var description: String {
+        "200 filter passes all published before the test regained the main actor"
+    }
+}
+
 /// Holds the serial file-operation queue closed until `open()` so a bulk sync can be caught
 /// (and inspected) mid-flight deterministically, without wall-clock sleeps.
 private actor Gate {
@@ -67,6 +75,36 @@ private actor Gate {
         let syncTask = Task { await manager.syncAll(direction: .copyToRight) }
         await waitUntil("syncAll marks its rows in-flight") { !manager.syncingDifferenceIds.isEmpty }
         return syncTask
+    }
+
+    /// Starts a filter pass and returns with the main actor still held while that pass is
+    /// provably suspended inside its detached compute — the window the reconcile tests below
+    /// claim to act in.
+    ///
+    /// **`await Task.yield()` on its own does not put a test there.** The compute is detached at
+    /// `.userInitiated` and its continuation competes for the main actor with the yield's own, so
+    /// under a loaded suite the whole pass can finish before the test's next line runs. The row
+    /// assertions still hold when it does — a pass that publishes BEFORE the mutation reaches the
+    /// same rows by another route — so nothing goes red; only `reconcilePassesRun` can tell the
+    /// two apart. It read 0 in a full-package run while all three tests passed in isolation.
+    /// That is a vacuous green, not a flake, and it was invisible until the counter existed.
+    ///
+    /// So the window is verified rather than assumed. `lastPublishedFilterGeneration` moves the
+    /// instant a pass commits, so if it has not moved the pass is still suspended — and a
+    /// suspended pass needs the main actor to continue, which the caller holds until it next
+    /// suspends. Whatever the caller does before its next `await` therefore lands inside the
+    /// window. A missed window is drained and retried; the retries are ordinary fast-path passes
+    /// over unchanged state, so they publish nothing and leave `reconcilePassesRun` alone.
+    @MainActor
+    private func filterPassParkedInsideItsCompute(_ manager: FileSyncManager) async throws -> Task<Void, Never> {
+        for _ in 0..<200 {
+            let publishedBefore = manager.lastPublishedFilterGeneration
+            let pass = Task { await manager.applyFilters() }
+            await Task.yield()
+            if manager.lastPublishedFilterGeneration == publishedBefore { return pass }
+            await pass.value
+        }
+        throw FilterPassWindowMissed()
     }
 
     /// Pin (bug A): a filter pass mid-bulk-sync must republish rows with `isSyncing` intact —
@@ -158,8 +196,7 @@ private actor Gate {
         manager.rawDifferences = [resolved, marked]
         manager.differences = [resolved, marked]
 
-        let pass = Task { await manager.applyFilters() }
-        await Task.yield()   // pass has snapshotted and suspended for its detached compute
+        let pass = try await filterPassParkedInsideItsCompute(manager)
 
         manager.removeResolvedDifferences(ids: [resolved.id])
         manager.markSyncing(ids: [marked.id])
@@ -169,6 +206,9 @@ private actor Gate {
         #expect(manager.differences.map(\.id) == [marked.id])   // resolved row must not resurrect
         #expect(manager.differences.first?.isSyncing == true)   // mid-compute mark survives publish
         #expect(manager.syncingDifferenceIds == [marked.id])
+        // And it reached the reconcile pass to do it. Without this the test passes just as well
+        // against a gate that skips the pass and gets the right answer by luck of the snapshot.
+        #expect(manager.reconcilePassesRun == 1)
         manager.clearSyncing(ids: [marked.id])
     }
 
@@ -226,8 +266,7 @@ private actor Gate {
         manager.differences = [diff]
         manager.markSyncing(ids: [diff.id])
 
-        let pass = Task { await manager.applyFilters() }
-        await Task.yield()   // snapshot (with the mark) taken; compute in flight
+        let pass = try await filterPassParkedInsideItsCompute(manager)
 
         manager.clearSyncing(ids: [diff.id])
 
@@ -235,6 +274,70 @@ private actor Gate {
 
         #expect(manager.differences.first?.isSyncing == false)
         #expect(manager.syncingDifferenceIds.isEmpty)
+        #expect(manager.reconcilePassesRun == 1)   // by the reconcile pass, not by the snapshot
+    }
+
+    /// Pin: `computeFilteredState`'s postcondition holds for the EMPTY set too — a row arriving
+    /// with `isSyncing` set and no operation behind it is published cleared.
+    ///
+    /// Unreachable from the app as it stands, because nothing writes the flag into
+    /// `rawDifferences`. It is pinned because `applyFilters()` now SKIPS the reconcile pass that
+    /// used to re-stamp every row unconditionally, and the skip is sound only while the flag a
+    /// row already carries is the flag the set says it should have. Left as an unwritten
+    /// invariant about a different property, the first write of `isSyncing` into `rawDifferences`
+    /// puts a spinner on a row with no operation behind it, with every test still green.
+    @MainActor
+    @Test func aRowCarryingAStaleInFlightFlagIsPublishedCleared() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let stale = FileDifference(
+            relativePath: "x.txt",
+            leftItemPath: "/l/x.txt",
+            rightItemPath: "/r/x.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "test",
+            isSyncing: true
+        )
+        manager.rawDifferences = [stale]
+        manager.differences = [stale]
+        #expect(manager.syncingDifferenceIds.isEmpty)
+
+        await manager.applyFilters()
+
+        #expect(manager.reconcilePassesRun == 0, "the fast path is the one under test")
+        #expect(manager.differences.first?.isSyncing == false)
+    }
+
+    /// Pin: a published list replaced from outside the pass is compared LIVE, not against the
+    /// entry snapshot the off-main compare answered about.
+    ///
+    /// The reconcile pass's two inputs both hold here, so the skip stays taken and this is the
+    /// only clause standing between the two. Without it the pass asks "did the rows change since
+    /// entry?", is told no, publishes nothing — and the row stays missing from the list while
+    /// `rawDifferences` still holds it, until something else happens to write `differences`.
+    @MainActor
+    @Test func aPublishedListReplacedMidComputeIsComparedLive() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let row = FileDifference(
+            relativePath: "x.txt",
+            leftItemPath: "/l/x.txt",
+            rightItemPath: "/r/x.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "test"
+        )
+        manager.rawDifferences = [row]
+        manager.differences = [row]
+
+        let pass = try await filterPassParkedInsideItsCompute(manager)
+
+        manager.differences = []   // only the published list moves; raw and the syncing set hold
+
+        await pass.value
+
+        #expect(manager.reconcilePassesRun == 0, "neither reconcile input moved")
+        #expect(manager.differences.map(\.id) == [row.id],
+                "the row is back — the entry snapshot's answer was not reused")
     }
 
     /// Pin (bug B): Verify All refuses to start while a bulk sync is in flight — including

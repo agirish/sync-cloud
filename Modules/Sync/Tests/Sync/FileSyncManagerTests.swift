@@ -438,6 +438,19 @@ import Foundation
                 "the byte scan answered without deferring to the expression")
     }
 
+    /// The fallback is also what keeps the two hidden-file deciders in one window agreeing.
+    /// `filterTree` filters the pane trees on `node.name.hasPrefix(".")` — the same grapheme
+    /// comparison the fallback runs — so a byte-only `isHiddenPath` would drop this name from
+    /// the difference list while the pane beside it went on listing the file.
+    @Test func theDifferenceFilterAndThePaneTreeAgreeOnTheAwkwardName() {
+        let awkward = ".\u{0301}b"
+        let shown = FileSyncManager.filterTree(
+            [FileNode(id: "/l/\(awkward)", name: awkward, isDirectory: false)], showHidden: false)
+        #expect(shown.count == 1, "the pane tree shows it")
+        #expect(FileSyncManager.isHiddenPath("dir/\(awkward)") == false,
+                "so the difference list must not hide it — same window, same name")
+    }
+
     @Test func ordinaryPathsAreClassifiedAsBefore() {
         for (path, expected) in [("", false), (".", true), ("/", false), ("a", false),
                                  (".a", true), ("a/.b", true), ("a/b/.c", true), ("/.a", true),
