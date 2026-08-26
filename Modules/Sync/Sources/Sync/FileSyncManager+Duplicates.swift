@@ -217,13 +217,26 @@ extension FileSyncManager {
                    status: total == 0 ? "Looking for candidates…"
                                       : "Hashing \(total) candidate\(total == 1 ? "" : "s")…")
         duplicateScanProgress = total > 0 ? (completed: 0, total: total) : nil
+        // One @Published write per whole percent — see `ProgressPublishGate` for what an ungated
+        // run costs the window. Two gates in series rather than one, because each is wrong alone
+        // at the other's end of the range: the `% 50` floor is what keeps a SMALL scan quiet (a
+        // percent gate publishes on nearly every file below ~5,000 candidates, which is MORE
+        // traffic than the modulo it would replace), and the percent gate is what keeps a LARGE
+        // one quiet (at 23,000 candidates the modulo alone fires 460 times). Composed, the traffic
+        // is min(total / 50, ~101) and neither end regresses.
+        let hashGate = ProgressPublishGateBox()
         let hashOutcome = await Self.hashFilesCounting(
             candidatePaths, fileManager: fileManager, maxBytesToHash: maxBytesToHash,
             isCloudOnly: isCloudOnly, cache: cache
         ) { [weak self] done in
             if done % 50 == 0 || done == total {
                 Task { @MainActor in
-                    guard let self,
+                    // **The gate is consulted HERE, inside the main-actor hop, not in the closure
+                    // above.** `ProgressPublishGateBox` is `@unchecked Sendable` on the stated
+                    // condition that it is touched only from the main actor — and unlike
+                    // `+Verify`'s `reportCompleted`, this closure runs on the worker. Reading it
+                    // one line earlier would be a data race across every hashing task.
+                    guard let self, hashGate.admits(completed: done, total: total),
                           self.updateScan(\.duplicateScanLifecycle, epoch: epoch,
                                           status: "Hashing \(done) of \(total)…") else { return }
                     self.duplicateScanProgress = (completed: done, total: total)
@@ -285,6 +298,7 @@ extension FileSyncManager {
                 .filter { ContentFingerprint.canFingerprint(path: $0) }
             if !documentPaths.isEmpty {
                 let documentTotal = documentPaths.count
+                let textGate = ProgressPublishGateBox()
                 // Named subject: on an empty pane this line is the only thing on screen, and
                 // "Reading 61 documents…" answers neither where nor why.
                 updateScan(\.duplicateScanLifecycle, epoch: epoch,
@@ -302,7 +316,9 @@ extension FileSyncManager {
                     // one source and a test can hold it to that.
                     if done % 50 == 0 {
                         Task { @MainActor in
-                            guard let self,
+                            // Percent gate inside the hop, `% 50` floor outside it — the same
+                            // composition, and the same main-actor reason, as the hashing phase.
+                            guard let self, textGate.admits(completed: done, total: documentTotal),
                                   self.updateScan(\.duplicateScanLifecycle, epoch: epoch,
                                                   status: "Reading \(done) of \(documentTotal)…") else { return }
                             self.duplicateScanProgress = (completed: done, total: documentTotal)

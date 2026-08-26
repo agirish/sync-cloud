@@ -102,4 +102,44 @@ import Testing
         #expect(!stillOneAgain)
         #expect(twoPercent)
     }
+
+    /// The duplicate scan does not use the gate alone — it keeps its `% 50` floor and consults the
+    /// gate inside the main-actor hop. This pins why BOTH are needed, because each is wrong on its
+    /// own at one end of the range and the wrong choice is a regression rather than a smaller win.
+    ///
+    /// Counted here rather than asserted in prose: the traffic figure is the whole claim, and a
+    /// figure that is not computed has not been checked.
+    @Test("The scan's `% 50` floor and the percent gate each cover the other's bad end")
+    func fiftyFloorAndPercentGateCompose() {
+        func publishes(total: Int, floor: Bool, percent: Bool) -> Int {
+            var gate = ProgressPublishGate()
+            var count = 0
+            for done in 1...total {
+                if floor, !(done % 50 == 0 || done == total) { continue }
+                if percent, !gate.admits(completed: done, total: total) { continue }
+                count += 1
+            }
+            return count
+        }
+
+        // Small scan: the percent gate ALONE is worse than the modulo it would replace — 120
+        // candidates move the percent on nearly every file, so it publishes 101 times against
+        // the modulo's 3. This is the case that makes a drop-in replacement a regression, and
+        // it is why the scan keeps its floor instead of adopting the gate the way Verify does.
+        #expect(publishes(total: 120, floor: true, percent: false) == 3)
+        #expect(publishes(total: 120, floor: false, percent: true) == 101)
+        #expect(publishes(total: 120, floor: true, percent: true) == 3)
+
+        // Large scan: the modulo ALONE is the 460-publish case the gate exists to cut.
+        #expect(publishes(total: 23_000, floor: true, percent: false) == 460)
+        #expect(publishes(total: 23_000, floor: true, percent: true) == 101)
+
+        // Composed, neither end regresses: the traffic is min(total / 50, ~101).
+        for total in [120, 1_000, 5_000, 23_000, 90_000] {
+            let composed = publishes(total: total, floor: true, percent: true)
+            let floorOnly = publishes(total: total, floor: true, percent: false)
+            #expect(composed <= floorOnly, "composition must never publish more than the floor alone")
+            #expect(composed <= 101, "composition must never exceed the percent cap")
+        }
+    }
 }
