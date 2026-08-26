@@ -39,21 +39,30 @@ first.
   date — was read from its path *before* the file was opened, so none of it was provably about the
   bytes that were then read. A rewrite landing the same number of bytes mid-read produced a digest
   of two files spliced together, cached under the pre-read date, and every later scan trusted it.
-  The size is now confirmed against the open file itself and confirmed again after the read, so a
-  file that moved underneath the scan is caught rather than remembered wrongly.
-- **A duplicate scan does less work to reach the same answer.** Three separate metadata checks per
-  file before a single byte was read, now one — which is the entire cost of a *repeat* scan, where
-  every digest is already cached and no bytes are read at all. Digest text was built by a string
-  formatter once per byte, thirty-two times per hashed file, and is now a table lookup. And a long
-  scan published its progress often enough to re-evaluate the whole window several hundred times;
-  it now publishes at most about a hundred times however large the folder, while a small scan stays
-  exactly as quiet as it was.
+  The open file is now stat'd through its own descriptor, once before the read and once after. A
+  size that disagrees with what the path reported stops the hash before it starts; a size or date
+  that moves between the two stops it at the end. The date is the half that closes the same-size
+  case — the one a byte count cannot see.
+- **A duplicate scan does less work to reach the same answer.** Three separate reads of a file's
+  path before it was opened, now one — and on a *repeat* scan, where every digest is already
+  cached and no bytes are read, that single read is all the hashing does. (A symlink still takes a
+  second read, to stat what it points at.) Digest text was built by a string formatter once per
+  byte, thirty-two times per hashed file, and is now a table lookup. And a long scan published its
+  progress often enough to re-evaluate the whole window several hundred times; it now publishes at
+  most about a hundred times however large the folder, while a small scan stays exactly as quiet
+  as it was.
 - **Duplicate thumbnails no longer decompress while you scroll.** Each was compressed to PNG on a
   background thread purely to satisfy a rule about what may cross between threads, then decompressed
   again — and that decompression is lazy, so it happened at draw time, on the main thread, during
   the scroll that asked for it. The image crosses intact now.
 - **A comparison with ignore patterns set folds them once per scan** rather than once per item
   compared, and folds each name once rather than once per pattern it is tested against.
+- **Scanning a large tree resolves far fewer paths.** Every directory the walk entered had its
+  whole path resolved so the scan could tell whether it had been there before — a guard against
+  symlink loops that fires essentially never, and the single most expensive part of entering a
+  directory at all. Only a directory whose own last component is a symlink needs it: a loop is
+  always reached through a link, so the guard still catches every cycle it caught before and the
+  rest of the tree skips the work.
 
 ### Appearance
 
@@ -66,9 +75,16 @@ first.
   never ambiguous.
 - **The selected workspace and the active pane tab now slide between positions.** Both markers
   were drawn per item, so switching cut one out where it was and cut a new one in where it was
-  going — two bars forty points apart, both blinking. They travel now. Reduce Motion takes the
-  destination and skips the journey, which is the bargain the rest of the app's motion already
-  strikes.
+  going — two separate bars, in different parts of the window, both blinking. They travel now.
+  Reduce Motion takes the destination and skips the journey — the same bargain the hover ladders
+  already strike, dropping what moves and keeping what colours.
+- **Reduce Motion now reaches most of the app's movement rather than a third of it.** Ten files
+  honoured the setting while twenty-eight animated — not by decision, but because opting in meant
+  giving whatever view owned the animation an environment reading to do, and a modifier chain is a
+  bad place to need one. Fourteen more places honour it now: panes collapsing, a workspace switch,
+  the inspector, the tab strip, rows arriving in a list. What is deliberately left alone is motion
+  that reports rather than travels — hover and press feedback, a rolling digit, and the cross-fades
+  that are what Reduce Motion asks *for* rather than something to take away.
 - **A count that changes rolls its digits instead of cutting to a new number.** The reclaim pill
   has done this for a while and the two shared components every other live count draws through
   never did, so diff totals, duplicate-group counts and the filing backlog hard-swapped: the old
@@ -79,6 +95,11 @@ first.
   responsive surface. Each has an affordance now, chosen for what the control does: the accent
   swatches behave exactly as the same swatches do in Settings ▸ Appearance rather than differently
   depending on where you met them, and Remove washes in ink rather than in an inviting accent.
+- **The small inline spinners are drawn at their size instead of shrunk to it.** Three status rows
+  scaled an already-drawn spinner down to seven-tenths, and scaling resamples: those three read softer
+  than the identical spinners a few files away. They are drawn at the real control size below
+  small now, and framed to occupy exactly what the old recipe reserved — so no row moves, and the
+  only thing that changes is whether the pixels were made at this size or squeezed into it.
 - **One vocabulary for corner radii.** Each was typed at its own call site with nothing to type
   instead, so three chips inside a single card could round by different amounts with no rule
   saying which was right. There are four named stops now — each one a value the app already used
