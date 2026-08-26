@@ -98,10 +98,19 @@ private actor Gate {
     @MainActor
     private func filterPassParkedInsideItsCompute(_ manager: FileSyncManager) async throws -> Task<Void, Never> {
         for _ in 0..<200 {
+            let startedBefore = manager.filterGeneration
             let publishedBefore = manager.lastPublishedFilterGeneration
             let pass = Task { await manager.applyFilters() }
             await Task.yield()
-            if manager.lastPublishedFilterGeneration == publishedBefore { return pass }
+            // BOTH halves, because "parked inside the compute" is two facts and the yield
+            // guarantees neither. `filterGeneration` moving says the pass ran its prologue and
+            // took its snapshots; `lastPublishedFilterGeneration` standing still says it has not
+            // committed. Checking only the second reports a pass that has not STARTED as parked —
+            // the caller then mutates BEFORE the snapshot, the pass sees the mutation as its own
+            // input, takes the fast path, and `reconcilePassesRun` reads 0 for a reason that has
+            // nothing to do with the gate under test.
+            if manager.filterGeneration != startedBefore
+                && manager.lastPublishedFilterGeneration == publishedBefore { return pass }
             await pass.value
         }
         throw FilterPassWindowMissed()
@@ -430,5 +439,98 @@ private actor Gate {
         await manager.syncAll(direction: .copyToRight)
         #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
         #expect(manager.differences.isEmpty)
+    }
+}
+
+/// `markSyncing`/`clearSyncing` stamp the published rows in one write.
+///
+/// `differences` is `@Published`, which offers a getter and a setter and no `_modify`, so
+/// `differences[i].isSyncing = x` copies the whole array and publishes — once per row. Marking m of
+/// n rows was O(n·m) main-actor copying and m `objectWillChange` sends: measured at **11,144 ms**
+/// for a 29,000-row "Sync All" and 11,107 ms again to clear it, against 7.9 ms and 7.1 ms now.
+///
+/// The publish COUNT is the assertion rather than a duration, because the count is what the bug
+/// actually was and it is deterministic — a timing threshold here would be a flake on a loaded
+/// runner ([[docs/flaky-tests.md]] passim). `publishedDifferencesVersion` bumps on every write to
+/// `differences`, so "one write" is directly observable.
+@Suite struct SyncingFlagStampingTests {
+
+    private func rows(_ n: Int) -> [FileDifference] {
+        (0..<n).map { i in
+            FileDifference(relativePath: "p\(i).txt",
+                           leftItemPath: "/l/p\(i).txt",
+                           rightItemPath: "/r/p\(i).txt",
+                           type: .missingOnRight,
+                           action: .copyToRight,
+                           description: "test")
+        }
+    }
+
+    @MainActor
+    @Test func markingEveryRowPublishesExactlyOnce() {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let all = rows(500)
+        manager.differences = all
+        let ids = Set(all.map(\.id))
+
+        let before = manager.publishedDifferencesVersion
+        manager.markSyncing(ids: ids)
+
+        #expect(manager.publishedDifferencesVersion - before == 1,
+                "stamped row by row — that is O(n·m) copying and one publish each")
+        #expect(manager.differences.allSatisfy { $0.isSyncing }, "and every row really is marked")
+        #expect(manager.syncingDifferenceIds == ids)
+    }
+
+    @MainActor
+    @Test func clearingEveryRowPublishesExactlyOnce() {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let all = rows(500)
+        manager.differences = all
+        let ids = Set(all.map(\.id))
+        manager.markSyncing(ids: ids)
+
+        let before = manager.publishedDifferencesVersion
+        manager.clearSyncing(ids: ids)
+
+        #expect(manager.publishedDifferencesVersion - before == 1)
+        #expect(manager.differences.allSatisfy { !$0.isSyncing })
+        #expect(manager.syncingDifferenceIds.isEmpty)
+    }
+
+    /// A stamp that changes no row must not republish at all: an identical list assigned again
+    /// tears down and rebuilds the pane `List`, which is what eats a click mid-drag.
+    @MainActor
+    @Test func aStampThatChangesNothingDoesNotRepublish() {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let all = rows(50)
+        manager.differences = all
+        let ids = Set(all.map(\.id))
+        manager.markSyncing(ids: ids)
+
+        let before = manager.publishedDifferencesVersion
+        manager.markSyncing(ids: ids)          // already marked
+        #expect(manager.publishedDifferencesVersion == before)
+
+        // An id that matches no published row is the other no-op — `clearSyncing` documents it.
+        manager.clearSyncing(ids: [UUID()])
+        #expect(manager.publishedDifferencesVersion == before)
+        #expect(manager.differences.allSatisfy { $0.isSyncing }, "and nothing else was disturbed")
+    }
+
+    /// Marking a subset leaves the rest alone — the loop's `where` clause, pinned so a future
+    /// "simplify" cannot stamp the whole list.
+    @MainActor
+    @Test func markingASubsetLeavesTheOtherRowsUntouched() {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let all = rows(10)
+        manager.differences = all
+        let marked = Set(all.prefix(3).map(\.id))
+
+        manager.markSyncing(ids: marked)
+
+        for row in manager.differences {
+            #expect(row.isSyncing == marked.contains(row.id), "row \(row.relativePath)")
+        }
     }
 }
