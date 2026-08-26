@@ -317,6 +317,23 @@ copying and m `objectWillChange` sends for m rows of n. Measured at 29,000 rows 
 Unlike items 6–8 this one IS user-visible on its own: a line that never receives it keeps a
 ~22-second main-thread freeze around every bulk sync on a large comparison.
 
+### 10. The filter gate's log line landed on `main` 2026-08-26 — CLOSED, not owed: no backporting, by standing direction
+
+Observability for item 8's second entry, so it is owed only where that is. Recorded so a line that
+ever does take the reconcile skip picks the line that says whether the skip is working with it.
+
+| Landed on `main` | Files | Note for a later pick |
+|---|---|---|
+| `Say in the log whether the filter gate is skipping anything` (`18fa4cea`) | `FileSyncManager.swift`, `FileSyncManager+Scanning.swift`, `InFlightSyncStateTests.swift` | **Pointless without item 8's reconcile skip** — on a line whose `applyFilters()` still reconciles unconditionally the ratio is `n of n` by construction. Pick the skip first or not at all |
+
+Also recorded here rather than only in the source: the `@Published` O(n·m) publish in item 9 was the
+**only** instance. All 100 `@Published` properties across `Modules`, `MacApp` and `SyncCloudCLI`
+were scanned for a subscript write or a mutating call inside a loop over the same collection; the
+rest are single writes guarded by a `firstIndex` (one COW per call, not per element), and
+`duplicateGroups` writes in a loop but only for the one or two groups holding the path. That is a
+**checked-and-not-owed for a whole family**, which is the expensive half to re-derive: an audit
+reaching item 9 does not need to re-scan for siblings.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
