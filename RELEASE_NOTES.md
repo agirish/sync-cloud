@@ -73,8 +73,6 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   instead, so three chips inside a single card could round by different amounts. Four named
   stops now, each a value the app already used most, with the strays moved to their nearest by
   a point.
-
----
 - **Reduce Motion now reaches most of the app's movement rather than a third of it.** Ten files
   honoured the setting while twenty-eight animated — not by decision, but because opting in
   meant giving whatever view owned the animation an environment reading to do. Fourteen more
@@ -83,6 +81,14 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   rows scaled an already-drawn spinner down to seven-tenths, and scaling resamples, so those
   three read softer than identical spinners a few files away. They are framed to occupy exactly
   what the old recipe reserved, so no row moves.
+- **Twenty-six buttons that are nothing but an icon now have names.** A tooltip is not a name on
+  macOS, so VoiceOver read them as "button" and Voice Control could not be asked to click them at
+  all — only to number every control on screen and pick one. The Rules row's three actions, the
+  Activity Log's and Sync History's toolbars, the rename lens's reveals, four dismiss glyphs in
+  Settings, the breadcrumb overflow and the new-tab plus all say what they do now, in the same
+  words their tooltips already used. Nothing about this is visible on screen.
+
+---
 
 ## v4.4
 
