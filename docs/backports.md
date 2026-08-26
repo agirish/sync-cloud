@@ -282,6 +282,24 @@ markers that blink, and a first-run sheet whose controls do not respond to the p
 real difference from item 6's "slower, not wrong" — it is why this was worth asking about once, and
 it is what the maintenance lines are knowingly keeping.
 
+### 8. Two more performance items landed on `main` 2026-08-26 — CLOSED, not owed: no backporting, by standing direction
+
+Same standing answer as item 7, so this is a record of what `main` has that the other lines do not,
+not a question being re-raised. Both were landed `main`-only without asking, which is what
+`e2b35dad` directs. Both apply — checked, not assumed: `v3.x` and `v2.x` each carry `isHiddenPath`
+in its original two-line form, an `async applyFilters()` with the detached compute, the ten
+`publishedLeftTreeVersion` sites the gate is modelled on, and the reconcile pass itself
+(`let liveIds = Set(rawDifferences.map…`, one site on each line).
+
+| Landed on `main` | Files | Note for a later pick |
+|---|---|---|
+| `Answer "is this hidden?" without allocating…` (`94893347`, corrected by `1e04b131`) | `FileSyncManager.swift`, `FileSyncManagerTests.swift` | Self-contained — one function body plus a new `@Suite`. `SyncCloudCLI` calls it too, so both surfaces get the win |
+| `Stop rebuilding an id set and deep-comparing rows…` (`dc9e201b`, `e2ebe5a5`) | `FileSyncManager.swift`, `InFlightSyncStateTests.swift` | Pick the `didSet` counters and `computeFilteredState`'s unconditional `isSyncing` postcondition WITH it — the skip is unsound without that postcondition, and it is a separate hunk in a separate function |
+
+Neither is user-visible on its own: a line that never receives them keeps a filter pass that
+allocates per path component and ~5 ms of main-actor work per rebuild. Slower, not wrong — the same
+standing as item 6's four.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -504,6 +522,13 @@ Two extra notes for this line specifically. The workspace bar the marker-slide h
 surface, so check `Workspace.allCases` exists here before planning that pick at all. And the setup
 sheet's hover conversion reads `Radius.chip` at four sites, which does not exist on this line —
 substitute the literal `6` or take the radius scale first, and the radius scale is main-only by rule.
+
+### Two more performance items landed on `main` 2026-08-26 — CLOSED: no backporting, by standing direction
+
+The `v2.x` half of item 8 above, and the same verdict. `v2.x` carries both prerequisites — the
+original `isHiddenPath` expression and the reconcile pass in `applyFilters()` — so both would apply;
+neither is being sent. Pick notes are in item 8; the second of the two must not be picked without
+`computeFilteredState`'s unconditional `isSyncing` postcondition, which is what makes its skip sound.
 
 ### Nothing else confirmed
 
