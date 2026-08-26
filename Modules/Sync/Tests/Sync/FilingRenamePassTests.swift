@@ -421,7 +421,7 @@ import Events
             fm.shouldFailMoveOnTempRename = true
         }
 
-        let log = LogCapture()
+        let log = LogCapture()   // TestSupport
         await manager.applyRenamePlans([plan])
 
         let after = fm.virtualDisk.keys.filter { $0.hasPrefix("/prov/2021/") }
@@ -487,7 +487,7 @@ import Events
             fm.virtualDisk["/prov/2021/01. Mar 2021.pdf"] = stub(20)
         }
 
-        let log = LogCapture()
+        let log = LogCapture()   // TestSupport
         await manager.applyRenamePlans([plan])
 
         let survivor = try #require(
@@ -552,57 +552,6 @@ import Events
         #expect(manager.banner?.message == "Renamed 2 files; 1 couldn't be renamed. Press ⌘Z to undo")
     }
 
-    /// Accumulates every entry the shared Logger publishes, from construction onward.
-    ///
-    /// **`Logger.shared.entries` is capped at 1000 and this package runs 2,848 tests across 261
-    /// suites in parallel, so a whole-buffer read is a race with every other suite's logging.**
-    /// These two assertions lost it twice on CI — the v4.4 release run and `61d8dfc5` here — both
-    /// times passing 3/3 in isolation on the same tree, which is the signature of mechanism 12 in
-    /// `docs/flaky-tests.md` ("A log assertion reading a window that has already rolled").
-    ///
-    /// The rules there — an opening marker plus a `#require` — make an evicted window *report* as
-    /// eviction instead of as a missing line, which is the right diagnosis and still a red. This
-    /// removes the race instead: an entry is captured at the moment it is published, so a later
-    /// trim cannot take it away. Every entry appears in at least the publish that appended it
-    /// (`flushPendingEntries` appends and then trims, and both mutations publish), so accumulating
-    /// across publishes sees everything. Deduplicated by `LogEntry.id`, since each publish carries
-    /// the whole array.
-    @MainActor
-    private final class LogCapture {
-        private var seen: [LogEntry] = []
-        private var ids: Set<UUID> = []
-        private var cancellable: AnyCancellable?
-
-        init() {
-            // **`dropFirst()` because a `@Published` publisher replays its CURRENT value on
-            // subscribe**, so without it the capture opens already holding the whole buffer — and
-            // a capture that means "since I started" must not include what came before. The
-            // contamination it rules out is a sibling's identical sentence satisfying the
-            // assertion before the call under test has run. Recorded honestly: that was NOT
-            // reproduced. Deleting `dropFirst()`, removing the production line, and running the
-            // whole package still fails, because no sibling happens to write these two sentences.
-            // It is kept as the correct semantics for a capture, not as a proven guard.
-            cancellable = Logger.shared.$entries.dropFirst().sink { [weak self] published in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    for entry in published where !self.ids.contains(entry.id) {
-                        self.ids.insert(entry.id)
-                        self.seen.append(entry)
-                    }
-                }
-            }
-        }
-
-        /// True when anything captured since construction is at `level` and contains `fragment`.
-        ///
-        /// The awaited `debug` is the visibility half of mechanism 12's rule 1: `Logger.log` is
-        /// `nonisolated` and hands the entry to a FIFO queue a `@MainActor` task drains, so without
-        /// it a line written by the call under test may simply not have been published yet.
-        func holds(_ level: LogLevel, containing fragment: String) async -> Bool {
-            await Logger.shared.debug("rename-pass-test flush marker").value
-            return seen.contains { $0.level == level && $0.message.contains(fragment) }
-        }
-    }
 
     // MARK: The outcome sentence
 

@@ -13,7 +13,11 @@ import Events
 /// These are the pins an adversarial review found missing: emptying the old undo grouping passed
 /// the ENTIRE package, deleting the mid-batch stop passed the duplicates suite, and nothing
 /// observed verify-then-trash ordering at all.
-@Suite struct DuplicateBatchRedesignTests {
+@Suite @MainActor struct DuplicateBatchRedesignTests {
+    /// Per test — see `LogCapture`. `batchRefusalsAreLoggedPerGroupWithKeeperAndCopyPaths`
+    /// failed both CI attempts on the v4.5 release SHA reading the shared buffer directly.
+    private let log = LogCapture()
+
 
     @MainActor
     private func makeManager(_ fm: MockFileManager) -> FileSyncManager {
@@ -44,8 +48,7 @@ import Events
     /// so everything enqueued before it is visible (`Logger` appends asynchronously).
     @MainActor
     private func loggedLine(containing fragment: String) async -> String? {
-        await Logger.shared.debug("batch-redesign flush marker").value
-        return Logger.shared.entries.last { $0.message.contains(fragment) }?.message
+        await log.line(containing: fragment)
     }
 
     /// A continuation-backed latch for parking an enqueued file operation WITHOUT blocking a

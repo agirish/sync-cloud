@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Events
 import Testing
@@ -503,4 +504,83 @@ func loggedLineOnDisk(containing fragment: String) async -> String? {
     Logger.shared.flushToDisk()
     let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     return text.split(separator: "\n").map(String.init).last { $0.contains(fragment) }
+}
+
+// MARK: - Reading the log without racing every other suite
+
+/// Accumulates every entry the shared `Logger` publishes, from construction until it is released.
+///
+/// **`Logger.shared.entries` is capped at 1,000 and this package runs ~2,850 tests across ~260
+/// suites in parallel, so a whole-buffer read is a race with every other suite's logging.** When it
+/// loses, `contains` finds nothing and the assertion reports a missing log line — indistinguishable
+/// from the defect the test exists to catch. That is mechanism 12 in `docs/flaky-tests.md`, and it
+/// reddened the v4.4 release run and two attempts at the v4.5 one.
+///
+/// **The rules written in that section diagnose it; they do not fix it.** An opening marker plus a
+/// `#require` makes an evicted window *say* it was evicted rather than report an absence — which is
+/// the right diagnosis and still a red, and in fact a redder one, because the marker is older than
+/// the lines it bounds and so is evicted first. Measured: applying them to `FilingRenamePassTests`
+/// took the full package from green to failing-with-a-better-message.
+///
+/// This removes the race instead. An entry captured at publish time cannot be taken away by a later
+/// trim, and every entry appears in at least the publish that appended it (`flushPendingEntries`
+/// appends and then trims, and both mutations publish), so accumulating across publishes sees
+/// everything. Deduplicated by `LogEntry.id`, since each publish carries the whole array.
+///
+/// **Construct it BEFORE the call under test** — it is a window opening, not a query:
+/// ```swift
+/// let log = LogCapture()
+/// await manager.doTheThing()
+/// #expect(await log.holds(.warning, containing: "the thing went wrong"))
+/// ```
+@MainActor
+final class LogCapture {
+    private var seen: [LogEntry] = []
+    private var ids: Set<UUID> = []
+    private var cancellable: AnyCancellable?
+
+    init() {
+        // `dropFirst()` because a `@Published` publisher replays its CURRENT value on subscribe, and
+        // a capture meaning "since I started" must not include what came before. What that rules
+        // out is a sibling's identical sentence satisfying the assertion before the call under test
+        // has run. Recorded honestly: that has not been reproduced — deleting `dropFirst()`,
+        // removing a production log line and running the whole package still fails. It is kept as
+        // the correct semantics for a capture, not as a guard anything here demonstrates.
+        cancellable = Logger.shared.$entries.dropFirst().sink { [weak self] published in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                for entry in published where !self.ids.contains(entry.id) {
+                    self.ids.insert(entry.id)
+                    self.seen.append(entry)
+                }
+            }
+        }
+    }
+
+    /// Everything captured since construction, oldest first.
+    var entries: [LogEntry] {
+        get async {
+            // The visibility half of mechanism 12's rule 1, which this still needs: `Logger.log` is
+            // `nonisolated` and hands the entry to a FIFO queue a `@MainActor` task drains, so
+            // without awaiting one more entry a line the call under test just wrote may not have
+            // been published yet. The queue being FIFO, this drains everything enqueued before it.
+            await Logger.shared.debug("log-capture flush marker").value
+            return seen
+        }
+    }
+
+    /// True when anything captured since construction is at `level` and contains `fragment`.
+    func holds(_ level: LogLevel, containing fragment: String) async -> Bool {
+        await entries.contains { $0.level == level && $0.message.contains(fragment) }
+    }
+
+    /// True when anything captured since construction contains `fragment`, at any level.
+    func holds(containing fragment: String) async -> Bool {
+        await entries.contains { $0.message.contains(fragment) }
+    }
+
+    /// The most recent captured message containing `fragment`, or nil.
+    func line(containing fragment: String) async -> String? {
+        await entries.last { $0.message.contains(fragment) }?.message
+    }
 }

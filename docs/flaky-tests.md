@@ -1367,6 +1367,36 @@ immediately"* — and the finding is kept next to the test it cost, in the doc c
 version of that test awaited the refresh and then reported a missing line **for a line that had
 been written**.
 
+**Fix — read this before applying the four rules below.** They DIAGNOSE eviction; they do not
+prevent it. Rule 1's marker is written *before* the lines it bounds, so it is the first thing the
+buffer evicts: applying it turns "the line is missing" into "the window rolled", which is the honest
+message and a **redder** test. Measured 2026-08-26 on `FilingRenamePassTests` — the full package
+went from green to failing-with-a-better-message, and the change was reverted.
+
+**Prefer `LogCapture` (`Modules/Sync/Tests/Sync/TestSupport.swift`).** It subscribes to
+`Logger.shared.$entries` and accumulates at publish time, so a later trim cannot take an entry away
+and there is no window to roll. Construct it BEFORE the call under test — it is a window opening,
+not a query:
+
+```swift
+@Suite @MainActor struct MySuite {
+    private let log = LogCapture()      // per test: Swift Testing builds a fresh instance for each
+    @Test func theThingSaysSo() async {
+        await manager.doTheThing()
+        #expect(await log.holds(.warning, containing: "the thing went wrong"))
+    }
+}
+```
+
+`LogBufferReadScanTests` enforces this: every bare `Logger.shared.entries` read in the Sync test
+tree is either eviction-proof or on a list that may shrink and must never grow. Sixteen suites were
+on that list when it was written, and a hand count had put it at nine — do not estimate this set,
+run the scan.
+
+The four rules below still apply where a capture is impossible (reading the disk log, or asserting
+about lines written before your test began), and rule 1's *second* half — the awaited flush — is
+needed by `LogCapture` too, for the visibility reason it gives.
+
 **Fix.** Four rules. The first two are the whole of it; the second two are what make them hold.
 
 1. **An absence assertion needs BOTH guards: your own marker FIRST, `#require`d to have survived,

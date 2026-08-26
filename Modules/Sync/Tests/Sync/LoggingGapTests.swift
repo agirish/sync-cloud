@@ -14,7 +14,12 @@ import Testing
 /// `Logger.shared` is a process-wide singleton and this suite runs alongside every other, so every
 /// fixture carries a token unique to its own run: an assertion matching on "some profile was rolled
 /// back" would be reading another test's line.
-@Suite struct LoggingGapTests {
+@Suite @MainActor struct LoggingGapTests {
+    /// Opened per test — Swift Testing builds a fresh suite instance for each — so every
+    /// assertion below reads a window that starts before its own test does, and cannot be
+    /// evicted out from under it. See `LogCapture` in `TestSupport.swift`.
+    private let log = LogCapture()
+
 
     /// The shared logger's most recent ENTRY containing `fragment`, or nil. Awaiting a fresh log
     /// task first guarantees everything enqueued before it is visible in `entries`.
@@ -22,14 +27,11 @@ import Testing
     /// The whole entry rather than its message, because a line's **level** is part of what this
     /// suite pins — see `wideningAOnePaneRefreshSaysSo`. `loggedLine` below keeps the text-only
     /// reading for the assertions that only care what was said.
-    @MainActor
     private func loggedEntry(containing fragment: String) async -> LogEntry? {
-        await Logger.shared.debug("logging-gap flush marker").value
-        return Logger.shared.entries.last { $0.message.contains(fragment) }
+        await log.entries.last { $0.message.contains(fragment) }
     }
 
     /// The message of the above, for the assertions that read only the wording.
-    @MainActor
     private func loggedLine(containing fragment: String) async -> String? {
         await loggedEntry(containing: fragment)?.message
     }
