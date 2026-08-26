@@ -1,5 +1,6 @@
 import SwiftUI
 import Sync
+import Design
 
 // MARK: - Learned-rule offer/review models
 //
@@ -76,9 +77,9 @@ struct RememberOverridePromptView: View {
                 .controlSize(.small)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
             .fill(accent.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .overlay(RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
             .strokeBorder(accent.opacity(0.28), lineWidth: 1))
         .padding(.horizontal, 12).padding(.top, 12)
         .transition(.move(edge: .top).combined(with: .opacity))
@@ -150,9 +151,9 @@ struct RuleOfferPromptView: View {
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
             .fill(accent.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .overlay(RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
             .strokeBorder(accent.opacity(0.28), lineWidth: 1))
         .padding(.horizontal, 12).padding(.top, 12)
         .transition(.move(edge: .top).combined(with: .opacity))

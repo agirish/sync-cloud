@@ -660,7 +660,7 @@ struct OrganizeOverview: View {
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .foregroundStyle(accent)
                     .frame(width: 21, height: 21)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.14)))
+                    .background(RoundedRectangle(cornerRadius: Radius.chip).fill(accent.opacity(0.14)))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Inbox (\(shortcut.name))")
                         .scaledFont(.system(size: 12.5, weight: .semibold))
@@ -675,8 +675,8 @@ struct OrganizeOverview: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9).fill(.quaternary.opacity(0.35)))
-            .contentShape(RoundedRectangle(cornerRadius: 9))
+            .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.35)))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.well))
         }
         .buttonStyle(.plain)
         .chromeHover()
@@ -722,7 +722,7 @@ struct OrganizeOverview: View {
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .foregroundStyle(accent)
                         .frame(width: 21, height: 21)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.14)))
+                        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(accent.opacity(0.14)))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(section.lens.title)
                             .scaledFont(.system(size: 12.5, weight: .semibold))
@@ -779,8 +779,8 @@ struct OrganizeOverview: View {
             .padding(.trailing, 11)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(accent.opacity(0.07)))
-        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .background(RoundedRectangle(cornerRadius: Radius.well).fill(accent.opacity(0.07)))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.well))
     }
 
     /// Re-runs the scan behind a lens that has already answered — **the answer to "the number is
@@ -824,7 +824,7 @@ struct OrganizeOverview: View {
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 21, height: 21)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5)))
+                    .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.5)))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(pass.offerTitle)
                         .scaledFont(.system(size: 12.5, weight: .semibold))
@@ -878,8 +878,8 @@ struct OrganizeOverview: View {
                 .padding(.vertical, 7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 9).fill(.quaternary.opacity(0.35)))
-        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.35)))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.well))
     }
 
     /// One lens inside a pass card: what this share of the one walk gets you.

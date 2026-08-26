@@ -186,9 +186,9 @@ private struct BrowseArt: View {
         }
         .padding(8)
         .frame(width: 46, height: 92, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
             .fill(Color.secondary.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+        .overlay(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
             .strokeBorder(Color.secondary.opacity(0.22), lineWidth: 1))
     }
 }
@@ -236,8 +236,8 @@ private struct CompareArt: View {
         }
         .padding(11)
         .frame(width: 108, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(ProviderHue.classify(name).soft))
-        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(hue.opacity(0.2)))
+        .background(RoundedRectangle(cornerRadius: Radius.well, style: .continuous).fill(ProviderHue.classify(name).soft))
+        .overlay(RoundedRectangle(cornerRadius: Radius.well, style: .continuous).strokeBorder(hue.opacity(0.2)))
     }
 }
 

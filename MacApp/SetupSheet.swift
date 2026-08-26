@@ -361,7 +361,7 @@ struct SetupSheet: View {
         .frame(width: cardWidth, height: cardHeightResolved)
         .contentSurface(hue: glassHue, tint: surfaceTint)
         .groundedGlassCard(level: glassLevel)
-        .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
+        .overlayPanelShadow()
         .overlay(alignment: .topTrailing) {
             CloseButton { onDismiss() }
                 .keyboardShortcut(.cancelAction)
@@ -420,7 +420,7 @@ struct SetupSheet: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .padding(.horizontal, 10)
-                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .background(RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
                             .fill(Color.secondary.opacity(0.07)))
                     }
                 }
@@ -634,7 +634,7 @@ struct SetupSheet: View {
         .padding(.horizontal, 9)
         .background {
             if isCurrent {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                     .fill(Color.accentColor.opacity(0.14))
             }
         }
@@ -854,7 +854,7 @@ struct SetupSheet: View {
                         if provider.id != settings.availableProviders.last?.id { Divider() }
                     }
                 }
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                     .fill(Color.secondary.opacity(0.06)))
             }
 
@@ -1087,7 +1087,7 @@ struct SetupSheet: View {
                         if name != rosterNames.last { Divider() }
                     }
                 }
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                     .fill(Color.secondary.opacity(0.06)))
             }
 
@@ -1536,7 +1536,7 @@ struct SetupSheet: View {
                 Divider()
                 summaryRow("person.2", peopleSummary, tab: .people)
             }
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
                 .fill(Color.secondary.opacity(0.06)))
 
             // **The disclosure is NOT repeated here.** It was, for as long as the Folders step was
@@ -1676,7 +1676,7 @@ struct SetupSheet: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
             .fill(Color.secondary.opacity(0.07)))
     }
 
@@ -1687,7 +1687,7 @@ struct SetupSheet: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                 .fill(Color.secondary.opacity(0.06)))
     }
 

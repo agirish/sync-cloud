@@ -28,6 +28,6 @@ public extension View {
     /// Settings and Help wrap their magnifier + plain TextField rows in this so the two search
     /// boxes read as the same control.
     func searchFieldSurface() -> some View {
-        background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
     }
 }

@@ -205,7 +205,7 @@ struct DuplicateGroupCard: View {
 
     private func overflowTile(_ count: Int) -> some View {
         VStack(spacing: 5) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
                 .frame(width: 54, height: 54 * 1.2)
                 .overlay(
@@ -324,7 +324,7 @@ struct DuplicateGroupCard: View {
             }
             .padding(.horizontal, 11).padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.04)))
+            .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Color.primary.opacity(0.04)))
             .padding(.top, 10)
         }
     }
@@ -461,7 +461,7 @@ struct DuplicateGroupCard: View {
                         .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.primary)
                         .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(hueAccent.opacity(0.14)))
+                        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(hueAccent.opacity(0.14)))
                 } else {
                     Text(comp)
                         .scaledFont(.system(size: 12, design: .monospaced))

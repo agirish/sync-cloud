@@ -168,7 +168,7 @@ struct PaletteResultsList: View {
         .padding(.vertical, 7)
         .background {
             if isSelected {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                     .fill(accent)
                     .padding(.horizontal, 8)
             }

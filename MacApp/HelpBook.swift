@@ -824,7 +824,7 @@ struct HelpOverlay: View {
             // No hairline overlay here: `groundedGlassCard` now draws it for BOTH schemes. Adding
             // one on top put a second border over the dark specular edge.
             .groundedGlassCard(level: glassLevel)
-            .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
+            .overlayPanelShadow()
     }
 }
 
@@ -1105,7 +1105,7 @@ struct HelpView: View {
             .padding(.vertical, 5)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                     .fill(isSelected ? accentFill : .clear)
             )
         }
@@ -1215,7 +1215,7 @@ struct HelpArticleView: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.well, style: .continuous))
 
         case .legend(let items):
             VStack(spacing: 0) {
@@ -1226,7 +1226,7 @@ struct HelpArticleView: View {
                             .scaledFont(.system(size: 12, weight: .semibold))
                             .foregroundStyle(item.mood.color)
                             .frame(width: 22, height: 22)
-                            .background(item.mood.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .background(item.mood.color.opacity(0.14), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
                         HStack(spacing: 6) {
                             Text(item.title)
                                 .scaledFont(.callout.weight(.medium))
@@ -1242,7 +1242,7 @@ struct HelpArticleView: View {
                 }
             }
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
                     .strokeBorder(.quaternary, lineWidth: 0.5)
             )
         }

@@ -758,7 +758,7 @@ public struct FileTreeView: View, Equatable {
                             .controlSize(.small)
                             .padding(12)
                             .background(.regularMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.well, style: .continuous))
                             .padding(20)
                     }
                 }
@@ -1028,7 +1028,7 @@ public struct FileTreeView: View, Equatable {
     @ViewBuilder
     private func rowSelectionBackground(for node: FileNode) -> some View {
         if selection.contains(node.id) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                 .fill(glassHue.accentColor.opacity(PaneSelectionWash.opacity(isActivePane: isActivePane)))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)

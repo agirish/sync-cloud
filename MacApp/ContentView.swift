@@ -1756,7 +1756,7 @@ struct ContentView: View {
         // Flooring this to Frosted is what made Clear and Frosted indistinguishable.
         // The hairline comes from `groundedGlassCard`, which now owns it in both schemes.
         .groundedGlassCard(level: glassLevel)
-        .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
+        .overlayPanelShadow()
     }
 
     @ViewBuilder
@@ -1807,7 +1807,7 @@ struct ContentView: View {
         // dark border on all four panels).
         // The floating-modal drop shadow, deeper than a content card's: this panel is meant to
         // read as lifted off the window, whatever material it resolved to.
-        .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
+        .overlayPanelShadow()
     }
 
     /// Renders one abstract `SyncErrorAction` as its concrete alert button. Dismissing is implicit

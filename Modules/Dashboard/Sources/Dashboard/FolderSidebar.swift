@@ -1058,7 +1058,7 @@ public struct FolderSidebarView: View {
             // is moving" on its own.
             .background {
                 if isLifted {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                         .fill(Color(nsColor: .controlBackgroundColor))
                         .shadow(color: .black.opacity(0.30), radius: 6, y: 2)
                 }
@@ -1166,7 +1166,7 @@ public struct FolderSidebarView: View {
             .frame(minHeight: Self.rowHeight)
             .background {
                 if isCurrent {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(accent.opacity(0.16))
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous).fill(accent.opacity(0.16))
                 }
             }
             .contentShape(Rectangle())
@@ -1279,7 +1279,7 @@ public struct FolderSidebarView: View {
                 // invisible on its own — and this is also what makes the row's real width
                 // measurable, which is why `theCurrentRowFillsTheColumn` can exist at all.
                 if isCurrent {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                         .fill(accent.opacity(0.16))
                 }
             }

@@ -342,10 +342,10 @@ public struct DestinationPicker: View {
             .padding(.vertical, 6)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(glassHue.accentFillColor)
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous).fill(glassHue.accentFillColor)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
         }
         .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment,
                                       tint: isSelected ? glassHue.onAccentLabelColor : accent))
@@ -804,7 +804,7 @@ struct DestinationColumn: View {
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(rowBackground(isChosen: isChosen, isTrail: isTrail))
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
         }
         .buttonStyle(.hoverAffordance(.segment, tint: accent))
         .padding(.horizontal, 8)
@@ -816,12 +816,12 @@ struct DestinationColumn: View {
         if isChosen {
             // The panes' own selection strength, so a chosen row here reads exactly as a selected
             // row in the rail behind the card.
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                 .fill(accent.opacity(PaneSelectionWash.active))
         } else if isTrail {
             // Quieter than a selection: this row is the trail, not the target — the same
             // distinction `PaneColumnsView` draws.
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                 .fill(accent.opacity(PaneSelectionWash.inactive * 0.6))
         } else {
             Color.clear
@@ -867,10 +867,10 @@ private struct DestinationResultRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 if isHighlighted {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(accentFill)
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous).fill(accentFill)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
         }
         .buttonStyle(.hoverAffordance(isHighlighted ? .filled : .segment,
                                       tint: isHighlighted ? onAccent : accent))

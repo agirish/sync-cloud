@@ -203,7 +203,7 @@ struct TreemapView: View {
     private func tailTile(_ fold: Fold, width: CGFloat) -> some View {
         let names = fold.folded.map(\.name).joined(separator: ", ")
         let bytes = FileSyncManager.formatBytes(fold.tailBytes)
-        return RoundedRectangle(cornerRadius: 7, style: .continuous)
+        return RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
             .fill(Color.secondary.opacity(0.35))
             .frame(width: width)
             .overlay(alignment: .topLeading) {
@@ -228,7 +228,7 @@ struct TreemapView: View {
     private func tile(_ node: TreemapNode, color: Color, label: Color, width: CGFloat) -> some View {
         // Never let a real (nonzero) area collapse to nothing — a hairline still shows it exists.
         let clamped = max(width, 3)
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
             .fill(color.gradient)
             .frame(width: clamped)
             .overlay(alignment: .topLeading) {

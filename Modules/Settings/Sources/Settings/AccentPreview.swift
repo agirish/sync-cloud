@@ -117,9 +117,9 @@ struct AccentPreviewStrip: View {
         // chips keep their full size — only their ground tightens — and the AccentPreviewTests
         // sample points (5pt inside each capsule's edge, at mid-height) stay inside the paint.
         .padding(.vertical, 5)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                 .strokeBorder(Color.primary.opacity(ActionBarMetrics.outlineStrokeOpacity),
                               lineWidth: PillVariant.strokeWidth)
         )

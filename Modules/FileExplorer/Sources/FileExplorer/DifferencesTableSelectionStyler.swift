@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Design
 
 /// Replaces the differences `Table`'s native selection highlight with the accent wash the panes
 /// draw, so one window shows one selection language. The native highlight is painted by AppKit
@@ -125,7 +126,7 @@ struct DifferencesTableSelectionStyler: NSViewRepresentable {
 }
 
 /// The rounded accent capsule drawn behind a selected differences row. Geometry matches the pane
-/// rows' `RoundedRectangle(cornerRadius: 6).padding(.horizontal, 6).padding(.vertical, 1)`, so the
+/// rows' `RoundedRectangle(cornerRadius: Radius.chip).padding(.horizontal, 6).padding(.vertical, 1)`, so the
 /// two surfaces read as the same selection.
 final class SelectionWashView: NSView {
     static let horizontalInset: CGFloat = 6

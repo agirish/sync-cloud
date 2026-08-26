@@ -521,11 +521,11 @@ struct SettingsRail: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                         .fill(hue.accentFillColor)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
         }
         // A selected row already carries a solid fill, so it takes `.filled` (a ring and a lift,
         // no wash — there is nothing to wash over) with the tint flipped to the on-fill color.

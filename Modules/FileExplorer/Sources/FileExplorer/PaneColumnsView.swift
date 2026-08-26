@@ -1087,7 +1087,7 @@ struct PaneColumnsView: View {
     }
 
     private func wash(opacity: Double) -> some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
             .fill(glassHue.accentColor.opacity(opacity))
             .padding(.horizontal, 6)
             .padding(.vertical, 1)

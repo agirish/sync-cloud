@@ -236,11 +236,11 @@ struct PaneBarCustomizeSheet: View {
         .padding(Self.trackPadding)
         .frame(minHeight: 50)
         .background(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
                 .fill(.quaternary.opacity(0.28))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
                 .strokeBorder(targetedSlot == nil
                               ? AnyShapeStyle(.quaternary)
                               : AnyShapeStyle(glassHue.accentColor.opacity(0.7)),
@@ -419,10 +419,10 @@ struct PaneBarCustomizeSheet: View {
     /// glyph in it, so the track reads as "gap here" at a glance instead of "some other button".
     private func spacerPill(_ item: PaneBarItem, style: PillStyle) -> some View {
         let flexible = item == .flexibleSpace
-        return RoundedRectangle(cornerRadius: 5, style: .continuous)
+        return RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
             .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 1, dash: flexible ? [] : [3, 3]))
             .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                     .fill(.quaternary.opacity(flexible ? 0.35 : 0))
             )
             .frame(width: style == .sample ? (flexible ? 34 : 20) : (flexible ? 44 : 26),
@@ -487,12 +487,12 @@ struct PaneBarCustomizeSheet: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
                 .fill(isOverPalette ? AnyShapeStyle(Color.red.opacity(0.09))
                                     : AnyShapeStyle(.quaternary.opacity(0.18)))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
                 .strokeBorder(isOverPalette ? AnyShapeStyle(Color.red.opacity(0.5))
                                             : AnyShapeStyle(.quaternary),
                               lineWidth: isOverPalette ? 1.5 : 0.5)
@@ -661,11 +661,11 @@ struct PaneBarCustomizeSheet: View {
         }
         .padding(9)
         .background(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
                 .fill(.quaternary.opacity(0.14))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 0.5)
         )
         .accessibilityElement(children: .contain)

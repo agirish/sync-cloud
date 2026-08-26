@@ -419,7 +419,7 @@ public struct PaneTabStrip: View {
     private func activeGround(_ item: Item) -> some View {
         if item.isActive {
             ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                     .fill(.quaternary.opacity(0.85))
                 RoundedRectangle(cornerRadius: 1, style: .continuous)
                     .fill(Color.accentColor)

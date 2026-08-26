@@ -232,7 +232,7 @@ struct ReviewCardView: View {
                 .frame(width: 22, height: 22)
                 .padding(5)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                         .fill(.quaternary.opacity(0.5))
                 )
             // Name first, dimmed parent path after — the decision is about the file, the

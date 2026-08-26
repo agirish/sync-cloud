@@ -466,8 +466,9 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
 }
 
 public enum LiquidGlass {
-    /// Corner radius for cards and floating panels.
-    public static let cardCornerRadius: CGFloat = 14
+    /// Corner radius for cards and floating panels. The `Radius` scale's top stop, named here
+    /// too because this spelling predates the scale and is used at 10 sites.
+    public static let cardCornerRadius: CGFloat = Radius.card
     /// The gap between any two floating cards in Cards mode, and between a card and the window
     /// edge. One number for every gap on screen.
     ///
@@ -523,13 +524,18 @@ public enum LiquidGlass {
     /// the LAID-OUT `fittingSize` rather than against each other — a constant agreeing with
     /// itself proves nothing (see `4b1f611`).
     public static let headerHeight: CGFloat = 81
-    /// Corner radius for smaller elements (badges, buttons, inputs).
-    public static let smallCornerRadius: CGFloat = 10
+    /// Corner radius for smaller elements (badges, buttons, inputs). The `Radius` scale's
+    /// `well` stop under its older name.
+    public static let smallCornerRadius: CGFloat = Radius.well
 
     /// Soft shadow for glass cards to add depth without heaviness.
     public static let cardShadow = (color: Color.black.opacity(0.06), radius: CGFloat(12), x: CGFloat(0), y: CGFloat(4))
     /// Lighter shadow for inline elements.
     public static let subtleShadow = (color: Color.black.opacity(0.04), radius: CGFloat(6), x: CGFloat(0), y: CGFloat(2))
+    /// The deep shadow a panel floating over a dimmed window casts — one step above `cardShadow`,
+    /// which lifts a card off the window's own background. Apply it with `.overlayPanelShadow()`
+    /// rather than reading the members; the four callers all want the whole recipe.
+    public static let overlayShadow = (color: Color.black.opacity(0.3), radius: CGFloat(30), x: CGFloat(0), y: CGFloat(8))
 
     /// UserDefaults key for the selected `GlassLevel` (raw value).
     public static let levelKey = "glassLevel"

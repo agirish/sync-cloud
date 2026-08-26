@@ -1075,7 +1075,7 @@ private struct LogOperationGroupRow: View {
         // comfortable keeps the original 4pt; compact drops to the flat-row 2pt).
         .padding(.vertical, min(4, density.metrics.flatRowVerticalPadding))
         .padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.secondary.opacity(0.06)))
+        .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Color.secondary.opacity(0.06)))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(group.title), \(expanded ? "expanded" : "collapsed")")
     }

@@ -2215,7 +2215,7 @@ struct DifferenceSectionHeader: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
                 .fill(accent.opacity(isFullySelected ? 0.18 : 0))
                 .padding(.vertical, 1)
         )

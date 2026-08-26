@@ -162,7 +162,7 @@ struct RestructureLens: View {
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.30)))
+        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.30)))
     }
 
     private func schemeRow(_ scheme: StructureFinding.Scheme) -> some View {
@@ -182,7 +182,7 @@ struct RestructureLens: View {
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.30)))
+        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.30)))
     }
 
     private var cleanState: some View {

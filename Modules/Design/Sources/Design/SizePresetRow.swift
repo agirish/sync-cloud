@@ -92,17 +92,17 @@ public struct SizePresetRow: View {
             .padding(.vertical, style == .specimen ? 4 : 6)
             .padding(.horizontal, 4)
             .background {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .fill(isSelected ? Color.accentColor.opacity(0.10) : Color.clear)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.control)
                     .strokeBorder(isSelected ? Color.accentColor : Color.secondary.opacity(0.35),
                                   lineWidth: isSelected ? 1.5 : 1)
             }
             // The border is drawn, not filled, so without this the tile is hit-testable on a
             // 1.5pt ring alone — the whole face has to take the click.
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control))
         }
         .buttonStyle(.plain)
         .chromeHover()
@@ -229,7 +229,7 @@ public struct SizeSpacingPreview: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: Radius.control)
                 .fill(Color.secondary.opacity(0.07))
         }
         .accessibilityElement(children: .combine)

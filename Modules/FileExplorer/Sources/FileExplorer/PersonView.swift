@@ -174,7 +174,7 @@ public struct PersonView: View {
                 }
                 .padding(.vertical, 4)
                 .padding(.horizontal, 9)
-                .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.30)))
+                .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.30)))
             }
             if files.folderCount > Self.folderLimit {
                 Text("\(files.folderCount - Self.folderLimit) more folders…")
@@ -215,7 +215,7 @@ public struct PersonView: View {
                 }
                 .padding(.vertical, 5)
                 .padding(.horizontal, 9)
-                .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.30)))
+                .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.30)))
             }
         }
     }
@@ -289,7 +289,7 @@ public struct PersonView: View {
                 }
                 .padding(.vertical, 5)
                 .padding(.horizontal, 9)
-                .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.30)))
+                .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.30)))
             }
             if files.review.count > Self.reviewLimit {
                 Text("\(files.review.count - Self.reviewLimit) more waiting…")
@@ -328,7 +328,7 @@ public struct PersonView: View {
                 .scaledFont(.system(size: 11, weight: .semibold))
                 .foregroundStyle(hue)
                 .frame(width: 21, height: 21)
-                .background(RoundedRectangle(cornerRadius: 6).fill(hue.opacity(0.14)))
+                .background(RoundedRectangle(cornerRadius: Radius.chip).fill(hue.opacity(0.14)))
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).scaledFont(.system(size: 12.5, weight: .semibold))
                 Text(subtitle).scaledFont(.system(size: 11)).foregroundStyle(.secondary)

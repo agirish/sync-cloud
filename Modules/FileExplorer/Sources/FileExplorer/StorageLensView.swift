@@ -602,7 +602,7 @@ private struct StorageEntryRow: View {
     /// bar has square inner corners nowhere.
     private var rowGround: some View {
         GeometryReader { geo in
-            let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+            let shape = RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
             ZStack(alignment: .leading) {
                 shape.fill(Color.primary.opacity(0.04))
                 if barFraction > 0 {

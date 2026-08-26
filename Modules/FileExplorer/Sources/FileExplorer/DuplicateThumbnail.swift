@@ -115,7 +115,7 @@ struct DuplicateThumbnailView: View {
     var body: some View {
         VStack(spacing: 5) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                     .fill(Color(nsColor: .textBackgroundColor))
                 if let image {
                     Image(nsImage: image)
@@ -130,9 +130,9 @@ struct DuplicateThumbnailView: View {
                 }
             }
             .frame(width: side, height: side * 1.2)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                     .strokeBorder(isKeeper ? SemanticColor.success.opacity(0.65) : Color.primary.opacity(0.12),
                                   lineWidth: isKeeper ? 1.5 : 0.8)
             )
