@@ -1710,9 +1710,17 @@ private final class MidMergeInterferingFileManager: FileManager, @unchecked Send
     }
 }
 
-/// A real FileManager that, once armed, parks callers statting one of `gatedNames` via
-/// `fileExists(atPath:isDirectory:)` — the first call `sha256Hex` makes for every file it
-/// hashes — until `release()`. It must be a FileManager SUBCLASS, not a plain FileManaging
+/// A real FileManager that, once armed, parks callers statting one of `gatedNames` — via either
+/// metadata entry point, whichever `sha256Hex` reaches first for a file it hashes — until
+/// `release()`.
+///
+/// **Both entry points, because pinning it to one was a latent break.** This gated
+/// `fileExists(atPath:isDirectory:)` alone, on the stated grounds that it was "the first call
+/// `sha256Hex` makes for every file it hashes" — true when written. When the verifier collapsed its
+/// three metadata reads into one `attributesOfItem`, nothing parked, the scan ran to completion,
+/// and `cancelMidHashRepublishesNoNumericProgress` cancelled a scan that had already finished.
+/// The gate is name-scoped, so covering both costs nothing: an ungated path is never parked
+/// whichever route it arrives by. It must be a FileManager SUBCLASS, not a plain FileManaging
 /// wrapper: buildTree's walk only fetches file sizes on its `fileManager is FileManager`
 /// fast path (anything else is treated as a metadata-less mock), and without sizes there are
 /// no hash candidates to gate. The walk itself never calls this override for regular files
@@ -1767,5 +1775,12 @@ private final class GatingFileManager: FileManager, @unchecked Sendable {
             gate.waitIfArmed()
         }
         return super.fileExists(atPath: path, isDirectory: isDirectory)
+    }
+
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        if gatedNames.contains((path as NSString).lastPathComponent) {
+            gate.waitIfArmed()
+        }
+        return try super.attributesOfItem(atPath: path)
     }
 }
