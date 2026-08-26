@@ -300,6 +300,23 @@ Neither is user-visible on its own: a line that never receives them keeps a filt
 allocates per path component and ~5 ms of main-actor work per rebuild. Slower, not wrong — the same
 standing as item 6's four.
 
+### 9. The in-flight flag stamped row by row landed on `main` 2026-08-26 — CLOSED, not owed: no backporting, by standing direction
+
+Same standing answer as items 7 and 8. Recorded because it is the largest user-visible performance
+gap of the three, not because the question is open.
+
+`markSyncing`/`clearSyncing` wrote `differences[i].isSyncing` in a loop. `differences` is
+`@Published`, so each element write copies the whole array and publishes — O(n·m) main-actor
+copying and m `objectWillChange` sends for m rows of n. Measured at 29,000 rows with `m == n`
+(what "Sync All" passes): **11,144 ms to mark and 11,107 ms to clear, against 7.9 ms and 7.1 ms**.
+
+| Landed on `main` | Files | Note for a later pick |
+|---|---|---|
+| `Set the in-flight flag on every row with one write…` (`02429926`) | `FileSyncManager.swift`, `InFlightSyncStateTests.swift` | Applies verbatim — both lines carry the two loops byte-identical to `v4.4`'s. Independent of items 6–8: it touches neither `applyFilters()` nor `isHiddenPath`, so it can be picked alone. The four new tests pin the publish COUNT via `publishedDifferencesVersion`, which `dc9e201b` added — a line without that commit needs the counter or a different observable |
+
+Unlike items 6–8 this one IS user-visible on its own: a line that never receives it keeps a
+~22-second main-thread freeze around every bulk sync on a large comparison.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -529,6 +546,13 @@ The `v2.x` half of item 8 above, and the same verdict. `v2.x` carries both prere
 original `isHiddenPath` expression and the reconcile pass in `applyFilters()` — so both would apply;
 neither is being sent. Pick notes are in item 8; the second of the two must not be picked without
 `computeFilteredState`'s unconditional `isSyncing` postcondition, which is what makes its skip sound.
+
+### The in-flight flag stamped row by row landed on `main` 2026-08-26 — CLOSED: no backporting, by standing direction
+
+The `v2.x` half of item 9 above, and the same verdict. `v2.x` carries both loops byte-identical to
+`v4.4`'s, so it applies verbatim; it is not being sent. Pick notes are in item 9. This is the one
+item in the 2026-08-25/26 run that a `v2.x` user would actually notice — the rest are slower, not
+wrong; this one freezes the window for about eleven seconds at each end of a bulk sync.
 
 ### Nothing else confirmed
 

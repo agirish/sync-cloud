@@ -53,6 +53,11 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   lazily, which means at draw time, on the main thread, during the scroll that asked for it.
 - **A comparison with ignore patterns set folds them once per scan** rather than once per item
   compared, and folds each name once rather than once per pattern it is tested against.
+- **Starting or finishing a bulk sync no longer locks the window up while it marks the rows.**
+  Flagging each row as in-flight rewrote the entire list of differences, and told the interface to
+  redraw, once per row — so on a comparison with tens of thousands of differences a Sync All stopped
+  responding for about eleven seconds as it began and again as it ended, doing nothing in that time
+  but setting a flag. The rows are marked in one pass now, and drawn once.
 - **Rebuilding the list of differences stops taking every path apart to ask one question of it.**
   Deciding whether a path is hidden — whether any part of it begins with a dot — split the whole
   path into its components and built a string for each, once per difference, every time the list
