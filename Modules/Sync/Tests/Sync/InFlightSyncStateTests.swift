@@ -534,3 +534,48 @@ private actor Gate {
         }
     }
 }
+
+/// The filter gate's ratio, and the line that puts it in `~/sync-cloud.log`.
+///
+/// `dc9e201b` skips `applyFilters()`'s reconcile pass whenever neither input moved mid-compute.
+/// Every test above it runs against three rows in a fixture; **nothing said whether the skip fires
+/// on a real tree**, which is the one thing that decides whether the change exists in production.
+/// A gate that never takes its fast path leaves the cost exactly where it was, with every test
+/// green — so the ratio is logged once per scan, and the numbers behind it are pinned here.
+///
+/// Asserted through `filterGateSummary` rather than through `Logger.entries`: `info` returns a
+/// `Task`, so a test reading the entries races the handoff (`docs/flaky-tests.md` mechanism 12 is
+/// the version of that which already bit). What the scan site adds is a prefix.
+@Suite struct FilterGateVisibilityTests {
+
+    /// The denominator counts passes that reached the GATE, which is why it is not
+    /// `filterGeneration` — that counts passes *started*, and a superseded pass returns before the
+    /// gate. Deflating the denominator that way would make a gate that never fires read as one
+    /// that fires often, which is the exact question the line exists to answer.
+    ///
+    /// Not pinned here: that a superseded pass really is excluded. Reaching that state needs one
+    /// pass to publish while another is parked, and which of two suspended passes resumes first is
+    /// not something a test can decide — a fabricated version would pin the fixture, not the rule.
+    @MainActor
+    @Test func everyPassThatEvaluatesTheGateIsCounted() async {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        #expect(manager.filterPassesReachingPublish == 0)
+
+        for _ in 0..<3 { await manager.applyFilters() }
+
+        #expect(manager.filterPassesReachingPublish == 3)
+        #expect(manager.reconcilePassesRun == 0, "nothing moved, so nothing should have reconciled")
+    }
+
+    /// The wording is pinned, not just the numbers. It is a record written to a file he reads, and
+    /// a summary that says something other than what it means is worse than none — the ratio is
+    /// only useful if it is unambiguous about which number is which.
+    @MainActor
+    @Test func theSummaryNamesBothNumbersAndTheListItMeasured() async {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        await manager.applyFilters()
+
+        #expect(manager.filterGateSummary(rawDifferenceCount: 29_143)
+                == "0 of 1 list rebuilds needed a reconcile pass since launch (29143 raw differences)")
+    }
+}

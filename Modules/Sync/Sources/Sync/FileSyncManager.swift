@@ -308,6 +308,14 @@ public class FileSyncManager: ObservableObject {
     /// gate's condition fails two `InFlightSyncStateTests` — but no test can see a gate that
     /// silently never fires, and an optimization that never fires is one that does not exist.
     internal private(set) var reconcilePassesRun = 0
+    /// The denominator for ``reconcilePassesRun``: passes that got far enough to evaluate the
+    /// gate at all.
+    ///
+    /// Deliberately not `filterGeneration`, which counts every pass *started* — a superseded pass
+    /// returns before the gate and would quietly deflate the ratio, making a gate that never
+    /// fires look like one that fires often. Bumped where the gate is read, so the two numbers
+    /// are always about the same set of passes.
+    internal private(set) var filterPassesReachingPublish = 0
     /// Indicates whether a deep structure scan is currently in progress.
     @Published public var isScanning = false
     /// When the running scan started, or nil when none is running.
@@ -2323,6 +2331,16 @@ public class FileSyncManager: ObservableObject {
     /// The `!= value` test makes a redundant stamp free, and the `changed` guard keeps a no-op from
     /// republishing at all — the same reason `applyFilters()` compares before assigning, since
     /// republishing an unchanged list rebuilds the whole pane `List` and can eat a click.
+    ///
+    /// **This was the only instance, and that was checked rather than assumed.** All 100
+    /// `@Published` properties across `Modules`, `MacApp` and `SyncCloudCLI` were scanned for a
+    /// subscript write or a mutating call inside a loop over the same collection: the other
+    /// element writes (`PeopleStore.update`, `PersonTagStore`, `SettingsManager.folderSources`,
+    /// `filingSuggestions`, `automationRules`) are all single writes guarded by a `firstIndex`,
+    /// which costs one COW copy per call, not one per element. `duplicateGroups` is written inside
+    /// a loop, but only for the one or two groups that contain the path, over a collection
+    /// measured at 722–977 here. The shape that hurts is m writes into a list of n where m scales
+    /// with n, and `differences` at ~29,000 rows was the only place it occurred.
     private func stampSyncing(_ value: Bool, on ids: Set<UUID>) {
         var rows = differences
         var changed = false
@@ -2420,6 +2438,7 @@ public class FileSyncManager: ObservableObject {
         // third input joins the reconcile pass.
         let reconcileWasSkipped = rawDifferencesVersion == entryRawDifferencesVersion
             && syncingDifferenceIdsVersion == entrySyncingVersion
+        filterPassesReachingPublish += 1
         let reconciledDifferences: [FileDifference]
         if reconcileWasSkipped {
             reconciledDifferences = state.differences
@@ -2459,6 +2478,30 @@ public class FileSyncManager: ObservableObject {
             ? differencesChanged
             : self.differences != reconciledDifferences
         if differencesNeedPublishing { self.differences = reconciledDifferences }
+    }
+
+    /// One line's worth of "is the filter gate actually skipping anything?", for the scan
+    /// breadcrumb in `~/sync-cloud.log`.
+    ///
+    /// `applyFilters()` skips its reconcile pass whenever neither input moved mid-compute — the
+    /// ordinary case, and ~5 ms of main-actor time a pass. **Nothing outside the tests could see
+    /// whether that fires on a real tree**, and a gate that never takes its fast path leaves the
+    /// cost exactly where it was with every test still green. The fixture that pins the fast path
+    /// holds three rows; the question this answers is what happens at 29,000.
+    ///
+    /// Once per scan rather than once per pass: there are sixteen call sites and a load+scan cycle
+    /// runs several, so a per-pass line would bury the log it is written into. Counts are since
+    /// launch, which is what makes the ratio worth reading — a single scan's passes are too few.
+    ///
+    /// Split out from the logging call so the numbers can be asserted directly, without a scan
+    /// fixture and without racing the logger's async handoff (`info` returns a `Task`, so
+    /// `entries` lags the call that filled it).
+    ///
+    /// Worded for a reader, not for a profiler, because it lands in the Activity Log beside
+    /// `[scan] … completed` rather than only in the file.
+    internal func filterGateSummary(rawDifferenceCount: Int) -> String {
+        "\(reconcilePassesRun) of \(filterPassesReachingPublish) list rebuilds needed a reconcile"
+            + " pass since launch (\(rawDifferenceCount) raw differences)"
     }
 
     /// The pure core of `applyFilters()`: value inputs in, published-ready state out.

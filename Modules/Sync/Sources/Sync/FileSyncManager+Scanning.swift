@@ -948,6 +948,9 @@ extension FileSyncManager {
             // at `minimumLevel == .info` every scan would log that it began and none that it
             // ended. The two lines are one record and must live or die together.
             Logger.shared.info("[scan] \(scanTag) completed: found \(results.count) differences in \(scanStart.text)")
+            // Its own record rather than a suffix on the line above, which is half of a
+            // started/completed pair and stays readable as one. `[filter]` so it greps on its own.
+            Logger.shared.info("[filter] \(filterGateSummary(rawDifferenceCount: results.count))")
 
             if autoVerifySameSizeDuringScan {
                 // Unstructured on purpose: hashing must not extend the scan (isScanning would
