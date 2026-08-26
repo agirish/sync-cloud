@@ -26,7 +26,8 @@ import Design
         var expanded = true
         ExpandingSearch.collapse(
             text: Binding(get: { text }, set: { text = $0 }),
-            isExpanded: Binding(get: { expanded }, set: { expanded = $0 })
+            isExpanded: Binding(get: { expanded }, set: { expanded = $0 }),
+            reduceMotion: false
         )
         #expect(expanded == false)
         #expect(text.isEmpty, "a query survived its field being hidden — it is now a filter with no visible carrier, and the Search rung needs a tint again")

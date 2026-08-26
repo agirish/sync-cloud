@@ -10,6 +10,7 @@ import Design
 /// relative-path segments) below. Clicking a crumb navigates this pane; ⌥-clicking
 /// navigates both panes to the same relative path.
 public struct PaneHeader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The app's text size, for the labels that have to stay a `Text` (see `providerCapsule`).
     @Environment(\.appFontScale) private var appFontScale
     public let title: String
@@ -1004,7 +1005,7 @@ public struct PaneHeader: View {
             // animated reveal, Escape, clear) — is `ExpandingSearchField` verbatim.
             if let searchText, let searchIsExpanded {
                 Button {
-                    withAnimation(ExpandingSearch.animation) {
+                    withDesignAnimation(ExpandingSearch.animation, reduceMotion: reduceMotion) {
                         searchIsExpanded.wrappedValue.toggle()
                         if !searchIsExpanded.wrappedValue { searchText.wrappedValue = "" }
                     }
@@ -1208,7 +1209,8 @@ public struct PaneHeader: View {
     /// half that actually regressed.
     func dismissSearch() {
         guard let searchText, let searchIsExpanded else { return }
-        ExpandingSearch.collapse(text: searchText, isExpanded: searchIsExpanded)
+        ExpandingSearch.collapse(text: searchText, isExpanded: searchIsExpanded,
+                                 reduceMotion: reduceMotion)
     }
 
     /// How wide the revealed search field is allowed to get.
@@ -1377,7 +1379,9 @@ public struct PaneHeader: View {
                     // Opens it and nothing else: the field claims focus itself, one Task hop after
                     // it appears, and a `FocusState` write made here would land in the transaction
                     // that inserts the field and be dropped.
-                    withAnimation(ExpandingSearch.animation) { searchIsExpanded.wrappedValue = true }
+                    withDesignAnimation(ExpandingSearch.animation, reduceMotion: reduceMotion) {
+                        searchIsExpanded.wrappedValue = true
+                    }
                 } label: {
                     Label("Find in This Pane…", systemImage: "magnifyingglass")
                 }

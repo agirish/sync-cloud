@@ -284,8 +284,9 @@ extension ContentView {
         // the same transaction that removed it — a `FocusState` write landing in the transaction
         // that inserts the field is silently dropped, which is the whole reason the field's own
         // focus claim is a Task hop.
+        let reduceMotion = self.reduceMotion
         DispatchQueue.main.async {
-            withAnimation(ExpandingSearch.animation) {
+            withDesignAnimation(ExpandingSearch.animation, reduceMotion: reduceMotion) {
                 state.wrappedValue.isExpanded = true
             }
         }

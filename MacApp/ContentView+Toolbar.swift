@@ -319,7 +319,9 @@ extension ContentView {
                 panesCollapsed: panesHiddenForCurrentTab)
             let showing = available && browseSidebarVisible
             Button {
-                withAnimation(.easeInOut(duration: 0.15)) { browseSidebarVisible.toggle() }
+                withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
+                    browseSidebarVisible.toggle()
+                }
             } label: {
                 Label("Sidebar", systemImage: "sidebar.left")
                     .foregroundStyle(showing ? AnyShapeStyle(glassHue.accentColor)

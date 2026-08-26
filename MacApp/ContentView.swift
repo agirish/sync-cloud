@@ -13,6 +13,9 @@ import Design
 struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
     @EnvironmentObject var settings: SettingsManager
+    /// Read here rather than in `ContentView+Toolbar`, which is an extension and cannot declare
+    /// stored properties. Gates the sidebar toggle's reveal — see `withDesignAnimation`.
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     /// Drives the in-window settings overlay (owned by the App so ⌘, can open it).
     @Binding var showSettings: Bool

@@ -77,3 +77,110 @@ import Testing
         }
     }
 }
+
+/// What the two wrappers actually put in the transaction, read out of a live render.
+///
+/// **The rule is a pure function and was tested as one, which cannot see the thing that matters.**
+/// `DesignAnimationRule.resolve` returning nil is only useful if nil then reaches the transaction —
+/// and SwiftUI has two animation doors that can disagree. This mounts a real view and reads
+/// `Transaction.animation` from beneath each wrapper while an ambient `withAnimation` is running.
+///
+/// It exists because the answer decided a design: `.animation(_:value:)` DOES override an enclosing
+/// `withAnimation`, so a value that some ancestor gates is gated however it is written — which is
+/// why the panes, the inspector and the workspace switch are correctly covered despite every one of
+/// them being toggled inside a `withAnimation`. Had it gone the other way, twenty converted sites
+/// would have been decoration.
+@MainActor
+@Suite(.serialized) struct AnimationTransactionTests {
+
+    @MainActor private final class Flag: ObservableObject { @Published var on = false }
+
+    private struct Probe: View {
+        @ObservedObject var flag: Flag
+        let sink: @MainActor (String, Animation?) -> Void
+        var body: some View {
+            VStack {
+                Color.clear.frame(width: 4, height: 4).opacity(flag.on ? 1 : 0)
+                    .transaction { sink("gated", $0.animation) }
+                    .designAnimation(nil, value: flag.on)
+                Color.clear.frame(width: 4, height: 4).opacity(flag.on ? 1 : 0)
+                    .transaction { sink("ungated", $0.animation) }
+            }
+        }
+    }
+
+    /// `designAnimation(nil, …)` wins over an enclosing `withAnimation`; without it the ambient
+    /// animation reaches the subtree, which is what makes the first half a real result.
+    @Test func aGatedSubtreeSeesNoAnimationWhileAnUngatedSiblingSeesTheAmbientOne() async throws {
+        let flag = Flag()
+        var seen: [String: Animation?] = [:]
+        let host = NSHostingView(rootView: AnyView(Probe(flag: flag) { key, animation in
+            // First write wins: later idle passes re-run with no transaction and would erase it.
+            if seen[key] == nil { seen[key] = animation }
+        }))
+        host.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        seen.removeAll()
+
+        withAnimation(.easeInOut(duration: 5)) { flag.on = true }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 150_000_000)
+        host.layoutSubtreeIfNeeded()
+
+        // Non-vacuity first: if the ungated sibling never saw the ambient animation, the harness
+        // did not stage the thing under test and a nil on the gated side proves nothing.
+        let ungated = try #require(seen["ungated"], "the probe never rendered — nothing was measured")
+        #expect(ungated != nil, """
+            the ungated sibling saw no ambient animation, so this run staged no transaction to \
+            override and the gated result below is vacuous
+            """)
+        let gated = try #require(seen["gated"], "the gated probe never rendered")
+        #expect(gated == nil, """
+            designAnimation(nil,) did not clear the transaction — an enclosing withAnimation wins, \
+            which would mean every converted site is only gated when nothing wraps its mutation
+            """)
+    }
+
+    /// The imperative half, measured the same way: a change driven by `withDesignAnimation` under
+    /// the setting reaches an UNGATED subtree with no animation at all.
+    ///
+    /// The ungated sibling is the probe on purpose — it is the one with nothing of its own to
+    /// suppress, so what it sees is whatever the driver put in the transaction and nothing else.
+    /// An earlier version of this test asked `Transaction().animation` inside the closure, which
+    /// constructs a fresh transaction rather than reading the ambient one and so answered nil
+    /// whatever the flag said: green, and about nothing.
+    @Test func withDesignAnimationUnderReduceMotionDrivesNoAnimation() async throws {
+        func ambientSeenByAnUngatedSubtree(reduceMotion: Bool) async throws -> Animation? {
+            let flag = Flag()
+            var seen: [String: Animation?] = [:]
+            let host = NSHostingView(rootView: AnyView(Probe(flag: flag) { key, animation in
+                if seen[key] == nil { seen[key] = animation }
+            }))
+            host.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            seen.removeAll()
+            withDesignAnimation(.easeInOut(duration: 5), reduceMotion: reduceMotion) { flag.on = true }
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 150_000_000)
+            host.layoutSubtreeIfNeeded()
+            return try #require(seen["ungated"], "the probe never rendered — nothing was measured")
+        }
+
+        // Setting off: the animation is handed through, which is what makes the nil below a result.
+        #expect(try await ambientSeenByAnUngatedSubtree(reduceMotion: false) != nil, """
+            withDesignAnimation dropped the animation with the setting OFF — the comparison below \
+            cannot tell suppression from a wrapper that never animates anything
+            """)
+        // Setting on: nothing reaches the subtree.
+        #expect(try await ambientSeenByAnUngatedSubtree(reduceMotion: true) == nil,
+                "withDesignAnimation animated with Reduce Motion on")
+    }
+}

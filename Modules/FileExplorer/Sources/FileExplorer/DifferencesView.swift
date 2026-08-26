@@ -800,7 +800,9 @@ public struct DifferencesView: View {
     private func countPillToggle(_ dressing: CountPillDressing) -> some View {
         Button {
             guard syncManager.hasScanned else { return }
-            withAnimation(.easeInOut(duration: 0.15)) { showItemCounts.toggle() }
+            withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
+                showItemCounts.toggle()
+            }
         } label: {
             StatPill(
                 count: syncManager.differences.count,

@@ -86,7 +86,8 @@ private final class RevealBox: ObservableObject {
         var expanded = true
         ExpandingSearch.collapse(
             text: Binding(get: { text }, set: { text = $0 }),
-            isExpanded: Binding(get: { expanded }, set: { expanded = $0 })
+            isExpanded: Binding(get: { expanded }, set: { expanded = $0 }),
+            reduceMotion: false
         )
         #expect(text.isEmpty)
         #expect(expanded == false)
@@ -99,7 +100,8 @@ private final class RevealBox: ObservableObject {
         for _ in 0..<3 {
             ExpandingSearch.collapse(
                 text: Binding(get: { text }, set: { text = $0 }),
-                isExpanded: Binding(get: { expanded }, set: { expanded = $0 })
+                isExpanded: Binding(get: { expanded }, set: { expanded = $0 }),
+                reduceMotion: false
             )
         }
         #expect(text.isEmpty)

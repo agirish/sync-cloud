@@ -170,3 +170,139 @@ import Testing
         }
     }
 }
+
+// MARK: - The other door
+
+/// The same audit for `withAnimation`, which the scan above cannot see at all.
+///
+/// **`.animation(_:value:)` and `withAnimation` are two independent ways to animate, and only one
+/// of them was being checked.** A change made inside `withAnimation` carries its own animation into
+/// the transaction. An `.animation(_:value:)` naming the same value does override it — measured
+/// with a probe that read `Transaction.animation` beneath both modifiers, so this is not an
+/// assumption — which is why the panes, the inspector and the workspace switch really are gated
+/// even though every one of them is toggled inside a `withAnimation`. But a mover whose ONLY
+/// driver is `withAnimation` has nothing to override it: no modifier names its value, so the
+/// setting never reaches it, and the scan above stays green because there is no `.animation(` to
+/// read.
+///
+/// Four were live when this was written, after the sweep that was meant to have finished the work:
+/// the expanding search field's reveal — in three of its four hosts, since only the Activity Log
+/// happened to key a `designAnimation` off `isSearchExpanded` — Browse's folder sidebar, an
+/// Activity Log run's disclosure, and the Differences count pills.
+///
+/// Keyed by the first thing the closure touches rather than by line number, for the reason the
+/// list above gives: a line-numbered list needs editing on every unrelated edit.
+@Suite struct WithAnimationCoverageScanTests {
+
+    /// Why a raw `withAnimation` is allowed to stay raw.
+    enum Exemption: String {
+        /// An ancestor applies `.animation(_:value:)`/`designAnimation` to the SAME value, and that
+        /// wins over the transaction's animation. Verified by probe, not by reading the docs.
+        case gatedByAModifier
+        /// The site resolves its own animation against `accessibilityReduceMotion` before calling —
+        /// `SetupArtwork`'s ternaries, `LensWorkspaceView.listSettle`.
+        case gatedByHand
+        /// `scrollTo` — this moves the viewport to something the user asked to see. Reduce Motion
+        /// asks for less decorative movement, not for navigation to stop happening.
+        case scrollToDestination
+        /// Reports rather than travels: a spinner appearing, a countdown draining, a glow fading.
+        case reportsRatherThanTravels
+        /// An opacity cross-fade, which IS the Reduce Motion answer.
+        case overlayCrossFade
+        /// A hover or press ladder — what animates is a colour.
+        case hoverOrPressLadder
+    }
+
+    /// Keyed `File.swift/firstTouchedIdentifier`.
+    static let exempt: [String: Exemption] = [
+        "ContentView+SplitLayout.swift/togglePanesForCurrentTab": .gatedByAModifier, // panesHiddenForCurrentTab
+        "ContentView.swift/togglePanesForCurrentTab": .gatedByAModifier,
+        "ContentView+Toolbar.swift/showInspector": .gatedByAModifier,
+        "ContentView.swift/showInspector": .gatedByAModifier,
+        "ShortcutCommands.swift/showInspector": .gatedByAModifier,
+
+        "SetupArtwork.swift/appeared": .gatedByHand,
+        "SetupArtwork.swift/breathe": .gatedByHand,
+        "SetupArtwork.swift/drift": .gatedByHand,
+        "LensWorkspaceView.swift/storageSection": .gatedByHand,   // listSettle
+        "LensWorkspaceView.swift/railLens": .gatedByHand,
+        "LensWorkspaceView.swift/setScope": .gatedByHand,
+
+        "DestinationPicker.swift/proxy": .scrollToDestination,
+        "FileTreeView.swift/proxy": .scrollToDestination,
+        "PaneColumnsView.swift/proxy": .scrollToDestination,
+        "LensWorkspaceView.swift/rail": .scrollToDestination,
+        "LensWorkspaceView.swift/proxy": .scrollToDestination,
+
+        "ContentView.swift/isScanning": .reportsRatherThanTravels,
+        "OperationBannerView.swift/countdown": .reportsRatherThanTravels,
+        "LensWorkspaceView.swift/glow": .reportsRatherThanTravels,
+
+        "SetupSheet.swift/screen": .overlayCrossFade,             // .transition(.opacity)
+        "ContentView.swift/pane": .overlayCrossFade,              // the bar edge flip
+
+        "DifferencesView.swift/isCountPillHovered": .hoverOrPressLadder,
+        "DuplicateThumbnail.swift/isHovering": .hoverOrPressLadder,
+    ]
+
+    /// Every `withAnimation(` in the app sources, with the first identifier its closure touches.
+    static func sites() -> [(file: String, key: String)] {
+        var found: [(String, String)] = []
+        for url in ReduceMotionCoverageScanTests.appSources() {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let lines = text.components(separatedBy: .newlines)
+            for (i, line) in lines.enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.hasPrefix("//"), !trimmed.hasPrefix("///") else { continue }
+                // `withAnimation {` counts too: no explicit animation still animates.
+                guard let call = trimmed.range(of: "withAnimation") else { continue }
+                guard !trimmed.contains("withDesignAnimation") else { continue }
+
+                // The first identifier of ITS closure — found by scanning forward from the call,
+                // not from the start of the line. A site written inline behind another closure
+                // (`? { withAnimation(…) { … } }`) puts an earlier `{` on the same line, and taking
+                // that one names every such site "withAnimation".
+                let afterCall = String(trimmed[call.upperBound...])
+                var body = ""
+                if let brace = afterCall.range(of: "{") { body = String(afterCall[brace.upperBound...]) }
+                var j = i
+                while body.trimmingCharacters(in: .whitespaces).isEmpty, j + 1 < lines.count, j - i < 6 {
+                    j += 1
+                    let next = lines[j].trimmingCharacters(in: .whitespaces)
+                    if next.hasPrefix("//") || next.isEmpty { continue }
+                    body = next
+                }
+                var rest = body.trimmingCharacters(in: .whitespaces)
+                var ident = rest.prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+                // Step past control flow: `if pane.isLeft { … }` is animating `pane`, not `if`.
+                while ["if", "guard", "let", "var", "for", "switch"].contains(String(ident)) {
+                    rest = String(rest.dropFirst(ident.count)).trimmingCharacters(in: .whitespaces)
+                    let next = rest.prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+                    if next.isEmpty { break }
+                    ident = next
+                }
+                found.append((url.lastPathComponent, "\(url.lastPathComponent)/\(ident)"))
+            }
+        }
+        return found
+    }
+
+    @Test func everyWithAnimationIsClassified() {
+        let sites = Self.sites()
+        #expect(sites.count > 5, "the scan found almost nothing — it has stopped reading the app")
+
+        let unclassified = sites.filter { Self.exempt[$0.key] == nil }
+        #expect(unclassified.isEmpty, """
+            \(unclassified.count) raw withAnimation site(s) neither use `withDesignAnimation` nor \
+            carry a named exemption: \(Set(unclassified.map(\.key)).sorted())
+            """)
+    }
+
+    /// The list must not outlive what it describes: an entry naming a site that is gone is a
+    /// classification nobody can check, and the next reader would trust it.
+    @Test func noExemptionNamesASiteThatIsGone() {
+        let live = Set(Self.sites().map(\.key))
+        let stale = Self.exempt.keys.filter { !live.contains($0) }.sorted()
+        #expect(stale.isEmpty, "exemption(s) for withAnimation sites that no longer exist: \(stale)")
+    }
+}

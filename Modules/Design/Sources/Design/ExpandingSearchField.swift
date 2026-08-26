@@ -19,8 +19,12 @@ public enum ExpandingSearch {
     /// Collapses and clears in one animated transaction — what Escape and the toggle's second
     /// click both do. Clearing on collapse is deliberate: a query left live behind a hidden field
     /// is a filter you can't see or undo.
-    public static func collapse(text: Binding<String>, isExpanded: Binding<Bool>) {
-        withAnimation(animation) {
+    ///
+    /// `reduceMotion` has no default on purpose: a defaulted `false` is how three of this
+    /// component's four hosts came to animate the reveal with the setting on, and a default is
+    /// exactly what stops a caller noticing it has a decision to make.
+    public static func collapse(text: Binding<String>, isExpanded: Binding<Bool>, reduceMotion: Bool) {
+        withDesignAnimation(animation, reduceMotion: reduceMotion) {
             text.wrappedValue = ""
             isExpanded.wrappedValue = false
         }
@@ -34,6 +38,7 @@ public struct ExpandingSearchToggle: View {
     @Binding private var isExpanded: Bool
     private let accent: Color
     private let help: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// - Parameters:
     ///   - text: the live query. Cleared when the toggle collapses the field.
@@ -50,7 +55,7 @@ public struct ExpandingSearchToggle: View {
 
     public var body: some View {
         Button {
-            withAnimation(ExpandingSearch.animation) {
+            withDesignAnimation(ExpandingSearch.animation, reduceMotion: reduceMotion) {
                 isExpanded.toggle()
                 if !isExpanded { text = "" }
             }
@@ -78,6 +83,7 @@ public struct ExpandingSearchToggle: View {
 public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
     @Binding private var text: String
     @Binding private var isExpanded: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let placeholder: String
     private let trailing: () -> Trailing
     private let accessories: (Bool) -> Accessories
@@ -117,7 +123,10 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
                     // transaction. This is load-bearing: inline it back into the toggle and the
                     // field reveals unfocused, so you have to click it before typing.
                     .onAppear { Task { @MainActor in focused = true } }
-                    .onExitCommand { ExpandingSearch.collapse(text: $text, isExpanded: $isExpanded) }
+                    .onExitCommand {
+                        ExpandingSearch.collapse(text: $text, isExpanded: $isExpanded,
+                                                 reduceMotion: reduceMotion)
+                    }
                 if !text.isEmpty {
                     Button {
                         text = ""

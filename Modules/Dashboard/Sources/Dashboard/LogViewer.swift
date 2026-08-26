@@ -1037,11 +1037,14 @@ private struct LogOperationGroupRow: View {
     /// per folded run, and one storage observer per row is a lot of observers for one color.
     var accent: Color = .accentColor
     @State private var expanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+                withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
+                    expanded.toggle()
+                }
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "chevron.right")

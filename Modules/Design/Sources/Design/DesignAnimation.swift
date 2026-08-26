@@ -81,3 +81,26 @@ public enum DesignAnimationRule {
         reduceMotion ? nil : animation
     }
 }
+
+/// `withAnimation`, honouring Reduce Motion — the imperative half of the wrapper above.
+///
+/// **`designAnimation(_:value:)` covers only one of SwiftUI's two animation doors, and the scan
+/// that enforces it covered only that one too.** A change made inside `withAnimation` carries its
+/// own animation into the transaction, and while an `.animation(_:value:)` on the same value does
+/// win over it — measured, not assumed — a mover that *only* has a `withAnimation` behind it has
+/// nothing to override: no modifier names its value, so the setting never reaches it. Four such
+/// movers were live after the sweep that was supposed to have finished this work: the expanding
+/// search field's reveal (in three of its four hosts), Browse's folder sidebar, an Activity Log
+/// row's disclosure, and the Differences count pills.
+///
+/// The signature is `withAnimation`'s plus the flag, so converting a site is a rename and one
+/// argument — the same bargain `designAnimation` struck, for the same reason. The flag is passed
+/// rather than read because this is a free function: it does not participate in the view graph, so
+/// it cannot read `@Environment` itself. The caller is a `View` and can.
+public func withDesignAnimation<Result>(
+    _ animation: Animation?,
+    reduceMotion: Bool,
+    _ body: () throws -> Result
+) rethrows -> Result {
+    try withAnimation(DesignAnimationRule.resolve(animation, reduceMotion: reduceMotion), body)
+}
