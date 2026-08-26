@@ -38,9 +38,10 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
 - **A duplicate scan does less work to reach the same answer.** Three separate reads of a
   file's path before it was opened, now one — and on a repeat scan, where every digest is
   already cached, that single read is all the hashing does. (A symlink still takes a second, to
-  stat what it points at.) Digest text was built by a string formatter once per byte and is now
-  a table lookup, and a long scan publishes progress about a hundred times rather than several
-  hundred.
+  stat what it points at; so does a file that is actually going to be read, to check it is not
+  a cloud placeholder before opening it.) Digest text was built by a string formatter once per
+  byte and is now a table lookup, and a long scan publishes progress about a hundred times
+  rather than several hundred.
 - **Duplicate thumbnails no longer decompress while you scroll.** Each was compressed to PNG
   purely to satisfy a rule about what may cross between threads, then decompressed again —
   lazily, which means at draw time, on the main thread, during the scroll that asked for it.
@@ -50,10 +51,11 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   Deciding whether a path is hidden — whether any part of it begins with a dot — split the whole
   path into its components and built a string for each, once per difference, every time the list
   was rebuilt. It is the one filter of the five that runs unless you ask it not to — hiding hidden
-  files is what a fresh session does — so it ran over every difference on every rebuild; on a tree
-  with tens of thousands of them it cost an order of magnitude more than everything around it. The
-  path is read once now, in place. Exactly the same files count as hidden as before, down to some
-  deliberately awkward names that the old reading is still left to decide.
+  files is what a fresh session does — so it ran over every difference on every rebuild, and on
+  a tree with tens of thousands of them that came to tens of milliseconds every time. The path
+  is read once now, in place, and the same question is answered an order of magnitude cheaper.
+  Exactly the same files count as hidden as before, down to some deliberately awkward names
+  that the old reading is still left to decide.
 - **Scanning a large tree resolves far fewer paths.** Every directory the walk entered had its
   whole path resolved so the scan could tell whether it had been there before — a symlink-loop
   guard that fires essentially never, and the most expensive part of entering a directory. Only
