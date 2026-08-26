@@ -135,11 +135,10 @@
 
 <div class="timeline">
 
-  <!-- v4.4 -->
   <!-- v4.5 -->
   <article class="rel draft">
     <div class="rel-head"><span class="v">v4.5</span><span class="tag draft">In development</span></div>
-    <p class="lede"><b>Early days — an Organize fix and an Appearance fix so far.</b> On the v4 line, so it <b>requires macOS 26</b>.</p>
+    <p class="lede"><b>Refinement, mostly &#8212; and one thing that was quietly wrong.</b> A duplicate scan does less work to reach the same answer, and is harder to fool: a file rewritten <i>while it was being hashed</i> could be remembered under a digest belonging to no version of it, and is now caught instead. Alongside that, "Text contains" means one thing on every surface rather than two, the "None" accent finally reads as no accent, and the markers saying which workspace and which tab you are in travel between positions instead of blinking out and back. On the v4 line, so it <b>requires macOS 26</b> &#8212; coming from 3.x or 2.x, read the v4.0 entry first.</p>
     <div class="grp">
       <h3>Organize</h3>
       <ul class="flist">
@@ -147,9 +146,22 @@
       </ul>
     </div>
     <div class="grp">
+      <h3>Duplicates and comparison</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9888;</span><span><b>A file rewritten while it was being hashed could be remembered under the wrong digest.</b> Everything the scan knew about a file &#8212; that it existed, that it was a file, its size and its date &#8212; was read from its path <i>before</i> the file was opened, so none of it was provably about the bytes that were then read. A rewrite landing the same number of bytes mid-read produced a digest of two files spliced together, cached under the pre-read date, and every later scan trusted it. The size is now confirmed against the open file itself and confirmed again after the read, so a file that moved underneath the scan is caught rather than remembered wrongly.</span></li>
+        <li><span class="ic">&#9203;</span><span><b>A duplicate scan does less work to reach the same answer.</b> Three separate metadata checks per file before a single byte was read, now one &#8212; which is the entire cost of a <i>repeat</i> scan, where every digest is already cached and no bytes are read at all. Digest text was built by a string formatter once per byte, thirty-two times per hashed file, and is now a table lookup. And a long scan published its progress often enough to re-evaluate the whole window several hundred times; it now publishes at most about a hundred times however large the folder, while a small scan stays exactly as quiet as it was.</span></li>
+        <li><span class="ic">&#128444;</span><span><b>Duplicate thumbnails no longer decompress while you scroll.</b> Each was compressed to PNG on a background thread purely to satisfy a rule about what may cross between threads, then decompressed again &#8212; and that decompression is lazy, so it happened at draw time, on the main thread, during the scroll that asked for it. The image crosses intact now.</span></li>
+        <li><span class="ic">&#9781;</span><span><b>A comparison with ignore patterns set folds them once per scan</b> rather than once per item compared, and folds each name once rather than once per pattern it is tested against.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
       <h3>Appearance</h3>
       <ul class="flist">
         <li><span class="ic">&#9675;</span><span><b>The "None" accent now reads white in light, not the faintest gray.</b> With no accent chosen the background was just the bare material &#8212; a light gray sitting within a few points of Graphite's neutral wash at the bottom of the Tint slider, so the two accents were told apart by their swatches and nothing else. "None" now lays a white ground over the material in light: no accent looks like no accent &#8212; clean white window chrome, titlebar included &#8212; while Graphite keeps its deliberate monochrome gray wash. Dark is untouched; its deep neutral ground was never ambiguous.</span></li>
+        <li><span class="ic">&#9654;</span><span><b>The selected workspace and the active pane tab now slide between positions.</b> Both markers were drawn per item, so switching cut one out where it was and cut a new one in where it was going &#8212; two bars forty points apart, both blinking. They travel now. Reduce Motion takes the destination and skips the journey, which is the bargain the rest of the app's motion already strikes.</span></li>
+        <li><span class="ic">&#128290;</span><span><b>A count that changes rolls its digits instead of cutting to a new number.</b> The reclaim pill has done this for a while and the two shared components every other live count draws through never did, so diff totals, duplicate-group counts and the filing backlog hard-swapped: the old number vanished, a new one appeared, and nothing said they were the same quantity. Words are deliberately left alone &#8212; rolling a word's glyphs is a different effect, and reads as a glitch.</span></li>
+        <li><span class="ic">&#128070;</span><span><b>The first-run sheet answers the pointer.</b> Seven of its controls drew their own chrome, which means macOS contributes no hover state at all &#8212; so the app's first impression was its least responsive surface. Each has an affordance now, chosen for what the control does: the accent swatches behave exactly as the same swatches do in Settings &#9656; Appearance rather than differently depending on where you met them, and Remove washes in ink rather than in an inviting accent.</span></li>
+        <li><span class="ic">&#9711;</span><span><b>One vocabulary for corner radii.</b> Each was typed at its own call site with nothing to type instead, so three chips inside a single card could round by different amounts with no rule saying which was right. There are four named stops now &#8212; each one a value the app already used most &#8212; and the strays moved to their nearest by a point. Radii that carry meaning rather than style stay off the scale deliberately: a bar's cap is half its height, not a corner.</span></li>
       </ul>
     </div>
     <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v4.4...main">v4.4...main</a></p>

@@ -10,6 +10,16 @@ User-facing changes, newest first. For the full commit history see the
 > These notes describe what is on `main` today. They are published ahead of the tag so the
 > work can be read as it lands, and they may still change before v4.5 is cut.
 
+**Refinement, mostly — and one thing that was quietly wrong.** A duplicate scan does less work
+to reach the same answer, and is harder to fool: a file rewritten *while it was being hashed*
+could be remembered under a digest belonging to no version of it, and is now caught instead.
+Alongside that, "Text contains" means one thing on every surface rather than two, the "None"
+accent finally reads as no accent, and the markers saying which workspace and which tab you are
+in travel between positions instead of blinking out and back.
+
+On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0 section
+first.
+
 ### Organize
 
 - **"Text contains" now means one thing everywhere: the exact phrase, in the file's own text.**
@@ -22,6 +32,29 @@ User-facing changes, newest first. For the full commit history see the
   contents-reading switched off — matches no text condition at all rather than guessing from
   tokens. Matching separate words is still available, deliberately, as "Mentions all of".
 
+### Duplicates and comparison
+
+- **A file rewritten while it was being hashed could be remembered under the wrong digest.**
+  Everything the scan knew about a file — that it existed, that it was a file, its size and its
+  date — was read from its path *before* the file was opened, so none of it was provably about the
+  bytes that were then read. A rewrite landing the same number of bytes mid-read produced a digest
+  of two files spliced together, cached under the pre-read date, and every later scan trusted it.
+  The size is now confirmed against the open file itself and confirmed again after the read, so a
+  file that moved underneath the scan is caught rather than remembered wrongly.
+- **A duplicate scan does less work to reach the same answer.** Three separate metadata checks per
+  file before a single byte was read, now one — which is the entire cost of a *repeat* scan, where
+  every digest is already cached and no bytes are read at all. Digest text was built by a string
+  formatter once per byte, thirty-two times per hashed file, and is now a table lookup. And a long
+  scan published its progress often enough to re-evaluate the whole window several hundred times;
+  it now publishes at most about a hundred times however large the folder, while a small scan stays
+  exactly as quiet as it was.
+- **Duplicate thumbnails no longer decompress while you scroll.** Each was compressed to PNG on a
+  background thread purely to satisfy a rule about what may cross between threads, then decompressed
+  again — and that decompression is lazy, so it happened at draw time, on the main thread, during
+  the scroll that asked for it. The image crosses intact now.
+- **A comparison with ignore patterns set folds them once per scan** rather than once per item
+  compared, and folds each name once rather than once per pattern it is tested against.
+
 ### Appearance
 
 - **The "None" accent now reads white in light, not the faintest gray.** With no accent chosen
@@ -31,6 +64,26 @@ User-facing changes, newest first. For the full commit history see the
   no accent looks like no accent — clean white window chrome, titlebar included — while Graphite
   keeps its deliberate monochrome gray wash. Dark is untouched; its deep neutral ground was
   never ambiguous.
+- **The selected workspace and the active pane tab now slide between positions.** Both markers
+  were drawn per item, so switching cut one out where it was and cut a new one in where it was
+  going — two bars forty points apart, both blinking. They travel now. Reduce Motion takes the
+  destination and skips the journey, which is the bargain the rest of the app's motion already
+  strikes.
+- **A count that changes rolls its digits instead of cutting to a new number.** The reclaim pill
+  has done this for a while and the two shared components every other live count draws through
+  never did, so diff totals, duplicate-group counts and the filing backlog hard-swapped: the old
+  number vanished, a new one appeared, and nothing said they were the same quantity. Words are
+  deliberately left alone — rolling a word's glyphs is a different effect, and reads as a glitch.
+- **The first-run sheet answers the pointer.** Seven of its controls drew their own chrome, which
+  means macOS contributes no hover state at all — so the app's first impression was its least
+  responsive surface. Each has an affordance now, chosen for what the control does: the accent
+  swatches behave exactly as the same swatches do in Settings ▸ Appearance rather than differently
+  depending on where you met them, and Remove washes in ink rather than in an inviting accent.
+- **One vocabulary for corner radii.** Each was typed at its own call site with nothing to type
+  instead, so three chips inside a single card could round by different amounts with no rule
+  saying which was right. There are four named stops now — each one a value the app already used
+  most — and the strays moved to their nearest by a point. Radii that carry meaning rather than
+  style stay off the scale deliberately: a bar's cap is half its height, not a corner.
 
 ---
 
