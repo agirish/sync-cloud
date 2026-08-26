@@ -7,7 +7,7 @@ that major's last tag when the next major opens on `main`:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
-| `main` | the **v4 line** — where the next release is built | `4.5-dev` / `405` | **allowed** |
+| `main` | the **v4 line** — where the next release is built | `4.6-dev` / `406` | **allowed** |
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
 | `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
 
@@ -114,8 +114,8 @@ Nothing failed, because nothing reads the version; it was simply wrong for two y
 
 ```yaml
 # main's values; v3.x carries "3.2-dev" / "302", v2.x carries "2.10-dev" / "210"
-CFBundleShortVersionString: "4.5-dev"   # the marketing version — what people see
-CFBundleVersion: "405"                  # the build number — what Launch Services orders by
+CFBundleShortVersionString: "4.6-dev"   # the marketing version — what people see
+CFBundleVersion: "406"                  # the build number — what Launch Services orders by
 ```
 
 `MacApp/Info.plist` is **generated from it by xcodegen and tracked in git** — run `xcodegen` after
