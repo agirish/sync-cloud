@@ -177,6 +177,15 @@ extension ContentView {
                                  accentFill: accentFill, onAccent: onAccent)
             }
         }
+        // The travel itself. `matchedGeometryEffect` only says the two frames are the same view —
+        // without an animation around the change it still arrives instantly. Scoped by `value:` to
+        // the selection, so resizing the bar (which re-runs the style ladder and can change every
+        // segment's width at once) is not animated as a slide.
+        //
+        // Reduce Motion takes the destination and skips the travel: the accent fill still marks the
+        // selected segment, it just appears there. Same bargain `HoverAffordanceMetrics` strikes —
+        // drop what moves, keep what colors.
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selection.wrappedValue)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Workspace")
         // Inset the segments inside an outer container capsule so the selected pill floats within
@@ -222,10 +231,19 @@ extension ContentView {
             .foregroundStyle(isSelected ? AnyShapeStyle(onAccent) : AnyShapeStyle(Color.secondary))
             .padding(.horizontal, style == .full ? 12 : 10)
             .padding(.vertical, 4)
-            .background(
-                isSelected ? AnyShapeStyle(accentFill) : AnyShapeStyle(Color.clear),
-                in: Capsule()
-            )
+            // **One capsule that moves, not one per segment that blinks.** Drawn only under the
+            // selected segment and tagged into `workspaceMarker`, so when the selection changes
+            // SwiftUI treats the outgoing and incoming fills as the SAME view and interpolates
+            // between their frames — the pill slides along the bar. Written as a conditional
+            // `.background` rather than the `in: Capsule()` shorthand because a shape style has
+            // no geometry to match; the effect needs a real view to attach to.
+            .background {
+                if isSelected {
+                    Capsule()
+                        .fill(accentFill)
+                        .matchedGeometryEffect(id: Self.workspaceMarkerID, in: workspaceMarker)
+                }
+            }
             .contentShape(Capsule())
         }
         // The selected segment already carries the accent fill, so it takes the ring; the
@@ -241,6 +259,10 @@ extension ContentView {
         // VoiceOver for free.
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
+
+    /// The `matchedGeometryEffect` id for the selected segment's accent capsule. One marker, so
+    /// one id — a per-segment id would give each its own identity and defeat the whole effect.
+    static let workspaceMarkerID = "workspace.selection.marker"
 
     /// Which segment the group rule is drawn BEFORE, as an index into `Workspace.allCases`.
     ///

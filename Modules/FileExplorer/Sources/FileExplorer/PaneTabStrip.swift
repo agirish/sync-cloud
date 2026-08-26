@@ -70,6 +70,16 @@ public struct PaneTabStrip: View {
     let trailingInset: CGFloat
 
     @Environment(\.appFontScale) private var fontScale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Shared geometry for the active tab's ground and rule, so the marker TRAVELS along the strip
+    /// instead of being cut out under one chip and into the next.
+    @Namespace private var activeMarker
+
+    /// One marker, one id. See `ContentView.workspaceMarkerID` — the workspace bar 40pt above does
+    /// the same thing, and the two bars now move alike.
+    private static let activeMarkerID = "panetab.active.marker"
+
     /// Which chip the pointer is over — the ✕ shows on that one and on the active tab, and nowhere
     /// else (v4.x roadmap companion §1's anatomy). Held here rather than per chip so only one can be lit.
     @State private var hoveredTab: UUID?
@@ -113,6 +123,9 @@ public struct PaneTabStrip: View {
         }
     }
 
+    /// Which tab the marker is under — the only change that should move it.
+    private var activeTabID: PaneTabStrip.Item.ID? { items.first(where: \.isActive)?.id }
+
     private var stripBody: some View {
         GeometryReader { geo in
             // **The ladder is offered what is actually free**, which is the pane's width less the
@@ -129,6 +142,10 @@ public struct PaneTabStrip: View {
                 scale: fontScale)
             strip(layout)
                 .frame(width: geo.size.width, height: PaneTabStripLadder.stripHeight, alignment: .leading)
+                // Keyed on WHICH tab is active, not on `items`: the list also changes when a tab
+                // is opened, closed or renamed, and none of those should slide the marker. Reduce
+                // Motion keeps the marker and drops the travel.
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: activeTabID)
         }
         .frame(height: PaneTabStripLadder.stripHeight)
     }
@@ -426,6 +443,13 @@ public struct PaneTabStrip: View {
                     .frame(height: 2)
                     .padding(.horizontal, 3)
             }
+            // Ground and rule travel together as one marker: they mark the same fact, and a rule
+            // that slid out from under a ground that blinked would read as two markers disagreeing.
+            //
+            // Both call sites are safe to share one id because they are mutually exclusive rungs —
+            // `.full`/`.compact` draw chips, `.chip` draws the menu — so exactly one source for
+            // this id is ever in the hierarchy. Two would be ambiguous and SwiftUI would say so.
+            .matchedGeometryEffect(id: Self.activeMarkerID, in: activeMarker)
         }
     }
 

@@ -180,6 +180,13 @@ struct ContentView: View {
     @Environment(\.appFontScale) var appFontScale
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) var openWindow
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+
+    /// Shared geometry for the workspace bar's selected-segment fill, so the accent capsule
+    /// TRAVELS between segments instead of being cut out of one and into the next. Declared here
+    /// rather than beside the bar because `@Namespace` is a stored property and the bar lives in
+    /// an extension (`ContentView+Toolbar`), which cannot hold one.
+    @Namespace var workspaceMarker
 
     @State var actionHandler: FileActionHandler?
     @State var quickLookURL: URL? = nil
