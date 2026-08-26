@@ -53,7 +53,7 @@ enum WorkspaceBarMetrics {
     static let separatorWidth: CGFloat = 1 + 8
 
     /// Toolbar width the bar can never have: the traffic lights and their margin, the minimum gap
-    /// before the trailing group, and the utility pill (Info, Logs, Settings). Deliberately
+    /// before the trailing group, and the utility pill (Settings, Logs, Info). Deliberately
     /// generous — being one segment too cautious costs a label, being one too optimistic costs the
     /// entire control behind an overflow chevron.
     ///

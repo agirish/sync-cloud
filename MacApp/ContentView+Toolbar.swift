@@ -294,7 +294,7 @@ extension ContentView {
     }
 
     /// The window toolbar — the window-level controls, and only those: which workspace you're in,
-    /// and the three utilities (Info, Logs, Settings). Everything else lives where it acts: Scan is
+    /// and the three utilities (Settings, Logs, Info). Everything else lives where it acts: Scan is
     /// in each pane header, Find Duplicates in the Duplicates lens, and the file actions are
     /// the panes' contextual action bar.
     @ToolbarContentBuilder
@@ -380,36 +380,6 @@ extension ContentView {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            // Info inspector toggle — available on every workspace (Compare shows both-sides
-            // status; a lens shows the single source), so opening Info never yanks the rail over
-            // to Compare.
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { showInspector.toggle() }
-            } label: {
-                Label("Info", systemImage: "sidebar.right")
-                    // Accent-tinted when the inspector is open, so the toggle reads as a state and
-                    // not just an action. Closed, it renders as a normal enabled toolbar button.
-                    .foregroundStyle(showInspector ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(.primary))
-                    // On the LABEL, like Settings below — a toolbar item's own bounds are AppKit's.
-                    .shortcutKeycap(AppChord.infoInspector.display)
-            }
-            .help(ShortcutHint.tooltip(
-                showInspector ? "Hide the Info inspector" : "Show details for the selected item",
-                AppChord.infoInspector.display))
-            .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
-            // **The two halves of one control agree.** ⌘I is silenced during a destination pick
-            // (`ShortcutValuePublisher.suspended`), while this button — which the picker's scrim
-            // deliberately blocks the mouse from reaching everywhere else — stayed live in the
-            // toolbar, so a mouse user could toggle the inspector under the overlay and a keyboard
-            // user could not. Same rule for both, like the workspace bar and the ⌘K pill above.
-            .disabled(pendingDestination != nil)
-
-            Button(action: { openWindow(id: "activity-log") }) {
-                Label("Logs", systemImage: "list.bullet.rectangle")
-                    .shortcutKeycap(AppChord.activityLog.display)
-            }
-            .help(ShortcutHint.tooltip("Activity log", AppChord.activityLog.display))
-
             Button(action: { showSettings = true }) {
                 Label("Settings", systemImage: "gear")
                     // On the LABEL, not the Button: a toolbar item's own bounds are AppKit's, and
@@ -425,6 +395,36 @@ extension ContentView {
             // refuses the latch itself, for every caller. With the act already refused, an enabled
             // button would be a control that silently does nothing — which the ⌘K pill above calls
             // its own bug — and the toolbar is the one surface the picker's scrim does not cover.
+            .disabled(pendingDestination != nil)
+
+            Button(action: { openWindow(id: "activity-log") }) {
+                Label("Logs", systemImage: "list.bullet.rectangle")
+                    .shortcutKeycap(AppChord.activityLog.display)
+            }
+            .help(ShortcutHint.tooltip("Activity log", AppChord.activityLog.display))
+
+            // Info inspector toggle — available on every workspace (Compare shows both-sides
+            // status; a lens shows the single source), so opening Info never yanks the rail over
+            // to Compare.
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { showInspector.toggle() }
+            } label: {
+                Label("Info", systemImage: "sidebar.right")
+                    // Accent-tinted when the inspector is open, so the toggle reads as a state and
+                    // not just an action. Closed, it renders as a normal enabled toolbar button.
+                    .foregroundStyle(showInspector ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(.primary))
+                    // On the LABEL, like Settings above — a toolbar item's own bounds are AppKit's.
+                    .shortcutKeycap(AppChord.infoInspector.display)
+            }
+            .help(ShortcutHint.tooltip(
+                showInspector ? "Hide the Info inspector" : "Show details for the selected item",
+                AppChord.infoInspector.display))
+            .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
+            // **The two halves of one control agree.** ⌘I is silenced during a destination pick
+            // (`ShortcutValuePublisher.suspended`), while this button — which the picker's scrim
+            // deliberately blocks the mouse from reaching everywhere else — stayed live in the
+            // toolbar, so a mouse user could toggle the inspector under the overlay and a keyboard
+            // user could not. Same rule for both, like the workspace bar and the ⌘K pill above.
             .disabled(pendingDestination != nil)
         }
     }
