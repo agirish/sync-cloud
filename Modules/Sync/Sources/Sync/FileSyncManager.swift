@@ -2634,11 +2634,19 @@ public class FileSyncManager: ObservableObject {
     /// the default configuration.** All five are behind an `if`, but the other four's conditions
     /// are empty or false until something turns them on, whereas this one's — `showHiddenFiles`,
     /// the ⇧⌘. toggle — starts `false`, so hiding hidden files is what a fresh session does. It
-    /// therefore runs over the whole difference list on every rebuild, and the list runs to
-    /// ~29,000 entries on a real tree.
+    /// therefore runs over the whole difference list on every rebuild.
     ///
     /// `components(separatedBy:)` allocates an array AND a String per path component per call;
     /// measured over 29,000 differences that is ~37 ms a pass against ~2 ms for the scan below.
+    ///
+    /// **29,000 is the top of the range, not the middle of it — counted, because this whole family
+    /// of changes was justified by that number.** Over 1,721 scans in `~/sync-cloud.log`
+    /// (2026-07-05 to 2026-08-26) the median scan finds **123** differences and 96% find fewer
+    /// than 1,000; the ~29,000 case is one specific pair, compared repeatedly — 47 scans, 2.7%,
+    /// clustered at 28,843 and 28,883, with a single 39,489. So this is a real recurring
+    /// comparison and worth optimising for, and at the same time the ordinary scan sees a list two
+    /// orders of magnitude smaller, where all of these costs round to nothing. Both halves are the
+    /// finding: quoting only the first is how "measured" turns into "typical".
     ///
     /// **The scan can only ever prove the answer is FALSE, and that is what makes it safe.** A
     /// component satisfying `hasPrefix(".")` starts with the grapheme `"."`, which in UTF-8 is the
