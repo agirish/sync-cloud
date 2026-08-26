@@ -185,7 +185,7 @@ extension ContentView {
         // Reduce Motion takes the destination and skips the travel: the accent fill still marks the
         // selected segment, it just appears there. Same bargain `HoverAffordanceMetrics` strikes —
         // drop what moves, keep what colors.
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: selection.wrappedValue)
+        .designAnimation(.easeOut(duration: 0.22), value: selection.wrappedValue)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Workspace")
         // Inset the segments inside an outer container capsule so the selected pill floats within
@@ -376,7 +376,7 @@ extension ContentView {
             // 120ms, and on the width rather than on a transition: the pill grows into the field
             // and back, so the row reads as one control changing size rather than two controls
             // swapping places.
-            .animation(.easeOut(duration: 0.12), value: showCommandPalette)
+            .designAnimation(.easeOut(duration: 0.12), value: showCommandPalette)
         }
 
         ToolbarItemGroup(placement: .primaryAction) {

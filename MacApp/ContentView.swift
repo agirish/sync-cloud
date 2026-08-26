@@ -180,7 +180,6 @@ struct ContentView: View {
     @Environment(\.appFontScale) var appFontScale
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) var openWindow
-    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     /// Shared geometry for the workspace bar's selected-segment fill, so the accent capsule
     /// TRAVELS between segments instead of being cut out of one and into the next. Declared here
@@ -2941,7 +2940,7 @@ struct ContentView: View {
         }
         // Keyed on the strip's PRESENCE, not on the tab count: a tab opening or closing while the
         // strip is already up must not animate the header and list below it.
-        .animation(.easeOut(duration: 0.18), value: paneShowsTabStrip(isLeft: isLeft))
+        .designAnimation(.easeOut(duration: 0.18), value: paneShowsTabStrip(isLeft: isLeft))
         // Escape clears this pane's selection — the file lists give no deselect gesture, so
         // without this a folder picked here could never be un-picked. Only swallow the key when
         // there's actually a selection here; otherwise let it bubble (dialogs, etc.).
@@ -3067,12 +3066,12 @@ struct ContentView: View {
         .padding(LiquidGlass.cardInset)
         // Animate the panes collapsing/expanding when the tab's pane state flips — both on
         // the manual toggle and on the auto-collapse that fires when a tab switch changes it.
-        .animation(.easeInOut(duration: 0.2), value: panesHiddenForCurrentTab)
+        .designAnimation(.easeInOut(duration: 0.2), value: panesHiddenForCurrentTab)
         // No animation on the collapse: the differences pane snaps open/closed instantly with the
         // chevron, which is what reads as responsive here; the others keep the softer easeInOut.
         .animation(nil, value: bottomPaneIsCollapsed)
-        .animation(.easeInOut(duration: 0.2), value: selectedWorkspace)
-        .animation(.easeInOut(duration: 0.15), value: showInspector)
+        .designAnimation(.easeInOut(duration: 0.2), value: selectedWorkspace)
+        .designAnimation(.easeInOut(duration: 0.15), value: showInspector)
         .overlay {
             if let progress = syncManager.activeProgress {
                 ZStack {
@@ -3089,7 +3088,7 @@ struct ContentView: View {
         // `if let` it can't animate the overlay's own insertion/removal, so the transition
         // above never ran. Keyed on presence — Progress is a reference type whose counters
         // mutate in place, so the value itself is the wrong animation trigger anyway.
-        .animation(.spring(), value: syncManager.activeProgress == nil)
+        .designAnimation(.spring(), value: syncManager.activeProgress == nil)
         .overlay(alignment: .top) {
             if let banner = syncManager.banner {
                 OperationBannerView(
@@ -3112,7 +3111,7 @@ struct ContentView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.banner)
+        .designAnimation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.banner)
         // A banner that outlived the previous window (the manager owns it; the scheduler below is
         // view `@State`) gets its auto-dismiss armed here, since the `onChange` never fires for a
         // value that didn't change. `adoptExistingBanner` no-ops when there's no banner or this

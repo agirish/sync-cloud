@@ -3768,8 +3768,8 @@ public struct LensWorkspaceView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .animation(.easeInOut(duration: 0.2), value: pendingRememberPrompt?.id)
-        .animation(.easeInOut(duration: 0.2), value: pendingRuleOffer?.id)
+        .designAnimation(.easeInOut(duration: 0.2), value: pendingRememberPrompt?.id)
+        .designAnimation(.easeInOut(duration: 0.2), value: pendingRuleOffer?.id)
     }
 
     /// N2 — the Automations lens. Its rules header is gone (the shared card carries New rule /

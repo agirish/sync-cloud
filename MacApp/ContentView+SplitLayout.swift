@@ -618,7 +618,7 @@ struct SwapPanesGlyph: View {
             .scaledFont(.system(size: 11, weight: .bold))
             .foregroundStyle(SeamPaneControls.glyphInk(colorScheme, deepened: deepened, phase: phase))
             .rotationEffect(.degrees(flipped ? 180 : 0))
-            .animation(.easeInOut(duration: 0.16), value: flipped)
+            .designAnimation(.easeInOut(duration: 0.16), value: flipped)
             .frame(width: SeamPaneControls.half, height: SeamPaneControls.half)
     }
 }

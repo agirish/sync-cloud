@@ -350,7 +350,7 @@ public struct AutomationsLens: View {
                         }
                     }
                     .padding(densityMetrics.cardListPadding)
-                    .animation(.easeInOut(duration: 0.2), value: rules.map(\.id))
+                    .designAnimation(.easeInOut(duration: 0.2), value: rules.map(\.id))
                 }
                 .scrollContentBackground(.hidden)
             }

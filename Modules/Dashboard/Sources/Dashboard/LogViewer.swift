@@ -595,7 +595,7 @@ public struct LogViewer: View {
         .onChange(of: selectedLevel) { _, _ in history.resetRevealed(to: Self.historyPageSize) }
         .onChange(of: searchText) { _, _ in history.resetRevealed(to: Self.historyPageSize) }
         // Drives the search field's reveal/hide transition (see above).
-        .animation(.easeOut(duration: 0.14), value: isSearchExpanded)
+        .designAnimation(.easeOut(duration: 0.14), value: isSearchExpanded)
         // Match the main window's glass: same level + hue background, so the Activity Log reads as
         // the same frosted (or, at Clear, whiter see-through) surface instead of a plain window.
         .liquidGlassAppBackground(level: glassLevel, hue: glassHue, tint: surfaceTint)

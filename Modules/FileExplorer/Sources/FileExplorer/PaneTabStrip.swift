@@ -70,7 +70,6 @@ public struct PaneTabStrip: View {
     let trailingInset: CGFloat
 
     @Environment(\.appFontScale) private var fontScale
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Shared geometry for the active tab's ground and rule, so the marker TRAVELS along the strip
     /// instead of being cut out under one chip and into the next.
@@ -145,7 +144,7 @@ public struct PaneTabStrip: View {
                 // Keyed on WHICH tab is active, not on `items`: the list also changes when a tab
                 // is opened, closed or renamed, and none of those should slide the marker. Reduce
                 // Motion keeps the marker and drops the travel.
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: activeTabID)
+                .designAnimation(.easeOut(duration: 0.16), value: activeTabID)
         }
         .frame(height: PaneTabStripLadder.stripHeight)
     }
