@@ -35,6 +35,12 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   produced a digest of two files spliced together. The open file is now stat'd through its own
   descriptor, before the read and after — and it is the date, not the size, that closes the
   same-size case a byte count cannot see.
+- **Files a duplicate scan could not read are counted now, instead of vanishing from it.** A
+  candidate that was gone, unreadable, or changed while it was being hashed was dropped with
+  nothing recording it — no pill, no note, no log — while every other skip reason was tallied
+  and named. A volume answering badly could report no duplicates with nothing on screen saying
+  why. They join the "skipped" note as "unreadable or changed while being read", which
+  deliberately does not say which way it failed.
 - **A duplicate scan does less work to reach the same answer.** Three separate reads of a
   file's path before it was opened, now one — and on a repeat scan, where every digest is
   already cached, that single read is all the hashing does. (A symlink still takes a second, to
