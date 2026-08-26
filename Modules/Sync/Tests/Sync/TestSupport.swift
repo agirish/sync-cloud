@@ -245,12 +245,22 @@ final class FirstStatGate: FileManaging, @unchecked Sendable {
         }
     }
 
+    // **Both metadata entry points gate, not just one.** `gateIfFirst` fires once, so hooking both
+    // parks the pass at whichever it reaches first and asks nothing about which that is. It used to
+    // hook `fileExists(atPath:isDirectory:)` alone, which was the verifier's opening call at the
+    // time — so when the verifier collapsed its three metadata reads into one `attributesOfItem`,
+    // eleven tests across two suites stopped being held at all and failed on their 10 s bound
+    // instead. Nothing about the pass had changed; the seam had simply been pinned to a syscall
+    // rather than to the moment it names.
     func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
     func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
         gateIfFirst()
         return inner.fileExists(atPath: p, isDirectory: d)
     }
-    func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
+    func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] {
+        gateIfFirst()
+        return try inner.attributesOfItem(atPath: p)
+    }
     func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
     func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
         try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)

@@ -64,20 +64,36 @@ public enum FileContentVerifier {
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
     ) async -> HashOutcome {
         await Task.detached(priority: .utility) { () -> HashOutcome in
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
-                  !isDirectory.boolValue else {
+            // ONE metadata read for a non-symlink, where there used to be three. `fileExists`
+            // asked about existence and directory-ness, a discarded `attributesOfItem` asked
+            // about the link type, and a second one asked for size and mtime — and
+            // `attributesOfItem` answers all four in a single round trip. Three stats per
+            // hashed file is the whole cost of a WARM rescan, where every digest is a cache hit
+            // and the reads never happen: the cache saves the bytes and the stats spend the
+            // saving.
+            guard let linkAttributes = try? fileManager.attributesOfItem(atPath: path) else {
+                // Missing or unreadable — the verdict `fileExists` used to return here.
                 return .unverifiable
             }
             // `attributesOfItem` does not resolve a trailing symlink (lstat semantics) while
             // the FileHandle read below follows it, so a symlinked file would stat as the
             // link's own byte count and never verify. Stat the resolved path for links; a
-            // broken link already returned nil above (`fileExists` resolves, and fails).
+            // broken link fails that second read, which is where it now returns instead of at
+            // the `fileExists` above (which resolved, and failed).
             var statPath = path
-            if (try? fileManager.attributesOfItem(atPath: path)[.type]) as? FileAttributeType == .typeSymbolicLink {
+            var attributes = linkAttributes
+            if (linkAttributes[.type] as? FileAttributeType) == .typeSymbolicLink {
                 statPath = (path as NSString).resolvingSymlinksInPath
+                guard let resolved = try? fileManager.attributesOfItem(atPath: statPath) else {
+                    return .unverifiable
+                }
+                attributes = resolved
             }
-            guard let attributes = try? fileManager.attributesOfItem(atPath: statPath),
+            // **On the RESOLVED attributes, deliberately.** `fileExists(atPath:isDirectory:)`
+            // followed the link before answering, so a symlink pointing at a directory was
+            // unverifiable; asking the link's own attributes instead would call it a file and
+            // go on to hash it.
+            guard (attributes[.type] as? FileAttributeType) != .typeDirectory,
                   let size = (attributes[.size] as? NSNumber)?.intValue else {
                 return .unverifiable
             }
@@ -104,6 +120,24 @@ public enum FileContentVerifier {
             guard let handle = FileHandle(forReadingAtPath: path) else { return .unverifiable }
             defer { try? handle.close() }
 
+            // What the DESCRIPTOR says, which is the only metadata provably about the bytes read
+            // below. Everything above was read from the PATH, before the open — a window in which
+            // the file can be replaced, leaving a digest keyed to a file it is not a digest of.
+            //
+            // **Only the size is compared, and the mtime deliberately is not.** An `fstat` mtime
+            // and a Foundation `Date` mtime disagree by one ULP on roughly a quarter of real files
+            // (measured over 4,500: 2.4e-07 s, the resolution of a `Double` at this magnitude), so
+            // comparing the two — or keying from `fstat` — would read as "changed" for a quarter of
+            // the tree and silently miss every entry already persisted under the Foundation value.
+            // The key must stay derivable from a PATH stat regardless: a cache hit must not open
+            // the file, or a cloud-only placeholder would be downloaded just to be skipped.
+            let openedStat = Self.descriptorStat(handle)
+            if let openedStat, Int(openedStat.st_size) != size {
+                // Replaced between the stat and the open. The read loop would reach the same
+                // verdict after reading the whole file; this reaches it before.
+                return .unverifiable
+            }
+
             var hasher = SHA256()
             var totalBytes = 0
             while true {
@@ -127,6 +161,18 @@ public enum FileContentVerifier {
                 if !advance { break }
             }
             guard totalBytes == size else { return .unverifiable }
+            // Re-`fstat` the same descriptor and compare against the first one — both raw
+            // `timespec`s from the same API, so this comparison has none of the cross-API rounding
+            // problem the size-only check above exists to avoid, and it can be exact.
+            //
+            // It closes the one mid-read corruption the byte count cannot see: a rewrite that
+            // lands the SAME number of bytes. Today that produces a digest of two files spliced
+            // together and PERSISTS it under the pre-read mtime, where it stays wrong until the
+            // mtime moves again. Unverifiable is the safe verdict — it drops the file out of
+            // grouping rather than grouping it on a digest of nothing that ever existed on disk.
+            guard Self.snapshotIsCoherent(opened: openedStat, closing: Self.descriptorStat(handle)) else {
+                return .unverifiable
+            }
             let digest = hasher.finalize()
             let hex = HexEncoding.string(digest)
             if let cache, let cacheKey {
@@ -134,6 +180,35 @@ public enum FileContentVerifier {
             }
             return .hashed(hex)
         }.value
+    }
+
+    /// Whether two `fstat`s of the same descriptor, taken before and after the read, describe the
+    /// same file — the test behind the mid-read coherence check in ``hashOutcome``.
+    ///
+    /// Split out because the wiring it guards can only be reached by winning a race, and a guard
+    /// whose logic is reachable only by racing is a guard nobody can check. The decision is pure,
+    /// so it is tested directly; the wiring is covered by the size check at open, which the same
+    /// `fstat` feeds.
+    ///
+    /// A missing stat on either side means the question could not be asked, and an unanswered
+    /// question is not evidence of change — coherent, matching what the code did before any of
+    /// this existed.
+    static func snapshotIsCoherent(opened: stat?, closing: stat?) -> Bool {
+        guard let opened, let closing else { return true }
+        return opened.st_mtimespec.tv_sec == closing.st_mtimespec.tv_sec
+            && opened.st_mtimespec.tv_nsec == closing.st_mtimespec.tv_nsec
+            && opened.st_size == closing.st_size
+    }
+
+    /// `fstat` of an open handle's descriptor, or nil if it fails.
+    ///
+    /// Deliberately raw rather than routed through ``FileManaging``: the point is to describe the
+    /// descriptor the bytes are being read from, and no path-based call — mockable or not — can
+    /// answer that. `FileHandle` is already outside the seam for the same reason.
+    private static func descriptorStat(_ handle: FileHandle) -> stat? {
+        var st = stat()
+        guard fstat(handle.fileDescriptor, &st) == 0 else { return nil }
+        return st
     }
 
     /// Returns whether the two files have identical content (same SHA-256).
