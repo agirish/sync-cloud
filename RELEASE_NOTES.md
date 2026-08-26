@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v4.5 — DRAFT, not released
-
-> These notes describe what is on `main` today. They are published ahead of the tag so the
-> work can be read as it lands, and they may still change before v4.5 is cut.
+## v4.5
 
 **Refinement, mostly — plus one freeze and one thing quietly wrong.** A bulk sync on a large
 comparison locked the window for about eleven seconds at each end, doing nothing in that time but
