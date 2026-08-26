@@ -172,6 +172,43 @@ private actor Gate {
         manager.clearSyncing(ids: [marked.id])
     }
 
+    /// The same gate from the other side: with nothing moving mid-compute, the reconcile pass is
+    /// SKIPPED, not merely made cheaper.
+    ///
+    /// Its two halves are provable no-ops when neither input moved — every row was filtered from
+    /// the same `rawDifferences`, and `computeFilteredState` already stamped `isSyncing` from the
+    /// same set — so skipping is what removes the ~5 ms of main-actor work, not a faster rebuild.
+    /// The two tests around this one cover the fallback; none of them can see a gate whose fast
+    /// path never fires, which would leave the cost exactly where it was with every test green.
+    @MainActor
+    @Test func theReconcilePassIsSkippedWhenNothingMovedMidCompute() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let rows = (0..<3).map { i in
+            FileDifference(relativePath: "x\(i).txt",
+                           leftItemPath: "/l/x\(i).txt",
+                           rightItemPath: "/r/x\(i).txt",
+                           type: .missingOnRight,
+                           action: .copyToRight,
+                           description: "test")
+        }
+        manager.rawDifferences = rows
+        manager.differences = rows
+
+        await manager.applyFilters()
+
+        #expect(manager.reconcilePassesRun == 0, "the gate never took its fast path")
+        #expect(manager.differences.map(\.id) == rows.map(\.id), "and it published the right rows")
+        #expect(manager.differences.allSatisfy { !$0.isSyncing })
+
+        // A second pass over unchanged inputs must also skip, and must not republish: an
+        // identical array assigned again tears down and rebuilds the pane List for nothing.
+        let versionBefore = manager.publishedDifferencesVersion
+        await manager.applyFilters()
+        #expect(manager.reconcilePassesRun == 0)
+        #expect(manager.publishedDifferencesVersion == versionBefore,
+                "an unchanged list was republished — the off-main compare is not being trusted")
+    }
+
     /// Pin (other direction): a clear that lands during the compute wins over the snapshot's
     /// stale mark — the published row must not get its spinner back at publish time.
     @MainActor

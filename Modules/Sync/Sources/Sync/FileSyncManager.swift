@@ -259,7 +259,16 @@ public class FileSyncManager: ObservableObject {
     }
     
     /// Cached differences from the latest scan before applying hidden/ignored filters.
-    internal var rawDifferences: [FileDifference] = []
+    internal var rawDifferences: [FileDifference] = [] {
+        didSet { rawDifferencesVersion += 1 }
+    }
+    /// Bumped on every write to ``rawDifferences``, including an in-place element edit. Lets
+    /// `applyFilters()` tell whether the authoritative rows moved while its detached compute
+    /// ran — the same trick `publishedLeftTreeVersion` plays for the panes, and the reason the
+    /// reconcile pass there can be skipped rather than made cheaper.
+    internal private(set) var rawDifferencesVersion = 0
+    /// Counterpart for ``syncingDifferenceIds``: the other input the reconcile pass re-applies.
+    internal private(set) var syncingDifferenceIdsVersion = 0
     /// IDs of differences with an in-flight sync/copy operation — the source of truth for the
     /// row-level `isSyncing` flag. `applyFilters()` rebuilds `differences` from
     /// `rawDifferences`, which never carries the flag, so a mid-operation filter pass (hidden
@@ -269,7 +278,9 @@ public class FileSyncManager: ObservableObject {
     /// the published rows in the same main-actor turn — and `applyFilters()` re-stamps the
     /// flag from this set (and drops resolved rows) at publish time, so a pass whose
     /// snapshot predates a transition cannot re-install stale rows.
-    internal private(set) var syncingDifferenceIds: Set<UUID> = []
+    internal private(set) var syncingDifferenceIds: Set<UUID> = [] {
+        didSet { syncingDifferenceIdsVersion += 1 }
+    }
     /// IDs of differences that were verified as same content via checksum; these are hidden from the list until next scan.
     internal var verifiedSameDifferenceIds: Set<UUID> = []
     /// When non-nil, a "Verify All" run is in progress: (completed count, total count).
@@ -283,7 +294,20 @@ public class FileSyncManager: ObservableObject {
     /// only inside this module — the app side reads it and nothing more.
     @Published public internal(set) var verifiedIdenticalForCopy: VerifiedCopyOffer?
     /// Filtered list of differences between the left and right panes (respects `showHiddenFiles`, `ignoredPaths`, and `verifiedSameDifferenceIds`).
-    @Published public var differences: [FileDifference] = []
+    @Published public var differences: [FileDifference] = [] {
+        didSet { publishedDifferencesVersion += 1 }
+    }
+    /// Bumped on every publish of ``differences``. Same role as ``publishedLeftTreeVersion``:
+    /// it says whether the deep compare done off-main against an entry snapshot is still
+    /// answering the question the main actor is about to ask.
+    internal private(set) var publishedDifferencesVersion = 0
+    /// How many times `applyFilters()` has had to run the reconcile pass because an input moved
+    /// while its detached compute ran.
+    ///
+    /// Exists so the gate's FAST path is observable. The slow path is well covered — deleting the
+    /// gate's condition fails two `InFlightSyncStateTests` — but no test can see a gate that
+    /// silently never fires, and an optimization that never fires is one that does not exist.
+    internal private(set) var reconcilePassesRun = 0
     /// Indicates whether a deep structure scan is currently in progress.
     @Published public var isScanning = false
     /// When the running scan started, or nil when none is running.
@@ -2318,8 +2342,16 @@ public class FileSyncManager: ObservableObject {
         let publishedRight = rightTree
         let leftVersion = publishedLeftTreeVersion
         let rightVersion = publishedRightTreeVersion
+        // The two inputs the reconcile pass below re-applies. Snapshotted here so that pass can
+        // be skipped outright when neither moved, rather than rebuilt more cheaply.
+        let entryRawDifferencesVersion = rawDifferencesVersion
+        let entrySyncingVersion = syncingDifferenceIdsVersion
+        // Snapshot the published rows too, so their deep compare joins the trees' off the main
+        // actor. `[FileDifference]` is Sendable and this is a COW retain, not a copy.
+        let publishedDifferences = differences
+        let entryDifferencesVersion = publishedDifferencesVersion
 
-        let (state, leftTreeChanged, rightTreeChanged) = await Task.detached(priority: .userInitiated) {
+        let (state, leftTreeChanged, rightTreeChanged, differencesChanged) = await Task.detached(priority: .userInitiated) {
             let state = Self.computeFilteredState(
                 rawLeftTree: rawLeft,
                 rawRightTree: rawRight,
@@ -2331,7 +2363,10 @@ public class FileSyncManager: ObservableObject {
                 syncingDifferenceIds: syncingIds,
                 dropDriveDateNoise: dropDriveDateNoise
             )
-            return (state, state.leftTree != publishedLeft, state.rightTree != publishedRight)
+            return (state,
+                    state.leftTree != publishedLeft,
+                    state.rightTree != publishedRight,
+                    state.differences != publishedDifferences)
         }.value
 
         // Publish unless a newer pass (with a newer snapshot) already has: results may
@@ -2345,11 +2380,27 @@ public class FileSyncManager: ObservableObject {
         // `rawDifferences`, and re-stamp `isSyncing` from `syncingDifferenceIds` — in both
         // directions, so a row marked after the snapshot keeps its spinner and one cleared
         // after it doesn't get the spinner back.
-        var reconciledDifferences = state.differences
-        let liveIds = Set(rawDifferences.map(\.id))
-        reconciledDifferences.removeAll { !liveIds.contains($0.id) }
-        for i in reconciledDifferences.indices {
-            reconciledDifferences[i].isSyncing = syncingDifferenceIds.contains(reconciledDifferences[i].id)
+        //
+        // **Skipped entirely when neither input moved, which is the ordinary case.** Both halves
+        // are then provably no-ops: every row in `state.differences` was filtered FROM the same
+        // `rawDifferences`, so none can be missing from it, and `computeFilteredState` already
+        // stamped `isSyncing` from the same set (it skips that loop when the set is empty, which
+        // is the same answer — `FileDifference.isSyncing` defaults to false). Measured over
+        // 29,000 differences, the two together are ~5 ms of MAIN-ACTOR time per pass, on a
+        // function reached from eight call sites.
+        let reconciledDifferences: [FileDifference]
+        if rawDifferencesVersion == entryRawDifferencesVersion
+            && syncingDifferenceIdsVersion == entrySyncingVersion {
+            reconciledDifferences = state.differences
+        } else {
+            reconcilePassesRun += 1
+            var reconciled = state.differences
+            let liveIds = Set(rawDifferences.map(\.id))
+            reconciled.removeAll { !liveIds.contains($0.id) }
+            for i in reconciled.indices {
+                reconciled[i].isSyncing = syncingDifferenceIds.contains(reconciled[i].id)
+            }
+            reconciledDifferences = reconciled
         }
         // Assign only what actually changed. A load+scan cycle runs several filter passes and
         // each rebuilds fresh arrays, but republishing an unchanged tree still makes SwiftUI
@@ -2367,7 +2418,17 @@ public class FileSyncManager: ObservableObject {
         }
         if self.leftItemCount != state.leftItemCount { self.leftItemCount = state.leftItemCount }
         if self.rightItemCount != state.rightItemCount { self.rightItemCount = state.rightItemCount }
-        if self.differences != reconciledDifferences { self.differences = reconciledDifferences }
+        // The rows' deep compare, trusted from the detached pass on the same terms as the trees':
+        // only while nothing wrote the published list since entry, AND while the two inputs the
+        // reconcile pass re-applies also held — because it is those that make
+        // `reconciledDifferences` and `state.differences` the same value. Any of the three moving
+        // drops to the live compare, which is what this line always did.
+        let differencesNeedPublishing = publishedDifferencesVersion == entryDifferencesVersion
+            && rawDifferencesVersion == entryRawDifferencesVersion
+            && syncingDifferenceIdsVersion == entrySyncingVersion
+            ? differencesChanged
+            : self.differences != reconciledDifferences
+        if differencesNeedPublishing { self.differences = reconciledDifferences }
     }
 
     /// The pure core of `applyFilters()`: value inputs in, published-ready state out.
