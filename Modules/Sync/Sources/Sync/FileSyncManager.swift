@@ -2387,7 +2387,7 @@ public class FileSyncManager: ObservableObject {
         // stamped `isSyncing` from the same set (it skips that loop when the set is empty, which
         // is the same answer — `FileDifference.isSyncing` defaults to false). Measured over
         // 29,000 differences, the two together are ~5 ms of MAIN-ACTOR time per pass, on a
-        // function reached from eight call sites.
+        // function reached from sixteen call sites.
         let reconciledDifferences: [FileDifference]
         if rawDifferencesVersion == entryRawDifferencesVersion
             && syncingDifferenceIdsVersion == entrySyncingVersion {
