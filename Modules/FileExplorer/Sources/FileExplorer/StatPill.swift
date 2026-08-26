@@ -92,6 +92,12 @@ struct StatPill: View {
                     Text(count.formatted())
                         .scaledFont(PillVariant.standard.numberFont)
                         .monospacedDigit()
+                        // The same roll `Pill` gives the count on the other branch of this view —
+                        // the semantic path draws its own `Text` rather than delegating, so it
+                        // needs the transition applied here or the pill would roll its number
+                        // only while no status was showing.
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.35), value: count)
                     Text(label)
                         .scaledFont(PillVariant.standard.labelFont)
                     if let detail {

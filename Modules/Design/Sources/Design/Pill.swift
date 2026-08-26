@@ -124,6 +124,20 @@ public struct Pill: View {
     /// `ScaledFont.monospacedDigit()` is the same rendering applied one step earlier.
     private var textView: some View {
         let font = isNumeric ? variant.numberFont : variant.labelFont
-        return Text(text).scaledFont(isNumeric ? font.monospacedDigit() : font)
+        return Text(text)
+            .scaledFont(isNumeric ? font.monospacedDigit() : font)
+            // **A count that changes should roll, not cut.** The reclaim pill has done this since
+            // H5 and its comment sanctions keeping the roll even under Reduce Motion — a numeric
+            // content transition is a legible way to show a number moving, not decoration. It
+            // never reached the shared component, so every *other* live count in the app — diff
+            // totals, duplicate groups, the filing backlog — hard-swapped instead.
+            //
+            // Both halves are needed and neither works alone: `contentTransition` only says HOW
+            // to interpolate, and the change has to be inside an animation for anything to
+            // interpolate at all. Scoped by `value:` to the text itself, so nothing else in the
+            // pill animates when a count arrives. Non-numeric labels are left alone: rolling a
+            // word's glyphs is not the same effect, and reads as a glitch.
+            .contentTransition(isNumeric ? .numericText() : .identity)
+            .animation(isNumeric ? .easeInOut(duration: 0.35) : nil, value: text)
     }
 }
