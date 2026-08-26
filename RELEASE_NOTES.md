@@ -49,11 +49,11 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
 - **Rebuilding the list of differences stops taking every path apart to ask one question of it.**
   Deciding whether a path is hidden — whether any part of it begins with a dot — split the whole
   path into its components and built a string for each, once per difference, every time the list
-  was rebuilt. It is the one filter of the five with no setting behind it, since hiding hidden
-  files is the default, so it ran over every difference on every rebuild; on a tree with tens of
-  thousands of them it cost an order of magnitude more than everything around it. The path is read
-  once now, in place. Exactly the same files count as hidden as before, down to some deliberately
-  awkward names that the old reading is still left to decide.
+  was rebuilt. It is the one filter of the five that runs unless you ask it not to — hiding hidden
+  files is what a fresh session does — so it ran over every difference on every rebuild; on a tree
+  with tens of thousands of them it cost an order of magnitude more than everything around it. The
+  path is read once now, in place. Exactly the same files count as hidden as before, down to some
+  deliberately awkward names that the old reading is still left to decide.
 - **Scanning a large tree resolves far fewer paths.** Every directory the walk entered had its
   whole path resolved so the scan could tell whether it had been there before — a symlink-loop
   guard that fires essentially never, and the most expensive part of entering a directory. Only

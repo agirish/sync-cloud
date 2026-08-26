@@ -2486,9 +2486,13 @@ public class FileSyncManager: ObservableObject {
     
     /// Whether any component of `path` begins with a dot.
     ///
-    /// **The scan exists because this is the one filter in ``computeFilteredState`` that is not
-    /// behind a setting** — hiding hidden files is the default, so it runs over the whole
-    /// difference list on every rebuild, and the list runs to ~29,000 entries on a real tree.
+    /// **The scan exists because this is the one filter in ``computeFilteredState`` that runs in
+    /// the default configuration.** All five are behind an `if`, but the other four's conditions
+    /// are empty or false until something turns them on, whereas this one's — `showHiddenFiles`,
+    /// the ⇧⌘. toggle — starts `false`, so hiding hidden files is what a fresh session does. It
+    /// therefore runs over the whole difference list on every rebuild, and the list runs to
+    /// ~29,000 entries on a real tree.
+    ///
     /// `components(separatedBy:)` allocates an array AND a String per path component per call;
     /// measured over 29,000 differences that is ~37 ms a pass against ~2 ms for the scan below.
     ///
