@@ -571,6 +571,22 @@ The `v2.x` half of item 9 above, and the same verdict. `v2.x` carries both loops
 item in the 2026-08-25/26 run that a `v2.x` user would actually notice — the rest are slower, not
 wrong; this one freezes the window for about eleven seconds at each end of a bulk sync.
 
+### The Reduce Motion `withAnimation` gap landed on `main` 2026-08-26 — CLOSED: no backporting, by standing direction
+
+Four animations that only a `withAnimation` was driving now honour the setting: the expanding
+search field's reveal, Browse's folder sidebar, an Activity Log run's disclosure, the Differences
+count pills.
+
+**Applies to neither maintenance line as written, and the reason is worth recording rather than the
+verdict.** The fix depends on `designAnimation`/`withDesignAnimation`, which are `main`-only — the
+whole wrapper arrived in this release — so a pick would have to take the wrapper, its rule type and
+both coverage scans first. What DOES exist on `v3.x` and `v2.x` is the underlying defect: check
+`ExpandingSearchField`, `LogViewer`'s run disclosure and `DifferencesView`'s count pill on either
+line and the raw `withAnimation` is there, ungated. A line that wanted this without the wrapper
+would write `reduceMotion ? nil : …` at each site, which is four small edits and no new API.
+
+Browse's folder sidebar is `main`-only regardless: the sidebar itself shipped in v4.4.
+
 ### Nothing else confirmed
 
 Every safety family above is present on `v2.x`, and it is the line the `DeleteOutcome` family
