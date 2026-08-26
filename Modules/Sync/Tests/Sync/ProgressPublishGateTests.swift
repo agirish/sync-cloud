@@ -111,11 +111,11 @@ import Testing
     /// figure that is not computed has not been checked.
     @Test("The scan's `% 50` floor and the percent gate each cover the other's bad end")
     func fiftyFloorAndPercentGateCompose() {
-        func publishes(total: Int, floor: Bool, percent: Bool) -> Int {
+        func publishes(total: Int, everyFiftieth: Bool, percent: Bool) -> Int {
             var gate = ProgressPublishGate()
             var count = 0
             for done in 1...total {
-                if floor, !(done % 50 == 0 || done == total) { continue }
+                if everyFiftieth, !(done % 50 == 0 || done == total) { continue }
                 if percent, !gate.admits(completed: done, total: total) { continue }
                 count += 1
             }
@@ -126,19 +126,20 @@ import Testing
         // candidates move the percent on nearly every file, so it publishes 101 times against
         // the modulo's 3. This is the case that makes a drop-in replacement a regression, and
         // it is why the scan keeps its floor instead of adopting the gate the way Verify does.
-        #expect(publishes(total: 120, floor: true, percent: false) == 3)
-        #expect(publishes(total: 120, floor: false, percent: true) == 101)
-        #expect(publishes(total: 120, floor: true, percent: true) == 3)
+        #expect(publishes(total: 120, everyFiftieth: true, percent: false) == 3)
+        #expect(publishes(total: 120, everyFiftieth: false, percent: true) == 101)
+        #expect(publishes(total: 120, everyFiftieth: true, percent: true) == 3)
 
         // Large scan: the modulo ALONE is the 460-publish case the gate exists to cut.
-        #expect(publishes(total: 23_000, floor: true, percent: false) == 460)
-        #expect(publishes(total: 23_000, floor: true, percent: true) == 101)
+        #expect(publishes(total: 23_000, everyFiftieth: true, percent: false) == 460)
+        #expect(publishes(total: 23_000, everyFiftieth: true, percent: true) == 101)
 
         // Composed, neither end regresses: the traffic is min(total / 50, ~101).
         for total in [120, 1_000, 5_000, 23_000, 90_000] {
-            let composed = publishes(total: total, floor: true, percent: true)
-            let floorOnly = publishes(total: total, floor: true, percent: false)
-            #expect(composed <= floorOnly, "composition must never publish more than the floor alone")
+            let composed = publishes(total: total, everyFiftieth: true, percent: true)
+            let modulusOnly = publishes(total: total, everyFiftieth: true, percent: false)
+            #expect(composed <= modulusOnly,
+                    "composition must never publish more than the modulus alone")
             #expect(composed <= 101, "composition must never exceed the percent cap")
         }
     }
