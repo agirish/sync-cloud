@@ -572,6 +572,7 @@ public struct PaneTabStrip: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.hoverAffordance(.glyph))
+        .accessibilityLabel("New tab")
         // "here", because ⌘T opens the CURRENT folder and the result is two tabs with the same
         // name — so the control has to say what it did before it does it.
         .help("New tab here (⌘T)")

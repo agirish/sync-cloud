@@ -979,10 +979,13 @@ private struct AutomationRuleCard: View {
             Button(action: onPreview) { Image(systemName: AutomationsGlyph.preview).padding(4).contentShape(Rectangle()) }
                 .disabled(!canPreview)
                 .help(previewHelp)
+                .accessibilityLabel("Preview this rule")
             Button(action: onEdit) { Image(systemName: "pencil").padding(4).contentShape(Rectangle()) }
                 .help("Edit this rule")
+                .accessibilityLabel("Edit this rule")
             Button(role: .destructive, action: onDelete) { Image(systemName: "trash").padding(4).contentShape(Rectangle()) }
                 .help("Delete this rule")
+                .accessibilityLabel("Delete this rule")
                 .foregroundStyle(SemanticColor.error)
         }
         // Padded out for the wash, pulled back so the row's action cluster keeps its width.

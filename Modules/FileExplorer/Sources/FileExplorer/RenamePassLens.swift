@@ -174,6 +174,7 @@ struct RenamePassLens: View {
                     .buttonStyle(.plain)
                     .chromeHover()
                     .help("Reveal in Finder")
+                    .accessibilityLabel("Reveal in Finder")
                     Button { onFix([risky]) } label: {
                         Text("Fix")
                             .scaledFont(.caption)
@@ -249,6 +250,8 @@ struct RenamePassLens: View {
             }
             .buttonStyle(.plain)
             .chromeHover()
+            .accessibilityLabel(collapsedSections.contains(section.category)
+                                ? "Expand this section" : "Collapse this section")
             .help(collapsedSections.contains(section.category)
                     ? "Show this section" : "Hide this section")
             Pill(.mini, tint: tint(section.category),
@@ -296,6 +299,8 @@ struct RenamePassLens: View {
             }
             .buttonStyle(.plain)
             .chromeHover()
+            .accessibilityLabel(isGroupCollapsed(section.category, group)
+                                ? "Expand this group" : "Collapse this group")
             .help(isGroupCollapsed(section.category, group)
                     ? "Show these folders" : "Hide these folders")
             Text(group.parent.isEmpty ? "Top level" : group.parent + "/")
@@ -338,6 +343,9 @@ struct RenamePassLens: View {
             .buttonStyle(.plain)
             .chromeHover()
             .help(expanded.contains(plan.id) ? "Hide the renames" : "Show every rename in this folder")
+            // A disclosure whose only content is the chevron direction: the name has to carry the
+            // action, since there is no text beside it to carry the subject.
+            .accessibilityLabel(expanded.contains(plan.id) ? "Hide the renames" : "Show the renames")
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(RenameCategories.leaf(of: plan.relativePath))
@@ -381,6 +389,7 @@ struct RenamePassLens: View {
             .buttonStyle(.plain)
             .chromeHover()
             .help("Reveal this folder in Finder")
+            .accessibilityLabel("Reveal this folder in Finder")
 
             // No button on a plan of nothing but skips — "Rename 0" would be a zero the rest
             // of this screen refuses to draw.

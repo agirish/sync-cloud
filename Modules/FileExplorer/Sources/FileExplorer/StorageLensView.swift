@@ -561,6 +561,7 @@ private struct StorageEntryRow: View {
                 .focused($focusedControl, equals: .preview)
                 .opacity(controlsRevealed ? 1 : 0)
                 .help("Preview with Quick Look")
+                .accessibilityLabel("Preview with Quick Look")
             }
             if offloadStyle {
                 Button(action: onReveal) {
@@ -580,6 +581,7 @@ private struct StorageEntryRow: View {
                 .focused($focusedControl, equals: .reveal)
                 .opacity(controlsRevealed ? 1 : 0)
                 .help("Reveal in Finder")
+                .accessibilityLabel("Reveal in Finder")
             }
         }
         .padding(.horizontal, 12)

@@ -202,6 +202,7 @@ struct PersonEditor: View {
                     }
                     .buttonStyle(.hoverAffordance(.inline))
                     .help("Remove “\(value)”")
+                    .accessibilityLabel("Remove \(value)")
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)

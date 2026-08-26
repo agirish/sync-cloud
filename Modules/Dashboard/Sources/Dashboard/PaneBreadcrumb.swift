@@ -94,6 +94,7 @@ struct PaneBreadcrumb: View {
                     .menuIndicator(.hidden)
                     .fixedSize()
                     .help("Collapsed folders")
+                    .accessibilityLabel("Collapsed folders")
                 }
             }
             // The quick-jump affordance on the current folder: sibling folders (the lateral hop the

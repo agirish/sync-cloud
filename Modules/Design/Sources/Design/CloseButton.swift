@@ -20,6 +20,9 @@ public struct CloseButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.hoverAffordance(.glyph))
+        // A default rather than a decree — a call site that wants to name what it is closing can
+        // apply its own label outside this, and the outer one wins.
+        .accessibilityLabel("Close")
     }
 }
 

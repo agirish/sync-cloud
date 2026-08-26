@@ -41,6 +41,7 @@ struct PeopleTester: View {
                     }
                     .buttonStyle(.hoverAffordance(.inline))
                     .help("Clear")
+                    .accessibilityLabel("Clear the text")
                 }
             }
             if !text.isEmpty {

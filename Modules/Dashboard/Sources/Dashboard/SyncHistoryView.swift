@@ -181,6 +181,7 @@ public struct SyncHistoryView: View {
             .chromeHover()
             .disabled(filtered.isEmpty)
             .help("Export the \(filtered.count) shown \(filtered.count == 1 ? "record" : "records")")
+            .accessibilityLabel("Export the shown records")
 
             Button(action: { Self.clearIfConfirmed(store: store, confirm: confirmClearHistory) }) {
                 Image(systemName: "trash")
@@ -189,6 +190,7 @@ public struct SyncHistoryView: View {
             .controlSize(.small)
             .chromeHover()
             .disabled(store.records.isEmpty)
+            .accessibilityLabel("Clear the history")
             // Ellipsis: this asks first. It sits 34pt from the Export menu and empties the durable
             // record irreversibly, so it gets the same confirmation its siblings get — "Undo Last
             // Run" here, "Reset All Settings…" in Settings.

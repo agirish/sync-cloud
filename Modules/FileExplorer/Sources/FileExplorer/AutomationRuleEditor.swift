@@ -268,6 +268,7 @@ struct AutomationRuleEditor: View {
                 .padding(-3)
                 .foregroundStyle(.secondary)
                 .help("Remove this condition")
+                .accessibilityLabel("Remove this condition")
         }
     }
 
@@ -286,6 +287,7 @@ struct AutomationRuleEditor: View {
                 .buttonStyle(.hoverAffordance(.glyph, tint: accent)).controlSize(.small)
                 .padding(-3)
                 .help("Pick a folder — its name fills in")
+                .accessibilityLabel("Pick a folder")
             }
         case .nameMatches:
             TextField("*.pdf", text: stringBinding(condition))

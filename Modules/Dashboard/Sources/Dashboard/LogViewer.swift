@@ -494,6 +494,7 @@ public struct LogViewer: View {
                 .chromeHover(tint: hueAccent)
                 .disabled(filtered.isEmpty && visibleHistory.isEmpty)
                 .help("Copy the \(shownCount) shown \(shownCount == 1 ? "entry" : "entries") to the clipboard")
+                .accessibilityLabel("Copy the shown entries")
 
                 // The history reset rides the Logger's own notification, NOT this button:
                 // Settings has its own Clear Logs door, and a reset wired to one button left
@@ -516,6 +517,7 @@ public struct LogViewer: View {
                 // "Errors only" threshold is exactly that), with Settings ▸ Advanced the only way out.
                 .disabled(logger.entries.isEmpty && !history.isLoaded)
                 .help("Clear Logs")
+                .accessibilityLabel("Clear the log")
 
                 Button(action: { logger.openLogFile() }) {
                     Image(systemName: "doc.text")
@@ -524,6 +526,7 @@ public struct LogViewer: View {
                 .controlSize(.small)
                 .chromeHover(tint: hueAccent)
                 .help("Open in Console/TextEdit")
+                .accessibilityLabel("Open the log file")
 
                 // Search collapses to this magnifier — last item, far right, exactly where
                 // Compare's header puts it. Clicking reveals the field on the row below, which

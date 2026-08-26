@@ -1986,6 +1986,7 @@ struct SyncSettingsTab: View {
                         }
                         .buttonStyle(.hoverAffordance(.inline))
                         .help("Remove this pattern")
+                        .accessibilityLabel("Remove this pattern")
                     }
                 }
                 HStack(spacing: 8) {
@@ -2037,6 +2038,7 @@ private struct IgnoredItemsList: View {
                     }
                     .buttonStyle(.hoverAffordance(.inline))
                     .help("Stop ignoring this item")
+                    .accessibilityLabel("Stop ignoring this item")
                 }
             }
             HStack {
@@ -2514,6 +2516,7 @@ struct KeptNamesList: View {
                     }
                     .buttonStyle(.hoverAffordance(.inline))
                     .help("Report “\(name)” again — here, on its row, and in Organize")
+                    .accessibilityLabel("Report \(name) again")
                 }
             }
             HStack {
@@ -2832,6 +2835,7 @@ private struct PersonRow: View {
             }
             .buttonStyle(.hoverAffordance(.inline))
             .help("Remove \(person.displayName) from the household")
+            .accessibilityLabel("Remove \(person.displayName) from the household")
         }
         .padding(.vertical, 2)
         .help(tooltip)
