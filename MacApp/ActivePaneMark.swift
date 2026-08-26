@@ -73,6 +73,10 @@ struct ActivePaneMark: ViewModifier {
             // A change of target is a state change worth seeing, and it is the only thing on screen
             // that moves when the control is clicked — without it the mark simply appears somewhere
             // else and the eye has nothing to follow.
-            .animation(.easeOut(duration: 0.14), value: isFocused)
+            //
+            // Which is exactly why it goes through `designAnimation`: "the only thing that moves"
+            // is the description of something Reduce Motion is asking about. Under the setting the
+            // ring still marks the focused pane, it just arrives there instead of travelling.
+            .designAnimation(.easeOut(duration: 0.14), value: isFocused)
     }
 }

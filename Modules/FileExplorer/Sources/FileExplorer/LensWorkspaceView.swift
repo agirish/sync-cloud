@@ -3592,7 +3592,7 @@ public struct LensWorkspaceView: View {
             // Animate the list settling when a resolved/merged group leaves the array (H4). Keyed on
             // the visible id list so only membership changes animate — expand/collapse and keeper
             // picks (which don't change the id set) stay instant.
-            .animation(listSettle, value: RowIdentities(rows: dupGroups))
+            .designAnimation(listSettle, value: RowIdentities(rows: dupGroups))
         }
         .scrollContentBackground(.hidden)
         // Scrolling is the LAST step of a landing, and the only one that can fail silently: the
@@ -3870,7 +3870,7 @@ public struct LensWorkspaceView: View {
             .padding(densityMetrics.cardListPadding)
             // Slide + fade a filed/dismissed card out and settle the list (H4). Keyed on the id list
             // so only a card leaving animates; an emptied tier's header falls away in the same pass.
-            .animation(listSettle, value: RowIdentities(rows: filing))
+            .designAnimation(listSettle, value: RowIdentities(rows: filing))
         }
         .scrollContentBackground(.hidden)
     }

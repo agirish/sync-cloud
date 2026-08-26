@@ -398,9 +398,13 @@ public struct PaneTabStrip: View {
                     dragOffset = 0
                 }
         )
-        .animation(.easeOut(duration: 0.16), value: draggingTab)
+        .designAnimation(.easeOut(duration: 0.16), value: draggingTab)
         // The neighbours' step-aside, and the settle when the list re-orders under them.
-        .animation(.easeOut(duration: 0.16), value: dragOffset)
+        //
+        // Both of these travel, so both honour Reduce Motion: the drag itself is the user's own
+        // movement, but chips sliding out of the way under it is the app's, and that is the half
+        // the setting asks for. Under it the reorder lands without the shuffle.
+        .designAnimation(.easeOut(duration: 0.16), value: dragOffset)
         .onHover { hovering in
             // Only ever clear the id this chip set: the pointer can enter the next chip before this
             // one's exit arrives, and an unconditional `nil` on exit would then blank the ✕ that

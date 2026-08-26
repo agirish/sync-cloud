@@ -2904,7 +2904,11 @@ struct ContentView: View {
                 }
                 // Quick fade on appear/disappear only (keyed on presence, not the edge), so clicking
                 // a file shows the bar at once and clearing the selection fades it out.
-                .animation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
+                //
+                // Through `designAnimation` because the transition it drives is not only a fade —
+                // it carries `.move(edge:)`, so the bar slides in from the top or bottom. Under
+                // Reduce Motion the whole insertion lands at once rather than travelling.
+                .designAnimation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
         }
         // **The pane the sidebar opens into, marked on the pane.**
         //

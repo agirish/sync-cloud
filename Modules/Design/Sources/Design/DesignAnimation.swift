@@ -29,6 +29,15 @@ import SwiftUI
 ///   setting rather than a concession to it.
 ///
 /// Do not "finish the job" by converting those. The audit that leaves them alone is the design.
+///
+/// **And the audit is enforced, because in prose alone it could not tell an exempted site from a
+/// missed one.** `ReduceMotionCoverageScanTests` reads every raw `.animation(_:value:)` in
+/// `Modules/*/Sources` and `MacApp` and fails unless each is listed with the family it belongs to.
+/// It was written after six movers turned up unconverted on the first sweep — both of
+/// `PaneTabStrip`'s drag animations, both of `LensWorkspaceView`'s list settles,
+/// `ActivePaneMark`'s focus ring and the selection bar's appear/disappear — none of which belonged
+/// to any of the three families above. A new raw `.animation` fails that test until it is
+/// classified, which is the step that did not happen before.
 public extension View {
 
     /// Applies `animation` unless Reduce Motion is on, in which case the change arrives with no
