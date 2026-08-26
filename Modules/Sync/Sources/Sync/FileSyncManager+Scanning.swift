@@ -1157,15 +1157,45 @@ extension FileSyncManager {
                 /// resource identifiers of the resolved target. Injected mocks — where
                 /// resourceValues would hit the real disk — fall back to the resolved path,
                 /// which is exact for mock disks (they contain no symlinks).
-                func directoryIdentity(of dirURL: URL) -> DirectoryIdentity {
-                    let resolved = dirURL.resolvingSymlinksInPath()
-                    if fileManager is FileManager,
-                       let rv = try? resolved.resourceValues(forKeys: [.volumeIdentifierKey, .fileResourceIdentifierKey]),
-                       let volume = rv.volumeIdentifier as? NSObject,
-                       let file = rv.fileResourceIdentifier as? NSObject {
-                        return .fileResource(volume: volume, file: file)
+                ///
+                /// - Parameter isSymbolicLink: whether `dirURL`'s **last component** is itself a
+                ///   link. Only then is the path resolved, and the distinction is exact rather
+                ///   than an approximation:
+                ///
+                ///   * `resourceValues` reports the LINK's own identity for a symlink, not its
+                ///     target's — measured, and it is why the resolve cannot simply be deleted.
+                ///     A cycle is always reached through a link, so that case must still resolve
+                ///     or the guard stops working entirely.
+                ///   * A directory whose last component is NOT a link reports its target identity
+                ///     with or without the resolve, **including when a symlinked ancestor is on
+                ///     the path** — the kernel resolves intermediate components during the walk.
+                ///     Also measured, and it is what makes skipping safe for the overwhelming
+                ///     majority: the identity that lands in `visited` is the same value either way.
+                ///
+                ///   The walk already knows this per node (`ItemStat.isSymlink`, from the
+                ///   prefetched `.isSymbolicLinkKey`), so it costs nothing to ask. It defaults to
+                ///   `true` — resolve — so a caller that cannot answer keeps the old behaviour.
+                ///
+                ///   Worth ~5.4µs of the ~10.8µs each directory used to pay here, measured over
+                ///   5,063 real directories; `resolvingSymlinksInPath` is a full path walk, while
+                ///   the identity fetch that remains is about 1µs warm.
+                func directoryIdentity(of dirURL: URL, isSymbolicLink: Bool = true) -> DirectoryIdentity {
+                    if fileManager is FileManager {
+                        let target = isSymbolicLink ? dirURL.resolvingSymlinksInPath() : dirURL
+                        if let rv = try? target.resourceValues(forKeys: [.volumeIdentifierKey, .fileResourceIdentifierKey]),
+                           let volume = rv.volumeIdentifier as? NSObject,
+                           let file = rv.fileResourceIdentifier as? NSObject {
+                            return .fileResource(volume: volume, file: file)
+                        }
                     }
-                    return .path(resolved.standardizedFileURL.path)
+                    // The mock fallback resolves UNCONDITIONALLY, unlike the branch above, and the
+                    // asymmetry is deliberate. A `.path` identity is a string, so a Set holding
+                    // both resolved and unresolved spellings of one directory would not recognize
+                    // its own ancestor — and on this platform that is not hypothetical: a temp root
+                    // under `/var/folders/…` resolves to `/private/var/folders/…`, so the two
+                    // spellings differ for exactly the paths tests use. The inode branch above has
+                    // no such hazard, which is why only it is allowed to skip.
+                    return .path(dirURL.resolvingSymlinksInPath().standardizedFileURL.path)
                 }
 
                 /// Immediate children of a directory. For the real filesystem this batch-prefetches
@@ -1321,7 +1351,7 @@ extension FileSyncManager {
                     // linked content), but a link back into a directory already on the
                     // current path is a cycle (A/loop -> A) that would recurse forever.
                     // Show such a directory once, unexplored — same shape as the depth cap.
-                    let identity = directoryIdentity(of: fullURL)
+                    let identity = directoryIdentity(of: fullURL, isSymbolicLink: s.isSymlink)
                     if visited.contains(identity) || depth >= Self.hardDepthCap {
                         return cappedNode(fullURL, s)
                     }
