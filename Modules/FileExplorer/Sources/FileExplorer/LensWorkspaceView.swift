@@ -2272,7 +2272,7 @@ public struct LensWorkspaceView: View {
         if let status = syncManager.filingSurveyLifecycle.status,
            syncManager.filingSurveyLifecycle.isRunning {
             HStack(spacing: 5) {
-                ProgressView().controlSize(.small).scaleEffect(0.7)
+                InlineSpinner()
                 Text(status).scaledFont(.caption).lineLimit(1)
             }
             .foregroundStyle(.secondary)

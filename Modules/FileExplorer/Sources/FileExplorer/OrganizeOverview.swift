@@ -736,7 +736,7 @@ struct OrganizeOverview: View {
                         // for exactly this reason — see `OrganizeLens.goesStaleDuringFilingScan`.
                         // Saying so beats redrawing a stale figure in confident bold.
                         HStack(spacing: 5) {
-                            ProgressView().controlSize(.small).scaleEffect(0.7)
+                            InlineSpinner()
                             Text("rescanning")
                                 .scaledFont(.system(size: 11))
                                 .foregroundStyle(.secondary)
@@ -835,7 +835,7 @@ struct OrganizeOverview: View {
                 Spacer(minLength: 8)
                 if isRunning {
                     HStack(spacing: 5) {
-                        ProgressView().controlSize(.small).scaleEffect(0.7)
+                        InlineSpinner()
                         Text("Running…")
                             .scaledFont(.system(size: 11))
                             .foregroundStyle(.secondary)
