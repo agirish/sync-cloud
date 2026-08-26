@@ -11,35 +11,26 @@ that major's last tag when the next major opens on `main`:
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
 | `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
 
-**Decide where work goes before starting it:**
+**Land on `main`. No backporting — standing direction, given 2026-08-26 without a scope limit
+(`e2b35dad`), and it governs new work generally rather than one batch.** This replaced an
+oldest-line-first rule; do not re-derive that rule from the shape of the table, and do not re-raise
+the question per batch.
 
-- **Breaks behaviour, removes a feature, or restructures** → `main` only.
-- **Everything else** → land on the **oldest line that carries the code**, then cherry-pick forward
-  onto every newer line, in the same session. Oldest-first because a patch written against 2.x
-  almost always applies forward; a fix written on `main` "to backport later" is how a fix gets lost.
-  Three lines means three landings — that is the cost of keeping the lines, not a reason to skip one.
-- **Code that exists only on `main`** → `main`.
+**Record the gap anyway, in [`docs/backports.md`](docs/backports.md).** Those rows are now a
+*record* of what `main` carries that `v3.x` and `v2.x` do not — what a future audit needs if the
+direction ever changes — not a to-do list. Write down both directions: "checked and not owed" saves
+the next audit as much time as "owed", and the per-file pick notes are the expensive half to
+reconstruct. The file is carried on all three lines, so a maintainer on a maintenance line can read
+it without going through `main`. Largest known gap: **`v3.x` has none of the `DeleteOutcome`
+family**, so it cannot tell a trashed item from a permanently deleted one and offers ⌘Z for removals
+it cannot take back.
 
-**"Applies" means the code is there, not that a user would notice.** Deliberately low bar: bug fixes,
-minor features needing no redesign, test-only changes, flake fixes, docs and tooling all go to every
-line carrying the file. The narrower reading ("only what matters to someone running 2.8") is what
-this said before, and under it a shared test helper's fix read as a judgement call to argue rather
-than the default — nothing announces a maintenance line quietly keeping a defect its own CI hits.
-
-Two commands settle it per line; byte-identical files cherry-pick clean:
+Two commands answer "does this line even carry the code?", if an audit ever needs it:
 
 ```sh
-for l in v2.x v3.x; do git ls-tree -r --name-only origin/$l -- <path>; done   # which lines carry it?
+for l in v2.x v3.x; do git ls-tree -r --name-only origin/$l -- <path>; done
 diff <(git show origin/main:<f>) <(git show origin/v3.x:<f>)
 ```
-
-**What each line is OWED is tracked in [`docs/backports.md`](docs/backports.md)** — confirmed gaps,
-families checked and deliberately *not* owed, and the size of the unaudited surface. Carried on all
-three lines, so a maintainer on `v2.x` or `v3.x` can read it without going through `main`. Record
-decisions there in either direction: "checked and not owed" saves the next audit as much time as
-"owed". Open and deliberately deferred: **`v3.x` has none of the `DeleteOutcome` family**, so it
-cannot tell a trashed item from a permanently deleted one and offers ⌘Z for removals it cannot take
-back — a scope call, reasoning in that file.
 
 **If a maintenance line is ever cut again, add its row here and to `branches:` in
 `.github/workflows/tests.yml` in the same commit that pushes the branch.** `v3.x` sat undocumented
@@ -95,8 +86,10 @@ not a scratch space — do not edit it while work is in progress.
      git push origin <task>:v2.x        # v2.x (likewise <task>:v3.x)
      git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task> && git push   # main
      ```
-   - If it was a maintenance-line fix that also applies forward, **cherry-pick it now** —
-     `v2.x` → `v3.x` → `main`, not later. Verify each with `git branch -r --contains <sha>`.
+   - Record any maintenance-line gap in `docs/backports.md` — a record, not a to-do; see the
+     standing direction above. (If a maintenance fix is ever authorised again, pick it forward in
+     the same session, `v2.x` → `v3.x` → `main`, and verify by CONTENT: a cherry-pick has a new SHA,
+     so `git branch -r --contains` answers about the wrong commit.)
    - `git worktree remove /Users/abhishek/Projects/SyncCloud-<task>`.
 
 Commit and push **proactively** as work lands; don't wait to be asked each time.
@@ -173,86 +166,73 @@ identifies the version, not the build. **Keep MINOR under 100** or it stops bein
 **The notes are part of the release too** — v2.9 reached the point of being tagged with none, because
 nothing here said to write them. They live in two places:
 
-- `RELEASE_NOTES.md` — **`main` is the superset; a maintenance line carries only the releases it can
-  run.** Write them on the line that owns the release; if that is a maintenance line, cherry-pick
-  **forward** to `main`. **Do not send a newer major's sections backward** — `v4.0` and `v4.1` stay
-  on `main` alone.
+- `RELEASE_NOTES.md` — `main` is the superset. **The test is whether a section is addressed to that
+  line's reader, not whether the files match byte for byte**, so `cmp` is not the check and a section
+  `main` has that a maintenance line lacks is not a finding. Baseline (2026-08-17, all correct):
+  `v2.x` and `v3.x` are byte-identical and agree with `main` from `## v3.0` down; `main` adds `v4.0`
+  onward plus four bullets retrofitted into `## v3.1` (`27fa9c14`).
+- `docs/releases.html` — **`main` only.** Pages serves `docs/` from `main`. Add the new article ahead
+  of the last one.
 
-  **The test is whether the section is addressed to that line's reader, not whether the file matches
-  byte for byte**, so `cmp` is not the check and a section `main` has that a maintenance line lacks
-  is not a finding. A `v4.0` section on `v2.x` would warn that "rules you create in v4.0 cannot be
-  read by `v3.x`" — addressed to somebody who cannot run v4, in the notes of somebody who cannot
-  leave 2.x. The precedent cuts both ways: `v2.x` carries the full `v3.0` section deliberately,
-  because its "**if you are on macOS 15, stay on the 2.x line**" only functions in front of a 2.x
-  reader. Baseline (2026-08-17, all correct, none of it drift): `v2.x` and `v3.x` are byte-identical
-  and agree with `main` from `## v3.0` down; `main` adds `v4.0`, `v4.1`, four bullets inside
-  `## v3.1` (retroactively, `27fa9c14`), and whatever release is currently in draft.
-- `docs/releases.html` — **`main` only.** GitHub Pages serves `docs/` from `main`, so a section
-  landed solely on `v2.x` publishes nothing. Add the new article ahead of the last one.
+**The badge flips at the cut, not when the notes are written.** Pages goes live the moment the notes
+land, so an article carrying `latest` announces a release nobody can install — v4.2 shipped that way
+and had to be fixed on a live site. A draft lands as `<article class="rel draft">` with
+`<span class="tag draft">In development</span>`, the previous release **keeps** `latest`, and the
+footer reads `Changes so far: <tag>...main` (the compare link cannot name a tag that does not exist).
+`RELEASE_NOTES.md` gets `## <version> — DRAFT, not released` plus a blockquote. `586333f8` is the
+v4.1 cut that did it right; these flip in step 1 of **Cutting it**.
 
-  **The badge flips at the cut, not when the notes are written** — the whole reason the draft styles
-  exist. Pages is live the moment the notes land, so an article carrying `latest` announces a release
-  nobody can install. Notes are normally drafted well before the tag, so a draft lands as
-  `<article class="rel draft">` with `<span class="tag draft">In development</span>`, the previous
-  release **keeps** `latest`, and the footer reads `Changes so far: <tag>...main`, because the
-  compare link cannot name a tag that does not exist yet. `RELEASE_NOTES.md` gets the matching
-  `## <version> — DRAFT, not released` heading and a blockquote. These flip in step 1 of
-  **Cutting it**. v4.2 shipped its notes with `latest` already on them and had to be corrected on a
-  live site; `586333f8` is the v4.1 cut that did it right.
-
-  **Do not treat that as a checklist of everything to flip — a draft says "not released" in prose
-  too, and prose has no markup to enumerate.** This used to read "all four flip together", and the
-  v4.3 draft carried two more that the four could not name: an HTML comment reading
-  `<!-- v4.3 — DRAFT, not released. Keep the Latest badge on v4.2 … -->` where every other article
-  carries a plain `<!-- vX.Y -->`, and a `<b>Not released yet</b> — this is what is on main today`
-  clause opening the `<p class="lede">`, which is the **first sentence a reader sees**. Both survived
-  a flip that moved every one of the four correctly. Neither was reachable from a markup checklist,
-  because neither existed when it was written — and the next draft will invent its own. So after
-  flipping, **grep both files for the words rather than the markup**, and account for every hit:
-
-  ```sh
-  grep -in 'draft\|not released\|still to come\|changes so far\|in development' \
-       RELEASE_NOTES.md docs/releases.html
-  ```
-
-  It does not come back empty, so read it rather than counting it: at the v4.3 cut the surviving
-  hits were the three `.rel.draft` CSS rules and two v4.1 bullets using "draft" about a *person
-  name*. A hit inside the release being cut is the finding; everything else must be named.
-
-  **A "Still to come in <version>" section cannot survive the cut it was written ahead of.** What is
-  still missing at the tag is a limitation of the release, not a promise inside it: rename the
-  heading to `### Known limitations` in `RELEASE_NOTES.md` and reword the HTML `<p class="known">`
-  from "Still to come in vX.Y." to "**Not in vX.Y.**" — the shape `v4.1` already uses for the folder
-  profile it shipped with nothing able to reach it.
-
-**Then audit every claim against the previous tag before publishing** — one command per claim, did
-the thing this describes exist at the last tag?
+**That is not a checklist of everything to flip — a draft says "not released" in prose too, and
+prose has no markup to enumerate.** The v4.3 draft carried an HTML comment and a `<b>Not released
+yet</b>` clause opening the lede — the first sentence a reader sees — and both survived a flip that
+moved every marker correctly. Neither was reachable from a markup checklist because neither existed
+when it was written, and the next draft will invent its own. **So grep for the words, before you
+commit:**
 
 ```sh
-git grep -l "<symbol>" v2.8 -- Modules SyncCloudCLI MacApp | grep "/Sources/"
+grep -in 'draft\|not released\|still to come\|changes so far\|in development' \
+     RELEASE_NOTES.md docs/releases.html
 ```
 
-- **Audit the section before its bullets.** When a feature arrives inside the range, every "used to /
-  was doing / had been" clause describes that feature's own construction — there is no prior
-  behaviour for it to be better than. Five of eleven v4.1 tab bullets carried one; all five went, and
-  the section read as a feature plus fixes but was a feature. Delete every "used to" in one pass.
-- **Cut the self-inflicted.** Five of v2.9's eighteen entries were introduced *and* fixed inside the
-  range, so no user of the previous release was ever exposed. Shipping those counts work that reached
-  nobody.
+It never comes back empty — read it, do not count it. At the v4.5 cut the survivors were the three
+`.rel.draft` CSS rules (the next draft needs them) and one v4.1 bullet using "draft" about a rule the
+editor is composing. **A hit inside the release being cut is the finding; every other hit must be
+named.**
+
+**A "Still to come in <version>" section cannot survive the cut it was written ahead of.** What is
+missing at the tag is a limitation, not a promise: rename it to `### Known limitations`, and reword
+the HTML `<p class="known">` to "**Not in vX.Y.**".
+
+**Then audit every claim against the previous tag** — one command per claim, did this exist at the
+last tag?
+
+```sh
+git grep -l "<symbol>" v4.4 -- Modules SyncCloudCLI MacApp | grep "/Sources/"
+```
+
+- **Audit the section before its bullets.** A feature that arrives inside the range has no prior
+  behaviour to be better than, so every "used to / was doing" clause in it is false by construction.
+  Five of eleven v4.1 tab bullets carried one. Delete them in one pass.
+- **Cut the self-inflicted** — introduced *and* fixed inside the range, so no user of the previous
+  release was ever exposed. Five of v2.9's eighteen.
 - **A commit whose subject is about coverage is not a user-facing fix.** One v2.9 entry credited a
-  behaviour the previous release already had; the commit behind it had added a *test*.
-- **A new file does not mean a new bug — check the behaviour, not the file's age.** Two v2.9 claims
-  survived a challenge for this reason: a `git blame` proxy flagged them because the surrounding code
-  was *refactored* in-range, but the behaviour predated it. That direction matters as much.
-- **A number that lives in prose rather than in test output has not been checked.** Both figures in
-  v4.1's pane-bullet were wrong — "Birth Certificate needs 95.7pt" was measured in the wrong *face*
-  (the row draws SF Rounded; the real figure is 92.9), and the 77.6/154pt pair was ~13pt out in both
-  halves. Treat a number you cannot reproduce as a finding, not a rounding difference: chasing 95.7
-  is what turned up `ScaledFont.nsFont(scale:)` silently dropping `.rounded`, fixed in `97154a32`.
+  behaviour the release already had; the commit had added a *test*.
+- **A new file does not mean a new bug.** Two v2.9 claims survived a `git blame` challenge because
+  the code was refactored in-range while the behaviour predated it. That direction matters as much.
+- **A number that lives in prose rather than test output has not been checked.** Both figures in
+  v4.1's pane-bullet were wrong; chasing one turned up `ScaledFont.nsFont(scale:)` silently dropping
+  `.rounded` (`97154a32`). Treat a number you cannot reproduce as a finding, not a rounding
+  difference — and prefer printing the measurement ("about 37 ms a pass, now about 2 ms") over
+  describing it ("an order of magnitude"), because only the first is checkable by the next reader.
+- **A number in a TEST's doc comment is still prose, and can go stale inside one release.** v4.5 said
+  "twenty-six glyph-only buttons" on the authority of the scan that produced it — and a later commit
+  in the same range named two more. Count the net against the tag:
+  `git diff v4.4..HEAD -- 'Modules/*/Sources/*' 'MacApp/*' | grep -c '^+ *\.accessibilityLabel('`.
+- **A quoted UI string is a claim.** v4.5 told readers a feature was "still available as *Mentions
+  all of*"; the label is "Mentions the words". One `git grep` on every quoted label — a reader takes
+  it into the app and looks for it.
 - **A sentence about how the code is *structured* needs the same grep as one about what it does.**
-  Two v4.1 claims asserted the opposite of the code, from intent: that ⌘T's menu item says "here" (it
-  is `Button("New Tab")`, under a comment explaining why it deliberately does not), and that a mirror
-  test is "shared as one expression" (it is written twice). Publishing that a drift hazard is
+  Two v4.1 claims asserted the opposite of the code, from intent. Publishing that a drift hazard is
   structurally prevented, when only two copies currently agreeing prevent it, is worse than silence.
 
 Two tells. **"again"** in a claim ("fits on a small display *again*") usually means the release broke
@@ -277,8 +257,20 @@ stay empty. Work in a worktree as always.
 2. **Regenerate and update the test marker.** Run `xcodegen`, and set `versionMarker` in
    `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` to the same string — that literal is
    what gives `theVersionLineFitsTheRailOnOneLine` something real to measure (see below).
-3. **Commit, land on the line, and let CI go green for that SHA.** Then **check that the folder
-   survey's ground truth actually ran**, which a green run does not tell you:
+3. **Commit, land on the line, and let CI go green for that SHA — and STAY OFF THE MACHINE while
+   it runs.** The self-hosted runner IS this Mac. The v4.5 cut took three attempts on one SHA:
+   attempts 1 and 2 failed while local `swift test` runs were competing with the runner, and
+   attempt 3 went green on the same commit, no code changed, with the machine quiet and the load
+   average down from 6.61 to 4.20. Both flake families here — gate parking and log-buffer eviction,
+   mechanisms 10 and 12 in `docs/flaky-tests.md` — are load-sensitive, so a busy machine
+   manufactures exactly the reds that look like a bad release. Check `uptime` and
+   `gh api repos/agirish/sync-cloud/actions/runners --jq '.runners[].busy'` BEFORE rerunning, and
+   budget a rerun into the cut rather than reading the first red as a verdict. The discriminator, if
+   you need one: run the failing suites locally at the red SHA — sub-second green there against a
+   ~12s timeout on CI is load, not code.
+
+   Then **check that the folder survey's ground truth actually ran**, which a green run does not
+   tell you:
    `FolderSurveyGroundTruthTests` is the only suite comparing the survey rules to a real tree, and it
    is gated on a live profile and an awake display, so it is routinely absent from a green package
    run. `FolderSurveyGroundTruthGateTests` always runs and prints the verdict:
@@ -287,8 +279,12 @@ stay empty. Work in a worktree as always.
    gh run view <run-id> --log | grep '\[ground-truth\]'   # want: RAN — …
    ```
 
-   A `SKIPPED` line names which gate closed it. Not a reason to hold the cut on its own, but a reason
-   not to believe the rules were checked against reality in it.
+   A `SKIPPED` line names which gate closed it. On CI it always says `liveProfile is in
+   SYNCCLOUD_SKIP_MACHINE_PINNED` — that gate never opens there, by design — so the only way to get
+   a RAN is locally, and the display must be **woken and HELD**: `caffeinate -u <cmd>` only prevents
+   sleep and a short `-t` expires during the rebuild, before the gate reads it.
+   `nohup caffeinate -u -t 1200 &`, run it, then `pkill` the hold. Not a reason to hold the cut on
+   its own, but a reason not to believe the rules were checked against reality in it.
 4. **Tag that exact commit and push the tag** — `git tag v2.9 <sha> && git push origin v2.9` —
    **before** creating the GitHub release, so the release binds to a tag that already exists. Then
    cut it, and **pass `--target` explicitly — it is the line that owns the release, not the default
