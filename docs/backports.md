@@ -253,13 +253,20 @@ on all three.
 None of the four is user-visible on its own — they are scan-time and scroll-time costs — so a line
 that never receives them is slower, not wrong. That is the whole reason deferring them was reasonable.
 
-### 7. Three visual-polish items landed on `main` 2026-08-25 — OPEN, owed to BOTH lines, DEFERRED PENDING HIS CALL
+### 7. Three visual-polish items landed on `main` 2026-08-25 — CLOSED, not owed: no backporting, by standing direction
 
-The sibling of item 6, from the same proposal document, and recorded on the same terms — but the
-deferral here is **weaker evidence than item 6's**, and the difference matters. Item 6 carries an
-explicit instruction. These three were landed `main`-only by consistency with it, on the same day,
-and **he has not been asked about this batch**. Treat this as an open question, not a settled
-decision: if the next audit wants them, ask rather than assuming the answer is the same.
+The sibling of item 6, from the same proposal document. Filed on 2026-08-25 as an open question,
+because these three were landed `main`-only by consistency with item 6's instruction rather than by
+one of their own, and unlike item 6's four they are user-visible.
+
+**Asked and answered the same day: "No backporting."** Said without a scope limit, in reply to
+exactly this question, so it governs new work generally and not just this batch — the maintenance
+lines are not being fed right now. That makes the row below a record of what `main` has that the
+other lines do not, kept for a future audit's benefit, rather than a to-do list. Item 6 above is
+covered by the same answer.
+
+**Do not re-raise this per batch.** The pick notes stay because they cost nothing and they are the
+expensive half to reconstruct if the direction ever changes.
 
 | Landed on `main` | Files | Note for a later pick |
 |---|---|---|
@@ -270,10 +277,10 @@ decision: if the next audit wants them, ask rather than assuming the answer is t
 The fourth item in the batch — `Give the app one radius scale and one overlay elevation` — is
 **main-only by rule** and is filed under *Main-only by rule, so never owed* below, not here.
 
-All three are visible to a user, unlike item 6's four: a maintenance line that never receives them
-keeps counts that hard-cut, markers that blink, and a first-run sheet whose controls do not respond
-to the pointer. That is a real difference from item 6's "slower, not wrong", and it is the argument
-for asking rather than letting the deferral stand by inertia.
+All three are visible to a user, unlike item 6's four: `v3.x` and `v2.x` keep counts that hard-cut,
+markers that blink, and a first-run sheet whose controls do not respond to the pointer. That is a
+real difference from item 6's "slower, not wrong" — it is why this was worth asking about once, and
+it is what the maintenance lines are knowingly keeping.
 
 ### Checked and NOT owed
 
@@ -486,12 +493,12 @@ Same entry as `v3.x` item 6 above, and owed on the same terms — see it for the
 per-file pick notes and the measured divergences. Deferred by his decision on 2026-08-25, not by a
 judgement that the code does not apply: it does, on every one of the four files.
 
-### Three visual-polish items landed on `main` 2026-08-25 — OPEN, DEFERRED PENDING HIS CALL
+### Three visual-polish items landed on `main` 2026-08-25 — CLOSED: no backporting, by standing direction
 
-Same entry as `v3.x` item 7 above, and owed on the same terms — see it for the commit list and the
-per-file pick notes. **The deferral here is by consistency with the performance batch, not by a
-decision he was asked for**, which is the one thing to carry forward: unlike the entry above it,
-this one is an open question.
+Same entry as `v3.x` item 7 above — see it for the commit list and the per-file pick notes.
+**Closed by his standing "No backporting" of 2026-08-25**, given in reply to this exact question and
+without a scope limit, so it covers new work generally. The notes below are a record of the gap, not
+a plan to close it.
 
 Two extra notes for this line specifically. The workspace bar the marker-slide half targets is a v4
 surface, so check `Workspace.allCases` exists here before planning that pick at all. And the setup
