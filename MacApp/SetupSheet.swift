@@ -796,8 +796,17 @@ struct SetupSheet: View {
                                                 .padding(-3)
                                         }
                                     }
+                                    // The padding-compensation idiom: a bare 17pt disc has no room
+                                    // inside it for a wash, so the room is padded IN here and taken
+                                    // back OUT below. The two numbers move together — at rest the
+                                    // row's footprint is byte-identical to before.
+                                    .padding(4)
                             }
-                            .buttonStyle(.plain)
+                            // `.segment` with the hue's own tint, matching `HueOptionView` in
+                            // Settings ▸ Appearance — the same control, and it should not answer
+                            // the pointer in two different ways depending on where you met it.
+                            .buttonStyle(.hoverAffordance(.segment, tint: hue.accentColor, shape: .circle))
+                            .padding(-4)
                             .help(hue.displayName)
                             .accessibilityLabel(hue.displayName)
                         }
@@ -927,7 +936,11 @@ struct SetupSheet: View {
                     }
                     .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            // A chip that fills when it wins — exactly what `.segment` is for: hovering an
+            // unchosen source previews the accent fill clicking it would take. The style's own
+            // `isEnabled` guard keeps the already-primary row inert, so this composes with the
+            // `.disabled` below rather than fighting it.
+            .buttonStyle(.hoverAffordance(.segment))
             // The label already reads "Primary"; without this the chosen row announces a button
             // somebody can press, which is exactly what it is not.
             .disabled(!isEnabled || isPrimary)
@@ -1076,11 +1089,21 @@ struct SetupSheet: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 8)
-                            Button("Remove") { removePerson(named: name) }
-                                .controlSize(.small)
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.secondary)
-                                .disabled(rosterIsReadOnly)
+                            Button { removePerson(named: name) } label: {
+                                Text("Remove")
+                                    .hoverInk()
+                                    // Room for the wash, cancelled below — see the hue swatch.
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                            }
+                            .controlSize(.small)
+                            // `.inline`, not `.segment`: this washes in INK rather than the accent,
+                            // because an inviting accent bloom under the pointer misreads what the
+                            // button does to the name beside it.
+                            .buttonStyle(.hoverAffordance(.inline, shape: .roundedRect(Radius.chip)))
+                            .padding(.horizontal, -5)
+                            .padding(.vertical, -2)
+                            .disabled(rosterIsReadOnly)
                         }
                         .padding(.horizontal, 11)
                         .padding(.vertical, 7)
@@ -1184,7 +1207,8 @@ struct SetupSheet: View {
             .background(Capsule().fill(Color.secondary.opacity(0.10)))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        // Adding this candidate fills the capsule on the roster above; hovering previews that.
+        .buttonStyle(.hoverAffordance(.segment))
         .disabled(rosterIsReadOnly)
         .help(peopleEvidence(candidate))
         .accessibilityLabel("Add \(candidate.name), \(peopleEvidence(candidate))")
@@ -1396,7 +1420,9 @@ struct SetupSheet: View {
             .foregroundStyle(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.primary))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        // A genuine toggle: it already carries the accent fill when on, so `.segment`'s wash is
+        // the preview of the state the click would put it in, in both directions.
+        .buttonStyle(.hoverAffordance(.segment))
         .help(placeEvidence(candidate))
         .accessibilityLabel("\(candidate.value), \(placeEvidence(candidate))")
     }
@@ -1605,13 +1631,23 @@ struct SetupSheet: View {
             // that owns it. Reporting only a dismissal would leave `hasCompletedSetup` false, so
             // the next launch of a machine that has not been surveyed would greet them with the
             // form all over again — for having read their own summary.
-            Button("Change") {
+            Button {
                 onFinish()
                 onOpenSettings(tab)
+            } label: {
+                Text("Change")
+                    .foregroundStyle(.tint)
+                    // Room for the wash, cancelled below — see the hue swatch.
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
             }
-                .controlSize(.small)
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
+            .controlSize(.small)
+            // `.glyph` — the plain chrome-less row action. Not `.inline`: this one opens a
+            // settings tab rather than clearing anything, so the accent wash is the right
+            // invitation and the ink wash would be the wrong one.
+            .buttonStyle(.hoverAffordance(.glyph, shape: .roundedRect(Radius.chip)))
+            .padding(.horizontal, -5)
+            .padding(.vertical, -2)
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 8)
@@ -1828,9 +1864,16 @@ private struct FlowChips: View {
                         } label: {
                             Image(systemName: "xmark")
                                 .scaledFont(.caption2)
-                                .foregroundStyle(.secondary)
+                                // `hoverInk` rather than a flat `.foregroundStyle(.secondary)`:
+                                // the style cannot lift a label's ink from outside, because the
+                                // label's own modifier is applied inside it.
+                                .hoverInk()
+                                // Room for the wash, cancelled below — see the hue swatch.
+                                .padding(3)
                         }
-                        .buttonStyle(.plain)
+                        // The textbook `.inline`: a dismiss glyph riding inside a chip.
+                        .buttonStyle(.hoverAffordance(.inline))
+                        .padding(-3)
                         .accessibilityLabel("Remove \(item)")
                     }
                     .padding(.horizontal, 9)
