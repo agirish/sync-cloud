@@ -20,9 +20,12 @@ public struct CloseButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.hoverAffordance(.glyph))
-        // A default rather than a decree — a call site that wants to name what it is closing can
-        // apply its own label outside this, and the outer one wins.
-        .accessibilityLabel("Close")
+        // **No `accessibilityLabel` here, deliberately** — see the type's doc comment. A generic
+        // "Close" inside this view would sit under the specific names two call sites already give
+        // it ("Close Help", "Close notification"), and which of the two a VoiceOver user hears
+        // then depends on how SwiftUI resolves a label applied at both depths. That is not
+        // something to leave to chance for the sake of naming a control the callers already name;
+        // the four sites carry their own, which is also how each gets to say what it closes.
     }
 }
 

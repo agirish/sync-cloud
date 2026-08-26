@@ -108,6 +108,79 @@ import Testing
                 "a comment cut the chain — every control explained above its label would be a phantom hit")
     }
 
+    // MARK: - What the scan cannot see
+
+    /// **The scan above only recognises a literal `Button` or `Menu`.** A glyph control built as its
+    /// own `View` is invisible to it — and that blind spot had an occupant: `CloseButton` wraps a
+    /// bare `xmark` and never appears as a `Button` at any call site, so the sweep that named 26
+    /// controls did not see it, and the attempt to fix it inside the component put a generic
+    /// "Close" underneath the specific names two callers already gave it.
+    ///
+    /// The lesson is that "the scan is clean" means less than it looks. This closes the gap for the
+    /// components that exist today by naming them: each of these renders a glyph-only control, so
+    /// each must either carry a label itself or be named by every one of its call sites.
+    @Test func theGlyphOnlyComponentsAreNamedSomewhere() throws {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        // Components whose body is a glyph control, and where the name lives for each.
+        // `CloseButton` is the one that names itself NOWHERE: its doc says callers own that, so it
+        // is checked at the call sites instead, below.
+        let selfNaming: [(component: String, path: String)] = [
+            ("FolderJumpMenu", "Modules/Dashboard/Sources/Dashboard/FolderJumpStore.swift"),
+            ("ExpandingSearchToggle", "Modules/Design/Sources/Design/ExpandingSearchField.swift"),
+            ("SelectableKeeperRadio", "Modules/FileExplorer/Sources/FileExplorer/DuplicateGroupCard.swift"),
+            ("SettingsSearchField", "Modules/Settings/Sources/Settings/SettingsLayout.swift"),
+        ]
+        for (component, path) in selfNaming {
+            let text = try String(contentsOf: repo.appendingPathComponent(path), encoding: .utf8)
+            guard let start = text.range(of: "struct \(component): View") else {
+                Issue.record("\(component) is gone from \(path) — this list is stale"); continue
+            }
+            // To the struct's CLOSING BRACE, not a fixed number of characters. A 1600-char window
+            // was tried first and reported `ExpandingSearchToggle` as unnamed: its label sits 1753
+            // characters in. That is the same fixed-window mistake the main scan above already
+            // records, made a second time in the test written to describe it — which is the best
+            // argument there is for never sizing one of these by guess.
+            let tail = text[start.lowerBound...]
+            let end = tail.range(of: "\n}")?.upperBound ?? tail.endIndex
+            let body = String(tail[..<end])
+            #expect(body.contains("accessibilityLabel"),
+                    "\(component) renders a glyph control and no longer names it")
+        }
+
+        // `CloseButton` is named by its callers, every one of them. A new call site that forgets is
+        // a control announced as "button" — the exact defect, arriving through the one door the
+        // scan above cannot watch.
+        let closeButtonSites = [
+            "MacApp/HelpBook.swift",
+            "MacApp/OperationBannerView.swift",
+            "Modules/Settings/Sources/Settings/SettingsView.swift",
+            "Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift",
+        ]
+        var seen = 0
+        for path in closeButtonSites {
+            let lines = try String(contentsOf: repo.appendingPathComponent(path), encoding: .utf8)
+                .components(separatedBy: "\n")
+            for (i, line) in lines.enumerated() where line.contains("CloseButton(action:") {
+                seen += 1
+                let chain = lines[i..<min(lines.count, i + 8)].joined(separator: "\n")
+                #expect(chain.contains("accessibilityLabel"),
+                        "\(path.split(separator: "/").last ?? ""):\(i + 1) uses CloseButton without naming it — the component deliberately does not name itself")
+            }
+        }
+        #expect(seen == 4, "expected 4 CloseButton call sites, found \(seen) — the list is stale")
+
+        // And the component still declines to name itself, which is what makes the check above the
+        // one that matters. If this flips, the call-site names are sitting on top of a generic one.
+        let component = try String(contentsOf: repo.appendingPathComponent(
+            "Modules/Design/Sources/Design/CloseButton.swift"), encoding: .utf8)
+        #expect(!component.contains(".accessibilityLabel("),
+                "CloseButton names itself again — that puts a generic label under four specific ones")
+    }
+
     /// Same roots and same vacuity guards as `GeometryScaleTests` — `MacApp/` is a sibling of
     /// `Modules/` and in no SPM package, so it has to be added by hand or the scan silently skips
     /// the app's own views.

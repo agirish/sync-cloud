@@ -323,6 +323,7 @@ public struct SettingsView: View {
                     .keyboardShortcut(.cancelAction)
                     .shortcutKeycap("esc")
                     .help(ShortcutHint.tooltip("Close settings", "esc"))
+                    .accessibilityLabel("Close settings")
             }
             .padding(.horizontal, 16)
             // Fixed rather than padding-derived: the content opening below is computed as

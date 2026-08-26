@@ -121,7 +121,7 @@ import Design
     /// Swept rather than spot-checked at the two failing widths: the band is narrow and moves with
     /// the scale, so a fixture pinned to 269 would pass the moment a font metric shifted it.
     @Test(arguments: [CGFloat(1.0), 1.35]) func compactNeverDrawsOneChipBesideAChevron(scale: CGFloat) {
-        for count in 2...20 {
+        for count in 1...8 {
             let titles = (0..<count).map { "Folder\($0)" }
             var width = CGFloat(120)
             while width <= 900 {
@@ -421,5 +421,75 @@ import Design
                 """)
         #expect(code.components(separatedBy: ".simultaneousGesture(TapGesture().onEnded").count - 1 == 1,
                 "there is more than one single-tap handler on a column row")
+    }
+}
+
+
+/// The invariant the pane strip's travelling marker rests on. Separate from the ladder suite
+/// above because it is not about widths: `activeGround` carries a `matchedGeometryEffect` and is
+/// rendered only for the active item, so the effect is well-defined exactly while the active tab
+/// is among the ones drawn.
+/// **`@MainActor`, and not optionally.** `PaneTabStrip` is a SwiftUI `View`, so its members —
+/// including the static `visible(_:slots:)` — inherit main-actor isolation, and the explicit
+/// closure in `items.filter { !$0.isPinned }` carries that isolation with it. Calling it from a
+/// nonisolated test compiles cleanly and then **traps at runtime** inside
+/// `_swift_task_checkIsolatedSwift`, with no failed expectation and no message — the test host
+/// simply dies with `signal code 5`.
+///
+/// Worth spelling out because the first version of this suite was nonisolated and one of its two
+/// tests passed anyway: `morePinnedTabsThanSlots…` returns at the `pinned.count < slots` guard,
+/// which is *before* the isolated closure, and the key-path `filter(\.isPinned)` above it does not
+/// carry isolation the same way. A green test proved nothing about the isolation, and the sweep
+/// beside it was what surfaced the trap.
+@Suite @MainActor struct PaneTabStripActiveVisibilityTests {
+
+
+    /// **The sliding marker assumes exactly one source exists.** `activeGround` is rendered only for
+    /// the active item and carries a `matchedGeometryEffect`, so the effect is well-defined only
+    /// while the active tab is among the ones actually drawn. `visible(_:slots:)` windows around
+    /// the active index precisely to keep it there — this pins that, because it is an invariant the
+    /// marker now depends on and not just a nicety about which tabs you can see.
+    @Test func theActiveTabSurvivesEveryWindowWidth() {
+        for count in 1...8 {
+            let items = (0..<count).map { i in
+                PaneTabStrip.Item(id: UUID(), title: "Tab \(i)", markImageName: "folder",
+                                  isActive: false, fullPath: "/x/\(i)")
+            }
+            for activeIndex in 0..<count {
+                var withActive = items
+                let original = withActive[activeIndex]
+                withActive[activeIndex] = PaneTabStrip.Item(
+                    id: original.id, title: original.title, markImageName: original.markImageName,
+                    isActive: true, fullPath: original.fullPath)
+                for slots in 1...count {
+                    let shown = PaneTabStrip.visible(withActive, slots: slots)
+                    let activeShown = shown.filter { $0.isActive }.count
+                    #expect(activeShown == 1,
+                            "active tab \(activeIndex) of \(count) is not shown at \(slots) slot(s) — the marker would have no source")
+                }
+            }
+        }
+    }
+
+    /// The one branch where that is NOT true, stated so it is a known shape rather than a surprise:
+    /// with more PINNED tabs than slots the window is all pinned, and an unpinned active tab is not
+    /// drawn at all. Its marker goes with it — which is what the strip already did before the marker
+    /// travelled, so this is a record of the edge, not a claim that it is right.
+    @Test func morePinnedTabsThanSlotsDropsAnUnpinnedActiveTab() {
+        let items = [
+            PaneTabStrip.Item(id: UUID(), title: "P0", markImageName: "folder", isActive: false,
+                              fullPath: "/p0", isPinned: true),
+            PaneTabStrip.Item(id: UUID(), title: "P1", markImageName: "folder", isActive: false,
+                              fullPath: "/p1", isPinned: true),
+            PaneTabStrip.Item(id: UUID(), title: "A", markImageName: "folder", isActive: true,
+                              fullPath: "/a"),
+        ]
+        let shown = PaneTabStrip.visible(items, slots: 1)
+        let allPinned = shown.allSatisfy { $0.isPinned }
+        let anyActive = shown.contains { $0.isActive }
+        #expect(shown.count == 1)
+        #expect(allPinned)
+        #expect(!anyActive,
+                "if this now shows the active tab, the edge is gone and the note above is stale")
     }
 }

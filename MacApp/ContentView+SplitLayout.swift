@@ -618,6 +618,12 @@ struct SwapPanesGlyph: View {
             .scaledFont(.system(size: 11, weight: .bold))
             .foregroundStyle(SeamPaneControls.glyphInk(colorScheme, deepened: deepened, phase: phase))
             .rotationEffect(.degrees(flipped ? 180 : 0))
+            // `designAnimation` rather than `animation` for one spelling across the app, but note
+            // that **the gate here is `flipped`, not the modifier**: it already folds
+            // `!reduceMotion` in, so under the setting the value never changes and there is nothing
+            // to animate either way. Belt and braces, not the mechanism — don't read this line as
+            // the thing that honours the setting, and don't remove the check in `flipped` because
+            // this line looks like it covers it.
             .designAnimation(.easeInOut(duration: 0.16), value: flipped)
             .frame(width: SeamPaneControls.half, height: SeamPaneControls.half)
     }

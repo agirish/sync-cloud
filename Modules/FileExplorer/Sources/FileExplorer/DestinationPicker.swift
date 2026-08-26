@@ -274,6 +274,9 @@ public struct DestinationPicker: View {
                 .keyboardShortcut(.cancelAction)
                 .shortcutKeycap("esc")
                 .help(ShortcutHint.tooltip("Cancel", "esc"))
+                // "Cancel", not "Close": this dismisses a pending pick without making it, and the
+                // tooltip has always said so.
+                .accessibilityLabel("Cancel")
         }
         .padding(.horizontal, 20)
         .frame(height: Self.headerHeight)

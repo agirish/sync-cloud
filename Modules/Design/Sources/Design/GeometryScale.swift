@@ -35,35 +35,13 @@ public enum Radius {
     public static let all: [CGFloat] = [chip, control, well, card]
 }
 
-/// The spacing scale: a 4pt grid with a 2pt half-step at the bottom.
-///
-/// **This is a vocabulary for new and converted code, not a migration order.** The app's padding
-/// literals cluster at 4, 8 and 12 — which are on the grid and convert byte-identically — but a
-/// long tail sits at 5, 6, 7, 9 and 11, and those are load-bearing in ways a grid cannot see:
-/// `LiquidGlass.cardGutter` is 5 by measurement, chrome rows are pinned to heights that a 1pt
-/// padding change breaks (`theRowIsAlwaysTheActionBarHeight`), and the Settings rail has 0.4pt of
-/// margin at the largest text size. Rounding those onto the grid would be a layout change wearing
-/// a cleanup's clothes.
-///
-/// So: reach for a stop when the value is genuinely arbitrary, and leave a measured number alone.
-/// An off-grid value that a test pins is evidence, not debt.
-public enum Space {
-    /// Hairline gaps — between a glyph and the text it labels.
-    public static let xxs: CGFloat = 2
-    /// Tight: inside a chip, between stacked captions.
-    public static let xs: CGFloat = 4
-    /// The default gap between siblings in a row or stack.
-    public static let s: CGFloat = 8
-    /// Between groups inside one card.
-    public static let m: CGFloat = 12
-    /// Between cards, and a card's own inner margin.
-    public static let l: CGFloat = 16
-    /// Between major regions.
-    public static let xl: CGFloat = 24
-
-    /// The steps, ascending — for tests.
-    public static let all: [CGFloat] = [xxs, xs, s, m, l, xl]
-}
+// **There is deliberately no matching `Space` scale.** One shipped here and was removed the same
+// day with zero call sites, which is the whole argument: the padding literals worth naming are 4,
+// 8 and 12, and those read perfectly well as themselves, while the long tail at 5, 6, 7, 9 and 11
+// is load-bearing in ways a grid cannot see — `LiquidGlass.cardGutter` is 5 by measurement, chrome
+// rows are pinned to heights a 1pt change breaks, and the Settings rail has 0.4pt of margin at the
+// largest text size. A scale nobody may safely apply is not a vocabulary, it is an invitation to
+// round a measured number onto a grid, and the next reader would have taken it.
 
 public extension View {
     /// The elevation a floating overlay panel sits at — the setup sheet, the help book, the

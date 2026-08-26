@@ -3,7 +3,7 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// The `Radius` / `Space` scales, and the two things that can go wrong with a scale silently:
+/// The `Radius` scale, and the two things that can go wrong with a scale silently:
 /// the older names for the same stops drifting away from it, and new raw literals accumulating
 /// beside it until there are eleven radii again.
 ///
@@ -22,11 +22,6 @@ import Testing
         #expect(Radius.all.allSatisfy { $0 > 0 }, "a corner radius of zero is not a stop")
     }
 
-    @Test func theSpaceScaleAscendsWithNoDuplicateSteps() {
-        #expect(Space.all == Space.all.sorted(), "the steps are not in ascending order")
-        #expect(Set(Space.all).count == Space.all.count, "two steps carry the same value")
-    }
-
     /// Every gap between adjacent radius stops is big enough to SEE. This is the whole argument
     /// for the scale: 5, 6 and 7 were three stops in everything but name, and no reader could tell
     /// them apart on a chip. Two stops one point apart would recreate exactly that.
@@ -34,15 +29,6 @@ import Testing
         for (lower, upper) in zip(Radius.all, Radius.all.dropFirst()) {
             #expect(upper - lower >= 2,
                     "\(lower) and \(upper) are \(upper - lower)pt apart — that is the defect the scale replaced")
-        }
-    }
-
-    /// The 4pt grid, with the 2pt half-step at the bottom that `xxs` is documented as.
-    @Test func theSpaceScaleIsAFourPointGridAboveItsHalfStep() {
-        #expect(Space.xxs * 2 == Space.xs, "the half-step is not half of the first whole step")
-        for step in Space.all.dropFirst() {
-            #expect(step.truncatingRemainder(dividingBy: 4) == 0,
-                    "\(step) is not on the 4pt grid")
         }
     }
 
