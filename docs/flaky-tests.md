@@ -2046,3 +2046,35 @@ process writes *after* you clear.
 and anything else brokered by a system daemon is shared across every process on the machine, and
 a per-process suffix is the only isolation that holds when this machine runs CI and a session at
 once.
+
+### 19. `Task.yield()` assumed to park a test inside an async window — a VACUOUS green, not a red
+
+**Symptom.** There isn't one, which is the entry's point. A test that starts an async operation,
+yields once "to land inside" it, then mutates state and asserts the operation reconciled — passes
+whether or not it landed inside anything. Nothing goes red, in isolation or in a full package run,
+because the assertions are also satisfied by the operation finishing FIRST and reaching the same
+rows by a different route.
+
+**Mechanism.** `Task.yield()` enqueues the test's continuation on its actor, and the operation
+suspends on work that resumes at a **different priority** — in
+`FileSyncManager.applyFilters()`, `Task.detached(priority: .userInitiated)`. Under a loaded suite
+that continuation can overtake the yield's, so the whole pass runs to completion before the test's
+next line. Caught 2026-08-26 only because P9 added `reconcilePassesRun`: the counter read **0** in
+a full-package run for two tests written to exercise the reconcile pass, while both passed in
+isolation and both passed on their row assertions in the same failing run.
+
+**Tell.** A test whose whole subject is "what happens when X moves mid-flight" and whose assertions
+would also hold if X moved *before* flight. If nothing in the test can distinguish the two, it is
+not testing the window.
+
+**Fix.** Verify the window instead of assuming it, using an observable that moves the instant the
+operation commits — `lastPublishedFilterGeneration` here. Start the operation, yield, and check
+that observable has not moved; if it has, the window was missed, so drain and start another. When
+it has not moved the operation is still suspended, and it cannot proceed until the test suspends
+again — so everything the test does before its next `await` is inside the window, deterministically.
+`InFlightSyncStateTests.filterPassParkedInsideItsCompute` is the worked example; a bounded retry
+that throws beats a comment claiming the yield was enough.
+
+**The general rule:** a counter that makes the fast path observable is not bookkeeping. Two tests
+here had been green and vacuous for as long as the reconcile pass existed, and the only thing that
+ever saw it was a counter added for an unrelated reason.
