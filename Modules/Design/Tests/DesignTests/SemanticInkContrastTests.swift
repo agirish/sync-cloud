@@ -22,11 +22,12 @@ import Testing
     static let darkSheet = NSColor(srgbRed: 0.13, green: 0.13, blue: 0.13, alpha: 1)
     static let bodyTextFloor: CGFloat = 4.5
 
-    static let semantics: [(String, Color)] = [
-        ("caution", SemanticColor.caution), ("warning", SemanticColor.warning),
-        ("error", SemanticColor.error), ("success", SemanticColor.success),
-        ("info", SemanticColor.info), ("move", SemanticColor.move),
-    ]
+    /// **Read from the table, not restated beside it.** This was a hand-written copy of six
+    /// members, which is a registry sitting next to the type it describes: adding a seventh left
+    /// every measurement below running against the old six and passing, with nothing anywhere
+    /// saying the two had drifted apart. `neutral` was added precisely that way.
+    /// `everySemanticColorMemberIsInTheAllList` proves the list this reads is the whole set.
+    static let semantics: [(String, Color)] = SemanticColor.all.map { ($0.name, $0.color) }
 
     private func srgb(_ c: Color) -> NSColor {
         guard let converted = NSColor(c).usingColorSpace(.sRGB) else {
@@ -109,5 +110,41 @@ import Testing
         // ...and one that genuinely moves, so the loop above cannot pass by the lift doing nothing.
         #expect(lum(srgb(AccentFill.lightenedForText(SemanticColor.move)))
                 > lum(srgb(SemanticColor.move)) + 0.05, "the lift is a no-op on the colour it exists for")
+    }
+
+    // MARK: - The list is the whole set
+
+    /// **`SemanticColor.all` has to actually contain every member**, or moving the test's registry
+    /// into the source just moved the drift rather than ending it: a member added to the type and
+    /// forgotten in `all` would be measured by nothing, exactly as `.gray` was.
+    ///
+    /// A list cannot check itself for completeness, so this reads the declarations out of the
+    /// source file. That is the only place the truth exists — `SemanticColor` is a namespace of
+    /// static lets, not a `CaseIterable` enum, so there is nothing to enumerate at runtime.
+    @Test func everySemanticColorMemberIsInTheAllList() throws {
+        let source = URL(fileURLWithPath: #filePath)     // …/Design/Tests/DesignTests/<this>.swift
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()                 // …/Modules/Design
+            .appendingPathComponent("Sources/Design/SemanticColor.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+
+        // `public static let <name> = Color.…` — the member declarations, and not `all`, which is
+        // an array of tuples rather than a Color.
+        let declaration = try Regex(#"public static let (\w+) = Color\."#)
+        let declared = text.matches(of: declaration).compactMap { $0[1].substring.map(String.init) }
+
+        // Prove the scan found the file and parsed it before asserting about what it did not find.
+        #expect(declared.count >= 6, "only \(declared.count) members parsed — the scan did not resolve")
+        #expect(declared.contains("neutral"), "the pattern missed a member it should have matched")
+
+        let listed = Set(SemanticColor.all.map(\.name))
+        let missing = declared.filter { !listed.contains($0) }
+        #expect(missing.isEmpty,
+                "declared on SemanticColor but absent from `all`, so nothing measures them: \(missing)")
+
+        // And the other direction: a name in `all` that no longer exists means a stale entry.
+        let stale = listed.subtracting(declared)
+        #expect(stale.isEmpty, "listed in `all` but not declared on the type: \(stale.sorted())")
     }
 }

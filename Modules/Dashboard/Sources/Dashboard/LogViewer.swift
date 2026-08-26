@@ -10,7 +10,7 @@ extension LogLevel {
     var semanticColor: Color {
         switch self {
         case .info: return SemanticColor.info
-        case .debug: return .gray
+        case .debug: return SemanticColor.neutral
         case .warning: return SemanticColor.warning
         case .error: return SemanticColor.error
         }
