@@ -10,104 +10,92 @@ User-facing changes, newest first. For the full commit history see the
 > These notes describe what is on `main` today. They are published ahead of the tag so the
 > work can be read as it lands, and they may still change before v4.5 is cut.
 
-**Refinement, mostly — and one thing that was quietly wrong.** A duplicate scan does less work to
-reach the same answer, and is harder to fool: a file rewritten *while it was being hashed* could be
-remembered under a digest belonging to no version of it. Alongside that, "Text contains" means one
-thing on every surface rather than two, the "None" accent finally reads as no accent, and the
-markers saying which workspace and which tab you are in travel instead of blinking.
+**Refinement, mostly — plus one freeze and one thing quietly wrong.** A bulk sync on a large
+comparison locked the window for about eleven seconds at each end, doing nothing in that time but
+setting a flag. And a file rewritten *while it was being hashed* could be remembered under a
+digest belonging to no version of it. Alongside those, “Text contains” means one thing on every
+surface rather than two, the “None” accent finally reads as no accent, and the markers saying
+which workspace and which tab you are in travel instead of blinking.
 
 On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0 section first.
 
 ### Organize
 
-- **“Text contains” now means one thing everywhere: the exact phrase, in the file's own text.**
-  It had two readings, and the looser word-by-word one lived on the Organize scan — the path
-  that actually moves files — while the Automations preview answered with the strict one. So
-  “tax return” could move a document that merely said “tax” and “return” pages apart, after a
-  preview that said it would not. Matching separate words is still available as “Mentions all
-  of”.
+- **“Text contains” now means the exact phrase, everywhere.** It had two readings: the loose
+  word-by-word one on the Organize scan, which is the path that moves files, and the strict one
+  in the Automations preview. So “tax return” could move a document that said “tax” and “return”
+  pages apart, after a preview that said it would not. Separate words are still matchable, as
+  “Mentions the words”.
 
 ### Duplicates and comparison
 
 - **A file rewritten while it was being hashed could be remembered under the wrong digest.**
-  Everything the scan knew about a file was read from its path before the file was opened, so
-  none of it was provably about the bytes then read: a rewrite landing the same number of bytes
-  produced a digest of two files spliced together. The open file is now stat'd through its own
-  descriptor, before the read and after — and it is the date, not the size, that closes the
-  same-size case a byte count cannot see.
+  Everything the scan knew about a file came from its path, read before the file was opened, so
+  none of it was provably about the bytes that followed — and a rewrite of the same byte count
+  produced a digest of two files spliced together. The file is now stat'd through its own
+  descriptor before the read and after, where the timestamp catches what a byte count cannot.
 - **Files a duplicate scan could not read are counted now, instead of vanishing from it.** A
   candidate that was gone, unreadable, or changed while it was being hashed was dropped with
   nothing recording it — no pill, no note, no log — while every other skip reason was tallied
-  and named. A volume answering badly could report no duplicates with nothing on screen saying
-  why. They join the "skipped" note as "unreadable or changed while being read", which
-  deliberately does not say which way it failed.
-- **A duplicate scan does less work to reach the same answer.** Three separate reads of a
-  file's path before it was opened, now one — and on a repeat scan, where every digest is
-  already cached, that single read is all the hashing does. (A symlink still takes a second, to
-  stat what it points at; so does a file that is actually going to be read, to check it is not
-  a cloud placeholder before opening it.) Digest text was built by a string formatter once per
-  byte and is now a table lookup, and a long scan publishes progress about a hundred times
-  rather than several hundred.
+  and named. They join the “skipped” note now, as “unreadable or changed while being read”.
+- **A duplicate scan does less work to reach the same answer.** It read a file's path three
+  times before opening it; now once, plus one more for a symlink and one for a file it is about
+  to open. On a repeat scan every digest is cached, so that first read is all the hashing does.
+  Digest text is now a table lookup, and a long scan publishes progress about a hundred times
+  instead of several hundred.
 - **Duplicate thumbnails no longer decompress while you scroll.** Each was compressed to PNG
   purely to satisfy a rule about what may cross between threads, then decompressed again —
   lazily, which means at draw time, on the main thread, during the scroll that asked for it.
 - **A comparison with ignore patterns set folds them once per scan** rather than once per item
   compared, and folds each name once rather than once per pattern it is tested against.
-- **Starting or finishing a bulk sync no longer locks the window up while it marks the rows.**
-  Flagging each row as in-flight rewrote the entire list of differences, and told the interface to
-  redraw, once per row — so on a comparison with tens of thousands of differences a Sync All stopped
-  responding for about eleven seconds as it began and again as it ended, doing nothing in that time
-  but setting a flag. The rows are marked in one pass now, and drawn once.
-- **Rebuilding the list of differences stops taking every path apart to ask one question of it.**
-  Deciding whether a path is hidden — whether any part of it begins with a dot — split the whole
-  path into its components and built a string for each, once per difference, every time the list
-  was rebuilt. It is the one filter of the five that runs unless you ask it not to — hiding hidden
-  files is what a fresh session does — so it ran over every difference on every rebuild, and on
-  a tree with tens of thousands of them that came to tens of milliseconds every time. The path
-  is read once now, in place, and the same question is answered an order of magnitude cheaper.
-  Exactly the same files count as hidden as before, down to some deliberately awkward names
-  that the old reading is still left to decide.
+- **Starting or finishing a bulk sync no longer locks the window while it marks the rows.**
+  Flagging each row as in-flight rewrote the whole difference list and asked for a redraw, once
+  per row. On a comparison with tens of thousands of differences that cost about eleven seconds
+  at each end, doing nothing but setting a flag. The rows are marked in one pass now, and drawn
+  once.
+- **Rebuilding the difference list stops taking every path apart to ask one question of it.**
+  Deciding whether a path is hidden split it into components and built a string for each, once
+  per difference, on every rebuild — and hiding hidden files is the one filter of five that runs
+  unless you turn it off. On 29,000 differences that was about 37 ms a pass, now about 2 ms,
+  with exactly the same files hidden.
 - **Scanning a large tree resolves far fewer paths.** Every directory the walk entered had its
   whole path resolved so the scan could tell whether it had been there before — a symlink-loop
-  guard that fires essentially never, and the most expensive part of entering a directory. Only
-  a directory whose own last component is a symlink needs it, so every cycle is still caught
-  and the rest of the tree skips the work.
+  guard that fires essentially never, and about half the cost of entering a directory. Only a
+  directory whose last component is a symlink needs it now, and every cycle is still caught.
 
 ### Appearance
 
-- **The “None” accent now reads white in light, not the faintest gray.** With no accent chosen
-  the background was the bare material — a light gray within a few points of Graphite's neutral
-  wash, so the two were told apart by their swatches and nothing else. “None” now lays a white
-  ground over the material in light, titlebar included. Dark is untouched.
+- **The “None” accent now reads white in light, not the faintest gray.** At low Tint, bare
+  material and Graphite's neutral wash landed within a couple of points of the same gray, so the
+  two were told apart by their swatches and nothing else. “None” now lays a white film over the
+  background in light, titlebar included. Dark is untouched.
 - **The selected workspace and the active pane tab now slide between positions.** Both markers
   were drawn per item, so switching cut one out where it was and cut a new one in where it was
-  going — two separate bars, in different parts of the window, both blinking. Reduce Motion
-  takes the destination and skips the journey.
+  going — two bars, one above the other, both blinking. Reduce Motion takes the destination and
+  skips the journey.
 - **A count that changes rolls its digits instead of cutting to a new number.** Diff totals,
-  duplicate-group counts and the filing backlog hard-swapped: the old number vanished, a new
-  one appeared, and nothing said they were the same quantity. Words are left alone — rolling a
+  duplicate-group counts and the filing backlog hard-swapped: the old number vanished, a new one
+  appeared, and nothing said they were the same quantity. Words are left alone — rolling a
   word's glyphs reads as a glitch.
 - **The first-run sheet answers the pointer.** Seven of its controls drew their own chrome,
   which means macOS contributes no hover state at all — so the app's first impression was its
   least responsive surface. Each has an affordance now, chosen for what the control does.
-- **One vocabulary for corner radii.** Each was typed at its own call site with nothing to type
-  instead, so three chips inside a single card could round by different amounts. Four named
-  stops now, each a value the app already used most, with the strays moved to their nearest by
-  a point.
-- **Reduce Motion now reaches most of the app's movement rather than a third of it.** Ten files
-  honoured the setting while twenty-eight animated — not by decision, but because opting in
-  meant giving whatever view owned the animation an environment reading to do. Fourteen more
-  places honour it now. Motion that reports rather than travels is deliberately left alone.
+- **One vocabulary for corner radii.** Eleven distinct radii were hand-written across the app,
+  so three chips inside one card could round by different amounts. Four named stops now, each a
+  value the app already used most, with the strays moved to their nearest by a point.
+- **Fourteen more of the app's animations honour Reduce Motion.** Opting in used to mean giving
+  whatever view owned the animation an environment reading to do, so most motion was
+  unconditional — friction rather than a decision. What is gated now is animation that moves
+  something: panes collapsing, a workspace switch, the inspector, the tab strip, rows inserting.
+  Motion that reports rather than travels is left alone.
 - **The small inline spinners are drawn at their size instead of shrunk to it.** Three status
   rows scaled an already-drawn spinner down to seven-tenths, and scaling resamples, so those
   three read softer than identical spinners a few files away. They are framed to occupy exactly
   what the old recipe reserved, so no row moves.
-- **Twenty-six buttons that are nothing but an icon now have names.** A tooltip is not a name on
-  macOS, so VoiceOver read them as "button" and Voice Control could not be asked to click them at
-  all — only to number every control on screen and pick one. The Rules row's three actions, the
-  Activity Log's and Sync History's toolbars, the rename lens's reveals, four dismiss glyphs in
-  Settings, the breadcrumb overflow and the new-tab plus all say what they do now, in the same
-  words their tooltips already used. Nothing about this is visible on screen.
+- **Twenty-seven controls that are nothing but an icon now have names.** A tooltip is not a name
+  on macOS, so VoiceOver read them as “button” and Voice Control could not be told to click them
+  at all. Toolbars, row actions, dismiss glyphs and the new-tab plus now say what they do, in
+  the words their tooltips already used. Nothing about this is visible on screen.
 
 ---
 
