@@ -29,16 +29,32 @@ extension FileSyncManager {
         /// the files hashed fine, failed to match, and no counter moved. A same-text pass that
         /// declined a thousand image-only scans without saying so would recreate that.
         public var textUnreadable: Int
+        /// Candidates whose bytes could not be read, or could not be proved to be the bytes that
+        /// were read: gone or unreadable by the time hashing reached them, a directory or a broken
+        /// link where a file was expected, replaced between the stat and the open, or rewritten
+        /// mid-read.
+        ///
+        /// **Counted because this is the one skip reason that grew without saying so.** Every
+        /// sibling above is tallied — `multiLink` explicitly so a Time-Machine-shaped tree does not
+        /// quietly report fewer duplicates — while this verdict fell through a bare `break`, and
+        /// the mid-read coherence check added two fresh ways to reach it. A volume that answered
+        /// badly could put every candidate here and the scan would report no duplicates, with
+        /// nothing on screen saying why. That is precisely the silence the rest of this type
+        /// exists to end.
+        public var unverifiable: Int
         /// Files no duplicate claim of any kind could be made about. `textUnreadable` is
         /// deliberately NOT in it: those files were hashed and grouped normally, and only the
-        /// weaker text claim was declined for them.
-        public var total: Int { tooLarge + cloudOnly + multiLink }
+        /// weaker text claim was declined for them. `unverifiable` IS in it — nothing was learned
+        /// about those files at all, which is this number's own definition.
+        public var total: Int { tooLarge + cloudOnly + multiLink + unverifiable }
 
-        public init(tooLarge: Int = 0, cloudOnly: Int = 0, multiLink: Int = 0, textUnreadable: Int = 0) {
+        public init(tooLarge: Int = 0, cloudOnly: Int = 0, multiLink: Int = 0,
+                    textUnreadable: Int = 0, unverifiable: Int = 0) {
             self.tooLarge = tooLarge
             self.cloudOnly = cloudOnly
             self.multiLink = multiLink
             self.textUnreadable = textUnreadable
+            self.unverifiable = unverifiable
         }
     }
 
@@ -355,7 +371,8 @@ extension FileSyncManager {
         duplicateScanSkips = DuplicateScanSkips(tooLarge: hashOutcome.skippedTooLarge,
                                                 cloudOnly: hashOutcome.skippedCloudOnly,
                                                 multiLink: multiLinkPaths.count,
-                                                textUnreadable: textUnreadable)
+                                                textUnreadable: textUnreadable,
+                                                unverifiable: hashOutcome.unverifiable)
         self.duplicateGroups = groups.filter { !ignored.contains($0.ignoreKey) }
         // Published with the results, not at scan start: the root labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
@@ -2043,6 +2060,7 @@ extension FileSyncManager {
         var hashes: [String: String] = [:]
         var skippedTooLarge = 0
         var skippedCloudOnly = 0
+        var unverifiable = 0
     }
 
     /// Hashes files with bounded concurrency, returning path → SHA-256 hex (missing when a file
@@ -2103,7 +2121,8 @@ extension FileSyncManager {
                 case .hashed(let hash): result.hashes[path] = hash
                 case .skippedTooLarge: result.skippedTooLarge += 1
                 case .skippedCloudOnly: result.skippedCloudOnly += 1
-                case .unverifiable: break
+                // Counted, not dropped. See `DuplicateScanSkips.unverifiable`.
+                case .unverifiable: result.unverifiable += 1
                 }
                 completed += 1
                 onProgress?(completed)

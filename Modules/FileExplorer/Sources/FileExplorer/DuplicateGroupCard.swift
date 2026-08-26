@@ -516,6 +516,10 @@ enum DuplicateScanSkipNote {
         if skips.tooLarge > 0 { reasons.append("\(skips.tooLarge) too large to hash") }
         if skips.cloudOnly > 0 { reasons.append("\(skips.cloudOnly) cloud-only (not downloaded)") }
         if skips.multiLink > 0 { reasons.append("\(skips.multiLink) hard-linked (trashing a link frees nothing)") }
+        // Deliberately vague about WHICH way it failed: gone, unreadable, replaced between the
+        // stat and the open, or rewritten mid-read all land here, and the scan cannot tell the
+        // reader which without re-reading a file it already could not trust.
+        if skips.unverifiable > 0 { reasons.append("\(skips.unverifiable) unreadable or changed while being read") }
         let plural = skips.total != 1
         var note = "\(skips.total) file\(plural ? "s" : "") outside duplicate detection: "
             + "\(reasons.joined(separator: ", ")). Duplicates among them are not detected."

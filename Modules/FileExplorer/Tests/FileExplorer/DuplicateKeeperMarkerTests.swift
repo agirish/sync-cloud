@@ -58,6 +58,26 @@ import Testing
         #expect(links == "2 files outside duplicate detection: 2 hard-linked (trashing a link frees nothing). Duplicates among them are not detected.")
     }
 
+    /// **The verdict that used to fall through a bare `break`.** A file that was gone, unreadable,
+    /// replaced between the stat and the open, or rewritten mid-read left the scan counted by
+    /// nothing: no pill, no note, no log — the results simply got smaller. The mid-read coherence
+    /// check then added two more ways to reach it, widening a drain nobody could see. It is a skip
+    /// like every other skip, so it says so.
+    @Test func filesThatCouldNotBeReadAreCountedLikeEveryOtherSkip() {
+        let note = DuplicateScanSkipNote.text(Skips(unverifiable: 4))
+        #expect(note == "4 files outside duplicate detection: 4 unreadable or changed while being read. Duplicates among them are not detected.")
+    }
+
+    /// And it is in the total, because the total is defined as "files no duplicate claim of any kind
+    /// could be made about" — which is exactly what these are.
+    @Test func unreadableFilesAreInTheTotalUnlikeTheTextOnlyDeclines() {
+        #expect(Skips(unverifiable: 4).total == 4)
+        #expect(Skips(tooLarge: 1, cloudOnly: 2, multiLink: 3, unverifiable: 4).total == 10)
+        // The contrast that makes the rule legible: a text-only decline is NOT in the total,
+        // because those files were hashed and grouped normally.
+        #expect(Skips(textUnreadable: 853).total == 0)
+    }
+
     @Test func combinesBothReasonsWithATotal() {
         let both = DuplicateScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 2, multiLink: 3))
         #expect(both == "6 files outside duplicate detection: 1 too large to hash, 2 cloud-only (not downloaded), 3 hard-linked (trashing a link frees nothing). Duplicates among them are not detected.")
