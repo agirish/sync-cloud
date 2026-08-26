@@ -83,11 +83,13 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
 - **One vocabulary for corner radii.** Eleven distinct radii were hand-written across the app,
   so three chips inside one card could round by different amounts. Four named stops now, each a
   value the app already used most, with the strays moved to their nearest by a point.
-- **Fourteen more of the app's animations honour Reduce Motion.** Opting in used to mean giving
-  whatever view owned the animation an environment reading to do, so most motion was
+- **Eighteen of the app's animations honour Reduce Motion that did not before.** Opting in used to
+  mean giving whatever view owned the animation an environment reading to do, so most motion was
   unconditional — friction rather than a decision. What is gated now is animation that moves
-  something: panes collapsing, a workspace switch, the inspector, the tab strip, rows inserting.
-  Motion that reports rather than travels is left alone.
+  something: panes collapsing, a workspace switch, the inspector, the tab strip, rows inserting,
+  tabs sliding aside as you drag one, the focus ring travelling between panes, and the selection
+  bar arriving from an edge. Motion that reports rather than travels is left alone — a hovered
+  control still washes, and a count still rolls its digits.
 - **The small inline spinners are drawn at their size instead of shrunk to it.** Three status
   rows scaled an already-drawn spinner down to seven-tenths, and scaling resamples, so those
   three read softer than identical spinners a few files away. They are framed to occupy exactly
