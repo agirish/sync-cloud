@@ -1,3 +1,4 @@
+import Combine
 import Testing
 import Foundation
 import Events
@@ -420,6 +421,7 @@ import Events
             fm.shouldFailMoveOnTempRename = true
         }
 
+        let log = LogCapture()
         await manager.applyRenamePlans([plan])
 
         let after = fm.virtualDisk.keys.filter { $0.hasPrefix("/prov/2021/") }
@@ -434,7 +436,7 @@ import Events
         #expect(!undo.canUndo)
         let message = try #require(manager.banner?.message)
         #expect(message.contains("renumbering"), "banner was: \(message)")
-        #expect(await Self.loggerHasWarning(containing: "renumbering of 4 file(s) in 2021"))
+        #expect(await log.holds(.warning, containing: "renumbering of 4 file(s) in 2021"))
     }
 
     /// The one way a half-applied renumbering can still be on disk when the pass returns — and it
@@ -485,6 +487,7 @@ import Events
             fm.virtualDisk["/prov/2021/01. Mar 2021.pdf"] = stub(20)
         }
 
+        let log = LogCapture()
         await manager.applyRenamePlans([plan])
 
         let survivor = try #require(
@@ -497,7 +500,7 @@ import Events
                  + "and 1 file couldn't be put back — check the folder.")
         // Still undoable: the stranded file is the whole reason it has to be.
         #expect(undo.canUndo)
-        #expect(await Self.loggerHasError(containing: "is occupied again in /prov/2021"))
+        #expect(await log.holds(.error, containing: "is occupied again in /prov/2021"))
     }
 
     /// The discriminating half: a step that stands ALONE is still applied on its own terms.
@@ -549,19 +552,56 @@ import Events
         #expect(manager.banner?.message == "Renamed 2 files; 1 couldn't be renamed. Press ⌘Z to undo")
     }
 
-    /// True when the shared Logger holds a WARNING whose message contains `fragment`. Awaiting a
-    /// fresh log task first guarantees everything enqueued before it is visible.
+    /// Accumulates every entry the shared Logger publishes, from construction onward.
+    ///
+    /// **`Logger.shared.entries` is capped at 1000 and this package runs 2,848 tests across 261
+    /// suites in parallel, so a whole-buffer read is a race with every other suite's logging.**
+    /// These two assertions lost it twice on CI — the v4.4 release run and `61d8dfc5` here — both
+    /// times passing 3/3 in isolation on the same tree, which is the signature of mechanism 12 in
+    /// `docs/flaky-tests.md` ("A log assertion reading a window that has already rolled").
+    ///
+    /// The rules there — an opening marker plus a `#require` — make an evicted window *report* as
+    /// eviction instead of as a missing line, which is the right diagnosis and still a red. This
+    /// removes the race instead: an entry is captured at the moment it is published, so a later
+    /// trim cannot take it away. Every entry appears in at least the publish that appended it
+    /// (`flushPendingEntries` appends and then trims, and both mutations publish), so accumulating
+    /// across publishes sees everything. Deduplicated by `LogEntry.id`, since each publish carries
+    /// the whole array.
     @MainActor
-    private static func loggerHasWarning(containing fragment: String) async -> Bool {
-        await Logger.shared.debug("rename-pass-test flush marker").value
-        return Logger.shared.entries.contains { $0.level == .warning && $0.message.contains(fragment) }
-    }
+    private final class LogCapture {
+        private var seen: [LogEntry] = []
+        private var ids: Set<UUID> = []
+        private var cancellable: AnyCancellable?
 
-    /// The same for an ERROR — the level a rollback that could not put a file back logs at.
-    @MainActor
-    private static func loggerHasError(containing fragment: String) async -> Bool {
-        await Logger.shared.debug("rename-pass-test flush marker").value
-        return Logger.shared.entries.contains { $0.level == .error && $0.message.contains(fragment) }
+        init() {
+            // **`dropFirst()` because a `@Published` publisher replays its CURRENT value on
+            // subscribe**, so without it the capture opens already holding the whole buffer — and
+            // a capture that means "since I started" must not include what came before. The
+            // contamination it rules out is a sibling's identical sentence satisfying the
+            // assertion before the call under test has run. Recorded honestly: that was NOT
+            // reproduced. Deleting `dropFirst()`, removing the production line, and running the
+            // whole package still fails, because no sibling happens to write these two sentences.
+            // It is kept as the correct semantics for a capture, not as a proven guard.
+            cancellable = Logger.shared.$entries.dropFirst().sink { [weak self] published in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    for entry in published where !self.ids.contains(entry.id) {
+                        self.ids.insert(entry.id)
+                        self.seen.append(entry)
+                    }
+                }
+            }
+        }
+
+        /// True when anything captured since construction is at `level` and contains `fragment`.
+        ///
+        /// The awaited `debug` is the visibility half of mechanism 12's rule 1: `Logger.log` is
+        /// `nonisolated` and hands the entry to a FIFO queue a `@MainActor` task drains, so without
+        /// it a line written by the call under test may simply not have been published yet.
+        func holds(_ level: LogLevel, containing fragment: String) async -> Bool {
+            await Logger.shared.debug("rename-pass-test flush marker").value
+            return seen.contains { $0.level == level && $0.message.contains(fragment) }
+        }
     }
 
     // MARK: The outcome sentence
