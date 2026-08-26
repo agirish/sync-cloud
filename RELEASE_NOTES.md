@@ -69,6 +69,10 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   material and Graphite's neutral wash landed within a couple of points of the same gray, so the
   two were told apart by their swatches and nothing else. “None” now lays a white film over the
   background in light, titlebar included. Dark is untouched.
+- **The Info inspector's toolbar button moved to the far right.** The trailing pill read Go to,
+  Info, Logs, Settings, which put the control that opens the right-hand rail three glyphs from the
+  edge it opens against. It now reads Go to, Settings, Logs, Info, mirroring the folder-sidebar
+  toggle at the far left. Same buttons, same ⌘I.
 - **The selected workspace and the active pane tab now slide between positions.** Both markers
   were drawn per item, so switching cut one out where it was and cut a new one in where it was
   going — two bars, one above the other, both blinking. Reduce Motion takes the destination and
@@ -83,21 +87,20 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
 - **One vocabulary for corner radii.** Eleven distinct radii were hand-written across the app,
   so three chips inside one card could round by different amounts. Four named stops now, each a
   value the app already used most, with the strays moved to their nearest by a point.
-- **Eighteen of the app's animations honour Reduce Motion that did not before.** Opting in used to
-  mean giving whatever view owned the animation an environment reading to do, so most motion was
-  unconditional — friction rather than a decision. What is gated now is animation that moves
-  something: panes collapsing, a workspace switch, the inspector, the tab strip, rows inserting,
-  tabs sliding aside as you drag one, the focus ring travelling between panes, and the selection
-  bar arriving from an edge. Motion that reports rather than travels is left alone — a hovered
-  control still washes, and a count still rolls its digits.
+- **Twenty-two of the app's animations honour Reduce Motion that did not before.** Opting in used
+  to mean wiring an environment read into whatever view owned the animation, so most motion was
+  unconditional — friction rather than a decision. What is gated now is anything that travels:
+  panes collapsing, a workspace switch, the inspector, tabs sliding under a drag, the focus ring
+  moving between panes, the search field growing out of its magnifier, Browse's folder sidebar.
+  Motion that reports rather than travels — a hover wash, a rolling count — is left alone.
 - **The small inline spinners are drawn at their size instead of shrunk to it.** Three status
   rows scaled an already-drawn spinner down to seven-tenths, and scaling resamples, so those
   three read softer than identical spinners a few files away. They are framed to occupy exactly
   what the old recipe reserved, so no row moves.
 - **Twenty-seven controls that are nothing but an icon now have names.** A tooltip is not a name
   on macOS, so VoiceOver read them as “button” and Voice Control could not be told to click them
-  at all. Toolbars, row actions, dismiss glyphs and the new-tab plus now say what they do, in
-  the words their tooltips already used. Nothing about this is visible on screen.
+  at all. Toolbars, row actions, dismiss glyphs and the new-tab plus now say what they do.
+  Nothing about this is visible on screen.
 
 ---
 
