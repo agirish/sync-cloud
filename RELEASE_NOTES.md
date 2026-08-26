@@ -32,17 +32,25 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
 - **A file rewritten while it was being hashed could be remembered under the wrong digest.**
   Everything the scan knew about a file was read from its path before the file was opened, so
   none of it was provably about the bytes then read: a rewrite landing the same number of bytes
-  produced a digest of two files spliced together, cached under the pre-read date. The size is
-  now confirmed against the open file, and again after the read.
-- **A duplicate scan does less work to reach the same answer.** Three separate metadata checks
-  per file before a single byte was read, now one — which is the entire cost of a repeat scan.
-  Digest text was built by a string formatter once per byte and is now a table lookup, and a
-  long scan publishes its progress about a hundred times rather than several hundred.
+  produced a digest of two files spliced together. The open file is now stat'd through its own
+  descriptor, before the read and after — and it is the date, not the size, that closes the
+  same-size case a byte count cannot see.
+- **A duplicate scan does less work to reach the same answer.** Three separate reads of a
+  file's path before it was opened, now one — and on a repeat scan, where every digest is
+  already cached, that single read is all the hashing does. (A symlink still takes a second, to
+  stat what it points at.) Digest text was built by a string formatter once per byte and is now
+  a table lookup, and a long scan publishes progress about a hundred times rather than several
+  hundred.
 - **Duplicate thumbnails no longer decompress while you scroll.** Each was compressed to PNG
   purely to satisfy a rule about what may cross between threads, then decompressed again —
   lazily, which means at draw time, on the main thread, during the scroll that asked for it.
 - **A comparison with ignore patterns set folds them once per scan** rather than once per item
   compared, and folds each name once rather than once per pattern it is tested against.
+- **Scanning a large tree resolves far fewer paths.** Every directory the walk entered had its
+  whole path resolved so the scan could tell whether it had been there before — a symlink-loop
+  guard that fires essentially never, and the most expensive part of entering a directory. Only
+  a directory whose own last component is a symlink needs it, so every cycle is still caught
+  and the rest of the tree skips the work.
 
 ### Appearance
 
@@ -52,8 +60,8 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   ground over the material in light, titlebar included. Dark is untouched.
 - **The selected workspace and the active pane tab now slide between positions.** Both markers
   were drawn per item, so switching cut one out where it was and cut a new one in where it was
-  going — two bars forty points apart, both blinking. Reduce Motion takes the destination and
-  skips the journey.
+  going — two separate bars, in different parts of the window, both blinking. Reduce Motion
+  takes the destination and skips the journey.
 - **A count that changes rolls its digits instead of cutting to a new number.** Diff totals,
   duplicate-group counts and the filing backlog hard-swapped: the old number vanished, a new
   one appeared, and nothing said they were the same quantity. Words are left alone — rolling a
@@ -67,6 +75,14 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   a point.
 
 ---
+- **Reduce Motion now reaches most of the app's movement rather than a third of it.** Ten files
+  honoured the setting while twenty-eight animated — not by decision, but because opting in
+  meant giving whatever view owned the animation an environment reading to do. Fourteen more
+  places honour it now. Motion that reports rather than travels is deliberately left alone.
+- **The small inline spinners are drawn at their size instead of shrunk to it.** Three status
+  rows scaled an already-drawn spinner down to seven-tenths, and scaling resamples, so those
+  three read softer than identical spinners a few files away. They are framed to occupy exactly
+  what the old recipe reserved, so no row moves.
 
 ## v4.4
 
