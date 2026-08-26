@@ -396,3 +396,55 @@ import Foundation
         #expect(!paths.contains("/src/folder/child.txt"))
     }
 }
+
+/// `isHiddenPath` short-circuits on a UTF-8 scan before falling back to the expression it used to
+/// be. The scan is only allowed to prove the answer FALSE, so the two must agree everywhere — and
+/// the interesting disagreement is not hypothetical: `hasPrefix` compares grapheme clusters under
+/// canonical equivalence, so `"." + U+0301` is one cluster that is not `"."`.
+@Suite struct HiddenPathScanTests {
+
+    /// The expression `isHiddenPath` carried before the scan was put in front of it. Kept here
+    /// rather than referenced so the test still has an independent oracle if the source changes.
+    private func originalExpression(_ path: String) -> Bool {
+        path.components(separatedBy: "/").contains { $0.hasPrefix(".") }
+    }
+
+    /// Every string of length ≤ 5 over the alphabet that can actually distinguish the two —
+    /// the separator, the marker, an ordinary scalar, and a combining mark. 1,365 strings, and
+    /// the combining mark is the only reason the fallback exists.
+    @Test func theScanAgreesWithTheOriginalExpression() {
+        let alphabet: [Character] = [".", "/", "a", "\u{0301}"]
+        var cases: [String] = []
+        func sweep(_ depth: Int, _ prefix: String) {
+            cases.append(prefix)
+            guard depth > 0 else { return }
+            for c in alphabet { sweep(depth - 1, prefix + String(c)) }
+        }
+        sweep(5, "")
+        #expect(cases.count > 1_000, "the sweep collapsed — it is the whole test")
+
+        let disagreeing = cases.filter { FileSyncManager.isHiddenPath($0) != originalExpression($0) }
+        #expect(disagreeing.isEmpty,
+                "scan and expression disagree on \(disagreeing.count): \(disagreeing.prefix(5))")
+    }
+
+    /// The case that makes the fallback load-bearing, stated on its own so a future "simplify"
+    /// that deletes the fallback fails HERE with the reason, not only in the sweep above.
+    @Test func aDottedComponentCarryingACombiningMarkIsNotHidden() {
+        // One grapheme cluster, and it is not "." — so the component does not begin with a dot
+        // the way `hasPrefix` counts, even though its first BYTE is one.
+        #expect(originalExpression("a/.\u{0301}b") == false)
+        #expect(FileSyncManager.isHiddenPath("a/.\u{0301}b") == false,
+                "the byte scan answered without deferring to the expression")
+    }
+
+    @Test func ordinaryPathsAreClassifiedAsBefore() {
+        for (path, expected) in [("", false), (".", true), ("/", false), ("a", false),
+                                 (".a", true), ("a/.b", true), ("a/b/.c", true), ("/.a", true),
+                                 ("a//b", false), ("a/./b", true), ("a/", false), ("a/.", true),
+                                 ("..", true), ("a/..b", true), ("a.b", false),
+                                 (".git/config", true), ("Projects/f/file.txt", false)] {
+            #expect(FileSyncManager.isHiddenPath(path) == expected, "isHiddenPath(\(path.debugDescription))")
+        }
+    }
+}

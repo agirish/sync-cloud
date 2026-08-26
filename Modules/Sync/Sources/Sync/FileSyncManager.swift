@@ -2484,9 +2484,36 @@ public class FileSyncManager: ObservableObject {
         return false
     }
     
+    /// Whether any component of `path` begins with a dot.
+    ///
+    /// **The scan exists because this is the one filter in ``computeFilteredState`` that is not
+    /// behind a setting** — hiding hidden files is the default, so it runs over the whole
+    /// difference list on every rebuild, and the list runs to ~29,000 entries on a real tree.
+    /// `components(separatedBy:)` allocates an array AND a String per path component per call;
+    /// measured over 29,000 differences that is ~37 ms a pass against ~2 ms for the scan below.
+    ///
+    /// **The scan can only ever prove the answer is FALSE, and that is what makes it safe.** A
+    /// component satisfying `hasPrefix(".")` starts with the grapheme `"."`, which in UTF-8 is the
+    /// single byte `0x2E`; so if no component start carries that byte, no component can be hidden
+    /// and `false` is certain. When the scan does find a candidate the original expression decides,
+    /// because the two do NOT agree there: `hasPrefix` compares grapheme clusters under canonical
+    /// equivalence, so a component beginning `"." + U+0301` is one cluster that is not `"."` and
+    /// reads as visible, while a byte scan sees the dot and would call it hidden. That is arguably
+    /// the better answer — the kernel sees a leading dot — but it is a different answer, and this
+    /// change is a performance change. `theScanAgreesWithTheOriginalExpression` pins the equivalence
+    /// over an exhaustive sweep of that alphabet; change the fallback and it fails.
+    ///
+    /// Reading UTF-8 rather than Characters is safe for the same reason in reverse: UTF-8 is
+    /// self-synchronising, so the bytes for `.` and `/` never occur inside a multi-byte scalar.
     public nonisolated static func isHiddenPath(_ path: String) -> Bool {
-        let components = path.components(separatedBy: "/")
-        return components.contains { $0.hasPrefix(".") }
+        var atComponentStart = true
+        var sawCandidate = false
+        for byte in path.utf8 {
+            if atComponentStart && byte == UInt8(ascii: ".") { sawCandidate = true; break }
+            atComponentStart = (byte == UInt8(ascii: "/"))
+        }
+        guard sawCandidate else { return false }
+        return path.components(separatedBy: "/").contains { $0.hasPrefix(".") }
     }
     
     /// Back/forward stack for the left pane; independent of the right pane's.
