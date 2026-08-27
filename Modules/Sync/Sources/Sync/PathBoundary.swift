@@ -101,6 +101,42 @@ public enum PathBoundary {
         return path
     }
 
+    /// One pane's root-relative position, re-expressed for a pane whose source opens somewhere
+    /// else — the translation linked navigation needs now that two panes' roots no longer share an
+    /// origin.
+    ///
+    /// **Why it is needed at all.** Linked panes drive both sides with ONE relative path, and that
+    /// was exact while every source was rooted at its documents folder: `Family` meant the same
+    /// place on both. Sources now start at the account folder and land at `openAt` — `""` for
+    /// iCloud, `Documents` for OneDrive and Dropbox, `My Drive/Documents` for Google Drive — so the
+    /// same string names folders up to two components apart. Left OneDrive at `Documents/Family`,
+    /// linked to an iCloud right, sent the right pane to `~/Documents/Documents/Family`, which does
+    /// not exist; the other direction was worse, because `<account>/Family` often DOES exist and is
+    /// a different tree, so the comparison quietly diffed the wrong pair and Sync acted on it.
+    ///
+    /// **The translation is anchor-relative, and it degrades rather than guessing.** Below the
+    /// landing folder, the shared position is what the two panes have in common. At or above it
+    /// there is no landing-relative reading — a pane at the account root is somewhere its sibling's
+    /// anchor cannot express — so the path is carried across unchanged, which is exactly what
+    /// linked navigation did before this existed.
+    /// An EMPTY source anchor is handled here rather than through `relativize`, which answers nil
+    /// for an empty root by design (`""` is the ABSENCE of a root, not the volume root). An empty
+    /// `openAt` is not an absent anchor — it is the landing folder being the root itself, which is
+    /// iCloud's ordinary state and therefore the commonest half of every mixed pair. Everything is
+    /// below it, so the position passes through whole.
+    public static func reanchor(_ relative: String, from source: String, to destination: String) -> String {
+        guard source != destination else { return relative }
+        let belowSource: String
+        if source.isEmpty {
+            belowSource = relative
+        } else if let below = relativize(relative, under: source) {
+            belowSource = below
+        } else {
+            return relative
+        }
+        return joinRelative(destination, belowSource)
+    }
+
     /// Whether two paths name the SAME directory, folding case when the volume does.
     ///
     /// The one implementation of filing's "the chosen folder IS the file's current folder" test,

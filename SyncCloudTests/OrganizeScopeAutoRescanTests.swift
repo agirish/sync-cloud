@@ -87,6 +87,44 @@ import Foundation
         #expect(body.contains("providerRoot: URL(fileURLWithPath: root)"))
     }
 
+    /// The lens workspace is handed BOTH folders, and each of its two questions gets the right one.
+    ///
+    /// It was handed only the account root, under a parameter whose own doc said its consumers
+    /// "must not drift apart" — and they had. The rule editor relativized a browsed destination
+    /// against the root while `startAutomationPreviewAction` resolved it at the anchor, so
+    /// `…/OneDrive-X/Documents/Invoices` was stored as `Documents/Invoices` and applied at
+    /// `…/Documents/Documents/Invoices`: a folder created and files moved into it, with no
+    /// containment check rejecting it because the result was still under the anchor. And
+    /// `passCoverage`'s no-scope fallback named the root while an unscoped scan enumerates the
+    /// landing folder, so `looseFileScanCovers` — which compares by equality — reported a completed
+    /// pass as never having run, permanently.
+    ///
+    /// A scan rather than a render because the wiring IS the defect: both values are plain strings
+    /// and swapping them compiles, runs, and produces wrong folders rather than an error.
+    @Test func theLensWorkspaceGetsTheAnchorAndTheRootSeparately() throws {
+        let source = try Self.contentView()
+        // A `Comment` takes a literal, not a concatenation — kept on one line each.
+        #expect(source.contains("providerAnchor: lensProviderAnchorExpanded"),
+                "the lens taxonomy is aimed at the account root again: rule destinations resolve one level too deep and an unscoped scan never covers its own subject")
+        #expect(source.contains("providerRoot: lensProviderRootExpanded"),
+                "the scope lost the root that bounds it: a folder above the landing folder now normalizes to the global view")
+    }
+
+    /// The three actions that anchor at the taxonomy and had no guard of their own.
+    ///
+    /// `autoRescanLensIfShowing` and `findFilingSuggestionsAction` were pinned above; these three
+    /// took the same anchor in the same change and nothing held them there, so swapping any one
+    /// back to `lensProviderRootExpanded` left the whole suite green.
+    @Test func everyTaxonomyAnchoredActionUsesTheAnchor() throws {
+        let source = try Self.contentView()
+        for signature in ["func startAutomationPreviewAction(only: UUID? = nil) {",
+                          "func updateFolderMemoryAction() {"] {
+            let body = try Self.body(of: signature, in: source)
+            #expect(body.contains("lensProviderAnchorExpanded"),
+                    "\(signature) is anchored at the account root again")
+        }
+    }
+
     @Test func theScopeIsResolvedThroughOneHelperForReadsAndWrites() throws {
         // The read has to agree with the write that a stored provider root means "no scope", or the
         // chip and the filter would disagree about the same stored string.

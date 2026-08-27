@@ -614,6 +614,14 @@ struct ContentView: View {
         let otherRoot = isLeft ? currentRightPath : currentLeftPath
         syncManager.navigateBothPanes(
             toCombinedPath: combined,
+            // Translated, because the two sources need not open at the same depth: iCloud lands at
+            // its root and OneDrive two components in, so one root-relative string names folders
+            // that far apart. Driving both panes with the clicked pane's spelling sent the sibling
+            // to `~/Documents/Documents/Family` one way, and to a real-but-unrelated
+            // `<account>/Family` the other — where the comparison then diffed the wrong pair.
+            otherCombinedPath: PathBoundary.reanchor(combined,
+                                                     from: paneOpenAt(isLeft: isLeft),
+                                                     to: paneOpenAt(isLeft: !isLeft)),
             from: isLeft,
             // Each side answers for itself — the presentation is a per-pane setting, so a linked
             // click can be a browse move on one side and a re-root on the other.
@@ -958,6 +966,11 @@ struct ContentView: View {
                     paletteOnLaunchArmed = UserDefaults.standard.bool(forKey: "openCommandPaletteOnLaunch")
                 case .createActionHandler:
                     actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
+                    // The pane → source mapping is this view's state, and both linked navigation
+                    // and the durable ignore store need it to tell whether the two panes are in the
+                    // same place. A closure rather than two stored strings so it is read at the
+                    // moment of the decision — captured values go stale on the next switch.
+                    syncManager.paneOpenAt = paneOpenAtForSyncManager
                     // How the manager reads a pane's search field when it parks a tab. The field is
                     // this view's `@State` and `Sync` cannot see its type — see `paneSearchSnapshot`.
                     syncManager.paneSearchSnapshot = { [self] isLeft in
@@ -2515,6 +2528,26 @@ struct ContentView: View {
         (settings.rootPath(for: id) as NSString).expandingTildeInPath
     }
 
+    /// A pane's landing folder as a ROOT-RELATIVE path — the origin its positions are quoted
+    /// against once you stop assuming both panes share one.
+    ///
+    /// Read live rather than cached: it is a stored preference that discovery republishes, and a
+    /// stale copy would translate a linked move onto the folder the source used to open at.
+    func paneOpenAt(isLeft: Bool) -> String {
+        settings.openAtIfReachable(for: isLeft ? leftProviderId : rightProviderId)
+    }
+
+    /// `paneOpenAt` in the shape `FileSyncManager.paneOpenAt` takes.
+    ///
+    /// A named property rather than a closure literal at the assignment: written inline, it pushed
+    /// the `onAppear` chain past the Swift type-checker's budget outright ("unable to type-check
+    /// this expression in reasonable time"), which this file is already close enough to feel.
+    private var paneOpenAtForSyncManager: (Bool) -> String {
+        { [settings] isLeft in
+            settings.openAtIfReachable(for: isLeft ? self.leftProviderId : self.rightProviderId)
+        }
+    }
+
     /// The provider ruleset the name check runs against — the targeted pane's source (the left
     /// rail in single-source; the focused pane in compare). See `SettingsManager.nameRuleType(for:)`
     /// for the two substitutions it makes: OneDrive for an unresolvable id, and the user's
@@ -3743,6 +3776,11 @@ struct ContentView: View {
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onApplyRenames: { plans in Task { await syncManager.applyRenamePlans(plans) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
+                // Both, and they are not the same folder. The anchor is the taxonomy every lens
+                // files against and scans; the root is what can bound a scope. Handing the root to
+                // the anchor's consumers made rule destinations resolve one level too deep and made
+                // an unscoped scan never cover its own subject — see `LensWorkspaceView`.
+                providerAnchor: lensProviderAnchorExpanded,
                 providerRoot: lensProviderRootExpanded,
                 filingInboxFolder: filingInboxFolder,
                 onQuickLook: { toggleQuickLook($0) },

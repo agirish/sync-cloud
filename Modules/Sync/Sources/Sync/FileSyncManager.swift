@@ -1375,7 +1375,7 @@ public class FileSyncManager: ObservableObject {
     /// ignores stay session-only — exactly the pre-durable-layer behavior.
     private func persistIgnoredPathsDelta(from oldValue: Set<String>, to newValue: Set<String>) {
         guard !suppressIgnorePersistence, rememberIgnoredItems, let store = ignoredItemsStore,
-              leftRelativePath == rightRelativePath else { return }
+              panesShareAPosition else { return }
         let focus = leftRelativePath
         let added = newValue.subtracting(oldValue)
         let removed = oldValue.subtracting(newValue)
@@ -1423,7 +1423,7 @@ public class FileSyncManager: ObservableObject {
         }
         // Same equal-foci condition as persistIgnoredPathsDelta: with divergent foci the
         // left-focus translation could remove a stored entry belonging to a different pair.
-        if rememberIgnoredItems, let store = ignoredItemsStore, leftRelativePath == rightRelativePath {
+        if rememberIgnoredItems, let store = ignoredItemsStore, panesShareAPosition {
             let focus = leftRelativePath
             let rootTargets = targets.map { Self.rootRelativePath($0, focus: focus) }
             let covering = store.rootRelativePaths.filter { entry in
@@ -1836,6 +1836,36 @@ public class FileSyncManager: ObservableObject {
     @Published public var leftRelativePath: String = ""
     /// Current subfolder path relative to the right pane root (empty = root).
     @Published public var rightRelativePath: String = ""
+
+    /// Where each pane's source **opens**, as a path relative to that pane's root — the origin its
+    /// positions are quoted against once you stop assuming both panes share one.
+    ///
+    /// Supplied by the app because the pane → source mapping is its state, and a closure rather
+    /// than two stored strings so it is read at the moment of the decision: it is a preference
+    /// discovery republishes, and a cached copy would answer with the folder a source used to open
+    /// at. The default answers `""` for both, which reproduces exactly the pre-landing-folder
+    /// behaviour — every test that does not set it is asking the old question and still gets the
+    /// old answer.
+    ///
+    /// Two things read it, and both were silently wrong without it. Linked navigation drove both
+    /// panes with ONE root-relative path, so an iCloud/OneDrive pair sent the sibling either into a
+    /// doubled `Documents` or into a real-but-unrelated folder at the top of the account. And the
+    /// durable ignore store's "both panes are showing the same thing" guard compared the two
+    /// root-relative paths directly, which for a mixed pair is permanently false — Ignore worked
+    /// for the session, wrote nothing, and the row was back after a relaunch with no diagnostic.
+    @MainActor public var paneOpenAt: (_ isLeft: Bool) -> String = { _ in "" }
+
+    /// Whether a focus-relative path names the SAME item in both panes — the condition the durable
+    /// ignore store's identity depends on.
+    ///
+    /// Anchor-relative, not a raw comparison of the two focus paths. Before sources had a landing
+    /// folder the two were the same test, because every root WAS a documents folder; now iCloud
+    /// lands at `""` and OneDrive at `Documents`, so two panes showing exactly the same thing
+    /// disagree by two components and the raw test never becomes true again.
+    @MainActor var panesShareAPosition: Bool {
+        PathBoundary.reanchor(leftRelativePath, from: paneOpenAt(true), to: paneOpenAt(false))
+            == rightRelativePath
+    }
 
     /// Where the left pane is browsing inside its loaded tree — the Columns view's column stack.
     /// Empty is the resting single column. See `PaneBrowsePath` for why this is deliberately not

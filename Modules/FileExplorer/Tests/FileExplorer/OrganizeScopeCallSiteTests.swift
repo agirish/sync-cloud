@@ -398,13 +398,17 @@ import Sync
         #expect(!moved.contains("?? scannedRoot"),
                 "targetMoved is spelling the subject chain again beside the one it delegates to")
 
-        // **Who passes the provider-root rung is the whole cross-workspace rule.** Organize's two
+        // **Who passes the fallback rung is the whole cross-workspace rule.** Organize's two
         // re-aim buttons do, because unscoped Organize answers about the whole tree; Storage does
         // not, because it owns no scope and its button re-analyzes rather than re-aims. Storage
         // picking the fallback up is how its "Analyze X" starts firing on a condition that is about
         // somebody else's subject.
+        //
+        // The rung is the ANCHOR now — the folder an unscoped pass actually enumerates. Handing it
+        // the account root made a freshly launched pane, sitting at its landing folder, read as
+        // having moved away from the subject, so the prominent re-aim button drew on every launch.
         #expect(try Self.body(of: "private var filingTargetMoved: Bool {", in: view)
-            .contains("rootFallback: providerRoot"),
+            .contains("rootFallback: providerAnchor"),
                 "Organize's filing button no longer treats an unscoped, unscanned workspace as aimed at the whole tree")
         #expect(!(try Self.body(of: "private var reanalyzeStorageButton: some View {", in: view))
             .contains("rootFallback"),
@@ -743,12 +747,17 @@ import Sync
                 "Duplicates no longer asks whether its scan covered the subject")
         #expect(coverage.contains("scannedRoot: syncManager.duplicateScanRoot"))
 
-        // **The subject is what the screen CLAIMS, and unscoped that is the provider root.** Written
-        // as `scope?.path ?? providerRoot`: falling back to the scanned root instead would ask
-        // whether each scan covered itself, which is how the unscoped half of this bug survived the
-        // scoped fix — browse into a subfolder, rescan, and the whole tree reads "clean".
-        #expect(coverage.contains("let subject = scope?.path ?? providerRoot"),
-                "the coverage subject is no longer scope-or-provider-root")
+        // **The subject is what the screen CLAIMS, and unscoped that is the source's ANCHOR.**
+        // Written as `scope?.path ?? providerAnchor`: falling back to the scanned root instead would
+        // ask whether each scan covered itself, which is how the unscoped half of this bug survived
+        // the scoped fix — browse into a subfolder, rescan, and the whole tree reads "clean".
+        //
+        // The anchor, not the root, since a source's root widened above the folder it opens at: an
+        // unscoped filing scan enumerates the LANDING folder, and `looseFileScanCovers` compares by
+        // equality, so naming the account root here reported a completed pass as never having run —
+        // permanently, on every cloud source.
+        #expect(coverage.contains("let subject = scope?.path ?? providerAnchor"),
+                "the coverage subject is no longer scope-or-anchor")
         #expect(!Self.codeOnly(coverage).contains("syncManager.duplicateScanRoot\n"),
                 "the scanned root is being used as the subject — that asks whether a scan covered itself")
 

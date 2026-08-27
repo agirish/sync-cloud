@@ -257,15 +257,43 @@ public struct LensWorkspaceView: View {
     private let onPreviewAutomations: (UUID?) -> Void
     /// The provider root everything in this workspace anchors at.
     ///
-    /// Two consumers, one value, and they must not drift apart. Automations resolve destinations
+    /// **The source's LANDING folder, not its root** — the taxonomy every lens on this screen files
+    /// against, scans, and measures coverage from.
+    ///
+    /// Several consumers, one value, and they must not drift apart. Automations resolve destinations
     /// against it, so the Browse… button anchors where the preview does rather than at whatever
     /// subfolder happened to be scanned; and ``scope`` normalizes against it, which is what makes
-    /// "pointing at the provider root clears the scope" a fact about this exact root rather than
-    /// about some other notion of the top of the tree.
+    /// "pointing at the top clears the scope" a fact about this exact folder rather than about some
+    /// other notion of the top of the tree.
     ///
-    /// Named for what it *is* rather than for one of its uses — it was `automationDestinationRoot`,
-    /// and a second parameter carrying the identical value would have been two roots to keep in
-    /// step. A pure rename: every call site already passed `lensProviderRootExpanded`.
+    /// It was `providerRoot`, and stayed so for one commit after a source's root and its landing
+    /// folder became two different values — which is exactly long enough to be wrong. The preview
+    /// (`startAutomationPreviewAction`) resolved rule templates at the ANCHOR while the editor
+    /// relativized what the user browsed to against the ROOT, so a destination picked as
+    /// `…/OneDrive-X/Documents/Invoices` was stored as `Documents/Invoices` and applied at
+    /// `…/Documents/Documents/Invoices`: a nested folder created, and files moved into it, with
+    /// nothing rejecting it because the result was still under the anchor. Coverage failed the same
+    /// way — `looseFileScanCovers` compares by equality, so a complete scan of the landing folder
+    /// never covered a subject named as the account root, and Organize reported the pass as not
+    /// having run there, forever.
+    ///
+    /// So the name carries the distinction now, and the root arrives as its own value below rather
+    /// than as a second reading of this one.
+    private let providerAnchor: String?
+
+    /// The source's **root** — the whole of what it covers, and the only thing that can bound
+    /// Organize's scope.
+    ///
+    /// Deliberately not folded into ``providerAnchor``, which was the first attempt. The scope is
+    /// "which folder is the user asking about", and since a pane can now sit above the landing
+    /// folder, `…/OneDrive-X/Teams Recordings` is a folder they can right-click and mean. Bounding
+    /// the scope at the anchor would normalize that to nil — the global view — so the chip would
+    /// clear itself, the coverage subject would become the whole tree, and Organize would report a
+    /// completed scan of that very folder as never having run. Bounding it at the root keeps the
+    /// narrowing the user asked for.
+    ///
+    /// It is only the *fallback* — what the surface describes when NO scope is set — that has to be
+    /// the anchor, because that is the folder an unscoped scan actually enumerates.
     private let providerRoot: String?
     /// The loose-files inbox's absolute path, when the folder exists — the offer on Organize's
     /// overview that replaced the hidden root-swap. nil hides the offer entirely rather than
@@ -328,6 +356,7 @@ public struct LensWorkspaceView: View {
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onApplyRenames: @escaping ([RenamePlan]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
+        providerAnchor: String? = nil,
         providerRoot: String? = nil,
         filingInboxFolder: String? = nil,
         onQuickLook: ((URL) -> Void)? = nil,
@@ -364,6 +393,13 @@ public struct LensWorkspaceView: View {
         self.onNormalizeNames = onNormalizeNames
         self.onApplyRenames = onApplyRenames
         self.onPreviewAutomations = onPreviewAutomations
+        // **The anchor falls back to the root, and only the anchor.** A caller that names one folder
+        // is saying "this source's root and its landing folder are the same place" — true of iCloud,
+        // true of every folder source, and true of every single-root test fixture here. The app
+        // passes both explicitly and a source scan pins that it does
+        // (`theLensWorkspaceGetsTheAnchorAndTheRootSeparately`), so the fallback cannot quietly
+        // re-conflate the two where they actually differ.
+        self.providerAnchor = providerAnchor ?? providerRoot
         self.providerRoot = providerRoot
         self.filingInboxFolder = filingInboxFolder
         self.onQuickLook = onQuickLook
@@ -834,7 +870,7 @@ public struct LensWorkspaceView: View {
             AutomationRuleEditor(
                 rule: rule,
                 accent: glassHue.accentColor,
-                browseRoot: providerRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+                browseRoot: providerAnchor.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
                 people: syncManager.filingPeopleStore?.people ?? [],
                 onSave: { saved in
                     syncManager.upsertAutomationRule(saved)
@@ -1679,7 +1715,7 @@ public struct LensWorkspaceView: View {
     /// handed the provider-wide taxonomy, so their findings cover any subject inside the provider
     /// and a gate would only hide real work — see ``overviewModel``.
     func passCoverage(for scope: OrganizeScope?) -> (filing: Bool, duplicates: Bool) {
-        let subject = scope?.path ?? providerRoot
+        let subject = scope?.path ?? providerAnchor
         return (filing: OrganizeScopeFilter.looseFileScanCovers(
                     subject: subject, scannedFolder: syncManager.filingScanFolder),
                 duplicates: OrganizeScopeFilter.scanCovers(
@@ -2305,7 +2341,7 @@ public struct LensWorkspaceView: View {
     /// branch is exactly the state that was reported, and inlining the condition twice is how they
     /// drift back apart.
     private var filingTargetMoved: Bool {
-        targetMoved(from: syncManager.filingScanFolder, rootFallback: providerRoot)
+        targetMoved(from: syncManager.filingScanFolder, rootFallback: providerAnchor)
     }
 
     /// Whether To File's setup card is the thing on screen — the pre-scan state that carries its
@@ -2408,7 +2444,7 @@ public struct LensWorkspaceView: View {
         // per-lens scan roots, which the scope exists to override; it is not something a fallback
         // rung can fix.
         rescanButton(moved: targetMoved(from: syncManager.duplicateScanRoot,
-                                        rootFallback: providerRoot),
+                                        rootFallback: providerAnchor),
                      movedIcon: "wand.and.stars", disabled: syncManager.isFindingDuplicates,
                      action: onFindDuplicates,
                      reaim: { reaimAtScanTarget(then: onFindDuplicates) },
@@ -2882,10 +2918,10 @@ public struct LensWorkspaceView: View {
         .buttonStyle(.borderedProminent)
         .chromeHover()
         .controlSize(.small)
-        .disabled(runnableRuleCount == 0 || providerRoot == nil)
+        .disabled(runnableRuleCount == 0 || providerAnchor == nil)
         // Name the ACTUAL blocker: with no provider root there is nothing to preview over, and
         // telling the user to add conditions to already-complete rules is a dead end.
-        .help(providerRoot == nil
+        .help(providerAnchor == nil
               ? "Focus a provider folder first — the preview runs over the focused folder."
               : runnableRuleCount == 0
               ? "Add a rule with a condition and a destination to preview it."
@@ -3786,7 +3822,7 @@ public struct LensWorkspaceView: View {
                 state: automationsState,
                 rules: rules,
                 providerName: providerName,
-                destinationRoot: providerRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+                destinationRoot: providerAnchor.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
                 onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
                 onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
                 onPreview: onPreviewAutomations
@@ -3823,7 +3859,7 @@ public struct LensWorkspaceView: View {
     /// on the tree's own filing memory, and both live there (see `proposeAutomationRule`).
     private func offerRule(fileName: String, filePath: String, destinationPath: String,
                            modificationDate: Date?) {
-        let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: providerRoot)
+        let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: providerAnchor)
         // The file's own date is what lets a destination ending in a year generalise to `{year}`
         // rather than freezing the year the example happened to have.
         guard let proposal = syncManager.proposeAutomationRule(fileName: fileName,
@@ -4095,7 +4131,7 @@ public struct LensWorkspaceView: View {
         // Both fallbacks have to test for EMPTY, not just nil. `providerRoot` is handed
         // down as a non-optional String that is "" for an unconfigured provider, so `??` alone never
         // reached the suggestion's own root — the chain read as three options and behaved as one.
-        let root = [providerRoot, suggestion.providerRoot]
+        let root = [providerAnchor, suggestion.providerRoot]
             .compactMap { $0 }
             .first { !$0.isEmpty } ?? ""
         let panel = { Self.runSystemFolderPanel(for: suggestion.fileName,

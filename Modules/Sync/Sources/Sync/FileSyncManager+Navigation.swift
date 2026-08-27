@@ -85,13 +85,26 @@ extension FileSyncManager {
     /// Sets the focused subfolder for both panes at once (⌥-click on a pane breadcrumb).
     /// Panes already focused on `relativePath` keep their history untouched, so Back in each
     /// pane still undoes exactly that pane's last move. No-op when both panes are already there.
+    ///
+    /// Both panes to the SAME root-relative path — correct exactly while the two sources land in
+    /// the same place, which is every same-type pair and was every pair at all before a source's
+    /// root and its landing folder came apart. `focusBoth(left:right:)` is the general form.
     public func focusBoth(relativePath: String) {
-        guard leftRelativePath != relativePath || rightRelativePath != relativePath else { return }
+        focusBoth(left: relativePath, right: relativePath)
+    }
+
+    /// Each pane to its own root-relative path — the general form, because a linked move now has to
+    /// be translated across two sources that may open at different depths.
+    ///
+    /// The caller does the translating (`PathBoundary.reanchor`), because it is the layer that
+    /// knows both sources' landing folders; this one only knows relative paths.
+    public func focusBoth(left: String, right: String) {
+        guard leftRelativePath != left || rightRelativePath != right else { return }
         clearSessionIgnoredPaths()
         // Only the panes that actually move lose their column stack, matching the history rule
         // directly below — a pane already focused there keeps both.
-        if leftRelativePath != relativePath { resetBrowsePath(isLeft: true); leftHistory.push(relativePath) }
-        if rightRelativePath != relativePath { resetBrowsePath(isLeft: false); rightHistory.push(relativePath) }
+        if leftRelativePath != left { resetBrowsePath(isLeft: true); leftHistory.push(left) }
+        if rightRelativePath != right { resetBrowsePath(isLeft: false); rightHistory.push(right) }
         syncPathsFromHistory()
     }
 
@@ -199,8 +212,14 @@ extension FileSyncManager {
     /// **Two `drawsColumns` flags, not one.** The presentation is a per-pane setting, so a linked
     /// click can be a browse move on one side and a re-root on the other; asking the clicked pane's
     /// mode on the sibling's behalf would drive the sibling through a stack it does not draw.
+    ///
+    /// **`otherCombinedPath` is the sibling's own spelling of the same folder**, and defaults to
+    /// the clicked pane's. The two agree while both sources land in the same place and can be two
+    /// components apart when they do not — see `PathBoundary.reanchor`. The caller translates,
+    /// because it is the layer that knows both landing folders.
     @MainActor public func navigateBothPanes(
         toCombinedPath combined: String,
+        otherCombinedPath: String? = nil,
         from isLeft: Bool,
         drawsColumns: Bool,
         otherDrawsColumns: Bool,
@@ -209,7 +228,8 @@ extension FileSyncManager {
     ) {
         let otherFocusBefore = isLeft ? rightRelativePath : leftRelativePath
         navigatePane(isLeft: isLeft, toCombinedPath: combined, drawsColumns: drawsColumns)
-        navigatePane(isLeft: !isLeft, toCombinedPath: combined, drawsColumns: otherDrawsColumns)
+        navigatePane(isLeft: !isLeft, toCombinedPath: otherCombinedPath ?? combined,
+                     drawsColumns: otherDrawsColumns)
 
         // Only a browse move can be pruned here. If the sibling re-rooted, its tree is being
         // reloaded and `otherTreeRoot`/`otherIndex` describe the tree it just left — the prune that

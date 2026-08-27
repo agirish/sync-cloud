@@ -115,7 +115,16 @@ public class FileActionHandler {
         // hidden right pane along (growing its history, overwriting its saved focus for the next
         // launch, and recording "Recent" folders the user never visited).
         if PaneLinkPreference.isLinked && !suppressLinkedNavigation {
-            syncManager.focusBoth(relativePath: relPath)
+            // `relPath` is relative to THIS pane's root, and the sibling's root need not share its
+            // origin any more — a source lands at `openAt`, which is `""` for iCloud and two
+            // components deep for Google Drive. Handing the same string to both sent the sibling
+            // into a doubled `Documents` one way and into a real but unrelated top-level folder the
+            // other, where the comparison then diffed the wrong pair.
+            let sibling = PathBoundary.reanchor(relPath,
+                                                from: syncManager.paneOpenAt(isLeft),
+                                                to: syncManager.paneOpenAt(!isLeft))
+            syncManager.focusBoth(left: isLeft ? relPath : sibling,
+                                  right: isLeft ? sibling : relPath)
         } else {
             syncManager.focusOn(relativePath: relPath, isLeft: isLeft)
         }
