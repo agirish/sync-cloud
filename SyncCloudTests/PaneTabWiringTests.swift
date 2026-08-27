@@ -2913,6 +2913,75 @@ import Sync
                 "reopen logs before it knows whether anything came back")
     }
 
+    // MARK: Chips that would otherwise read alike
+
+    private func drive(_ name: String) -> PaneTabChips.Source {
+        PaneTabChips.Source(displayName: name, markImageName: "googledrive",
+                            root: "~/Library/CloudStorage/GoogleDrive-\(name)")
+    }
+
+    /// **Two Google Drive accounts both land on `My Drive`, and the mark cannot tell them apart.**
+    ///
+    /// This is the shipped strip: `My Drive · My Drive · iCloud`, with the two Drive chips carrying
+    /// the same title AND the same brand mark. `Item.markImageName`'s doc says the mark is what
+    /// separates two chips reading "Documents" — true across brands, and no help at all in the
+    /// commonest collision there is, two accounts of one brand.
+    @Test func twoSourcesLandingOnTheSameFolderNameAreQualifiedByTheirSource() {
+        let items = PaneTabChips.items(
+            list(["My Drive", "My Drive"], selected: 0,
+                 providers: ["gdrive-personal", "gdrive-hpe"]),
+            liveProviderId: "gdrive-personal", livePath: "My Drive", drawsColumns: true,
+            source: { id in self.drive(id == "gdrive-personal" ? "Google Drive (Personal)"
+                                                              : "Google Drive (HPE)") })
+        #expect(items[0].title == "My Drive — Google Drive (Personal)")
+        #expect(items[1].title == "My Drive — Google Drive (HPE)")
+    }
+
+    /// **A strip with no collision is left exactly as it was.**
+    ///
+    /// The control, and the reason the rule is "qualify where it separates" rather than "qualify
+    /// always". Width is the strip's scarcest resource — the ladder folds chips away when it runs
+    /// out — so a chip that grew "— iCloud Drive" for no reason costs a chip somewhere else.
+    @Test func chipsThatAlreadyReadDifferentlyAreUntouched() {
+        let items = PaneTabChips.items(list(["Finance", "Photos"], selected: 0),
+                                       liveProviderId: "iCloud", livePath: "Finance",
+                                       drawsColumns: true, source: { _ in self.iCloud })
+        #expect(items.map(\.title) == ["Finance", "Photos"])
+    }
+
+    /// One source, two folders sharing a leaf name: the parent is the smallest thing that separates
+    /// them, and the source name would not (it is the same source).
+    @Test func twoFoldersOnOneSourceSharingALeafNameAreQualifiedByTheirParent() {
+        let items = PaneTabChips.items(
+            list(["2026/Statements", "2025/Statements"], selected: 0),
+            liveProviderId: "iCloud", livePath: "2026/Statements",
+            drawsColumns: true, source: { _ in self.iCloud })
+        #expect(items.map(\.title) == ["Statements — 2026", "Statements — 2025"])
+    }
+
+    /// **A duplicated tab is not a collision, and must not grow two identical suffixes.**
+    ///
+    /// Same source, same path — the two chips genuinely ARE the same folder, so neither qualifier
+    /// separates them and both are left alone. Without the "only where it separates" test this reads
+    /// `Statements — 2026 · Statements — 2026`: wider, folded sooner, and no more informative.
+    @Test func aDuplicatedTabIsLeftAloneBecauseNothingSeparatesIt() {
+        let items = PaneTabChips.items(
+            list(["2026/Statements", "2026/Statements"], selected: 0),
+            liveProviderId: "iCloud", livePath: "2026/Statements",
+            drawsColumns: true, source: { _ in self.iCloud })
+        #expect(items.map(\.title) == ["Statements", "Statements"])
+    }
+
+    /// A root chip already wears its source's name, so qualifying it with that same name would read
+    /// `iCloud Drive — iCloud Drive`. The parent qualifier has nothing to offer at a root either, so
+    /// the pair is left alone — which is honest: two tabs at one source's root are the same folder.
+    @Test func rootChipsOnOneSourceAreNotQualifiedWithTheNameTheyAlreadyWear() {
+        let items = PaneTabChips.items(list(["", ""], selected: 0),
+                                       liveProviderId: "iCloud", livePath: "",
+                                       drawsColumns: true, source: { _ in self.iCloud })
+        #expect(items.map(\.title) == ["iCloud Drive", "iCloud Drive"])
+    }
+
     /// **One setting, every way of walking into a folder.** The mirror predicate is the same
     /// expression `applyColumnNavigation` uses; two copies would let a link mean one thing for a
     /// drill and another for a tab, and nothing on screen would say which.

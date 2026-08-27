@@ -1083,7 +1083,7 @@ enum PaneTabChips {
                       livePath: String,
                       drawsColumns: Bool,
                       source: (String) -> Source?) -> [PaneTabStrip.Item] {
-        list.tabs.enumerated().map { index, tab in
+        let drafts = list.tabs.enumerated().map { index, tab -> Draft in
             let isActive = index == list.selectedIndex
             let providerId = isActive ? liveProviderId : tab.providerId
             let parkedPath = drawsColumns ? tab.combinedRelativePath : tab.relativePath
@@ -1093,16 +1093,93 @@ enum PaneTabChips {
             // the raw id if even that is gone, which at least says which source it meant.
             let name = path.isEmpty ? (resolved?.displayName ?? providerId)
                                     : (path as NSString).lastPathComponent
-            return PaneTabStrip.Item(
-                id: tab.id,
-                title: name,
-                // A source with no bundled mark wears a folder, which is what `ProviderLogo` draws
-                // for a folder source anyway.
-                markImageName: resolved?.markImageName ?? "folder.fill",
-                isActive: isActive,
-                fullPath: PaneLogic.fullPath(root: resolved?.root ?? "", relativePath: path),
-                isPinned: tab.isPinned)
+            return Draft(id: tab.id, title: name, providerId: providerId, path: path,
+                         sourceName: resolved?.displayName,
+                         // A source with no bundled mark wears a folder, which is what
+                         // `ProviderLogo` draws for a folder source anyway.
+                         markImageName: resolved?.markImageName ?? "folder.fill",
+                         isActive: isActive,
+                         fullPath: PaneLogic.fullPath(root: resolved?.root ?? "", relativePath: path),
+                         isPinned: tab.isPinned)
         }
+        let titles = disambiguatedTitles(drafts)
+        return zip(drafts, titles).map { draft, title in
+            PaneTabStrip.Item(id: draft.id, title: title, markImageName: draft.markImageName,
+                              isActive: draft.isActive, fullPath: draft.fullPath,
+                              isPinned: draft.isPinned)
+        }
+    }
+
+    /// One chip, before its title has been checked against the others.
+    struct Draft {
+        let id: UUID
+        let title: String
+        let providerId: String
+        let path: String
+        let sourceName: String?
+        let markImageName: String
+        let isActive: Bool
+        let fullPath: String
+        let isPinned: Bool
+    }
+
+    /// Titles, with colliding ones qualified until they separate.
+    ///
+    /// **A tab's title is its folder's leaf name, and leaf names collide constantly.** Two Google
+    /// Drive accounts both land on `My Drive`, an iCloud and a OneDrive both hold a `Documents`, a
+    /// Dropbox and a folder source both hold a `Projects`. `Item.markImageName` was the answer, and
+    /// it is a real one — but it only separates chips whose sources wear DIFFERENT marks, and the
+    /// commonest collision of all is two accounts of the same brand, which wear the same one. A
+    /// strip reading `My Drive · My Drive · iCloud` says nothing at all about the first two, and the
+    /// tooltip is the only honest thing on either chip.
+    ///
+    /// **Qualified only where it separates, never as a rule.** The overwhelmingly common strip has
+    /// no collision in it and must be untouched — a chip that grew "— iCloud" for no reason spends
+    /// the strip's scarcest resource (width; the ladder folds chips away when it runs out) on saying
+    /// what the mark already said. So a group of same-titled chips is qualified only if the
+    /// qualifier actually tells its members apart.
+    ///
+    /// Two qualifiers, tried in order, because a collision has two causes:
+    /// - **Different sources** — the ordinary case. Qualified with the source's own display name,
+    ///   the string the sidebar and the breadcrumb's source chip already use, so the three surfaces
+    ///   name a source the same way.
+    /// - **One source, two folders that share a leaf name** (`2026/Statements` and
+    ///   `2025/Statements`). Qualified with the parent folder, which is the smallest thing that
+    ///   distinguishes them.
+    ///
+    /// Neither is applied when it fails to separate — two chips on the same source at the same path
+    /// are a duplicated tab, and they genuinely ARE the same folder. Appending an identical
+    /// qualifier to both would add width and say nothing.
+    ///
+    /// The separator is an em dash rather than a parenthesis because the chip middle-truncates: the
+    /// tail survives, so `My Drive — Google Drive (HPE)` degrades to something still carrying the
+    /// account, while a leading qualifier would be the half that got eaten.
+    static func disambiguatedTitles(_ drafts: [Draft]) -> [String] {
+        var titles = drafts.map(\.title)
+        var groups: [String: [Int]] = [:]
+        for (index, draft) in drafts.enumerated() { groups[draft.title, default: []].append(index) }
+
+        for (_, indices) in groups where indices.count > 1 {
+            // Source name first, parent folder second. `separates` is what keeps an untouched strip
+            // untouched AND stops a duplicated tab from growing two identical suffixes.
+            let candidates: [[String?]] = [
+                indices.map { drafts[$0].sourceName },
+                indices.map { Self.parentName(of: drafts[$0].path) },
+            ]
+            guard let qualifiers = candidates.first(where: { Set($0.map { $0 ?? "" }).count > 1 })
+            else { continue }
+            for (index, qualifier) in zip(indices, qualifiers) {
+                guard let qualifier, !qualifier.isEmpty, qualifier != drafts[index].title else { continue }
+                titles[index] = "\(drafts[index].title) — \(qualifier)"
+            }
+        }
+        return titles
+    }
+
+    /// The folder above `path`'s leaf, or nil when there is none (a leaf at the source root).
+    private static func parentName(of path: String) -> String? {
+        let parent = (path as NSString).deletingLastPathComponent
+        return parent.isEmpty ? nil : (parent as NSString).lastPathComponent
     }
 }
 
