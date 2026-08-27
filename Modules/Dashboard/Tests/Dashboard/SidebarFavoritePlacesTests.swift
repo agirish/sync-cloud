@@ -5,12 +5,38 @@ import Foundation
 /// **Which places sit in Favorites** — the list that replaced a constant.
 @Suite struct SidebarFavoritePlacesTests {
 
+    /// **The arrangement a first run gets, in order.**
+    ///
+    /// Pinned as a whole list rather than as five `contains` checks, because ORDER is half of what
+    /// was asked for: home first because it is where a path starts, the three you file into next,
+    /// the startup disk last because it is the widest scope. A set-membership assertion would pass
+    /// on any shuffle of the same five, and a shuffle is exactly the regression a later edit to
+    /// `favoriteShortcuts` or to the concatenation would produce.
+    @Test func theDefaultFavoritesAreHomeTheThreeFoldersAndTheStartupDisk() {
+        #expect(SidebarFavoritePlaces.standard == [
+            NSHomeDirectory(),
+            NSHomeDirectory() + "/Desktop",
+            NSHomeDirectory() + "/Documents",
+            NSHomeDirectory() + "/Downloads",
+            "/",
+        ])
+    }
+
+    /// Every default entry is an absolute path — the list is matched against a row's
+    /// `absolutePath` through `resolved`, and a relative one would resolve against the working
+    /// directory and silently favorite nothing.
+    @Test func everyDefaultPlaceIsAbsolute() {
+        #expect(SidebarFavoritePlaces.standard.allSatisfy { $0.hasPrefix("/") })
+        #expect(Set(SidebarFavoritePlaces.standard).count == SidebarFavoritePlaces.standard.count,
+                "a duplicate default would draw one row and leave a dead entry behind it")
+    }
+
     /// The whole reason the encoding is JSON and not a joined string: three states, not two.
     @Test func anUntouchedKeyIsNotAnEmptyList() {
         #expect(SidebarFavoritePlaces.places(from: "") == SidebarFavoritePlaces.standard,
-                "a first run has to get the three standard folders")
+                "a first run has to get the standard places")
         #expect(SidebarFavoritePlaces.places(from: "[]").isEmpty,
-                "someone who removed all three must not be handed them back on the next launch")
+                "someone who removed every one must not be handed them back on the next launch")
     }
 
     /// A path containing the separator any plain join would pick. Not hypothetical enough to matter
@@ -44,13 +70,18 @@ import Foundation
                 "a standard folder already present must not be added twice")
     }
 
-    /// **Restoring only the missing ones is not restoring the standard order.** With Documents kept
-    /// and the other two removed, prepending the missing pair produced Desktop, Downloads,
-    /// Documents — the three standard folders back, in an order the item's own name does not
-    /// promise. They are placed as a block for that reason.
-    @Test func theStandardThreeComeBackInTheirStandardOrder() {
-        let kept = [SidebarFavoritePlaces.standard[1]]
-        #expect(SidebarFavoritePlaces.restoring(kept) == SidebarFavoritePlaces.standard)
+    /// **Restoring only the missing ones is not restoring the standard order.** With one of them
+    /// kept and the rest removed, prepending the missing ones put the kept one last — the standard
+    /// places back, in an order the item's own name does not promise. They are placed as a block
+    /// for that reason.
+    ///
+    /// Asserted for EACH position rather than one, so the block-placement holds wherever the kept
+    /// entry sat: keeping the first would pass a prepend-the-missing implementation by accident.
+    @Test func theStandardPlacesComeBackInTheirStandardOrder() {
+        for kept in SidebarFavoritePlaces.standard {
+            #expect(SidebarFavoritePlaces.restoring([kept]) == SidebarFavoritePlaces.standard,
+                    "restoring around a kept \(kept) did not reproduce the standard order")
+        }
     }
 
     /// And they come back ABOVE what the user added, which is where they started.

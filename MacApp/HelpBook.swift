@@ -174,9 +174,9 @@ enum HelpBook {
                     .paragraph("It has three sections, and each heading folds away — a folded one says how many rows are behind it, so it never reads as empty. The column's own edge sets its width."),
                     .legend([
                         LegendItem(systemImage: "star", mood: .accent, title: "Favorites",
-                                   detail: "The folders and places you keep. It starts as Desktop, Documents and Downloads."),
+                                   detail: "The folders and places you keep. It starts as your home folder, Desktop, Documents, Downloads and your startup disk."),
                         LegendItem(systemImage: "externaldrive", mood: .neutral, title: "Locations",
-                                   detail: "Every account you have signed into, then your home folder, your disks and the Trash."),
+                                   detail: "Every account you have signed into, then any disks Favorites is not already holding, then the Trash."),
                         LegendItem(systemImage: "clock", mood: .neutral, title: "Recents",
                                    detail: "The folders you were last in, newest first."),
                     ]),
@@ -184,7 +184,7 @@ enum HelpBook {
                     .bullets([
                         "Put a place in Favorites by right-clicking it in Locations, and take one out by right-clicking it in Favorites. A place moves between the two rather than appearing in both.",
                         "Keep a folder you are looking at by right-clicking it in a pane and choosing “Add to Favorites”. The same menu removes it again.",
-                        "“Restore Standard Folders”, on the Favorites heading, brings Desktop, Documents and Downloads back without disturbing anything you have added. It appears only when one of them is missing.",
+                        "“Restore Standard Places”, on the Favorites heading, brings the five it starts with back without disturbing anything you have added. It appears only when one of them is missing.",
                         "Drag a row to put the section in your own order. Locations shares its order with the pane header's source menu, so the two always agree.",
                         "“Show in Enclosing Folder” opens the folder a favorite or a recent lives in, rather than the folder itself — what you want when two folders share a name.",
                         "A row for a local folder SyncCloud has not been given yet says so before it becomes a source, and offers to take it back. The Trash opens in Finder and is never scanned.",

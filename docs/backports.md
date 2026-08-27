@@ -432,6 +432,17 @@ files respectively, and each permitted file really does carry a `floor: ` for th
 Recorded so a future audit does not spend an hour deciding these again. Each is a restructure or a
 new feature, which `CLAUDE.md` puts on `main` alone — not a fix that a maintenance line is missing.
 
+- **The folder sidebar's default Favorites, and its single-line Recents rows** (2026-08-27). Home
+  and the startup disk joined `SidebarFavoritePlaces.standard`, and a recent row stopped drawing a
+  second line. **Neither line carries the surface at all** — the folder sidebar is a v4.4 feature —
+  so there is nothing on `v3.x` or `v2.x` for either change to apply to. Checked, conclusively, and
+  it costs one command:
+  ```sh
+  for l in v2.x v3.x; do git ls-tree -r --name-only origin/$l -- \
+    Modules/Dashboard/Sources/Dashboard/SidebarSources.swift \
+    Modules/Dashboard/Sources/Dashboard/FolderSidebar.swift \
+    MacApp/ContentView+FolderSidebar.swift; done   # prints nothing on both
+  ```
 - **The app-wide text size becoming a percentage.** `FontSize` stopped being a four-case enum and
   became a value wrapping an `Int` percentage (90–135). That is a public type changing shape, and
   the stored `fontSize` default changed with it — `"small"/"medium"/"large"/"extraLarge"` to a

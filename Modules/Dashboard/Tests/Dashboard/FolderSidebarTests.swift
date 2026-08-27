@@ -49,13 +49,48 @@ import Design
     /// reading "Legal" where only one says which. The provider's own name is what a top-level
     /// folder is in.
     @Test func aTopLevelFolderInACollisionIsQualifiedByTheProvider() {
-        #expect(one(recents: ["Legal"], favorites: ["Clients/Legal"]).map(\.detail) == ["Clients", "iCloud"])
+        #expect(one(favorites: ["Clients/Legal", "Legal"]).map(\.detail) == ["Clients", "iCloud"])
     }
 
     /// Counted across both groups, because the reader is looking at one column: a favorite and a
-    /// recent can collide as easily as two favorites.
+    /// recent can collide as easily as two favorites. **The recent does not get a line of its own**
+    /// — only the favorite does — but it still makes the favorite grow one, which is the half of
+    /// this rule that survived 2026-08-27.
     @Test func theCollisionIsCountedAcrossFavoritesAndRecentsTogether() {
-        #expect(one(recents: ["Archive/Legal"], favorites: ["Clients/Legal"]).map(\.detail) == ["Clients", "Archive"])
+        #expect(one(recents: ["Archive/Legal"], favorites: ["Clients/Legal"]).map(\.detail) == ["Clients", nil])
+    }
+
+    /// **A recent never carries a second line**, whatever would qualify it.
+    ///
+    /// Asserted over every shape that produced one before — a collision with a parent to show, a
+    /// top-level collision that would have borrowed the source's name, and a recent colliding with
+    /// another recent — because the rule is "recents have one line", not "recents skip this one
+    /// case". Its whole path is still in the tooltip.
+    @Test func aRecentNeverShowsASecondLine() {
+        let cases: [[FolderSidebarRow]] = [
+            one(recents: ["Archive/Legal"], favorites: ["Clients/Legal"]),
+            one(recents: ["Legal"], favorites: ["Clients/Legal"]),
+            one(recents: ["Clients/Legal", "Archive/Legal"]),
+            one(recents: ["Legal", "Archive/Legal"]),
+        ]
+        for rows in cases {
+            let recents = FolderSidebarModel.rows(rows, in: .recents)
+            #expect(!recents.isEmpty, "the fixture produced no recents to check")
+            #expect(recents.allSatisfy { $0.detail == nil },
+                    "a recent grew a second line: \(recents.compactMap(\.detail))")
+        }
+    }
+
+    /// The badge is the recent's disambiguator, and it is untouched by the line going away — the
+    /// whole argument for dropping the line was that the badge already says which source.
+    @Test func aRecentKeepsItsSourceBadge() {
+        let rows = FolderSidebarModel.rows(
+            sources: [Self.source("/iCloud", "iCloud", ["Health"]),
+                      Self.source("/Dropbox", "Dropbox", [])],
+            recents: [Self.visit("/Dropbox", "Documents")])
+        let recents = FolderSidebarModel.rows(rows, in: .recents)
+        #expect(recents.map(\.sourceName) == ["Dropbox"])
+        #expect(recents.map(\.detail) == [nil])
     }
 
     /// And the other direction, which is what stops every row growing a second line: a name nothing

@@ -38,13 +38,22 @@ public struct FolderSidebarRow: Identifiable, Equatable, Sendable {
     public let relativePath: String
     /// The folder's own name, which is what the row reads.
     public let name: String
-    /// The folders above it, shown **only when another row on screen has the same name**.
+    /// The folders above it, shown **only on a Favorite, and only when another row on screen has
+    /// the same name**.
     ///
     /// Two `Legal` folders under different clients is the case that matters, and it is the one the
     /// ⌘K palette had to be rebuilt twice to be able to see: a sidebar that lists them both as
     /// "Legal" offers two rows that are indistinguishable and one of them goes to the wrong place.
     /// Always showing the parent would be the other failure — a 180pt column of two-line rows where
     /// almost every second line is redundant.
+    ///
+    /// **Always `nil` on a recent, since 2026-08-27.** Recents is the section where the second line
+    /// was redundant in practice rather than in theory: a recent's qualifier is its parent, and its
+    /// parent is a top-level folder often enough that the line came out reading the same word as
+    /// the source badge already on the row's other end — `Documents` over `OneDrive (HPE)` with
+    /// `OneDrive (HPE)` beside it, four times down one column. A recent is a place you were minutes
+    /// ago and recognise; a favorite is a place you chose once and may not. The whole path is still
+    /// in the tooltip, on both.
     public let detail: String?
     /// False when the root did not answer — the whole list is then "everything remembered,
     /// unchecked" (`FolderJumpStore.reachable`), which is a sleeping drive rather than a folder
@@ -109,11 +118,13 @@ public enum FolderSidebarModel {
     /// - **The badge (``FolderSidebarRow/sourceName``) says which source**, on every row, whenever
     ///   more than one source contributes. With a single source it is `nil` — a badge repeating one
     ///   word down the whole column says nothing.
-    /// - **The detail (``FolderSidebarRow/detail``) says which folder**, and only when a leaf name
-    ///   collides with another row's. It is the parent path, or the source's name for a folder at
-    ///   the top level, which is the convention `StorageLensView.displayFolder` already uses.
+    /// - **The detail (``FolderSidebarRow/detail``) says which folder**, on a FAVORITE, and only
+    ///   when a leaf name collides with another row's. It is the parent path, or the source's name
+    ///   for a folder at the top level, which is the convention `StorageLensView.displayFolder`
+    ///   already uses. A recent never carries one — the badge is the whole answer there, and the
+    ///   second line was reading the badge's own words back at it.
     ///
-    /// A row can carry both, and the case that needs both is real: a `Clients/Legal` on Drive
+    /// A favorite can carry both, and the case that needs both is real: a `Clients/Legal` on Drive
     /// beside a top-level `Legal` on iCloud is two rows reading `Legal` from two accounts, where
     /// neither the badge nor the parent alone tells them apart.
     ///
@@ -175,13 +186,18 @@ public enum FolderSidebarModel {
             let parent = (draft.path as NSString).deletingLastPathComponent
             let qualifier = parent.isEmpty ? (source?.name ?? "") : parent
             let collides = (leafCounts[draft.name] ?? 0) > 1
+            // **Only a favorite carries a second line** — see `FolderSidebarRow.detail`. Recents
+            // still COUNT toward the collision, and that is deliberate rather than an oversight:
+            // the reader is looking at one column, so a favorite `Legal` sitting above a recent
+            // `Legal` is exactly the pair that needs the favorite to say which one it is.
+            let showsDetail = draft.group == .pinned && collides && !qualifier.isEmpty
             return FolderSidebarRow(
                 group: draft.group,
                 root: draft.root,
                 sourceName: showsBadge ? source?.name : nil,
                 relativePath: draft.path,
                 name: draft.name,
-                detail: collides && !qualifier.isEmpty ? qualifier : nil,
+                detail: showsDetail ? qualifier : nil,
                 isAvailable: source?.isAvailable ?? false)
         }
     }
@@ -478,7 +494,12 @@ public struct FolderSidebarView: View {
     private let folderRows: [FolderSidebarRow]
     /// Locations' rows — clouds, devices, Trash.
     private let locationRows: [SidebarSourceRow]
-    /// Favorites' standard folders — Desktop, Documents, Downloads.
+    /// Favorites' place rows — home, Desktop, Documents, Downloads and the startup disk by
+    /// default, plus anything else the user has put there.
+    ///
+    /// Named for the `.shortcut` band they carry, which is what puts them in this section; the band
+    /// is applied from the user's Favorites list, so a cloud account or a mounted disk can be one
+    /// of these too.
     private let shortcutRows: [SidebarSourceRow]
     private let currentRoot: String
     private let currentRelativePath: String
@@ -507,7 +528,7 @@ public struct FolderSidebarView: View {
     /// Point the target pane at the folder a row lives in, rather than at the row.
     private let onShowEnclosingFolder: (FolderSidebarRow) -> Void
     private let onToggleSourceFavorite: (SidebarSourceRow) -> Void
-    /// Put the three standard folders back. Offered only when one of them is missing.
+    /// Put `SidebarFavoritePlaces.standard` back. Offered only when one of them is missing.
     private let onRestoreStandardFavorites: () -> Void
     /// Whether Restore has anything to do, decided by the caller because it owns the stored list.
     private let canRestoreStandardFavorites: Bool
@@ -791,7 +812,7 @@ public struct FolderSidebarView: View {
                     // to accept a recent dragged into it, and a per-row target cannot be hit when
                     // there are no rows — which is exactly the first-run case.
                     reorderable(.favorites) {
-                        // **The standard folders sit above the curated ones.** Finder puts its
+                        // **The standard places sit above the curated ones.** Finder puts its
                         // defaults at the top of Favourites, and they are the rows a person reaches
                         // for without having chosen them — a curated favorite is something you
                         // decided on, so it reads as the more specific half and goes second.
@@ -856,17 +877,20 @@ public struct FolderSidebarView: View {
         .buttonStyle(.plain)
         .onHover { hoveredHeader = $0 ? section : (hoveredHeader == section ? nil : hoveredHeader) }
         .accessibilityLabel("\(section.rawValue), \(isCollapsed ? "collapsed" : "expanded"), \(count(section)) items")
-        // **The way back from removing a standard folder**, and the reason Remove is not a
+        // **The way back from removing a standard place**, and the reason Remove is not a
         // one-way door. Desktop taken out of Favorites has nowhere else to appear, so without
         // this the only route back would be adding `~/Desktop` as a folder source — a different
-        // thing that happens to look similar. On the heading rather than on a row, because the
-        // rows it restores are precisely the ones that are not there to be right-clicked.
+        // thing that happens to look similar. (Home and the startup disk DO fall back to
+        // Locations, being device rows in their own right; the three in `favoriteShortcuts` do
+        // not, and they are what makes this item necessary.) On the heading rather than on a row,
+        // because the rows it restores are precisely the ones that are not there to be
+        // right-clicked.
         //
         // Shown only when something is actually missing: an item that would do nothing teaches
         // nothing, and it would sit on the heading of every session forever.
         .contextMenu {
             if section == .favorites, canRestoreStandardFavorites {
-                Button("Restore Standard Folders") { onRestoreStandardFavorites() }
+                Button("Restore Standard Places") { onRestoreStandardFavorites() }
             }
         }
     }

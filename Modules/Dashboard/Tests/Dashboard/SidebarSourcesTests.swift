@@ -133,9 +133,9 @@ import Foundation
 
     // MARK: - What lives where
 
-    /// **Desktop, Documents and Downloads live in Favorites**, which is Finder's arrangement: they
-    /// are the folders a person files *into*, so they belong beside the folders they curated rather
-    /// than beside the disks those folders sit on.
+    /// **Desktop, Documents and Downloads are the three places whose ONLY band is Favorites** —
+    /// they have no Locations row to fall back to, which is what makes "Restore Standard Places"
+    /// necessary. The rest of the default Favorites set is asserted in `SidebarFavoritePlacesTests`.
     @Test func theStandardFoldersAreTheThreeYouFileInto() {
         #expect(SidebarSourceModel.favoriteShortcuts.map(\.name) == ["Desktop", "Documents", "Downloads"])
         #expect(SidebarSourceModel.favoriteShortcuts.allSatisfy { $0.path.hasPrefix("/") },
@@ -143,12 +143,27 @@ import Foundation
         #expect(SidebarSourceModel.favoriteShortcuts.allSatisfy { !$0.symbol.isEmpty })
     }
 
-    /// **Home is not among them**, and that is the point of the split: it is the folder that
-    /// *contains* all three, so listing it alongside them would put a container and its contents in
-    /// one flat list. It heads the device band in Locations instead.
-    @Test func homeIsALocationAndNotAFavorite() {
-        #expect(!SidebarSourceModel.favoriteShortcuts.contains { $0.path == NSHomeDirectory() })
+    /// **Home is favorited by default and is still built as a Locations row**, which is not a
+    /// contradiction — it is the difference the two constants encode.
+    ///
+    /// `favoriteShortcuts` is "places that exist only in Favorites"; `homeEntry` and the startup
+    /// disk are places with a Locations row of their own that the default list happens to lift into
+    /// Favorites. A second `favoriteShortcuts` entry for either would build TWO rows for one folder
+    /// — the builder walks both lists — which is why the default set names paths instead.
+    @Test func homeIsAFavoriteByDefaultAndStillHasItsLocationsRow() {
         #expect(SidebarSourceModel.homeEntry.path == NSHomeDirectory())
+        #expect(SidebarFavoritePlaces.standard.contains(NSHomeDirectory()),
+                "home is not in the default Favorites — it was the first row of the arrangement asked for")
+        #expect(!SidebarSourceModel.favoriteShortcuts.contains { $0.path == NSHomeDirectory() },
+                "home is in both lists — the builder would draw two rows for it")
+        #expect(!SidebarSourceModel.favoriteShortcuts.contains { $0.path == SidebarSourceModel.startupDiskPath },
+                "the startup disk is in both lists — the builder would draw two rows for it")
+    }
+
+    /// The startup disk is `/` and nothing else needs to be true of it here: its name and its glyph
+    /// come from the mounted-volume walk, so this constant cannot go stale when a disk is renamed.
+    @Test func theStartupDiskIsNamedByPathOnly() {
+        #expect(SidebarSourceModel.startupDiskPath == "/")
     }
 
     /// **Home still contains the other three**, which is why `owningSource` takes the longest match

@@ -120,13 +120,16 @@ public struct SidebarSourceRow: Identifiable, Equatable, Sendable {
 /// `FolderSidebarModel` because it answers a different question about a different list.
 public enum SidebarSourceModel {
 
-    /// **The standard folders, which live in Favorites** — Finder's own arrangement.
+    /// **The three standard folders that exist ONLY as Favorites rows** — Desktop, Documents and
+    /// Downloads, the three a person files *into*.
     ///
-    /// Desktop, Documents and Downloads are the three a person files *into*, which is what makes
-    /// them belong beside the folders they curated rather than beside the disks those folders sit
-    /// on. Home is deliberately not here: it is the folder that *contains* these three, so listing
-    /// it alongside them puts a container and its contents in one flat list. It sits in Locations,
-    /// with the other volumes.
+    /// Not the whole of Favorites, and the distinction matters: ``SidebarFavoritePlaces/standard``
+    /// is what a first run actually gets, and it puts the home folder above these three and the
+    /// startup disk below them. Those two are absent HERE because they are already places in their
+    /// own right — home heads `deviceEntries()` and the startup disk arrives from the mounted-volume
+    /// walk — so a second entry for either would build two rows for one folder. What decides which
+    /// section a place is drawn in is membership of the Favorites list, not this constant; this is
+    /// only the set of places that have no Locations row to fall back to.
     ///
     /// **Fixed, and deliberately short.** Every folder past these is somebody's preference rather
     /// than everybody's, and adding a folder source is the mechanism this list is a shortcut *to*
@@ -139,9 +142,27 @@ public enum SidebarSourceModel {
         ("Downloads", "arrow.down.circle", NSHomeDirectory() + "/Downloads"),
     ]
 
-    /// The home folder, which heads the device band in Locations.
+    /// The home folder, which heads the device band in Locations — and which
+    /// ``SidebarFavoritePlaces/standard`` favorites, so by default it is drawn at the TOP of
+    /// Favorites and the device band starts at the volumes.
+    ///
+    /// It is built as a device row either way. Taking it out of Favorites therefore returns it to
+    /// Locations rather than removing it from the column, which is the difference between a place
+    /// that has a Locations row of its own and one of the three in ``favoriteShortcuts`` that does
+    /// not.
     public static let homeEntry: (name: String, symbol: String, path: String) =
         (NSUserName(), "house", NSHomeDirectory())
+
+    /// **The startup disk, by path only.**
+    ///
+    /// Its row is already built by the mounted-volume walk, which is where its name comes from —
+    /// `Macintosh HD` on a stock install, and whatever the user renamed it to otherwise — and its
+    /// `internaldrive` glyph. Naming it here as well would be a constant that goes stale the day
+    /// someone renames their disk, so ``SidebarFavoritePlaces/standard`` names the path and lets
+    /// the volume row supply the rest.
+    ///
+    /// `/` is the boot volume by definition, so this needs no lookup and cannot fail to resolve.
+    public static let startupDiskPath = "/"
 
     /// The Trash, last in Locations and the one row that never becomes a source.
     public static let trashEntry: (name: String, symbol: String, path: String) =
@@ -399,8 +420,8 @@ public enum SidebarReorder {
     }
 }
 
-/// **Which places sit in Favorites** — the three standard folders to begin with, and whatever the
-/// user has added or removed since.
+/// **Which places sit in Favorites** — the standard set to begin with, and whatever the user has
+/// added or removed since.
 ///
 /// Before this, Favorites' place rows were the fixed `SidebarSourceModel.favoriteShortcuts` and
 /// nothing else: Desktop, Documents and Downloads, always, with no way to take one out and no way
@@ -414,20 +435,41 @@ public enum SidebarReorder {
 /// separator any plain join would pick.
 public enum SidebarFavoritePlaces {
 
-    /// What a first run gets: Finder's own three, in Finder's order.
-    public static var standard: [String] { SidebarSourceModel.favoriteShortcuts.map(\.path) }
+    /// **What a first run gets** — the home folder, Finder's own three, and the startup disk, in
+    /// that order.
+    ///
+    /// It was the three standard folders alone until 2026-08-27, with home and the startup disk
+    /// left in Locations' device band. That is defensible on paper — home *contains* the three, and
+    /// a disk is hardware — and it was wrong in use for the same reason both ended up dragged into
+    /// Favorites by hand: these are the two places a person navigates to from a standing start, and
+    /// Locations on a machine with eleven cloud accounts is where you go to find an account. A
+    /// default that every user rebuilds by hand is not a default.
+    ///
+    /// **Order is Finder's, and it is the reason this is a list rather than a set**: home first
+    /// because it is where a path starts, the three you file into next, the disk last because it is
+    /// the widest scope and the least often wanted.
+    ///
+    /// Home and the startup disk are also Locations rows (``SidebarSourceModel/homeEntry`` and the
+    /// mounted-volume walk), so removing either from Favorites moves it back down the column rather
+    /// than off it — unlike Desktop, Documents and Downloads, whose only band is `.shortcut` and
+    /// for which ``restoring(_:)`` is the way back.
+    public static var standard: [String] {
+        [SidebarSourceModel.homeEntry.path]
+            + SidebarSourceModel.favoriteShortcuts.map(\.path)
+            + [SidebarSourceModel.startupDiskPath]
+    }
 
     /// **Absent is not the same as empty, and the difference is the whole default.**
     ///
-    /// Someone who has never touched Favorites gets the three standard folders; someone who has
-    /// deliberately removed all three gets none, and must not have them handed back on the next
+    /// Someone who has never touched Favorites gets ``standard``; someone who has deliberately
+    /// removed every one of them gets none, and must not have them handed back on the next
     /// launch. An empty *string* is the untouched key and an empty *array* is a decision, so the
     /// encoding has to be able to say both — which a comma-joined list cannot.
     ///
-    /// A value that will not decode falls back to the standard three rather than to nothing: it is
-    /// the same answer a first run gets, and a column that has lost its Favorites silently is worse
-    /// than one that has been reset to a state the user recognises. `restoring` is how the three
-    /// come back deliberately.
+    /// A value that will not decode falls back to ``standard`` rather than to nothing: it is the
+    /// same answer a first run gets, and a column that has lost its Favorites silently is worse
+    /// than one that has been reset to a state the user recognises. `restoring` is how the standard
+    /// set comes back deliberately.
     public static func places(from raw: String) -> [String] {
         guard !raw.isEmpty else { return standard }
         guard let data = raw.data(using: .utf8),
@@ -438,11 +480,11 @@ public enum SidebarFavoritePlaces {
     /// **Whether `raw` holds bytes this build could not read** — the third state, and the only one
     /// that must never be written over.
     ///
-    /// `places(from:)` answers the standard three for both an untouched key and an unreadable one,
+    /// `places(from:)` answers ``standard`` for both an untouched key and an unreadable one,
     /// which is right for a READ: a column that has silently lost its Favorites is worse than one
     /// reset to a state the user recognises. It is wrong for the WRITE that follows, and the write
-    /// is where the loss happens — the next Add, Remove or drag encodes those three over the key
-    /// and the real list is gone. Absent, empty and unreadable are three states; the encoding can
+    /// is where the loss happens — the next Add, Remove or drag encodes the standard set over the
+    /// key and the real list is gone. Absent, empty and unreadable are three states; the encoding can
     /// already say the first two, and this is what lets a caller notice the third.
     ///
     /// `FolderJumpStore.salvageKey(for:)` draws the same line for the pinned and recent maps, and
@@ -473,8 +515,8 @@ public enum SidebarFavoritePlaces {
         places.contains(path) ? places.filter { $0 != path } : places + [path]
     }
 
-    /// The standard three, put back at the top **in Finder's order**, with everything the user has
-    /// added kept below them in the order they were in.
+    /// ``standard`` put back at the top **in its own order**, with everything the user has added
+    /// kept below it in the order it was in.
     ///
     /// The affordance that stops "Remove from Favorites" being a one-way door. Removing Desktop
     /// takes its row off the column and there is nowhere else it appears, so without this the only
@@ -483,10 +525,10 @@ public enum SidebarFavoritePlaces {
     ///
     /// **Only the missing ones used to be prepended**, which restored them in an order the name
     /// does not promise: with Documents still there, Restore produced Desktop, Downloads,
-    /// Documents. An item called "Restore Standard Folders" that leaves the standard folders out of
-    /// their standard order has done half of what it says. The three are placed as a block, so the
-    /// one cost is that a standard folder the user had dragged below a place of their own comes
-    /// back up — which is the same thing the item is named after.
+    /// Documents. An item called "Restore Standard Places" that leaves the standard places out of
+    /// their standard order has done half of what it says. They are placed as a block, so the one
+    /// cost is that a standard place the user had dragged below a place of their own comes back up
+    /// — which is the same thing the item is named after.
     public static func restoring(_ places: [String]) -> [String] {
         standard + places.filter { !standard.contains($0) }
     }

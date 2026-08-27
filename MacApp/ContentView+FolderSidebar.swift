@@ -204,9 +204,9 @@ extension ContentView {
     /// **Every write to the Favorites places goes through here**, so bytes this build could not
     /// read are salvaged rather than overwritten.
     ///
-    /// `SidebarFavoritePlaces.places(from:)` answers the standard three for an unreadable value as
+    /// `SidebarFavoritePlaces.places(from:)` answers the standard set for an unreadable value as
     /// well as an absent one, which is the right thing to SHOW. It is the wrong thing to then write
-    /// back: the next Add, Remove or drag would encode those three over a key that still held the
+    /// back: the next Add, Remove or drag would encode that set over a key that still held the
     /// user's real list, and the loss would happen on the write rather than on the read that caused
     /// it — the shape six stores were carrying when v4.3 went looking for it.
     ///
@@ -234,6 +234,11 @@ extension ContentView {
     /// A standard folder the user has removed is dropped rather than moved: `.shortcut` is the only
     /// band Desktop has, so there is no Locations row for it to fall back to. That is Finder's
     /// behaviour too, and `SidebarFavoritePlaces.restoring` is the way back.
+    ///
+    /// **Home and the startup disk are the other case**, and they are in Favorites by default:
+    /// each is built as a `.device` row and re-banded UP into Favorites here, so taking either out
+    /// moves it back to Locations rather than off the column. Nothing special-cases them — the
+    /// asymmetry falls out of which band the builder gave the row.
     func applyFolderSidebarFavoritePlaces(to rows: [SidebarSourceRow]) -> [SidebarSourceRow] {
         let wanted = Set(folderSidebarFavoritePlaces.map(Self.resolved))
         return rows.compactMap { row in
@@ -274,6 +279,11 @@ extension ContentView {
     }
 
     /// Home, then the mounted volumes — the startup disk first, then everything else by name.
+    ///
+    /// Both home and the startup disk are in `SidebarFavoritePlaces.standard`, so on an untouched
+    /// install `applyFolderSidebarFavoritePlaces` lifts them into Favorites and what is left of
+    /// this band in Locations is the external disks. They are still built HERE, which is what lets
+    /// them fall back rather than disappear when they are removed from Favorites.
     ///
     /// **Sorted rather than left in mount order**, which is arrival order and therefore differs
     /// between boots; a sidebar whose disks rearranged themselves would look broken. Same reason
@@ -592,11 +602,11 @@ extension ContentView {
         refreshFolderSidebarRows()
     }
 
-    /// Puts Desktop, Documents and Downloads back, leaving everything else where it is.
+    /// Puts `SidebarFavoritePlaces.standard` back, leaving everything else where it is.
     func restoreStandardFolderSidebarFavorites() {
         writeFolderSidebarFavoritePlaces(
             SidebarFavoritePlaces.restoring(folderSidebarFavoritePlaces))
-        Logger.shared.info("Sidebar: restored the standard Favorites folders")
+        Logger.shared.info("Sidebar: restored the standard Favorites places")
         refreshFolderSidebarRows()
     }
 
@@ -747,8 +757,9 @@ extension ContentView {
     /// The section draws the place rows first and the remembered folders after, in one index space
     /// — so index 0 is a place and index `places` is the first folder. This member used to hand
     /// that combined index straight to the folder-favorites list, which is the same defect
-    /// `moveFolderSidebarSource` documents one screen down: with three standard folders present,
-    /// dragging the FIRST remembered folder asked to move item 3 of a list that had two, and
+    /// `moveFolderSidebarSource` documents one screen down: with the standard places present (three
+    /// of them at the time), dragging the FIRST remembered folder asked to move item 3 of a list
+    /// that had two, and
     /// `SidebarReorder.moved` returned it unchanged, so remembered folders could not be reordered
     /// at all; dragging a place row reordered a remembered folder instead. Neither wrote anything
     /// visible, which is why it survived.

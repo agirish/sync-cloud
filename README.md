@@ -32,12 +32,12 @@ clearly-warned fallback on volumes with no Trash; the CLI has no undo stack of i
 
 ### 📁 Browse — your folders, one click away
 - **A folder sidebar in every workspace** (**⌃⌘S**), in three sections: **Favorites**, the folders
-  and places you keep; **Locations**, every account you have signed into plus your home folder,
-  your disks and the Trash; and **Recents**, the folders you were last in. Favorites and Recents span every source, so
+  and places you keep; **Locations**, every account you have signed into, any disks Favorites is
+  not already holding, and the Trash; and **Recents**, the folders you were last in. Favorites and Recents span every source, so
   a favorite in Dropbox is reachable without switching to Dropbox first.
-- **Favorites you curate.** Starts as Desktop, Documents and Downloads; right-click any place in
-  Locations to add it, any row in Favorites to remove it, or any folder in a pane to keep it.
-  **Restore Standard Folders** brings the three back.
+- **Favorites you curate.** Starts as your home folder, Desktop, Documents, Downloads and your
+  startup disk; right-click any place in Locations to add it, any row in Favorites to remove it, or
+  any folder in a pane to keep it. **Restore Standard Places** brings the five back.
 - **Drag a row to reorder** either section. Locations shares its order with the pane header's
   source dropdown, so the two can't disagree.
 - **Column browsing** the way Finder does it, with an inline preview beside the stack, per-pane
