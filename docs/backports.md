@@ -35,6 +35,19 @@ A file can be present and the fix absent — that is the usual case, and stage 1
 a miss silently reads as a hit; test the count, not the exit status. (Written down because this
 audit made that exact mistake and every "MISSING" came back "Y".)
 
+**Run stage 1 against `origin/main` too, and require it to find the file.** Both stages answer
+"absent" with silence, so a `<path>` you spelled wrong — or that moved between modules since you
+last looked — produces a perfect-looking absence on every line at once, and the check you thought
+you ran did not run. Item 13 shipped exactly that, citing a `PaneTabStrip.swift` under `Dashboard`
+when the strip lives under `FileExplorer`; the verdict happened to be right, which is the reason it
+survived review. The positive control costs one command and is the only thing separating "this line
+does not have it" from "nothing has it, including the tree I copied the path from".
+
+One shell note, since these checks get pasted into a loop: **zsh does not word-split unquoted
+parameter expansions**, so folding a path list into `P="a b c"` and passing `-- $P` sends git ONE
+pathspec containing spaces, which matches nothing and reads as absence again. Write the paths out,
+or use an array.
+
 ---
 
 ## `v3.x` — owed
@@ -454,12 +467,41 @@ verified by shape rather than by file, since `PaneBreadcrumb.swift` itself is pr
 for l in v3.x v2.x; do
   git show origin/$l:Modules/Dashboard/Sources/Dashboard/PaneBreadcrumb.swift |
     grep -c 'sourcePicker\|ProviderMenu\|rootCrumb'      # 0 on both — none of the three
+done                                                     # positive control: 13 on origin/main
+```
+
+**The tab work is main-only at stage 1**, the rare case where the file check settles it — the whole
+pane-tabs subsystem is absent from both lines, not just the file this commit edited (verified
+2026-08-27):
+
+```sh
+for l in v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- \
+    MacApp/ContentView+PaneTabs.swift \
+    Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift \
+    Modules/FileExplorer/Sources/FileExplorer/PaneTabStripLadder.swift \
+    Modules/Sync/Sources/Sync/PaneTabs.swift \
+    Modules/Sync/Sources/Sync/PaneTabsStore.swift \
+    Modules/Sync/Sources/Sync/FileSyncManager+PaneTabs.swift
 done
 ```
 
-**The tab work is main-only at stage 1**, the rare case where the file check settles it:
-`MacApp/ContentView+PaneTabs.swift` and `Modules/Dashboard/Sources/Dashboard/PaneTabStrip.swift` are
-both absent from both lines, and nothing else in either tree is a pane tab strip.
+**Run it against `origin/main` first — it must print all six.** That is the step that would have caught
+the mistake below, and it is worth making a habit of for any absence check here: a pathspec that
+matches nothing prints nothing, which is indistinguishable from the absence you are trying to
+demonstrate. (Pipe it through `wc -l` if you prefer a number: 6 on `main`, 0 on both lines.)
+
+> **This paragraph first shipped citing `Modules/Dashboard/Sources/Dashboard/PaneTabStrip.swift`, a
+> path that exists on NO line** — the strip lives under `Modules/FileExplorer`. The verdict was
+> right and the evidence was worthless: a `git ls-tree` on a path that is absent everywhere returns
+> nothing for a maintenance line exactly as it does for `main`, so the check could not have
+> distinguished them. The header's stage-1/stage-2 warning assumes the stage-1 path is real; **spell
+> a path wrong and stage 1 stops being a check at all** while still printing like one. Corrected in
+> the following commit, and left recorded here because it is a cheaper lesson to read than to repeat.
+
+Note the layering this exposes, which matters to anyone pricing the pick: the strip is a
+`FileExplorer` view, its persistence is three `Sync` files, and only the chip-titling this commit
+changed is in `MacApp`. A line taking the tab work takes all three modules.
 
 **The refresh scoping is the one that applies, and it applies almost verbatim.** Both lines carry
 `syncPathsFromHistory` byte-identical to the `v4.4` shape — including *the two comparisons the fix
@@ -478,7 +520,7 @@ func syncPathsFromHistory() {
 `PaneReloadScope` and a scoped `refreshTreesAndScan` with the tab strip, which neither line has:
 
 ```sh
-git grep -l 'PaneReloadScope' origin/v3.x -- Modules MacApp        # 0 files (same on v2.x)
+git grep -l 'PaneReloadScope' origin/v3.x -- Modules MacApp        # 0 files (same on v2.x; 8 on main)
 git grep -n 'func refreshTreesAndScan' origin/v3.x -- Modules      # …+Scanning.swift, NO `reloading:` param
 ```
 
