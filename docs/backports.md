@@ -385,6 +385,55 @@ it, since it carries the same gates and the same 10 s bound. `main` was at 262 s
 fixed. Neither maintenance line has been re-measured since, so "below the threshold" is a
 2026-08-11 fact rather than a current one.
 
+### 12. The source root / landing folder split landed on `main` 2026-08-27 — RECORDED, not owed
+
+A source's root widened from its documents folder to the **account folder**, and where a pane opens
+became a separate root-relative `openAt`. `CloudProvider.path` is now `rootPath` + `openAt`, with
+`landingPath` composing the two. That reaches the pane trees, the breadcrumb (whose first crumb is
+the source picker — the provider capsule is retired), scanning, coverage, the CLI, the ⌘K index and
+the Organize lenses.
+
+**Not owed twice over.** It is a breaking model change, which this line does not take by rule, and
+the standing direction is no backporting regardless.
+
+**This line carries the old model, verified by shape and not just by file** (2026-08-27):
+
+```sh
+git show origin/v3.x:Modules/Sync/Sources/Sync/CloudProvider.swift | grep -c 'var rootPath'   # 0
+git show origin/v3.x:Modules/Sync/Sources/Sync/CloudProvider.swift | grep -c 'var path'       # 1
+git show origin/v3.x:Modules/Sync/Sources/Sync/PathBoundary.swift  | grep -c 'func join(root:' # 0
+git show origin/v3.x:Modules/Sync/Sources/Sync/PathBoundary.swift  | grep -c 'func reanchor'   # 0
+git ls-tree -r --name-only origin/v3.x -- Modules/Settings/Sources/Settings/RootsMigration.swift  # absent
+```
+
+`PathBoundary.swift` IS here — which is exactly the case the header of this file warns about, where
+stage 1 alone reads as "already done". The type predates the split; the two members the split added
+(`join(root:relative:)`, `reanchor(_:from:to:)`) are not in it.
+
+**The half a maintainer on this line actually needs, and it is not a gap.** `main` and this line
+share the `com.abhishekgirish.SyncCloud` defaults domain, so a machine that runs a v4.6-dev build
+and then reinstalls this one is reading keys the newer build has written.
+
+- **Location is safe by construction.** `RootsMigration` only ever *reads* `path_override_<id>` and
+  writes `root_override_` / `openAt_override_` beside it. Nothing rewrites or removes the legacy
+  key, so this line finds its Location exactly as it left it. That is deliberate and is stated in
+  the migration's own doc; this line still reads `path_override_` (1 occurrence in
+  `SettingsManager.swift`).
+- **Stored positions are not.** The migration rebases the shared root-relative stores — `browseTabs`
+  / `browseTabsRight`, `folderJumpPinnedByRoot` / `folderJumpRecentsByRoot`,
+  `folderJumpFavoriteOrder`, `destinationRecentsByProvider`, `ignoredItems_v1_<a>|<b>` — so their
+  values gain a `Documents` (or `My Drive/Documents`) prefix measured from the account root. Read
+  back on this line, whose root IS the documents folder, `Documents/Family` names
+  `…/Documents/Documents/Family`, which does not exist. Tabs and pins re-root gracefully — that is
+  the existing degrade for a folder that disappeared — and a durable ignore entry simply stops
+  matching, which un-ignores rows rather than over-ignoring them.
+- **There is no reverse migration and none is planned.** Going back is a supported thing to *do*;
+  coming back with your tab positions is not. Worth knowing before diagnosing "my tabs reset" on a
+  machine that has tried a v4 build.
+
+Nothing here is a defect on this line. It is filed so an audit that finds `root_override_` or
+`rootsModelStamp` in a shared domain knows what wrote them.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -662,11 +711,25 @@ not have, which is worse than the gap. Take both or neither.
 Its own measurement is the one the mechanism cites: 4 of 4 full parallel runs green at 109 suites on
 2026-08-11, i.e. below the threshold rather than immune to it. Not re-measured since.
 
+### The source root / landing folder split landed on `main` 2026-08-27 — RECORDED, not owed
+
+Same item as `v3.x` #12, same verdict, same two reasons: a breaking model change this line does not
+take by rule, and the standing direction is no backporting regardless. Verified the same way on
+2026-08-27 — `CloudProvider` has `var path` and no `var rootPath`, `PathBoundary.swift` is present
+but carries neither `join(root:)` nor `reanchor`, and `RootsMigration.swift` is absent.
+
+The shared-defaults-domain consequence written out under `v3.x` #12 applies to this line
+identically, and is the part worth reading: Location survives a round trip because the migration
+never rewrites `path_override_`, while tab, pin, recent, destination and durable-ignore positions do
+not, because their values are rebased onto the account root that this line has no notion of.
+
 ### Nothing else confirmed
 
 Every safety family above is present on `v2.x`, and it is the line the `DeleteOutcome` family
-landed on first. Apart from the entry just above, no other confirmed fix debt was found by
-the 2026-08-16 audit or this one.
+landed on first. Apart from the park-thread budget and the source-root split recorded above —
+neither of them owed — no other confirmed fix debt was found by the 2026-08-16 audit or this one.
+(Named rather than "the entry just above": that phrasing pointed at whichever row happened to be
+last, and adding one silently re-pointed it.)
 
 ### Checked and NOT applicable
 
