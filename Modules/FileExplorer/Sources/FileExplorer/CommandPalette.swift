@@ -257,6 +257,19 @@ public struct PaletteIndex: Equatable, Sendable {
     public var providerRoot: String?
     /// Folders under `providerRoot`, **relative**, from the folder profile the survey built.
     public var folders: [String]
+    /// The leading segment every entry of `folders` shares — the survey anchor's position inside
+    /// the source root, i.e. the source's `openAt`. Empty when the two are the same folder.
+    ///
+    /// **It is here so the ranker can subtract it**, and that is not cosmetic. A source's root is
+    /// the account above its documents tree, so every key now begins `Documents` (`My Drive
+    /// Documents` on Drive) — and ``PaletteRouter/rankedFolders(matching:in:)`` scores the path with
+    /// its slashes flattened to spaces. Typing `doc` therefore scored an identical prefix match on
+    /// all ~3,013 surveyed folders, and the Folders group answered six alphabetically-arbitrary rows
+    /// instead of the folders whose names contain "doc". `documents`, `my`, `drive` and every
+    /// substring of them behaved the same way.
+    ///
+    /// Set it from ``PaletteIndex/folderPrefix(profileRoot:providerRoot:)`` and from nothing else.
+    public var folderPrefix: String
     /// Recently focused folders, most recent first, relative — the empty-query state.
     public var recentFolders: [String]
     /// Folders the user has pinned, relative. ROADMAP 14 asks the Folders group for "recent and
@@ -296,7 +309,8 @@ public struct PaletteIndex: Equatable, Sendable {
     public var settingsTabs: [PaletteSettingsTab]
 
     public init(providers: [PaletteProvider] = [], providerRoot: String? = nil,
-                folders: [String] = [], recentFolders: [String] = [],
+                folders: [String] = [], folderPrefix: String = "",
+                recentFolders: [String] = [],
                 pinnedFolders: [String] = [], foldersUnavailable: String? = nil,
                 home: String = NSHomeDirectory(),
                 people: [Person] = [],
@@ -306,6 +320,7 @@ public struct PaletteIndex: Equatable, Sendable {
         self.providers = providers
         self.providerRoot = providerRoot
         self.folders = folders
+        self.folderPrefix = folderPrefix
         self.recentFolders = recentFolders
         self.pinnedFolders = pinnedFolders
         self.foldersUnavailable = foldersUnavailable
@@ -349,13 +364,28 @@ public extension PaletteIndex {
     /// A profile rooted OUTSIDE the provider root still yields nothing: its keys name paths that do
     /// not exist under this source, and a folder that cannot be named is not a destination.
     static func folders(profileRoot: String?, providerRoot: String, keys: [String]) -> [String] {
-        let profile = (profileRoot as NSString?)?.expandingTildeInPath ?? ""
-        let provider = (providerRoot as NSString).expandingTildeInPath
-        guard !profile.isEmpty, !provider.isEmpty,
-              let prefix = PathBoundary.relativize(profile, under: provider) else { return [] }
+        guard let prefix = folderPrefix(profileRoot: profileRoot, providerRoot: providerRoot) else {
+            return []
+        }
         // `.` is the profile root itself, which is where the rail already opens — not a destination.
         return keys.filter { !$0.isEmpty && $0 != "." }
             .map { PathBoundary.joinRelative(prefix, $0) }
+    }
+
+    /// The segment `folders(profileRoot:providerRoot:keys:)` prepends to every key — the survey
+    /// anchor's position inside the source root, which is the source's `openAt`. Nil on exactly the
+    /// inputs that make `folders` empty.
+    ///
+    /// **This exists so the ranker can score what the key means rather than where it lives, and it
+    /// is the same computation rather than a second copy of it** — `folders` is written in terms of
+    /// it. Carried onto the index as `PaletteIndex.folderPrefix` and stripped back off in
+    /// ``PaletteRouter/rankedFolders(matching:in:)``; see that method for what goes wrong without
+    /// it. `theIndexedFoldersAllCarryTheIndexPrefix` binds the two so neither can drift.
+    static func folderPrefix(profileRoot: String?, providerRoot: String) -> String? {
+        let profile = (profileRoot as NSString?)?.expandingTildeInPath ?? ""
+        let provider = (providerRoot as NSString).expandingTildeInPath
+        guard !profile.isEmpty, !provider.isEmpty else { return nil }
+        return PathBoundary.relativize(profile, under: provider)
     }
 }
 
@@ -698,19 +728,49 @@ public enum PaletteRouter {
     ///
     /// The leaf is tried first and scores higher: `Finance/US/Income Tax` is "Income Tax" to the
     /// person typing, and ranking by the full path would put every folder under `Income` above it.
+    ///
+    /// **The path is scored below the source's landing folder, not below its root**, which is what
+    /// `index.folderPrefix` is subtracted for. A source's root is now the account above its
+    /// documents tree, so every key carries the same leading `Documents` — and with the slashes
+    /// flattened to spaces for scoring, that made `doc` a prefix match on every surveyed folder at
+    /// an identical score. Subtracting the shared segment restores the ranking this had before
+    /// sources gained a root: a folder is scored on the part of its path that distinguishes it.
+    ///
+    /// The consequence is deliberate and was chosen: **the landing folder's own name stops being a
+    /// query**. Typing `documents` no longer matches everything under it, which is exactly what it
+    /// did before the split too — the survey anchor was `.` then, and `.` is filtered out.
+    ///
+    /// `path` on the result stays the WHOLE key, because that is what the route is built from and
+    /// what the row's detail line shows. Only the scoring string is trimmed.
     static func rankedFolders(matching query: String, in index: PaletteIndex) -> [RankedFolder] {
         var ranked: [RankedFolder] = []
         for folder in index.folders where !folder.isEmpty && folder != "." {
+            let distinguishing = below(index.folderPrefix, folder)
             let leafMatch = match(leaf(folder), query)
-            let pathMatch = match(folder.replacingOccurrences(of: "/", with: " "), query)
+            let pathMatch = match(distinguishing.replacingOccurrences(of: "/", with: " "), query)
             let combined = max(score(leafMatch), score(pathMatch) - 20)
             guard combined > 0 else { continue }
             // Shallower folders win ties: `Legal` beats `Archive/2019/Legal` for the query "legal",
-            // because the top-level one is the folder that name means to the tree.
-            let depth = folder.count { $0 == "/" }
+            // because the top-level one is the folder that name means to the tree. Measured on the
+            // trimmed path for the same reason it is scored there — depth below the landing folder
+            // is the depth the person navigating sees.
+            let depth = distinguishing.count { $0 == "/" }
             ranked.append(RankedFolder(path: folder, score: combined - depth))
         }
         return ranked.sorted { $0.score != $1.score ? $0.score > $1.score : $0.path < $1.path }
+    }
+
+    /// `folder` with a leading `prefix` component removed — the part of the path that distinguishes
+    /// it from its siblings under the survey anchor.
+    ///
+    /// **Only on a component boundary.** A plain `hasPrefix` would take `Documents` off
+    /// `Documentsly/Q4` and leave `y/Q4`, which is not a path at all and would rank as one; the
+    /// same trap `PaletteIndex.folders` guards on the absolute side. A folder that is not under the
+    /// prefix is returned whole rather than dropped — it is still a real destination, and scoring it
+    /// on its full path is the honest answer for one the shared segment says nothing about.
+    static func below(_ prefix: String, _ folder: String) -> String {
+        guard !prefix.isEmpty, folder.hasPrefix(prefix + "/") else { return folder }
+        return String(folder.dropFirst(prefix.count + 1))
     }
 
     // MARK: Go to Folder — a typed path

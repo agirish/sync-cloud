@@ -619,9 +619,7 @@ struct ContentView: View {
             // that far apart. Driving both panes with the clicked pane's spelling sent the sibling
             // to `~/Documents/Documents/Family` one way, and to a real-but-unrelated
             // `<account>/Family` the other — where the comparison then diffed the wrong pair.
-            otherCombinedPath: PathBoundary.reanchor(combined,
-                                                     from: paneOpenAt(isLeft: isLeft),
-                                                     to: paneOpenAt(isLeft: !isLeft)),
+            otherCombinedPath: relativePathForPane(combined, isLeft: !isLeft),
             from: isLeft,
             // Each side answers for itself — the presentation is a per-pane setting, so a linked
             // click can be a browse move on one side and a re-root on the other.
@@ -971,6 +969,12 @@ struct ContentView: View {
                     // same place. A closure rather than two stored strings so it is read at the
                     // moment of the decision — captured values go stale on the next switch.
                     syncManager.paneOpenAt = paneOpenAtForSyncManager
+                    // And which source each pane is on, which is what decides the coordinate
+                    // system the durable ignore store's entries are written in — see
+                    // `FileSyncManager.ignoreAnchorIsLeft`. Without it every pair is quoted
+                    // against the left pane, and a swap re-reads a mixed pair's entries against
+                    // the other source's root.
+                    syncManager.paneSourceId = paneSourceIdForSyncManager
                     // How the manager reads a pane's search field when it parks a tab. The field is
                     // this view's `@State` and `Sync` cannot see its type — see `paneSearchSnapshot`.
                     syncManager.paneSearchSnapshot = { [self] isLeft in
@@ -1018,9 +1022,9 @@ struct ContentView: View {
                         syncManager.ignoredItemsStore?.activate(
                             pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))
                         // First appearance only (this step never runs on a window reopen):
-                        // put each pane back on the folder it showed last session before the
-                        // initial refresh scans.
-                        await restoreLastPaneFocusIfEnabled()
+                        // put each pane on its source's opening folder before the initial
+                        // refresh scans.
+                        await openPanesAtTheirLandingFolders()
                         // After the focus restore, deliberately: both answer "where was this pane",
                         // and the strip's own active tab is the more specific answer — it carries
                         // the column stack as well as the scope, and the parked tabs beside it.
@@ -1299,15 +1303,12 @@ struct ContentView: View {
                         settings.defaultSortOption = new
                     }
                 }
-                // Continuously persist each pane's focus for the reopen-where-I-left-off
-                // launch path. A provider switch resets the focus to "" via resetNavigation,
-                // which correctly clears the saved path too.
-                .onChange(of: syncManager.leftRelativePath) { _, new in
-                    UserDefaults.standard.set(new, forKey: GeneralSettings.lastLeftFocusKey)
-                }
-                .onChange(of: syncManager.rightRelativePath) { _, new in
-                    UserDefaults.standard.set(new, forKey: GeneralSettings.lastRightFocusKey)
-                }
+                // `lastLeftFocusPath` / `lastRightFocusPath` were persisted here, on every
+                // navigation, for a launch path that no longer reads them: the tab strip records a
+                // folder per tab and restores it, and `openPanesAtTheirLandingFolders` now opens a
+                // strip-less pane at its source's landing folder. Two defaults written on every
+                // keystroke-fast pane move and read by nothing is worse than no record at all,
+                // because the next reader has to prove that before trusting anything else.
         }
     }
 
@@ -1591,37 +1592,51 @@ struct ContentView: View {
         withAnimation(.easeInOut(duration: 0.15)) { showInspector = true }
     }
 
-    /// Reopens each pane at the folder it showed when the app last quit (General setting,
-    /// default on). Runs once, inside the first-appearance bootstrap, after the provider
-    /// selection resolves and before the initial refresh. Each saved path is validated on
-    /// disk first (off the main actor — cloud roots stat slowly), so a folder deleted or
-    /// unmounted since last session silently falls back to the provider root.
-    private func restoreLastPaneFocusIfEnabled() async {
-        // The gate, the root+relative composition, the on-disk validation and the
-        // drop-to-root fallback all live in `PaneLogic.paneFocusRestores` (pinned by tests);
-        // this only applies the answer.
-        let restores = await PaneLogic.paneFocusRestores(
-            isEnabled: GeneralSettings.shouldRestoreLastFocus(),
-            left: (UserDefaults.standard.string(forKey: GeneralSettings.lastLeftFocusKey) ?? "",
-                   settings.rootPath(for: leftProviderId)),
-            right: (UserDefaults.standard.string(forKey: GeneralSettings.lastRightFocusKey) ?? "",
-                    settings.rootPath(for: rightProviderId)))
-        for restore in restores {
-            Logger.shared.info("Restoring \(restore.isLeft ? "left" : "right") pane to last session's folder: \(restore.relativePath)")
-            syncManager.focusOn(relativePath: restore.relativePath, isLeft: restore.isLeft)
-        }
-        // A pane with nothing to restore — a fresh install, a source used for the first time, or
-        // restore switched off — opens at its source's landing folder rather than at the account
-        // root. Without this the only path that honoured `openAt` was a provider *switch*, so the
-        // first launch after connecting an account dropped the user at the top of it.
-        //
-        // `focusOn` rather than a history reset, matching the restore just above: both leave the
-        // root one Back away, which on a pane the user has not navigated yet is a way up, not a
-        // false step in their history.
-        let restoredSides = Set(restores.map(\.isLeft))
-        for isLeft in [true, false] where !restoredSides.contains(isLeft) {
-            let landing = settings.openAtIfReachable(for: isLeft ? leftProviderId : rightProviderId)
-            guard !landing.isEmpty else { continue }
+    /// Opens each pane at its source's landing folder. Runs once, inside the first-appearance
+    /// bootstrap, after the provider selection resolves and before the initial refresh.
+    ///
+    /// **It was `restoreLastPaneFocusIfEnabled`, and the name outlived the gate.** There is no
+    /// `isEnabled` here any more: this is where a pane opens, not a restoration of where it was, so
+    /// "Reopen panes where I left off" does not govern it — turning that setting off leaves a pane
+    /// on the folder its source says it opens at, which is the same absolute folder every pane
+    /// opened at before sources had roots. The setting still gates `restoreBrowseTabs`, which is
+    /// the thing that actually restores a position.
+    ///
+    /// **The saved per-pane focus path no longer decides the launch position, deliberately.** It
+    /// could not express the one position this release added: `PaneLogic.paneFocusRestores` skips a
+    /// saved path of `""` and `""` is also what "never saved" reads as, so a user who navigated up
+    /// to the account root and quit was bounced back down to `Documents` on every launch — the
+    /// restore setting honoured for every folder except the root. Rather than teach the stored key a
+    /// sentinel, the launch position is now the source's own answer to "where do panes on me open",
+    /// which is what `openAt` is for.
+    ///
+    /// **This is the launch position only for a pane with no tab strip** — a fresh install, a newly
+    /// connected account, or the first launch after upgrading from a build that predates the strip.
+    /// `restoreBrowseTabs` runs next and re-points a pane that has one to its selected tab's own
+    /// folder, and that is untouched: "Reopen panes where I left off" still restores where you were,
+    /// through the strip that actually records it per tab.
+    private func openPanesAtTheirLandingFolders() async {
+        // `focusOn` rather than a history reset: it leaves the root one Back away, which on a pane
+        // the user has not navigated yet is a way up, not a false step in their history.
+        for isLeft in [true, false] {
+            let id = isLeft ? leftProviderId : rightProviderId
+            let landing = settings.openAtIfReachable(for: id)
+            guard !landing.isEmpty else {
+                // **The degrade is logged, because the log is what gets audited.** `openAtIfReachable`
+                // answers `""` for two different reasons and only one of them is interesting: the
+                // user chose a landing folder and it has since been renamed or deleted, so the pane
+                // opens at the account root instead. Settings shows a sentence about it; without
+                // this the log — read long after the fact, when the folder is the question — said
+                // nothing at all. A source that simply has no `openAt` is the ordinary case and
+                // stays quiet.
+                let chosen = settings.openAt(for: id)
+                if !chosen.isEmpty {
+                    Logger.shared.info(
+                        "\(isLeft ? "Left" : "Right") pane's source opens at \(chosen), "
+                        + "which is not there — opening at the root instead.")
+                }
+                continue
+            }
             Logger.shared.info("Opening \(isLeft ? "left" : "right") pane at its source's folder: \(landing)")
             syncManager.focusOn(relativePath: landing, isLeft: isLeft)
         }
@@ -2528,6 +2543,26 @@ struct ContentView: View {
         (settings.rootPath(for: id) as NSString).expandingTildeInPath
     }
 
+    /// A root-relative path held by one pane, re-expressed for the OTHER — the translation every
+    /// linked action needs now that two panes' roots no longer share an origin.
+    ///
+    /// **Named for the pane it answers about, and that is not cosmetic.** `isLeft` is the pane the
+    /// result is *for*; the path comes from its sibling. Written the other way round — "translate
+    /// this pane's path for the sibling" — the call in a tab verb names the pane the verb is NOT
+    /// moving, which is exactly the shape `PaneTabWiringTests` refuses: a verb aims every
+    /// side-taking call it makes at the one pane it moves, and that invariant is what caught the
+    /// `openedFromScope:` transposition. A translation is inherently two-sided, so it is spelled
+    /// once here, where both anchors can be read, rather than inline at each call site where the
+    /// two-sidedness would have to be excepted from the rule.
+    ///
+    /// See `PathBoundary.reanchor` for what it does with a path the destination anchor cannot
+    /// express: it carries it across unchanged rather than guessing.
+    func relativePathForPane(_ relative: String, isLeft: Bool) -> String {
+        PathBoundary.reanchor(relative,
+                              from: paneOpenAt(isLeft: PaneSideChoice.sibling(isLeft)),
+                              to: paneOpenAt(isLeft: isLeft))
+    }
+
     /// A pane's landing folder as a ROOT-RELATIVE path — the origin its positions are quoted
     /// against once you stop assuming both panes share one.
     ///
@@ -2546,6 +2581,13 @@ struct ContentView: View {
         { [settings] isLeft in
             settings.openAtIfReachable(for: isLeft ? self.leftProviderId : self.rightProviderId)
         }
+    }
+
+    /// The pane → source id mapping, in the shape `FileSyncManager.paneSourceId` takes. Read live
+    /// for the same reason as `paneOpenAtForSyncManager`, and a named property for the same
+    /// type-checker reason.
+    private var paneSourceIdForSyncManager: (Bool) -> String {
+        { isLeft in isLeft ? self.leftProviderId : self.rightProviderId }
     }
 
     /// The provider ruleset the name check runs against — the targeted pane's source (the left

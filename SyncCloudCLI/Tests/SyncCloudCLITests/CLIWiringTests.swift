@@ -12,6 +12,74 @@ import SyncCloudCLICore
 /// see. None of that was reachable while the target had no tests.
 @Suite struct CLIWiringTests {
 
+    // MARK: The migration pre-flight
+
+    /// **Every command that touches a tree asks first, and this reads the source to say so.**
+    ///
+    /// `preflightMigration` refuses when the app's stored source locations are still from the layout
+    /// that predates source roots — a legacy `path_override_` read under the new meaning points a
+    /// `scan` at a different folder than the user chose, and `sync` is a mass copy. Nothing forces a
+    /// new subcommand to call it, and forgetting is silent in the worst possible direction, so the
+    /// call is asserted at each site rather than left to a reviewer.
+    ///
+    /// Source text rather than behaviour because the alternative is not available: the pre-flight
+    /// reads the app's real defaults domain, so exercising it would mean writing a legacy override
+    /// into this developer's live `~/Library/Preferences` — the domain his running app is on. The
+    /// PREDICATE it asks is behaviourally tested, against a scratch suite, in
+    /// `RootsMigrationTests.legacyStateIsReportedOnlyWhenThereIsSome`; this is the wiring half.
+    @Test func everyCommandThatTouchesATreeAsksBeforeItRuns() throws {
+        let source = try Self.commandsSource()
+        for command in ["runScan", "runSync"] {
+            let body = try #require(Self.runBody(before: command, in: source),
+                                    "cannot find the run body that calls \(command)")
+            #expect(body.contains("try preflightMigration()"),
+                    "the command that calls \(command) runs without asking whether the stored locations have been migrated")
+        }
+    }
+
+    /// **`providers` warns instead, and that difference is asserted rather than assumed.**
+    ///
+    /// It listed `runProviders` among the refusers for one commit, which was the pre-flight's own
+    /// reason applied where it does not hold: `providers` reads and prints, so there is no wrong
+    /// folder for it to act on — and it is the one command someone in this state has a reason to
+    /// run, since it shows the roots discovery finds NOW. Refusing it answered a diagnostic
+    /// question with "a run here would scan a different folder than the one you chose", about a
+    /// command that scans nothing.
+    ///
+    /// Both halves are checked: that it does not refuse, and that it does not go quiet either.
+    @Test func providersWarnsRatherThanRefusing() throws {
+        let source = try Self.commandsSource()
+        let body = try #require(Self.runBody(before: "runProviders", in: source),
+                                "cannot find the run body that calls runProviders")
+        #expect(!body.contains("try preflightMigration()"),
+                "providers refuses on an unmigrated install — it reads and prints, so it has nothing to refuse over")
+        #expect(body.contains("warnIfMigrationPending()"),
+                "providers says nothing about an unmigrated install, so its listing reads as the whole truth")
+    }
+
+    /// `Commands.swift` as text. Located from this file rather than a build setting, so it moves
+    /// with the package instead of depending on where the tests are run from.
+    static func commandsSource() throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // SyncCloudCLITests
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // SyncCloudCLI
+            .appendingPathComponent("Sources/SyncCloudCLI/Commands.swift")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// The text from the `func run()` that precedes `call` up to that call — the body a command
+    /// actually executes before reaching the runner. Nil when no `run()` precedes it, which is a
+    /// failure rather than a pass: a call site this cannot see is one it cannot check.
+    static func runBody(before call: String, in source: String) -> String? {
+        guard let callRange = source.range(of: call) else { return nil }
+        let head = source[source.startIndex..<callRange.lowerBound]
+        guard let runRange = head.range(of: "func run() async throws {", options: .backwards) else {
+            return nil
+        }
+        return String(source[runRange.upperBound..<callRange.lowerBound])
+    }
+
     // MARK: Parsing
 
     @Test func aBareInvocationIsAScan() throws {

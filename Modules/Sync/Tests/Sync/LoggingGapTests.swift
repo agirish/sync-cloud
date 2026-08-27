@@ -344,4 +344,49 @@ import Testing
         #expect(await loggedLine(containing: refused) == nil,
                 "the store logged a refusal it also threw — the same fact twice, once where nobody chose the wording")
     }
+
+    // MARK: - A re-home line that credits a pane that did not move
+
+    /// **A provider switch re-homes ONE pane, and the line must not claim both.**
+    ///
+    /// `resetNavigation` runs for a user reset and for a provider switch alike, and a switch hands
+    /// the untouched side its own current path so it stays where it is. The line has to say that,
+    /// or every switch reads in the log as though the user had reset both panes.
+    ///
+    /// **The first attempt at exactly this decided "moved" by comparing whole HISTORIES**, which is
+    /// a different question: a pane sitting on the right folder with anything behind it differs
+    /// from a fresh one-entry history, so any pane the user had navigated at all — the common case
+    /// — reported as re-homed and the line said what it said before. This fixture is that case:
+    /// the right pane is at the folder it is handed, with one step of history behind it.
+    ///
+    /// The write is still guarded on the history, and that is asserted here too, because the two
+    /// halves are now separate booleans and a fix that collapsed them back into one would take the
+    /// Back stack of a pane whose tree is being replaced along with it.
+    @Test func aProviderSwitchDoesNotClaimToHaveRehomedBothPanes() async {
+        let token = Self.token()
+        let manager = FileSyncManager()
+        // The right pane, where the switch is NOT happening: on a folder, one step in.
+        manager.focusOn(relativePath: "Documents/Family", isLeft: false)
+        #expect(manager.rightHistory.canGoBack,
+                "the fixture has no right-pane history, so it cannot measure the case it exists for")
+
+        let marker = "logging-gap rehome marker \(token)"
+        await Logger.shared.debug(marker).value
+        let landing = "Left-\(token)"
+        manager.resetNavigation(leftLanding: landing, rightLanding: "Documents/Family")
+
+        #expect(await loggedLine(containing: marker) != nil,
+                "the log window rolled past this test's own marker, so the reading below is vacuous")
+        let line = await loggedLine(containing: landing)
+        #expect(line?.contains("the right pane stays at Documents/Family") == true,
+                "the line does not say the untouched pane stayed put: \(line ?? "nothing was logged")")
+        #expect(line?.contains("Re-homed both panes") == false,
+                "the line credits a re-homing to a pane that did not move: \(line ?? "nothing was logged")")
+
+        // And the history WAS replaced, history-guard rather than position-guard: the right pane's
+        // tree is about to be reloaded from a different comparison, so a Back into the old one is
+        // not a step the user can take.
+        #expect(manager.rightHistory == PaneNavigationHistory(startingAt: "Documents/Family"),
+                "the right pane kept a Back stack pointing into the tree it is being taken off")
+    }
 }

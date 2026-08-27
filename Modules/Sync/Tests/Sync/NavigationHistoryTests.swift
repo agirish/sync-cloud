@@ -207,7 +207,7 @@ import Combine
         manager.focusOn(relativePath: "a", isLeft: true)
         manager.focusOn(relativePath: "b", isLeft: false)
 
-        manager.resetNavigation()
+        manager.resetNavigation(leftLanding: "", rightLanding: "")
 
         #expect(manager.leftRelativePath == "")
         #expect(manager.rightRelativePath == "")

@@ -64,6 +64,50 @@ private let providers = [
         #expect(resolved.rootPath == "/od", "the root is still the whole account")
     }
 
+    /// **The pre-flight check is about the folder that gets scanned.**
+    ///
+    /// It was about the root: a mounted account whose landing folder had been renamed or deleted
+    /// cleared a check on a directory the run never touches, and then failed deeper with a message
+    /// naming the root — a path that was there all along. The account being mounted and its
+    /// documents tree being there are two different facts, and only the second one is the subject.
+    @Test func testAMissingLandingFolderIsRefusedEvenWhenTheAccountIsMounted() {
+        let withOpenAt = [
+            CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)",
+                          imageName: "onedrive", rootPath: "/od", openAt: "Documents",
+                          type: .oneDrive),
+        ]
+        #expect(throws: ProviderResolutionError.self) {
+            _ = try resolveProviderOrPath(
+                value: "OneDrive-Personal", label: "Left", providers: withOpenAt,
+                // The account IS there — only the folder it opens at is gone.
+                fileManager: StubFileManager(directories: ["/od"]))
+        }
+        // ...and the message names the landing folder, not the root, so it points at the thing to fix.
+        do {
+            _ = try resolveProviderOrPath(
+                value: "OneDrive-Personal", label: "Left", providers: withOpenAt,
+                fileManager: StubFileManager(directories: ["/od"]))
+            Issue.record("a missing landing folder was accepted")
+        } catch let error as ProviderResolutionError {
+            #expect(error.message.contains("Documents"), "the message does not name the landing folder")
+            #expect(!error.message.contains("unmounted"), "it blames the account, which is mounted")
+        } catch {
+            Issue.record("unexpected error \(error)")
+        }
+    }
+
+    /// A source that opens at its own root is checked once, not twice about the same folder.
+    ///
+    /// The whole reason the landing check is conditional: with an empty `openAt` the two paths are
+    /// the same string, and a second `requireDirectory` over it would be a check that can only ever
+    /// agree with the one above it.
+    @Test func testASourceThatOpensAtItsRootStillResolvesWithOnlyTheRootPresent() throws {
+        let resolved = try resolveProviderOrPath(
+            value: "iCloud", label: "Left", providers: providers,
+            fileManager: StubFileManager(directories: ["/icloud/docs"]))
+        #expect(resolved.landingPath == "/icloud/docs")
+    }
+
     @Test func testMatchesByDisplayName() throws {
         let resolved = try resolveProviderOrPath(
             value: "OneDrive (Personal)", label: "Right", providers: providers,

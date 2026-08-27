@@ -1110,7 +1110,7 @@ public class SettingsManager: ObservableObject {
     /// the provenance of and cannot clear is a trap: the row presents it as the account's one true
     /// root while it is in fact a value carried forward from a setting they made years ago.
     public func hasRootOverride(for providerId: String) -> Bool {
-        userDefaults.string(forKey: "\(Self.rootOverrideKeyPrefix)\(providerId)") != nil
+        hasStoredOverride(prefix: Self.rootOverrideKeyPrefix, for: providerId)
     }
 
     /// The absolute folder a pane on this source opens at — `rootPath` with `openAt` applied,
@@ -1255,7 +1255,22 @@ public class SettingsManager: ObservableObject {
     /// separates "Open at: The source root" *chosen* from the same words *inherited* — which for
     /// iCloud, whose discovered default IS the root, is otherwise the identical row.
     public func hasOpenAtOverride(for providerId: String) -> Bool {
-        userDefaults.string(forKey: "\(Self.openAtOverrideKeyPrefix)\(providerId)") != nil
+        hasStoredOverride(prefix: Self.openAtOverrideKeyPrefix, for: providerId)
+    }
+
+    /// Whether one prefixed override key is stored **for this install**, scoped exactly as
+    /// `overridesByProviderId` scopes the reads that actually apply the value.
+    ///
+    /// Not `userDefaults.string(forKey:)`, which both of these used to be: that reads the merged
+    /// search list, so a stray `NSGlobalDomain` key of the same name answers true here while
+    /// `mapProviders` — which reads the owning domain alone — never sees it. The row would then
+    /// offer a Reset for a choice it does not have, and taking it would log "reset the landing
+    /// folder to the discovered default" over a key that was never this install's. Two readers of
+    /// one key with two scoping rules is the exact defect `overridesByProviderId`'s doc says a
+    /// second copy introduced immediately; these were that second copy.
+    private func hasStoredOverride(prefix: String, for providerId: String) -> Bool {
+        Self.scopedValue(forKey: prefix + providerId,
+                         in: userDefaults, domainName: overridesDomainName) as? String != nil
     }
 
     /// Persists a custom display name for a provider (e.g. renaming "Google Drive

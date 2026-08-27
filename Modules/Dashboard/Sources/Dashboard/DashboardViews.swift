@@ -230,10 +230,10 @@ public struct PaneHeader: View {
     }
 
     public var body: some View {
-        // 12, not 8, between the bar and the breadcrumb. The two rows read as one crowded block at 8
-        // now that the breadcrumb is body-sized rather than caption-sized — the gap was set when the
-        // lower row was the smallest text in the app. Paid for out of the same measured slack the
-        // font is: see `PaneBreadcrumb.body`.
+        // 10, not 8, between the bar and the breadcrumb. The two rows read as one crowded block at
+        // 8 now that the breadcrumb is callout-sized rather than caption-sized — the gap was set
+        // when the lower row was the smallest text in the app. Paid for out of the same measured
+        // slack the font is: see `PaneBreadcrumb.body`, which is where that measurement lives.
         VStack(spacing: 10) {
             HStack(spacing: 12) {
                 if provider != nil {
@@ -282,9 +282,9 @@ public struct PaneHeader: View {
                 // default arrangement carries at its head — so an untouched bar looks exactly as it
                 // did, and a customized one can pack left.
                 //
-                // `.leading`, so a bar with no flexible space hugs the capsule; when the arrangement
-                // does carry one, the inner `Spacer` is greedy, fills the offered width, and the
-                // alignment never comes into it.
+                // `.leading`, so a bar with no flexible space hugs the pane's leading edge; when the
+                // arrangement does carry one, the inner `Spacer` is greedy, fills the offered width,
+                // and the alignment never comes into it.
                 //
                 // The 12pt replaces the `HStack` gap the removed `Spacer` used to contribute. Without
                 // it the row is 12pt richer, and that is not free at the narrowest rung: the extra
@@ -298,12 +298,12 @@ public struct PaneHeader: View {
                 //
                 // **This row, not a new one.** The header is pinned to `LiquidGlass.headerHeight` so
                 // its bottom edge lands on the same 83.5 as the lens header card, and it holds two rows
-                // inside that: this one (a 34pt provider capsule) and the breadcrumb (~15pt). The
-                // field is ~33pt of text and padding — it fits this row with room and would burst
+                // inside that: this one (the bar, up to a 34pt budget) and the breadcrumb (~20pt).
+                // The field is ~33pt of text and padding — it fits this row with room and would burst
                 // the breadcrumb's, compressing the whole header off the rung `PaneHeaderHeightTests`
-                // pins. Taking the bar's own track also means the field gets the full width from the
-                // provider capsule to the pane's trailing edge, which is as much room as this
-                // header has to give.
+                // pins. Taking the bar's own track also means the field gets the pane's full width,
+                // which is as much room as this header has to give — and more than it had when a
+                // provider capsule held the leading end of the row.
                 //
                 // The breadcrumb below is deliberately left alone: while you are searching, where
                 // you ARE is still worth reading — it is the thing the hit is about to move you
@@ -396,7 +396,7 @@ public struct PaneHeader: View {
 
     /// The no-provider header's leading content: a folder glyph and the pane's title.
     ///
-    /// Two rungs, mirroring the provider capsule's: `showsIcon` false is what a 250pt pane gets, where
+    /// Two rungs, as the retired provider capsule had: `showsIcon` false is what a 250pt pane gets, where
     /// the icon plus its 12pt gap is the difference between fitting and running the bar off the
     /// trailing edge. The title carries a line limit so it truncates instead of wrapping — a wrapping
     /// `Text` reports its longest word as its minimum width and so cannot compress at all.
@@ -415,12 +415,12 @@ public struct PaneHeader: View {
         }
     }
 
-    /// This pane's bar: the track running from the provider capsule to the pane's trailing edge.
+    /// This pane's bar: the track running the full width of the pane.
     ///
-    /// Rendered through `ViewThatFits` so that at the narrowest pane widths (the split clamps panes
-    /// at 250 pt, where small-size controls plus the provider capsule physically exceed the row) the
-    /// bar steps down to `.mini` controls and then sheds pills into ⋯ instead of overflowing the
-    /// trailing edge — every control stays reachable, nothing is pushed out of view.
+    /// Laddered so that at the narrowest pane widths — the split clamps panes at 250pt, where
+    /// small-size controls at their full count physically exceed the row — the bar steps down to
+    /// `.mini` controls and then sheds pills into ⋯ instead of overflowing the trailing edge: every
+    /// control stays reachable, nothing is pushed out of view.
     ///
     /// The rung is **computed, not searched**. This used to be a ten-child `ViewThatFits`, and
     /// `ViewThatFits` builds every child in order to measure it: ten full bars of up to eight
@@ -467,132 +467,65 @@ public struct PaneHeader: View {
         (0...ladder.terminal).map { ladder.height(forRung: $0) }.max() ?? ladder.height(forRung: 0)
     }
 
+    /// This pane's bar, at the widest rung the offered width fits.
+    ///
+    /// **One path, for the header with a source and the header without.** There were two: the
+    /// provider-less header took a seventeen-child `ViewThatFits` (`searchedLadder`), on the
+    /// documented grounds that "here the bar is the row's own height authority — there is no
+    /// provider capsule to be the taller thing, so a container pinned to one rung's height reports
+    /// the wrong row height for every other rung". That was true while the pin below was the
+    /// NARROWEST rung's height. It is the tallest rung's now, which contains every rung the ladder
+    /// can draw, so the premise is gone and with it the branch.
+    ///
+    /// Measured before deleting it, across widths 250-900pt in 25pt steps at three text sizes — 81
+    /// cases, both branches, a real `PaneHeader` with `provider` nil:
+    ///
+    /// - **The two agree on the rung everywhere.** Identical control counts and identical leading
+    ///   and trailing edges in all 81 — `PaneBarLadder.rung(fitting:)` and `ViewThatFits`' first-fit
+    ///   pick the same bar.
+    /// - **The computed path is the steadier one vertically.** The searched ladder let each rung set
+    ///   the row's height, so the bar's top edge walked 19.5 → 18.0 → 10.5pt as the pane widened;
+    ///   this holds it at 11.0pt throughout, which is what the header WITH a source already did
+    ///   (9.5pt, likewise flat).
+    ///
+    /// The cost it removes is the reason it is worth removing: `searchedLadder` built up to
+    /// seventeen bars per pane, and `provider` is nil for BOTH panes until `discoverProviders()`
+    /// answers — so that ran at launch, on every `ContentView` body evaluation. Measured in Release
+    /// when the computed path was first introduced for the other branch: 120 ms → 34 ms at 250pt,
+    /// 232 → 129 at 600pt, 252 → 137 at 900pt.
     private var navCluster: some View {
         let ladder = barLadder
-        return Group {
-            if provider == nil {
-                searchedLadder(ladder)
-            } else {
-                GeometryReader { proxy in
-                    let rung = ladder.rung(fitting: proxy.size.width)
-                    // `.leading` is (leading, centre): a `GeometryReader` parks its content at the
-                    // top-left corner, where the row used to hand the bar the enclosing `HStack`'s
-                    // vertical centring and the container frame's leading alignment. A bar carrying a
-                    // flexible space fills the width either way; one packed hard left does not, and
-                    // would drift to the middle.
-                    hedged(rung, ladder)
-                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-                }
-                // A `GeometryReader` is greedy in both axes and reports nothing about its content, so
-                // the two things the `ViewThatFits` it replaced *did* report have to be restated:
-                // the narrowest rung's width, which is what the row reserves for the bar, and a
-                // height — pinned, or the row would stretch to the tallest it could ever be.
-                //
-                // **The height is the TALLEST rung's, not the narrowest's, and that changed with the
-                // capsule.** It was the narrowest rung's, which was exact only because something else
-                // in the row was always taller: the provider capsule stood 34pt against 26 for the
-                // widest rung, so a bar that overflowed its own box overflowed into the capsule's
-                // height and nobody saw it. The capsule is retired and the bar is alone on this row,
-                // so that overflow became visible — a titled rung drew 34pt of content in a 17pt box
-                // and escaped 8.5pt upward, leaving the bar 8pt from the card's top edge with 17.5pt
-                // of nothing below the breadcrumb. Reserving the tallest rung contains every rung it
-                // can draw, so the row's height is the row's height and the card composes honestly.
-                //
-                // It costs the narrow rungs some air inside their own box — a `.mini` bar is centred
-                // in a taller reservation rather than filling it — which is what the card had spare
-                // anyway. `theHeaderIsBalancedTopToBottom` measures the result.
-                .frame(minWidth: ladder.width(forRung: ladder.terminal),
-                       minHeight: tallestRungHeight(ladder),
-                       maxHeight: tallestRungHeight(ladder))
-            }
+        return GeometryReader { proxy in
+            let rung = ladder.rung(fitting: proxy.size.width)
+            // `.topLeading`: a `GeometryReader` parks its content at the top-left corner, where the
+            // row used to hand the bar the enclosing `HStack`'s vertical centring and the container
+            // frame's leading alignment. A bar carrying a flexible space fills the width either way;
+            // one packed hard left does not, and would drift to the middle.
+            hedged(rung, ladder)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-    }
-
-    /// The original ladder, searched by `ViewThatFits`, for the header that has no provider capsule.
-    ///
-    /// Kept for the one case the computed rung cannot serve — see `navCluster` — and it must declare
-    /// enough literal children to cover the deepest ladder ANY arrangement can build, because
-    /// `ViewThatFits` takes a `ViewBuilder` and a `ForEach` over rungs is a SINGLE child (the ladder
-    /// silently collapses to one rung). `PaneBarLadder.searchedSlotCount` owns that arithmetic and
-    /// MUST match the literal count here; `PaneBarLadderTests.theSearchedLadderDeclaresOneChildPerSlot`
-    /// counts the children of this very view rather than trusting this sentence.
-    ///
-    /// **Only the slots that draw a different bar build one.** A slot past `terminal` would redraw
-    /// the terminal rung, and `ViewThatFits` can never choose it: an identical-width child sits
-    /// ahead of it and wins first-fit. So those slots are `Color.clear` stand-ins of exactly the
-    /// terminal rung's size — they measure like the bar they replace and cost nothing to build. The
-    /// LAST slot always draws for real, because `ViewThatFits` renders its last child when nothing
-    /// fits, and that fallback has to be a bar rather than a hole. `PaneBarLadder.searchedSlotDrawsBar`
-    /// is the rule; `searchedSlotIsInert` is why it is safe.
-    ///
-    /// This matters because the provider-less header is not the rare case the slot count implies:
-    /// `provider` is nil for BOTH panes until `discoverProviders()` fills `availableProviders`, and
-    /// indefinitely for a pane pointed at a disabled or unmounted provider — so this path runs at
-    /// launch, when a stall is most visible, and rebuilds on every `ContentView` body evaluation.
-    /// Seventeen bars per pane there is precisely the cost `navCluster`'s computed rung exists to
-    /// avoid (see its 4,805 ms / 831 ms note). Measured offscreen in Release — one whole body
-    /// evaluation and layout of this header with the DEFAULT arrangement, whose `terminal` is 6, so
-    /// seven rungs differ and eight slots draw. Best of three interleaved A/B rounds, each the
-    /// minimum of 60 passes (this Mac is also the CI runner, and contention only ever adds time):
-    ///
-    ///     250pt   120 ms -> 34 ms      600pt   232 -> 129      900pt   252 -> 137
-    ///
-    /// The header WITH a capsule, which this change does not touch, measured 10–18 ms throughout and
-    /// is the control that says the harness is comparing like with like.
-    ///
-    /// Why not compute the rung here as `navCluster` does? Because that needs the offered width
-    /// before the height is settled, and here the bar is the row's own height authority — there is
-    /// no provider capsule to be the taller thing, so a container pinned to one rung's height
-    /// reports the wrong row height for every other rung. A `GeometryReader` cannot supply it
-    /// (greedy in both axes, and reports nothing about its content), and taking the width through
-    /// `.onGeometryChange` into `@State` would write view state from a layout callback — which in
-    /// this codebase has already produced an AppKit layout loop, and would genuinely feed back here:
-    /// the bar's minimum width is what the row offers `sparseTitle`, whose own `ViewThatFits` then
-    /// changes the width the bar is offered.
-    func searchedLadder(_ ladder: PaneBarLadder) -> some View {
-        ViewThatFits(in: .horizontal) {
-            searchedSlot(0, ladder)
-            searchedSlot(1, ladder)
-            searchedSlot(2, ladder)
-            searchedSlot(3, ladder)
-            searchedSlot(4, ladder)
-            searchedSlot(5, ladder)
-            searchedSlot(6, ladder)
-            searchedSlot(7, ladder)
-            searchedSlot(8, ladder)
-            searchedSlot(9, ladder)
-            searchedSlot(10, ladder)
-            searchedSlot(11, ladder)
-            searchedSlot(12, ladder)
-            searchedSlot(13, ladder)
-            searchedSlot(14, ladder)
-            searchedSlot(15, ladder)
-            searchedSlot(16, ladder)
-            // Added with titles: `titledRungs` puts one more rung at the head of the ladder, so
-            // `searchedSlotCount` grew from `maxItems + 1` to `maxItems + 2`. A `ForEach` here
-            // would collapse all eighteen into one child — see this function's note —
-            // and a missing literal child has no error, only a rung the search can never reach.
-            searchedSlot(17, ladder)
-        }
-    }
-
-    /// One child of the searched ladder: the bar at this slot's rung, or — where that bar would be a
-    /// duplicate `ViewThatFits` can never choose — a stand-in that measures the same and draws
-    /// nothing. See `searchedLadder` for why the duplicates are unreachable and why the last slot
-    /// never becomes one.
-    ///
-    /// An `if` inside a `ViewBuilder` is one `_ConditionalContent` child either way, so this stays
-    /// one child per slot and the ladder keeps its rungs — unlike a `ForEach`, which would collapse
-    /// all seventeen into one.
-    @ViewBuilder
-    private func searchedSlot(_ slot: Int, _ ladder: PaneBarLadder) -> some View {
-        if ladder.searchedSlotDrawsBar(slot) {
-            barVariant(ladder.searchedRung(forSlot: slot), ladder)
-        } else {
-            Color.clear
-                .frame(width: ladder.width(forRung: ladder.terminal),
-                       height: ladder.height(forRung: ladder.terminal))
-        }
+        // A `GeometryReader` is greedy in both axes and reports nothing about its content, so the
+        // two things the `ViewThatFits` it replaced *did* report have to be restated: the narrowest
+        // rung's width, which is what the row reserves for the bar, and a height — pinned, or the
+        // row would stretch to the tallest it could ever be.
+        //
+        // **The height is the TALLEST rung's, not the narrowest's, and that changed with the
+        // capsule.** It was the narrowest rung's, which was exact only because something else in the
+        // row was always taller: the provider capsule stood 34pt against 26 for the widest rung, so
+        // a bar that overflowed its own box overflowed into the capsule's height and nobody saw it.
+        // The capsule is retired and the bar is alone on this row, so that overflow became visible —
+        // a titled rung drew 34pt of content in a 17pt box and escaped 8.5pt upward, leaving the bar
+        // 8pt from the card's top edge with 17.5pt of nothing below the breadcrumb. Reserving the
+        // tallest rung contains every rung it can draw, so the row's height is the row's height and
+        // the card composes honestly — and it is what let the provider-less branch above go away.
+        //
+        // It costs the narrow rungs some air inside their own box — a `.mini` bar sits at the top
+        // of a taller reservation (`.topLeading`, above) rather than filling it — which is what the
+        // card had spare anyway.
+        // `theHeaderIsBalancedTopToBottom` measures the result.
+        .frame(minWidth: ladder.width(forRung: ladder.terminal),
+               minHeight: tallestRungHeight(ladder),
+               maxHeight: tallestRungHeight(ladder))
     }
 
     /// The computed rung, with the narrowest rung behind it as the layout engine's veto.

@@ -1044,7 +1044,13 @@ import Sync
         // this is the call site, which is what actually chooses the event.
         #expect(!Self.codeOnly(body).contains("providerSwitched"),
                 "the tab path is back on the event that can repoint the other pane")
-        #expect(!Self.codeOnly(body).contains("resetNavigation()"),
+        // **The NAME, not a spelling of the call.** This read `contains("resetNavigation()")` and
+        // was by then vacuous: every live call site spells `resetNavigation(leftLanding:…)` since
+        // the landings became arguments, so the realistic regression — pasting the provider-switch
+        // handler into the tab path — matched nothing and sailed through. A bare name cannot go
+        // stale the same way, and the `codeOnly` strip above is what keeps the doc comment two
+        // lines up from satisfying it.
+        #expect(!Self.codeOnly(body).contains("resetNavigation"),
                 "the whole point of the suppression is that the TAB carries the navigation")
     }
 

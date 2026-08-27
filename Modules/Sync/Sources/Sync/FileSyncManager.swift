@@ -1376,7 +1376,10 @@ public class FileSyncManager: ObservableObject {
     private func persistIgnoredPathsDelta(from oldValue: Set<String>, to newValue: Set<String>) {
         guard !suppressIgnorePersistence, rememberIgnoredItems, let store = ignoredItemsStore,
               panesShareAPosition else { return }
-        let focus = leftRelativePath
+        // The ANCHOR pane's focus, not the left pane's — see `ignoreAnchorIsLeft`. The two differ
+        // only for a pair whose sources land at different depths, which is precisely the pair a
+        // swap would otherwise re-read in the wrong coordinates.
+        let focus = ignoreAnchorFocus
         let added = newValue.subtracting(oldValue)
         let removed = oldValue.subtracting(newValue)
         if !added.isEmpty {
@@ -1395,7 +1398,10 @@ public class FileSyncManager: ObservableObject {
         guard rememberIgnoredItems, let store = ignoredItemsStore, !store.rootRelativePaths.isEmpty else {
             return ignoredPaths
         }
-        return ignoredPaths.union(Self.focusRelativePaths(fromRootRelative: store.rootRelativePaths, focus: leftRelativePath))
+        // Read through the same anchor the entries were WRITTEN through, or a swapped mixed pair
+        // reads yesterday's set in the other source's coordinates and matches nothing.
+        return ignoredPaths.union(Self.focusRelativePaths(fromRootRelative: store.rootRelativePaths,
+                                                          focus: ignoreAnchorFocus))
     }
 
     /// Toggles the ignore state of focus-relative paths against the EFFECTIVE set — what the
@@ -1424,7 +1430,7 @@ public class FileSyncManager: ObservableObject {
         // Same equal-foci condition as persistIgnoredPathsDelta: with divergent foci the
         // left-focus translation could remove a stored entry belonging to a different pair.
         if rememberIgnoredItems, let store = ignoredItemsStore, panesShareAPosition {
-            let focus = leftRelativePath
+            let focus = ignoreAnchorFocus
             let rootTargets = targets.map { Self.rootRelativePath($0, focus: focus) }
             let covering = store.rootRelativePaths.filter { entry in
                 rootTargets.contains { $0 == entry || $0.hasPrefix(entry + "/") }
@@ -1439,7 +1445,9 @@ public class FileSyncManager: ObservableObject {
     /// list) until removed too — the list edits entries, it doesn't re-derive coverage.
     public func unignoreRootRelative(_ path: String) {
         ignoredItemsStore?.remove([path])
-        let focus = leftRelativePath
+        // `path` came out of the store, so it is in the anchor's coordinates; the session set it is
+        // translated into is focus-relative and shared. See `ignoreAnchorIsLeft`.
+        let focus = ignoreAnchorFocus
         let sessionPath: String?
         if focus.isEmpty {
             sessionPath = path
@@ -1854,6 +1862,48 @@ public class FileSyncManager: ObservableObject {
     /// root-relative paths directly, which for a mixed pair is permanently false — Ignore worked
     /// for the session, wrote nothing, and the row was back after a relaunch with no diagnostic.
     @MainActor public var paneOpenAt: (_ isLeft: Bool) -> String = { _ in "" }
+
+    /// Each pane's source id, supplied by the app for the same reason as `paneOpenAt` and read at
+    /// the same moment: the pane → source mapping is the app's state, and a cached copy answers
+    /// about the source a pane used to be on.
+    ///
+    /// Only the durable ignore store reads it, and only to decide WHICH pane's coordinates its
+    /// entries are quoted in — see `ignoreAnchorIsLeft`. The default answers `""` for both, which
+    /// makes that decision "the left pane", i.e. exactly what the store did before this existed.
+    @MainActor public var paneSourceId: (_ isLeft: Bool) -> String = { _ in "" }
+
+    /// Which pane's root the durable ignore set is measured from.
+    ///
+    /// **It cannot be "the left one", and that is the whole reason this exists.**
+    /// `IgnoredItemsStore.pairKey` sorts its two ids, so one key serves the pair in either
+    /// orientation — which was exact while both panes' roots were documents folders, because a
+    /// root-relative path then read the same from either side and a swap changed nothing. Sources
+    /// now land at `openAt`, so the same item is `Family/x` from an iCloud pane and
+    /// `Documents/Family/x` from a OneDrive one; quoting the store against whichever source
+    /// happens to be on the left means ⌘⇧S re-reads yesterday's entries in the other source's
+    /// coordinates, where they match nothing — the ignored rows come back, and the next Ignore
+    /// writes the same item a second time under its other spelling.
+    ///
+    /// So the pair key picks: entries are quoted against the source whose id sorts FIRST, which is
+    /// the id the key itself names first. That is stable under a swap by construction, and it is
+    /// the same choice `RootsMigration.rebaseIgnoredItems` makes when it moves the stored entries
+    /// into the new roots, so the two agree about what is on disk.
+    ///
+    /// Falls back to the left pane when either id is unknown — the pre-`paneSourceId` behaviour,
+    /// and the only answer available when there is nothing to sort.
+    @MainActor var ignoreAnchorIsLeft: Bool {
+        let left = paneSourceId(true)
+        let right = paneSourceId(false)
+        guard !left.isEmpty, !right.isEmpty, left != right else { return true }
+        return min(left, right) == left
+    }
+
+    /// The focus the durable ignore store's translations run through: the anchor pane's, not the
+    /// left pane's. Identical to `leftRelativePath` for every same-landing pair and for every
+    /// orientation in which the left source is the anchor.
+    @MainActor var ignoreAnchorFocus: String {
+        ignoreAnchorIsLeft ? leftRelativePath : rightRelativePath
+    }
 
     /// Whether a focus-relative path names the SAME item in both panes — the condition the durable
     /// ignore store's identity depends on.

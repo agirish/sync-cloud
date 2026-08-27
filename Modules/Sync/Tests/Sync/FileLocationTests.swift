@@ -112,6 +112,22 @@ struct FileLocationTests {
                 == ["/users/u/cloudstorage/acme/docs"])
     }
 
+    /// **A root that already IS its account folder contributes one path, not the same one twice.**
+    ///
+    /// This is the ordinary case now — a source's root widened from its documents folder to the
+    /// account above it — so before the de-duplication every discovered source put its own root in
+    /// this list twice. Harmless to the containment test that consumes it, and exactly the kind of
+    /// thing that stops being harmless when someone counts the list or logs it.
+    @Test func anAccountRootIsNotListedTwice() {
+        #expect(FileLocation.coveredPaths(ofRootPath: "/Users/u/Library/CloudStorage/OneDrive-Personal")
+                == ["/users/u/library/cloudstorage/onedrive-personal"])
+        // A root BELOW the account folder still widens to two — the case the widening exists for,
+        // and what a migrated `root_override_` or a folder source inside an account still produces.
+        #expect(FileLocation.coveredPaths(ofRootPath: "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents")
+                == ["/users/u/library/cloudstorage/onedrive-personal/documents",
+                    "/users/u/library/cloudstorage/onedrive-personal"])
+    }
+
     // MARK: The two ROADMAP rules
 
     /// **Disabled providers still count as coverage.** Their folder is on disk whether or not the

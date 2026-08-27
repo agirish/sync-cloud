@@ -57,7 +57,7 @@ struct PaneBreadcrumb: View {
     ///
     /// The measurement stands, but one of its reasons has expired and is worth retiring with it:
     /// this used to add "and this crumb is `.caption`, the smallest text in the header", which was
-    /// the aggravating factor. The trail is `.body` now — the header's only other text was the
+    /// the aggravating factor. The trail is `.callout` now — the header's only other text was the
     /// retired provider capsule's name, and the trail grew into the room that left. **A ratio of
     /// 1.53:1 fails at any size**, so the split is unchanged; there is simply no longer a smallness
     /// argument propping it up.
@@ -89,7 +89,7 @@ struct PaneBreadcrumb: View {
     /// Only dark drops the root crumb's brand tint — see `providerName` and `ChromeInk`.
     @Environment(\.colorScheme) private var colorScheme
     /// The app's text size. Needed explicitly because the first crumb's name is a `Menu` label that
-    /// AppKit draws, and the enclosing `.scaledFont(.body)` does not reach it.
+    /// AppKit draws, and the enclosing `.scaledFont(.callout)` does not reach it.
     @Environment(\.appFontScale) private var appFontScale
     // Crumb hover washes in the user-selected glass hue, like the rest of the main window (C7).
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
@@ -141,7 +141,7 @@ struct PaneBreadcrumb: View {
             )
             Spacer(minLength: 0)
         }
-        // **`.body`, not `.caption`.** The header is pinned to `LiquidGlass.headerHeight` so its
+        // **`.callout`, not `.caption`.** The header is pinned to `LiquidGlass.headerHeight` so its
         // bottom edge lands on the same rule as the lens header card, and the trail was sized as if
         // that budget were tight. It is not: measured through the drawn rings, the row leaves 19–20.5pt
         // unused below the crumbs at EVERY case that matters — the narrow rung, the titled rung, and
@@ -199,10 +199,18 @@ struct PaneBreadcrumb: View {
                     ProviderLogo(sourcePicker.imageName, size: 15, inAppKitLabel: true)
                     Text(name)
                         // `Text.scaledFont(_:scale:)`, not the View modifier, and not the enclosing
-                        // `.scaledFont(.body)` either: this is a `Menu` label and AppKit renders
+                        // `.scaledFont(.callout)` either: this is a `Menu` label and AppKit renders
                         // it itself, so a wrapped `Text` arrives with neither the weight nor the
                         // colour set here. The retired provider capsule carried the same note.
-                        .scaledFont(.body.weight(isCurrent ? .medium : .regular), scale: appFontScale)
+                        //
+                        // **The same style the trail would have given it**, which is the whole
+                        // point of restating it — this sat at `.body` while the trail was
+                        // `.callout`, so the source name drew one step larger than the crumbs
+                        // beside it (a 16pt chip against the quick-jump menu's 14) and read as a
+                        // heading over the trail rather than as its first crumb. Rendered both
+                        // ways before choosing: the emphasis the row wants is already carried by
+                        // the current crumb's medium weight.
+                        .scaledFont(.callout.weight(isCurrent ? .medium : .regular), scale: appFontScale)
                         .foregroundStyle(tint ?? (isCurrent ? .primary : .secondary))
                         .lineLimit(1)
                         .truncationMode(.middle)

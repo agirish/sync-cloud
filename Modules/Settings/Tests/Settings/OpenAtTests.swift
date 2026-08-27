@@ -215,4 +215,44 @@ struct OpenAtTests {
         manager.setPath("", for: "Acct")
         #expect(!manager.hasRootOverride(for: "Acct"))
     }
+
+    /// **The "Choose…" panel opens at the folder panes actually open at, not at the stored one.**
+    ///
+    /// A source scan, because `NSOpenPanel` is not startable from a test — and the claim is about
+    /// which expression seeds `panel.directoryURL`, which is exactly what a scan can see.
+    ///
+    /// `provider.landingPath` joins root and `openAt` unconditionally; `settings.landingPath(for:)`
+    /// degrades to the root when that folder is no longer there. Seeding from the first opens the
+    /// panel on a path that does not exist, so macOS drops the user wherever it last was — very
+    /// likely outside this root, which means their first pick is refused by the containment rule
+    /// this panel exists to help them satisfy, with a message about a root they were never shown.
+    /// `SetupSheet.seedWalkRoot` had the identical bug and carries the identical note; this row was
+    /// the second copy.
+    @Test("The landing-folder picker is seeded through the manager, not through the value type")
+    func theOpenAtPanelIsSeededFromTheReachableLanding() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // Settings
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // Modules/Settings
+            .appendingPathComponent("Sources/Settings/SettingsView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read SettingsView.swift — the check below would be vacuous")
+        let start = try #require(source.range(of: "private func selectOpenAtDirectory() {"),
+                                 "cannot find selectOpenAtDirectory — this test is checking a name that no longer exists")
+        let tail = source[start.upperBound...]
+        let end = try #require(tail.range(of: "\n    }"), "cannot find the end of selectOpenAtDirectory")
+        // **Comments stripped first, and that is not fussiness.** The fix in this very function
+        // names `provider.landingPath` in prose, to say what it is NOT doing — so a scan over the
+        // raw text finds the mention, fails, and teaches the next reader to delete the explanation
+        // in order to get to green.
+        let body = String(tail[..<end.lowerBound])
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.contains("//") ? $0[..<$0.range(of: "//")!.lowerBound] : $0 }
+            .joined(separator: "\n")
+
+        #expect(body.contains("settings.landingPath(for: provider.id)"),
+                "the panel is seeded from somewhere other than the manager's reachable landing folder")
+        #expect(!body.contains("provider.landingPath"),
+                "the panel is seeded from the value type's unconditional join, which can name a folder that is gone")
+    }
 }

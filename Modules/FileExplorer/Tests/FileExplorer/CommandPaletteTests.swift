@@ -500,6 +500,112 @@ import Foundation
                                      keys: ["Legal"]) == ["My Drive/Documents/Legal"])
     }
 
+    /// **The prefix the index carries is the segment its folders actually carry.**
+    ///
+    /// `folderPrefix` exists so the ranker can subtract the shared `Documents` from every key
+    /// before scoring it; that only works while it is the *same* segment `folders` prepended. The
+    /// two are written as one rule — `folders` calls `folderPrefix` — and this is what stops a
+    /// later edit from splitting them, because a drift is otherwise silent: the ranker would strip
+    /// nothing and every folder would score its whole path again, which is the ⌘K blowup below.
+    ///
+    /// Also pinned: nil from `folderPrefix` on exactly the inputs that make `folders` empty. A `?? ""`
+    /// at the call site must mean "no re-base happened", never "re-base of an unusable pair".
+    @Test func theIndexedFoldersAllCarryTheIndexPrefix() {
+        let cases: [(profile: String?, provider: String)] = [
+            ("/a/Documents", "/a"),                 // OneDrive / Dropbox
+            ("/a/My Drive/Documents", "/a"),        // Google Drive, two levels
+            ("/a/Documents", "/a/Documents"),       // iCloud — the two are one folder, prefix ""
+            ("/a/Documents", "/b/Documents"),       // a different tree — no folders, no prefix
+            ("/a", "/a/Documents"),                 // above the root
+            (nil, "/a"),
+            ("/a", ""),
+        ]
+        for c in cases {
+            let prefix = PaletteIndex.folderPrefix(profileRoot: c.profile, providerRoot: c.provider)
+            let folders = PaletteIndex.folders(profileRoot: c.profile, providerRoot: c.provider,
+                                               keys: [".", "Legal", "Finance/US"])
+            guard let prefix else {
+                #expect(folders.isEmpty, "no prefix, but \(c) still produced \(folders)")
+                continue
+            }
+            #expect(!folders.isEmpty, "a prefix of \(prefix.debugDescription) produced no folders for \(c)")
+            for folder in folders {
+                // Whole-segment, not `hasPrefix` — the same boundary rule `below` is held to.
+                #expect(PaletteRouter.below(prefix, folder) != folder || prefix.isEmpty,
+                        "\(folder) does not sit under the index prefix \(prefix.debugDescription)")
+            }
+        }
+    }
+
+    // MARK: The folder ranker — scored below the landing folder
+
+    /// **A query that only matches the shared prefix ranks nothing.**
+    ///
+    /// The defect this pins: a source's root is the account *above* its documents tree, so every
+    /// indexed key begins `Documents` — and `rankedFolders` scores the path with its slashes
+    /// flattened to spaces. Typing `doc` therefore scored an identical prefix match on every
+    /// surveyed folder (~3,013 of them on the real tree), and the Folders group answered six
+    /// alphabetically-arbitrary rows rather than the folders whose names contain "doc".
+    ///
+    /// Mutation-checked: dropping the `below(index.folderPrefix, folder)` call — scoring the whole
+    /// key, which is what shipped — returns all four folders here instead of one.
+    @Test func aQueryMatchingOnlyTheSharedPrefixRanksNothing() {
+        let index = PaletteIndex(
+            providerRoot: "/a",
+            folders: ["Documents/Legal", "Documents/Finance/US",
+                      "Documents/Archive/Old Docs", "Documents/Receipts"],
+            folderPrefix: "Documents")
+        let ranked = PaletteRouter.rankedFolders(matching: "doc", in: index)
+        #expect(ranked.map(\.path) == ["Documents/Archive/Old Docs"],
+                "\"doc\" matched \(ranked.map(\.path)) — the shared prefix is being scored")
+        // The prefix's own name is no longer a query at all. It was not one before the split
+        // either: the survey anchor was `.` then, and `.` is filtered out of the index.
+        #expect(PaletteRouter.rankedFolders(matching: "documents", in: index).isEmpty)
+        // ...and a real name still ranks, so the test above is not passing by matching nothing.
+        #expect(PaletteRouter.rankedFolders(matching: "legal", in: index).map(\.path)
+                == ["Documents/Legal"])
+        // A multi-word path query still works below the prefix — `Finance/US` is scored as
+        // "Finance US", which is the whole reason the path half of the score exists.
+        #expect(PaletteRouter.rankedFolders(matching: "finance us", in: index).map(\.path)
+                == ["Documents/Finance/US"])
+    }
+
+    /// **The shared prefix comes off on a component boundary, or not at all.**
+    ///
+    /// A plain `hasPrefix` would take `Documents` off `Documentsly/Q4` and leave `y/Q4` — not a
+    /// path, and scored as though it were one. Same trap as the absolute-side boundary rule in
+    /// `aProfileAboutADifferentTreeContributesNoFolders`, one level down.
+    ///
+    /// A folder that is not under the prefix is kept whole rather than dropped: it is still a real
+    /// destination, and the shared segment says nothing about it either way.
+    @Test func theSharedPrefixComesOffOnlyOnAComponentBoundary() {
+        #expect(PaletteRouter.below("Documents", "Documents/Legal") == "Legal")
+        #expect(PaletteRouter.below("Documents", "Documentsly/Q4") == "Documentsly/Q4")
+        #expect(PaletteRouter.below("Documents", "Documents") == "Documents")
+        #expect(PaletteRouter.below("", "Documents/Legal") == "Documents/Legal")
+        #expect(PaletteRouter.below("My Drive/Documents", "My Drive/Documents/Legal") == "Legal")
+    }
+
+    /// **Depth is measured below the landing folder too.**
+    ///
+    /// The tiebreak says a shallower folder wins, and "shallow" has to mean what the person
+    /// navigating sees. Measured on the whole key it is a constant offset today — one prefix per
+    /// index — so this pins the intent rather than a live bug: the day two sources with different
+    /// `openAt` depths share one index, measuring from the account root would rank Drive's folders
+    /// below OneDrive's for no reason a user could name.
+    @Test func theDepthTiebreakIsMeasuredBelowTheLandingFolder() {
+        let index = PaletteIndex(providerRoot: "/a",
+                                 folders: ["My Drive/Documents/Legal",
+                                           "My Drive/Documents/Archive/2019/Legal"],
+                                 folderPrefix: "My Drive/Documents")
+        let ranked = PaletteRouter.rankedFolders(matching: "legal", in: index)
+        #expect(ranked.map(\.path) == ["My Drive/Documents/Legal",
+                                       "My Drive/Documents/Archive/2019/Legal"])
+        // The top folder is at depth 0 below the landing folder, so it keeps its whole leaf score.
+        #expect(ranked.first?.score == PaletteRouter.rankedFolders(
+            matching: "legal", in: PaletteIndex(folders: ["Legal"])).first?.score)
+    }
+
     // MARK: Each group appears once
 
     /// **A group's header must appear exactly once.**

@@ -454,18 +454,56 @@ extension FileSyncManager {
     /// meaningful for where they were.
     ///
     /// - Parameters:
-    ///   - leftLanding: Where the left pane should open, relative to its root. `""` — the root —
-    ///     is the default and was the only possible answer before sources gained an `openAt`.
+    ///   - leftLanding: Where the left pane should open, relative to its root. `""` is the root.
     ///   - rightLanding: The same for the right pane.
+    ///
+    /// **Both are required, with no default.** `""` used to be the only possible answer, so a
+    /// default of `""` was free; now it names the account folder *above* a source's documents tree,
+    /// and a caller that omits it is asking for somewhere quite different from what it would have
+    /// got. Every live caller passes both — the defaults only ever served tests, which is exactly
+    /// where the silent wrong answer would have gone unnoticed.
     ///
     /// The landings are passed in rather than looked up because this type has no `SettingsManager`:
     /// the manager owns the sources, this owns the panes, and the direction of that dependency is
     /// what keeps the navigation layer testable without a provider list.
-    @MainActor public func resetNavigation(leftLanding: String = "", rightLanding: String = "") {
-        Logger.shared.info(
-            "User reset navigation to "
-            + "\(leftLanding.isEmpty ? "root" : leftLanding) / "
-            + "\(rightLanding.isEmpty ? "root" : rightLanding).")
+    @MainActor public func resetNavigation(leftLanding: String, rightLanding: String) {
+        // Two different questions, and conflating them is what made the first attempt at an honest
+        // line dishonest anyway.
+        //
+        // **What the LOG says** is about the folder: did this pane end up somewhere other than
+        // where it was? This runs for a provider switch as well as a user reset, and a switch hands
+        // the unchanged side its own current path — so that side has not moved and the line must
+        // not claim it was re-homed. Comparing whole HISTORIES answers a different question: a pane
+        // sitting on the right folder with two entries behind it differs from a fresh one-entry
+        // history, so every pane the user had navigated at all reported as re-homed. That is the
+        // common case, which left the line saying what it said before.
+        //
+        // **What the WRITE is guarded on** is the history, because the write replaces the history:
+        // skipping it when the position matches would leave a Back stack pointing into the tree the
+        // pane is being taken off.
+        let leftMoves = leftHistory.current != leftLanding
+        let rightMoves = rightHistory.current != rightLanding
+        let leftRewrites = leftHistory != PaneNavigationHistory(startingAt: leftLanding)
+        let rightRewrites = rightHistory != PaneNavigationHistory(startingAt: rightLanding)
+        func place(_ landing: String) -> String { landing.isEmpty ? "the source root" : landing }
+        switch (leftMoves, rightMoves) {
+        case (true, true):
+            Logger.shared.info("Re-homed both panes: left at \(place(leftLanding)), "
+                               + "right at \(place(rightLanding)).")
+        case (true, false):
+            Logger.shared.info("Re-homed the left pane at \(place(leftLanding)); "
+                               + "the right pane stays at \(place(rightLanding)).")
+        case (false, true):
+            Logger.shared.info("Re-homed the right pane at \(place(rightLanding)); "
+                               + "the left pane stays at \(place(leftLanding)).")
+        case (false, false):
+            // Not "re-homing": nothing moved. This branch is reached far more often now that the
+            // decision is about the folder rather than about the history — a user reset with both
+            // panes already at their landings lands here, and so does a provider switch onto a
+            // source that opens where the pane already was.
+            Logger.shared.info("Neither pane moved: each is already at "
+                               + "\(place(leftLanding)) / \(place(rightLanding)).")
+        }
         invalidateComparisonState()
         clearSessionIgnoredPaths()
         if !selectedLeftPaths.isEmpty { selectedLeftPaths = [] }
@@ -473,9 +511,10 @@ extension FileSyncManager {
 
         // Compared against a history that is ALREADY at the landing, not against a root-only one:
         // the guard exists to skip a no-op write, and with a landing folder the no-op state is a
-        // single entry naming that folder.
-        if leftHistory != PaneNavigationHistory(startingAt: leftLanding) { leftHistory.reset(to: leftLanding) }
-        if rightHistory != PaneNavigationHistory(startingAt: rightLanding) { rightHistory.reset(to: rightLanding) }
+        // single entry naming that folder. A pane already AT its landing with history behind it
+        // still rewrites — the tree it could go Back into is the one being replaced.
+        if leftRewrites { leftHistory.reset(to: leftLanding) }
+        if rightRewrites { rightHistory.reset(to: rightLanding) }
         // Both trees are about to be replaced by ones from different roots; a column stack naming
         // folders in the old ones is meaningless, not merely stale.
         resetBrowsePath(isLeft: true)

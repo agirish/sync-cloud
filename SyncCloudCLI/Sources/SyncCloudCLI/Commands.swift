@@ -28,6 +28,59 @@ private func discoverProviderSnapshot() async -> AppSettingsSnapshot {
     }
 }
 
+/// Refuses to run against stored source locations from the layout that predates source roots.
+///
+/// The CLI shares the app's defaults domain on purpose — Settings you set in the app apply here —
+/// and that is exactly what makes this necessary. A legacy `path_override_` named a source's whole
+/// tree; under the new model a source's root sits *above* its documents folder, so the same key read
+/// today points somewhere different, and a `scan` would answer about the wrong tree while a `sync`
+/// would copy into it. The failure is silent, which is what makes it worth an exit code.
+///
+/// **It refuses rather than migrating.** `RootsMigration` is idempotent and would run happily from
+/// here, but it rewrites tab strips, pins, recents and the last-open folder — from a terminal,
+/// possibly while the app is running against the same domain — and its unmounted-root defer path
+/// would stamp on whatever `~/Library/CloudStorage` happens to look like to a CLI process. The app
+/// migrates, once, at launch; this only asks.
+///
+/// Quiet on a fresh install: `legacyStateAwaitingMigration` answers empty when there is no legacy
+/// state, not merely when the stamp is set, so an unstamped machine with nothing to move runs.
+func preflightMigration() throws {
+    guard let names = pendingMigrationSourceNames() else { return }
+    throw CLIValidationError(message:
+        "SyncCloud's stored folder locations are from an older layout and have not been migrated "
+        + "yet (\(names)). Launch SyncCloud.app once to migrate them, then run this again. "
+        + "Until then a run here would scan a different folder than the one you chose.")
+}
+
+/// The same question as `preflightMigration`, answered rather than thrown: the source ids still
+/// awaiting migration, or nil when there are none.
+func pendingMigrationSourceNames() -> String? {
+    let pending = RootsMigration.legacyStateAwaitingMigration(
+        defaults: UserDefaults(suiteName: SettingsManager.appSuiteName) ?? .standard,
+        domainName: SettingsManager.appSuiteName)
+    guard !pending.isEmpty else { return nil }
+    return pending.keys.sorted().joined(separator: ", ")
+}
+
+/// `providers` warns instead of refusing.
+///
+/// **Because the refusal's own reason does not apply to it.** `preflightMigration` exists because a
+/// run would silently *act* on the wrong folder — `scan` answers about it, `sync` copies into it.
+/// `providers` touches nothing: it lists what discovery found, which is already the new model's
+/// answer and is exactly what someone diagnosing this state needs to see. Refusing it told the one
+/// user with a reason to run it that "a run here would scan a different folder than the one you
+/// chose", about a command that scans nothing.
+///
+/// stderr, so a script piping the listing still gets a clean stdout.
+func warnIfMigrationPending() {
+    guard let names = pendingMigrationSourceNames() else { return }
+    FileHandle.standardError.write(Data((
+        "warning: SyncCloud's stored folder locations for \(names) are from an older layout. "
+        + "The roots below are the ones discovery finds now; launch SyncCloud.app once to move "
+        + "your stored folder positions onto them before running scan or sync.\n"
+    ).utf8))
+}
+
 /// The Core runner with production edges: real settings discovery, the app log, and the
 /// default stdout/stderr/prompt/copy/verify seams.
 private func makeRunner() -> CommandRunner {
@@ -83,7 +136,8 @@ struct Scan: AsyncParsableCommand {
 
     func run() async throws {
         try await flushingLogToDisk {
-            try await makeRunner().runScan(
+            try preflightMigration()
+            return try await makeRunner().runScan(
                 left: options.left, right: options.right,
                 direction: options.direction, showHidden: options.showHidden, ignore: options.ignore,
                 json: json
@@ -120,7 +174,8 @@ struct SyncFiles: AsyncParsableCommand {
 
     func run() async throws {
         try await flushingLogToDisk {
-            try await makeRunner().runSync(
+            try preflightMigration()
+            return try await makeRunner().runSync(
                 left: options.left, right: options.right,
                 direction: options.direction, showHidden: options.showHidden, ignore: options.ignore,
                 strategy: strategy, yes: yes, failFast: failFast, verify: verify
@@ -138,6 +193,9 @@ struct Providers: AsyncParsableCommand {
     )
 
     func run() async throws {
-        await flushingLogToDisk { await makeRunner().runProviders() }
+        await flushingLogToDisk {
+            warnIfMigrationPending()
+            await makeRunner().runProviders()
+        }
     }
 }

@@ -7,9 +7,19 @@ import Events
 /// durable set in *pane-root-relative* coordinates, keyed per provider pair so ignores for
 /// one comparison never bleed into another.
 ///
-/// The pair key is unordered: in the dominant workflow both panes navigate together, so an
-/// item's root-relative path reads the same from either side, and a pane swap keeps the same
-/// stored set.
+/// The pair key is unordered, so one key serves the pair in either orientation and a pane swap
+/// keeps the same stored set.
+///
+/// **That costs an extra rule, and it is not this type's to enforce.** The key names two ids and
+/// says nothing about which pane held which — which was free while every source's root was its
+/// documents folder, because an item's root-relative path then read the same from either side.
+/// A source's root is now the account above that folder and it lands at `openAt`, so the same
+/// item is `Family/x` from an iCloud pane and `Documents/Family/x` from a OneDrive one. Entries
+/// here are therefore quoted against **the source whose id sorts first** — the id this key names
+/// first — rather than against whichever source is currently on the left, so a swap re-reads the
+/// same strings rather than the other source's. `FileSyncManager.ignoreAnchorIsLeft` is that
+/// choice; `RootsMigration.rebaseIgnoredItems` makes the same one when it moves the entries into
+/// the new roots.
 @MainActor
 public final class IgnoredItemsStore: ObservableObject {
     /// Root-relative paths ignored for the currently active provider pair. Published so the

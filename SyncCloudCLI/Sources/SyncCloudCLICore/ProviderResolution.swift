@@ -70,6 +70,27 @@ public func resolveProviderOrPath(
                 + "The provider may be unmounted or signed out.",
             notDirectoryMessage: "Root '\(provider.rootPath)' of provider '\(provider.displayName)' (\(label)) is not a directory."
         )
+        // **Then the folder the run will actually scan**, which is not the one above. A source's
+        // root is the account, and `CommandRunner` scans `landingPath` — so this pre-flight cleared
+        // a directory the run never touches, and a mounted account whose landing folder had been
+        // renamed got past it and failed later, deeper, with a message about the root instead.
+        //
+        // Only when the two are different folders, which is exactly when `openAt` is set: a
+        // path-addressed root lands on itself, and so does a source that opens at its own root.
+        // Testing `openAt` rather than comparing the paths keeps that exact — the two strings can
+        // only differ by the join, and a canonicalizing comparison would need the folder to exist
+        // to answer, which is the very thing in question.
+        if !provider.openAt.isEmpty {
+            try requireDirectory(
+                atPath: expandPath(provider.landingPath),
+                fileManager: fileManager,
+                missingMessage: "Provider '\(provider.displayName)' (\(label)) opens at '\(provider.openAt)', "
+                    + "which does not exist under its root '\(provider.rootPath)'. "
+                    + "Change the source's opening folder in Settings, or pass the folder as a path.",
+                notDirectoryMessage: "Provider '\(provider.displayName)' (\(label)) opens at '\(provider.openAt)', "
+                    + "which is not a directory."
+            )
+        }
         return provider
     }
     let expanded = expandPath(value)

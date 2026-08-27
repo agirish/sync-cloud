@@ -124,7 +124,7 @@ import Events
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
         m.rightBrowsePath.drill(into: "Photos", atDepth: 0)
 
-        m.resetNavigation()
+        m.resetNavigation(leftLanding: "", rightLanding: "")
         #expect(m.leftBrowsePath.isEmpty)
         #expect(m.rightBrowsePath.isEmpty)
     }

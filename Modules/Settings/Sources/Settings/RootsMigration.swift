@@ -12,12 +12,16 @@ import Sync
 /// automation's destination, an Organize scope, every filing profile, every cache, the storage-lens
 /// snapshots. That is not luck; it is why the `openAt` defaults were chosen that way.
 ///
-/// What is left is the state stored *relative to* a source's root, or *keyed by* it. Those six
+/// What is left is the state stored *relative to* a source's root, or *keyed by* it. Those five
 /// stores are this migration's whole subject:
+///
+/// There were six. `lastLeftFocusPath` / `lastRightFocusPath` — a single persisted folder per pane —
+/// were rebased here until nothing read them any more: the tab strip records a folder per tab and
+/// restores it, and a pane with no strip now opens at its source's landing folder. Migrating a key
+/// no reader consults would be work whose result nothing can check.
 ///
 /// | Key | Shape | What moves |
 /// |---|---|---|
-/// | `lastLeftFocusPath` / `lastRightFocusPath` | root-relative string | gains the prefix |
 /// | `browseTabs` / `browseTabsRight` | JSON, `relativePath` per entry | gains the prefix |
 /// | `folderJumpPinnedByRoot` / `folderJumpRecentsByRoot` | JSON, root-keyed, root-relative values | re-keyed, values gain the prefix |
 /// | `folderJumpFavoriteOrder` | `root\0relative` strings | both halves |
@@ -80,8 +84,6 @@ public enum RootsMigration {
     // migration specifically: it is a statement about what was on disk *at this version*, and it
     // must keep working if one of those stores renames its key later. A migration that follows a
     // rename stops finding the data it exists to move.
-    static let leftFocusKey = "lastLeftFocusPath"
-    static let rightFocusKey = "lastRightFocusPath"
     static let leftProviderKey = "selectedLeftProviderId"
     static let rightProviderKey = "selectedRightProviderId"
     static let leftTabsKey = "browseTabs"
@@ -204,7 +206,15 @@ public enum RootsMigration {
             plan.handled.insert(provider.id)
 
             let newRoot = normalizedRoot(provider.rootPath)
-            let legacyOverride = legacyOverrides[provider.id]
+            // **An EMPTY stored override is no override.** `overridesByProviderId` does not filter
+            // empties — it cannot, because `openAt_override_` uses `""` as a real value — so an
+            // empty `path_override_` would arrive here as a legacy root of `""`, relativize under
+            // nothing, and be written out as a `root_override_` of `""`: a source with no root at
+            // all, invalid in Settings and unreachable in a pane. Old builds cleared the key rather
+            // than storing an empty string, so this is a guard against a shape that should not
+            // exist rather than one that is known to — which is exactly when a one-shot migration
+            // is the wrong place to find out.
+            let legacyOverride = legacyOverrides[provider.id].flatMap { $0.isEmpty ? nil : $0 }
             // Normalized, not merely tilde-expanded: a hand-typed Location ending in `/` would
             // otherwise relativize to `Documents/`, and that trailing slash rides into the stored
             // `openAt`, out through `openAtIfReachable` into the pane's focus, and makes
@@ -270,7 +280,6 @@ public enum RootsMigration {
 
         var moved = 0
         var unreadable: [String] = []
-        moved += rebaseFocus(defaults: defaults, plan: plan)
         moved += rebaseTabs(defaults: defaults, plan: plan, unreadable: &unreadable)
         moved += rebaseJumpFolders(defaults: defaults, plan: plan, unreadable: &unreadable)
         moved += rebaseFavoriteOrder(defaults: defaults, plan: plan)
@@ -296,21 +305,7 @@ public enum RootsMigration {
                          outstanding: Array(outstanding), unreadable: unreadable)
     }
 
-    // MARK: - The six stores
-
-    /// The last-open folder of each pane. Not keyed by provider — the pane's provider is, so the
-    /// prefix comes from whichever source that pane was on.
-    private static func rebaseFocus(defaults: UserDefaults, plan: Plan) -> Int {
-        var moved = 0
-        for (focusKey, providerKey) in [(leftFocusKey, leftProviderKey), (rightFocusKey, rightProviderKey)] {
-            guard let stored = defaults.string(forKey: focusKey), !stored.isEmpty,
-                  let providerId = defaults.string(forKey: providerKey),
-                  let prefix = plan.prefixes[providerId] else { continue }
-            defaults.set(rebased(stored, under: prefix), forKey: focusKey)
-            moved += 1
-        }
-        return moved
-    }
+    // MARK: - The five stores
 
     /// Both tab strips. Re-serialized through `JSONSerialization` rather than a `Codable` round
     /// trip **so unknown keys survive**: the maintenance lines write these same strips, and a
@@ -318,7 +313,15 @@ public enum RootsMigration {
     private static func rebaseTabs(defaults: UserDefaults, plan: Plan, unreadable: inout [String]) -> Int {
         var moved = 0
         for key in [leftTabsKey, rightTabsKey] {
-            guard let raw = defaults.string(forKey: key) else { continue }
+            guard let raw = defaults.string(forKey: key) else {
+                // **Present under the wrong TYPE reads as absent, and only one of those is worth
+                // saying.** `string(forKey:)` answers nil for both, so a strip stored as `Data`
+                // fell through here in silence while a garbage STRING two lines down was reported.
+                // The migration is one-shot: a strip it passes over is one nothing comes back for,
+                // so the two cases are separated by asking whether anything is stored at all.
+                if defaults.object(forKey: key) != nil { unreadable.append(key) }
+                continue
+            }
             guard let data = raw.data(using: .utf8),
                   var entries = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
             else {
@@ -432,23 +435,27 @@ public enum RootsMigration {
     /// The durable ignore sets, one key per provider PAIR (`ignoredItems_v1_<idA>|<idB>`, ids
     /// sorted). Values are pane-root-relative.
     ///
-    /// **The left source's prefix, for every entry.** `FileSyncManager.rootRelativePath` documents
-    /// the left pane's focus as the coordinate system the identity is written in, and the pair key
-    /// sorts its two ids rather than recording which was left — so "left" cannot be recovered from
-    /// the key. Both sides are tried and the FIRST that yields a prefix wins, in sorted-id order,
-    /// which is the same order the key itself is built in: for the overwhelmingly common pair
-    /// (two sources whose roots both widened by `Documents`) the two answers are identical, and
-    /// for a mixed pair it picks the one the key names first, deterministically.
+    /// **The FIRST id's prefix, and only the first id's.** The old entries were written when both
+    /// panes' roots were documents folders, so they read the same from either side and the key's
+    /// two ids were interchangeable. They are not any more, and `IgnoredItemsStore` resolves that
+    /// by quoting entries against the source whose id sorts first — the id this very key names
+    /// first (`FileSyncManager.ignoreAnchorIsLeft`). This has to move the entries into exactly
+    /// those coordinates or the app reads them against a root they were not rebased onto.
     ///
-    /// A pair with no prefix on either side — iCloud⇄a folder source, neither of which moved — is
-    /// left alone, which is correct rather than merely safe: its entries were never mismeasured.
+    /// So it is `ids.first`, deliberately not "the first id that HAS a prefix". Those differ for a
+    /// pair whose leading id did not move — iCloud, or a folder source sorting ahead of an
+    /// account — and there the honest answer is to leave the entries alone: they were already
+    /// measured from that source's root, which did not change.
+    ///
+    /// A pair with no prefix on its leading side is therefore untouched, which is correct rather
+    /// than merely safe.
     private static func rebaseIgnoredItems(defaults: UserDefaults, domainName: String?, plan: Plan) -> Int {
         let keys = SettingsManager.keys(in: defaults, domainName: domainName,
                                         havingPrefix: ignoredItemsKeyPrefix)
         var moved = 0
         for key in keys.sorted() {
             let ids = key.dropFirst(ignoredItemsKeyPrefix.count).components(separatedBy: "|")
-            guard let prefix = ids.compactMap({ plan.prefixes[$0] }).first, !prefix.isEmpty,
+            guard let anchorId = ids.first, let prefix = plan.prefixes[anchorId], !prefix.isEmpty,
                   let stored = defaults.stringArray(forKey: key), !stored.isEmpty else { continue }
             defaults.set(stored.map { rebased($0, under: prefix) }, forKey: key)
             moved += stored.count
@@ -497,6 +504,26 @@ public enum RootsMigration {
     /// The two root-keyed stores are deliberately not consulted: they hold roots, not ids, and a
     /// root cannot be attributed to a source that is not mounted. They are covered by the sources
     /// the tab strips and the pane selections name, which is where an unmounted account shows up.
+    ///
+    /// **Folder sources are excluded, and that is the difference between a wait and a deadlock.**
+    /// Waiting is right for an account that is signed out: it will be in `discovered` on some later
+    /// launch, and until then its stored positions must not be guessed at. A folder source will
+    /// never be there at all — `applyAtLaunch` maps the CloudStorage accounts and iCloud and
+    /// nothing else, deliberately, because a folder source is its own root and always was, so there
+    /// is nothing about it to migrate. Counted here, its id enters `outstanding` and never leaves,
+    /// and the stamp is never written on any install that has one selected or in a tab strip.
+    ///
+    /// Neither consequence announces itself. Every launch pays for a `~/Library/CloudStorage`
+    /// listing, forever — the one cost the stamp exists to buy off — and
+    /// `legacyStateAwaitingMigration` gates on that stamp, so a machine that also carries a legacy
+    /// Location has its CLI refuse **permanently**, telling the user to launch the app to migrate
+    /// when they already have and it can never help.
+    ///
+    /// Recognised by `FolderSource.isFolderSourceId` rather than by looking the id up in the stored
+    /// list: the prefix is a documented, load-bearing property of these ids ("a folder source is
+    /// recognisable as one from the id alone"), and reading the list would make this depend on a
+    /// second store that can itself be unreadable — in which case a source that IS settled would go
+    /// back to holding the exit open, which is the bug rather than a safe fallback.
     private static func referencedProviderIds(
         defaults: UserDefaults,
         legacyOverrides: [String: String]
@@ -514,7 +541,7 @@ public enum RootsMigration {
                 if let id = entry["providerId"] as? String, !id.isEmpty { ids.insert(id) }
             }
         }
-        return ids
+        return ids.filter { !FolderSource.isFolderSourceId($0) }
     }
 
     private static func stamp(in defaults: UserDefaults, domainName: String?) -> Int {
@@ -530,8 +557,34 @@ public enum RootsMigration {
 
 extension RootsMigration {
 
-    /// Gathers the inputs off disk and runs the migration — the app's one entry point, and the
-    /// CLI's.
+    /// Stored state from the old layout that this migration has not moved yet, keyed by source id —
+    /// empty once the stamp is set, and empty on a fresh install that never had any.
+    ///
+    /// **A read. It writes nothing, which is the entire reason it exists separately from
+    /// `applyAtLaunch`.** The CLI shares the app's defaults domain, so it sees these keys and reads
+    /// them under the new meaning: a legacy Location that used to name a source's whole tree now
+    /// names a folder inside a root that sits above it, and the run scans the discovered root
+    /// instead — quietly, and `sync` is a mass copy. Migrating from the CLI would fix that and
+    /// introduce worse: it would rewrite tabs, pins and recents from a terminal, possibly while the
+    /// app is running against the same domain, and its unmounted-root defer path would stamp on
+    /// different evidence than a launch would. So the CLI asks, and refuses; the app migrates.
+    ///
+    /// Narrower than "is the stamp missing", deliberately. A fresh install is unstamped and has
+    /// nothing to move, and refusing there would be refusing over a hypothetical.
+    public static func legacyStateAwaitingMigration(
+        defaults: UserDefaults = .standard,
+        domainName: String? = SettingsManager.appSuiteName
+    ) -> [String: String] {
+        guard stamp(in: defaults, domainName: domainName) < currentStamp else { return [:] }
+        return SettingsManager.overridesByProviderId(
+            in: defaults, domainName: domainName,
+            keyPrefix: SettingsManager.legacyPathOverrideKeyPrefix)
+    }
+
+    /// Gathers the inputs off disk and runs the migration — the app's one entry point.
+    ///
+    /// **The app's, and only the app's.** The CLI reads the same defaults domain but must not run
+    /// this; it calls `legacyStateAwaitingMigration` and refuses instead. See that method for why.
     ///
     /// **Synchronous, and it does its own CloudStorage listing rather than waiting for
     /// `SettingsManager`'s.** Discovery is `async` and publishes from a detached task, while this

@@ -261,29 +261,6 @@ public enum GlassLevel: String, CaseIterable, Identifiable {
     }
 }
 
-/// See `View.chromePillSurface(_:wash:)`. A modifier rather than a `@ViewBuilder` function because
-/// the appearance is the deciding input and only a view can read it.
-private struct ChromePillSurface: ViewModifier {
-    let level: GlassLevel
-    let wash: Color
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if level.needsChromeFrosting, colorScheme == .dark {
-            content.background(
-                Capsule()
-                    .fill(Color.primary.opacity(LiquidGlass.clearPillLift))
-                    .overlay(Capsule().fill(wash))
-                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
-            )
-        } else {
-            content.background(wash, in: Capsule())
-        }
-    }
-}
-
 // MARK: - Clear glass tuning
 //
 // Clear used to be hard to tell from Frosted, and measurement said why: what obscures the window at
@@ -314,16 +291,6 @@ public extension LiquidGlass {
     /// than reading gray-white. It is strongest where nothing covers it: the gutters between cards
     /// and the toolbar band.
     static let clearAccentVeil: Double = 0.12
-
-    /// The film `chromePillSurface` lays under a chrome pill at Clear — `.primary`, so it lifts on
-    /// a dark appearance and settles on a light one, in both cases separating the pill from a
-    /// surface that has stopped supplying one.
-    ///
-    /// Sits deliberately above the nav pills' 0.075 rest fill: those carry a single glyph, the
-    /// provider capsule carries a brand mark whose negative space is transparent, so it needs more
-    /// ground to sit on. Kept a film rather than a frost — `.regular` glass here read as a dark
-    /// slab against the header (see `chromePillSurface`).
-    static let clearPillLift: Double = 0.13
 
     /// Extra accent painted into the top strip at Clear, fading out over `clearTitlebarBoostHeight`.
     ///
@@ -613,38 +580,6 @@ public extension View {
         } else {
             self.background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(accent.opacity(fallbackWash))))
         }
-    }
-
-    /// The ground under a chrome pill that sits on a card taking the glass level verbatim — today
-    /// the pane header's provider capsule.
-    ///
-    /// At every level but `.clear` the pill is a plain hue wash over the card's own material, exactly
-    /// as before. At `.clear` the card is see-through to the desktop and a 12% wash has nothing to
-    /// read against, so the logo and name end up on whatever slice of wallpaper happens to be behind
-    /// them — a ground that changes as the window moves. Every provider mark makes that worse: none
-    /// of the four assets paints a single opaque white pixel, so their negative space (Dropbox's
-    /// folded-box seams, Drive's triangle seams) fills with wallpaper rather than with page.
-    ///
-    /// So at `.clear` the pill draws a ground of its own. The *card* stays clear; only the pill
-    /// gets a ground, so Clear keeps its transparency everywhere it isn't costing legibility.
-    /// Keyed off `needsChromeFrosting` rather than an `== .clear` check, so a level added later
-    /// decides its chrome treatment in `GlassLevel` alone.
-    ///
-    /// The ground is a LIFT, not a frost, and the app owns it — `PaneNavChrome`'s reasoning, for
-    /// the same reason it applies there. `29d0cc7` shipped this as `.glassEffect(.regular.tint:)`,
-    /// which floors the pill to Frosted the way `chromeButtonStyle` floors bar buttons, and on a
-    /// dark appearance `.regular` renders as a dark slab: the capsule came out heavier than the
-    /// header around it. A thin film of `.primary` plus the brand wash and a hairline separates the
-    /// pill from the surface *without* darkening it — and unlike glass it paints offscreen, so the
-    /// ground is a testable fact rather than something only a screenshot can confirm.
-    ///
-    /// **Dark only.** `41c4250` applied the film in both appearances, on the reasoning that
-    /// `.primary` self-corrects: it lifts on dark and settles on light. It does — and settling is
-    /// precisely what light did not need. A light appearance already supplies the page these marks
-    /// were drawn for, so the 13% black film bought no legibility and only made the capsule read as
-    /// a darker patch stamped on the header. Light is back to the bare wash it always had.
-    func chromePillSurface(_ level: GlassLevel, wash: Color) -> some View {
-        modifier(ChromePillSurface(level: level, wash: wash))
     }
 
     /// The material fill for one content surface. This is the single place the level → appearance

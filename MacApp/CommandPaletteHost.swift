@@ -164,6 +164,11 @@ extension ContentView {
         // re-bases its keys rather than being handed a second base to measure them against.
         let folders = PaletteIndex.folders(profileRoot: profile?.root, providerRoot: root,
                                            keys: Array(profile?.folders.keys ?? [:].keys))
+        // The same re-base, as the segment rather than as the result: the ranker subtracts it so a
+        // folder is scored on the part of its path that distinguishes it, not on the `Documents`
+        // every key now shares. One rule, called twice — never re-derived here.
+        let folderPrefix = PaletteIndex.folderPrefix(profileRoot: profile?.root,
+                                                     providerRoot: root) ?? ""
         // **Both remembered lists in one pass**, so the root is `stat`ed once rather than twice —
         // under an unreachable network mount each of those can block.
         let remembered = Self.reachableFolders(
@@ -192,6 +197,7 @@ extension ContentView {
             },
             providerRoot: root.isEmpty ? nil : root,
             folders: folders,
+            folderPrefix: folderPrefix,
             // The one recents list — `FolderJumpStore` is already fed by every pane focus change
             // (see ContentView's `onChange(of: leftRelativePath)`), and it carries the pins too.
             //

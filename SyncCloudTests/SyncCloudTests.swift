@@ -65,7 +65,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         // 2. This simulates what the ContentView .onChange(of: leftProviderId) does
         manager.selectedLeftPaths = []
         manager.leftRelativePath = ""
-        manager.resetNavigation()
+        manager.resetNavigation(leftLanding: "", rightLanding: "")
         
         // 3. Verify specifically the navigation reset effects
         #expect(manager.selectedLeftPaths.isEmpty)

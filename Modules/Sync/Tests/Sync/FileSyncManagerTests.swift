@@ -151,7 +151,7 @@ import Foundation
         manager.leftRelativePath = "some/path"
         manager.rightRelativePath = "other/path"
 
-        manager.resetNavigation()
+        manager.resetNavigation(leftLanding: "", rightLanding: "")
 
         #expect(manager.leftRelativePath == "")
         #expect(manager.rightRelativePath == "")

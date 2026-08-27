@@ -323,7 +323,7 @@ import Foundation
         manager.leftItemCount = 1
         manager.lastLoadedLeftFocusPath = "/left"
 
-        manager.resetNavigation()
+        manager.resetNavigation(leftLanding: "", rightLanding: "")
 
         #expect(manager.differences.isEmpty)
         #expect(manager.rawDifferences.isEmpty)

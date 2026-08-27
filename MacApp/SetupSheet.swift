@@ -1468,7 +1468,12 @@ struct SetupSheet: View {
     /// over gigabytes to say so. This is the same folder the pre-roots code walked.
     private func seedWalkRoot() {
         guard !rootChosenByHand, let primary = primaryProvider else { return }
-        let seeded = URL(fileURLWithPath: primary.landingPath)
+        // Through the manager, not `primary.landingPath`. The value type joins root and `openAt`
+        // unconditionally; the manager's spelling degrades to the root when the landing folder is
+        // not there (`openAtIfReachable`). Seeding the walk at a folder that has been renamed away
+        // starts the profile at a URL that does not exist, and a survey over nothing produces no
+        // proposals with nothing on screen to say why.
+        let seeded = URL(fileURLWithPath: settings.landingPath(for: primary.id))
         guard seeded != walkRoot else { return }
         walkRoot = seeded
         invalidateProposals()

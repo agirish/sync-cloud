@@ -137,14 +137,20 @@ public enum FileLocation {
     /// The roots one provider's configured path covers: the path itself, plus the CloudStorage
     /// account folder it sits under when it has one.
     ///
-    /// **The account folder is not padding — without it this feature lies.** Discovery configures a
-    /// provider at a *subfolder* of its account folder (`…/OneDrive-<acct>/Documents`,
+    /// **The account folder is not padding — without it this feature lied.** Discovery used to
+    /// configure a provider at a *subfolder* of its account folder (`…/OneDrive-<acct>/Documents`,
     /// `…/GoogleDrive-<acct>/My Drive/Documents`, `…/Dropbox/Documents`). A Home-folder pane lists
     /// `~/Library/CloudStorage` like any other folder, so a plain test against the configured root
-    /// alone would stamp *This Mac only* on `…/OneDrive-<acct>/Photos/a.jpg` — a file that plainly
-    /// is in OneDrive. That is the inverse of the false reassurance ROADMAP warns about: it
-    /// manufactures risk that is not there, which is the same failure as dropping a disabled
-    /// provider, and it would also put ⌂ and ☁ on one row at once.
+    /// alone stamped *This Mac only* on `…/OneDrive-<acct>/Photos/a.jpg` — a file that plainly is in
+    /// OneDrive. That is the inverse of the false reassurance ROADMAP warns about: it manufactures
+    /// risk that is not there, which is the same failure as dropping a disabled provider, and it
+    /// would also put ⌂ and ☁ on one row at once.
+    ///
+    /// **A discovered source's root IS its account folder now, so for those the two coincide** and
+    /// this returns one path rather than two — the de-duplication below, without which every
+    /// discovered source contributed the same string twice. The branch is still load-bearing for the
+    /// roots that do not coincide: a `root_override_` written by `RootsMigration` for an install
+    /// whose legacy Location pointed at a subfolder, and a folder source added inside an account.
     ///
     /// Anchored on a `Library/CloudStorage` pair specifically, and on the LAST such pair, so a
     /// folder someone happens to have named "CloudStorage" claims nothing. A provider whose
@@ -167,7 +173,10 @@ public enum FileLocation {
         where components[index] == "library" && components[index + 1] == "cloudstorage" {
             let accountIndex = index + 2
             guard accountIndex < components.count else { break }
-            paths.append(NSString.path(withComponents: Array(components[0...accountIndex])))
+            // Not unconditionally: a discovered source's root already IS this folder, and a list
+            // holding it twice is a claim that reads as two pieces of evidence.
+            let account = NSString.path(withComponents: Array(components[0...accountIndex]))
+            if account != normalized { paths.append(account) }
             break
         }
         return paths

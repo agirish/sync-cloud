@@ -21,16 +21,13 @@ public enum GeneralSettings {
     /// what-goes-where confirmation. Read by the app's `transferConfirmer` wiring.
     public static let confirmBeforeTransferKey = "confirmBeforeCopyMove"
 
-    /// Bool (default true). When false, panes always open at their provider roots instead of
-    /// the folders they were focused on when the app last quit.
+    /// Bool (default true). When false, the tab strip each pane had when the app last quit is not
+    /// restored, so every pane opens with one tab at its source's landing folder.
+    ///
+    /// It used to govern a second, older thing as well — a single persisted focus path per pane —
+    /// and that is gone: the strip records a folder per tab, which is strictly more of the same
+    /// answer, and a pane with no strip now takes the source's own opening folder instead.
     public static let restoreLastFocusKey = "restoreLastFocusOnLaunch"
-    /// String. The left pane's root-relative focus path, continuously persisted by
-    /// ContentView ("" = provider root). App state rather than a user preference, but the
-    /// keys live here beside the toggle that governs them.
-    public static let lastLeftFocusKey = "lastLeftFocusPath"
-    /// Right-pane counterpart of `lastLeftFocusKey`.
-    public static let lastRightFocusKey = "lastRightFocusPath"
-
     /// Bool (default false). Posts a system notification when an operation banner lands
     /// while SyncCloud is not the active app. Read by `OperationNotifier`.
     public static let notifyOnBackgroundCompletionKey = "notifyOnBackgroundCompletion"
@@ -1602,6 +1599,13 @@ struct ProviderSettingsSection: View {
             }
             .controlSize(.small)
             .padding(.top, 2)
+            // On the controls only, like `openAtRow` below and for the same two reasons: a switched-
+            // off account is one whose settings should not be edited from here, and `disabled` is
+            // cumulative, so gating the whole VStack would grey the carried-over-root note along
+            // with the buttons — and that note stays just as true when the source is off. This
+            // gating was lost for one commit when the account and folder-source editors were split:
+            // both controls used to sit under the shared strip's `!isEnabled`.
+            .disabled(!isEnabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1622,9 +1626,18 @@ struct ProviderSettingsSection: View {
     private var openAtRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Open at")
+            // **Monospaced only when it is a path.** "The source root" is an English sentence
+            // standing in for a value, and setting it in the same face as the absolute path in the
+            // Root row above says it is one — the column then reads as three kinds of thing (an
+            // absolute path, a relative fragment, a sentence) in one undifferentiated face.
+            //
+            // Selectable, like Root. The relative fragment is the half more likely to be pasted
+            // somewhere, and it was the one that could not be copied.
             Text(openAtDisplay)
-                .scaledFont(.system(.callout, design: .monospaced))
+                .scaledFont(provider.openAt.isEmpty ? .callout
+                                                    : .system(.callout, design: .monospaced))
                 .foregroundStyle(provider.openAt.isEmpty ? .secondary : .primary)
+                .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1683,6 +1696,23 @@ struct ProviderSettingsSection: View {
     ///
     /// A phrase rather than an empty line or a bare `/`: "" is a real, chosen value here, and a
     /// blank row reads as unset. Panes on this source do open somewhere.
+    ///
+    /// **The value stays root-RELATIVE, and that was decided against rendered alternatives rather
+    /// than by default.** A review raised that `Documents` names nothing on its own — the reader has
+    /// to join it to the Root line above themselves. Three replacements were built and looked at in
+    /// the real row (2026-08-27):
+    ///
+    /// - the full joined path duplicated the Root line almost exactly: two ~50-character monospace
+    ///   lines one above the other, differing only in a trailing `/Documents` at the far right,
+    ///   which is the worst place to put the only difference between two similar lines;
+    /// - a leading separator (`/Documents`) reads as an ABSOLUTE path from the volume root, which is
+    ///   actively wrong rather than merely terse;
+    /// - a dimmed root tail before the choice (`…/OneDrive-Personal/Documents`) worked, and was
+    ///   still declined: Root sits one line above with the answer in full, so the anchor is
+    ///   redundant on screen and only costs the row width.
+    ///
+    /// Do not re-raise this without rendering it. The argument is not that the bare fragment is
+    /// self-describing — it is that the line above it already describes it.
     private var openAtDisplay: String {
         provider.openAt.isEmpty ? "The source root" : provider.openAt
     }
@@ -1690,55 +1720,64 @@ struct ProviderSettingsSection: View {
     // MARK: - A folder source: one path, which the user chose
 
     /// A folder source is its own root, so it keeps the single Location field it always had.
+    ///
+    /// Two children, so a `Group`: they flatten into the row's own stack, which is what puts the
+    /// button strip on the same rhythm as the account rows' strips rather than inside the field's
+    /// tighter 4pt one.
     private var folderLocationEditor: some View {
         Group {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Location")
-                    // Mirrors the name field above: Enter or clicking away commits.
-                    // No Save button — focus-loss covers the same ground, so the two
-                    // fields commit through one identical set of triggers.
-                    TextField("Synchronized path", text: $pathDraft.value)
-                        .textFieldStyle(.plain)
-                        .scaledFont(.system(.callout, design: .monospaced))
-                        .labelsHidden()
-                        .focused($pathFieldFocused)
-                        .onSubmit { commitPath() }
-                        .onChange(of: pathFieldFocused) { _, focused in
-                            if !focused { commitPath() }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        // A TextField scrolls rather than ellipsizing, so a path longer than even the
-                        // full width still hides its tail. The tooltip is the backstop — the same
-                        // answer the ignored-items list already uses for long root-relative paths.
-                        .help(pathDraft.value)
-
-                    // Only ever set for a folder source, and cleared by the next accepted commit.
-                    if let owner = refusedDuplicateOwner {
-                        Text("That folder is already \(owner). One folder gets one source.")
-                            .scaledFont(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityLabel(
-                                "Location not changed. That folder is already \(owner).")
+                // Mirrors the name field above: Enter or clicking away commits.
+                // No Save button — focus-loss covers the same ground, so the two
+                // fields commit through one identical set of triggers.
+                TextField("Synchronized path", text: $pathDraft.value)
+                    .textFieldStyle(.plain)
+                    .scaledFont(.system(.callout, design: .monospaced))
+                    .labelsHidden()
+                    .focused($pathFieldFocused)
+                    .onSubmit { commitPath() }
+                    .onChange(of: pathFieldFocused) { _, focused in
+                        if !focused { commitPath() }
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .disabled(!isEnabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // A TextField scrolls rather than ellipsizing, so a path longer than even the
+                    // full width still hides its tail. The tooltip is the backstop — the same
+                    // answer the ignored-items list already uses for long root-relative paths.
+                    .help(pathDraft.value)
 
-                HStack(spacing: 8) {
-                    Button("Browse…") { selectDirectory() }
-                    // A folder source has no discovered default to reset TO — the user chose
-                    // the path, and that choice is the whole record. Remove takes its place: the
-                    // one thing a folder source can do that a cloud account cannot.
-                    Button("Remove", role: .destructive) { settings.removeFolderSource(id: provider.id) }
-                    Button("Show in Finder") { openInFinder(provider.rootPath) }
-                    Spacer()
+                // Only ever set for a folder source, and cleared by the next accepted commit.
+                if let owner = refusedDuplicateOwner {
+                    Text("That folder is already \(owner). One folder gets one source.")
+                        .scaledFont(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(
+                            "Location not changed. That folder is already \(owner).")
                 }
-                .controlSize(.small)
-                // Remove stays live on a disabled source: a folder switched off is exactly the
-                // one you are most likely to be removing, and leaving the only way to get rid of
-                // it behind a toggle you have to switch back on first is a trap.
-                .disabled(!isEnabled && !provider.isLocalFolder)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(!isEnabled)
+
+            HStack(spacing: 8) {
+                Button("Browse…") { selectDirectory() }
+                // A folder source has no discovered default to reset TO — the user chose
+                // the path, and that choice is the whole record. Remove takes its place: the
+                // one thing a folder source can do that a cloud account cannot.
+                Button("Remove", role: .destructive) { settings.removeFolderSource(id: provider.id) }
+                Button("Show in Finder") { openInFinder(provider.rootPath) }
+                Spacer()
+            }
+            .controlSize(.small)
+            // **No `.disabled` here, and that is the rule rather than an omission.** This strip
+            // used to carry `!isEnabled && !provider.isLocalFolder` back when one strip served both
+            // kinds of source; split out, it renders only for a folder source, so that condition is
+            // constantly false and the modifier was doing nothing at all. What it encoded is still
+            // true and is now simply the shape of the code: Remove stays live on a disabled source,
+            // because a folder switched off is exactly the one you are most likely to be removing,
+            // and leaving the only way to get rid of it behind a toggle you have to switch back on
+            // first is a trap. The account rows gate their own strips (`accountRootRow`,
+            // `openAtRow`); this one deliberately does not.
         }
     }
 
@@ -1795,8 +1834,14 @@ struct ProviderSettingsSection: View {
         panel.allowsMultipleSelection = false
         panel.message = "Choose the folder \(provider.displayName) opens at"
         panel.prompt = "Open at"
+        // Through the manager, not `provider.landingPath`: the value type joins root and `openAt`
+        // unconditionally, while the manager degrades to the root when the landing folder is not
+        // there. Opening the panel at a folder that has been renamed away drops the user wherever
+        // macOS last was — which is very likely outside this root, so their first pick is refused
+        // by the very rule this panel is meant to help them satisfy. `SetupSheet.seedWalkRoot`
+        // carries the same note for the same reason.
         panel.directoryURL = URL(
-            fileURLWithPath: (provider.landingPath as NSString).expandingTildeInPath)
+            fileURLWithPath: (settings.landingPath(for: provider.id) as NSString).expandingTildeInPath)
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         switch settings.setOpenAt(url.path, for: provider.id) {

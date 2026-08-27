@@ -734,55 +734,6 @@ enum PaneLogic {
         ]
     }
 
-    // MARK: - Last-session pane focus
-
-    /// One pane's reopen instruction: the relative path to focus and the absolute path it was
-    /// validated at. `isLeft` names the pane so the caller's log line and `focusOn` can't disagree.
-    struct PaneFocusRestore: Equatable {
-        let relativePath: String
-        let fullPath: String
-        let isLeft: Bool
-    }
-
-    /// The panes to reopen on the folder they showed when the app last quit, in left-then-right
-    /// order — the whole decision behind `ContentView.restoreLastPaneFocusIfEnabled`.
-    ///
-    /// A pane is restored only when the General setting is on, it has a remembered relative path,
-    /// its provider root resolves, and the composed path still exists ON DISK as a DIRECTORY.
-    /// Anything else is dropped, which leaves that pane at its provider root — the fallback. The
-    /// composition is the risky part: every later operation in the session is expressed relative to
-    /// the focus this sets, so a root/relative mix-up reopens the pane on the wrong folder and
-    /// every subsequent relative path inherits the error.
-    ///
-    /// `isRestorableDirectory` defaults to the real check, hopped off the main actor because cloud
-    /// provider roots stat slowly; tests pass their own to pin which paths get probed.
-    static func paneFocusRestores(
-        isEnabled: Bool,
-        left: (relativePath: String, root: String),
-        right: (relativePath: String, root: String),
-        isRestorableDirectory: (String) async -> Bool = { path in
-            await Task.detached(priority: .userInitiated) { () -> Bool in
-                var isDirectory: ObjCBool = false
-                return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-                    && isDirectory.boolValue
-            }.value
-        }
-    ) async -> [PaneFocusRestore] {
-        guard isEnabled else { return [] }
-        var restores: [PaneFocusRestore] = []
-        for pane in [(left, true), (right, false)] {
-            let (saved, isLeft) = pane
-            guard !saved.relativePath.isEmpty, !saved.root.isEmpty else { continue }
-            let fullPath = ((saved.root as NSString).expandingTildeInPath as NSString)
-                .appendingPathComponent(saved.relativePath)
-            guard await isRestorableDirectory(fullPath) else { continue }
-            restores.append(PaneFocusRestore(relativePath: saved.relativePath,
-                                             fullPath: fullPath,
-                                             isLeft: isLeft))
-        }
-        return restores
-    }
-
     // MARK: - Resize split layout
 
     /// Math for the two invisible resize dividers (the left↔right pane split and the panes↔bottom

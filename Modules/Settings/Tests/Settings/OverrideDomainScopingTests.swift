@@ -45,6 +45,49 @@ import Sync
         // …the search-list-only keys do not (Dropbox keeps its discovered default path).
         #expect(byId["Dropbox"]?.rootPath == "/CloudStorage/Dropbox")
         #expect(byId["Dropbox"]?.displayName == "Dropbox")
+
+        // **And the two "is this customized?" predicates agree with what actually applied.** They
+        // read the same keys for a different purpose — whether the row shows a Reset, and what the
+        // reset logs — and they used to read them through `userDefaults.string(forKey:)`, i.e. the
+        // merged search list. So the stray key above answered TRUE here while `mapProviders`
+        // correctly ignored it: Dropbox's row offered to reset a root it did not have, and taking
+        // the offer logged a reset of a key that was never this install's. Two readers of one key
+        // with two scoping rules, which is the exact defect the scoped read exists to prevent.
+        #expect(settings.hasRootOverride(for: "OneDrive-Work"))
+        #expect(!settings.hasRootOverride(for: "Dropbox"))
+    }
+
+    /// The same scoping, for the landing folder — whose key is the one where `""` is a real stored
+    /// value, so "is there a key" is the only question that can be asked about it.
+    @MainActor
+    @Test func testSearchListOnlyOpenAtKeysDoNotLookLikeAChoice() async throws {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        test.defaults.set("Work", forKey: "openAt_override_OneDrive-Work")
+
+        let globalStandIn = TestDefaults()
+        defer { globalStandIn.wipe() }
+        globalStandIn.defaults.set("Evil", forKey: "openAt_override_Dropbox")
+        test.defaults.addSuite(named: globalStandIn.suiteName)
+
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            overridesDomainName: test.suiteName,
+            cloudStorageLister: { .read([
+                URL(fileURLWithPath: "/CloudStorage/OneDrive-Work"),
+                URL(fileURLWithPath: "/CloudStorage/Dropbox"),
+            ]) },
+            pathValidator: { _ in true }
+        )
+        await settings.discoverProviders()
+
+        let byId = Dictionary(uniqueKeysWithValues: settings.availableProviders.map { ($0.id, $0) })
+        #expect(byId["OneDrive-Work"]?.openAt == "Work")
+        #expect(byId["Dropbox"]?.openAt == "Documents", "a search-list key repointed a source's landing folder")
+        #expect(settings.hasOpenAtOverride(for: "OneDrive-Work"))
+        #expect(!settings.hasOpenAtOverride(for: "Dropbox"),
+                "Dropbox's row claims a landing folder the user chose, from a key this install does not own")
     }
 
     /// Fresh-install hole: a suite nothing was ever persisted to has NO persistent domain

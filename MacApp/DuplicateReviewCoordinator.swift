@@ -405,7 +405,7 @@ struct DuplicateReviewCoordinator {
     /// The stat runs OFF the main actor: `attributesOfItem` is a synchronous stat, and against a
     /// keeper on an unmounted cloud or SMB volume it blocks for as long as the mount takes to
     /// answer — on the main actor that beachballs the whole window on a button click. Same rule
-    /// and same detach as `ContentView.restoreLastPaneFocusIfEnabled` ("cloud roots stat
+    /// and same detach as `ContentView.openPanesAtTheirLandingFolders` ("cloud roots stat
     /// slowly"). Only the Sendable facts cross back — the attributes dictionary itself never
     /// leaves the task. One detached task for BOTH stats: two would double the worst case on a
     /// slow mount, and the pair is one question.

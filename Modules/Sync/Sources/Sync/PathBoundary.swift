@@ -67,9 +67,20 @@ public enum PathBoundary {
     /// hoisted here so the rule holds for `CloudProvider.landingPath` too rather than being
     /// re-derived per call site.
     ///
+    /// An EMPTY root yields the empty string, for the same reason `relativize` refuses one: `""` is
+    /// the ABSENCE of a root, not the volume root. Left to `appendingPathComponent` it produces the
+    /// relative half unchanged — `"" + "Documents/Family"` is `"Documents/Family"` — which is not a
+    /// pane path at all but a path that resolves against the PROCESS WORKING DIRECTORY, and the
+    /// empty root is a state this app reaches ordinarily: `SettingsManager.rootPath(for:)` answers
+    /// `""` for a provider dropped from settings while its stale tree is still on screen. The
+    /// several call sites that guard `!root.isEmpty` before composing — `FileActionHandler`,
+    /// `transferItems`, `createFolder` — stay exactly as they are; this closes the composition
+    /// itself, so a future caller cannot inherit the permissive answer by forgetting a check.
+    ///
     /// The tilde is expanded on the ROOT only: roots are stored abbreviated (`~/Documents`,
     /// `FolderSource.abbreviated`), while a root-relative path never begins with one.
     public static func join(root: String, relative: String) -> String {
+        guard !root.isEmpty else { return "" }
         let expandedRoot = (root as NSString).expandingTildeInPath
         guard !relative.isEmpty, !relative.hasPrefix("/") else { return expandedRoot }
         return (expandedRoot as NSString).appendingPathComponent(relative)

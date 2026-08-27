@@ -459,7 +459,20 @@ extension ContentView {
         // Expanded, for the reason `openInNewTab` gives above: a tilde root exists on no disk, so
         // every mirror would prune away to the sibling's root.
         let root = (settings.rootPath(for: providerId) as NSString).expandingTildeInPath
-        let landing = PaneTabMirror.landing(for: relative) { candidate in
+        // **Translated first**, exactly as a linked crumb click and a linked drill are — `relative`
+        // is measured from the CLICKED pane's root, and the two sources need not open at the same
+        // depth. This was the third of those three call sites and the one the fix missed, because
+        // its failure hides behind the pruning below rather than showing as a wrong folder: handed
+        // `Family` from an iCloud pane, a OneDrive sibling looks for `<account>/Family`, does not
+        // find it, prunes to nothing, and opens a tab at the top of the account — which reads as
+        // "the mirror could not find that folder over there", the honest-looking answer, when the
+        // folder is sitting at `Documents/Family` all along. Worse the other way: `<account>/Family`
+        // can exist and be an unrelated tree, and then the tab opens on it.
+        // Aimed at `other`, like every other side-taking call in this verb — see
+        // `relativePathForPane`, which is where the two-sidedness lives so that this call site
+        // names only the pane it is opening a tab on.
+        let mirrored = relativePathForPane(relative, isLeft: other)
+        let landing = PaneTabMirror.landing(for: mirrored) { candidate in
             var isDirectory: ObjCBool = false
             let exists = FileManager.default.fileExists(
                 atPath: PaneLogic.fullPath(root: root, relativePath: candidate), isDirectory: &isDirectory)
@@ -784,7 +797,7 @@ extension ContentView {
         // "reopen the last folder" off has said they want the app to start at the root; handing
         // them five tabs' worth of where they were is that answer at five times the volume.
         guard GeneralSettings.shouldRestoreLastFocus() else { return }
-        // A pane with nothing stored keeps whatever `restoreLastPaneFocusIfEnabled` just gave it,
+        // A pane with nothing stored keeps whatever `openPanesAtTheirLandingFolders` just gave it,
         // which for the right pane is the older `lastRightFocusPath` restore. That is what makes
         // the first launch after this shipped identical to the last one before it.
         guard let stored = PaneTabsStore.load(isLeft: isLeft) else { return }

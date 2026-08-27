@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// The bar used to be a hard-coded `HStack` welded to the trailing edge by `margin-left: auto`'s
 /// SwiftUI equivalent (a `Spacer` outside it), which meant no control could ever move left. It is now
-/// a *track* running from the provider capsule to the pane's trailing edge, and this is its alphabet:
+/// a *track* running the full width of the pane, and this is its alphabet:
 /// an arrangement is an ordered list of these, and the trailing-edge look is produced by a
 /// `flexibleSpace` at the head of the list rather than by the layout being incapable of anything else.
 ///
@@ -165,10 +165,13 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// A ceiling on how long a bar can get. Not a UI limit anyone will hit with the palette — it
     /// bounds what a corrupt or hand-edited defaults value can do to the layout ladder.
     ///
-    /// Load-bearing beyond that: the ladder's depth is bounded BY this number, and the searched
-    /// ladder in `PaneHeader` must declare a literal child per rung. `PaneBarLadder.searchedSlotCount`
-    /// derives itself from this constant for that reason — raise it and the view is short a rung,
-    /// which is a silent layout hole, so `PaneBarLadderTests` counts the view's children against it.
+    /// Load-bearing beyond that: the ladder's depth is bounded BY this number.
+    ///
+    /// It used to be load-bearing in a sharper way — `PaneHeader` searched its ladder with a
+    /// `ViewThatFits`, which needs one *literal* child per rung, so a `searchedSlotCount` derived
+    /// from this constant had to match the view's literal count or the ladder was silently short a
+    /// rung. Both are gone: the header computes its rung at every width now, and a computed rung has
+    /// no count to keep in step.
     public static let maxItems = 16
 
     /// The controls in the order they have always been drawn, with Search at the trailing end,
@@ -500,10 +503,12 @@ public enum PaneBarLayout {
     ///
     /// Every control is exactly a pill tall, the view switch included. It used to be 6pt taller —
     /// its two segments sat on a ground with `segmentPadding` on *all four* edges — and nothing
-    /// showed it, because the 34pt provider capsule sets the header's row height and a resting
-    /// pill is barely tinted. Titles are what made it matter: a title hangs on a baseline below its
-    /// control, so a 26pt switch put its word 6pt below every other word and took the row to 40pt,
-    /// over the 34pt budget.
+    /// showed it, because a 34pt provider capsule stood beside the bar and set the header's row
+    /// height while a resting pill is barely tinted. Titles are what made it matter: a title hangs on
+    /// a baseline below its control, so a 26pt switch put its word 6pt below every other word and
+    /// took the row to 40pt, over the 34pt budget. The capsule is retired and the bar is alone on
+    /// its row now — which means this arithmetic is no longer merely tidy, it is what the row's own
+    /// reservation is computed from (`PaneHeader.tallestRungHeight`).
     ///
     /// The ground stays; its *vertical* padding is what went (see `PaneHeader.viewModeSwitch`).
     /// Finder's toolbar is the precedent — its segmented controls are not taller than its plain
@@ -537,9 +542,13 @@ public enum PaneBarLayout {
 /// of main-thread work and an 831 ms worst-case stall; cutting the ladder to a single rung took the
 /// same interaction to 1,002 ms and 175 ms.
 ///
-/// The provider-less header still searches — it has no computed rung to hand over (see
-/// `PaneHeader.searchedLadder`) — but it builds a bar only for the rungs that differ, which is the
-/// same lesson applied to the case that cannot take the same cure.
+/// The provider-less header kept searching for a while after that, on the reasoning that it had no
+/// computed rung to hand over: with no provider capsule to be the taller thing in the row, the bar
+/// was the row's own height authority, and a container pinned to one rung's height would report the
+/// wrong height for every other rung. Reserving the TALLEST rung instead of the narrowest removed
+/// that, and the branch went with it — measured first, across 250-900pt at three text sizes: the
+/// two paths pick the same rung in all 81 cases, and the computed one holds the bar's top edge
+/// steady where the searched one let it walk 9pt as the pane widened.
 ///
 /// So the rung is computed instead of searched. Each rung's width is the sum of the widths of the
 /// views that draw it (`PaneBarLayout.width(of:controlSize:)`), which makes "which rung fits" plain
@@ -618,64 +627,6 @@ struct PaneBarLadder {
         PaneBarLayout.height(of: plan(forRung: rung), controlSize: controlSize(forRung: rung),
                              titled: isTitled(forRung: rung), scale: scale)
     }
-
-    // MARK: The searched ladder's slots
-
-    /// How many literal children `PaneHeader.searchedLadder` declares, and the deepest ladder they
-    /// must cover.
-    ///
-    /// `ViewThatFits` takes a `ViewBuilder`, and a `ForEach` inside one is a SINGLE child — the
-    /// ladder silently collapses to one rung — so the searched path must declare a fixed count of
-    /// literal children, whatever the arrangement. That count has to cover the deepest ladder any
-    /// arrangement can build, which is `maxItems + 1`, **derived** rather than restated so that
-    /// raising `maxItems` cannot silently leave the ladder short:
-    ///
-    /// `maxDepth` counts sheddable items, plus one if the view switch is placed (it compacts as the
-    /// last step). Spacers are exempt from the duplicate rule, so the longest ladder is a bar of
-    /// fixed spaces — but a `maxItems`-long arrangement can never be *all* sheddable spaces: the
-    /// normalizer forces `scan` on, which is floor (unsheddable) and displaces a space when the bar
-    /// is full, and if the host cannot offer `scan` it is filtered back out of the resolved bar
-    /// instead. Either way at most `maxItems - 1` items shed, so `maxDepth <= maxItems - 1` and
-    /// `terminal <= maxItems + titledRungs`. Slots run rung 0 through the terminal.
-    ///
-    /// The previous count was ten, justified by a comment claiming "`terminal` is at most 9 for
-    /// any arrangement the palette can build" — false for exactly the spacer-heavy case above, and
-    /// the no-provider header jumped from rung 8 straight to full compaction at intermediate
-    /// widths. `PaneBarLadderTests` pins both halves of the contract: the arithmetic against the
-    /// worst arrangement the normalizer permits, and this count against the number of children
-    /// `PaneHeader.searchedLadder` actually declares.
-    ///
-    /// **`+ 2`, not `+ 1`, since titles.** `titledRungs` adds at most one rung at the head, so the
-    /// deepest ladder any arrangement and any preference can build is one longer than it was. Get
-    /// this wrong and there is no error: the searched ladder is simply short a rung, and the
-    /// provider-less header jumps from a mid rung straight to full compaction at intermediate
-    /// widths — which is exactly the silent hole the ten-child version had.
-    static let searchedSlotCount = PaneBarArrangement.maxItems + 2
-
-    /// The rung the searched ladder's literal child at `slot` draws. Slots past `terminal` clamp
-    /// to it — `PaneBarLayout.plan` is idempotent past `maxDepth`, so they are duplicates of the
-    /// terminal rung.
-    func searchedRung(forSlot slot: Int) -> Int { min(slot, terminal) }
-
-    /// Whether the searched ladder's child at `slot` has to be a real bar.
-    ///
-    /// Slots up to `terminal` each draw a different rung, so they do. Past it they would redraw the
-    /// terminal rung, and building a bar to measure it is the whole cost of this path — so those
-    /// slots become inert stand-ins instead (see `searchedSlotIsInert` for why that is safe).
-    ///
-    /// The **last** slot is always a real bar: `ViewThatFits` renders its last child when nothing
-    /// fits at all, which is the 250pt pane's case, and that fallback must be the terminal bar
-    /// rather than a hole.
-    func searchedSlotDrawsBar(_ slot: Int) -> Bool {
-        slot <= terminal || slot == Self.searchedSlotCount - 1
-    }
-
-    /// Why an inert slot is unreachable, expressed as the property that makes it so: a stand-in has
-    /// exactly the terminal rung's width, and slot `terminal` — a real bar of that same width —
-    /// sits ahead of it. `ViewThatFits` takes the FIRST child that fits, so any offer wide enough
-    /// for a stand-in was already taken by that bar, and any offer too narrow for it falls through
-    /// to the last child, which is real. No offered width can select one.
-    func searchedSlotIsInert(_ slot: Int) -> Bool { !searchedSlotDrawsBar(slot) }
 
     /// The rung an offer of `width` gets — the first one that fits, mirroring `ViewThatFits`'s own
     /// rule, and the narrowest rung when nothing does.
@@ -783,8 +734,9 @@ public enum PaneBarTitleMetrics {
     public static let pointSize: CGFloat = 10
     /// Between the pill's bottom edge and the title's line box.
     public static let gap: CGFloat = 2
-    /// What the pinned 81pt pane header leaves the bar's row. Matches the provider capsule's own
-    /// 34pt, which is what sets the row height today.
+    /// What the pinned 81pt pane header leaves the bar's row. It matched the retired provider
+    /// capsule's own 34pt, which used to be what set the row height; with the capsule gone the bar
+    /// sets its own, and this is the ceiling that says how tall it may go.
     public static let rowBudget: CGFloat = 34
 
     public static let font: ScaledFont = .system(size: pointSize, weight: .regular)

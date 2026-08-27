@@ -53,31 +53,46 @@ import Design
 
     // MARK: - Measurement
 
-    /// The bitmap rows the **bar** occupies — the header's upper row.
+    /// The bitmap rows the bar's **controls** occupy, taken from the drawn pills rather than from a
+    /// fraction of the header.
     ///
-    /// Both searches below used to bound themselves to the trailing *half* instead, on the grounds
-    /// that the bar's controls were there and the provider capsule's brand colour and the
-    /// breadcrumb's text were not. Half of that stopped being true twice over: the capsule is
-    /// retired, and the bar packs against the leading edge now, so a trailing-half search finds
-    /// bare header — `#require(best)` came back nil and both tests failed for want of a glyph
-    /// rather than for want of contrast.
+    /// Both searches below used to bound themselves to the trailing *half*, on the grounds that the
+    /// bar's controls were there and the provider capsule's brand colour and the breadcrumb's text
+    /// were not. Half of that stopped being true twice over: the capsule is retired, and the bar
+    /// packs against the leading edge now, so a trailing-half search found bare header —
+    /// `#require(best)` came back nil and both tests failed for want of a glyph rather than for want
+    /// of contrast.
     ///
-    /// The bar was never the trailing half; it is the upper row, which is what this asks. The
-    /// header is rendered at exactly `LiquidGlass.headerHeight` here, and it stacks the bar over the
-    /// breadcrumb with the bar's pills ending well above the midpoint, so the top half is the bar's
-    /// band and nothing else's.
-    private static func barRows(_ rep: NSBitmapImageRep) -> Range<Int> {
-        0..<(rep.pixelsHigh / 2)
+    /// The replacement was the top half, and that was nearly right and quietly not: measured, the
+    /// pills sit at 11.0-30.5pt while a rung's **titles** sit at 35.0-43.0pt, and half of an 81pt
+    /// header is 40.5 — so the window took the top 5.5pt of the title words and left their bottoms
+    /// out. Both searches here pick an extreme pixel (the darkest non-red, the reddest), so a title
+    /// stroke could win and be measured as "a plain chrome glyph". The bound stayed defensible only
+    /// because the breadcrumb starts at 45.0pt; nothing in it said so.
+    ///
+    /// So ask the view. A pill is a `Button` with a custom style and no `NSControl` behind it, but
+    /// AppKit still gives each one a `_FocusRingView` at exactly its frame — the same oracle
+    /// `PaneBarOverflowMenuTests` and `PaneBarLadderTests` use to locate controls. A title hangs on a
+    /// baseline BELOW its control and is outside that frame, so this window is the pills and nothing
+    /// else, by construction rather than by a margin that happens to hold.
+    private static func barRows(_ measured: RenderedHeader) -> Range<Int> { measured.barRows }
+
+    /// A rendered header plus the rows its bar's controls occupy — the two things every scan here
+    /// needs, produced from one layout pass so they cannot describe different renders.
+    struct RenderedHeader {
+        let rep: NSBitmapImageRep
+        let barRows: Range<Int>
     }
 
     /// Contrast of an UNTINTED rung's glyph (Sort, which takes the standard chrome ink) against its
     /// pill, by the same method.
     private static func standardGlyphContrast() throws -> Double {
-        let rep = try rendered(appearance: .aqua)
+        let measured = try rendered(appearance: .aqua)
+        let rep = measured.rep
         // The darkest pixel on the BAR'S ROW that is NOT red — i.e. a plain chrome glyph.
         var best: (x: Int, y: Int, lum: Double)? = nil
         for x in 0..<rep.pixelsWide {
-            for y in barRows(rep) {
+            for y in barRows(measured) {
                 guard let p = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 if Double(p.redComponent) - Double(max(p.greenComponent, p.blueComponent)) > 0.08 { continue }
                 let l = luminance(p)
@@ -107,11 +122,12 @@ import Design
     /// `.primary.opacity(0.075)` over whatever the header is over, so a constant here would be a
     /// second opinion about a colour the view composes.
     private static func glyphContrast(appearance: NSAppearance.Name) throws -> Double {
-        let rep = try rendered(appearance: appearance)
+        let measured = try rendered(appearance: appearance)
+        let rep = measured.rep
         // The Delete cell, located by finding the reddest pixel on the bar's row.
         var best: (x: Int, y: Int, score: Double)? = nil
         for x in 0..<rep.pixelsWide {
-            for y in barRows(rep) {
+            for y in barRows(measured) {
                 guard let p = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 let score = Double(p.redComponent) - Double(max(p.greenComponent, p.blueComponent))
                 if score > (best?.score ?? 0.2) { best = (x, y, score) }
@@ -148,7 +164,7 @@ import Design
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
-    static func rendered(appearance: NSAppearance.Name) throws -> NSBitmapImageRep {
+    static func rendered(appearance: NSAppearance.Name) throws -> RenderedHeader {
         let defaults = ScratchDefaults("PaneBarInkContrastTests-render")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
         let size = CGSize(width: 700, height: LiquidGlass.headerHeight)
@@ -178,6 +194,26 @@ import Design
         host.layoutSubtreeIfNeeded()
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+
+        // The bar's own band, from the drawn controls — see `barRows`. Rings are in points and the
+        // bitmap is in pixels (2x on this display), so the conversion is measured off the two rather
+        // than assumed; a hard-coded 2 would silently halve the window on a 1x display.
+        var rings: [CGRect] = []
+        func walk(_ v: NSView) {
+            if String(describing: type(of: v)).contains("FocusRing") {
+                rings.append(v.convert(v.bounds, to: host))
+            }
+            v.subviews.forEach(walk)
+        }
+        walk(host)
+        let top = try #require(rings.map(\.minY).min(), "no controls found — the ring oracle broke")
+        // The bar is the topmost band of rings; the breadcrumb's own controls sit below it, so take
+        // only the rings that start with the first one.
+        let bar = rings.filter { $0.minY < top + 5 }
+        let scale = Double(rep.pixelsHigh) / Double(host.bounds.height)
+        let low = Int((bar.map(\.minY).min() ?? 0) * scale)
+        let high = Int(((bar.map(\.maxY).max() ?? 0) * scale).rounded(.up))
+        try #require(low < high, "the bar's band measured empty")
+        return RenderedHeader(rep: rep, barRows: low..<min(high, rep.pixelsHigh))
     }
 }

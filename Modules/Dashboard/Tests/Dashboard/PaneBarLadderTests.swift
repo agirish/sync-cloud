@@ -521,8 +521,13 @@ import Design
         }
     }
 
-    /// The computed path pins its container to the NARROWEST rung's height (17pt) while the widest
-    /// rung draws a 26pt view-switch ground — so the ground overflows its box by design.
+    /// The widest rung draws a 26pt view-switch ground, and the container it sits in must be able to
+    /// hold it whole.
+    ///
+    /// It could not, and that is what this now guards. The pin was the NARROWEST rung's height
+    /// (17pt), exact only while the provider capsule stood 34pt beside the bar and absorbed the
+    /// difference; with the capsule retired the bar was alone on its row and a titled rung escaped
+    /// its box by 8.5pt. The pin is `tallestRungHeight` now, so 26pt of ground has 26pt of box.
     ///
     /// Focus rings say nothing about paint, and an overflow that gets clipped would look exactly like
     /// a correct layout to every other assertion in this file. So read the bitmap: measured 26.0pt,
@@ -673,165 +678,19 @@ import Design
         return reachable
     }
 
-    /// The contract that was comment-only: the view declares exactly one child per slot.
+    /// The end-to-end claim, in the real header: a spacer-heavy no-provider header steps through
+    /// every deep rung at pane widths it can actually be given, rather than jumping from a mid rung
+    /// straight to full compaction.
     ///
-    /// `searchedSlotCount` is otherwise production dead code — read only by tests — so nothing
-    /// stopped the numbers drifting apart. Raise `maxItems` to 24 and the derived count becomes 25
-    /// while `PaneHeader.searchedLadder` still lists seventeen literals, silently reinstating the
-    /// rung-skipping hole; this counts the children of the real view and fails when it does.
-    ///
-    /// The count is read by reflection because a `ViewThatFits`'s children are only its generic
-    /// `TupleView` — the check has to fail loudly if that shape ever changes, hence the `Optional`
-    /// rather than a silent zero.
-    @Test func theSearchedLadderDeclaresOneChildPerSlot() {
-        // Derived, not restated: the ladder's depth is bounded by how long a bar can be, plus the
-        // one rung `titledRungs` can add at its head.
-        #expect(PaneBarLadder.searchedSlotCount == PaneBarArrangement.maxItems + 2)
-
-        let view = Self.header(nil)
-        let children = Self.viewThatFitsChildCount(view.searchedLadder(Self.ladder(.default)))
-        #expect(children != nil, "cannot read ViewThatFits's children — the reflection path broke")
-        #expect(children == PaneBarLadder.searchedSlotCount,
-                "searchedLadder declares \(children.map(String.init) ?? "?") children, the contract says \(PaneBarLadder.searchedSlotCount)")
-    }
-
-    /// How many children a `ViewThatFits` declares, read off the view itself: its content is a
-    /// `TupleView` whose `value` is the literal tuple of children. `nil` when that shape is not what
-    /// this walks, so a broken reflection path is a failure and never a quiet pass.
-    private static func viewThatFitsChildCount<V: View>(_ view: V) -> Int? {
-        guard let tree = Mirror(reflecting: view).children.first(where: { $0.label == "_tree" })?.value,
-              let content = Mirror(reflecting: tree).children.first(where: { $0.label == "content" })?.value,
-              let tuple = Mirror(reflecting: content).children.first(where: { $0.label == "value" })?.value
-        else { return nil }
-        let mirror = Mirror(reflecting: tuple)
-        guard mirror.displayStyle == .tuple else { return nil }
-        return mirror.children.count
-    }
-
-    /// The slot arithmetic checked against the DEEPEST ladder the normalizer permits: 15
-    /// duplicate-exempt spaces beside the pinned scan control, which is `maxDepth` 15 and so
-    /// `terminal` 16.
-    ///
-    /// The old ladder declared ten literals under a comment claiming "`terminal` is at most 9 for
-    /// any arrangement the palette can build" — false exactly here.
-    ///
-    /// The bound is asserted as an inequality over adversarial arrangements rather than only against
-    /// a hand-written worst case, because the failure this guards is `maxItems` moving: a fixture
-    /// that restates today's 16 would be updated alongside it and go green again.
-    @Test func theSearchedSlotsCoverTheDeepestLadderAnyArrangementCanBuild() {
-        let worst = Self.worstArrangement
-        #expect(worst.items.count == PaneBarArrangement.maxItems)
-
-        // **Built with titles on**, because that is the deepest ladder the slots must cover: the
-        // titled rung sits at the head and pushes every other rung one further out. Built without
-        // them this fixture measures a ladder one shorter than the worst case and would happily
-        // certify a slot count that skips the terminal rung whenever the preference is on.
-        let ladder = PaneBarLadder(arrangement: worst, available: [.scan], ceiling: .small,
-                                   labelMode: .iconAndText, scale: 1)
-        #expect(ladder.titledRungs == 1, "the worst case must include the titled rung")
-        // The deepest terminal possible: every slot count below `terminal + 1` skips a rung here.
-        #expect(ladder.terminal == PaneBarArrangement.maxItems + 1)
-        #expect(ladder.terminal + 1 == PaneBarLadder.searchedSlotCount)
-
-        let covered = Set((0..<PaneBarLadder.searchedSlotCount).map { ladder.searchedRung(forSlot: $0) })
-        #expect(covered == Set(0...ladder.terminal),
-                "slots cover \(covered.sorted()), ladder runs 0...\(ladder.terminal)")
-
-        // No arrangement the normalizer will produce — spacer-packed, switch-carrying, or built for
-        // a host that cannot even offer the scan control the normalizer forces on — outruns the
-        // slots. These are the shapes that maximise `maxDepth`: sheddable items, plus the switch.
-        let spaces = Array(repeating: PaneBarItem.space, count: PaneBarArrangement.maxItems)
-        let adversarial: [(String, PaneBarArrangement, [PaneBarItem])] = [
-            ("all spaces", PaneBarArrangement(spaces), Self.header(nil).availableItems),
-            ("spaces + switch", PaneBarArrangement([.viewMode] + spaces), Self.header(nil).availableItems),
-            ("spaces + every control", PaneBarArrangement(PaneBarItem.allCases + spaces),
-             Self.header(nil).availableItems),
-            ("no scan available", PaneBarArrangement(spaces), [.backForward, .sort, .hiddenFiles]),
-            ("worst, full palette", worst, PaneBarItem.allCases),
-        ]
-        for (name, arrangement, available) in adversarial {
-            let deep = PaneBarLadder(arrangement: arrangement, available: available, ceiling: .small)
-            #expect(deep.terminal + 1 <= PaneBarLadder.searchedSlotCount,
-                    "\(name): terminal \(deep.terminal) needs \(deep.terminal + 1) slots, the ladder declares \(PaneBarLadder.searchedSlotCount)")
-        }
-    }
-
-    /// The rule this path is built on: a slot draws a real bar exactly where the rung it would draw
-    /// is one no earlier slot draws, and every slot past `terminal` is inert — a stand-in that
-    /// measures like the terminal bar and builds nothing.
-    ///
-    /// That is what keeps the provider-less header from building seventeen bars per layout pass for
-    /// a default arrangement whose ladder has seven rungs. The last slot is the deliberate
-    /// exception: `ViewThatFits` renders its last child when nothing fits, so it stays a real bar.
-    ///
-    /// (This replaces a test that asserted `PaneBarLayout.plan` differs at every rung — true, but
-    /// owned by the arrangement's fold arithmetic and already pinned by `PaneBarArrangementTests`,
-    /// not by anything the searched ladder does.)
-    @Test func theSearchedLadderBuildsABarOnlyWhereTheRungChanges() {
-        for (name, ladder) in Self.ladderFixtures {
-            let last = PaneBarLadder.searchedSlotCount - 1
-            var drawn: [Int] = []
-            for slot in 0..<PaneBarLadder.searchedSlotCount {
-                if ladder.searchedSlotDrawsBar(slot) { drawn.append(slot) }
-                // Inert exactly past the terminal, and never at the fallback slot.
-                #expect(ladder.searchedSlotIsInert(slot) == (slot > ladder.terminal && slot != last),
-                        "\(name): slot \(slot) against terminal \(ladder.terminal)")
-            }
-            // One real bar per rung, plus the terminal bar again as the nothing-fits fallback.
-            #expect(drawn == Array(0...ladder.terminal) + (ladder.terminal == last ? [] : [last]),
-                    "\(name): builds bars at \(drawn)")
-            // The stand-ins measure as the bar they replace, which is what makes them unreachable.
-            for slot in 0..<PaneBarLadder.searchedSlotCount where ladder.searchedSlotIsInert(slot) {
-                #expect(ladder.searchedRung(forSlot: slot) == ladder.terminal)
-            }
-        }
-    }
-
-    /// The claim on drawn pixels, exactly: offered a rung's own width, the searched ladder draws
-    /// THAT rung's bar — the same view `barVariant` builds for it, ring for ring.
-    ///
-    /// Offering the rung's exact width is what makes this precise rather than a sampling: for a
-    /// first-fit-reachable rung every earlier child is strictly wider, so that width selects it and
-    /// nothing else. The old version of this test swept header widths in 5pt steps, which asserted
-    /// the same thing only while every rung's fit band stayed wider than the stride — a fixture
-    /// property, not a code property — and its spacer-heavy fixture stopped at `terminal` 12, so the
-    /// last four slots were never exercised at all. The worst-case fixture reaches slot 16.
-    ///
-    /// A stand-in slot being selected would draw an empty bar, so the ring count is asserted
-    /// non-empty: an all-empty comparison would otherwise pass by matching nothing against nothing.
-    @Test func theSearchedLadderDrawsTheRungEachOfferSelects() {
-        let view = Self.header(nil)
-        for (name, ladder) in Self.ladderFixtures {
-            for rung in Self.reachableRungs(ladder) {
-                let width = ladder.width(forRung: rung)
-                let searched = fingerprint(view.searchedLadder(ladder), width: width)
-                let direct = fingerprint(view.barVariant(rung, ladder), width: width)
-                #expect(!direct.isEmpty, "\(name) rung \(rung): the bar itself drew nothing")
-                #expect(searched == direct,
-                        "\(name) at \(width)pt (rung \(rung)) drew \(searched), rung \(rung) is \(direct)")
-            }
-
-            // Nothing fits — the 250pt pane's case. `ViewThatFits` falls through to its LAST child,
-            // which is why that slot stays a real bar however far past `terminal` it sits: an inert
-            // stand-in there would leave the narrowest pane with no bar at all.
-            let squeezed = ladder.width(forRung: ladder.terminal) - 20
-            let fallback = fingerprint(view.searchedLadder(ladder), width: squeezed)
-            let terminal = fingerprint(view.barVariant(ladder.terminal, ladder), width: squeezed)
-            #expect(!terminal.isEmpty, "\(name): the terminal bar itself drew nothing")
-            #expect(fallback == terminal,
-                    "\(name) squeezed to \(squeezed)pt drew \(fallback), the terminal rung is \(terminal)")
-        }
-    }
-
-    /// The end-to-end half, in the real header: a spacer-heavy no-provider header steps through
-    /// every deep rung — the ones past the old ladder's ninth — at pane widths it can actually be
-    /// given, rather than jumping from rung 8 to full compaction. Reverting `searchedLadder` to ten
-    /// literals fails this; rungs 10 and 11 never appear at any width.
+    /// **It outlived the machinery it was written against, which is why it is still here.** It was
+    /// the end-to-end half of a set proving `PaneHeader.searchedLadder` declared enough literal
+    /// children; that ladder is gone and the header computes its rung now, so the four tests about
+    /// slots and stand-ins went with it. This one asserts a property of the *header* — every rung
+    /// the ladder can build is reachable at some width — which is exactly as true of a computed rung
+    /// as of a searched one, and is the claim a user would notice failing.
     ///
     /// This is the one test that goes through `@AppStorage` and the whole header, so it is also what
-    /// says the arrangement a user stored is the arrangement the ladder is built from. The exact
-    /// per-rung claim, free of the header's own geometry, is
-    /// `theSearchedLadderDrawsTheRungEachOfferSelects`.
+    /// says the arrangement a user stored is the arrangement the ladder is built from.
     ///
     /// Sampling a stride makes the fixture load-bearing — a rung whose band of pane widths is
     /// narrower than the stride would fall between two samples and fail for a fixture reason rather
@@ -919,6 +778,25 @@ import Design
     /// chip itself is measured in `MenuLabelMarkTests`, in the app target, where the brand asset it
     /// draws actually exists.
     ///
+    /// **Bringing the source name back to `.callout` moved every row, and moved NOTHING in the
+    /// bar.** The name was left at `.body` while the trail around it was set to `.callout`, so the
+    /// chip drew one step larger than the crumbs beside it; correcting it is a pure shrink, and the
+    /// table is the proof that it was only that:
+    ///
+    /// - **All sixteen rows' bar rings are byte-identical** — same x, same size, same count. No rung
+    ///   stepped, no control moved, which is what separates "the chip got smaller" from "the ladder
+    ///   re-fitted".
+    /// - **The crumbs behind the chip moved LEFT by exactly the width the chip lost** — 5pt at both
+    ///   text sizes for `iCloud`, 15pt for `longName` from 490pt up. This is the same relationship
+    ///   the roots split recorded in the other direction.
+    /// - **The whole bar dropped 1pt at the 1.0 text size** (469 → 470) and did not move at 0.9. The
+    ///   header's height is pinned, so a breadcrumb row that gets 1pt shorter hands that point back
+    ///   to the row above it; at 0.9 the label was already below the size where that point exists.
+    /// - **Three rows did not move horizontally at all**: both 250pt rows and `longName @ 410`. At
+    ///   those widths the chip is truncated to the track available rather than sized by its text, so
+    ///   its width is a function of the pane and not of the font — which is the ladder's own
+    ///   degradation working, visible here as an absence.
+    ///
     /// One golden row, as data rather than a string to be re-parsed.
     ///
     /// The keys used to be `"columns-icloud|0.9|250"`, split apart and force-unwrapped at read time.
@@ -950,30 +828,30 @@ import Design
 
     private static let goldenTable: [(String, CGFloat, CGFloat, String)] = [
         (iCloud, 0.9, 250, "17,471/23x17 43,471/23x17 75,471/27x17 108,471/27x17 141,471/27x17 174,471/27x17 207,471/27x17 93,514/67x15 164,514/50x15"),
-        (iCloud, 0.9, 410, "17,471/29x20 49,471/29x20 89,471/33x20 128,471/33x20 169,471/33x20 219,471/33x20 268,471/33x20 309,471/33x20 353,471/29x20 105,514/67x15 176,514/50x15"),
-        (iCloud, 0.9, 490, "17,471/29x20 49,471/29x20 89,471/33x20 128,471/33x20 169,471/33x20 219,471/33x20 268,471/33x20 309,471/33x20 353,471/29x20 105,514/67x15 176,514/50x15"),
-        (iCloud, 0.9, 710, "17,471/29x20 49,471/29x20 89,471/33x20 128,471/33x20 169,471/33x20 219,471/33x20 268,471/33x20 309,471/33x20 353,471/29x20 105,514/67x15 176,514/50x15"),
+        (iCloud, 0.9, 410, "17,471/29x20 49,471/29x20 89,471/33x20 128,471/33x20 169,471/33x20 219,471/33x20 268,471/33x20 309,471/33x20 353,471/29x20 100,514/67x15 171,514/50x15"),
+        (iCloud, 0.9, 490, "17,471/29x20 49,471/29x20 89,471/33x20 128,471/33x20 169,471/33x20 219,471/33x20 268,471/33x20 309,471/33x20 353,471/29x20 100,514/67x15 171,514/50x15"),
+        (iCloud, 0.9, 710, "17,471/29x20 49,471/29x20 89,471/33x20 128,471/33x20 169,471/33x20 219,471/33x20 268,471/33x20 309,471/33x20 353,471/29x20 100,514/67x15 171,514/50x15"),
         // **The narrowest pane, and the sharpest single number here.** Five controls used to fit
         // a 250pt pane; seven do. The bar is on the same `.mini` rung it always was — nothing got
         // smaller — it simply is not sharing the row with a 180pt provider capsule any more.
-        (iCloud, 1.0, 250, "17,469/23x17 43,469/23x17 75,469/27x17 108,469/27x17 141,469/27x17 174,469/27x17 207,469/27x17 91,514/65x17 160,514/54x17"),
-        (iCloud, 1.0, 330, "17,469/23x17 43,469/23x17 75,469/27x17 108,469/27x17 141,469/27x17 174,469/27x17 207,469/27x17 240,469/27x17 273,469/23x17 111,514/73x17 188,514/54x17"),
+        (iCloud, 1.0, 250, "17,470/23x17 43,470/23x17 75,470/27x17 108,470/27x17 141,470/27x17 174,470/27x17 207,470/27x17 91,514/65x17 160,514/54x17"),
+        (iCloud, 1.0, 330, "17,470/23x17 43,470/23x17 75,470/27x17 108,470/27x17 141,470/27x17 174,470/27x17 207,470/27x17 240,470/27x17 273,470/23x17 106,514/73x17 183,514/54x17"),
         // **Where the titled rung now begins.** 410pt, against 570 before: a title is only affordable
         // when the bar has track to spare, and the retired capsule is all the track it needed.
-        (iCloud, 1.0, 410, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 111,514/73x17 188,514/54x17"),
-        (iCloud, 1.0, 490, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 111,514/73x17 188,514/54x17"),
-        (iCloud, 1.0, 570, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 111,514/73x17 188,514/54x17"),
-        (iCloud, 1.0, 710, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 111,514/73x17 188,514/54x17"),
-        (longName, 1.0, 250, "17,469/23x17 43,469/23x17 75,469/27x17 108,469/27x17 141,469/27x17 174,469/27x17 207,469/27x17 91,514/65x17 160,514/54x17"),
-        (longName, 1.0, 410, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 243,514/73x17 320,514/54x17"),
+        (iCloud, 1.0, 410, "17,470/29x20 49,470/29x20 89,470/33x20 128,470/33x20 169,470/33x20 221,470/33x20 273,470/33x20 315,470/33x20 361,470/29x20 106,514/73x17 183,514/54x17"),
+        (iCloud, 1.0, 490, "17,470/29x20 49,470/29x20 89,470/33x20 128,470/33x20 169,470/33x20 221,470/33x20 273,470/33x20 315,470/33x20 361,470/29x20 106,514/73x17 183,514/54x17"),
+        (iCloud, 1.0, 570, "17,470/29x20 49,470/29x20 89,470/33x20 128,470/33x20 169,470/33x20 221,470/33x20 273,470/33x20 315,470/33x20 361,470/29x20 106,514/73x17 183,514/54x17"),
+        (iCloud, 1.0, 710, "17,470/29x20 49,470/29x20 89,470/33x20 128,470/33x20 169,470/33x20 221,470/33x20 273,470/33x20 315,470/33x20 361,470/29x20 106,514/73x17 183,514/54x17"),
+        (longName, 1.0, 250, "17,470/23x17 43,470/23x17 75,470/27x17 108,470/27x17 141,470/27x17 174,470/27x17 207,470/27x17 91,514/65x17 160,514/54x17"),
+        (longName, 1.0, 410, "17,470/29x20 49,470/29x20 89,470/33x20 128,470/33x20 169,470/33x20 221,470/33x20 273,470/33x20 315,470/33x20 361,470/29x20 243,514/73x17 320,514/54x17"),
         // **`longName @ 1.0 490` is the row that says what this bought.** A wide custom source name
         // used to leave room for five controls here; it leaves room for all nine, because the name
         // is no longer competing with them for the row — it reads on the breadcrumb below, where a
         // long one truncates inside its own chip instead of pushing the bar off the end.
-        (longName, 1.0, 490, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 264,514/73x17 341,514/54x17"),
-        (longName, 1.0, 570, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 264,514/73x17 341,514/54x17"),
-        (longName, 1.0, 650, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 264,514/73x17 341,514/54x17"),
-        (longName, 1.0, 710, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 264,514/73x17 341,514/54x17"),
+        (longName, 1.0, 490, "17,470/29x20 49,470/29x20 89,470/33x20 128,470/33x20 169,470/33x20 221,470/33x20 273,470/33x20 315,470/33x20 361,470/29x20 249,514/73x17 326,514/54x17"),
+        (longName, 1.0, 570, "17,470/29x20 49,470/29x20 89,470/33x20 128,470/33x20 169,470/33x20 221,470/33x20 273,470/33x20 315,470/33x20 361,470/29x20 249,514/73x17 326,514/54x17"),
+        (longName, 1.0, 650, "17,470/29x20 49,470/29x20 89,470/33x20 128,470/33x20 169,470/33x20 221,470/33x20 273,470/33x20 315,470/33x20 361,470/29x20 249,514/73x17 326,514/54x17"),
+        (longName, 1.0, 710, "17,470/29x20 49,470/29x20 89,470/33x20 128,470/33x20 169,470/33x20 221,470/33x20 273,470/33x20 315,470/33x20 361,470/29x20 249,514/73x17 326,514/54x17"),
     ]
 
 }

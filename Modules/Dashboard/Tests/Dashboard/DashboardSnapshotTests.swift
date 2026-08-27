@@ -23,9 +23,15 @@ import Events
     ///
     /// Note when reading these references: no provider mark appears in any of them. The brand asset
     /// lives in the app's catalog, which an SPM test target cannot see, so `Image("icloud-logo")`
-    /// resolves to nothing and the capsule's logo slot renders empty. What is pinned here is the
-    /// header's geometry — the capsule spans x 28-327 — not the mark, which is only ever verifiable
-    /// in the running app.
+    /// resolves to nothing and the source chip's mark slot renders empty. What is pinned here is the
+    /// header's geometry — measured on this fixture, the chip's `Menu` spans x 12.0-97.0 on the
+    /// breadcrumb row at y 60.0-76.0 — not the mark, which is only ever verifiable in the running
+    /// app.
+    ///
+    /// **That blindness is not a footnote, it is how the mark broke.** A `.resizable()` image inside
+    /// a `Menu`'s AppKit-drawn label ignores its frame and draws at the asset's native 512pt, and
+    /// every reference here was re-recorded green over an SF Symbol standing in for the thing that
+    /// was wrong. `SyncCloudTests.MenuLabelMarkTests` is the half that can see it.
     @Test func paneHeaderComfortable() {
         assertViewSnapshot(
             of: Self.header(providerName: "iCloud Drive"),
@@ -34,10 +40,14 @@ import Events
     }
 
     /// The burned edge case: a long custom provider name at the split clamp's 250 pt pane
-    /// minimum. Pins the full degradation ladder: the logo drops, the name middle-truncates
-    /// inside its capsule, and the nav cluster steps down to .mini controls — every control
-    /// fully visible, nothing pushed past the pane's trailing edge (the pre-fix Menu fixedSize
-    /// ballooned the name and shoved the nav cluster out of view).
+    /// minimum. Pins what degrades and what does not — the name middle-truncates inside the source
+    /// chip on the breadcrumb row, while the bar above it takes the rung that fits (7 controls at
+    /// this width per `PaneBarLadderTests`' golden). Every control stays fully visible and nothing is
+    /// pushed past the pane's trailing edge.
+    ///
+    /// The mark no longer drops at this width: it did while the name and mark shared a
+    /// fixed-height capsule competing with the bar for one row. They are on separate rows now, so
+    /// the chip has the width to keep both.
     @Test func paneHeaderNarrow250LongProviderName() {
         assertViewSnapshot(
             of: Self.header(providerName: "Marketing Team Shared Archive Drive"),
@@ -45,9 +55,9 @@ import Events
             named: "narrow-250")
     }
 
-    /// The ladder's middle rung, 400 pt with the long name: the logo variant still fits (the
-    /// name keeps its readable floor and middle-truncates) and the nav cluster is on its .mini
-    /// fallback — the name is the identity anchor, so it outranks full-size controls.
+    /// The ladder's middle rung, 400 pt with the long name: the name keeps its readable floor and
+    /// middle-truncates inside the source chip, while the bar sits a rung above the 250pt case.
+    /// The name is the identity anchor, so it is the last thing to give.
     @Test func paneHeaderMid400LongProviderName() {
         assertViewSnapshot(
             of: Self.header(providerName: "Marketing Team Shared Archive Drive"),

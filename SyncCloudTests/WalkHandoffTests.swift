@@ -179,11 +179,37 @@ import Testing
     /// when it is reached instead.
     @Test func seedingTheRootDoesNotStartAWalk() throws {
         let source = try Self.setupSheetSource()
-        let start = try #require(source.range(of: "private func seedWalkRoot()"))
-        let body = String(source[start.lowerBound...].prefix(600))
+        let body = try #require(Self.bodyOf("private func seedWalkRoot()", in: source))
         #expect(!body.contains("proposePlaces()"), "seeding walks for places again")
         #expect(!body.contains("proposePeople()"), "seeding walks for people again")
         #expect(body.contains("invalidateProposals()"), "seeding no longer drops the old tree's work")
+    }
+
+    /// A function's body, brace-matched from its declaration.
+    ///
+    /// **It was `prefix(600)`, and that is a window rather than a body.** Adding six lines of
+    /// comment inside `seedWalkRoot` pushed `invalidateProposals()` past character 600 and failed
+    /// the positive assertion with nothing about the code changed — and the same drift in the other
+    /// direction is the one that matters: a `proposePlaces()` added at the END of a grown function
+    /// would fall outside the window and the negative assertions would pass over the walk they exist
+    /// to forbid. A body that ends where the function ends cannot do either.
+    ///
+    /// Nil when the braces do not balance, which is a failure rather than a quiet empty string: a
+    /// body this cannot find is one it cannot check.
+    static func bodyOf(_ declaration: String, in source: String) -> String? {
+        guard let decl = source.range(of: declaration),
+              let open = source[decl.upperBound...].firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var index = open
+        while index < source.endIndex {
+            if source[index] == "{" { depth += 1 }
+            if source[index] == "}" {
+                depth -= 1
+                if depth == 0 { return String(source[source.index(after: open)..<index]) }
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 
     /// The control: with no household handed over, the axis really is absent.
