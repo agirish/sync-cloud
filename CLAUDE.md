@@ -44,6 +44,17 @@ Releases are cut as **tags on the line that owns them** — `v2.9` from `v2.x`, 
 Tags mark history and are never branched from, except once when a new maintenance line is cut from a
 major's last tag; these three branches are the only ones that persist.
 
+**One branch is a deliberate exception, and it is written here so nobody tidies it away:
+`candidate-tap-deferral` (`dba29645`).** It carries a single unlanded 2026-08-04 commit — the tap
+gesture's drill deferred out of `NSTableView`'s tracking loop — that was built, installed, clicked,
+and **falsified**: roughly four times worse (13,882 passes against 3,615; a 20.8 s click against
+4.7 s) plus six dead clicks. [`docs/columns-layout-loop.md`](docs/columns-layout-loop.md) cites the
+branch by name and SHA precisely so that result stays reproducible instead of becoming folklore, and
+`main` still drills synchronously on purpose. A tag would be the tidier home for it, but the tag
+namespace is release-only (`git tag | grep -v '^v[0-9]*\.[0-9]*$'` must stay empty), so the branch
+is where it lives. **Delete it and the doc cites a SHA that git will eventually collect.** Any other
+branch you find is scaffolding and can go.
+
 ## Session isolation: work in a worktree, land on your target line directly
 
 The goal is a **linear `main`** where every completed change lands directly — no long-lived feature
