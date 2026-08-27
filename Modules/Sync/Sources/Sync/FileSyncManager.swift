@@ -1210,7 +1210,7 @@ public class FileSyncManager: ObservableObject {
                 // current nodes have nothing to re-sort by. Reload from disk instead; the
                 // fresh walk includes tags because this option is now current.
                 noteScanConfigChanged()
-                refreshSubject.send()
+                refreshSubject.send(.both)
             } else {
                 // Re-sort current trees when the option changes — off the main actor; the full
                 // re-sort of both trees froze the UI on large panes.
@@ -1336,7 +1336,7 @@ public class FileSyncManager: ObservableObject {
         didSet {
             guard dateToleranceSeconds != oldValue else { return }
             noteScanConfigChanged()
-            refreshSubject.send()
+            refreshSubject.send(.both)
         }
     }
 
@@ -1348,7 +1348,7 @@ public class FileSyncManager: ObservableObject {
         didSet {
             guard autoVerifySameSizeDuringScan != oldValue else { return }
             noteScanConfigChanged()
-            refreshSubject.send()
+            refreshSubject.send(.both)
         }
     }
 
@@ -2031,7 +2031,25 @@ public class FileSyncManager: ObservableObject {
     }
     
     /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
-    public let refreshSubject = PassthroughSubject<Void, Never>()
+    ///
+    /// **It carries which panes to walk, and that is the whole point of the payload.** This was
+    /// `Void`, and a scopeless request can only be honoured as `.both` — so *navigating one pane*
+    /// re-walked the other pane's root as well, on a source and a focus that navigation had not
+    /// touched. The tab strip already knew better (`refreshForTabSwitch` names the moved pane and
+    /// measured 15–36ms of every switch spent re-walking a pane nobody moved), but navigation is far
+    /// commoner than a tab switch, and after any file operation or sort change the prefetch cache is
+    /// empty, so the untouched pane's "reload" is a full cold walk of its root — 37–39k nodes and
+    /// most of a second on a real pair.
+    ///
+    /// Senders that genuinely change what a walk would produce — a finished file operation, a
+    /// date-tolerance change, a sort that needs fresh tags — still send `.both`, and must: their
+    /// change applies to both trees. The narrow scopes come from `syncPathsFromHistory`, which is
+    /// the one sender that knows a pane moved and the other did not.
+    ///
+    /// A narrow request is never a way to skip a load that is owed: `refreshTreesAndScan` unions a
+    /// one-pane scope with any wider refresh already in flight, so a `.leftOnly` arriving mid-launch
+    /// widens back to `.both` rather than stranding the right pane.
+    public let refreshSubject = PassthroughSubject<PaneReloadScope, Never>()
     
     /// Chains file operations so they run one after another (avoids concurrent copy/move/undo conflicts).
     private var fileOperationTask: Task<Void, Swift.Error> = Task {}
@@ -2292,7 +2310,7 @@ public class FileSyncManager: ObservableObject {
                 self?.noteScanConfigChanged()
                 self?.activeFileOperationsCount = max(0, (self?.activeFileOperationsCount ?? 1) - 1)
                 self?.scheduleSelectionPrune()
-                self?.refreshSubject.send()
+                self?.refreshSubject.send(.both)
             }
             // Hands the queue on, AFTER the cleanup above — the successor's claim is waiting on
             // exactly this. Holding `claimed` strongly here is what keeps its `deinit` release

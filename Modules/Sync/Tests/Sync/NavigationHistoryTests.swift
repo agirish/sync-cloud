@@ -97,7 +97,7 @@ import Combine
         manager.ignoredPaths = ["noise.txt"]
 
         var refreshCount = 0
-        let subscription = manager.refreshSubject.sink { refreshCount += 1 }
+        let subscription = manager.refreshSubject.sink { _ in refreshCount += 1 }
         defer { subscription.cancel() }
 
         // The focused path exists on no disk: focusOn does not validate it, it just re-focuses
@@ -144,7 +144,7 @@ import Combine
         manager.ignoredPaths = ["noise.txt"]
 
         var refreshCount = 0
-        let subscription = manager.refreshSubject.sink { refreshCount += 1 }
+        let subscription = manager.refreshSubject.sink { _ in refreshCount += 1 }
         defer { subscription.cancel() }
 
         // ⌥-click on a breadcrumb: both panes converge on the same relative path,
@@ -177,7 +177,7 @@ import Combine
         #expect(manager.rightHistory.entries == ["", "shared"])
 
         var refreshCount = 0
-        let subscription = manager.refreshSubject.sink { refreshCount += 1 }
+        let subscription = manager.refreshSubject.sink { _ in refreshCount += 1 }
         defer { subscription.cancel() }
 
         // Both already there: complete no-op.

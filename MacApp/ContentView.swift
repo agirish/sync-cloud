@@ -921,8 +921,10 @@ struct ContentView: View {
         .onReceive(syncManager.$isScanning) { scanning in
             withAnimation { isScanning = scanning }
         }
-        .onReceive(syncManager.refreshSubject) { _ in
-            refreshAction()
+        .onReceive(syncManager.refreshSubject) { scope in
+            // The scope is the subject's, not this view's: only the sender knows whether one pane
+            // moved or something changed under both. See `refreshSubject`.
+            refreshAction(reloading: scope)
         }
         .onAppear {
             // Closing and Dock-reopening the single window recreates ContentView, so this
@@ -1481,14 +1483,22 @@ struct ContentView: View {
         }
     }
 
-    /// Reloads both pane trees and runs a diff scan (with re-entrancy and cancellation handled by the manager).
-    private func refreshAction() {
+    /// Reloads pane trees and runs a diff scan (with re-entrancy and cancellation handled by the
+    /// manager).
+    ///
+    /// - Parameter reloading: which panes to WALK. The scan that follows always compares both; a
+    ///   pane left out contributes the tree it is already holding. Defaults to `.both`, which is
+    ///   what every direct caller here means — the force refresh, the launch bootstrap, a provider's
+    ///   root being edited in Settings. The narrow scopes arrive through `refreshSubject`, from the
+    ///   one sender that knows a single pane moved.
+    private func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both) {
         guard let leftProvider = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
               let rightProvider = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else {
             return
         }
         Task {
-            await syncManager.refreshTreesAndScan(left: leftProvider, right: rightProvider)
+            await syncManager.refreshTreesAndScan(left: leftProvider, right: rightProvider,
+                                                  reloading: reloading)
         }
     }
 

@@ -519,7 +519,9 @@ extension FileSyncManager {
         // folders in the old ones is meaningless, not merely stale.
         resetBrowsePath(isLeft: true)
         resetBrowsePath(isLeft: false)
-        syncPathsFromHistory()
+        // Both, always — `invalidateComparisonState()` above emptied both trees, so the pane that
+        // did not move has nothing left to contribute to the scan. See `syncPathsFromHistory`.
+        syncPathsFromHistory(afterInvalidation: true)
     }
 
     /// Drops every piece of state that is only meaningful for the pane roots it was built
@@ -753,11 +755,47 @@ extension FileSyncManager {
         }
     }
 
-    /// Publishes each pane's current history entry into its relative path and triggers a refresh.
-    func syncPathsFromHistory() {
-        if leftRelativePath != leftHistory.current { leftRelativePath = leftHistory.current }
-        if rightRelativePath != rightHistory.current { rightRelativePath = rightHistory.current }
-        refreshSubject.send()
+    /// Publishes each pane's current history entry into its relative path and triggers a refresh —
+    /// **of the pane that moved, and only that one.**
+    ///
+    /// The two comparisons were already here, deciding whether to write each pane's path; they are
+    /// also the answer to which panes the refresh has to walk, and for a long time nothing asked
+    /// them for it. Navigating the left pane sent a scopeless refresh, the host turned that into
+    /// `.both`, and the right pane's root was re-walked on a source and a focus this navigation had
+    /// not touched. Warm that is a cache hit the user still sees as the other pane reloading; cold —
+    /// after any file operation, sort change or force refresh, all of which drop the prefetch cache
+    /// — it is a full walk of a second root, tens of thousands of nodes for nothing.
+    ///
+    /// **Neither moving is `.both`, deliberately.** This is reached with both paths already current
+    /// (a `resetNavigation` onto the folder a pane is already on, most obviously), and the caller is
+    /// then asking for a refresh for some reason this function cannot see. Answering "walk nothing"
+    /// would be inferring intent from an absence; `.both` is what that request has always meant.
+    ///
+    /// A narrow scope cannot strand a pane by *timing*: `refreshTreesAndScan` widens a one-pane
+    /// request to `.both` when a wider refresh is already in flight, and the scan afterwards still
+    /// compares both sides — the pane that did not move contributes the tree it already holds.
+    ///
+    /// - Parameter afterInvalidation: the caller has just cleared BOTH pane trees, so "the tree it
+    ///   already holds" is the empty one and there is nothing for the unmoved pane to contribute.
+    ///   **This is not belt-and-braces — without it a provider switch renders one pane blank.**
+    ///   `resetNavigation` calls `invalidateComparisonState()` a few lines before it gets here, and
+    ///   a left-source switch hands the right pane its own current path as its landing, so the right
+    ///   pane genuinely does not move: the scope would come out `.leftOnly`, the right tree would
+    ///   stay `[]`, and nothing downstream would ever refill it. The state a narrow scope is safe
+    ///   against is a tree that is merely STALE, not one that has been thrown away.
+    func syncPathsFromHistory(afterInvalidation: Bool = false) {
+        let leftMoved = leftRelativePath != leftHistory.current
+        let rightMoved = rightRelativePath != rightHistory.current
+        if leftMoved { leftRelativePath = leftHistory.current }
+        if rightMoved { rightRelativePath = rightHistory.current }
+        let scope: PaneReloadScope
+        switch (leftMoved, rightMoved) {
+        case _ where afterInvalidation: scope = .both
+        case (true, false): scope = .leftOnly
+        case (false, true): scope = .rightOnly
+        default: scope = .both
+        }
+        refreshSubject.send(scope)
     }
 
 }
