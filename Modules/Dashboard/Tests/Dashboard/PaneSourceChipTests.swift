@@ -29,6 +29,19 @@ import Design
     /// trailing end — which is exactly why the assertions below are about WHERE the leading one is
     /// rather than how many there are.
     private func trailMenus(_ view: some View, width: CGFloat) -> [CGRect] {
+        trailPopUps(view, width: width).map(\.frame)
+    }
+
+    /// The same walk, keeping the button so its disclosure state can be read.
+    ///
+    /// **The frame alone cannot answer whether the chip says it opens something.** A `Menu`'s
+    /// indicator is drawn by the `NSPopUpButtonCell`, and `.menuIndicator(.hidden)` sets that cell's
+    /// `arrowPosition` to `.noArrow` — so the presence of the mark is a property of the cell, not a
+    /// few points of width a layout assertion could catch. Every other route was measured and does
+    /// not work: the label is drawn by AppKit, so a glyph put there in SwiftUI (`Text(Image(...))`,
+    /// `Image(nsImage:)`) renders nothing at all and would leave a test asserting about a mark that
+    /// was never on screen.
+    private func trailPopUps(_ view: some View, width: CGFloat) -> [(frame: CGRect, button: NSPopUpButton)] {
         let host = NSHostingView(rootView: AnyView(
             view.frame(width: width, height: LiquidGlass.headerHeight)))
         host.frame = CGRect(x: 0, y: 0, width: width, height: LiquidGlass.headerHeight)
@@ -37,17 +50,17 @@ import Design
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        var found: [CGRect] = []
+        var found: [(frame: CGRect, button: NSPopUpButton)] = []
         func walk(_ v: NSView) {
-            if v is NSPopUpButton {
+            if let button = v as? NSPopUpButton {
                 let frame = v.convert(v.bounds, to: host)
                 // The trail is the lower of the header's two rows.
-                if frame.midY > LiquidGlass.headerHeight / 2 { found.append(frame) }
+                if frame.midY > LiquidGlass.headerHeight / 2 { found.append((frame, button)) }
             }
             v.subviews.forEach(walk)
         }
         walk(host)
-        return found.sorted { $0.minX < $1.minX }
+        return found.sorted { $0.frame.minX < $1.frame.minX }
     }
 
     private static func header(_ providerName: String?) -> PaneHeader {
@@ -94,14 +107,14 @@ import Design
     /// The chip is one target, not a mark beside a name that happen to sit together.
     ///
     /// The first attempt split them — the mark opened the menu and the name went to the root — and
-    /// it was undiscoverable: with a 15pt mark carrying no chevron, no border and no hover state,
+    /// it was undiscoverable: with a small mark carrying no chevron, no border and no hover state,
     /// nothing on screen said the mark was a control, and the adjacent quick-jump chevron got the
     /// clicks instead. One chip, one menu was the answer, so the menu's own frame has to cover the
     /// name as well as the mark.
     @Test func theWholeChipIsTheTarget() throws {
         let menus = trailMenus(Self.header("iCloud Drive"), width: 560)
         let chip = try #require(menus.first)
-        // Comfortably wider than the 15pt mark plus its padding — it has the name inside it.
+        // Comfortably wider than the 18pt mark plus its padding — it has the name inside it.
         #expect(chip.width > 40,
                 "the source chip is \(chip.width)pt wide, which is the mark alone rather than the whole crumb")
         // **Measured against the trail's OTHER menu, not against a number.** The chevron at the
@@ -114,5 +127,45 @@ import Design
         let quickJump = try #require(menus.last, "the trail drew no quick-jump menu to compare against")
         #expect(chip.height >= quickJump.height,
                 "the chip is \(chip.height)pt tall against the quick-jump menu's \(quickJump.height)pt on the same row")
+    }
+
+    /// **The chip is not smaller than the ordinary controls above it.**
+    ///
+    /// It was: 17pt against a bar whose controls draw a fixed `33 × 20` pill, with the difference
+    /// almost entirely `.padding(.vertical, 1)` — one point of air, so the capsule hugged the name
+    /// instead of containing it. The pane's identity element being the smallest chrome on the pane
+    /// is the thing this pins, and it is pinned against `PaneNavMetrics.pill` rather than a literal
+    /// so it keeps meaning the same thing if the bar is ever resized.
+    ///
+    /// **The padding is added rather than measured, and that is a real limit of this test.** The
+    /// wash and the hairline are drawn OUTSIDE the `Menu` (they have to be — a `.background` inside
+    /// an AppKit-drawn label never paints), so the `NSPopUpButton`'s frame is the label alone. What
+    /// is measured is the label, which is what the font choice moves; what is added is the chip's
+    /// own constant. A change to either is caught, but only their sum is asserted.
+    @Test func theChipIsAtLeastAsTallAsTheBarControlsAboveIt() throws {
+        let chip = try #require(trailMenus(Self.header("iCloud Drive"), width: 560).first)
+        let drawn = chip.height + 2 * SourceChip.vertical
+        let barControl = PaneNavMetrics.pill(.regular).height
+        #expect(drawn >= barControl,
+                "the source chip draws \(drawn)pt tall against the bar's \(barControl)pt controls, so the pane's identity element is the smallest thing on the pane again")
+    }
+
+    /// **The chip says it opens something, and the quick-jump menu beside it still does not.**
+    ///
+    /// Both halves are the test. At a source root the trail is one crumb, so the row carries exactly
+    /// one disclosure mark — and while the chip's was hidden, that one mark belonged to the
+    /// quick-jump menu sitting a few points to its right, which is not the source picker. Asserting
+    /// only "the chip has an arrow" would pass just as happily on a row where both had one, which is
+    /// the confusion the chip's arrow was originally dropped to avoid.
+    @Test func theChipCarriesTheRowsDisclosureAndTheQuickJumpMenuDoesNot() throws {
+        let popUps = trailPopUps(Self.header("iCloud Drive"), width: 560)
+        let chip = try #require(popUps.first, "the trail drew no menu at all")
+        let quickJump = try #require(popUps.last, "the trail drew no quick-jump menu")
+        #expect(chip.button !== quickJump.button, "only one menu on the trail — nothing to compare")
+
+        #expect((chip.button.cell as? NSPopUpButtonCell)?.arrowPosition != .noArrow,
+                "the source chip draws no disclosure mark, so the only arrow on a root's trail is the quick-jump menu's and it reads as the source picker's")
+        #expect((quickJump.button.cell as? NSPopUpButtonCell)?.arrowPosition == .noArrow,
+                "the quick-jump menu grew a second system arrow next to the chip's, and two adjacent marks onto unrelated menus is what hiding the chip's was avoiding")
     }
 }

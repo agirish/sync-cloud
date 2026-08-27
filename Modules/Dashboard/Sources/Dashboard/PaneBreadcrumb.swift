@@ -18,6 +18,44 @@ public enum PaneLinkPreference {
     public static var isLinked: Bool { UserDefaults.standard.bool(forKey: defaultsKey) }
 }
 
+/// The breadcrumb's source chip, as numbers.
+///
+/// Hoisted out of the view because they are the subject of a test rather than a style detail: the
+/// chip is the pane's identity element and its size was chosen against the bar's, so
+/// `PaneSourceChipTests` holds it to that relationship instead of to literals restated in a
+/// second place. Nothing else in the app draws this chip, so this is a description of one control,
+/// not a design-system vocabulary — see `GeometryScale`'s note on why a scale nobody may safely
+/// apply is not one.
+public enum SourceChip {
+    /// Between the brand mark and the name.
+    public static let gap: CGFloat = 6
+    /// The brand mark's box. Larger than a crumb's text because a mark reads smaller than type at
+    /// the same nominal size — `ProviderLogo` already insets a symbol to 0.82 for the same reason.
+    public static let markSize: CGFloat = 18
+    /// One step above the trail's `.callout`.
+    public static let font: ScaledFont = .body
+    /// Asymmetric on purpose: the mark carries its own optical padding on the leading side, and the
+    /// trailing side has to clear the menu's disclosure indicator.
+    public static let leading: CGFloat = 6
+    public static let trailing: CGFloat = 7
+    /// Was 1. That single point is what made the capsule hug the name instead of containing it, and
+    /// it is the largest part of why a 17pt chip read so much smaller than a 20pt bar control.
+    public static let vertical: CGFloat = 3
+
+    /// The brand wash behind the name.
+    ///
+    /// Above `ProviderHue.soft` (0.12) and above `PillVariant.fillOpacity` (0.14), and deliberately
+    /// so — a status pill is one of many on a row, while this is the one thing on the pane that says
+    /// which account you are looking at. In dark the name's brand tint is dropped for contrast, so
+    /// this and the hairline are the entire signal.
+    public static let washOpacity: Double = 0.18
+    /// The hairline that makes the wash read as a bounded control rather than a highlight. It is
+    /// also what separates this chip's disclosure mark from the quick-jump menu's, a few points
+    /// outside it — see `PaneBreadcrumb.rootCrumb`.
+    public static let strokeOpacity: Double = 0.30
+    public static let strokeWidth: CGFloat = 0.75
+}
+
 /// Clickable breadcrumb inside each `PaneHeader`: the source itself (named after the *source* —
 /// "iCloud", "OneDrive (HPE)" — with the root's full path in the tooltip) followed by the pane's
 /// relative-path segments, spelled out from the root down. Since a source's root is the account
@@ -122,6 +160,8 @@ struct PaneBreadcrumb: View {
                             .foregroundStyle(.secondary)
                     }
                     .menuStyle(.borderlessButton)
+                    // Hidden here, unlike the source chip's: the ellipsis IS this menu's mark, and a
+                    // system arrow beside it would draw two disclosure marks on one control.
                     .menuIndicator(.hidden)
                     .fixedSize()
                     .help("Collapsed folders")
@@ -163,14 +203,41 @@ struct PaneBreadcrumb: View {
     /// to its right — which belongs to the current folder, not to the source. The first click landed
     /// there, got Recent/Pin, and the reasonable conclusion was that the picker had been dropped.
     ///
-    /// So the two acts share one target and the menu separates them, which also settles what the
-    /// split was avoiding: there is still no disclosure mark here, because at the root the trail is
-    /// one crumb and a chevron would render `Google Drive (HPE) ⌄ ⌄`, two adjacent marks opening
-    /// unrelated menus. The washed chip is the affordance instead.
+    /// So the two acts share one target and the menu separates them.
     ///
-    /// The wash is the retired capsule's, at the capsule's own opacity: with four sources across
-    /// three brands, the soft brand tint behind the name is the fastest "which account am I in"
-    /// signal on the pane, and losing it was the one thing retiring the capsule would have cost.
+    /// **The disclosure mark is back, and the reason it was dropped is why it had to come back.**
+    /// It was hidden because at depth a chevron here would render `Google Drive (HPE) ⌄ … ⌄`, two
+    /// adjacent marks opening unrelated menus — the quick-jump chevron sits a few points to the
+    /// right. That reasoning is sound *at depth*, where the quick-jump mark is attached to the last
+    /// crumb with a whole trail between the two. **At a source root there is no trail.** The chip is
+    /// the only crumb, so the row carries exactly one chevron, it belongs to the quick-jump menu,
+    /// and it is the only thing on the row that looks clickable — the same misread the split-target
+    /// version caused, arriving from the other direction. Rendered both ways, at root and at depth,
+    /// before choosing: with a bounded, washed, hairlined capsule the two marks read as one INSIDE
+    /// the chip and one outside it, which is the distinction a flat chip could not draw.
+    ///
+    /// **It is the `Menu`'s own indicator, and it has to be.** Measured in this AppKit-drawn label,
+    /// `Text(Image(systemName:))` and `Image(nsImage:)` both draw *nothing at all* — no error, no
+    /// space taken, just an absent mark. Only `.menuIndicator(.visible)` puts one there. That is the
+    /// same family as the two hazards below (a `.resizable()` image drawing at 512pt, a
+    /// `.background` that never paints), and it is recorded here because the next person to want a
+    /// glyph in this label will otherwise spend a build finding it.
+    ///
+    /// **The chip's metrics are its own, and heavier than a crumb's on purpose.** 6/7/3 of padding
+    /// against the crumbs' 4/1, an 18pt mark, and `.body` rather than the trail's `.callout`. It sat
+    /// at 17pt tall next to a bar whose controls are a fixed 33×20 (`PaneNavMetrics.pill`) — not
+    /// half the size, three points shorter, and what made it read small was `.padding(.vertical, 1)`
+    /// hugging the name rather than containing it. `.body` was tried and rejected once, on the
+    /// grounds that it "read as a heading over the trail rather than as its first crumb"; that was
+    /// right while this was only a crumb. With a hairline and a disclosure mark it is a control that
+    /// happens to open the trail, and a control may outweigh the crumbs after it.
+    ///
+    /// The wash is the retired provider capsule's, lifted from 0.12 to `SourceChip.washOpacity` — with four
+    /// sources across three brands, the soft brand tint behind the name is the fastest "which
+    /// account am I in" signal on the pane, and losing it was the one thing retiring the capsule
+    /// would have cost. **Dark is the case that needed the lift**: the name's brand tint is dropped
+    /// there for contrast (see `providerName`), so the wash and the hairline are carrying the whole
+    /// identity signal alone.
     ///
     /// **`inAppKitLabel` is the load-bearing word on the mark**, and it is not a style choice.
     /// `ProviderMenu` is `borderlessButton`, so AppKit draws this label, and a `.resizable()` image
@@ -195,42 +262,50 @@ struct PaneBreadcrumb: View {
                 // the source obeys the link preference exactly as clicking any other crumb does.
                 onGoToRoot: { navigate(to: "", isCurrent: isCurrent) }
             ) {
-                HStack(spacing: 5) {
-                    ProviderLogo(sourcePicker.imageName, size: 15, inAppKitLabel: true)
+                HStack(spacing: SourceChip.gap) {
+                    ProviderLogo(sourcePicker.imageName, size: SourceChip.markSize, inAppKitLabel: true)
                     Text(name)
                         // `Text.scaledFont(_:scale:)`, not the View modifier, and not the enclosing
                         // `.scaledFont(.callout)` either: this is a `Menu` label and AppKit renders
                         // it itself, so a wrapped `Text` arrives with neither the weight nor the
                         // colour set here. The retired provider capsule carried the same note.
                         //
-                        // **The same style the trail would have given it**, which is the whole
-                        // point of restating it — this sat at `.body` while the trail was
-                        // `.callout`, so the source name drew one step larger than the crumbs
-                        // beside it (a 16pt chip against the quick-jump menu's 14) and read as a
-                        // heading over the trail rather than as its first crumb. Rendered both
-                        // ways before choosing: the emphasis the row wants is already carried by
-                        // the current crumb's medium weight.
-                        .scaledFont(.callout.weight(isCurrent ? .medium : .regular), scale: appFontScale)
+                        // One step above the trail's `.callout` — see the chip's metrics in this
+                        // method's doc for why that reverses an earlier decision rather than
+                        // forgetting it.
+                        .scaledFont(SourceChip.font.weight(isCurrent ? .medium : .regular), scale: appFontScale)
                         .foregroundStyle(tint ?? (isCurrent ? .primary : .secondary))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
                 .contentShape(Rectangle())
             }
-            // No disclosure mark: the quick-jump menu owns one a few points to the right, and two
-            // adjacent chevrons onto unrelated menus is exactly the confusion this chip caused in
-            // the other direction. The washed chip is the affordance.
-            .menuIndicator(.hidden)
+            // The chip says it opens something. See the doc above for why this is `.visible` again,
+            // and why it has to be the menu's OWN indicator rather than a glyph in the label.
+            .menuIndicator(.visible)
             // **The wash goes OUTSIDE the menu, not on its label**, for the same reason the name's
             // font and colour are set on the `Text` rather than inherited: AppKit draws this label
             // and a `.background` inside one is simply not painted. It was inside for one recording
             // and the references came back with the crumb's brand wash missing entirely — which is
             // the whole "which account is this" signal, and the one thing retiring the capsule was
             // not supposed to cost. The retired capsule put its own surface here too.
-            .padding(.leading, 3)
-            .padding(.trailing, 6)
-            .padding(.vertical, 1)
-            .background(Capsule(style: .continuous).fill(hue?.soft ?? .clear))
+            .padding(.leading, SourceChip.leading)
+            .padding(.trailing, SourceChip.trailing)
+            .padding(.vertical, SourceChip.vertical)
+            .background {
+                // Both read the same optional, so a crumb with no SOURCE at all — `providerName`
+                // nil, which is the tests and any trail-only surface — gets neither the wash nor the
+                // hairline and stays the bare crumb it was. A `.neutral` source is not that case: it
+                // has a hue whose `tint` follows the app accent, and it wears both, exactly as it
+                // wore the accent wash before.
+                Capsule(style: .continuous)
+                    .fill(hue?.tint.opacity(SourceChip.washOpacity) ?? .clear)
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .strokeBorder(hue?.tint.opacity(SourceChip.strokeOpacity) ?? .clear,
+                                          lineWidth: SourceChip.strokeWidth)
+                    }
+            }
             .help("Go to \(rootPath), or switch this pane's source")
             .accessibilityLabel("Source, \(name)")
         } else {
