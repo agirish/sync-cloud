@@ -46,37 +46,71 @@ import Design
     /// user is typing and the glyph is also on screen.
     ///
     /// **Neither `ink > 40` nor `expanded != collapsed` was this measurement**, and the first of
-    /// those mistakes has now been corrected twice on this header (see `PaneBarDeleteTests`): the
-    /// crop is the trailing HALF of a 700pt bar holding six rungs, so forty pixels of ink is met by
-    /// the neighbours alone, and two renders of two different states differ in their ink totals
-    /// whatever the relationship between them — that assertion held just as well for a field that
-    /// joined the bar as for one that replaced it, which is the only thing this file is about.
+    /// those mistakes has now been corrected twice on this header (see `PaneBarDeleteTests`): forty
+    /// pixels of ink is met by the neighbours alone, and two renders of two different states differ
+    /// in their ink totals whatever the relationship between them — that assertion held just as well
+    /// for a field that joined the bar as for one that replaced it, which is the only thing this
+    /// file is about.
     ///
-    /// Two directional readings carry it instead. The open field takes the bar's whole track, so its
-    /// trailing half is a stretch of empty box and must hold *substantially less* ink than the bar it
-    /// replaced; and the last 40pt — where the trailing-pinned bar ends, and where Search sits as the
-    /// last item — must hold **nothing at all**, because what is there while the field is open is the
-    /// `Color.clear` dismissal area. A bar drawn alongside the field fails both.
+    /// **Two readings carry it, and both are falsified by the case this file exists to catch.** A
+    /// field that *joined* the bar leaves the bar's own controls on the row and adds its own, so it
+    /// necessarily carries MORE than the bar alone — of both the things measured here. A field that
+    /// *replaced* it carries less.
     ///
-    /// The collapsed readings are the vacuity guards, deliberately loose: they say the crops are
-    /// where the bar is, and the zero above them is the claim.
+    /// The counted one is exact: each pill hosts a `_FocusRingView` (a SwiftUI `Button` with a
+    /// custom style puts no `NSControl` in the tree, so the rings are the only handle on where a
+    /// pill physically is), and the header's upper row goes from six of them to two when the field
+    /// opens. There is no arithmetic by which a bar drawn beside the field produces fewer.
+    ///
+    /// Two more readings used to sit here, over the row's last 40pt, and they had to go: they
+    /// located the bar as "the trailing edge", true only while a leading flexible space pinned it
+    /// there. The bar packs left now and the field is capped at 460pt, so the far end of the row is
+    /// empty in BOTH states — the crop had stopped telling them apart, and its own vacuity guard
+    /// ("the last 40pt are not empty when collapsed") is the half that failed.
+    ///
+    /// The collapsed readings are the vacuity guards, deliberately loose: they say the crop and the
+    /// count are looking at a bar at all, and the comparisons above them are the claim.
     @Test(.machinePinned(.pixelSampling)) func testTheFieldReplacesTheBarRatherThanJoiningIt() throws {
         let collapsed = try Self.rendered(expanded: false, query: "")
         let expanded = try Self.rendered(expanded: true, query: "invoice")
 
-        #expect(Self.ink(collapsed) > 1000, "the collapsed bar draws almost nothing — this comparison would be vacuous")
-        #expect(Self.ink(expanded) * 2 < Self.ink(collapsed),
-                "the open field's half of the header carries \(Self.ink(expanded)) px against the bar's \(Self.ink(collapsed)) — the bar has not gone away, so the magnifier can be on screen beside a live query")
+        let closedControls = Self.barRowControls(expanded: false, query: "")
+        let openControls = Self.barRowControls(expanded: true, query: "invoice")
+        #expect(closedControls >= 5, "the collapsed bar lays out \(closedControls) controls — this comparison would be vacuous")
+        #expect(openControls < closedControls,
+                "the open field's row lays out \(openControls) controls against the bar's \(closedControls) — the bar has not gone away, so the magnifier can be on screen beside a live query")
 
-        #expect(Self.ink(collapsed, trailing: 40) > 100, "the bar's last 40pt are empty even collapsed — this crop is not where Search sits")
-        #expect(Self.ink(expanded, trailing: 40) == 0,
-                "\(Self.ink(expanded, trailing: 40)) px are painted where the bar's trailing rung sits while the field is open — the bar is being drawn beside it")
+        #expect(Self.ink(collapsed) > 1000, "the collapsed bar draws almost nothing — this comparison would be vacuous")
+        #expect(Self.ink(expanded) < Self.ink(collapsed),
+                "the open field's row carries \(Self.ink(expanded)) px against the bar's \(Self.ink(collapsed)) — the bar is being drawn beside it")
+    }
+
+    /// How many of the bar's own controls are laid out on the header's upper row.
+    static func barRowControls(expanded: Bool, query: String) -> Int {
+        let defaults = ScratchDefaults("PaneBarSearchTintTests-rings")
+        defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
+        let host = NSHostingView(rootView: AnyView(
+            header(expanded: expanded, query: query)
+                .defaultAppStorage(defaults)
+                .frame(width: renderWidth, height: LiquidGlass.headerHeight)))
+        host.frame = CGRect(x: 0, y: 0, width: renderWidth, height: LiquidGlass.headerHeight)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        var frames: [CGRect] = []
+        func walk(_ v: NSView) {
+            if String(describing: type(of: v)).contains("_FocusRingView") { frames.append(v.convert(v.bounds, to: host)) }
+            for sub in v.subviews { walk(sub) }
+        }
+        walk(host)
+        guard let top = frames.map(\.minY).min() else { return 0 }
+        return frames.filter { abs($0.minY - top) < 2 }.count
     }
 
     // MARK: - Fixtures
 
-    /// Wide enough that nothing folds into ⋯. Shared with `ink(_:trailing:)`, which measures a crop
-    /// in points and therefore has to agree with it.
+    /// Wide enough that nothing folds into ⋯.
     private static let renderWidth: Double = 700
 
     private static func header(expanded: Bool, query: String, canSearch: Bool = true) -> PaneHeader {
@@ -115,17 +149,15 @@ import Design
         return rep
     }
 
-    /// Pixels that depart from the background at all, over the bar's half of the header — or, given
-    /// `trailing:`, over that many points at its trailing edge.
-    private static func ink(_ rep: NSBitmapImageRep, trailing points: Double? = nil) -> Int {
-        // Scaled off the width the fixture actually rendered at, not a repeated literal: a crop
-        // measured in points against a hardcoded 700 silently stops meaning "the bar's trailing
-        // end" the moment the fixture is widened.
-        let from = points.map { rep.pixelsWide - Int($0 * Double(rep.pixelsWide) / Self.renderWidth) }
-            ?? rep.pixelsWide / 2
+    /// Pixels that depart from the background at all, over the **bar's row** — the upper of the
+    /// header's two, which is the whole of what the field takes over and hands back.
+    ///
+    /// By row, not by column. The crop was the trailing half, a proxy for "where the bar is" that
+    /// held only while the bar was pinned to the trailing edge; it packs left now.
+    private static func ink(_ rep: NSBitmapImageRep) -> Int {
         var hits = 0
-        for x in from..<rep.pixelsWide {
-            for y in 0..<rep.pixelsHigh {
+        for x in 0..<rep.pixelsWide {
+            for y in 0..<(rep.pixelsHigh / 2) {
                 guard let px = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 if px.redComponent < 0.72 || px.greenComponent < 0.72 || px.blueComponent < 0.72 { hits += 1 }
             }

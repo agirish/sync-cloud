@@ -182,6 +182,39 @@ import Events
         #expect(arrangement.encoded == stored)
     }
 
+    /// **Changing the shipped default does not rewrite a bar someone is already using.**
+    ///
+    /// Retiring the provider capsule took the leading `flexibleSpace` off `PaneBarArrangement.default`
+    /// — the bar has the whole row now and a leading space would park every control at the far edge
+    /// of an empty track. But **every install stored before that change carries one**, because it is
+    /// what the default they were written from held, and that stored list is the user's answer to
+    /// where their controls go, not this one.
+    ///
+    /// So two things are asserted about such a bar: the space survives the migration, and a control
+    /// the migration adds still lands on the correct side of it. The second is the one with teeth —
+    /// a step that appended to the end would put Search past the space, at the pane's trailing edge,
+    /// which is exactly where it belongs; a step that prepended would strand it before the space,
+    /// packed left against the breadcrumb, where nothing else on that bar is.
+    @Test func theMigrationKeepsAStoredFlexibleSpaceAndPlacesAroundIt() throws {
+        let defaults = ScratchDefaults("PaneBarMigrationTests-storedSpace")
+        // A bar as it was actually written by a build before this change: the old default's leading
+        // space, and no Search (the control the migration places).
+        let stored = PaneBarArrangement([.flexibleSpace] + PaneBarArrangement.default.items.filter { $0 != .search })
+        #expect(stored.items.first == .flexibleSpace, "the fixture is not the shape this test is about")
+        defaults.set(stored.encoded, forKey: PaneBar.arrangementKey)
+
+        PaneBarMigration.apply(defaults: defaults)
+
+        let after = PaneBarArrangement(encoded: defaults.string(forKey: PaneBar.arrangementKey) ?? "")
+        #expect(after.items.first == .flexibleSpace,
+                "the migration took the user's leading flexible space off their bar: \(after.encoded)")
+        let space = try #require(after.items.firstIndex(of: .flexibleSpace))
+        let search = try #require(after.items.firstIndex(of: .search),
+                                  "the migration did not place Search at all, so this test compares nothing")
+        #expect(search > space,
+                "Search landed before the user's flexible space, packed against the breadcrumb rather than at the pane's trailing edge with the rest of their bar: \(after.encoded)")
+    }
+
     // MARK: - Binding `PaneBarArrangement.default` to this mechanism
     //
     // Everything above tests the Search step and Delete's refusal — nine tests, and not one of them
@@ -253,12 +286,19 @@ import Events
                 + "this one is \(after.encoded)"
             #expect((landed < otherAfter) == (defaultIndex < otherDefault), "\(wrongSide)")
         }
-        // The loop above `continue`s, so this is what says it ran. The flexible space is the item
-        // that makes it worth running at all.
+        // The loop above `continue`s, so this is what says it ran: every other item on the bar was
+        // compared, none skipped.
+        //
+        // A second guard sat here — that the fixture still carried a `flexibleSpace`, since the
+        // side-of-the-space comparison was the one with real teeth — and its premise expired with
+        // the shipped default. The default carried a leading flexible space because the provider
+        // capsule held the row's leading edge; the capsule is retired, the default packs left, and
+        // "the correct side of the space" is no longer a fact the default defines. What still needs
+        // saying is that a bar someone customized — including every install stored before this
+        // change, all of which literally do carry that space — is migrated without losing it:
+        // `theMigrationKeepsAStoredFlexibleSpaceAndPlacesAroundIt` is that test.
         #expect(compared == after.items.count - 1,
                 "the ordering check skipped \(after.items.count - 1 - compared) of the bar's items")
-        #expect(after.items.contains(.flexibleSpace),
-                "the fixture lost its flexible space, so the side-of-the-space check compared nothing")
         return true
     }
 
@@ -279,9 +319,11 @@ import Events
         #expect(PaneBarMigration.baselineControls == [.viewMode, .collapse, .backForward, .scan,
                                                       .newFolder, .sort, .hiddenFiles, .preview],
                 "PaneBarMigration.baselineControls is a historical record and must not grow")
-        // The loop below skips spacers; this is what keeps that skip honest, since a control
-        // wrongly reporting `isSpacer` would otherwise be waved through.
-        #expect(PaneBarArrangement.default.items.filter(\.isSpacer) == [.flexibleSpace],
+        // The loop below skips spacers; this is what keeps that skip honest, since a control wrongly
+        // reporting `isSpacer` would otherwise be waved through. The shipped bar carries none since
+        // the provider capsule was retired and the bar took the whole row, so the honest reading of
+        // this assertion is now "and nothing on the shipped bar claims to be one".
+        #expect(PaneBarArrangement.default.items.filter(\.isSpacer) == [],
                 "the default bar's spacers changed — the exemption below covers layout, not controls")
 
         // **The accounting, in one comparison, and it goes both ways.** The loop below can only
@@ -401,17 +443,23 @@ import Events
         // including one that returned its input.
         let shipped: [PaneBarItem] = [.viewMode, .collapse, .backForward, .scan, .newFolder, .sort,
                                       .hiddenFiles, .preview, .delete, .search]
-        #expect(PaneBarArrangement.default.encoded == "flexibleSpace,viewMode,collapse,backForward,"
+        #expect(PaneBarArrangement.default.encoded == "viewMode,collapse,backForward,"
                 + "scan,newFolder,sort,hiddenFiles,preview,delete,search",
                 "the shipped bar changed; the literal below is what this test is measuring against")
         let withNoRoutes = PaneBarMigration.controlsWithoutARoute(shipping: .default, routed: [])
         let namedInstead = "with no routes declared, every shipped control is stranded — this named "
             + "\(withNoRoutes.map(\.displayName))"
         #expect(withNoRoutes == shipped, "\(namedInstead)")
-        // The spacer is in that encoded string and not in the list above: spacers are layout, not
-        // ability, and are exempt even when nothing routes them.
-        #expect(PaneBarArrangement.default.items.contains(.flexibleSpace),
-                "the default bar has no spacer, so the exemption above was not exercised")
+        // Spacers are layout, not ability, and are exempt even when nothing routes them.
+        //
+        // Exercised against a bar built to carry one, rather than against the shipped default. It
+        // used to lean on the default's own leading `flexibleSpace`, which the capsule's retirement
+        // took away — and an exemption that is only exercised while the shipped bar happens to
+        // contain the exempt thing is an exemption that stops being tested the day it changes.
+        let withSpacer = PaneBarArrangement([.flexibleSpace] + PaneBarArrangement.default.items)
+        #expect(withSpacer.items.contains(.flexibleSpace), "the fixture lost its spacer on the way in")
+        #expect(PaneBarMigration.controlsWithoutARoute(shipping: withSpacer, routed: []) == shipped,
+                "the spacer was named as a stranded control — spacers are layout, not ability")
         // And dropping ONE route strands exactly its members — the shape the mechanism is for.
         #expect(PaneBarMigration.controlsWithoutARoute(
                     shipping: .default,

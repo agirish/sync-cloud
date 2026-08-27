@@ -171,12 +171,18 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// which is a silent layout hole, so `PaneBarLadderTests` counts the view's children against it.
     public static let maxItems = 16
 
-    /// A flexible space (which is what pins the rest to the trailing edge), then the controls in the
-    /// order they have always been drawn, with Search at the trailing end.
+    /// The controls in the order they have always been drawn, with Search at the trailing end,
+    /// **packed against the leading edge**.
     ///
-    /// This is load-bearing. An untouched install must render pixel-for-pixel what it rendered
-    /// before the bar became arrangeable — `PaneHeaderHeightTests` and the 250pt snapshots assert
-    /// exactly that, and they are the regression net for that change.
+    /// It opened with a `flexibleSpace`, and that space was the whole of what pinned the bar to the
+    /// trailing edge. It existed because the provider capsule held the leading one. With the capsule
+    /// retired the bar has the row to itself, and a leading space would park every control against
+    /// the far edge of an otherwise empty track — so it goes, and the bar starts where the
+    /// breadcrumb below it starts.
+    ///
+    /// **Only the default.** A stored arrangement is read back verbatim, space and all: that list is
+    /// the user's answer to this question, not this one, and `PaneBarMigrationTests` pins that a
+    /// customized bar is not rewritten by a change to the shipped default.
     ///
     /// Search joining the list does not disturb them, and the reason is worth stating: an item only
     /// reaches the bar if the HOST offers it (`resolved(available:)`), and a header with no search
@@ -193,7 +199,7 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// shedding order is right-to-left and the magnifier is the one control here with a keyboard
     /// equivalent — Delete's own chord (⌘⌫) is Compare-only, so it is not the cheapest to lose.
     public static let `default` = PaneBarArrangement([
-        .flexibleSpace, .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
+        .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
         .preview, .delete, .search
     ])
 

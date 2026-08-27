@@ -5,8 +5,12 @@ import Sync
 @testable import Dashboard
 import Design
 
-/// The bar as a *canvas*: the claim that a control can sit anywhere between the provider capsule and
-/// the pane's trailing edge, rather than only at the trailing edge.
+/// The bar as a *canvas*: the claim that a control can sit anywhere along the pane's row rather than
+/// only at its trailing edge.
+///
+/// The row used to begin at the provider capsule; the capsule is retired and the source picker has
+/// moved into the breadcrumb's first crumb, so the canvas is now the whole width from the pane's
+/// leading inset to its trailing one.
 ///
 /// These measure the laid-out result — where the controls actually end up in the window — not the
 /// arrangement string that was supposed to produce it. An arrangement that parses correctly and then
@@ -69,8 +73,10 @@ import Design
     /// crumbs start at the leading padding, so any filter based on *x* silently swallows them. (It
     /// did: a first pass at these tests measured a "bar" that ran from the first crumb to the last
     /// pill and reported the trailing edge no matter what the arrangement said.) The bar is the
-    /// higher row, so its rings share the smallest `minY`, and the provider capsule is an
-    /// AppKit-hosted menu rather than a focus ring — it never appears here at all.
+    /// higher row, so its rings share the smallest `minY`.
+    ///
+    /// The breadcrumb's FIRST crumb is absent from these frames either way: it is the source chip,
+    /// an AppKit-hosted `Menu` rather than a `Button`, and only buttons carry a focus ring.
     private static func barFrames(_ arrangement: PaneBarArrangement,
                                   iconSize: PaneBarIconSize = .regular,
                                   width: CGFloat = width) -> [CGRect] {
@@ -81,17 +87,24 @@ import Design
 
     // MARK: The claim
 
-    @Test func testTheDefaultArrangementStillHugsTheTrailingEdge() {
-        // At 560 this proves nothing: the default bar is nine pills wide and fills that row whatever
-        // the layout does, so it "ends at the trailing edge" even with the flexible space rendering
-        // as nothing at all. (Measured — a mutant that made `flexibleSpace` an `EmptyView` passed
-        // this test and every snapshot.) It has to be asked in a pane roomy enough for the bar to be
-        // somewhere *else*.
+    /// **The default bar starts at the pane's leading edge.** It used to end at the trailing one,
+    /// and the flexible space at the head of the arrangement was the whole of why; that space
+    /// existed because the provider capsule held the leading edge, and the capsule is retired.
+    ///
+    /// Asked in a pane roomy enough for the bar to be somewhere *else*, for the same reason the
+    /// trailing version was: at 560 the default bar is nine pills wide and fills the row whatever
+    /// the layout does, so it would satisfy either claim. (Measured — a mutant that made
+    /// `flexibleSpace` an `EmptyView` passed the old test at 560, and every snapshot with it.)
+    @Test func testTheDefaultArrangementNowPacksAgainstTheLeadingEdge() {
         let roomy: CGFloat = 800
         let frames = Self.barFrames(.default, width: roomy)
-        let trailing = frames.map(\.maxX).max() ?? 0
-        #expect(abs(trailing - (roomy - Self.edgeInset)) < 8,
-                "the default bar should end at the pane's trailing edge, but ended at \(trailing)")
+        let leading = frames.map(\.minX).min() ?? roomy
+        #expect(leading < Self.edgeInset + 24,
+                "the default bar should start at the pane's leading edge, but started at \(leading)")
+        // The other half, and the one that would catch a bar that merely grew: it stops well short
+        // of the trailing edge now, where it used to touch it.
+        #expect((frames.map(\.maxX).max() ?? roomy) < roomy - Self.edgeInset - 200,
+                "the default bar still runs to the pane's trailing edge")
     }
 
     @Test func testDroppingTheFlexibleSpacePacksTheBarLeft() {

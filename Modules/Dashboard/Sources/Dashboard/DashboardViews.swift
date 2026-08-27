@@ -124,13 +124,15 @@ public struct PaneHeader: View {
     /// Accepts the offer: the find becomes a gather.
     public var onAcceptPerson: ((Person) -> Void)?
     // No surface style here: the header's shape comes from its container, its material from the
-    // glass level. This view only paints the tint. It does read the level back, though — the nav
-    // cluster stopped needing it when it was drawn in-house (6bb7bdf), but the provider capsule
-    // needs it again: at Clear the header is see-through to the desktop, and the capsule has to
-    // floor itself to frosted so the logo and name keep a ground (`chromePillSurface`).
+    // glass level. This view only paints the tint, and it no longer reads the LEVEL back at all.
+    //
+    // It did twice, and lost the need twice: the nav cluster stopped needing it when it was drawn
+    // in-house (6bb7bdf), and the provider capsule needed it again because at Clear the header is
+    // see-through to the desktop and the capsule had to floor itself to frosted so the logo and
+    // name kept a ground. The capsule is retired; the source chip that replaced it carries a flat
+    // brand wash on the breadcrumb rather than a glass pill, so there is nothing left to floor.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
-    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The bar's arrangement and icon size. App-wide keys, not per-pane: one arrangement is shared by
     /// both Compare panes and the single-source rail, so that the two panes stay the same instrument pointed
     /// at two providers. Every header reads the same string, so customizing from either pane moves
@@ -153,9 +155,6 @@ public struct PaneHeader: View {
     @Environment(\.colorScheme) private var colorScheme
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
-    }
-    private var glassLevel: GlassLevel {
-        GlassLevel(rawValue: glassLevelRaw) ?? .frosted
     }
 
     public init(
@@ -231,23 +230,28 @@ public struct PaneHeader: View {
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
+        // 12, not 8, between the bar and the breadcrumb. The two rows read as one crowded block at 8
+        // now that the breadcrumb is body-sized rather than caption-sized — the gap was set when the
+        // lower row was the smallest text in the app. Paid for out of the same measured slack the
+        // font is: see `PaneBreadcrumb.body`.
+        VStack(spacing: 10) {
             HStack(spacing: 12) {
-                if let provider = provider {
-                    // In a narrow pane the provider NAME is the identity anchor: with the whole
-                    // capsule at the row's highest layoutPriority it is offered width before the
-                    // nav cluster's full-size variant, so under constraint the cluster steps down
-                    // to `.mini` first, then the name middle-truncates, and only then (below the
-                    // logo variant's readable floor) the logo drops.
-                    ViewThatFits(in: .horizontal) {
-                        providerCapsule(provider, showsLogo: true)
-                        providerCapsule(provider, showsLogo: false)
-                    }
-                    .layoutPriority(2)
+                if provider != nil {
+                    // Nothing. The provider capsule stood here — logo, name, dropdown — directly
+                    // above a breadcrumb whose first crumb names the same source and, since sources
+                    // gained roots, navigates to it. Two statements of one fact, the larger of them
+                    // spending about 300pt of a 560pt header, and the source picker has moved into
+                    // the crumb (`PaneBreadcrumb.SourcePicker`). The whole row is the bar's now.
+                    //
+                    // The `else` below is NOT the same thing and stays: a pane whose provider was
+                    // disabled or has not loaded has no crumb worth reading either, so it keeps its
+                    // own title and the degradation ladder that makes it fit.
+                    EmptyView()
                 } else {
                     // The sparse state — a pane whose provider was disabled or has not loaded — gets
-                    // the same degradation ladder the capsule has, and for the same reason: the glyph
-                    // yields first, the name is the identity anchor and only truncates.
+                    // a degradation ladder, and the rule it follows is the one the retired provider
+                    // capsule followed: the glyph yields first, the name is the identity anchor and
+                    // only truncates.
                     //
                     // It had none, and it did not fit. As two bare `HStack` children with no line
                     // limit, the title wrapped rather than truncating (so its minimum width was its
@@ -259,7 +263,7 @@ public struct PaneHeader: View {
                     //
                     // Pre-existing, not a regression: the ten-rung ladder drew this identically.
                     // `PaneBarLadderTests.theHeaderWithNoProviderStillFitsItsPane` is what caught it.
-                    // `.layoutPriority(2)`, exactly as the capsule above carries it, is the load-bearing
+                    // `.layoutPriority(2)` — which the retired capsule carried too — is the load-bearing
                     // half. Without it this content is sized in the same pass as the greedy bar
                     // container, so it simply takes its IDEAL width, the bar is handed whatever is
                     // left, and a greedy child that is offered less than its minimum overflows in
@@ -329,12 +333,12 @@ public struct PaneHeader: View {
                             .onTapGesture { dismissSearch() }
                             .accessibilityHidden(true)
                     }
-                    .padding(.leading, 12)
+                    .padding(.leading, barLeadingInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity)
                 } else {
                     navCluster
-                        .padding(.leading, 12)
+                        .padding(.leading, barLeadingInset)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -351,6 +355,16 @@ public struct PaneHeader: View {
                 rootPath: rootPath,
                 providerName: provider?.displayName,
                 providerIsLocalFolder: provider?.isLocalFolder ?? false,
+                sourcePicker: provider.map {
+                    PaneBreadcrumb.SourcePicker(
+                        imageName: $0.imageName,
+                        currentId: $0.id,
+                        providers: providers,
+                        onSelect: onSelectProvider,
+                        onManage: onManageProviders,
+                        onChooseFolder: onChooseFolder
+                    )
+                },
                 relativePath: relativePath,
                 showHidden: showHiddenFiles,
                 onNavigate: onNavigate,
@@ -358,7 +372,7 @@ public struct PaneHeader: View {
             )
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.vertical, 9)
         // Pinned, not intrinsic — this header and the lens workspaces' `LensHeaderCard` both read
         // `headerHeight`, so the pane's header↔list boundary and the card's bottom edge land on
         // the same rule (83.5 = cardInset + headerHeight) instead of merely happening to agree.
@@ -371,6 +385,14 @@ public struct PaneHeader: View {
         .frame(height: LiquidGlass.headerHeight)
         .contentSurface(hue: glassHue, tint: surfaceTint)
     }
+
+    /// The gap between whatever sits at the row's leading edge and the bar.
+    ///
+    /// It was the gap to the provider capsule, and with the capsule retired there is nothing to its
+    /// left in the ordinary case — 12pt there would put the bar 12pt off the breadcrumb directly
+    /// below it, and the two rows are meant to share a leading edge. The sparse header still has a
+    /// title on that side, so it keeps the inset it was measured at.
+    private var barLeadingInset: CGFloat { provider == nil ? 12 : 0 }
 
     /// The no-provider header's leading content: a folder glyph and the pane's title.
     ///
@@ -391,75 +413,6 @@ public struct PaneHeader: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-    }
-
-    /// The provider capsule. UX H2's hue washes behind it (`hue.soft`) in both appearances so the
-    /// two panes are distinguishable — and visibly matching — at a glance. The NAME wears the brand
-    /// tint on light and the standard label colour on dark.
-    ///
-    /// H2 tinted the name in both, and `ProviderHue`'s dark variants were lifted to clear AA "on the
-    /// app's dark surfaces". Measured against the surface a hue wash actually produces, they do not:
-    /// sampled from the running app at the green hue, the pane reads `#4d7f68` — a mid-tone, not a
-    /// dark one — and on it iCloud's `#6FB6FF` is 2.16:1 and OneDrive's `#3E9BE0` is 1.53:1, against
-    /// 4.5 for text. Plain white is 4.61:1, which is why the folder names in the list below read
-    /// perfectly on the same pixels while the provider name above them did not. The wash was tuned
-    /// as a background and then had text put on it.
-    ///
-    /// Only on dark. The light hexes are the on-brand ones read against the light ground they were
-    /// picked for, so light keeps H2 whole; dark moves identity onto the logo and the wash and buys
-    /// the name legibility with lightness instead of chroma. `ProviderHue.tint` remains right for a
-    /// hairline or a fill in either appearance — this is only about text on a washed dark surface,
-    /// which is equally true of `PaneBreadcrumb`'s root crumb.
-    ///
-    /// The name + chevron is the menu trigger;
-    /// the logo stays a plain image OUTSIDE the menu label (a resizable image inside one balloons
-    /// to its native size). ViewThatFits compares each variant's IDEAL width against the offer,
-    /// so the logo variant wins only while the full name fits alongside it; once the name would
-    /// have to give up characters, the logo yields first and the logo-less variant truncates the
-    /// name as far as an ellipsis — the name is the identity anchor, the logo is decoration.
-    private func providerCapsule(_ provider: CloudProvider, showsLogo: Bool) -> some View {
-        let hue = ProviderHue.classify(provider.displayName, isLocalFolder: provider.isLocalFolder)
-        return HStack(spacing: 10) {
-            if showsLogo {
-                ProviderLogo(provider.imageName, size: 28)
-            }
-            ProviderMenu(
-                providers: providers,
-                currentId: provider.id,
-                onSelect: onSelectProvider,
-                onManage: onManageProviders,
-                onChooseFolder: onChooseFolder
-            ) {
-                Text(provider.displayName)
-                    // `Text.scaledFont(_:scale:)`, not the View modifier: this is a `Menu`
-                    // label, and AppKit renders it itself — a wrapped Text loses both the
-                    // weight and the colour below.
-                    .scaledFont(.headline.weight(.semibold), scale: appFontScale)
-                    .foregroundStyle(ChromeInk.label(colorScheme, light: hue.tint))
-                    // A long custom provider name must truncate, not wrap the
-                    // header taller in a narrow pane. Middle truncation is the intent, but the
-                    // menu style's AppKit-backed label ignores the preference and elides the
-                    // tail (verified in the 250/400 pt snapshots; setting the environment value
-                    // on the Menu itself changes nothing either) — the load-bearing part is
-                    // that the name truncates at all instead of ballooning the row.
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .contentShape(Rectangle())
-            }
-            .help("Switch this pane's cloud provider")
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .chromePillSurface(glassLevel, wash: hue.soft)
-        // **No focus ring here any more.** This capsule carried a 2pt accent ring saying "this is
-        // the pane the keyboard is in", and it was right to until the pane's own cards began saying
-        // the same thing (`ActivePaneMark`, 2026-08-24). Two accent rings for one fact, one inside
-        // the other, is what got reported: the chip looked selected in its own right, which it is
-        // not — it is a menu.
-        //
-        // The card border inherits the constraint this comment used to carry, and
-        // `ActiveCardBorderRenderTests` inherits the measurement: a cue that renders as nothing is
-        // the failure no geometry assertion can see.
     }
 
     /// This pane's bar: the track running from the provider capsule to the pane's trailing edge.
@@ -505,6 +458,15 @@ public struct PaneHeader: View {
                       scale: appFontScale)
     }
 
+    /// The height of the tallest rung this ladder can draw — the row's reservation.
+    ///
+    /// Taken across every rung rather than assumed to be rung 0: the ladder is deliberately NOT
+    /// monotonic (see `PaneBarLadder`), so "the widest is the tallest" is exactly the kind of thing
+    /// that holds until a label mode or an icon size changes it.
+    private func tallestRungHeight(_ ladder: PaneBarLadder) -> CGFloat {
+        (0...ladder.terminal).map { ladder.height(forRung: $0) }.max() ?? ladder.height(forRung: 0)
+    }
+
     private var navCluster: some View {
         let ladder = barLadder
         return Group {
@@ -519,22 +481,29 @@ public struct PaneHeader: View {
                     // flexible space fills the width either way; one packed hard left does not, and
                     // would drift to the middle.
                     hedged(rung, ladder)
-                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
                 }
                 // A `GeometryReader` is greedy in both axes and reports nothing about its content, so
                 // the two things the `ViewThatFits` it replaced *did* report have to be restated:
-                // the narrowest rung's width, which is what the row reserves for the bar before the
-                // capsule may grow into it, and a height — pinned, or the row would stretch to the
-                // tallest it could ever be.
+                // the narrowest rung's width, which is what the row reserves for the bar, and a
+                // height — pinned, or the row would stretch to the tallest it could ever be.
                 //
-                // Pinning the height to the narrowest rung is exact only because something else in
-                // the row is always taller: the provider capsule is a 28pt logo (34 with its padding)
-                // or a headline-sized name, against 26pt for the widest rung. That is precisely why
-                // the header WITHOUT a capsule takes the searched ladder above — there the bar is the
-                // row's own height authority, and a pinned container reports the wrong row height.
+                // **The height is the TALLEST rung's, not the narrowest's, and that changed with the
+                // capsule.** It was the narrowest rung's, which was exact only because something else
+                // in the row was always taller: the provider capsule stood 34pt against 26 for the
+                // widest rung, so a bar that overflowed its own box overflowed into the capsule's
+                // height and nobody saw it. The capsule is retired and the bar is alone on this row,
+                // so that overflow became visible — a titled rung drew 34pt of content in a 17pt box
+                // and escaped 8.5pt upward, leaving the bar 8pt from the card's top edge with 17.5pt
+                // of nothing below the breadcrumb. Reserving the tallest rung contains every rung it
+                // can draw, so the row's height is the row's height and the card composes honestly.
+                //
+                // It costs the narrow rungs some air inside their own box — a `.mini` bar is centred
+                // in a taller reservation rather than filling it — which is what the card had spare
+                // anyway. `theHeaderIsBalancedTopToBottom` measures the result.
                 .frame(minWidth: ladder.width(forRung: ladder.terminal),
-                       minHeight: ladder.height(forRung: ladder.terminal),
-                       maxHeight: ladder.height(forRung: ladder.terminal))
+                       minHeight: tallestRungHeight(ladder),
+                       maxHeight: tallestRungHeight(ladder))
             }
         }
     }

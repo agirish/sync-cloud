@@ -53,14 +53,31 @@ import Design
 
     // MARK: - Measurement
 
+    /// The bitmap rows the **bar** occupies — the header's upper row.
+    ///
+    /// Both searches below used to bound themselves to the trailing *half* instead, on the grounds
+    /// that the bar's controls were there and the provider capsule's brand colour and the
+    /// breadcrumb's text were not. Half of that stopped being true twice over: the capsule is
+    /// retired, and the bar packs against the leading edge now, so a trailing-half search finds
+    /// bare header — `#require(best)` came back nil and both tests failed for want of a glyph
+    /// rather than for want of contrast.
+    ///
+    /// The bar was never the trailing half; it is the upper row, which is what this asks. The
+    /// header is rendered at exactly `LiquidGlass.headerHeight` here, and it stacks the bar over the
+    /// breadcrumb with the bar's pills ending well above the midpoint, so the top half is the bar's
+    /// band and nothing else's.
+    private static func barRows(_ rep: NSBitmapImageRep) -> Range<Int> {
+        0..<(rep.pixelsHigh / 2)
+    }
+
     /// Contrast of an UNTINTED rung's glyph (Sort, which takes the standard chrome ink) against its
     /// pill, by the same method.
     private static func standardGlyphContrast() throws -> Double {
         let rep = try rendered(appearance: .aqua)
-        // The darkest pixel in the trailing half that is NOT red — i.e. a plain chrome glyph.
+        // The darkest pixel on the BAR'S ROW that is NOT red — i.e. a plain chrome glyph.
         var best: (x: Int, y: Int, lum: Double)? = nil
-        for x in (rep.pixelsWide / 2)..<rep.pixelsWide {
-            for y in 0..<rep.pixelsHigh {
+        for x in 0..<rep.pixelsWide {
+            for y in barRows(rep) {
                 guard let p = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 if Double(p.redComponent) - Double(max(p.greenComponent, p.blueComponent)) > 0.08 { continue }
                 let l = luminance(p)
@@ -91,10 +108,10 @@ import Design
     /// second opinion about a colour the view composes.
     private static func glyphContrast(appearance: NSAppearance.Name) throws -> Double {
         let rep = try rendered(appearance: appearance)
-        // The Delete cell, located by finding the reddest column band in the trailing half.
+        // The Delete cell, located by finding the reddest pixel on the bar's row.
         var best: (x: Int, y: Int, score: Double)? = nil
-        for x in (rep.pixelsWide / 2)..<rep.pixelsWide {
-            for y in 0..<rep.pixelsHigh {
+        for x in 0..<rep.pixelsWide {
+            for y in barRows(rep) {
                 guard let p = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 let score = Double(p.redComponent) - Double(max(p.greenComponent, p.blueComponent))
                 if score > (best?.score ?? 0.2) { best = (x, y, score) }

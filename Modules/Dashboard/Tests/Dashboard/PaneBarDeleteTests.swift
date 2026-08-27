@@ -99,7 +99,7 @@ import Design
         let dimmed = try Self.rendered(Self.header(onDelete: {}, selectionCount: 0))
         let enabled = try Self.rendered(Self.header(onDelete: {}, selectionCount: 3))
         let differing = Self.differingPixels(dimmed, enabled)
-        let cropped = (dimmed.pixelsWide / 2) * dimmed.pixelsHigh
+        let cropped = dimmed.pixelsWide * Self.barRows(dimmed).count
 
         #expect(differing > 0, "nothing changed between the two selection states at all")
         #expect(Double(differing) < Double(cropped) * 0.12,
@@ -107,6 +107,21 @@ import Design
     }
 
     // MARK: - Fixtures
+
+    /// The bitmap rows the **bar** occupies — the header's upper row.
+    ///
+    /// Every crop in this file used to be the trailing HALF, for a reason that has expired: the
+    /// provider capsule carried brand colour at the leading edge and a crop spanning both would have
+    /// made the measurement about the wrong control. The capsule is retired, and the bar it was
+    /// holding the leading edge against now packs left — so a trailing-half crop is bare header, and
+    /// both measurements here read zero.
+    ///
+    /// The bar was never the trailing half; it is the upper of the header's two rows. The header
+    /// renders at exactly `LiquidGlass.headerHeight` here and its pills end well above the midpoint,
+    /// so the top half is the bar's band and the breadcrumb's is below it.
+    static func barRows(_ rep: NSBitmapImageRep) -> Range<Int> {
+        0..<(rep.pixelsHigh / 2)
+    }
 
     private static func header(onDelete: (() -> Void)?, selectionCount: Int = 1) -> PaneHeader {
         PaneHeader(
@@ -161,14 +176,14 @@ import Design
         }
     }
 
-    /// Pixels that differ between two renders, over the same trailing-half crop. Counting what
-    /// MOVED is the only measurement that separates "recoloured in place" from "removed, and the
-    /// neighbours slid over".
+    /// Pixels that differ between two renders, over the same bar-row crop. Counting what MOVED is
+    /// the only measurement that separates "recoloured in place" from "removed, and the neighbours
+    /// slid over".
     static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
         var differing = 0
-        for x in (a.pixelsWide / 2)..<a.pixelsWide {
-            for y in 0..<a.pixelsHigh {
+        for x in 0..<a.pixelsWide {
+            for y in barRows(a) {
                 guard let pa = a.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
                       let pb = b.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 let d = abs(pa.redComponent - pb.redComponent)
@@ -183,11 +198,9 @@ import Design
     private static func count(in header: PaneHeader,
                               where matches: (NSColor) -> Bool) throws -> Int {
         let rep = try rendered(header)
-        // The trailing half only: the provider capsule carries brand colour, and iCloud's blue is
-        // not red but a crop spanning both would make the measurement about the wrong control.
         var hits = 0
-        for x in (rep.pixelsWide / 2)..<rep.pixelsWide {
-            for y in 0..<rep.pixelsHigh {
+        for x in 0..<rep.pixelsWide {
+            for y in barRows(rep) {
                 guard let px = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 if matches(px) { hits += 1 }
             }

@@ -15,7 +15,9 @@ import Events
 
     // MARK: PaneHeader
 
-    /// A comfortable-width header: provider capsule, nav cluster, breadcrumb. Scan freshness is
+    /// A comfortable-width header: the bar packed against the leading edge, and the breadcrumb below
+    /// it opening with the source chip. (There was a provider capsule above all of this, restating the
+    /// source's name a second time; retiring it is what let the bar have the row.) Scan freshness is
     /// deliberately absent — it moved to the differences count pill, so this pins that the pane
     /// header no longer draws a second copy of it.
     ///

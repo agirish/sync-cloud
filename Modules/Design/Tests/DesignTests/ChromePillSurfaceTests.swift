@@ -3,7 +3,14 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// `chromePillSurface` is the ground under the pane header's provider capsule. It swaps the
+/// `chromePillSurface` was the ground under the pane header's provider capsule, and **has no caller
+/// in the app since that capsule was retired** — the source chip that replaced it lives on the
+/// breadcrumb and wears a flat brand wash rather than a glass pill. The modifier and these
+/// measurements are kept rather than deleted because what they pin is a general fact about the
+/// design system's chrome pills, not about one view; but a reader should know it is currently
+/// documenting an unused member, and that is a decision worth revisiting rather than inheriting.
+///
+/// It swaps the
 /// MATERIAL beneath the pill and must change nothing else: the capsule sits in a `ViewThatFits`
 /// ladder whose rungs are chosen by ideal width, inside a header pinned to
 /// `LiquidGlass.headerHeight`. A background that added even a point would silently pick a

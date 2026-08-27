@@ -79,6 +79,119 @@ import Design
             .joined(separator: " ")
     }
 
+    /// **The card is balanced top to bottom, at every rung and text size.**
+    ///
+    /// This is the rule the capsule's retirement broke. The bar's container was pinned to the
+    /// NARROWEST rung's height, which was exact only while the provider capsule stood taller than
+    /// any rung and absorbed the difference. With the capsule gone the bar was alone on its row, so
+    /// a titled rung drew 34pt of content in a 17pt box and escaped it — measured, the bar's ink sat
+    /// hard against the card's top padding while 18.5pt went unused below the breadcrumb. Reported
+    /// as "a lil crowded", with space going begging underneath.
+    ///
+    /// Two changes hold it, and **they are pinned by different tests here, which is worth knowing
+    /// before editing either**: the row reserves the TALLEST rung it can draw, so nothing overflows
+    /// its box — that half is caught by `theBarAndTheTrailKeepTheirGap`, not by this test, because a
+    /// bar whose words hang into the gap can still leave the card's outer edges even. And the bar is
+    /// `.topLeading` inside that reservation, so a short rung sits at the top of it rather than
+    /// floating in the middle and pushing the trail to the card's floor — that half is this test's,
+    /// and putting the centring back measures 18 / 10.
+    ///
+    /// Measured together, every case lands on 9.5 / 10 — or 15 / 15.5 at the 1.35 text scale, where
+    /// the content is simply bigger.
+    ///
+    /// **Asserted as balance rather than as a floor**, because a floor does not discriminate: with
+    /// the old pin restored the top gap measures 9.0 against a 9pt padding, so "no ink inside the
+    /// padding" passes on the broken layout. The imbalance is the symptom that is actually visible,
+    /// and it is what a reader complained about.
+    @Test func theHeaderIsBalancedTopToBottom() {
+        for (name, scale, width) in [("iCloud Drive", 1.0, CGFloat(250)), ("iCloud Drive", 1.0, 330),
+                                     ("iCloud Drive", 1.0, 660), ("iCloud Drive", 1.35, 660),
+                                     ("Marketing Team Shared Archive Drive", 1.0, 660)] {
+            guard let (top, bottom) = Self.inkGaps(Self.header(name).environment(\.appFontScale, scale),
+                                                   width: width) else {
+                Issue.record("\(name) @\(scale) \(width): the header painted nothing at all")
+                continue
+            }
+            #expect(abs(top - bottom) <= 2.5,
+                    "\(name) @\(scale) \(width)pt: \(top)pt of clear card above the content and \(bottom)pt below — a row is overflowing its box, or floating inside a reservation larger than it")
+            // And the floor, which the balance above does not imply: two equally crowded edges would
+            // satisfy it. 6pt is under every measured value and well clear of the 9pt padding.
+            #expect(min(top, bottom) >= 6,
+                    "\(name) @\(scale) \(width)pt: the content reaches \(min(top, bottom))pt from a card edge")
+        }
+    }
+
+    /// **The two rows do not crowd each other**, which is the other half of the same complaint and
+    /// the half the balance assertion above is blind to.
+    ///
+    /// Balance is about the card's outer edges; this is about the rule between the bar and the
+    /// trail. They are separated by the `VStack`'s 10pt spacing, and that spacing is only real if
+    /// the bar's row actually contains the bar: pinned to the narrowest rung, a titled rung's words
+    /// hang below their own box and eat the gap, so the two rows read as one block however the
+    /// outer edges measure. Reserving the tallest rung is what keeps the gap: with the old pin
+    /// restored this measures **4pt** of clear card between a titled bar and the trail, against the
+    /// `VStack`'s nominal 10.
+    ///
+    /// Measured as the widest run of untouched card between the first ink and the last — which is
+    /// the gap, since it is the only clear band inside the content.
+    @Test func theBarAndTheTrailKeepTheirGap() {
+        for (name, scale, width) in [("iCloud Drive", 1.0, CGFloat(250)), ("iCloud Drive", 1.0, 660),
+                                     ("Marketing Team Shared Archive Drive", 1.0, 660)] {
+            guard let gap = Self.clearBandInsideContent(
+                Self.header(name).environment(\.appFontScale, scale), width: width) else {
+                Issue.record("\(name) @\(scale) \(width): nothing painted")
+                continue
+            }
+            #expect(gap >= 8,
+                    "\(name) @\(scale) \(width)pt: only \(gap)pt of clear card separates the bar from the breadcrumb — the rows read as one crowded block")
+        }
+    }
+
+    /// The tallest run of un-inked rows strictly between the header's first and last inked row.
+    private static func clearBandInsideContent<V: View>(_ view: V, width: CGFloat) -> CGFloat? {
+        let height = LiquidGlass.headerHeight
+        guard let rows = inkedRows(view, width: width, height: height),
+              let first = rows.firstIndex(of: true), let last = rows.lastIndex(of: true) else { return nil }
+        var best = 0, run = 0
+        for y in first...last {
+            if rows[y] { run = 0 } else { run += 1; best = max(best, run) }
+        }
+        return CGFloat(best) * height / CGFloat(rows.count)
+    }
+
+    /// The painted extent of a header rendered at its pinned height: points of clear card above the
+    /// first inked row, and below the last.
+    private static func inkGaps<V: View>(_ view: V, width: CGFloat) -> (top: CGFloat, bottom: CGFloat)? {
+        let height = LiquidGlass.headerHeight
+        guard let rows = inkedRows(view, width: width, height: height),
+              let first = rows.firstIndex(of: true), let last = rows.lastIndex(of: true) else { return nil }
+        let perRow = height / CGFloat(rows.count)
+        return (CGFloat(first) * perRow, height - CGFloat(last) * perRow)
+    }
+
+    /// Which rows of a header rendered at its pinned height carry any ink at all.
+    private static func inkedRows<V: View>(_ view: V, width: CGFloat, height: CGFloat) -> [Bool]? {
+        let host = NSHostingView(rootView: AnyView(
+            view.frame(width: width, height: height).background(Color.white)))
+        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.colorSpace = .sRGB
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return (0..<rep.pixelsHigh).map { y in
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if c.redComponent < 0.97 || c.greenComponent < 0.97 || c.blueComponent < 0.97 { return true }
+            }
+            return false
+        }
+    }
+
     // MARK: - Fixtures
 
     private static func header(_ providerName: String?,
@@ -145,30 +258,43 @@ import Design
     /// nothing at all. So it is checked against the method it replaces, on the untitled rungs where
     /// ring spans are still exact: there every item's box is its pill, so the two must agree to the
     /// point.
+    ///
+    /// **Swept across widths rather than anchored at 250 and 900**, and the reason is the change
+    /// that made it necessary. With the provider capsule retired the bar is handed the whole row, so
+    /// a 900pt pane no longer steps down to an untitled rung — it reaches rung 0, which is titled and
+    /// which this test cannot compare. (A 250pt pane no longer sits on the terminal rung either: it
+    /// draws seven controls where it used to manage five.) Two hand-picked widths were a proxy for
+    /// "somewhere on the untitled part of the ladder"; the sweep asks for that directly, and the
+    /// `matched` counter is what stops it passing by finding nowhere to look.
     @Test func theMeasuredBarAgreesWithRingSpansWhenNothingIsTitled() {
         let view = Self.header("iCloud Drive")
         let ladder = view.barLadder
-        for rung in (ladder.titledRungs)...ladder.terminal {
-            let plan = ladder.plan(forRung: rung)
-            let drawn = barRings(view, width: rung == ladder.terminal ? 250 : 900)
+        var matched = 0
+        for width in stride(from: CGFloat(250), through: 900, by: 25) {
+            let drawn = barRings(view, width: width)
             guard let first = drawn.first, let trailing = drawn.map(\.maxX).max() else { continue }
-            let leadsWithSwitch = plan.visible.first(where: { !$0.isSpacer }) == .viewMode
-                && !plan.compactsViewMode
-            let span = trailing - (first.minX - (leadsWithSwitch ? PaneNavMetrics.segmentPadding : 0))
-            // Only the rung the header actually picks at this width can be compared against the
-            // rings, so accept a match against any rung's measured width and require that the
-            // measured and ringed answers name the same one.
-            let measured = barWidth(view, rung: rung, ladder: ladder)
-            #expect(measured > 0, "rung \(rung) measured zero — the fitting size is not reading the bar")
-            if abs(measured - span) < 0.5 { return }
+            for rung in (ladder.titledRungs)...ladder.terminal {
+                let plan = ladder.plan(forRung: rung)
+                let leadsWithSwitch = plan.visible.first(where: { !$0.isSpacer }) == .viewMode
+                    && !plan.compactsViewMode
+                let span = trailing - (first.minX - (leadsWithSwitch ? PaneNavMetrics.segmentPadding : 0))
+                let measured = barWidth(view, rung: rung, ladder: ladder)
+                #expect(measured > 0, "rung \(rung) measured zero — the fitting size is not reading the bar")
+                if abs(measured - span) < 0.5 { matched += 1; break }
+            }
         }
-        Issue.record("no untitled rung's measured width matched a ring span")
+        #expect(matched >= 4,
+                "only \(matched) of the swept widths drew a bar whose ring span matched an untitled rung's measured width")
     }
 
     /// The failure mode the ladder exists to prevent, and the one with no loud symptom: a bar that
     /// runs past the pane's trailing edge. Swept rather than spot-checked, because the ladder is not
-    /// monotonic — the provider capsule's own logo/no-logo step moves the bar's offer by 38pt, which
-    /// is more than a rung.
+    /// monotonic.
+    ///
+    /// It was non-monotonic for a reason that has now gone — the provider capsule's own logo/no-logo
+    /// step moved the bar's offer by 38pt, more than a rung — and the sweep stays anyway: `PaneBarLadder`
+    /// documents the non-monotonicity as a property of the arithmetic, which is why the ladder must be
+    /// walked in order rather than sorted by width, and a sweep costs nothing to keep.
     @Test func theBarNeverOverflowsThePane() {
         for name in ["Box", "Dropbox", "iCloud Drive", "Marketing Team Shared Archive Drive"] {
             for width in stride(from: CGFloat(250), through: 900, by: 25) {
@@ -252,9 +378,11 @@ import Design
     /// readable "M" to a glyph sliced down the middle. Icon Only and the Large-text fallback are
     /// both untitled, so both were affected.
     ///
-    /// **What holds the drawn half of this is `theLadderRendersItsGolden`**, whose 250pt rows pin
-    /// the bar's leading edge at x=77 — the 6pt the capsule lost is exactly that edge moving to 71
-    /// — plus the recorded snapshots. A pixel test counting the name's ink was written for this and
+    /// **What holds the drawn half of this is `theLadderRendersItsGolden`**, whose 250pt rows pinned
+    /// the bar's leading edge at x=77 — the 6pt the capsule lost was exactly that edge moving to 71 —
+    /// plus the recorded snapshots. (Those rows read x=17 now: with the capsule retired the bar starts
+    /// at the pane's own inset, so a gap change no longer has a capsule to charge itself to. The
+    /// *ladder* still steps down at a wider pane, which is what the arithmetic half below measures.) A pixel test counting the name's ink was written for this and
     /// then deleted: measured against the mutation that puts the gap back to 8, its count did not
     /// move at all, because a hosting view built here does not render the capsule the way the
     /// snapshot harness does. A test that cannot fail is worse than no test, and the golden already
@@ -379,9 +507,9 @@ import Design
     /// The header with NO provider takes the *searched* ladder, not the computed rung — a second code
     /// path, and one nothing else here covers. It has to obey the same trailing-edge rule.
     ///
-    /// It exists because that header has no provider capsule, so the bar itself is what decides the
-    /// row's height, and the computed path's container cannot report a height derived from its
-    /// content. This is reachable in the app: `ContentView` passes
+    /// It exists because that header draws a plain title rather than the breadcrumb chip, so the bar
+    /// itself is what decides the row's height, and the computed path's container cannot report a
+    /// height derived from its content. This is reachable in the app: `ContentView` passes
     /// `availableProviders.first(where:)`, which is nil whenever a pane's provider has been disabled
     /// or has not loaded yet.
     @Test func theHeaderWithNoProviderStillFitsItsPane() {
@@ -421,15 +549,36 @@ import Design
         let scale = CGFloat(rep.pixelsHigh) / LiquidGlass.headerHeight
         let x0 = max(0, Int(((first.minX - 3) * scale).rounded()))
         let x1 = min(rep.pixelsWide, Int(((first.maxX + 3) * scale).rounded()))
-        var minY = rep.pixelsHigh, maxY = -1
-        for x in x0..<x1 {
-            for y in 0..<rep.pixelsHigh {
+        // **The contiguous band around the control, not every inked row in the column.**
+        //
+        // This used to take the topmost and bottommost inked pixel anywhere in the column. That was
+        // the same measurement while the bar's first control sat to the right of the provider
+        // capsule, with nothing but bare header below it; the capsule is retired, the bar starts at
+        // the pane's leading edge, and what is now directly underneath that column is the
+        // breadcrumb's first crumb — wash, mark and all. Both rows in one span measured 50pt against
+        // a 34pt bound, which is a true statement about the header and no statement at all about the
+        // control this test is bounding.
+        //
+        // Growing outward from the ring until a blank row stops it measures the control's own paint,
+        // which is what "painted" always meant — and an overflow still grows the band, because ink
+        // that runs past the rung's height is contiguous with the ink inside it.
+        func rowIsInked(_ y: Int) -> Bool {
+            for x in x0..<x1 {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 let lum = (c.redComponent + c.greenComponent + c.blueComponent) / 3
-                guard c.alphaComponent > 0.05, lum < 0.97 else { continue }
-                minY = min(minY, y); maxY = max(maxY, y)
+                if c.alphaComponent > 0.05, lum < 0.97 { return true }
             }
+            return false
         }
+        // Seeded from the topmost inked row in the column rather than from the ring's own midY: the
+        // rings come from a second host with its own origin, and a y read off one bitmap and applied
+        // to the other lands wherever the two happen to differ. The bar is the header's upper row,
+        // so the first ink down this column is its.
+        guard let minY = (0..<rep.pixelsHigh).first(where: rowIsInked) else {
+            Issue.record("nothing painted in the first control's column at all"); return
+        }
+        var maxY = minY
+        while maxY < rep.pixelsHigh - 1, rowIsInked(maxY + 1) { maxY += 1 }
         let painted = CGFloat(maxY - minY + 1) / scale
         let ladder = Self.columnsLadder()
         // **The untitled rung at the ceiling, not rung 0.** Painted ink is the right measure for a
@@ -750,6 +899,26 @@ import Design
     /// COUNT — which is the pair of facts that separates "the crumb is wider" from "the ladder
     /// stepped down", and the reason to read those two things rather than the diff as a whole.
     ///
+    /// **Retiring the provider capsule moved all thirty-two halves, and this table is the measurement
+    /// of what that bought.** Read three things off it:
+    ///
+    /// - **Every bar now starts at x 17.** Before, the sixteen rows started anywhere from 77 to 372,
+    ///   because the bar began where the capsule stopped and the capsule's width was the source's
+    ///   name. The bar's leading edge was a function of what account you were looking at.
+    /// - **Controls, at the widths where it matters.** A 250pt pane draws seven where it drew five;
+    ///   330pt draws all nine. Nothing shrank — these are the same rungs, handed a row they are not
+    ///   sharing.
+    /// - **The titled rung arrives at 410pt instead of 570.** Titles are what the bar spends spare
+    ///   track on, and this is where the spare track went.
+    ///
+    /// **And every row lost a crumb ring.** That is not a crumb going missing: the first crumb is a
+    /// `Menu` now rather than a `Button`, so it emits no `_FocusRingView` and drops out of a
+    /// fingerprint that is built from them. The consequence worth stating is that **this table no
+    /// longer pins where the source chip sits** — the remaining crumbs' positions are downstream of
+    /// its width, so a chip that grew would still show up here as the trail shifting right, but the
+    /// chip itself is measured in `MenuLabelMarkTests`, in the app target, where the brand asset it
+    /// draws actually exists.
+    ///
     /// One golden row, as data rather than a string to be re-parsed.
     ///
     /// The keys used to be `"columns-icloud|0.9|250"`, split apart and force-unwrapped at read time.
@@ -780,38 +949,31 @@ import Design
     }
 
     private static let goldenTable: [(String, CGFloat, CGFloat, String)] = [
-        (iCloud, 0.9, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/62x13 75,508/58x13 135,508/44x13"),
-        (iCloud, 0.9, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,515/62x13 75,515/58x13 135,515/44x13"),
-        (iCloud, 0.9, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,515/62x13 75,515/58x13 135,515/44x13"),
-        // **A titled row, and one of only two rows here that is not identical to `v4.0`.** The bar
-        // starts further left of its trailing edge because words are wider than their pills, and
-        // its controls sit 6pt higher to make room for the title line beneath them. Ring heights
-        // are unchanged at 20 — the switch is a pill tall in both modes. This row legitimately
-        // differs from `v4.0`, which had no titles; its sibling is (iCloud, 1.0, 710). Every other
-        // row in this table was checked byte-for-byte against `v4.0` when the untitled gap was put
-        // back to 6, and matched.
-        (iCloud, 0.9, 710, "329,473/29x20 361,473/29x20 401,473/33x20 440,473/33x20 481,473/33x20 530,473/33x20 580,473/33x20 621,473/33x20 665,473/29x20 10,515/62x13 75,515/58x13 135,515/44x13"),
-        (iCloud, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/67x15 80,508/63x15 145,508/47x15"),
-        (iCloud, 1.0, 330, "157,481/27x17 190,481/27x17 223,481/27x17 256,481/27x17 289,481/27x17 10,508/67x15 80,508/63x15 145,508/47x15"),
-        (iCloud, 1.0, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,514/67x15 80,514/63x15 145,514/47x15"),
-        // **This row is the one to read if the untitled gap is ever widened again.** Charging the
-        // titled bar's 8pt gap to this untitled rung cost it a control: nine rings became eight as
-        // the trailing 23-wide segment — the Preview toggle — was shed into ⋯ at a width that had
-        // always held it. It is nine again here, matching `v4.0` exactly, and its sibling
-        // (longName, 650) with it. Nothing was ever *lost* (Preview stays in the menu), which is
-        // why a ladder stepping down early is so easy to ship: it is only visible as a control
-        // that used to be on the bar and now is not.
-        (iCloud, 1.0, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,514/67x15 80,514/63x15 145,514/47x15"),
-        (iCloud, 1.0, 570, "223,479/29x20 255,479/29x20 293,479/33x20 332,479/33x20 371,479/33x20 410,479/33x20 449,479/33x20 488,479/33x20 527,479/29x20 10,514/67x15 80,514/63x15 145,514/47x15"),
-        (iCloud, 1.0, 710, "319,472/29x20 351,472/29x20 391,472/33x20 430,472/33x20 471,472/33x20 523,472/33x20 575,472/33x20 617,472/33x20 663,472/29x20 10,514/67x15 80,514/63x15 145,514/47x15"),
-        (longName, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/86x15 99,508/63x15 164,508/47x15"),
-        (longName, 1.0, 410, "237,481/27x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,508/189x15 202,508/63x15 267,508/47x15"),
-        (longName, 1.0, 490, "317,481/27x17 350,481/27x17 383,481/27x17 416,481/27x17 449,481/27x17 10,508/189x15 202,508/63x15 267,508/47x15"),
-        (longName, 1.0, 570, "372,481/23x17 398,481/23x17 430,481/27x17 463,481/27x17 496,481/27x17 529,481/27x17 10,514/189x15 202,514/63x15 267,514/47x15"),
-        // The second of the two — same cause, same shed control, 160pt further out because this
-        // provider name eats that much of the row before the bar sees any of it.
-        (longName, 1.0, 650, "357,481/23x17 383,481/23x17 415,481/27x17 448,481/27x17 481,481/27x17 514,481/27x17 547,481/27x17 580,481/27x17 613,481/23x17 10,514/189x15 202,514/63x15 267,514/47x15"),
-        (longName, 1.0, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/189x15 202,514/63x15 267,514/47x15"),
+        (iCloud, 0.9, 250, "17,471/23x17 43,471/23x17 75,471/27x17 108,471/27x17 141,471/27x17 174,471/27x17 207,471/27x17 93,514/67x15 164,514/50x15"),
+        (iCloud, 0.9, 410, "17,471/29x20 49,471/29x20 89,471/33x20 128,471/33x20 169,471/33x20 219,471/33x20 268,471/33x20 309,471/33x20 353,471/29x20 105,514/67x15 176,514/50x15"),
+        (iCloud, 0.9, 490, "17,471/29x20 49,471/29x20 89,471/33x20 128,471/33x20 169,471/33x20 219,471/33x20 268,471/33x20 309,471/33x20 353,471/29x20 105,514/67x15 176,514/50x15"),
+        (iCloud, 0.9, 710, "17,471/29x20 49,471/29x20 89,471/33x20 128,471/33x20 169,471/33x20 219,471/33x20 268,471/33x20 309,471/33x20 353,471/29x20 105,514/67x15 176,514/50x15"),
+        // **The narrowest pane, and the sharpest single number here.** Five controls used to fit
+        // a 250pt pane; seven do. The bar is on the same `.mini` rung it always was — nothing got
+        // smaller — it simply is not sharing the row with a 180pt provider capsule any more.
+        (iCloud, 1.0, 250, "17,469/23x17 43,469/23x17 75,469/27x17 108,469/27x17 141,469/27x17 174,469/27x17 207,469/27x17 91,514/65x17 160,514/54x17"),
+        (iCloud, 1.0, 330, "17,469/23x17 43,469/23x17 75,469/27x17 108,469/27x17 141,469/27x17 174,469/27x17 207,469/27x17 240,469/27x17 273,469/23x17 111,514/73x17 188,514/54x17"),
+        // **Where the titled rung now begins.** 410pt, against 570 before: a title is only affordable
+        // when the bar has track to spare, and the retired capsule is all the track it needed.
+        (iCloud, 1.0, 410, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 111,514/73x17 188,514/54x17"),
+        (iCloud, 1.0, 490, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 111,514/73x17 188,514/54x17"),
+        (iCloud, 1.0, 570, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 111,514/73x17 188,514/54x17"),
+        (iCloud, 1.0, 710, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 111,514/73x17 188,514/54x17"),
+        (longName, 1.0, 250, "17,469/23x17 43,469/23x17 75,469/27x17 108,469/27x17 141,469/27x17 174,469/27x17 207,469/27x17 91,514/65x17 160,514/54x17"),
+        (longName, 1.0, 410, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 243,514/73x17 320,514/54x17"),
+        // **`longName @ 1.0 490` is the row that says what this bought.** A wide custom source name
+        // used to leave room for five controls here; it leaves room for all nine, because the name
+        // is no longer competing with them for the row — it reads on the breadcrumb below, where a
+        // long one truncates inside its own chip instead of pushing the bar off the end.
+        (longName, 1.0, 490, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 264,514/73x17 341,514/54x17"),
+        (longName, 1.0, 570, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 264,514/73x17 341,514/54x17"),
+        (longName, 1.0, 650, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 264,514/73x17 341,514/54x17"),
+        (longName, 1.0, 710, "17,469/29x20 49,469/29x20 89,469/33x20 128,469/33x20 169,469/33x20 221,469/33x20 273,469/33x20 315,469/33x20 361,469/29x20 264,514/73x17 341,514/54x17"),
     ]
 
 }

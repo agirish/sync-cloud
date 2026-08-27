@@ -17,18 +17,21 @@ import Testing
     // MARK: Persistence
 
     @Test func testTheDefaultIsTodaysBar() {
-        // The load-bearing one. An untouched install must render exactly what it rendered before the
-        // bar became arrangeable: a flexible space (what used to be the trailing-edge Spacer) and
-        // then the nine controls in their historical order — followed by Search, and now by Delete
-        // ahead of it, since the shedding order runs right-to-left and Search is the one control
-        // here with a keyboard equivalent on every surface.
+        // The load-bearing one: the nine controls in their historical order — followed by Search,
+        // and by Delete ahead of it, since the shedding order runs right-to-left and Search is the
+        // one control here with a keyboard equivalent on every surface.
         //
         // Restated literally rather than read off `PaneBarArrangement.default`, deliberately: this is
         // the assertion that makes changing the shipped bar a decision someone has to write down.
-        // Delete arriving here is that decision — a header only draws it if the host passes a
+        // Delete arriving here was one such decision — a header only draws it if the host passes a
         // delete handler, which no test fixture and no non-app caller does.
+        //
+        // The **leading `flexibleSpace` leaving** is the other. It was there because the provider
+        // capsule held the row's leading edge and the bar had to be pushed past it; with the capsule
+        // retired and the source picker folded into the breadcrumb's first crumb, the bar has the
+        // whole row and starts where the breadcrumb below it starts.
         #expect(PaneBarArrangement.default.items == [
-            .flexibleSpace, .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
+            .viewMode, .collapse, .backForward, .scan, .newFolder, .sort, .hiddenFiles,
             .preview, .delete, .search
         ])
     }
@@ -178,12 +181,11 @@ import Testing
     }
 
     @Test func testTheDeepestRungIsTodaysNarrowBar() {
-        // What a 250pt comparison pane showed before this change: the view switch as one pill, back,
-        // forward, scan, and ⋯. If this set grows, the bar's minimum width grows with it, the
-        // provider capsule gets less room, and the 250pt snapshots move.
+        // What a 250pt comparison pane shows: the view switch as one pill, back, forward, scan, and
+        // ⋯. If this set grows, the bar's minimum width grows with it and the 250pt snapshots move.
         let comparisonPane: [PaneBarItem] = [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview]
         let plan = PaneBarLayout.plan(arrangement: .default, available: comparisonPane, depth: .max)
-        #expect(plan.visible == [.flexibleSpace, .viewMode, .backForward, .scan])
+        #expect(plan.visible == [.viewMode, .backForward, .scan])
         #expect(plan.compactsViewMode)
     }
 

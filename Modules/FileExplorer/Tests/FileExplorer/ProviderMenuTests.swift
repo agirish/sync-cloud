@@ -77,6 +77,38 @@ import SwiftUI
         }
     }
 
+    /// **"Go to <source>" leads the menu, above the sources, and only for a caller that asked for
+    /// it.** It is the item about where you *are* rather than which source you are on, and the
+    /// commoner of the two acts.
+    ///
+    /// It exists because the pane breadcrumb's first crumb has two jobs and one target. Splitting
+    /// them by region was tried and reported: the mark opened this menu, the name went to the root,
+    /// and the only thing that *looks* like an affordance next to that chip is the quick-jump
+    /// chevron a few points to its right — which opens a different menu about the current folder.
+    /// The picker read as missing. The whole chip opens this menu now, so the root has to be in it.
+    ///
+    /// Order is the assertion, not presence: an item below the Picker is an item nobody scanning a
+    /// source list will read as being about position.
+    @Test func goingToTheSourcesTopLeadsTheMenuAndIsOptional() throws {
+        let code = Self.codeOnly(try Self.source())
+        let goTo = try #require(code.range(of: "Go to"),
+                                "the menu no longer offers a way to the top of the current source")
+        let picker = try #require(code.range(of: "Picker("))
+        #expect(goTo.lowerBound < picker.lowerBound,
+                "Go to… sits below the source list — it is about position, not about which source, and belongs above it")
+
+        // Optional on the same terms `Choose Folder…` is: a caller with no pane to move — the lens
+        // source bar — must get no item rather than a door onto a no-op.
+        #expect(code.contains("if let onGoToRoot"),
+                "the item is drawn unconditionally, so a caller that passed no handler offers a dead row")
+
+        // The name comes off the provider list rather than from a parameter, so it cannot disagree
+        // with the row the Picker puts a check against; and a source that is somehow not in the
+        // list still gets a sentence rather than "Go to ".
+        #expect(code.contains("currentName.map"),
+                "the item's title no longer degrades when the current source is missing from the list")
+    }
+
     @Test func theMenuStaysCompressibleHorizontally() throws {
         let code = Self.codeOnly(try Self.source())
         #expect(code.contains(".fixedSize(horizontal: false, vertical: true)"),

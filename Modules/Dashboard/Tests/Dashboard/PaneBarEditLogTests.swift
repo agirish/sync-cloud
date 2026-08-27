@@ -29,7 +29,7 @@ import Events
     }
 
     private static let defaultEncoded =
-        "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,delete,search"
+        "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,delete,search"
 
     /// The bar as it stands after someone drags Delete off it — the state the reported complaint is
     /// about, and the one with no record of how it got there.
@@ -41,7 +41,7 @@ import Events
     @Test func testTheFixturesMatchTheShippedDefault() {
         #expect(PaneBarArrangement.default.encoded == Self.defaultEncoded)
         #expect(Self.withoutDelete.encoded ==
-                "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search")
+                "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search")
     }
 
     /// Removing a control says what went and what is left. The second half is the point: a line
@@ -50,7 +50,7 @@ import Events
     @Test func testRemovingAControlNamesItAndTheBarItLeftBehind() {
         #expect(PaneBarEditLog.message(from: .default, to: Self.withoutDelete)
                 == "[panebar] User removed Delete from the pane bar — it is now "
-                + "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search")
+                + "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search")
     }
 
     /// The reverse, and the one line that has to name the default: a Restore is described by what
@@ -142,7 +142,7 @@ import Events
         let written = entries.drop(while: { $0.message != marker })
             .last { $0.message.hasPrefix("[panebar] User removed Delete") }
         #expect(written?.message == "[panebar] User removed Delete from the pane bar — it is now "
-                + "flexibleSpace,viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search")
+                + "viewMode,collapse,backForward,scan,newFolder,sort,hiddenFiles,preview,search")
         #expect(written?.level == .info, "a user rearranging their own bar is not a warning")
     }
 }

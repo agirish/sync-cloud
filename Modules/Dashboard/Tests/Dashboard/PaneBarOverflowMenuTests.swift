@@ -86,17 +86,27 @@ import Design
     /// the sampled columns that actually cross painted ink in the controls' half of the row. The
     /// sweep is only a statement about aiming at a pill if it crossed some.
     ///
-    /// The floor is set between two measurements rather than under both: this fixture inks 9 of the
-    /// 16 trailing columns, and the same fixture stripped back to a header with no view mode, no
-    /// collapse, no New Folder and no Delete inks 3. A floor far below the stripped figure would
-    /// pass for a bar that had lost most of its controls.
+    /// The floor is set between two measurements rather than under both, and both are taken here so
+    /// the gap is re-measured rather than remembered: the full bar and the same header stripped back
+    /// to no view mode, no collapse, no New Folder and no Delete. A floor far below the stripped
+    /// figure would pass for a bar that had lost most of its controls.
+    ///
+    /// **Counted across the whole row, not the trailing half.** The half was a proxy for "where the
+    /// controls are" that held only while a flexible space pinned the bar right; it is packed left
+    /// now, so the old filter counted the empty end of the row.
     @Test func theSweptRowIsFullOfControls() throws {
-        let probe = try Self.probe()
-        let inked = Self.sampleXs()
-            .filter { CGFloat($0) > Self.box.width / 2 }
-            .filter { Self.hasInk(probe.rep, atX: $0, aroundY: probe.barRowY) }
-        #expect(inked.count >= 6,
-                "only \(inked.count) of the swept columns in the trailing half cross any ink — the sweep is not crossing the controls it claims to")
+        let full = try Self.inkedColumns(.default)
+        let stripped = try Self.inkedColumns(PaneBarArrangement([.backForward, .scan, .sort, .hiddenFiles, .preview]))
+        #expect(full > stripped,
+                "the full bar (\(full) inked columns) crosses no more ink than a bar with four controls removed (\(stripped)) — this sweep cannot see controls at all")
+        #expect(full >= stripped + 5,
+                "only \(full) swept columns cross ink against \(stripped) for a stripped bar — the sweep is not crossing the controls it claims to")
+    }
+
+    /// Sampled columns that cross a control on the bar's row.
+    private static func inkedColumns(_ arrangement: PaneBarArrangement) throws -> Int {
+        let probe = try Self.probe(arrangement)
+        return sampleXs().filter { hasInk(probe.rep, atX: $0, aroundY: probe.barRowY) }.count
     }
 
     // MARK: - Fixtures
@@ -122,9 +132,9 @@ import Design
     ///
     /// Borderless, and never ordered in — a `.titled` window cannot be parked off screen, and
     /// `constrainFrameRect` would drag it onto his desktop over whatever he is doing.
-    private static func probe() throws -> Probe {
+    private static func probe(_ arrangement: PaneBarArrangement = .default) throws -> Probe {
         let defaults = ScratchDefaults("PaneBarOverflowMenuTests")
-        defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
+        defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey)
         defaults.set(PaneBarIconSize.regular.rawValue, forKey: PaneBar.iconSizeKey)
         let host = NSHostingView(rootView: AnyView(
             header()
@@ -142,43 +152,73 @@ import Design
         host.layoutSubtreeIfNeeded()
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        return Probe(host: host, window: window, rep: rep, barRowY: barRowY(in: rep))
+        return Probe(host: host, window: window, rep: rep, barRowY: barRowY(of: host))
     }
 
-    /// Which row of the header the bar is on, found rather than assumed: the header stacks the bar
-    /// over the breadcrumb, and a hard-coded fraction of the box would quietly start sampling the
-    /// breadcrumb the first time either one changed height. The bar's row is the one carrying the
-    /// most ink in the trailing half, which is where its controls are and where the breadcrumb —
-    /// anchored leading — has none.
-    private static func barRowY(in rep: NSBitmapImageRep) -> CGFloat {
-        var best = (y: 0, ink: 0)
-        for y in 0..<rep.pixelsHigh {
-            var ink = 0
-            for x in (rep.pixelsWide / 2)..<rep.pixelsWide where isInk(rep.colorAt(x: x, y: y)) {
-                ink += 1
+    /// Which row of the header the bar is on, **read off the controls themselves** rather than
+    /// hunted for in the pixels.
+    ///
+    /// It used to take the inkiest bitmap row of the *trailing half*, on the grounds that the
+    /// controls were there and the leading-anchored breadcrumb was not. That was true only while a
+    /// leading flexible space pinned the bar to the trailing edge; the bar packs left now, the
+    /// trailing half is empty, and the search returned whatever the header's own chrome inked. So
+    /// did narrowing it to the top half — it came back 45.5, one and a half points below the row,
+    /// where every right-click sampled empty space and the whole sweep read as unreachable.
+    ///
+    /// An ink heuristic was always a proxy. The bar's pills each host a `_FocusRingView` (a SwiftUI
+    /// `Button` with a custom style puts no `NSControl` in the tree, so the rings are the only
+    /// handle on where a pill physically is — `PaneBarCanvasTests` leans on the same fact), and the
+    /// bar is the upper of the two focusable rows. That is an exact answer to the question this was
+    /// approximating, and it does not move when the arrangement does.
+    private static func barRowY(of host: NSView) -> CGFloat {
+        var frames: [CGRect] = []
+        func walk(_ v: NSView) {
+            if String(describing: type(of: v)).contains("_FocusRingView") {
+                frames.append(v.convert(v.bounds, to: host))
             }
-            if ink > best.ink { best = (y, ink) }
+            for sub in v.subviews { walk(sub) }
         }
-        #expect(best.ink > 20, "no row of the header carries controls — nothing was drawn")
-        // Bitmap rows run top-down and `NSHostingView` is flipped, so the two indices agree.
-        return CGFloat(best.y) * box.height / CGFloat(rep.pixelsHigh)
+        walk(host)
+        guard let top = frames.map(\.minY).min() else {
+            Issue.record("the header drew no focusable controls at all")
+            return 0
+        }
+        let row = frames.filter { abs($0.minY - top) < 2 }
+        return row.map(\.midY).reduce(0, +) / CGFloat(row.count)
     }
 
+    /// Whether a column crosses one of the bar's controls, on the bar's own row.
+    ///
+    /// **The band is the pill's height, and the threshold is the pill's fill.** Both were wrong, and
+    /// both in the direction that made this guard blind.
+    ///
+    /// The band was ±6 *pixels* around the row's centre — a hairline through the middle of a pill,
+    /// which a glyph's strokes mostly miss. And the threshold asked for a pixel darker than 0.6,
+    /// which is a *glyph*; measured on this fixture, an offscreen `cacheDisplay` renders the pills'
+    /// hover-affordance chrome as flat fills and drops most of the glyph strokes, so the whole
+    /// default bar answered in 3 of 33 columns. Sampled the same way, a header that had lost every
+    /// control would have answered in about the same number.
+    ///
+    /// What the render does give, cleanly, is the fill: measured across the row, a column over a
+    /// control reads 0.92–0.96 and a column over bare header reads 1.00. That separation is the
+    /// honest handle on "is there a control here", so it is the one used. ±11pt covers a regular
+    /// pill top to bottom and still clears the breadcrumb row below.
     private static func hasInk(_ rep: NSBitmapImageRep, atX x: Int, aroundY y: CGFloat) -> Bool {
         let scale = CGFloat(rep.pixelsHigh) / box.height
         let centre = Int(y * scale)
+        let half = Int(11 * scale)
         let px = Int(CGFloat(x) * CGFloat(rep.pixelsWide) / box.width)
-        for row in max(0, centre - 6)...min(rep.pixelsHigh - 1, centre + 6)
+        for row in max(0, centre - half)...min(rep.pixelsHigh - 1, centre + half)
         where isInk(rep.colorAt(x: px, y: row)) {
             return true
         }
         return false
     }
 
-    /// A pixel darker than any of the header's own fills — a glyph or a word, not the card.
+    /// A pixel darker than the bare header behind it — a pill's fill, its border, or a glyph.
     private static func isInk(_ colour: NSColor?) -> Bool {
         guard let px = colour?.usingColorSpace(.sRGB) else { return false }
-        return px.redComponent < 0.6 && px.greenComponent < 0.6 && px.blueComponent < 0.6
+        return px.redComponent < 0.98 && px.greenComponent < 0.98 && px.blueComponent < 0.98
     }
 
     private static func header() -> PaneHeader {

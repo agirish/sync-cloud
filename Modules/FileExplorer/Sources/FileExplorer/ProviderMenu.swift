@@ -14,14 +14,26 @@ public struct ProviderMenu<LabelContent: View>: View {
     private let onSelect: (String) -> Void
     private let onManage: () -> Void
     private let onChooseFolder: (() -> Void)?
+    private let onGoToRoot: (() -> Void)?
     private let label: LabelContent
 
+    /// - Parameter onGoToRoot: moves the caller to the top of the source it is already on. nil omits
+    ///   the item, which is right for every caller that is not a pane — the lens source bar has no
+    ///   position to move.
+    ///
+    ///   It exists because the pane breadcrumb's first crumb has two jobs and only one target. The
+    ///   first cut split them by region — the mark opened this menu, the name went to the root — and
+    ///   it was tried and reported: clicking the chip's obvious affordance (the chevron a few points
+    ///   to its right) opens the *quick-jump* menu, which belongs to the current folder, so the
+    ///   source picker read as missing. A 15pt mark is not an affordance. So the whole chip opens
+    ///   this menu, and going to the root becomes the thing it offers first.
     public init(
         providers: [CloudProvider],
         currentId: String,
         onSelect: @escaping (String) -> Void,
         onManage: @escaping () -> Void,
         onChooseFolder: (() -> Void)? = nil,
+        onGoToRoot: (() -> Void)? = nil,
         @ViewBuilder label: () -> LabelContent
     ) {
         self.providers = providers
@@ -29,11 +41,29 @@ public struct ProviderMenu<LabelContent: View>: View {
         self.onSelect = onSelect
         self.onManage = onManage
         self.onChooseFolder = onChooseFolder
+        self.onGoToRoot = onGoToRoot
         self.label = label()
+    }
+
+    /// What the current source is called, for the "Go to…" item. Read off the list rather than
+    /// taken as a parameter, so it cannot disagree with the row the Picker checks.
+    private var currentName: String? {
+        providers.first { $0.id == currentId }?.displayName
     }
 
     public var body: some View {
         Menu {
+            // First, and above the divider: this is the one item about where you ARE rather than
+            // which source you are on, and it is the commoner act of the two.
+            if let onGoToRoot {
+                Button {
+                    onGoToRoot()
+                } label: {
+                    Label(currentName.map { "Go to \($0)" } ?? "Go to the top of this source",
+                          systemImage: "arrow.turn.left.up")
+                }
+                Divider()
+            }
             // Inline Picker gives the native menu check column for the current provider.
             //
             // ONE picker over the whole list, not one per kind with a divider between: the check
