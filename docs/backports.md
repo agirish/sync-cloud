@@ -434,6 +434,75 @@ and then reinstalls this one is reading keys the newer build has written.
 Nothing here is a defect on this line. It is filed so an audit that finds `root_override_` or
 `rootsModelStamp` in a shared domain knows what wrote them.
 
+### 13. Pane chrome and the scoped refresh landed on `main` 2026-08-27 — split verdict
+
+Three commits landed together and **they do not share a verdict**, which is the point of filing them
+as one item: two are unreachable here, one is a defect this line genuinely carries.
+
+| Landed on `main` | Verdict for this line |
+|---|---|
+| `Give the source chip the size and the disclosure of a control` (`cd96b57d`) | **Main-only by absence** — rides item 12 |
+| `Tell apart two tabs that would otherwise read the same` (`f6c02e84`) | **Main-only by absence** — no tab strip here |
+| `Walk the pane that moved, not both of them` (`b84806d9`) | **RECORDED, not owed** — this line carries the defect |
+
+**The chip is main-only because the thing it resizes does not exist here.** The source chip *is* the
+roots split's replacement for the retired provider capsule, so item 12 disposes of this one too —
+verified by shape rather than by file, since `PaneBreadcrumb.swift` itself is present on both lines
+(2026-08-27):
+
+```sh
+for l in v3.x v2.x; do
+  git show origin/$l:Modules/Dashboard/Sources/Dashboard/PaneBreadcrumb.swift |
+    grep -c 'sourcePicker\|ProviderMenu\|rootCrumb'      # 0 on both — none of the three
+done
+```
+
+**The tab work is main-only at stage 1**, the rare case where the file check settles it:
+`MacApp/ContentView+PaneTabs.swift` and `Modules/Dashboard/Sources/Dashboard/PaneTabStrip.swift` are
+both absent from both lines, and nothing else in either tree is a pane tab strip.
+
+**The refresh scoping is the one that applies, and it applies almost verbatim.** Both lines carry
+`syncPathsFromHistory` byte-identical to the `v4.4` shape — including *the two comparisons the fix
+reads its answer from*, which are already there deciding whether to write each pane's path and are
+already throwing that answer away:
+
+```swift
+func syncPathsFromHistory() {
+    if leftRelativePath != leftHistory.current { leftRelativePath = leftHistory.current }
+    if rightRelativePath != rightHistory.current { rightRelativePath = rightHistory.current }
+    refreshSubject.send()          // no payload — so the host honours it as "walk both panes"
+}
+```
+
+**But the machinery it sends the answer *to* is absent, and that is most of the pick.** `main` gained
+`PaneReloadScope` and a scoped `refreshTreesAndScan` with the tab strip, which neither line has:
+
+```sh
+git grep -l 'PaneReloadScope' origin/v3.x -- Modules MacApp        # 0 files (same on v2.x)
+git grep -n 'func refreshTreesAndScan' origin/v3.x -- Modules      # …+Scanning.swift, NO `reloading:` param
+```
+
+So a pick is: the `PaneReloadScope` enum and its `movedPane(isLeft:)`, the `reloading:` parameter on
+`refreshTreesAndScan` **together with its union rule** (a narrow request must widen to any wider
+refresh already in flight, or a scoped refresh can strand a pane), the `refreshSubject` payload
+change and its four `.send(.both)` sites, and `ContentView`'s `onReceive`. `refreshForTabSwitch`,
+which is `main`'s other caller and the reason the machinery existed before this commit, has nothing
+to apply to and should be left out.
+
+**Do not pick the movement test without the invalidation carve-out.** `resetNavigation` empties both
+pane trees via `invalidateComparisonState()`, and a source switch hands the unmoved pane its own
+current path — so scoped on movement alone that pane's tree stays `[]` and nothing refills it. A
+blank pane, from a switch on the other side. Both lines call `invalidateComparisonState()` from
+`resetNavigation` the same way, so the hazard picks forward with the fix; `RefreshScopeTests`'
+`aProviderSwitchWalksBothPanesBecauseItThrewBothTreesAway` is the test that pins it and is the one
+worth taking first.
+
+**How exposed each line actually is.** The cost is a redundant walk of the untouched pane's root on
+every navigation — invisible while the prefetch cache is warm, a full second root walk once any file
+operation, sort change or force refresh has dropped it. That is a property of tree size, not of
+which line you are on, so both are exposed in proportion to the user's data rather than to the
+version.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
