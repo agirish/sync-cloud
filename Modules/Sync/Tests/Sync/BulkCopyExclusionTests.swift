@@ -126,7 +126,7 @@ import Foundation
     /// offer) while `isBulkSyncRunning`. There is no reachable second offer to confirm. The
     /// refusal banner is pinned instead by `testVerifiedCopyRefusedWhileAnotherBulkRunIsInFlight`.
     @MainActor
-    @Test func testVerifiedCopyExcludesConcurrentBulkRuns() async throws {
+    @Test(.parksAThread) func testVerifiedCopyExcludesConcurrentBulkRuns() async throws {
         let (manager, mockFM, diffs) = try makeFixture(names: ["a.txt", "b.txt"])
         let verifiedDiff = diffs[0]
         let bulkDiff = diffs[1]

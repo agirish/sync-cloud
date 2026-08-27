@@ -317,7 +317,7 @@ import Events
     /// Held deterministically: the folded file's destination stat is parked, so the walk cannot
     /// resolve; a merge that reports done while it is parked is the defect.
     @MainActor
-    @Test func aMergeDoesNotReportDoneBeforeItsCopyUndoIdentityIsRecorded() async throws {
+    @Test(.parksAThread) func aMergeDoesNotReportDoneBeforeItsCopyUndoIdentityIsRecorded() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeUndoArm")
         defer { try? FileManager.default.removeItem(at: base) }
         let rName = "Redundant-\(UUID().uuidString)"

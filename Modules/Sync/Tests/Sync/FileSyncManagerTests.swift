@@ -275,7 +275,7 @@ import Foundation
     }
     
     @MainActor
-    @Test func testLoadingStateAccuracy() async throws {
+    @Test(.parksAThread) func testLoadingStateAccuracy() async throws {
         let mockFM = MockFileManager()
         // Deterministic: the walk parks at the gate (no wall-clock delay/sleep pairing to lose
         // under a loaded parallel test run), so "load in flight" stays observable for exactly

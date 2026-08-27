@@ -76,7 +76,7 @@ import Combine
     }
 
     @MainActor
-    @Test func testQueuedOperationDoesNotClobberRunningProgress() async throws {
+    @Test(.parksThreads(2)) func testQueuedOperationDoesNotClobberRunningProgress() async throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/srcA"), withIntermediateDirectories: true)
         try inner.createDirectory(at: URL(fileURLWithPath: "/dstA"), withIntermediateDirectories: true)
@@ -225,7 +225,7 @@ import Combine
     /// Same accounting hole on the move-onto-itself skip: a trailing "source == destination"
     /// item must count as completed, not leave the bar one short of full.
     @MainActor
-    @Test func testTrailingMoveOntoItselfSkipCompletesTransferProgress() async throws {
+    @Test(.parksAThread) func testTrailingMoveOntoItselfSkipCompletesTransferProgress() async throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)

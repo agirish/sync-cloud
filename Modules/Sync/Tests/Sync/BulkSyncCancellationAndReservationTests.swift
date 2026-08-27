@@ -135,7 +135,7 @@ import Events
     // MARK: 1. Mid-run cancellation of a parallel bulk run
 
     @MainActor
-    @Test func syncAllCancelledMidRunFinishesInFlightItemsAndTakesNoMore() async throws {
+    @Test(.parksThreads(4)) func syncAllCancelledMidRunFinishesInFlightItemsAndTakesNoMore() async throws {
         let disk = MockFileManager()
         try disk.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try disk.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -186,7 +186,7 @@ import Events
     }
 
     @MainActor
-    @Test func bulkCopyLeftToRightCancelledMidRunFinishesInFlightItemsAndTakesNoMore() async throws {
+    @Test(.parksThreads(4)) func bulkCopyLeftToRightCancelledMidRunFinishesInFlightItemsAndTakesNoMore() async throws {
         // Same contract on the second entry point onto the shared worker scaffolding
         // (`bulkCopyDifferencesLeftToRight`, the "copy to match dates" path), which reaches it
         // without syncAll's prepare/collision phase.

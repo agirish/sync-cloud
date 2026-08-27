@@ -1075,6 +1075,13 @@ run to run, and every member is a `ParkGate` or `FirstStatGate` user. Seen acros
 `DifferenceResolutionTests`, `AutoVerifyOnScanTests`, `BulkCopyExclusionTests` and
 `FileSyncManagerTests`.
 
+**The cluster is wider than its gate users, and that matters for diagnosis.** The 2026-08-26
+reproduction (22 runs, four red) also took down `ScanSupersedenceTests`, `FileSyncManagerFilingTests`
+and `FilingBatchReentrancyTests`, none of which blocks a thread: the first misses a "cancel lands
+within 2 s" budget, and the other two park on `parkUntilReleased`, a `Task.yield()` loop that holds
+no thread at all and starves anyway because the pool it yields into is the one the gates have taken.
+A member with no gate in it is collateral, not a second bug.
+
 **This is the honest half of mechanism 8 doing its job, not a regression.** `releasedByTimeout` is
 the recorded-expiry flag that section argues for: the parked call gave up at its 10 s bound instead
 of being released, and says so, rather than resuming quietly and letting the test assert against
@@ -1137,19 +1144,91 @@ A cluster whose membership moves between runs, and a clean serial pass, together
 front of you is not the cause. A single member that fails **every** time, serial included, is a
 genuine gate regression: something stopped signalling `release`.
 
-**Fix.** None applied — this is registered rather than fixed, because every candidate has a cost
-worth weighing first, and the failure is loud and self-describing when it happens:
+**Fix.** Applied 2026-08-26: a **park-thread budget** in
+`Modules/Sync/Tests/Sync/TestSupport.swift`, and a `.parksAThread` / `.parksThreads(n)` trait that
+every gated test declares. At most `activeProcessorCount / 4` threads' worth of parks are admitted
+at once — 2 on this ten-core Mac — so the other eight pool threads are always there to carry the
+releases. A reservation wider than the whole budget is admitted alone rather than deadlocking (the
+six-wide hash window in `FileSyncManagerDuplicatesTests`, the four-worker rendezvous in
+`BulkSyncCancellationAndReservationTests`), and the queue is FIFO so the widest reservation — the
+one holding the most pool threads — cannot be overtaken by a stream of narrow ones and left to
+reach its bound.
+
+Measured on `main` at `b323ae94`, ten logical cores, no CI in flight — 22 full `Modules/Sync`
+package runs before the change, 50 after:
+
+| | Runs | Red | Wall clock | Load average |
+|---|---|---|---|---|
+| Before | 22 | **5** — four this mechanism (7, 9, 11 and 17 issues), one an unrelated `signal 11` | 12.21–12.91 s | 2.2–2.5 |
+| After, quiet | 22 | **0** | 12.00–12.85 s | 2.2–2.5 |
+| After, loaded | 28 | **0** | 12.36–24.69 s | 4.2–17.9 |
+
+The loaded rows are worth more than the quiet ones, and were not planned: another session started
+building in a second worktree partway through. Those 28 runs went green at up to **eight times the
+load average the failing runs were measured at**, one of them taking 24.7 s to do it. This mechanism
+is amplified by a busy machine without being caused by one — which is exactly why a red here has so
+often been read as a bad commit.
+
+The wall-clock column is why this is not `--no-parallel`: serialising the run cures this too, and
+costs the parallel-execution coverage mechanism 3 depends on. Capping the parks costs nothing
+measurable, because the budget only ever queues the two dozen tests that hold a thread.
+
+**Why the budget, and not the three candidates this section used to list.**
 
 - Raising the 10 s bound trades a false failure for a slower one and does not remove the starvation;
   it only moves the threshold, which is what the growing suite count will find again.
-- `.serialized` on the six gated suites is the targeted version of the `--no-parallel` result above,
-  and costs only those suites their overlap.
-- Not blocking a pool thread at all is the real fix: the park exists to hold a **synchronous** seam
-  call in flight, so it needs a thread of its own (a dedicated `Thread`/`DispatchQueue` outside the
-  cooperative pool) rather than whichever one the seam happened to be called on.
+- `.serialized` on the gated suites bounds concurrency *within* each suite, not across them —
+  twelve suites would still park together, already more than the pool has to spare. It also bills
+  every test in those suites, and the gated ones are a minority: six of `AutoVerifyOnScanTests`,
+  three of `VerifyAllWithChecksumTests`.
+- **"Give the park a thread of its own outside the cooperative pool", which this section used to
+  call the real fix, cannot be done** — and the reason is what forced the shape of what replaced
+  it. The
+  park's job is to hold a *synchronous* call in flight, so the thread it blocks is the one the seam
+  was called **on**, and production calls those seams from `Task.detached`. Moving the *wait* onto a
+  dedicated thread does not free the caller: it still has to not return. The same argument kills the
+  obvious version of the budget — a seam call blocked queueing for a slot holds exactly the same
+  pool thread as one blocked in the park. **The reservation has to be taken asynchronously, by the
+  test, before the work that reaches the seam starts**, which is why it is a trait on the test
+  rather than a change inside the gate.
 
-Whichever is taken, mutation-test it: a gate that no longer engages and a gate that engages and is
-released look identical from the outside — that is the whole reason `releasedByTimeout` exists.
+**Nothing about `releasedByTimeout` changed, deliberately** — a gate that no longer engages and a
+gate that engages and is released look identical from the outside, so "quietly stop the gates
+engaging" is a change every suite would go green under. Mutation-tested rather than asserted:
+
+| Mutation | What went red |
+|---|---|
+| `ParkGate.park` disabled outright | all 7 of its consumer tests, plus 2 in `ParkBudgetTests` |
+| `FirstStatGate.gateIfFirst` disabled outright | all 9 of its consumer tests |
+| the park signals `entered` but holds nothing | `aParkThatIsNeverReleasedRecordsItsTimeout` — **and only 1 of the 7 consumers** |
+| the park stops recording its timeout | `aParkThatIsNeverReleasedRecordsItsTimeout` |
+| a gated test drops its `.parksAThread` | `everyTestThatBuildsAThreadBlockingGateDeclaresIt` |
+| a registered blocking sleep changes length | `everyThreadBlockingWaitInThisTargetIsAccountedFor`, both halves |
+| the budget stops enforcing its width | 3 of the budget tests |
+| the budget queue stops being FIFO | `aWideReservationIsNotOvertakenByNarrowOnesBehindIt` |
+| the budget's give-up bound is removed | `aReservationThatCanNeverBeServedGivesUpAndSaysSo` |
+| a give-up stops being reported as a test failure | `theGiveUpDefaultsToARealTestFailure` |
+
+**Two of those rows are findings, not reassurance.**
+
+- **A gate that engages but does not HOLD survives 6 of its 7 consumers.** `entered` is still
+  signalled, so `awaitSignal` passes; `releasedByTimeout` is false, so the `#require` passes; only
+  `testCancelDuringMoveCompletesInFlightItemAndSkipsRest` actually depends on the hold. That is
+  pre-existing and was not introduced here, but it means the honesty this section credits to
+  `releasedByTimeout` really comes from `awaitSignal(gate.entered)` catching a gate that never
+  engages *at all*. `ParkBudgetTests` is what covers the weaker mutant now.
+- **The FIFO and give-up mutants HUNG the run before they were made to fail it.** Both are fixed in
+  the budget itself: the wait queue is an array of ids (a served-counter would strand everyone
+  behind a reservation that gave up out of order), the wait is bounded and RECORDS its give-up, and
+  it honours cancellation — `try? await Task.sleep` swallows the cancellation error, so without an
+  explicit `Task.isCancelled` check the loop spins at full speed and a `.timeLimit` cannot stop it.
+
+**Two ways this rots, both guarded by `ParkBudgetTests`.** A new gated test that forgets the trait,
+and a new park primitive the trait's registry never hears about — the second scan is derived from
+the source rather than from a list, so a new `DispatchSemaphore.wait`, a new blocking sleep, or a
+longer `enumeratorDelay` anywhere in the target trips it. One hole is worth knowing: Swift itself
+rejects `DispatchSemaphore.wait` in an async context, so the only place a new blocking park can
+appear is inside a synchronous seam — which is exactly where the scan looks.
 
 **See.** `Modules/Sync/Tests/Sync/TestSupport.swift` (`ParkGate.park`, `FirstStatGate`,
 `awaitSignal`); mechanism 8 above for why the bound records its own expiry; mechanism 3 for the
@@ -1171,10 +1250,13 @@ at: `DuplicateBatchRedesignTests` parks an enqueued operation on a continuation-
 actor and cites this section in the comment above it. Nothing about `ProgressAccountingTests` needs
 a semaphore — it needs the operation held, not a thread held.
 
-**Not yet done, deliberately.** Converting it is a change to what the test proves it is holding, and
-this suite's whole subject is operation *accounting*; the conversion wants its own mutation test
-(park engaged vs. park released must stay distinguishable — see `releasedByTimeout` above) rather
-than riding along with an unrelated landing.
+**Settled 2026-08-26, and not by converting it.** The `Latch` shape does not apply here after all:
+`ProgressAccountingTests` parks `copyItem`/`moveItem`, which `FileManaging` declares
+non-`async`, so there is no await to hold the operation at — the reason the Fix section above gives
+for why no gate here can stop blocking a thread. What it got instead is a declaration:
+`testQueuedOperationDoesNotClobberRunningProgress` carries `.parksThreads(2)` (it is the suite that
+parks two gates at once) and `testTrailingMoveOntoItselfSkipCompletesTransferProgress` carries
+`.parksAThread`. The mutation test this paragraph asked for was written — see the table above.
 
 **Where this is filed.** `v2.x` carries it too, written for that line — the suite is there unchanged,
 but `DuplicateBatchRedesignTests` is not, so the remedy has to be written there rather than copied
@@ -1204,8 +1286,14 @@ will not see it.
 The `#require(!fm.releasedByTimeout, …)` that failed is the honest-expiry check doing its job —
 the held race silently un-held itself, and the test surfaced that instead of asserting against a
 state it never held. Nothing about the test is wrong; it is one more semaphore-park added to the
-same start-of-run thundering herd, and any remedy is the section's third option (park on a thread
-outside the cooperative pool), weighed with the same care as `ProgressAccountingTests` above.
+same start-of-run thundering herd.
+
+**Settled 2026-08-26** by the budget above: the test carries `.parksAThread`. The section's third
+option — park on a thread outside the cooperative pool — turned out not to exist; see the Fix
+section for why. The "a sweep of `TestSupport.swift`'s gates will not see it" hazard is now a
+scan rather than a hope: `everyThreadBlockingWaitInThisTargetIsAccountedFor` reads every source
+file in the target, so a gate defined privately in a suite is exactly as visible to it as
+`ParkGate` is.
 
 ---
 

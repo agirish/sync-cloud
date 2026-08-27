@@ -347,6 +347,44 @@ rest are single writes guarded by a `firstIndex` (one COW per call, not per elem
 **checked-and-not-owed for a whole family**, which is the expensive half to re-derive: an audit
 reaching item 9 does not need to re-scan for siblings.
 
+### 11. The park-thread budget for the gate flake landed on `main` 2026-08-26 — RECORDED, not owed
+
+Test-only: no production file moved. `main` got a park-thread budget and a `.parksAThread` /
+`.parksThreads(n)` trait in `Modules/Sync/Tests/Sync/TestSupport.swift`, declared by the 24 tests
+whose gates block a cooperative-pool thread, plus `ParkBudgetTests` (the primitive's two halves, the
+budget's, and two adoption scans). It takes a full `Modules/Sync` run from 5 red in 22 to 0 in 22.
+See `docs/flaky-tests.md`, *"Every gate parks at once, on the pool their releases need"*.
+
+**This line carries the defect.** `ParkGate` and `FirstStatGate` are in its `TestSupport.swift`
+verbatim, and **9 of its test files** reference one of them:
+
+```sh
+git ls-tree -r --name-only origin/v3.x -- Modules/Sync/Tests/Sync |
+  while read f; do git show origin/v3.x:$f | grep -ql 'ParkGate\|FirstStatGate' && echo $f; done | wc -l
+```
+
+**Not a cherry-pick, and the reason is not the one already written down.** The `TestSupport.swift`
+half would apply, but a trait nothing declares does nothing, and *which* tests park — and how many
+threads each parks — is a property of this line's own test tree. `main`'s two widest reservations
+are `.parksThreads(6)` (`FileSyncManagerDuplicatesTests.cancelMidHashRepublishesNoNumericProgress`,
+sized by `hashFiles`' six-wide window) and `.parksThreads(4)`
+(`BulkSyncCancellationAndReservationTests`' rendezvous); neither number can be assumed on a line
+whose hasher and bulk-sync differ. The mechanism's own entry already says the remedy has to be
+*written* for a maintenance line rather than copied, on the grounds that `DuplicateBatchRedesignTests`
+(the continuation-`Latch` precedent) is absent there — that premise turns out to be beside the point,
+since the `Latch` is not the remedy at all for a synchronous seam, but the conclusion holds for this
+better reason.
+
+**And this line is owed the mechanism's section before it could be owed the fix.** `v3.x` has no
+*"Every gate parks at once"* section — only a note in its own register saying the entry was never
+brought forward. Anyone closing that gap should take the Fix section with it.
+
+**How exposed each line is, honestly.** Measured 2026-08-11 and recorded in the mechanism's own
+table, `v2.x` passed 4 of 4 full parallel runs at 109 suites — below the threshold, not immune to
+it, since it carries the same gates and the same 10 s bound. `main` was at 262 suites when this was
+fixed. Neither maintenance line has been re-measured since, so "below the threshold" is a
+2026-08-11 fact rather than a current one.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -599,6 +637,19 @@ line and the raw `withAnimation` is there, ungated. A line that wanted this with
 would write `reduceMotion ? nil : …` at each site, which is four small edits and no new API.
 
 Browse's folder sidebar is `main`-only regardless: the sidebar itself shipped in v4.4.
+
+### The park-thread budget for the gate flake landed on `main` 2026-08-26 — RECORDED, not owed
+
+Same item as `v3.x` #11, and the same verdict for the same reason: the trait is worthless without
+per-test declarations, and which tests park how many threads is a property of this line's test tree,
+not of `main`'s. `ParkGate` and `FirstStatGate` are both here, referenced by **9 test files**.
+
+What differs from `v3.x`: this line already carries the mechanism's section (its number 10), so the
+Fix section could be written into it directly — but it would then describe a remedy the line does
+not have, which is worse than the gap. Take both or neither.
+
+Its own measurement is the one the mechanism cites: 4 of 4 full parallel runs green at 109 suites on
+2026-08-11, i.e. below the threshold rather than immune to it. Not re-measured since.
 
 ### Nothing else confirmed
 

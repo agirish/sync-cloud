@@ -532,7 +532,7 @@ import Testing
     /// relied on scheduler luck — the walk usually won, the test then exercised the resolved
     /// fast path, and it passed either way, which is no pin at all.
     @MainActor
-    @Test func anUndoInvokedBeforeTheIdentityWalkResolvesWaitsForItInsteadOfNoOping() async throws {
+    @Test(.parksAThread) func anUndoInvokedBeforeTheIdentityWalkResolvesWaitsForItInsteadOfNoOping() async throws {
         let manager = makeManager()
         let mock = MockFileManager()
         try mock.createDirectory(at: URL(fileURLWithPath: "/undowait-dst"), withIntermediateDirectories: true)

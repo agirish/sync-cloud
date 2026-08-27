@@ -151,6 +151,20 @@ pkill -x yes; pgrep -x yes || echo "clean"
 Use CPU spin, not `sleep`, when validating that a timing test can actually fail — a sleeping process
 contends for nothing and proves nothing.
 
+**The leak that is not a spinner: a killed `swift test` orphans its test process.** Killing the
+`swift test` parent — a tool timeout, a `^C`, a mutation harness giving up on a hang — does not
+always take `swiftpm-testing-helper` with it, and a test that was mid-hang keeps running in that
+orphan. On 2026-08-26 one sat at **100% CPU for twenty minutes** after a mutation run was timed out,
+which took this Mac's load average from 2.2 to 4.7 and made the next twelve full `Modules/Sync` runs
+1.5 s slower apiece; one of them then went red on mechanism 12, a load-sensitive flake that had not
+appeared in the previous 44 runs. Nothing about that red named its cause. So before trusting any
+measurement, and always after a run you interrupted:
+
+```bash
+ps -Ao pid,etime,%cpu,command | grep -e swiftpm-testing-helper -e PackageTests | grep -v grep
+uptime      # and compare against the load you started at, not against "feels idle"
+```
+
 ---
 
 ## When you have the mechanism

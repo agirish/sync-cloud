@@ -123,7 +123,7 @@ import Foundation
     /// is the live route here (⌘Z has no `isVerifyAllRunning` gate), and every undo runs
     /// through `enqueueFileOperation`, which is exactly what this stages.
     @MainActor
-    @Test func testOperationRunningMidHashDiscardsTheCopyOffer() async throws {
+    @Test(.parksAThread) func testOperationRunningMidHashDiscardsTheCopyOffer() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
         let fixture = try makeRaceFixture(fileManager: gate)
         defer { fixture.cleanup() }
@@ -157,7 +157,7 @@ import Foundation
     /// could pass vacuously: park the pass, run NO operation, release, and the identical pair
     /// must be offered exactly as on a plain fixture.
     @MainActor
-    @Test func testGatedFixtureStillPublishesTheOfferWhenNoOperationRuns() async throws {
+    @Test(.parksAThread) func testGatedFixtureStillPublishesTheOfferWhenNoOperationRuns() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
         let fixture = try makeRaceFixture(fileManager: gate)
         defer { fixture.cleanup() }
@@ -383,7 +383,7 @@ import Foundation
     /// progress overlay renders the button off exactly that, which is what the `#require` below
     /// pins before pulling the trigger.
     @MainActor
-    @Test func testACancelledVerifyPassOffersNothingAndRetractsAStandingOffer() async throws {
+    @Test(.parksAThread) func testACancelledVerifyPassOffersNothingAndRetractsAStandingOffer() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
         let fixture = try makeRaceFixture(fileManager: gate)
         defer { fixture.cleanup() }

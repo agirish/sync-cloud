@@ -40,6 +40,8 @@ public final class ParkGate: @unchecked Sendable {
     public let release = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var timedOut = false
+    private var parked = false
+    private var everParked = false
 
     public init() {}
 
@@ -49,13 +51,197 @@ public final class ParkGate: @unchecked Sendable {
         return timedOut
     }
 
+    /// True once `park()` has engaged at least once. `releasedByTimeout` is false both for a gate
+    /// that was held and released AND for one that never engaged at all, so on its own it cannot
+    /// tell those apart; consumers detect the second through `awaitSignal(gate.entered)`, and
+    /// `ParkBudgetTests` pins both directions through this.
+    public var didPark: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return everParked
+    }
+
+    /// True while a call is blocked inside `park()`. Only `ParkBudgetTests` reads it — a consumer
+    /// waits on `entered` and `release`, never on this.
+    public var isParked: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return parked
+    }
+
     /// Signals `entered`, then blocks until `release` arrives or the bound expires.
+    ///
+    /// **This blocks a REAL THREAD, and under a package run that thread is a cooperative-pool
+    /// one** — production reaches its `FileManaging` seams from `Task.detached`. A test whose gate
+    /// gets here must declare `.parksAThread` so the pool keeps enough width to deliver the
+    /// release; see ``ParkThreadBudget`` and `docs/flaky-tests.md`, "Every gate parks at once, on
+    /// the pool their releases need".
     public func park(timeout: TimeInterval = 10) {
+        lock.lock(); parked = true; everParked = true; lock.unlock()
         entered.signal()
-        if release.wait(timeout: .now() + timeout) == .timedOut {
-            lock.lock(); timedOut = true; lock.unlock()
+        let expired = release.wait(timeout: .now() + timeout) == .timedOut
+        lock.lock(); parked = false; if expired { timedOut = true }; lock.unlock()
+    }
+}
+
+// MARK: - The park-thread budget
+
+/// How many REAL THREADS the thread-blocking parks in this target may hold at once, process-wide.
+///
+/// A quarter of the cooperative pool, whose width is the core count. The point is the other three
+/// quarters: every park is released by async work that needs a pool thread to get there, so the
+/// budget is sized by what has to keep running, not by what is allowed to stop.
+let parkThreadBudget = max(2, ProcessInfo.processInfo.activeProcessorCount / 4)
+
+/// Admits at most ``parkThreadBudget`` threads' worth of thread-blocking parks at once.
+///
+/// **Why this exists.** A park holds a SYNCHRONOUS seam call in flight — `FileManaging`'s
+/// `fileExists`/`attributesOfItem`/`copyItem` are not `async`, so the only way to hold one is to
+/// block the thread it was called on, and production reaches those seams from
+/// `Task.detached(priority: .userInitiated)`, i.e. from the Swift cooperative pool. That pool's
+/// width is the core count and it does not grow when a thread blocks. swift-testing starts every
+/// suite at once, so without this the gated tests all park within the same instant, near the
+/// start of the run: 9 of 10 pool threads blocked, measured 2026-08-11. The async side that would
+/// signal `release` then needs a thread from what is left, alongside every other test that also
+/// just started, and some parks reach their 10 s bound instead of being released.
+///
+/// **Why a limiter rather than a rewrite.** The park cannot stop blocking a thread — that is what
+/// holding a synchronous call in flight *is*. `DuplicateBatchRedesignTests`'s continuation-backed
+/// `Latch` is the right answer for what it parks (an enqueued *async* operation), and cannot be
+/// applied here without making `FileManaging` async, which is production API. What can change is
+/// how many park at once.
+///
+/// **Why the wait has to be asynchronous, and on the test side.** Making `park()` itself queue for
+/// a slot would not help: a seam call blocked waiting for a slot holds exactly the same pool thread
+/// as one blocked in the park. The reservation must therefore be taken by the test, in async
+/// context, BEFORE the work that reaches the seam starts — which is what ``ParksThreads`` does.
+///
+/// FIFO, so a wide reservation cannot be starved by a stream of narrow ones: a waiter only tries
+/// once it is at the head of the queue. Waiting costs no thread — it suspends.
+actor ParkThreadBudget {
+    static let shared = ParkThreadBudget()
+
+    /// How long a reservation waits before giving up and going ahead anyway. Far longer than any
+    /// legitimate queue — every gated test is under two seconds and there are about two dozen of
+    /// them — so reaching it means the budget itself is wedged.
+    ///
+    /// **Bounded, and the bound RECORDS itself**, for the same reason the parks it governs are:
+    /// this is a limiter, not a correctness device, so letting an extra park through is a far
+    /// smaller failure than hanging the package run — but a limiter that has quietly stopped
+    /// limiting must not look like one that is working. Both halves are pinned by
+    /// `aReservationThatCanNeverBeServedGivesUpAndSaysSo`; removing the deadline check below turns
+    /// that test from a red one into a run that never finishes, which is how it was found.
+    let giveUpAfter: Duration
+
+    /// Where a give-up is reported. The default is a real test failure, because the whole point of
+    /// the bound is that a limiter which has quietly stopped limiting must not look like one that
+    /// is working.
+    ///
+    /// Injectable **only** so `ParkBudgetTests` can exercise the give-up without a `withKnownIssue`
+    /// — which would put "with 1 known issue" on the summary line of every `Modules/Sync` run
+    /// forever, and that line is the first thing anyone reads off a run here. The cost of the seam
+    /// is that the test drives an injected reporter rather than the shipped one, so
+    /// `theGiveUpDefaultsToARealTestFailure` checks the default by reading this source.
+    private let report: @Sendable (String) -> Void
+
+    init(giveUpAfter: Duration = .seconds(60),
+         report: @escaping @Sendable (String) -> Void = { Issue.record(Comment(rawValue: $0)) }) {
+        self.giveUpAfter = giveUpAfter
+        self.report = report
+    }
+
+    private var held = 0
+    private var nextTicket = 0
+    /// Waiting reservations, oldest first. An array of ids rather than a served counter, because a
+    /// reservation can leave the queue OUT OF ORDER when it gives up, and a counter that skipped
+    /// to its ticket would strand everyone still waiting behind it.
+    private var queue: [Int] = []
+
+    /// The most threads ever reserved at once. Not used by the limiter — it is what
+    /// ``ParkBudgetTests`` measures the limiter with, and what a future "is this still doing
+    /// anything?" question is answered from.
+    private(set) var highWaterMark = 0
+
+    /// Threads reserved right now.
+    var inFlight: Int { held }
+
+    /// Suspends until `threads` more parked threads fit inside the budget. A single reservation
+    /// wider than the whole budget is admitted alone rather than deadlocking — the `held == 0`
+    /// arm — which is what lets a four-worker rendezvous run at all.
+    func reserve(_ threads: Int) async {
+        let ticket = nextTicket
+        nextTicket += 1
+        queue.append(ticket)
+        defer {
+            queue.removeAll { $0 == ticket }
+            held += threads
+            highWaterMark = max(highWaterMark, held)
+        }
+        let deadline = ContinuousClock.now.advanced(by: giveUpAfter)
+        while queue.first != ticket || (held > 0 && held + threads > parkThreadBudget) {
+            if ContinuousClock.now >= deadline {
+                report("""
+                    a park reservation for \(threads) thread(s) waited out \(giveUpAfter) and went
+                    ahead ungoverned. \(held) thread(s) are reserved and \(queue.count) more are
+                    queued, so something took a reservation and never gave it back. See
+                    docs/flaky-tests.md, "Every gate parks at once, on the pool their releases need".
+                    """)
+                return
+            }
+            // Cancellation ends the wait, and the `defer` still balances the `relinquish` the
+            // trait will make. Without this the loop spins at full speed once cancelled —
+            // `try?` swallows the `Task.sleep` cancellation error and the sleep stops
+            // sleeping — so a swift-testing `.timeLimit` could not stop it either. Found by
+            // mutation: removing the deadline above hung the run instead of failing it.
+            if Task.isCancelled { return }
+            // A suspension, not a block: a waiter holds no thread, which is the whole point.
+            try? await Task.sleep(nanoseconds: 2_000_000)
         }
     }
+
+    func relinquish(_ threads: Int) { held -= threads }
+}
+
+/// Declares that a test parks `threads` real threads at a gate, and takes that many out of
+/// ``ParkThreadBudget`` for the test's duration.
+///
+/// Applied per test rather than per suite because the gated tests sit in suites that are mostly
+/// NOT gated (six of `AutoVerifyOnScanTests`, three of `VerifyAllWithChecksumTests`), and
+/// serialising a whole suite to slow down six of its tests is a much larger bill than the problem.
+///
+/// **The reservation covers the whole test, not just the park.** It could be tightened to the
+/// parked window, but for these tests the park IS most of the test: the body launches the work,
+/// waits for `entered`, does its staging, signals `release` and joins. There is nothing
+/// meaningful outside it to reclaim.
+struct ParksThreads: SuiteTrait, TestTrait, TestScoping {
+    let threads: Int
+
+    /// So the trait can also be written on a suite, and mean "each of its tests", rather than
+    /// "this whole suite runs alone".
+    var isRecursive: Bool { true }
+
+    func provideScope(for test: Test, testCase: Test.Case?,
+                      performing function: @Sendable () async throws -> Void) async throws {
+        // The suite-level invocation wraps the whole suite; only the per-test one should reserve.
+        guard testCase != nil else { return try await function() }
+        await ParkThreadBudget.shared.reserve(threads)
+        do {
+            try await function()
+        } catch {
+            // Relinquished on the failure path too — a throwing test must not strand every other
+            // gated test behind it, which would turn one failure into a whole-run timeout.
+            await ParkThreadBudget.shared.relinquish(threads)
+            throw error
+        }
+        await ParkThreadBudget.shared.relinquish(threads)
+    }
+}
+
+extension Trait where Self == ParksThreads {
+    /// The test holds ONE real thread parked at a gate for its duration.
+    static var parksAThread: Self { Self(threads: 1) }
+
+    /// The test holds `count` real threads parked at once — two gates in one run, or a rendezvous
+    /// several workers wide.
+    static func parksThreads(_ count: Int) -> Self { Self(threads: count) }
 }
 
 /// A tiny lock-guarded box for collecting values out of `@Sendable` callbacks in tests

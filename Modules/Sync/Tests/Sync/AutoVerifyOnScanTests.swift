@@ -95,7 +95,7 @@ import Foundation
     /// show a real difference as in-sync until the next scan. The entry guard can't see this
     /// (`activeFileOperationsCount` is back to 0 by commit time) — only the operations epoch can.
     @MainActor
-    @Test func testOperationRunningMidHashDiscardsTheBatch() async throws {
+    @Test(.parksAThread) func testOperationRunningMidHashDiscardsTheBatch() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
         let fixture = try makeFixture(fileManager: gate)
         defer { fixture.cleanup() }
@@ -129,7 +129,7 @@ import Foundation
     /// so without this the discard assertion could pass vacuously: park the pass, run NO
     /// operation, release, and the identical pair must be hidden exactly as on a plain fixture.
     @MainActor
-    @Test func testGatedFixtureStillVerifiesWhenNoOperationRuns() async throws {
+    @Test(.parksAThread) func testGatedFixtureStillVerifiesWhenNoOperationRuns() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
         let fixture = try makeFixture(fileManager: gate)
         defer { fixture.cleanup() }
@@ -159,7 +159,7 @@ import Foundation
     /// rows stayed listed as differences until the user rescanned by hand. The epoch moves at
     /// enqueue time instead, so a decline leaves the batch alone.
     @MainActor
-    @Test func testDeclinedConfirmationDoesNotVoidTheBatch() async throws {
+    @Test(.parksAThread) func testDeclinedConfirmationDoesNotVoidTheBatch() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
         let fixture = try makeFixture(fileManager: gate)
         defer { fixture.cleanup() }
@@ -207,7 +207,7 @@ import Foundation
     /// runs at the tail of the same refresh that spawned the pass. This test fails if someone
     /// "fixes" the sweep into the epoch blind.
     @MainActor
-    @Test func testOrphanSweepDuringTheHashDoesNotDiscardTheBatch() async throws {
+    @Test(.parksAThread) func testOrphanSweepDuringTheHashDoesNotDiscardTheBatch() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
         let fixture = try makeFixture(fileManager: gate)
         defer { fixture.cleanup() }
@@ -267,7 +267,7 @@ import Foundation
     /// the operation's own completion rescan clears `verifiedSameDifferenceIds` and regenerates
     /// every row id, superseding whatever committed here.
     @MainActor
-    @Test func testPendingPreCountedPromptAtCommitDoesNotVoidTheBatch() async throws {
+    @Test(.parksAThread) func testPendingPreCountedPromptAtCommitDoesNotVoidTheBatch() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
         let fixture = try makeFixture(fileManager: gate)
         defer { fixture.cleanup() }
@@ -302,7 +302,7 @@ import Foundation
     /// beats that bump commits sound pre-write verdicts (and the run's completion rescan
     /// supersedes them); a commit after it is discarded on the epoch.
     @MainActor
-    @Test func testBulkSyncPreparePhaseAtCommitDoesNotVoidTheBatch() async throws {
+    @Test(.parksAThread) func testBulkSyncPreparePhaseAtCommitDoesNotVoidTheBatch() async throws {
         let gate = FirstStatGate(inner: FileManager.default)
         let fixture = try makeFixture(fileManager: gate)
         defer { fixture.cleanup() }

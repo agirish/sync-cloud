@@ -377,7 +377,7 @@ import Foundation
     /// A prefetch fast-path load must clear the loading spinner left set by the slow load it
     /// cancelled — the cancelled task cannot clear the flag itself once a newer load owns it.
     @MainActor
-    @Test func testPrefetchFastPathClearsStaleLoadingSpinner() async throws {
+    @Test(.parksAThread) func testPrefetchFastPathClearsStaleLoadingSpinner() async throws {
         let mockFM = MockFileManager()
         // Deterministic: the slow load's walk parks at the gate (no wall-clock delay/sleep
         // pairing to lose under a loaded parallel test run).
@@ -408,7 +408,7 @@ import Foundation
     /// pane sticks on "Scanning Directory…" until the user re-navigates. Mirrors the right pane,
     /// where this was observed.
     @MainActor
-    @Test func testCancelledLoadWithNoSuccessorClearsItsLoadingSpinner() async throws {
+    @Test(.parksAThread) func testCancelledLoadWithNoSuccessorClearsItsLoadingSpinner() async throws {
         let mockFM = MockFileManager()
         // Same deterministic gate as testPrefetchFastPathClearsStaleLoadingSpinner above.
         let gate = ParkGate()

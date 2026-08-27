@@ -127,7 +127,7 @@ import Testing
     /// Cancelling a running scan must propagate into the detached disk walks: the scan winds
     /// down promptly (well under the full-walk time) and publishes nothing.
     @MainActor
-    @Test func testCancellingScanAbortsTheDiskWalkPromptly() async throws {
+    @Test(.parksThreads(2)) func testCancellingScanAbortsTheDiskWalkPromptly() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/left"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/right"), withIntermediateDirectories: true)

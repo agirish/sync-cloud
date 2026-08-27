@@ -80,7 +80,7 @@ import Foundation
     // MARK: Cancel copy
 
     @MainActor
-    @Test func testCancelDuringCopyCompletesInFlightItemAndSkipsRest() async throws {
+    @Test(.parksAThread) func testCancelDuringCopyCompletesInFlightItemAndSkipsRest() async throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -109,7 +109,7 @@ import Foundation
     // MARK: Cancel move
 
     @MainActor
-    @Test func testCancelDuringMoveCompletesInFlightItemAndSkipsRest() async throws {
+    @Test(.parksAThread) func testCancelDuringMoveCompletesInFlightItemAndSkipsRest() async throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -136,7 +136,7 @@ import Foundation
     // MARK: Cancel delete
 
     @MainActor
-    @Test func testCancelDuringDeleteTrashesInFlightItemAndSkipsRest() async throws {
+    @Test(.parksAThread) func testCancelDuringDeleteTrashesInFlightItemAndSkipsRest() async throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         seedFiles(inner, in: "/src", ["a.txt", "b.txt", "c.txt"])

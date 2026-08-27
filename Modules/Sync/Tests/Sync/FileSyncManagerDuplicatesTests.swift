@@ -754,7 +754,7 @@ import Combine
     /// done == total, so ANY numeric publish after the cancel is a stale straggler that the
     /// epoch guard should have dropped.
     @MainActor
-    @Test func cancelMidHashRepublishesNoNumericProgress() async throws {
+    @Test(.parksThreads(6)) func cancelMidHashRepublishesNoNumericProgress() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // Same-size, pairwise-distinct files: every one is a hash candidate, so total == 120.
