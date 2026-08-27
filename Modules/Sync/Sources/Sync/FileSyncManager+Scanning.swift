@@ -452,8 +452,8 @@ extension FileSyncManager {
         activeRefreshKey = key
 
         let task = Task {
-            let leftRoot = (left.path as NSString).expandingTildeInPath
-            let rightRoot = (right.path as NSString).expandingTildeInPath
+            let leftRoot = (left.rootPath as NSString).expandingTildeInPath
+            let rightRoot = (right.rootPath as NSString).expandingTildeInPath
 
             // The two pane loads are independent — disjoint published state, and each walks
             // the disk on its own detached worker — so run them concurrently. Serially they

@@ -142,10 +142,7 @@ public struct PaneTab: Identifiable, Equatable, Sendable {
     /// joined, which is the single location the header's path line renders and the one thing a
     /// person would call "where this tab is".
     public var combinedRelativePath: String {
-        let browse = browsePath.relativePath
-        if relativePath.isEmpty { return browse }
-        if browse.isEmpty { return relativePath }
-        return relativePath + "/" + browse
+        PathBoundary.joinRelative(relativePath, browsePath.relativePath)
     }
 
     /// The chip's label: the leaf folder's own name, falling back to the source's name at the root.

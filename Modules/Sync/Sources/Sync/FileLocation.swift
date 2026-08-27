@@ -103,7 +103,7 @@ public enum FileLocation {
             // `PathBoundary.relativize` guards, arriving here from a provider dropped from
             // settings while its stale row is still on screen. Dropping it entirely is stricter
             // than relying on that guard, and says so.
-            let paths = coveredPaths(ofRootPath: provider.path)
+            let paths = coveredPaths(ofRootPath: provider.rootPath)
             guard !paths.isEmpty else { return nil }
             return CloudRoot(providerId: provider.id,
                              displayName: provider.displayName,

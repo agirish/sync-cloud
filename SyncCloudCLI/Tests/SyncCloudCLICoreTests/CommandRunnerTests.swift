@@ -82,7 +82,7 @@ import Sync
     @Test func scanRejectsAProviderWhoseRootIsUnmounted() async throws {
         let missingRoot = "/nonexistent-root-\(UUID().uuidString)"
         let provider = CloudProvider(id: "dropbox", displayName: "Dropbox", imageName: "folder",
-                                     path: missingRoot, type: .dropBox)
+                                     rootPath: missingRoot, type: .dropBox)
         let rec = Recorder()
         let runner = makeRunner(rec, providers: [provider])
         await #expect(throws: CLIValidationError(message:
@@ -185,8 +185,8 @@ import Sync
 
     @Test func providersListsEachDiscoveredProvider() async {
         let providers = [
-            CloudProvider(id: "icloud", displayName: "iCloud Drive", imageName: "folder", path: "~/Library/Mobile Documents", type: .iCloud),
-            CloudProvider(id: "dropbox", displayName: "Dropbox", imageName: "folder", path: "~/Dropbox", type: .dropBox),
+            CloudProvider(id: "icloud", displayName: "iCloud Drive", imageName: "folder", rootPath: "~/Library/Mobile Documents", type: .iCloud),
+            CloudProvider(id: "dropbox", displayName: "Dropbox", imageName: "folder", rootPath: "~/Dropbox", type: .dropBox),
         ]
         let rec = Recorder()
         await makeRunner(rec, providers: providers).runProviders()
@@ -312,7 +312,7 @@ import Sync
         try write(left.appendingPathComponent("Swimming "), "splash")
         try write(left.appendingPathComponent("normal.txt"), "fine")
         let dropbox = CloudProvider(id: "dropbox-test", displayName: "Dropbox", imageName: "folder",
-                                    path: right.path, type: .dropBox)
+                                    rootPath: right.path, type: .dropBox)
         let expectedReason = try #require(
             ProviderNameRules.violation(inRelativePath: "Swimming ", for: .dropBox)?.reason)
 
@@ -366,7 +366,7 @@ import Sync
         try write(right.appendingPathComponent("CON.txt"), "reserved")
         try write(right.appendingPathComponent("normal.txt"), "fine")
         let oneDrive = CloudProvider(id: "onedrive-test", displayName: "OneDrive (Personal)",
-                                     imageName: "folder", path: left.path, type: .oneDrive)
+                                     imageName: "folder", rootPath: left.path, type: .oneDrive)
         let expectedReason = try #require(
             ProviderNameRules.violation(inRelativePath: "CON.txt", for: .oneDrive)?.reason)
 
@@ -396,7 +396,7 @@ import Sync
         try write(right.appendingPathComponent("Swimming "), "new",
                   mtime: Date(timeIntervalSince1970: 1_700_100_000))
         let dropbox = CloudProvider(id: "dropbox-test", displayName: "Dropbox", imageName: "folder",
-                                    path: left.path, type: .dropBox)
+                                    rootPath: left.path, type: .dropBox)
         // Premise: the SOURCE spelling really is one Dropbox refuses (otherwise this pins nothing).
         #expect(ProviderNameRules.violation(inRelativePath: "Swimming ", for: .dropBox) != nil)
 
@@ -435,7 +435,7 @@ import Sync
         try write(left.appendingPathComponent("CON.txt"), "reserved")
         try write(left.appendingPathComponent("ok.txt"), "fine")
         let oneDrive = CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)",
-                                     imageName: "folder", path: discoveredRoot.path, type: .oneDrive)
+                                     imageName: "folder", rootPath: discoveredRoot.path, type: .oneDrive)
         let expectedReason = try #require(
             ProviderNameRules.violation(inRelativePath: "CON.txt", for: .oneDrive)?.reason)
 
@@ -464,7 +464,7 @@ import Sync
         try write(driveRoot.appendingPathComponent("notes.txt"), "bbbb",
                   mtime: Date(timeIntervalSince1970: 1_700_100_000))
         let drive = CloudProvider(id: "GoogleDrive-me", displayName: "Google Drive (me)",
-                                  imageName: "folder", path: driveRoot.path, type: .googleDrive)
+                                  imageName: "folder", rootPath: driveRoot.path, type: .googleDrive)
 
         // Control: with the setting off this is a real, syncable difference — so a later "nothing
         // to sync" can only come from the filter, never from the fixture failing to produce a row.

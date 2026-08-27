@@ -106,7 +106,10 @@ import FileExplorer
         let host = try Self.source("CommandPaletteHost.swift")
         #expect(host.contains("CommandPaletteState(index: index, pathProbe: Self.pathKind)"),
                 "the palette is built without a path probe — Go to Folder silently offers nothing, on every query")
-        #expect(host.contains("root: (provider.path as NSString).expandingTildeInPath)"),
+        // The source's ROOT: a typed path is judged in-or-out against the whole account, so anyone
+        // swapping this for the landing folder would make every path above a source's documents
+        // tree answer "Not in any source" — the same silent nothing, one level narrower.
+        #expect(host.contains("root: (provider.rootPath as NSString).expandingTildeInPath)"),
                 "the sources reach the router with no path on them — every typed path answers \"Not in any source\"")
 
         let panel = try Self.source("CommandPalettePanel.swift")

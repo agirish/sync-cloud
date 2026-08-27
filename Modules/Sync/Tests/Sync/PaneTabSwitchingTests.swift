@@ -467,8 +467,8 @@ import Foundation
         // Part of the refresh key, so a one-pane refresh in flight cannot swallow a two-pane one
         // as a duplicate and leave the other pane holding a tree nobody reloaded.
         let m = FileSyncManager()
-        let l = CloudProvider(id: "L", displayName: "L", imageName: "", path: "/l", type: .iCloud)
-        let r = CloudProvider(id: "R", displayName: "R", imageName: "", path: "/r", type: .iCloud)
+        let l = CloudProvider(id: "L", displayName: "L", imageName: "", rootPath: "/l", type: .iCloud)
+        let r = CloudProvider(id: "R", displayName: "R", imageName: "", rootPath: "/r", type: .iCloud)
         #expect(m.makeRefreshKey(left: l, right: r, reloading: .leftOnly)
                 != m.makeRefreshKey(left: l, right: r, reloading: .both),
                 "a one-pane refresh and a two-pane one share a key")

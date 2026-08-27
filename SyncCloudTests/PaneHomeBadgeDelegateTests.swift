@@ -16,7 +16,7 @@ import Sync
 
     private static let iCloud = CloudProvider(
         id: "iCloud", displayName: "iCloud", imageName: "icloud",
-        path: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs", type: .iCloud)
+        rootPath: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs", type: .iCloud)
 
     /// The coverage a real settings list would produce, built the production way.
     private static var coverage: FileLocation.Coverage {
@@ -194,7 +194,7 @@ import Sync
                 of: [Self.iCloud,
                      CloudProvider(id: "OneDrive-A", displayName: "OneDrive (A)",
                                    imageName: "onedrive",
-                                   path: "/Users/u/Library/CloudStorage/OneDrive-A/Documents",
+                                   rootPath: "/Users/u/Library/CloudStorage/OneDrive-A/Documents",
                                    type: .oneDrive)],
                 disabledProviderIds: []))
         #expect(before.isEquivalent(to: after) == false,

@@ -296,7 +296,7 @@ struct PaneActionDelegate: FileActionDelegate {
     }
 
     /// The root of the pane this delegate belongs to — never "the focused pane's root".
-    var paneRootPath: String { settings.path(for: isLeft ? leftProviderId : rightProviderId) }
+    var paneRootPath: String { settings.rootPath(for: isLeft ? leftProviderId : rightProviderId) }
 
     /// Only past a second tab: at one, the sole thing left to close is the window, and an item
     /// reading "Close Tab" that closes the window is a trap. Read from the manager rather than
@@ -342,8 +342,8 @@ struct PaneActionDelegate: FileActionDelegate {
         // into the durable ignore store.
         let basePath = PaneLogic.ignoreBasePath(
             isLeft: isLeft,
-            leftRoot: settings.path(for: leftProviderId),
-            rightRoot: settings.path(for: rightProviderId),
+            leftRoot: settings.rootPath(for: leftProviderId),
+            rightRoot: settings.rootPath(for: rightProviderId),
             leftRelativePath: syncManager.leftRelativePath,
             rightRelativePath: syncManager.rightRelativePath)
 

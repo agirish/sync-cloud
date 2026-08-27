@@ -195,8 +195,8 @@ import Testing
         try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
         try Data("x".utf8).write(to: left.appendingPathComponent("loose.pdf"))
         let manager = FileSyncManager()
-        let l = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: left.path, type: .iCloud)
-        let r = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: right.path, type: .iCloud)
+        let l = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: left.path, type: .iCloud)
+        let r = CloudProvider(id: "r", displayName: "Right", imageName: "folder", rootPath: right.path, type: .iCloud)
         await manager.scanDirectories(left: l, leftPath: left.path, right: r, rightPath: right.path)
         return (manager, base)
     }

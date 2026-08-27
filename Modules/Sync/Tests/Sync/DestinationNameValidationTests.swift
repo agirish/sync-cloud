@@ -16,8 +16,8 @@ import Foundation
         try fm.createDirectory(at: URL(fileURLWithPath: "/dropbox"), withIntermediateDirectories: true)
         let manager = FileSyncManager(fileManager: fm)
         manager.lastScanProviders = (
-            left: CloudProvider(id: "l", displayName: "iCloud", imageName: "folder", path: "/icloud", type: .iCloud),
-            right: CloudProvider(id: "r", displayName: "Dropbox", imageName: "folder", path: "/dropbox", type: .dropBox)
+            left: CloudProvider(id: "l", displayName: "iCloud", imageName: "folder", rootPath: "/icloud", type: .iCloud),
+            right: CloudProvider(id: "r", displayName: "Dropbox", imageName: "folder", rootPath: "/dropbox", type: .dropBox)
         )
         return (manager, fm)
     }

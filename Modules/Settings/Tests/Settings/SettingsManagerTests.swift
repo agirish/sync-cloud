@@ -27,7 +27,7 @@ import Sync
         let test = TestDefaults()
         defer { test.wipe() }
         let overridePath = "/Volumes/External/iCloudDocs"
-        test.defaults.set(overridePath, forKey: "path_override_iCloud")
+        test.defaults.set(overridePath, forKey: "root_override_iCloud")
         test.defaults.set("My iCloud", forKey: "name_override_iCloud")
 
         let settings = SettingsManager(
@@ -39,7 +39,7 @@ import Sync
             pathValidator: { $0 == overridePath })
 
         #expect(settings.availableProviders.map(\.id) == ["iCloud"])
-        #expect(settings.path(for: "iCloud") == overridePath)
+        #expect(settings.rootPath(for: "iCloud") == overridePath)
         #expect(settings.availableProviders.first?.displayName == "My iCloud")
         #expect(settings.isPathValid(for: "iCloud") == true)
 
@@ -54,6 +54,6 @@ import Sync
         let test = TestDefaults()
         defer { test.wipe() }
         let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
-        #expect(settings.path(for: "NonExistent") == "")
+        #expect(settings.rootPath(for: "NonExistent") == "")
     }
 }

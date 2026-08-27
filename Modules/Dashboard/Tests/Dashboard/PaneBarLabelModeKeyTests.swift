@@ -32,7 +32,7 @@ import Design
         PaneHeader(
             title: "Left",
             provider: CloudProvider(id: "icloud", displayName: "iCloud Drive",
-                                    imageName: "icloud-logo", path: "/Users/test/iCloud",
+                                    imageName: "icloud-logo", rootPath: "/Users/test/iCloud",
                                     type: .iCloud),
             rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
             canGoBack: true, canGoForward: false, onBack: {}, onForward: {},

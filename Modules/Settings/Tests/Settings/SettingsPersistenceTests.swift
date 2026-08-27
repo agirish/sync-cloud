@@ -14,7 +14,9 @@ import Foundation
     @Test func testSetPathEmptyClearsTheOverride() {
         let test = TestDefaults()
         defer { test.wipe() }
-        let key = "path_override_Dropbox"
+        // The ROOT override. `path_override_` is the legacy Location key, which this build reads
+        // once at migration and never writes — the maintenance lines still read it as theirs.
+        let key = "root_override_Dropbox"
 
         let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { .read([]) })
 

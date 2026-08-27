@@ -119,8 +119,8 @@ import Testing
         // The pane shows the linked folder's real contents, not a phantom empty slice.
         #expect(manager.leftTree.map(\.name).contains("file.txt"))
 
-        let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: leftRoot.path, type: .iCloud)
-        let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: rightRoot.path, type: .iCloud)
+        let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: leftRoot.path, type: .iCloud)
+        let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", rootPath: rightRoot.path, type: .iCloud)
         await manager.scanDirectories(
             left: left, leftPath: sub.appendingPathComponent("loop").path,
             right: right, rightPath: rightRoot.path

@@ -58,7 +58,7 @@ extension ContentView {
     /// source is stored with its `~` intact and the two spellings never met, which is the defect
     /// that comment records.
     var folderSidebarRoot: String {
-        (settings.path(for: folderSidebarProviderId) as NSString).expandingTildeInPath
+        (settings.rootPath(for: folderSidebarProviderId) as NSString).expandingTildeInPath
     }
 
     /// **Enabled sources, not merely available ones.**
@@ -88,7 +88,7 @@ extension ContentView {
         // an unreachable network mount every one of those can block, which is why the store answers
         // both lists in a single pass rather than being asked twice.
         let sources: [FolderSidebarModel.Source] = providers.compactMap { provider in
-            let root = (provider.path as NSString).expandingTildeInPath
+            let root = (provider.rootPath as NSString).expandingTildeInPath
             guard !root.isEmpty else { return nil }
             let remembered = Self.reachableFolders(
                 recents: FolderJumpStore.shared.recentPaths(forRoot: root),
@@ -181,7 +181,7 @@ extension ContentView {
         let details = SidebarSourceModel.qualifiers(
             names: rest.map(\.displayName), qualifiers: rest.map { Self.accountQualifier(for: $0) })
         rows += zip(rest, details).map { provider, detail in
-            let root = (provider.path as NSString).expandingTildeInPath
+            let root = (provider.rootPath as NSString).expandingTildeInPath
             return SidebarSourceRow(
                 id: provider.id, name: provider.displayName, detail: detail,
                 // **The provider's own mark**, which is what the tab strip and the pane header
@@ -275,7 +275,7 @@ extension ContentView {
 
     func folderSidebarRoots(_ providers: [CloudProvider]) -> [(id: String, name: String, path: String)] {
         providers.map { (id: $0.id, name: $0.displayName,
-                         path: ($0.path as NSString).expandingTildeInPath) }
+                         path: ($0.rootPath as NSString).expandingTildeInPath) }
     }
 
     /// Home, then the mounted volumes — the startup disk first, then everything else by name.
@@ -325,7 +325,7 @@ extension ContentView {
         // A folder source's qualifier is where it lives, since two folder sources can share a leaf
         // name as easily as two Drive accounts can share a service name.
         if provider.isLocalFolder {
-            let parent = ((provider.path as NSString).expandingTildeInPath as NSString)
+            let parent = ((provider.rootPath as NSString).expandingTildeInPath as NSString)
                 .deletingLastPathComponent
             return (parent as NSString).lastPathComponent
         }
@@ -510,11 +510,11 @@ extension ContentView {
         // Asked of the pane the row is OPENING ON — `isLeft`, which the context menu can point at
         // the non-target pane — not of `folderSidebarRoot`, which always describes the target.
         // Asking the target answers for the wrong pane exactly when `side` is doing its job.
-        let paneRoot = (settings.path(for: isLeft ? leftProviderId : rightProviderId) as NSString)
+        let paneRoot = (settings.rootPath(for: isLeft ? leftProviderId : rightProviderId) as NSString)
             .expandingTildeInPath
         if FolderJumpStore.key(forRoot: paneRoot) != row.root {
             guard let provider = folderSidebarProviders.first(where: {
-                FolderJumpStore.key(forRoot: ($0.path as NSString).expandingTildeInPath) == row.root
+                FolderJumpStore.key(forRoot: ($0.rootPath as NSString).expandingTildeInPath) == row.root
             }) else {
                 Logger.shared.warning("Sidebar: no enabled source owns \(row.root) — cannot open \(row.relativePath)")
                 return
@@ -591,7 +591,7 @@ extension ContentView {
         // is invisible — the label would offer to remove a folder the toggle then adds.
         guard let place = PaneActionDelegate.favoritePlace(
             nodePath: node.id, isDirectory: node.isDirectory,
-            paneRoot: settings.path(for: isLeft ? leftProviderId : rightProviderId)) else {
+            paneRoot: settings.rootPath(for: isLeft ? leftProviderId : rightProviderId)) else {
             Logger.shared.warning("Pane: cannot favorite \(node.id) — it is not a folder inside this pane's source")
             return
         }
@@ -661,7 +661,7 @@ extension ContentView {
             Logger.shared.warning("Sidebar: \(source.name) claims to be in \(owner), which is not an enabled source")
             return
         }
-        let root = Self.resolved((provider.path as NSString).expandingTildeInPath)
+        let root = Self.resolved((provider.rootPath as NSString).expandingTildeInPath)
         // The path relative to the owning source's root — `focusOn` takes a relative path, and the
         // shortcut only knows its absolute one. Containment re-checked rather than assumed: the
         // row was built earlier, and a source path edited since would make a blind count-strip

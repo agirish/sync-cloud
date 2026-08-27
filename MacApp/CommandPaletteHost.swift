@@ -158,6 +158,10 @@ extension ContentView {
         let profile = syncManager.filingFolderProfile
         // The rule is `PaletteIndex.folders` and not spelled out here — it has a tilde-expansion in
         // it that this call site got wrong, and the installed app was the only thing that noticed.
+        // `root` is the pane's SOURCE ROOT, and everything in the index is relative to it — the
+        // recents and pins below, and any path the user types. The folder profile is surveyed over
+        // the source's anchor instead, which sits inside that root, so `PaletteIndex.folders`
+        // re-bases its keys rather than being handed a second base to measure them against.
         let folders = PaletteIndex.folders(profileRoot: profile?.root, providerRoot: root,
                                            keys: Array(profile?.folders.keys ?? [:].keys))
         // **Both remembered lists in one pass**, so the root is `stat`ed once rather than twice —
@@ -175,7 +179,7 @@ extension ContentView {
                                 // hand-typed `~/…` verbatim and validates it expanded, so without
                                 // this a Location showed green in Settings and dimmed "Not
                                 // mounted" here — about the same folder.
-                                isMounted: Self.isMountedFolder(provider.path),
+                                isMounted: Self.isMountedFolder(provider.rootPath),
                                 // "The current source" means the pane this palette is aimed at —
                                 // the focused one in Compare — for the same reason the folder rows
                                 // are indexed from its root. Asking `leftProviderId` had a
@@ -184,7 +188,7 @@ extension ContentView {
                                 // Expanded, for the reason `isMounted` is expanded above: a
                                 // hand-typed `~/…` in Settings is stored verbatim, and Go to
                                 // Folder compares this against a path it has already expanded.
-                                root: (provider.path as NSString).expandingTildeInPath)
+                                root: (provider.rootPath as NSString).expandingTildeInPath)
             },
             providerRoot: root.isEmpty ? nil : root,
             folders: folders,
@@ -547,7 +551,7 @@ extension ContentView {
     /// whichever pane the lenses target, asked here about a named pane instead. Both roots are
     /// needed to decide the swap, and only one of them is ever the lens target.
     private func providerRootExpanded(_ id: String) -> String {
-        (settings.path(for: id) as NSString).expandingTildeInPath
+        (settings.rootPath(for: id) as NSString).expandingTildeInPath
     }
 
     /// Asks whether to swap the panes so Organize can open on the source the route named.

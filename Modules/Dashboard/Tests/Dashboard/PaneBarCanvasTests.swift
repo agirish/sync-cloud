@@ -54,7 +54,7 @@ import Design
         return PaneHeader(
             title: "Left",
             provider: CloudProvider(id: "icloud", displayName: "iCloud Drive", imageName: "icloud-logo",
-                                    path: "/Users/test/iCloud", type: .iCloud),
+                                    rootPath: "/Users/test/iCloud", type: .iCloud),
             rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
             canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
             onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),

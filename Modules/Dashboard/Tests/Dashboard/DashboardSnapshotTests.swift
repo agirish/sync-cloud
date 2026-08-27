@@ -221,7 +221,7 @@ import Events
                 id: "icloud",
                 displayName: providerName,
                 imageName: "icloud-logo",
-                path: "/Users/test/iCloud",
+                rootPath: "/Users/test/iCloud",
                 type: .iCloud),
             rootPath: "/Users/test/iCloud",
             relativePath: "Documents/Reports",

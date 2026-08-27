@@ -332,17 +332,30 @@ public extension PaletteIndex {
     /// the whole "organize <folder>" lede silently answered nothing. Neither the routing tests (which
     /// are handed folders) nor the render tests could see it; the app's own log line did.
     ///
-    /// **Equality after expansion, not containment.** The keys are relative to the profile's root,
-    /// so a profile rooted anywhere else — deeper or shallower — yields paths that are relative to
-    /// the wrong thing. The first cut allowed a profile root *under* the provider root, which would
-    /// have produced folder routes pointing at paths that do not exist. Nothing is the honest answer
-    /// there; a folder that cannot be named is not a destination.
+    /// **Containment, and the keys are re-based onto the provider root.** The keys are relative to
+    /// the profile's root, and every path in the index it joins — recents, pins, typed paths — is
+    /// relative to the *provider* root. Those were the same folder until a source gained a root
+    /// above its documents tree; now a profile is surveyed over the source's ANCHOR, which sits
+    /// inside the root, so the two bases differ by exactly the source's `openAt` and the keys have
+    /// to carry it.
+    ///
+    /// Getting this wrong is silent, and has been once: comparing the two roots unexpanded made the
+    /// palette log "25 rows from **0 folders**" with 3,013 folders surveyed, and every folder query
+    /// and the whole "organize &lt;folder&gt;" lede answered nothing. An equality test would fail
+    /// exactly that way again the moment a root widened, which is why this is containment — and why
+    /// the re-basing happens here rather than at the call site, where a second copy of the rule
+    /// could drift from the one the routes are built against.
+    ///
+    /// A profile rooted OUTSIDE the provider root still yields nothing: its keys name paths that do
+    /// not exist under this source, and a folder that cannot be named is not a destination.
     static func folders(profileRoot: String?, providerRoot: String, keys: [String]) -> [String] {
         let profile = (profileRoot as NSString?)?.expandingTildeInPath ?? ""
         let provider = (providerRoot as NSString).expandingTildeInPath
-        guard !profile.isEmpty, !provider.isEmpty, profile == provider else { return [] }
+        guard !profile.isEmpty, !provider.isEmpty,
+              let prefix = PathBoundary.relativize(profile, under: provider) else { return [] }
         // `.` is the profile root itself, which is where the rail already opens — not a destination.
         return keys.filter { !$0.isEmpty && $0 != "." }
+            .map { PathBoundary.joinRelative(prefix, $0) }
     }
 }
 

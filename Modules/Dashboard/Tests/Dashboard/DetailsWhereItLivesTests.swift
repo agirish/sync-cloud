@@ -294,7 +294,7 @@ import Sync
 
         let covered = FileLocation.coverage(
             of: [CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
-                               path: root.path, type: .iCloud)],
+                               rootPath: root.path, type: .iCloud)],
             disabledProviderIds: [])
 
         let inspector = mount(path: file.path, coverage: .empty)
@@ -341,7 +341,7 @@ import Sync
 
         let covered = FileLocation.coverage(
             of: [CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
-                               path: root.path, type: .iCloud)],
+                               rootPath: root.path, type: .iCloud)],
             disabledProviderIds: [])
 
         let inspector = mount(path: folder.path, coverage: .empty)

@@ -3,20 +3,33 @@ import Foundation
 import SwiftUI
 import Sync
 
-/// What `SettingsManager.setPath` did with a Location edit.
+/// What `SettingsManager.setPath` or `setOpenAt` did with a folder the user picked.
 ///
 /// Exists so a refusal is something the caller can *see*. The Location field commits on Return and
 /// on focus-loss, so a `setPath` that quietly declined would leave the rejected text sitting in the
 /// field looking accepted — the user's next read of that row would be wrong, and nothing on screen
-/// would say why.
+/// would say why. The same holds for the "Open at" picker, whose panel closes either way.
+///
+/// **The two refusals are separate cases and must stay separate.** They were briefly one: the
+/// out-of-root refusal borrowed `refusedDuplicate(existingId:)` and passed the asking provider's
+/// own id, so the payload named neither a duplicate nor another source. It rendered correctly only
+/// because the one call site switched on the case and ignored the payload — and the next consumer
+/// to copy `commitPath`'s handling would have told the user their folder "is already **this very
+/// source's** folder."
 public enum PathChangeOutcome: Equatable, Sendable {
     /// The new path was stored.
     case changed
     /// Nothing to do: that is already this provider's path, or the edit was empty.
     case unchanged
     /// Refused, because `existingId` already names that folder and one folder gets one row.
-    /// Only a folder source is ever refused — see `setPath` for why an account is not.
+    /// Only a folder source is ever refused this way — see `setPath` for why an account is not.
     case refusedDuplicate(existingId: String)
+    /// Refused, because the chosen landing folder is not inside the source's root. No payload: the
+    /// caller knows which source it asked about, and the root is on screen beside the picker.
+    case refusedOutsideRoot
+    /// Refused, because the source is not in the discovered list — it was dropped or is still being
+    /// discovered while its row is on screen. Nothing was written.
+    case refusedUnknownSource
 }
 
 /// What one pass over the CloudStorage root found, and whether it could read the root at all.
@@ -71,6 +84,19 @@ public class SettingsManager: ObservableObject {
     /// provider — so the validity badge re-checks the disk on the user's explicit refresh
     /// gesture and after path edits, without views stat-ing the filesystem per render.
     @Published public private(set) var pathValidity: [String: Bool] = [:]
+
+    /// Whether each provider's **landing** folder (`rootPath` + `openAt`) exists as a directory.
+    ///
+    /// A second question from `pathValidity`, because the two have different consequences. A
+    /// missing ROOT is a broken source — nothing about it works, and the row's badge says so. A
+    /// missing landing folder is a stale preference: the source is fine, and a pane simply opens at
+    /// the root instead (`openAtIfReachable`). Reporting the second as the first would put an
+    /// invalid badge on a perfectly working account because a folder the user once chose was
+    /// renamed.
+    ///
+    /// Computed in the same off-main pass as `pathValidity`, against the same injected validator,
+    /// so the pair is always one consistent reading of the disk.
+    @Published public private(set) var landingValidity: [String: Bool] = [:]
 
     /// Provider ids the user switched off in Settings. Stored as the disabled set (not the
     /// enabled one) so newly discovered accounts default to enabled. Ids of providers that
@@ -172,7 +198,23 @@ public class SettingsManager: ObservableObject {
     private var discoveryGeneration = 0
     /// Generation of the most recent discovery pass that published its results.
     private var lastPublishedDiscoveryGeneration = 0
-    private static let overrideKeyPrefix = "path_override_"
+    /// **Legacy.** The pre-roots "Location" override: one absolute path that was simultaneously the
+    /// pane root, the breadcrumb ceiling and the scan scope.
+    ///
+    /// Read by `RootsMigration` exactly once, to work out where this install used to sit, and never
+    /// written or removed after — the v3.x and v2.x maintenance lines share this defaults domain
+    /// and still read this key as their Location. Rewriting it would reach backwards into a build
+    /// the user may return to; removing it would delete their setting there outright.
+    nonisolated static let legacyPathOverrideKeyPrefix = "path_override_"
+    /// The root a source covers, when it is not the discovered one. Written only by
+    /// `RootsMigration`, for the install whose legacy Location pointed somewhere OUTSIDE the
+    /// account folder — there is no discovered root that contains such a path, so the path itself
+    /// becomes the root. Settings offers no editor for it: one account has one true root.
+    nonisolated static let rootOverrideKeyPrefix = "root_override_"
+    /// The user's chosen landing folder, **relative to the root**, when it is not the discovered
+    /// default. Empty string is a real value here (the root itself) and is stored as one; absent
+    /// means "use the default".
+    nonisolated static let openAtOverrideKeyPrefix = "openAt_override_"
     private static let nameOverrideKeyPrefix = "name_override_"
     private static let ignoreGoogleDriveNewerDateOnlyKey = "ignoreGoogleDriveNewerDateOnly"
     private static let disabledProviderIdsKey = "disabledProviderIds"
@@ -195,9 +237,13 @@ public class SettingsManager: ObservableObject {
     /// `.standard` resolves to inside the bundled app. Un-bundled processes (the `synccloud` CLI)
     /// must pass `UserDefaults(suiteName: SettingsManager.appSuiteName)` explicitly: their own
     /// `.standard` resolves to a per-process-name domain that never sees the app's path overrides.
-    public static let appSuiteName = "com.abhishekgirish.SyncCloud"
+    ///
+    /// `nonisolated` so `RootsMigration` — which runs before any actor is available and takes this
+    /// as a default argument — can name it rather than keeping a second copy of a bundle
+    /// identifier in the same package.
+    nonisolated public static let appSuiteName = "com.abhishekgirish.SyncCloud"
 
-    static var iCloudDefaultPath: String {
+    nonisolated static var iCloudDefaultPath: String {
         (NSString(string: "~/Documents")).expandingTildeInPath
     }
 
@@ -425,8 +471,11 @@ public class SettingsManager: ObservableObject {
             return existing.id
         }
         // Then the discovered accounts, which is the other thing a chosen path can already be.
+        // Matched against the ROOT: that is the folder the account owns, and since roots widened to
+        // the account folder this now also catches someone adding `.../OneDrive-X` itself, which
+        // used to look like an unclaimed folder because the account's path sat one level below it.
         if let existing = availableProviders.first(where: {
-            $0.id != ignoredId && FolderSource.sameFolder($0.path, path)
+            $0.id != ignoredId && FolderSource.sameFolder($0.rootPath, path)
         }) {
             return existing.id
         }
@@ -552,7 +601,8 @@ public class SettingsManager: ObservableObject {
         // mapping as discovery — persisted path/name overrides included, validity computed
         // against the *effective* path — so anything rendered pre-discovery agrees with the
         // first publish instead of flashing the default path and a wrong badge.
-        let pathOverrides = overridesByProviderId(keyPrefix: Self.overrideKeyPrefix)
+        let rootOverrides = overridesByProviderId(keyPrefix: Self.rootOverrideKeyPrefix)
+        let openAtOverrides = overridesByProviderId(keyPrefix: Self.openAtOverrideKeyPrefix)
         let nameOverrides = overridesByProviderId(keyPrefix: Self.nameOverrideKeyPrefix)
         // Read before the seed is ordered by it. Never seeded and never written on load: an empty
         // order means "the user has not dragged anything", and `inUserOrder` falls through to
@@ -562,10 +612,13 @@ public class SettingsManager: ObservableObject {
             cloudStorageFolders: [],
             iCloudDefaultPath: Self.iCloudDefaultPath,
             folderSources: self.folderSources,
-            pathOverride: { pathOverrides[$0] },
+            rootOverride: { rootOverrides[$0] },
+            openAtOverride: { openAtOverrides[$0] },
             nameOverride: { nameOverrides[$0] }
         ), order: self.sourceOrder)
-        self.pathValidity = Self.validity(of: self.availableProviders, using: self.validatePath)
+        let seedValidity = Self.validity(of: self.availableProviders, using: self.validatePath)
+        self.pathValidity = seedValidity.root
+        self.landingValidity = seedValidity.landing
 
         if autoDiscover {
             Task {
@@ -629,18 +682,27 @@ public class SettingsManager: ObservableObject {
     ///
     /// - Parameters:
     ///   - cloudStorageFolders: Account folder URLs found under the CloudStorage root.
-    ///   - iCloudDefaultPath: Path used for the always-present iCloud provider absent an override.
+    ///   - iCloudDefaultPath: Root used for the always-present iCloud provider absent an override.
     ///   - folderSources: The plain folders the user added, in the order they were added.
-    ///   - pathOverride: Returns the user's custom path for a provider id, or nil for the default.
+    ///   - rootOverride: Returns a migrated root for a provider id, or nil for the discovered one.
+    ///   - openAtOverride: Returns the user's chosen landing folder (root-relative) for a provider
+    ///     id, or nil for the discovered default. An empty string is a real answer — the root.
     ///   - nameOverride: Returns the user's custom display name for a provider id, or nil for
     ///     the discovered default (e.g. "Google Drive (someone@gmail.com)").
     /// - Returns: The providers sorted iCloud → OneDrive → Google Drive → Dropbox → folder sources,
     ///   then by display name within each type; unrecognized folders are ignored.
+    ///
+    /// **Pure, and stays pure.** Nothing here touches the filesystem: whether a discovered root or
+    /// a chosen landing folder actually exists is a *validity* question, answered by
+    /// `validity(of:using:)` against an injected validator on the same pass. Folding an existence
+    /// check in here would make the provider list depend on disk state at map time, which is
+    /// exactly what makes a mapping untestable without a fixture tree.
     nonisolated static func mapProviders(
         cloudStorageFolders: [URL],
         iCloudDefaultPath: String,
         folderSources: [FolderSource] = [],
-        pathOverride: (String) -> String?,
+        rootOverride: (String) -> String? = { _ in nil },
+        openAtOverride: (String) -> String? = { _ in nil },
         nameOverride: (String) -> String? = { _ in nil }
     ) -> [CloudProvider] {
         var found: [CloudProvider] = []
@@ -650,16 +712,20 @@ public class SettingsManager: ObservableObject {
             nameOverride(id).flatMap { $0.isEmpty ? nil : $0 } ?? defaultName
         }
 
-        // 1. iCloud is always available
+        // 1. iCloud is always available. Its root is `~/Documents` and its landing folder is that
+        //    same folder — see `CloudProvider.rootPath` for why the real iCloud Drive root is not
+        //    usable as a source root on a Mac with Desktop & Documents syncing on.
         found.append(CloudProvider(
             id: "iCloud",
             displayName: displayName("iCloud", id: "iCloud"),
             imageName: "icloud",
-            path: iCloudDefaultPath,
+            rootPath: iCloudDefaultPath,
+            openAt: "",
             type: .iCloud
         ))
 
-        // 2. Map the local Cloud Storage folders
+        // 2. Map the local Cloud Storage folders. The account folder is the ROOT; the folder that
+        //    used to be the whole of a source's Location becomes its default landing folder.
         for fileURL in cloudStorageFolders {
             let folderName = fileURL.lastPathComponent
 
@@ -670,18 +736,22 @@ public class SettingsManager: ObservableObject {
                     id: id,
                     displayName: displayName("OneDrive (\(suffix))", id: id),
                     imageName: "onedrive",
-                    path: fileURL.appendingPathComponent("Documents").path,
+                    rootPath: fileURL.path,
+                    openAt: "Documents",
                     type: .oneDrive
                 ))
             } else if folderName.hasPrefix("GoogleDrive-") {
                 let suffix = folderName.dropFirst("GoogleDrive-".count)
                 let id = folderName
-                let defaultPath = fileURL.appendingPathComponent("My Drive").appendingPathComponent("Documents").path
                 found.append(CloudProvider(
                     id: id,
                     displayName: displayName("Google Drive (\(suffix))", id: id),
                     imageName: "googledrive",
-                    path: defaultPath,
+                    rootPath: fileURL.path,
+                    // Two components, so the trail shows `My Drive` on the way down — the level a
+                    // Drive account actually branches at (My Drive beside every Shared drive), and
+                    // one the old single-path root hid completely.
+                    openAt: "My Drive/Documents",
                     type: .googleDrive
                 ))
             } else if folderName == "Dropbox" {
@@ -690,7 +760,8 @@ public class SettingsManager: ObservableObject {
                     id: id,
                     displayName: displayName("Dropbox", id: id),
                     imageName: "dropbox",
-                    path: fileURL.appendingPathComponent("Documents").path,
+                    rootPath: fileURL.path,
+                    openAt: "Documents",
                     type: .dropBox
                 ))
             }
@@ -705,10 +776,18 @@ public class SettingsManager: ObservableObject {
             return a.displayName.localizedStandardCompare(b.displayName) == .orderedAscending
         }
 
-        // Apply user path overrides
+        // Apply the stored overrides. Root first, then landing: an `openAt` is meaningful only
+        // against the root it was measured from, and a migrated root override replaces exactly the
+        // root that its companion `openAt` was relativized against.
         for i in 0..<sorted.count {
-            if let override = pathOverride(sorted[i].id) {
-                sorted[i].path = override
+            if let override = rootOverride(sorted[i].id) {
+                sorted[i].rootPath = override
+            }
+            // Note the deliberate absence of an `isEmpty` filter: "" is the root, a landing folder
+            // the user can legitimately choose and one they cannot otherwise express. Only an
+            // ABSENT key means "use the discovered default".
+            if let override = openAtOverride(sorted[i].id) {
+                sorted[i].openAt = override
             }
         }
 
@@ -720,12 +799,17 @@ public class SettingsManager: ObservableObject {
         //    Path overrides are not applied here — `setPath` writes a folder source's new path
         //    straight into `folderSources`, so this path is already the effective one. A folder
         //    source has no discovered default for an override to sit on top of.
+        //
+        //    A folder source is its own root and lands at it. The root/landing split exists to
+        //    reach *above* a cloud account's document folder; a folder the user picked by hand has
+        //    nothing above it that they did not already choose, so it keeps one path and one row.
         sorted.append(contentsOf: folderSources.map { source in
             CloudProvider(
                 id: source.id,
                 displayName: displayName(source.defaultDisplayName, id: source.id),
                 imageName: folderImageName,
-                path: source.path,
+                rootPath: source.path,
+                openAt: "",
                 type: .localFolder
             )
         })
@@ -753,7 +837,8 @@ public class SettingsManager: ObservableObject {
 
         let lister = listCloudStorageFolders
         let validator = validatePath
-        let overrides = overridesByProviderId(keyPrefix: Self.overrideKeyPrefix)
+        let rootOverrides = overridesByProviderId(keyPrefix: Self.rootOverrideKeyPrefix)
+        let openAtOverrides = overridesByProviderId(keyPrefix: Self.openAtOverrideKeyPrefix)
         let nameOverrides = overridesByProviderId(keyPrefix: Self.nameOverrideKeyPrefix)
         let iCloudPath = Self.iCloudDefaultPath
         let sources = folderSources
@@ -770,7 +855,8 @@ public class SettingsManager: ObservableObject {
                 cloudStorageFolders: folders,
                 iCloudDefaultPath: iCloudPath,
                 folderSources: sources,
-                pathOverride: { overrides[$0] },
+                rootOverride: { rootOverrides[$0] },
+                openAtOverride: { openAtOverrides[$0] },
                 nameOverride: { nameOverrides[$0] }
             )
             return (accounts, providers, Self.validity(of: providers, using: validator))
@@ -809,8 +895,11 @@ public class SettingsManager: ObservableObject {
         if availableProviders != ordered {
             availableProviders = ordered
         }
-        if pathValidity != validity {
-            pathValidity = validity
+        if pathValidity != validity.root {
+            pathValidity = validity.root
+        }
+        if landingValidity != validity.landing {
+            landingValidity = validity.landing
         }
     }
 
@@ -818,19 +907,32 @@ public class SettingsManager: ObservableObject {
     /// snapshotted on the main actor so the discovery pass can run detached without capturing
     /// the (non-Sendable) defaults.
     private func overridesByProviderId(keyPrefix: String) -> [String: String] {
-        // dictionaryRepresentation() merges the entire defaults search list — NSGlobalDomain
-        // included — so a stray global-domain key starting with the prefix would be honored as
-        // an override. Read the owning domain alone when its name is known. A nil persistent
-        // domain there just means nothing was ever persisted to the suite (a fresh install):
-        // that is "no overrides", not license to fall back to the merged list — the fallback
-        // would honor exactly the stray keys this scoping exists to exclude, precisely when
-        // the app owns no keys to outweigh them. Only a caller without a domain name (the
-        // pre-existing bare-suite injection contract) reads the merged list.
+        Self.overridesByProviderId(in: userDefaults, domainName: overridesDomainName, keyPrefix: keyPrefix)
+    }
+
+    /// The scoped read behind `overridesByProviderId`, and behind `RootsMigration`'s harvest of the
+    /// legacy `path_override_` keys — **one implementation, because the scoping rule is the whole
+    /// point of it and a second copy drifted off it immediately.**
+    ///
+    /// `dictionaryRepresentation()` merges the entire defaults search list — NSGlobalDomain
+    /// included — so a stray global-domain key starting with the prefix would be honored as an
+    /// override. Read the owning domain alone when its name is known.
+    ///
+    /// **A nil persistent domain is `[:]`, never a fallback to the merged list.** Nil there means
+    /// nothing was ever persisted to the suite (a fresh install); falling back would honor exactly
+    /// the stray keys this scoping exists to exclude, precisely when the app owns no keys of its
+    /// own to outweigh them. Only a caller that passes no domain name at all (the pre-existing
+    /// bare-suite injection contract) reads the merged list.
+    nonisolated static func overridesByProviderId(
+        in defaults: UserDefaults,
+        domainName: String?,
+        keyPrefix: String
+    ) -> [String: String] {
         let entries: [String: Any]
-        if let domainName = overridesDomainName {
-            entries = userDefaults.persistentDomain(forName: domainName) ?? [:]
+        if let domainName {
+            entries = defaults.persistentDomain(forName: domainName) ?? [:]
         } else {
-            entries = userDefaults.dictionaryRepresentation()
+            entries = defaults.dictionaryRepresentation()
         }
         return entries.reduce(into: [:]) { result, entry in
             guard entry.key.hasPrefix(keyPrefix),
@@ -839,10 +941,46 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    /// One value read with the same domain scoping `overridesByProviderId` uses, for the migration's
+    /// stamp and its record of which sources it has already settled. Both are written with
+    /// `defaults.set`, which lands in the app's own domain — reading them through the merged search
+    /// list would let a stray NSGlobalDomain key of the same name suppress the migration outright.
+    nonisolated static func scopedValue(
+        forKey key: String,
+        in defaults: UserDefaults,
+        domainName: String?
+    ) -> Any? {
+        guard let domainName else { return defaults.object(forKey: key) }
+        return defaults.persistentDomain(forName: domainName)?[key]
+    }
+
+    /// The names of every key under `prefix`, scoped the same way. For a store whose keys carry
+    /// their own identity — `IgnoredItemsStore`'s pair keys — where the migration has to find the
+    /// keys before it can read them.
+    nonisolated static func keys(
+        in defaults: UserDefaults,
+        domainName: String?,
+        havingPrefix prefix: String
+    ) -> [String] {
+        let entries: [String: Any]
+        if let domainName {
+            entries = defaults.persistentDomain(forName: domainName) ?? [:]
+        } else {
+            entries = defaults.dictionaryRepresentation()
+        }
+        return entries.keys.filter { $0.hasPrefix(prefix) }
+    }
+
     /// Whether the provider's root path existed as a directory at the last validity check
     /// (init, or any discovery pass). Unknown provider ids are invalid.
     public func isPathValid(for providerId: String) -> Bool {
         pathValidity[providerId] ?? false
+    }
+
+    /// Whether the provider's landing folder existed at the last validity check. False for an
+    /// unknown id, and true whenever the source lands at its own (valid) root.
+    public func isLandingValid(for providerId: String) -> Bool {
+        landingValidity[providerId] ?? false
     }
 
     /// Whether the provider participates in pane selection. Ids never disabled — including
@@ -897,18 +1035,89 @@ public class SettingsManager: ObservableObject {
         userDefaults.set(disabledProviderIds.sorted(), forKey: Self.disabledProviderIdsKey)
     }
 
+    /// Root existence and landing existence for every provider, from one pass over the disk.
+    ///
+    /// Returned as a pair rather than computed by two functions so the two dictionaries can never
+    /// be read from different moments — the landing answer is only meaningful beside the root
+    /// answer it was measured with.
     private nonisolated static func validity(
         of providers: [CloudProvider],
         using validate: PathValidator
-    ) -> [String: Bool] {
-        Dictionary(providers.map { ($0.id, validate($0.path)) }, uniquingKeysWith: { first, _ in first })
+    ) -> (root: [String: Bool], landing: [String: Bool]) {
+        var root: [String: Bool] = [:]
+        var landing: [String: Bool] = [:]
+        for provider in providers where root[provider.id] == nil {
+            let rootExists = validate(provider.rootPath)
+            root[provider.id] = rootExists
+            // A landing folder AT the root is the root, already stat'ed — and a landing under a
+            // root that does not exist cannot exist either. Neither needs a second syscall.
+            landing[provider.id] = provider.openAt.isEmpty || !rootExists
+                ? rootExists
+                : validate(provider.landingPath)
+        }
+        return (root, landing)
     }
 
-    /// Returns the active root path (either default or user-overridden) for a specific provider.
-    /// - Parameter providerId: The unique identifier.
-    /// - Returns: The absolute directory path as a string.
-    public func path(for providerId: String) -> String {
-        return availableProviders.first(where: { $0.id == providerId })?.path ?? ""
+    /// The **root** of a source: the top of what it covers, and the base every root-relative path
+    /// in the app is measured from. Empty for an unknown id.
+    ///
+    /// This is what a pane's tree is rooted at, what a breadcrumb's first crumb names, and what
+    /// scanning, coverage and containment are bounded by. Callers that want the folder a pane
+    /// *opens* at want `landingPath(for:)` — the two were one value until the roots split, and
+    /// picking the wrong one composes a path that is silently wrong rather than obviously so.
+    public func rootPath(for providerId: String) -> String {
+        availableProviders.first(where: { $0.id == providerId })?.rootPath ?? ""
+    }
+
+    /// The source's landing folder relative to its root; `""` for the root itself and for an
+    /// unknown id.
+    public func openAt(for providerId: String) -> String {
+        availableProviders.first(where: { $0.id == providerId })?.openAt ?? ""
+    }
+
+    /// The landing folder a pane on this source **should actually open at**: `openAt`, or the root
+    /// when that folder is not there.
+    ///
+    /// The degrade is the point. A landing folder is a stored preference pointing at a folder the
+    /// user can rename or delete at any time, from outside this app; seeding a pane to a path that
+    /// is no longer a directory would open every new tab on that source into an empty tree with no
+    /// explanation. The root always exists when the source is valid at all, so it is the one
+    /// fallback that cannot fail in turn.
+    /// The degrade is only as fresh as the last discovery pass, which is what refreshes
+    /// `landingValidity` — renaming the landing folder mid-session does not re-seed panes until
+    /// something rediscovers. That is the same staleness `isPathValid` has always carried, and the
+    /// same one the Settings row reads, so the two never disagree with each other.
+    /// **`== false`, not `!isLandingValid(for:)`, and the asymmetry is the point.** An id with no
+    /// entry is not evidence of a missing folder — it is a source published a moment before the
+    /// validity pass that measured it, which is an ordinary launch state. Degrading there would
+    /// seed panes at the account root for the window between the two, i.e. exactly at launch, which
+    /// is where a wrong landing folder is most visible and most likely to be saved back.
+    ///
+    /// `isLandingValid` defaults the other way because it answers a different question — "do we
+    /// have positive evidence this folder is there?" — for a row that only warns when it also has
+    /// positive evidence about the root (`isPathValid`), so an unknown id says nothing there either.
+    public func openAtIfReachable(for providerId: String) -> String {
+        let openAt = openAt(for: providerId)
+        guard !openAt.isEmpty, landingValidity[providerId] == false else { return openAt }
+        return ""
+    }
+
+    /// Whether this source's root is a stored override rather than the discovered one.
+    ///
+    /// Only `RootsMigration` writes that key, for the install whose legacy Location pointed outside
+    /// its account entirely — so this is false for every source on a normal install, and the one
+    /// control it gates does not appear. It has to exist at all because a root the user cannot see
+    /// the provenance of and cannot clear is a trap: the row presents it as the account's one true
+    /// root while it is in fact a value carried forward from a setting they made years ago.
+    public func hasRootOverride(for providerId: String) -> Bool {
+        userDefaults.string(forKey: "\(Self.rootOverrideKeyPrefix)\(providerId)") != nil
+    }
+
+    /// The absolute folder a pane on this source opens at — `rootPath` with `openAt` applied,
+    /// degrading to the root when the landing folder is missing.
+    public func landingPath(for providerId: String) -> String {
+        PathBoundary.join(root: rootPath(for: providerId),
+                          relative: openAtIfReachable(for: providerId))
     }
 
     /// Persists a custom absolute path mapping for a specific provider ID, dropping the system default.
@@ -918,11 +1127,13 @@ public class SettingsManager: ObservableObject {
     /// which is where that is decided for this and for `addFolderSource` alike. The caller is told
     /// so it can put the field back; a silent no-op would read as the edit having been lost.
     ///
-    /// Re-pointing a **discovered account** is deliberately unrestricted, exactly as before. The
-    /// invariant is about folder sources, which exist only because the user said so; an account's
-    /// Location is a mapping onto machinery that already owns that folder's identity, and refusing
-    /// to let someone aim Dropbox at a folder they had also added as a source would be a new rule,
-    /// not this fix.
+    /// **The account branch below has no editor and is not meant to grow one.** An account has one
+    /// root — the folder `~/Library/CloudStorage` mounts it at — so a field there would be a way to
+    /// be wrong about a fact rather than a preference to express, and Settings shows it read-only.
+    /// What survives is the *clearing* half, reached from the Root row's Reset, which appears only
+    /// for the install `RootsMigration` pinned to a root carried forward from a legacy Location
+    /// (see `hasRootOverride`). Passing a non-empty path here still writes an override, and only
+    /// the migration does that.
     ///
     /// - Parameters:
     ///   - path: The new folder target path.
@@ -952,16 +1163,99 @@ public class SettingsManager: ObservableObject {
             return .changed
         }
         if path.isEmpty {
-            Logger.shared.info("User cleared custom path mapping for provider: \(providerId)")
-            userDefaults.removeObject(forKey: "\(Self.overrideKeyPrefix)\(providerId)")
+            Logger.shared.info("Cleared the root override for provider: \(providerId)")
+            userDefaults.removeObject(forKey: "\(Self.rootOverrideKeyPrefix)\(providerId)")
         } else {
-            Logger.shared.info("User mapped custom path \(path) for provider: \(providerId)")
-            userDefaults.set(path, forKey: "\(Self.overrideKeyPrefix)\(providerId)")
+            Logger.shared.info("Set root \(path) for provider: \(providerId)")
+            userDefaults.set(path, forKey: "\(Self.rootOverrideKeyPrefix)\(providerId)")
         }
         Task {
             await discoverProviders()
         }
         return .changed
+    }
+
+    /// Records the folder panes on this source should open at, given as an absolute path the user
+    /// picked, and returns what happened so a picker can report a refusal.
+    ///
+    /// The chosen folder must be inside the source's root, and that is not a formality: `openAt` is
+    /// *stored* relative to the root, so a folder outside it has no representation here at all —
+    /// the containment test and the conversion are the same operation, which is why
+    /// `PathBoundary.relativize` performs both and a nil is the refusal.
+    ///
+    /// Symlinks are resolved on both sides before the test, and only for the test. A folder reached
+    /// through a link is genuinely inside the root it resolves into, but the *stored* value stays
+    /// the spelling the user navigated, so what Settings shows them is the path they chose.
+    @discardableResult
+    public func setOpenAt(_ absolutePath: String, for providerId: String) -> PathChangeOutcome {
+        let root = rootPath(for: providerId)
+        // Its own refusal, not `.unchanged`. A source can leave the discovered list while its row is
+        // still on screen (or not have entered it yet), and `.unchanged` is what the picker reads as
+        // success — so the user chose a folder, the panel closed, nothing happened, and nothing said
+        // so anywhere, log included.
+        guard !root.isEmpty else {
+            Logger.shared.info(
+                "Refused to open \(providerId) at \(absolutePath): that source has no root right now")
+            return .refusedUnknownSource
+        }
+
+        func resolved(_ path: String) -> String {
+            URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+                .standardizedFileURL.resolvingSymlinksInPath().path
+        }
+        let expandedRoot = (root as NSString).expandingTildeInPath
+        let expandedChoice = (absolutePath as NSString).expandingTildeInPath
+        // Lexical first, so a path the user navigated through a link keeps its own spelling; the
+        // resolved comparison is the fallback for a choice that arrived already resolved (which is
+        // what NSOpenPanel hands back on a machine using firmlinked home directories).
+        let relative = PathBoundary.relativize(expandedChoice, under: expandedRoot)
+            ?? PathBoundary.relativize(resolved(expandedChoice), under: resolved(expandedRoot))
+        guard let relative else {
+            Logger.shared.info(
+                "Refused to open \(providerId) at \(absolutePath): it is outside that source's root (\(root))")
+            return .refusedOutsideRoot
+        }
+        return setOpenAtRelative(relative, for: providerId)
+    }
+
+    /// `setOpenAt` for a value that is already root-relative — the form the migration produces and
+    /// the form on disk. `""` is the root, a legitimate choice, and is stored rather than cleared.
+    @discardableResult
+    public func setOpenAtRelative(_ relative: String, for providerId: String) -> PathChangeOutcome {
+        guard relative != openAt(for: providerId) else { return .unchanged }
+        Logger.shared.info("Provider \(providerId) now opens at \(relative.isEmpty ? "its root" : relative)")
+        userDefaults.set(relative, forKey: "\(Self.openAtOverrideKeyPrefix)\(providerId)")
+        Task {
+            await discoverProviders()
+        }
+        return .changed
+    }
+
+    /// Drops the chosen landing folder, restoring the discovered default (`Documents`, or
+    /// `My Drive/Documents` for Google Drive, or the root for iCloud and folder sources).
+    ///
+    /// Says which of the two it did. The first draft logged the same line either way, so an audit
+    /// read "reset the landing folder" for a source that had no landing folder to reset — and the
+    /// button is enabled in both states (`hasOpenAtOverride` gates only what the row *says*, not
+    /// whether the click is allowed).
+    public func resetOpenAt(for providerId: String) {
+        guard hasOpenAtOverride(for: providerId) else {
+            Logger.shared.info(
+                "Reset the landing folder for provider \(providerId): no override was set, so nothing changed")
+            return
+        }
+        Logger.shared.info("Reset the landing folder to the discovered default for provider: \(providerId)")
+        userDefaults.removeObject(forKey: "\(Self.openAtOverrideKeyPrefix)\(providerId)")
+        Task {
+            await discoverProviders()
+        }
+    }
+
+    /// Whether the landing folder is the user's choice rather than the discovered default. What
+    /// separates "Open at: The source root" *chosen* from the same words *inherited* — which for
+    /// iCloud, whose discovered default IS the root, is otherwise the identical row.
+    public func hasOpenAtOverride(for providerId: String) -> Bool {
+        userDefaults.string(forKey: "\(Self.openAtOverrideKeyPrefix)\(providerId)") != nil
     }
 
     /// Persists a custom display name for a provider (e.g. renaming "Google Drive
@@ -984,11 +1278,11 @@ public class SettingsManager: ObservableObject {
         }
     }
 
-    /// Clears any user-defined override from UserDefaults and restores the System-discovered path.
+    /// Clears any stored root override and restores the discovered root.
     /// - Parameter providerId: The targeted provider ID.
     public func resetPath(for providerId: String) {
-        Logger.shared.info("User reset path mapping to default system root for provider: \(providerId)")
-        userDefaults.removeObject(forKey: "\(Self.overrideKeyPrefix)\(providerId)")
+        Logger.shared.info("User reset the root to the discovered one for provider: \(providerId)")
+        userDefaults.removeObject(forKey: "\(Self.rootOverrideKeyPrefix)\(providerId)")
         Task {
             await discoverProviders()
         }

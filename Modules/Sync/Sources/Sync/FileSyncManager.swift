@@ -2038,8 +2038,8 @@ public class FileSyncManager: ObservableObject {
     internal func makeRefreshKey(left: CloudProvider, right: CloudProvider,
                                  reloading: PaneReloadScope = .both) -> RefreshKey {
         RefreshKey(
-            leftId: left.id, leftPath: left.path,
-            rightId: right.id, rightPath: right.path,
+            leftId: left.id, leftPath: left.rootPath,
+            rightId: right.id, rightPath: right.rootPath,
             leftRel: leftRelativePath, rightRel: rightRelativePath,
             config: scanConfigGeneration,
             reloading: reloading

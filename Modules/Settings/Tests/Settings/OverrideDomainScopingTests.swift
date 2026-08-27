@@ -15,7 +15,7 @@ import Sync
         defer { test.wipe() }
 
         // A real override, persisted to the suite's own domain.
-        test.defaults.set("/real/override", forKey: "path_override_OneDrive-Work")
+        test.defaults.set("/real/override", forKey: "root_override_OneDrive-Work")
         // Keys visible only via the merged search list — a second suite added with
         // addSuite(named:) stands in for NSGlobalDomain: its keys appear in this instance's
         // dictionaryRepresentation() but not in the suite's own persistentDomain. (Per-instance,
@@ -23,7 +23,7 @@ import Sync
         // leak into the other, parallel-running Settings tests.)
         let globalStandIn = TestDefaults()
         defer { globalStandIn.wipe() }
-        globalStandIn.defaults.set("/global/evil", forKey: "path_override_Dropbox")
+        globalStandIn.defaults.set("/global/evil", forKey: "root_override_Dropbox")
         globalStandIn.defaults.set("Evil Name", forKey: "name_override_Dropbox")
         test.defaults.addSuite(named: globalStandIn.suiteName)
 
@@ -41,9 +41,9 @@ import Sync
 
         let byId = Dictionary(uniqueKeysWithValues: settings.availableProviders.map { ($0.id, $0) })
         // The domain-persisted override applies…
-        #expect(byId["OneDrive-Work"]?.path == "/real/override")
+        #expect(byId["OneDrive-Work"]?.rootPath == "/real/override")
         // …the search-list-only keys do not (Dropbox keeps its discovered default path).
-        #expect(byId["Dropbox"]?.path == "/CloudStorage/Dropbox/Documents")
+        #expect(byId["Dropbox"]?.rootPath == "/CloudStorage/Dropbox")
         #expect(byId["Dropbox"]?.displayName == "Dropbox")
     }
 
@@ -59,7 +59,7 @@ import Sync
 
         let globalStandIn = TestDefaults()
         defer { globalStandIn.wipe() }
-        globalStandIn.defaults.set("/global/evil", forKey: "path_override_Dropbox")
+        globalStandIn.defaults.set("/global/evil", forKey: "root_override_Dropbox")
         globalStandIn.defaults.set("Evil Name", forKey: "name_override_Dropbox")
         test.defaults.addSuite(named: globalStandIn.suiteName)
 
@@ -76,7 +76,7 @@ import Sync
         await settings.discoverProviders()
 
         let dropbox = settings.availableProviders.first { $0.id == "Dropbox" }
-        #expect(dropbox?.path == "/CloudStorage/Dropbox/Documents")
+        #expect(dropbox?.rootPath == "/CloudStorage/Dropbox")
         #expect(dropbox?.displayName == "Dropbox")
     }
 
@@ -86,7 +86,7 @@ import Sync
     @Test func testNilDomainNameFallsBackToMergedList() async throws {
         let test = TestDefaults()
         defer { test.wipe() }
-        test.defaults.set("/suite/override", forKey: "path_override_Dropbox")
+        test.defaults.set("/suite/override", forKey: "root_override_Dropbox")
 
         let settings = SettingsManager(
             autoDiscover: false,
@@ -96,6 +96,6 @@ import Sync
         )
         await settings.discoverProviders()
 
-        #expect(settings.availableProviders.first { $0.id == "Dropbox" }?.path == "/suite/override")
+        #expect(settings.availableProviders.first { $0.id == "Dropbox" }?.rootPath == "/suite/override")
     }
 }

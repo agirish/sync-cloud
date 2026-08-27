@@ -51,8 +51,8 @@ import Testing
     }
 
     @Test func diffSnapshotIsStable() {
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: "/left", type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: "/right", type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: "/left", type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: "/right", type: .iCloud)
 
         let leftInfo: [String: FileDiffEngine.FileInfo] = [
             "onlyleft.txt":       info("/left/onlyleft.txt", size: 100, date: d1),
@@ -128,8 +128,8 @@ import Testing
     /// rows), identical children under case-variant FOLDERS produce no rows at all, and exact
     /// matches still own their keys ahead of any variant.
     @Test func caseInsensitiveDiffSnapshotIsStable() {
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: "/left", type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: "/right", type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: "/left", type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: "/right", type: .iCloud)
 
         let leftInfo: [String: FileDiffEngine.FileInfo] = [
             // Leaf case variant, same size+date → one "names differ only by case" row.

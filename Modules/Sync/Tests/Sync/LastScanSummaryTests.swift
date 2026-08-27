@@ -6,8 +6,8 @@ import Testing
 @MainActor
 @Suite struct LastScanSummaryTests {
 
-    private static let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: "/left", type: .iCloud)
-    private static let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: "/right", type: .iCloud)
+    private static let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: "/left", type: .iCloud)
+    private static let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", rootPath: "/right", type: .iCloud)
 
     private func summary(leftPath: String = "/left/Docs", rightPath: String = "/right/Docs",
                          count: Int = 412) -> LastScanSummary {

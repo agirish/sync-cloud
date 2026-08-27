@@ -139,8 +139,8 @@ import Testing
             try? FileManager.default.removeItem(at: rightBase)
         }
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: leftBase,
             right: right, rightURL: rightBase,
@@ -177,8 +177,8 @@ import Testing
             try? FileManager.default.removeItem(at: rightBase)
         }
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: leftBase,
             right: right, rightURL: rightBase,
@@ -208,8 +208,8 @@ import Testing
             try? FileManager.default.removeItem(at: rightBase)
         }
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: leftBase,
             right: right, rightURL: rightBase,
@@ -241,8 +241,8 @@ import Testing
             try? FileManager.default.removeItem(at: rightBase)
         }
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: leftBase,
             right: right, rightURL: rightBase,
@@ -276,8 +276,8 @@ import Testing
             try? FileManager.default.removeItem(at: rightBase)
         }
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: leftBase,
             right: right, rightURL: rightBase,
@@ -303,8 +303,8 @@ import Testing
             try? FileManager.default.removeItem(at: rightBase)
         }
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: leftBase,
             right: right, rightURL: rightBase,
@@ -372,8 +372,8 @@ import Testing
             try? FileManager.default.removeItem(at: rightBase)
         }
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: leftBase,
             right: right, rightURL: rightBase,
@@ -397,8 +397,8 @@ import Testing
             try? FileManager.default.removeItem(at: rightBase)
         }
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: rightBase.path, type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: leftBase,
             right: right, rightURL: rightBase,
@@ -424,8 +424,8 @@ import Testing
         let rightInfo = FileDiffEngine.filesInfo(fromTree: rightNodes, basePath: "/R")
         #expect(rightInfo[""]?.isUnexplored == true)
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: "/L", type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: "/R", type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: "/L", type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: "/R", type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: URL(fileURLWithPath: "/L"),
             right: right, rightURL: URL(fileURLWithPath: "/R"),
@@ -453,8 +453,8 @@ import Testing
         let rightInfo = FileDiffEngine.filesInfo(fromTree: rightNodes, basePath: "/R")
         #expect(rightInfo["shared"]?.isUnexplored == true)
 
-        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: "/L", type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: "/R", type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: "/L", type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: "/R", type: .iCloud)
         let diffs = FileDiffEngine.computeDifferences(
             left: left, leftURL: URL(fileURLWithPath: "/L"),
             right: right, rightURL: URL(fileURLWithPath: "/R"),

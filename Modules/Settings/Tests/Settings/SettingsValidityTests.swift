@@ -34,7 +34,9 @@ private final class ValidPaths: @unchecked Sendable {
 
 private let root = URL(fileURLWithPath: "/Users/test/Library/CloudStorage")
 private func folder(_ name: String) -> URL { root.appendingPathComponent(name) }
-private let dropboxDocs = "/Users/test/Library/CloudStorage/Dropbox/Documents"
+/// The Dropbox source's ROOT — the account folder, which is what validity is asked about.
+/// (`.../Dropbox/Documents` is now merely where panes open inside it.)
+private let dropboxDocs = "/Users/test/Library/CloudStorage/Dropbox"
 
 @MainActor
 private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> SettingsManager {
@@ -60,12 +62,12 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
         let settings = makeSettings(test, validPaths: validPaths)
 
         await settings.discoverProviders()
-        let pathBefore = settings.path(for: "Dropbox")
+        let pathBefore = settings.rootPath(for: "Dropbox")
         #expect(settings.isPathValid(for: "Dropbox") == true)
 
         validPaths.remove(dropboxDocs) // folder vanishes on disk; path string is untouched
         await settings.discoverProviders() // the user's "Refresh providers" gesture
-        #expect(settings.path(for: "Dropbox") == pathBefore)
+        #expect(settings.rootPath(for: "Dropbox") == pathBefore)
         #expect(settings.isPathValid(for: "Dropbox") == false)
     }
 
@@ -100,12 +102,12 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
 
         settings.setPath(external, for: "Dropbox")
         await settings.discoverProviders()
-        #expect(settings.path(for: "Dropbox") == external)
+        #expect(settings.rootPath(for: "Dropbox") == external)
         #expect(settings.isPathValid(for: "Dropbox") == true)
 
         settings.resetPath(for: "Dropbox")
         await settings.discoverProviders()
-        #expect(settings.path(for: "Dropbox") == dropboxDocs)
+        #expect(settings.rootPath(for: "Dropbox") == dropboxDocs)
         #expect(settings.isPathValid(for: "Dropbox") == false)
     }
 

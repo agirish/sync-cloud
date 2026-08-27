@@ -39,8 +39,8 @@ import Foundation
         mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attributes, contents: nil)
         mockFM.virtualDisk["/dst/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attributes, contents: nil)
         
-        let srcProvider = CloudProvider(id: UUID().uuidString, displayName: "Local Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: UUID().uuidString, displayName: "Local Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: UUID().uuidString, displayName: "Local Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: UUID().uuidString, displayName: "Local Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
         
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -73,8 +73,8 @@ import Foundation
         mockFM.virtualDisk["/src/file2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attrSrc, contents: nil)
         mockFM.virtualDisk["/dst/file2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attrDstFar, contents: nil)
         
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
         
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -104,8 +104,8 @@ import Foundation
         mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: attrSrc, contents: nil)
         mockFM.virtualDisk["/dst/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: attrDst, contents: nil)
         
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
         
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -135,8 +135,8 @@ import Foundation
             isDirectory: false, attributes: [.modificationDate: now, .size: 8192], contents: nil)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/folderOnly"), withIntermediateDirectories: true)
 
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
 
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -182,8 +182,8 @@ import Foundation
             contents: []
         )
 
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
 
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -216,8 +216,8 @@ import Foundation
             contents: nil
         )
 
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
 
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -242,8 +242,8 @@ import Foundation
         // Create an empty directory in source
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/empty_folder"), withIntermediateDirectories: true)
         
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
         
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -276,8 +276,8 @@ import Foundation
         mockFM.virtualDisk["/src/nometa.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attrSrcSize500, contents: nil)
         mockFM.virtualDisk["/dst/nometa.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attrDstSize1000, contents: nil)
         
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
         
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -352,8 +352,8 @@ import Foundation
         mockFM.virtualDisk["/src/mismatch"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: newer], contents: nil)
         mockFM.virtualDisk["/dst/mismatch"] = MockFileManager.FileStub(isDirectory: true, attributes: [.modificationDate: older], contents: [])
 
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
 
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -378,8 +378,8 @@ import Foundation
         mockFM.virtualDisk["/src/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: older, .size: 100], contents: nil)
         mockFM.virtualDisk["/dst/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: newer, .size: 100], contents: nil)
 
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
 
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -403,8 +403,8 @@ import Foundation
         mockFM.virtualDisk["/src/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: newer, .size: 100], contents: nil)
         mockFM.virtualDisk["/dst/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: older, .size: 100], contents: nil)
 
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
 
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
@@ -424,8 +424,8 @@ import Foundation
     // stale rows (with spurious overwrite prompts) after the folder entry is synced.
 
     private func makeProviders() -> (CloudProvider, CloudProvider) {
-        (CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud),
-         CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud))
+        (CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud),
+         CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud))
     }
 
     @Test func testMissingFolderCollapsesContentsIntoSingleEntry() async throws {

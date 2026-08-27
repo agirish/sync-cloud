@@ -123,9 +123,18 @@ import Foundation
     @Test func pointingAtAFolderSetsTheScopeAndTheRootClearsIt() throws {
         let source = try Self.contentView()
         // "Organize This Folder…" must SET the scope, not just scan — the scope is the lasting half.
-        let body = try Self.body(of: "func organizeFolderAction(_ node: FileNode, providerRoot: String) {", in: source)
+        let body = try Self.body(
+            of: "func organizeFolderAction(_ node: FileNode, providerRoot: String, providerAnchor: String) {",
+            in: source)
         #expect(body.contains("setOrganizeScope(folder, providerRoot: providerRoot)"),
                 "Organize This Folder no longer sets the scope, so five lenses would ignore it")
+        // **The two roots must not be swapped here.** This one call does both jobs: it sets a scope,
+        // which is measured against the account ROOT so any folder the pane can reach can be one,
+        // and it starts a filing scan, whose taxonomy is the source's ANCHOR. Passing the anchor to
+        // the scope makes every folder above the documents tree un-scopable; passing the root to
+        // the scan hands filing the whole account.
+        #expect(body.contains("providerRoot: URL(fileURLWithPath: providerAnchor)"),
+                "the filing scan is anchored at the account root again, so its taxonomy is the whole account")
         // And the one write is where the root is normalized away, so no caller can mint a second
         // encoding of the global view.
         // The root is a REQUIRED argument, so no caller can silently inherit the focused pane's —

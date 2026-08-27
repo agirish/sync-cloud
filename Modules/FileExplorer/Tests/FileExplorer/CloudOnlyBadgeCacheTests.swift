@@ -282,7 +282,7 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/memo-rootling/y.bin") == true)
     }
 
-    /// The regression this guard exists for: `SettingsManager.path(for:)` answers `""` for a
+    /// The regression this guard exists for: `SettingsManager.rootPath(for:)` answers `""` for a
     /// provider id it cannot resolve, `PaneLogic.fullPath` passes `""` through, and the empty root
     /// then normalized to the prefix `"/"` — which EVERY absolute key matches. A pane whose
     /// provider failed to resolve republished its empty tree and wiped the other pane's answers:

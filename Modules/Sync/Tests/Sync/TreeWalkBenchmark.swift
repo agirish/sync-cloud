@@ -267,8 +267,8 @@ import Testing
         let rightInfo = FileDiffEngine.filesInfo(fromTree: rightTree, basePath: roots[1].path)
         Self.line("diff \(leftInfo.count) vs \(rightInfo.count) entries")
 
-        let left = CloudProvider(id: "l", displayName: "L", imageName: "", path: roots[0].path, type: .iCloud)
-        let right = CloudProvider(id: "r", displayName: "R", imageName: "", path: roots[1].path, type: .oneDrive)
+        let left = CloudProvider(id: "l", displayName: "L", imageName: "", rootPath: roots[0].path, type: .iCloud)
+        let right = CloudProvider(id: "r", displayName: "R", imageName: "", rootPath: roots[1].path, type: .oneDrive)
 
         var total: [Double] = []
         var diffCount = 0

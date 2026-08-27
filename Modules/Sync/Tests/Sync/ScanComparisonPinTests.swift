@@ -9,8 +9,8 @@ import Foundation
 /// that hidden-file differences follow the showHiddenFiles toggle without a rescan.
 @Suite struct ScanComparisonPinTests {
 
-    private static let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: "/left", type: .iCloud)
-    private static let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: "/right", type: .iCloud)
+    private static let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: "/left", type: .iCloud)
+    private static let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", rootPath: "/right", type: .iCloud)
 
     private func fileStub(date: Date? = nil, size: Int? = nil) -> MockFileManager.FileStub {
         var attrs: [FileAttributeKey: Any] = [:]

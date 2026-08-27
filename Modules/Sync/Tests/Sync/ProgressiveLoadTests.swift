@@ -99,8 +99,8 @@ import Testing
         if var r = mockFM.virtualDisk["/right"] { r.contents = ["b.txt"]; mockFM.virtualDisk["/right"] = r }
 
         let manager = FileSyncManager(fileManager: mockFM)
-        let left = CloudProvider(id: "L", displayName: "L", imageName: "folder", path: "/left", type: .iCloud)
-        let right = CloudProvider(id: "R", displayName: "R", imageName: "folder", path: "/right", type: .iCloud)
+        let left = CloudProvider(id: "L", displayName: "L", imageName: "folder", rootPath: "/left", type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "R", imageName: "folder", rootPath: "/right", type: .iCloud)
 
         async let first: Void = manager.refreshTreesAndScan(left: left, right: right)
         try await Task.sleep(nanoseconds: 10_000_000)   // let the first register its key and start loading
@@ -138,10 +138,10 @@ import Testing
         if var l = mockFM.virtualDisk["/left"] { l.contents = ["a.txt", "sub"]; mockFM.virtualDisk["/left"] = l }
 
         let manager = FileSyncManager(fileManager: mockFM)
-        let l1 = CloudProvider(id: "L1", displayName: "L1", imageName: "folder", path: "/left", type: .iCloud)
-        let r1 = CloudProvider(id: "R1", displayName: "R1", imageName: "folder", path: "/right", type: .iCloud)
-        let l2 = CloudProvider(id: "L2", displayName: "L2", imageName: "folder", path: "/left2", type: .iCloud)
-        let r2 = CloudProvider(id: "R2", displayName: "R2", imageName: "folder", path: "/right2", type: .iCloud)
+        let l1 = CloudProvider(id: "L1", displayName: "L1", imageName: "folder", rootPath: "/left", type: .iCloud)
+        let r1 = CloudProvider(id: "R1", displayName: "R1", imageName: "folder", rootPath: "/right", type: .iCloud)
+        let l2 = CloudProvider(id: "L2", displayName: "L2", imageName: "folder", rootPath: "/left2", type: .iCloud)
+        let r2 = CloudProvider(id: "R2", displayName: "R2", imageName: "folder", rootPath: "/right2", type: .iCloud)
 
         // A (K1) — superseded below while its detached walks are still sleeping.
         let a = Task { await manager.refreshTreesAndScan(left: l1, right: r1) }

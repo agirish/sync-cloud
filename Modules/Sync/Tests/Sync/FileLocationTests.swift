@@ -21,12 +21,12 @@ struct FileLocationTests {
         name: String = "OneDrive (Acme)"
     ) -> CloudProvider {
         CloudProvider(id: id, displayName: name, imageName: "onedrive",
-                      path: "/Users/u/Library/CloudStorage/\(id)/Documents", type: .oneDrive)
+                      rootPath: "/Users/u/Library/CloudStorage/\(id)/Documents", type: .oneDrive)
     }
 
     private static func iCloud(name: String = "iCloud") -> CloudProvider {
         CloudProvider(id: "iCloud", displayName: name, imageName: "icloud",
-                      path: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs", type: .iCloud)
+                      rootPath: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs", type: .iCloud)
     }
 
     private static func folderSource(
@@ -34,7 +34,7 @@ struct FileLocationTests {
         path: String = "/Users/u/Projects"
     ) -> CloudProvider {
         CloudProvider(id: id, displayName: "Projects", imageName: "folder.fill",
-                      path: path, type: .localFolder)
+                      rootPath: path, type: .localFolder)
     }
 
     private static func coverage(
@@ -64,7 +64,7 @@ struct FileLocationTests {
     /// OUTSIDE. Without it, `~/Projects-old` would be covered by a source rooted at `~/Projects`.
     @Test func aSiblingSharingAStringPrefixIsOutside() {
         let c = Self.coverage([CloudProvider(id: "p", displayName: "P", imageName: "icloud",
-                                             path: "/Users/u/Cloud", type: .iCloud)])
+                                             rootPath: "/Users/u/Cloud", type: .iCloud)])
         #expect(FileLocation.outsideEveryCloudFolder(path: "/Users/u/Cloudy/a.txt", in: c))
         #expect(FileLocation.outsideEveryCloudFolder(path: "/Users/u/Cloud/a.txt", in: c) == false)
     }
@@ -156,7 +156,7 @@ struct FileLocationTests {
     /// stale row is still on screen.
     @Test func aProviderWithNoPathCoversNothing() {
         let ghost = CloudProvider(id: "gone", displayName: "Gone", imageName: "icloud",
-                                  path: "", type: .dropBox)
+                                  rootPath: "", type: .dropBox)
         let c = Self.coverage([ghost])
         #expect(c.roots.isEmpty)
         #expect(FileLocation.outsideEveryCloudFolder(path: "/Users/u/anything.txt", in: c))

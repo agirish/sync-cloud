@@ -130,8 +130,13 @@ public struct CommandRunner {
         direction: Direction, showHidden: Bool, ignore: [String],
         ignoreGoogleDriveNewerDateOnly: Bool
     ) throws -> (diffs: [FileDifference], leftURL: URL, rightURL: URL) {
-        let leftURL = URL(fileURLWithPath: expandPath(left.path))
-        let rightURL = URL(fileURLWithPath: expandPath(right.path))
+        // **The LANDING folder, not the root.** `-L iCloud` names a source, and what it has always
+        // scanned is that source's documents folder — which is exactly what `landingPath` still
+        // resolves to now that a source's root is the account above it. Scanning `rootPath` would
+        // silently widen every provider-addressed CLI run to the whole account. A path-addressed
+        // root is unaffected: it is its own root with an empty `openAt`, so the two agree.
+        let leftURL = URL(fileURLWithPath: expandPath(left.landingPath))
+        let rightURL = URL(fileURLWithPath: expandPath(right.landingPath))
 
         let leftInfo = try FileDiffEngine.getFilesInDirectory(leftURL)
         let rightInfo = try FileDiffEngine.getFilesInDirectory(rightURL)
@@ -385,7 +390,7 @@ public struct CommandRunner {
             printOut("- \(provider.id)")
             printOut("    name : \(provider.displayName)")
             printOut("    type : \(provider.type.rawValue)")
-            printOut("    path : \(provider.path)")
+            printOut("    path : \(provider.rootPath)")
         }
     }
 }

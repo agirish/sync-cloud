@@ -210,7 +210,7 @@ import Foundation
     @Test func testConcurrentScanProtection() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        let provider = CloudProvider(id: "test", displayName: "Test", imageName: "test", path: "/test", type: .iCloud)
+        let provider = CloudProvider(id: "test", displayName: "Test", imageName: "test", rootPath: "/test", type: .iCloud)
         
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/test"), withIntermediateDirectories: true)
         
@@ -243,8 +243,8 @@ import Foundation
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst2"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src2/latest.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
-        let source = CloudProvider(id: "src", displayName: "Source", imageName: "test", path: "/", type: .iCloud)
-        let destination = CloudProvider(id: "dst", displayName: "Destination", imageName: "test", path: "/", type: .iCloud)
+        let source = CloudProvider(id: "src", displayName: "Source", imageName: "test", rootPath: "/", type: .iCloud)
+        let destination = CloudProvider(id: "dst", displayName: "Destination", imageName: "test", rootPath: "/", type: .iCloud)
 
         let firstScan = Task {
             await manager.scanDirectories(left: source, leftPath: "/src1", right: destination, rightPath: "/dst1")

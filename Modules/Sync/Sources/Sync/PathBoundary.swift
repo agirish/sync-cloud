@@ -54,6 +54,53 @@ public enum PathBoundary {
         relativize(path, under: root) != nil
     }
 
+    /// `root` with `relative` appended — the ONE implementation of the composition `relativize`
+    /// undoes, and the inverse it is paired with everywhere a source's root meets a root-relative
+    /// path (a pane's focus, a tab's stored position, a source's `openAt`).
+    ///
+    /// A LEADING SLASH on `relative` yields the bare root, deliberately. An absolute path is not a
+    /// relative one, and the two cannot be distinguished after `appendingPathComponent` has run
+    /// them together — `/a/b` + `/c/d` is `/a/b/c/d`, which names a folder nobody asked for and
+    /// which usually exists nowhere, so the failure surfaces as an empty pane rather than as a
+    /// wrong one. Falling back to the root keeps a caller that built its relative half wrongly at a
+    /// place it is entitled to be. This is the shape `PaneLogic.fullPath` shipped with; it is
+    /// hoisted here so the rule holds for `CloudProvider.landingPath` too rather than being
+    /// re-derived per call site.
+    ///
+    /// The tilde is expanded on the ROOT only: roots are stored abbreviated (`~/Documents`,
+    /// `FolderSource.abbreviated`), while a root-relative path never begins with one.
+    public static func join(root: String, relative: String) -> String {
+        let expandedRoot = (root as NSString).expandingTildeInPath
+        guard !relative.isEmpty, !relative.hasPrefix("/") else { return expandedRoot }
+        return (expandedRoot as NSString).appendingPathComponent(relative)
+    }
+
+    /// Two root-relative paths joined — `""` for either side short-circuits, so no empty component
+    /// can produce a doubled or leading separator.
+    ///
+    /// The composition a rebase performs (`"Documents"` + `"Family/Photos"`), kept next to `join`
+    /// because the invariant that matters is shared: what comes out is canonical root-relative
+    /// form, never something `join` would then discard for having a leading slash.
+    public static func joinRelative(_ prefix: String, _ relative: String) -> String {
+        if prefix.isEmpty { return relative }
+        if relative.isEmpty { return prefix }
+        return prefix + "/" + relative
+    }
+
+    /// The ONE spelling of a provider root used as a dictionary key: tilde expanded, trailing
+    /// slashes trimmed, and deliberately nothing more.
+    ///
+    /// Case-folding would merge two genuinely distinct roots on a case-sensitive volume, and
+    /// symlink resolution would make a key depend on disk state that can change under a persisted
+    /// pin. `FolderJumpStore.key(forRoot:)` is this rule — the app carries both spellings of a
+    /// folder source's path (the panes hand over the stored `~/…` form, surfaces that touch the
+    /// disk expand it first), and used raw as keys those two never met.
+    public static func normalizedRoot(_ root: String) -> String {
+        var path = (root as NSString).expandingTildeInPath
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path
+    }
+
     /// Whether two paths name the SAME directory, folding case when the volume does.
     ///
     /// The one implementation of filing's "the chosen folder IS the file's current folder" test,

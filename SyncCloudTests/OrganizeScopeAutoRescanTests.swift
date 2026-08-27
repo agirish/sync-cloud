@@ -67,16 +67,23 @@ import Foundation
                                    in: source)
         #expect(filing.contains("organizeScope?.path ?? filingScanTargetFolder"),
                 "the filing scan is aimed at the pane again")
-        // The provider root stays the taxonomy root in both, for the reason below.
-        #expect(filing.contains("let root = lensProviderRootExpanded"))
+        // The source ANCHOR stays the taxonomy root in both, for the reason below.
+        #expect(filing.contains("let root = lensProviderAnchorExpanded"))
     }
 
-    @Test func theProviderRootIsStillTheTaxonomyRoot() throws {
-        // The scope narrows what is *scanned*; destinations still anchor at the provider root, or a
-        // rule's "Home/Utilities/…" would nest under whatever subtree happened to be scoped.
+    @Test func theSourceAnchorIsStillTheTaxonomyRoot() throws {
+        // The scope narrows what is *scanned*; destinations still anchor at the source, or a rule's
+        // "Home/Utilities/…" would nest under whatever subtree happened to be scoped.
+        //
+        // The ANCHOR — the landing folder — and not the account root, which is a different folder
+        // since sources gained one above their documents tree. Every automation destination and
+        // every filing taxonomy was authored when "provider-relative" meant relative to the
+        // documents folder, so anchoring at the root would repoint them all silently: `TODO`, the
+        // inbox default, names a real folder at the top of a OneDrive account as well as one inside
+        // its Documents. See `ContentView.lensProviderAnchorExpanded`.
         let source = try Self.contentView()
         let body = try Self.body(of: "func autoRescanLensIfShowing() {", in: source)
-        #expect(body.contains("let root = lensProviderRootExpanded"))
+        #expect(body.contains("let root = lensProviderAnchorExpanded"))
         #expect(body.contains("providerRoot: URL(fileURLWithPath: root)"))
     }
 

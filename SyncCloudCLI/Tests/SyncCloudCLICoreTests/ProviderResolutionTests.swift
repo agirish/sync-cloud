@@ -29,8 +29,8 @@ private struct StubFileManager: FileManaging {
 }
 
 private let providers = [
-    CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", path: "/icloud/docs", type: .iCloud),
-    CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)", imageName: "onedrive", path: "/od/docs", type: .oneDrive),
+    CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", rootPath: "/icloud/docs", type: .iCloud),
+    CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)", imageName: "onedrive", rootPath: "/od/docs", type: .oneDrive),
 ]
 
 @Suite struct ProviderResolutionTests {
@@ -40,7 +40,28 @@ private let providers = [
             value: "OneDrive-Personal", label: "Left", providers: providers,
             fileManager: StubFileManager(directories: ["/od/docs"]))
         #expect(resolved.id == "OneDrive-Personal")
-        #expect(resolved.path == "/od/docs")
+        #expect(resolved.landingPath == "/od/docs")
+    }
+
+    /// **`-L <source>` scans that source's LANDING folder, not the account above it.**
+    ///
+    /// Every other fixture here has an empty `openAt`, which makes `rootPath` and `landingPath` the
+    /// same string and so cannot tell the two apart — this is the one case that can. It matters
+    /// because a source's root widened to the whole account: `synccloud -L OneDrive-Personal` used
+    /// to scan the Documents folder, and reading `rootPath` in `CommandRunner.scanForDifferences`
+    /// would silently point every provider-addressed run at the entire account instead, with
+    /// nothing on screen to say the subject had changed.
+    @Test func testAProviderAddressedRootResolvesToItsLandingFolderNotItsRoot() throws {
+        let withOpenAt = [
+            CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)",
+                          imageName: "onedrive", rootPath: "/od", openAt: "Documents",
+                          type: .oneDrive),
+        ]
+        let resolved = try resolveProviderOrPath(
+            value: "OneDrive-Personal", label: "Left", providers: withOpenAt,
+            fileManager: StubFileManager(directories: ["/od", "/od/Documents"]))
+        #expect(resolved.landingPath == "/od/Documents")
+        #expect(resolved.rootPath == "/od", "the root is still the whole account")
     }
 
     @Test func testMatchesByDisplayName() throws {
@@ -55,7 +76,7 @@ private let providers = [
             value: "/some/dir", label: "Left", providers: providers,
             fileManager: StubFileManager(directories: ["/some/dir"]))
         #expect(resolved.id == "/some/dir")
-        #expect(resolved.path == "/some/dir")
+        #expect(resolved.landingPath == "/some/dir")
         #expect(resolved.displayName == "Left")
     }
 
@@ -64,7 +85,7 @@ private let providers = [
         let resolved = try resolveProviderOrPath(
             value: "~/somewhere", label: "Left", providers: providers,
             fileManager: StubFileManager(directories: ["\(home)/somewhere"]))
-        #expect(resolved.path == "\(home)/somewhere")
+        #expect(resolved.landingPath == "\(home)/somewhere")
     }
 
     @Test func testUnknownValueThrowsWithLabel() {
@@ -103,7 +124,7 @@ private let providers = [
         // symlink convention produces on a real machine.
         let sameTree = canonicalPath("iCloud")
         let shadowing = [CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
-                                       path: sameTree, type: .iCloud)]
+                                       rootPath: sameTree, type: .iCloud)]
         let resolved = try resolveProviderOrPath(
             value: "iCloud", label: "Left", providers: shadowing,
             fileManager: StubFileManager(directories: [sameTree, "iCloud"]))
@@ -157,11 +178,11 @@ private let providers = [
 
     private static let cloudProviders = [
         CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
-                      path: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs", type: .iCloud),
+                      rootPath: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs", type: .iCloud),
         CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)", imageName: "onedrive",
-                      path: "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents", type: .oneDrive),
+                      rootPath: "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents", type: .oneDrive),
         CloudProvider(id: "GoogleDrive-me", displayName: "Google Drive (me)", imageName: "googledrive",
-                      path: "/Users/u/Library/CloudStorage/GoogleDrive-me/My Drive/Documents", type: .googleDrive),
+                      rootPath: "/Users/u/Library/CloudStorage/GoogleDrive-me/My Drive/Documents", type: .googleDrive),
     ]
 
     @Test func testPathAddressedProviderRootKeepsItsProviderType() throws {
@@ -215,7 +236,7 @@ private let providers = [
         let home = NSHomeDirectory()
         let tilded = [CloudProvider(
             id: "Dropbox", displayName: "Dropbox", imageName: "dropbox",
-            path: "~/Dropbox", type: .dropBox)]
+            rootPath: "~/Dropbox", type: .dropBox)]
         let resolved = try resolveProviderOrPath(
             value: "Dropbox", label: "Left", providers: tilded,
             fileManager: StubFileManager(directories: ["\(home)/Dropbox"]))
@@ -263,7 +284,7 @@ private let providers = [
         let fm = StubFileManager(directories: ["/icloud/docs", "./iCloud"])
         let resolved = try resolveProviderOrPath(value: "./iCloud", label: "Left",
                                                  providers: providers, fileManager: fm)
-        #expect(resolved.path == "./iCloud", "the escape hatch the refusal offers does not work")
+        #expect(resolved.landingPath == "./iCloud", "the escape hatch the refusal offers does not work")
     }
 
     /// An unambiguous provider name still resolves — the guard fires only where both readings

@@ -1473,6 +1473,11 @@ struct ProviderSettingsSection: View {
     /// the user re-typing the same path.
     @State private var refusedDuplicateOwner: String?
 
+    /// Why the last "Open at" pick was declined, or nil when none was. A folder outside the root
+    /// cannot be stored — `openAt` is measured from the root — and a picker that simply did
+    /// nothing would look broken rather than principled.
+    @State private var openAtRefusal: String?
+
     private var isEnabled: Bool {
         settings.isEnabled(provider.id)
     }
@@ -1502,12 +1507,12 @@ struct ProviderSettingsSection: View {
                     // account is identified by its id (`OneDrive-Personal`) — that IS the
                     // account, and its path is a consequence of it. A folder source's id is a
                     // UUID that says nothing to anyone; the folder IS the path, so that shows.
-                    Text(provider.isLocalFolder ? provider.path : provider.id)
+                    Text(provider.isLocalFolder ? provider.rootPath : provider.id)
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .help(provider.isLocalFolder ? provider.path : provider.id)
+                        .help(provider.isLocalFolder ? provider.rootPath : provider.id)
                 }
 
                 Spacer()
@@ -1530,12 +1535,13 @@ struct ProviderSettingsSection: View {
             }
             .padding(.vertical, 2)
             .onAppear {
-                pathDraft.adopt(provider.path)
+                pathDraft.adopt(provider.rootPath)
                 draftName = provider.displayName
                 // A refusal is about one edit, not about the row. Re-mounting starts clean.
                 refusedDuplicateOwner = nil
+                openAtRefusal = nil
             }
-            .onChange(of: provider.path) { _, updated in
+            .onChange(of: provider.rootPath) { _, updated in
                 pathDraft.adoptExternalChange(to: updated, isEditing: pathFieldFocused)
             }
             .onChange(of: provider.displayName) { _, updated in
@@ -1545,13 +1551,149 @@ struct ProviderSettingsSection: View {
             }
 
             if isExpanded {
-                // The path gets its own full-width line rather than sharing one with its label.
-                // Beside the label it had ~300pt, and every provider under
-                // ~/Library/CloudStorage runs past that — the paths were clipped at the pane edge
-                // with no ellipsis, so the tail that distinguishes them
-                // (…/OneDrive-Personal/Documents from …/Desktop) was the part you couldn't see.
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Location")
+                if provider.isLocalFolder {
+                    folderLocationEditor
+                } else {
+                    accountRootRow
+                    openAtRow
+                }
+            }
+        }
+    }
+
+    // MARK: - A cloud account: a root it does not choose, and a folder it does
+
+    /// The account's root, shown and not offered for editing.
+    ///
+    /// An account has exactly one root — the folder `~/Library/CloudStorage` mounts it at — so a
+    /// field here would be a way to be wrong about a fact, not a preference to express. What the
+    /// user genuinely chooses is *where inside it a pane opens*, which is the row below.
+    ///
+    /// **With one exception, and it is the reason this row is not purely informational.** An
+    /// install upgrading from a build where Location was a free-form field can arrive here with a
+    /// root `RootsMigration` carried forward from a path outside the account entirely — and
+    /// presenting that as "the account's one true root", with no field and no Reset, made it
+    /// permanent: nothing else in the app writes or clears that key, so the only escape was
+    /// `defaults delete`. The note and the button appear only in that state (`hasRootOverride`),
+    /// which is false for every source on an install that never set a custom Location.
+    private var accountRootRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Root")
+            Text(provider.rootPath)
+                .scaledFont(.system(.callout, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(provider.rootPath)
+            if hasRootOverride {
+                Text("Carried over from a custom location you set in an earlier version. "
+                     + "Reset to use the folder \(provider.displayName) is signed in at.")
+                    .scaledFont(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Button("Show in Finder") { openInFinder(provider.rootPath) }
+                if hasRootOverride {
+                    Button("Reset") { resetRootToDiscovered() }
+                }
+                Spacer()
+            }
+            .controlSize(.small)
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Re-read on every discovery rather than held as state: `resetRootToDiscovered` rediscovers
+    /// asynchronously, and the note and button have to disappear when the override does.
+    private var hasRootOverride: Bool {
+        !provider.isLocalFolder && settings.hasRootOverride(for: provider.id)
+    }
+
+    private func resetRootToDiscovered() {
+        // The empty path is what `setPath` reads as "clear the override" — the only reachable use
+        // of its account branch, and the reason that branch is kept.
+        settings.setPath("", for: provider.id)
+    }
+
+    /// The folder panes on this source open at, chosen from inside the root.
+    private var openAtRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Open at")
+            Text(openAtDisplay)
+                .scaledFont(.system(.callout, design: .monospaced))
+                .foregroundStyle(provider.openAt.isEmpty ? .secondary : .primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Both, not `else if`. The missing-folder note is a standing fact about the source and
+            // the refusal is about the click just made; shadowing the first behind the second hid
+            // "your landing folder is gone" until the row was re-mounted.
+            //
+            // Gated on the ROOT being valid too: when the whole account is unmounted `landingValidity`
+            // is false as well, and saying "that folder isn't there any more" about a folder inside a
+            // root that is also not there points at the wrong thing. The row's own status badge is
+            // what speaks for a missing root.
+            if !provider.openAt.isEmpty, settings.isPathValid(for: provider.id),
+               !settings.isLandingValid(for: provider.id) {
+                // Says so rather than silently opening somewhere else: the pane WILL open at the
+                // root (`openAtIfReachable`), and a user who set this folder deliberately needs to
+                // know why their tabs stopped landing there.
+                Text("That folder isn't there any more, so panes open at the root instead.")
+                    .scaledFont(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let openAtRefusal {
+                Text(openAtRefusal)
+                    .scaledFont(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Opening folder not changed. \(openAtRefusal)")
+            }
+
+            HStack(spacing: 8) {
+                Button("Choose…") { selectOpenAtDirectory() }
+                // Disabled when there is nothing to reset. Enabled, it was a click that removed a
+                // key that was not there, logged a line, kicked off a rediscovery and changed
+                // nothing on screen — and for iCloud, whose discovered default IS the root, the row
+                // reads "The source root" whether the user chose it or inherited it, so the button
+                // was the only thing that could have told the two apart and it did not.
+                Button("Reset") {
+                    openAtRefusal = nil
+                    settings.resetOpenAt(for: provider.id)
+                }
+                .disabled(!settings.hasOpenAtOverride(for: provider.id))
+                Spacer()
+            }
+            .controlSize(.small)
+            .padding(.top, 2)
+            // On the controls, not on the whole row. `disabled` is cumulative and a descendant
+            // cannot re-enable itself, so gating the VStack greyed out the two explanatory notes
+            // along with the buttons — and a disabled source's landing folder is just as gone,
+            // which makes a greyed explanation read as inapplicable rather than as still true.
+            .disabled(!isEnabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The landing folder as the row shows it — the root-relative path, or a phrase for the root.
+    ///
+    /// A phrase rather than an empty line or a bare `/`: "" is a real, chosen value here, and a
+    /// blank row reads as unset. Panes on this source do open somewhere.
+    private var openAtDisplay: String {
+        provider.openAt.isEmpty ? "The source root" : provider.openAt
+    }
+
+    // MARK: - A folder source: one path, which the user chose
+
+    /// A folder source is its own root, so it keeps the single Location field it always had.
+    private var folderLocationEditor: some View {
+        Group {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Location")
                     // Mirrors the name field above: Enter or clicking away commits.
                     // No Save button — focus-loss covers the same ground, so the two
                     // fields commit through one identical set of triggers.
@@ -1588,12 +1730,8 @@ struct ProviderSettingsSection: View {
                     // A folder source has no discovered default to reset TO — the user chose
                     // the path, and that choice is the whole record. Remove takes its place: the
                     // one thing a folder source can do that a cloud account cannot.
-                    if provider.isLocalFolder {
-                        Button("Remove", role: .destructive) { settings.removeFolderSource(id: provider.id) }
-                    } else {
-                        Button("Reset") { resetToDefault() }
-                    }
-                    Button("Show in Finder") { openInFinder() }
+                    Button("Remove", role: .destructive) { settings.removeFolderSource(id: provider.id) }
+                    Button("Show in Finder") { openInFinder(provider.rootPath) }
                     Spacer()
                 }
                 .controlSize(.small)
@@ -1601,7 +1739,6 @@ struct ProviderSettingsSection: View {
                 // one you are most likely to be removing, and leaving the only way to get rid of
                 // it behind a toggle you have to switch back on first is a trap.
                 .disabled(!isEnabled && !provider.isLocalFolder)
-            }
         }
     }
 
@@ -1620,7 +1757,9 @@ struct ProviderSettingsSection: View {
         }
         .buttonStyle(.plain)
         .chromeHover()
-        .help(isExpanded ? "Hide \(provider.displayName)'s location" : "Show \(provider.displayName)'s location")
+        // "Folders", not "location": what this discloses is the source's root AND the folder panes
+        // open at, which were one field called Location until the two came apart.
+        .help(isExpanded ? "Hide \(provider.displayName)'s folders" : "Show \(provider.displayName)'s folders")
         .accessibilityLabel(isExpanded ? "Collapse \(provider.displayName)" : "Expand \(provider.displayName)")
     }
 
@@ -1646,20 +1785,40 @@ struct ProviderSettingsSection: View {
         }
     }
 
-    private func resetToDefault() {
-        settings.resetPath(for: provider.id)
-        // Repopulate rather than blank. Rediscovery is async, so `provider.path` is still the old
-        // effective value here: with no override that value already IS the default and no
-        // `onChange(of: provider.path)` is coming to fill the field in, and with an override it is
-        // corrected by that onChange as soon as discovery lands — including while this field still
-        // holds focus, which clicking this button does not take away. The draft remembers the reset
-        // so that correction is adopted instead of being declined as mid-edit; without that, the
-        // blur after Reset commits the stale override straight back. See `ProviderPathDraft.reset`.
-        pathDraft.reset(toEffective: provider.path)
+    /// Picks the folder panes on this source open at. The panel *starts* inside the root and is
+    /// told so, but macOS lets the user navigate anywhere from there, so the containment rule is
+    /// enforced on the answer rather than assumed from the starting point.
+    private func selectOpenAtDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the folder \(provider.displayName) opens at"
+        panel.prompt = "Open at"
+        panel.directoryURL = URL(
+            fileURLWithPath: (provider.landingPath as NSString).expandingTildeInPath)
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        switch settings.setOpenAt(url.path, for: provider.id) {
+        case .changed, .unchanged:
+            openAtRefusal = nil
+        case .refusedOutsideRoot:
+            openAtRefusal = "That folder is outside \(provider.displayName). "
+                + "Pick one inside the root shown above."
+        case .refusedUnknownSource:
+            openAtRefusal = "\(provider.displayName) isn't available right now, so its opening "
+                + "folder wasn't changed."
+        case .refusedDuplicate:
+            // Unreachable from this picker — a landing folder is not a source and cannot collide
+            // with one — but named rather than defaulted, so adding a case to the enum keeps
+            // failing here until someone decides what this row should say about it.
+            openAtRefusal = "That folder couldn't be used as \(provider.displayName)'s "
+                + "opening folder."
+        }
     }
 
-    private func openInFinder() {
-        let url = URL(fileURLWithPath: (provider.path as NSString).expandingTildeInPath)
+    private func openInFinder(_ path: String) {
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
     }
 
@@ -1669,18 +1828,24 @@ struct ProviderSettingsSection: View {
     private func commitPath() {
         let normalized = ProviderFieldEdit.normalized(pathDraft.value)
         pathDraft.value = normalized
-        guard ProviderFieldEdit.shouldCommit(draft: normalized, committed: provider.path) else { return }
+        guard ProviderFieldEdit.shouldCommit(draft: normalized, committed: provider.rootPath) else { return }
         switch settings.setPath(normalized, for: provider.id) {
         case .changed, .unchanged:
             refusedDuplicateOwner = nil
         case .refusedDuplicate(let existingId):
             // Put the field back to what the source actually points at. Nothing was written, so no
-            // `onChange(of: provider.path)` is coming to do it — and leaving the refused text in
+            // `onChange(of: provider.rootPath)` is coming to do it — and leaving the refused text in
             // place would show a Location this source does not have.
             refusedDuplicateOwner = settings.availableProviders
                 .first { $0.id == existingId }
                 .map { "\($0.displayName)'s folder" } ?? "another source's folder"
-            pathDraft.adopt(provider.path)
+            pathDraft.adopt(provider.rootPath)
+        case .refusedOutsideRoot, .refusedUnknownSource:
+            // Neither reaches this field: `setPath`'s folder-source branch refuses only duplicates,
+            // and this editor renders only for a folder source. Named rather than defaulted, so a
+            // future refusal cannot land here silently as "accepted".
+            refusedDuplicateOwner = nil
+            pathDraft.adopt(provider.rootPath)
         }
     }
 
@@ -1720,12 +1885,12 @@ enum ProviderFieldEdit {
 /// inline in three SwiftUI closures.
 ///
 /// It exists because "Reset" got that lifecycle wrong in a way no view-level reasoning caught. It
-/// used to blank the draft and lean on `onChange(of: provider.path)` to refill it. That refresh
+/// used to blank the draft and lean on `onChange(of: provider.rootPath)` to refill it. That refresh
 /// only fires when the published path actually CHANGES — and resetting a provider that has NO
 /// override removes a defaults key that was never there, so nothing changed, nothing refreshed,
 /// and the Location field simply sat empty. A later focus-blur then committed that empty string,
-/// which `SettingsManager.setPath` records as "User cleared custom path mapping" for a provider
-/// that never had one: a misleading log line and a pointless rediscovery pass.
+/// which `SettingsManager.setPath` records as "Cleared the root override for provider" for one that
+/// never had an override: a misleading log line and a pointless rediscovery pass.
 struct ProviderPathDraft: Equatable {
     /// The text currently in the field. A plain `var` because the `TextField` binds straight to it.
     var value: String = ""

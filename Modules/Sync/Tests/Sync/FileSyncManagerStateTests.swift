@@ -79,8 +79,8 @@ import Combine
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
-        let l = CloudProvider(id: "l", displayName: "L", imageName: "folder", path: "/src", type: .iCloud)
-        let r = CloudProvider(id: "r", displayName: "R", imageName: "folder", path: "/dst", type: .iCloud)
+        let l = CloudProvider(id: "l", displayName: "L", imageName: "folder", rootPath: "/src", type: .iCloud)
+        let r = CloudProvider(id: "r", displayName: "R", imageName: "folder", rootPath: "/dst", type: .iCloud)
         await manager.scanDirectories(left: l, leftPath: "/src", right: r, rightPath: "/dst")
 
         #expect(manager.verifiedSameDifferenceIds.isEmpty)

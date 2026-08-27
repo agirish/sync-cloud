@@ -64,8 +64,8 @@ import Testing
 
     private func providers() -> (CloudProvider, CloudProvider) {
         (
-            CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: "/left", type: .iCloud),
-            CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: "/right", type: .iCloud)
+            CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: "/left", type: .iCloud),
+            CloudProvider(id: "r", displayName: "Right", imageName: "folder", rootPath: "/right", type: .iCloud)
         )
     }
 

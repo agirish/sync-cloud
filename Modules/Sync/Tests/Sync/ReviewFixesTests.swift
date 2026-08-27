@@ -182,7 +182,7 @@ import Events
         // claim used to swallow every path under it, so `synccloud sync -L ~/scratch -R ~/scratch2`
         // — two purely local folders — silently started skipping every name OneDrive forbids.
         let overridden = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
-                                        path: "/Users/u", type: .oneDrive)]
+                                        rootPath: "/Users/u", type: .oneDrive)]
         #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: overridden) == nil)
     }
 
@@ -190,7 +190,7 @@ import Events
         // The widening matched a bare "CloudStorage" component ANYWHERE, so a project folder that
         // happens to be called that handed its siblings Dropbox's rules.
         let providers = [CloudProvider(id: "Dropbox", displayName: "Dropbox", imageName: "dropbox",
-                                       path: "/Users/u/Projects/CloudStorage/notes/deep/root", type: .dropBox)]
+                                       rootPath: "/Users/u/Projects/CloudStorage/notes/deep/root", type: .dropBox)]
         #expect(CloudProvider.inferredType(forPath: "/Users/u/Projects/CloudStorage/notes/other",
                                            among: providers) == nil)
         // Its own root still claims, as before.
@@ -205,7 +205,7 @@ import Events
         // tree, so a path-addressed CLI root inside it fell back to `.iCloud`'s empty rule set and
         // silently lost the destination-name guard the claim exists to carry.
         let providers = [CloudProvider(id: "GoogleDrive", displayName: "Google Drive", imageName: "googledrive",
-                                       path: "/Volumes/GoogleDrive", type: .googleDrive)]
+                                       rootPath: "/Volumes/GoogleDrive", type: .googleDrive)]
         #expect(CloudProvider.inferredType(forPath: "/Volumes/GoogleDrive/Reports/q1.txt",
                                            among: providers) == .googleDrive)
         // A sibling volume is still nobody's business but its own.
@@ -217,7 +217,7 @@ import Events
         // sailed through — even though it swallows as much local ground as `~` does. What matters
         // is what the root CONTAINS, so this claims its own tree and nothing beside it.
         let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
-                                       path: "/Users/u/Documents", type: .oneDrive)]
+                                       rootPath: "/Users/u/Documents", type: .oneDrive)]
         #expect(CloudProvider.inferredType(forPath: "/Users/u/Documents/deck.txt", among: providers) == .oneDrive)
         #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: providers) == nil)
     }
@@ -226,7 +226,7 @@ import Events
         // "/" and "/Users" are above every home directory; claiming one types the whole machine.
         for broad in ["/", "/Users", "/Volumes"] {
             let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
-                                           path: broad, type: .oneDrive)]
+                                           rootPath: broad, type: .oneDrive)]
             #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: providers) == nil,
                     "a provider rooted at \(broad) must not type unrelated folders")
         }
@@ -235,7 +235,7 @@ import Events
     @Test func theRealAccountFolderStillClaimsItsSiblings() {
         // The control: the case the widening exists for must keep working.
         let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
-                                       path: "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents",
+                                       rootPath: "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents",
                                        type: .oneDrive)]
         #expect(CloudProvider.inferredType(forPath: "/Users/u/Library/CloudStorage/OneDrive-Personal/Photos",
                                            among: providers) == .oneDrive)

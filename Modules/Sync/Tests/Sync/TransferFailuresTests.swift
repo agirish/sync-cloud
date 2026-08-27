@@ -10,8 +10,8 @@ import Testing
 @MainActor
 @Suite struct TransferFailuresTests {
 
-    private static let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: "/left", type: .iCloud)
-    private static let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: "/right", type: .iCloud)
+    private static let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: "/left", type: .iCloud)
+    private static let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", rootPath: "/right", type: .iCloud)
 
     private func diff(_ name: String) -> FileDifference {
         FileDifference(relativePath: name, leftItemPath: "/l/\(name)", rightItemPath: "/r/\(name)",

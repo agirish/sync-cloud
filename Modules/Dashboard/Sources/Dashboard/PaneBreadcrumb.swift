@@ -16,8 +16,12 @@ public enum PaneLinkPreference {
     public static var isLinked: Bool { UserDefaults.standard.bool(forKey: defaultsKey) }
 }
 
-/// Clickable breadcrumb inside each `PaneHeader`: the provider root (named after the root
-/// folder, full path in the tooltip) followed by the pane's relative-path segments. Clicking
+/// Clickable breadcrumb inside each `PaneHeader`: the source itself (named after the *source* —
+/// "iCloud", "OneDrive (HPE)" — with the root's full path in the tooltip) followed by the pane's
+/// relative-path segments, spelled out from the root down. Since a source's root is the account
+/// folder rather than the `Documents` inside it, the levels between — Google Drive's `My Drive`,
+/// OneDrive's `Documents` — are ordinary crumbs here, and the first crumb goes to the top of the
+/// account rather than to the folder panes happen to open at. Clicking
 /// a crumb re-focuses that pane on the ancestor; ⌥-clicking any crumb (including the current
 /// folder) focuses *both* panes on the same relative path. The seam capsule's link half makes
 /// that both-panes behavior sticky, so a plain click keeps the two panes in lock-step while
@@ -60,7 +64,7 @@ struct PaneBreadcrumb: View {
         let items = BreadcrumbTrail.displayItems(for: crumbs)
         HStack(spacing: 3) {
             crumbButton(
-                name: BreadcrumbTrail.rootDisplayName(forRootPath: rootPath),
+                name: BreadcrumbTrail.rootDisplayName(forRootPath: rootPath, providerName: providerName),
                 relativePath: "",
                 isCurrent: crumbs.isEmpty,
                 helpPath: rootPath,
@@ -102,7 +106,7 @@ struct PaneBreadcrumb: View {
             FolderJumpMenu(
                 rootPath: rootPath,
                 relativePath: relativePath,
-                currentName: crumbs.last?.name ?? BreadcrumbTrail.rootDisplayName(forRootPath: rootPath),
+                currentName: crumbs.last?.name ?? BreadcrumbTrail.rootDisplayName(forRootPath: rootPath, providerName: providerName),
                 showHidden: showHidden,
                 // Route through the same link-aware path as crumbs so a lateral jump also moves
                 // both panes when linked (or ⌥ is held); unlinked, it's the plain single-pane hop.

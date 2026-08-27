@@ -87,50 +87,67 @@ private func noOverrides(_ id: String) -> String? { nil }
 
     @Test func testICloudIsAlwaysPresentEvenWithNoFolders() {
         let providers = SettingsManager.mapProviders(
-            cloudStorageFolders: [], iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides)
+            cloudStorageFolders: [], iCloudDefaultPath: iCloudDefault)
 
         #expect(providers.count == 1)
         #expect(providers[0].id == "iCloud")
         #expect(providers[0].displayName == "iCloud")
         #expect(providers[0].imageName == "icloud")
-        #expect(providers[0].path == iCloudDefault)
+        #expect(providers[0].rootPath == iCloudDefault)
+        // Lands at its own root: iCloud's real Drive root holds only hidden symlinks to the folders
+        // that matter, so `~/Documents` is both the top of this source and where panes open.
+        // See `CloudProvider.rootPath`.
+        #expect(providers[0].openAt == "")
+        #expect(providers[0].landingPath == iCloudDefault)
         #expect(providers[0].type == .iCloud)
     }
 
     @Test func testOneDrivePrefixParsesAccountSuffixAndDocumentsPath() throws {
         let providers = SettingsManager.mapProviders(
             cloudStorageFolders: [folder("OneDrive-Personal")],
-            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides)
+            iCloudDefaultPath: iCloudDefault)
 
         let oneDrive = try #require(providers.first(where: { $0.type == .oneDrive }))
         #expect(oneDrive.id == "OneDrive-Personal")
         #expect(oneDrive.displayName == "OneDrive (Personal)")
         #expect(oneDrive.imageName == "onedrive")
-        #expect(oneDrive.path == "/Users/test/Library/CloudStorage/OneDrive-Personal/Documents")
+        // The ACCOUNT folder is the root — everything beside Documents (Teams Recordings, a
+        // shared team folder) is inside the source now — and Documents is where panes open.
+        #expect(oneDrive.rootPath == "/Users/test/Library/CloudStorage/OneDrive-Personal")
+        #expect(oneDrive.openAt == "Documents")
+        // The landing folder is exactly what this source's single path used to be. Every stored
+        // absolute path in the app depends on that identity holding.
+        #expect(oneDrive.landingPath == "/Users/test/Library/CloudStorage/OneDrive-Personal/Documents")
     }
 
     @Test func testGoogleDrivePrefixParsesAccountAndMyDriveDocumentsPath() throws {
         let providers = SettingsManager.mapProviders(
             cloudStorageFolders: [folder("GoogleDrive-someone@gmail.com")],
-            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides)
+            iCloudDefaultPath: iCloudDefault)
 
         let drive = try #require(providers.first(where: { $0.type == .googleDrive }))
         #expect(drive.id == "GoogleDrive-someone@gmail.com")
         #expect(drive.displayName == "Google Drive (someone@gmail.com)")
         #expect(drive.imageName == "googledrive")
-        #expect(drive.path == "/Users/test/Library/CloudStorage/GoogleDrive-someone@gmail.com/My Drive/Documents")
+        #expect(drive.rootPath == "/Users/test/Library/CloudStorage/GoogleDrive-someone@gmail.com")
+        // Two components, so `My Drive` — the level a Drive account branches at, beside every
+        // Shared drive — is an ordinary crumb rather than something the old root hid.
+        #expect(drive.openAt == "My Drive/Documents")
+        #expect(drive.landingPath == "/Users/test/Library/CloudStorage/GoogleDrive-someone@gmail.com/My Drive/Documents")
     }
 
     @Test func testDropboxRequiresExactNameAndUsesDocumentsPath() throws {
         let providers = SettingsManager.mapProviders(
             cloudStorageFolders: [folder("Dropbox")],
-            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides)
+            iCloudDefaultPath: iCloudDefault)
 
         let dropbox = try #require(providers.first(where: { $0.type == .dropBox }))
         #expect(dropbox.id == "Dropbox")
         #expect(dropbox.displayName == "Dropbox")
         #expect(dropbox.imageName == "dropbox")
-        #expect(dropbox.path == "/Users/test/Library/CloudStorage/Dropbox/Documents")
+        #expect(dropbox.rootPath == "/Users/test/Library/CloudStorage/Dropbox")
+        #expect(dropbox.openAt == "Documents")
+        #expect(dropbox.landingPath == "/Users/test/Library/CloudStorage/Dropbox/Documents")
     }
 
     @Test func testUnrecognizedFoldersAreIgnored() {
@@ -142,7 +159,7 @@ private func noOverrides(_ id: String) -> String? { nil }
                 folder("Dropbox-Business"),   // Dropbox must match exactly
                 folder("onedrive-personal"),  // prefixes are case-sensitive
             ],
-            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides)
+            iCloudDefaultPath: iCloudDefault)
 
         #expect(providers.map(\.id) == ["iCloud"])
     }
@@ -181,7 +198,7 @@ private func noOverrides(_ id: String) -> String? { nil }
                 folder("GoogleDrive-adam@gmail.com"),
                 folder("OneDrive-Personal"),
             ],
-            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides)
+            iCloudDefaultPath: iCloudDefault)
 
         #expect(providers.map(\.id) == [
             "iCloud",
@@ -198,23 +215,52 @@ private func noOverrides(_ id: String) -> String? { nil }
 
 @Suite struct MapProvidersOverrideTests {
 
-    @Test func testOverrideReplacesOnlyTheMatchingProviderPath() {
+    @Test func testRootOverrideReplacesOnlyTheMatchingProviderRoot() {
         let overrides = ["OneDrive-Personal": "/Volumes/External/OneDrive"]
         let providers = SettingsManager.mapProviders(
             cloudStorageFolders: [folder("OneDrive-Personal"), folder("Dropbox")],
-            iCloudDefaultPath: iCloudDefault, pathOverride: { overrides[$0] })
+            iCloudDefaultPath: iCloudDefault, rootOverride: { overrides[$0] })
 
-        #expect(providers.first(where: { $0.id == "OneDrive-Personal" })?.path == "/Volumes/External/OneDrive")
-        #expect(providers.first(where: { $0.id == "Dropbox" })?.path == "/Users/test/Library/CloudStorage/Dropbox/Documents")
-        #expect(providers.first(where: { $0.id == "iCloud" })?.path == iCloudDefault)
+        #expect(providers.first(where: { $0.id == "OneDrive-Personal" })?.rootPath == "/Volumes/External/OneDrive")
+        #expect(providers.first(where: { $0.id == "Dropbox" })?.rootPath == "/Users/test/Library/CloudStorage/Dropbox")
+        #expect(providers.first(where: { $0.id == "iCloud" })?.rootPath == iCloudDefault)
     }
 
-    @Test func testICloudOverrideBeatsTheDefaultPath() {
+    @Test func testICloudRootOverrideBeatsTheDefaultPath() {
         let providers = SettingsManager.mapProviders(
             cloudStorageFolders: [], iCloudDefaultPath: iCloudDefault,
-            pathOverride: { $0 == "iCloud" ? "/Users/test/CustomDocs" : nil })
+            rootOverride: { $0 == "iCloud" ? "/Users/test/CustomDocs" : nil })
 
-        #expect(providers.first(where: { $0.id == "iCloud" })?.path == "/Users/test/CustomDocs")
+        #expect(providers.first(where: { $0.id == "iCloud" })?.rootPath == "/Users/test/CustomDocs")
+    }
+
+    @Test func testOpenAtOverrideReplacesOnlyTheMatchingProviderLandingFolder() {
+        let overrides = ["OneDrive-Personal": "Teams Recordings"]
+        let providers = SettingsManager.mapProviders(
+            cloudStorageFolders: [folder("OneDrive-Personal"), folder("Dropbox")],
+            iCloudDefaultPath: iCloudDefault, openAtOverride: { overrides[$0] })
+
+        let oneDrive = providers.first(where: { $0.id == "OneDrive-Personal" })
+        #expect(oneDrive?.openAt == "Teams Recordings")
+        // The root is untouched by a landing choice — the folder a pane opens at says nothing about
+        // how far up it may go.
+        #expect(oneDrive?.rootPath == "/Users/test/Library/CloudStorage/OneDrive-Personal")
+        #expect(oneDrive?.landingPath == "/Users/test/Library/CloudStorage/OneDrive-Personal/Teams Recordings")
+        #expect(providers.first(where: { $0.id == "Dropbox" })?.openAt == "Documents")
+    }
+
+    @Test func testAnEmptyOpenAtOverrideIsTheRootAndNotAnAbsentOne() {
+        // "" is a real choice — open at the top of the account — and the only way a user can
+        // express it. Treating it as "no override" (the shape `nameOverride` uses, where empty
+        // restores the discovered default) would make that choice unrepresentable and silently
+        // reinstate `Documents` on the next discovery pass.
+        let providers = SettingsManager.mapProviders(
+            cloudStorageFolders: [folder("OneDrive-Personal")],
+            iCloudDefaultPath: iCloudDefault, openAtOverride: { $0 == "OneDrive-Personal" ? "" : nil })
+
+        let oneDrive = providers.first(where: { $0.id == "OneDrive-Personal" })
+        #expect(oneDrive?.openAt == "")
+        #expect(oneDrive?.landingPath == "/Users/test/Library/CloudStorage/OneDrive-Personal")
     }
 
     @Test func testNameOverrideReplacesOnlyTheMatchingProviderName() {
@@ -224,7 +270,7 @@ private func noOverrides(_ id: String) -> String? { nil }
         ]
         let providers = SettingsManager.mapProviders(
             cloudStorageFolders: [folder("GoogleDrive-someone@gmail.com"), folder("OneDrive-Work"), folder("Dropbox")],
-            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides,
+            iCloudDefaultPath: iCloudDefault,
             nameOverride: { names[$0] })
 
         #expect(providers.first(where: { $0.type == .googleDrive })?.displayName == "Google Drive (Personal)")
@@ -237,7 +283,7 @@ private func noOverrides(_ id: String) -> String? { nil }
     @Test func testEmptyNameOverrideFallsBackToTheDefault() {
         let providers = SettingsManager.mapProviders(
             cloudStorageFolders: [folder("GoogleDrive-someone@gmail.com"), folder("Dropbox")],
-            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides,
+            iCloudDefaultPath: iCloudDefault,
             nameOverride: { _ in "" })
 
         #expect(providers.first(where: { $0.type == .googleDrive })?.displayName == "Google Drive (someone@gmail.com)")
@@ -253,7 +299,7 @@ private func noOverrides(_ id: String) -> String? { nil }
     @Test func testDiscoverProvidersUsesInjectedListerAndDefaults() async {
         let test = TestDefaults()
         defer { test.wipe() }
-        test.defaults.set("/Volumes/External/OneDrive", forKey: "path_override_OneDrive-Personal")
+        test.defaults.set("/Volumes/External/OneDrive", forKey: "root_override_OneDrive-Personal")
 
         let settings = SettingsManager(
             autoDiscover: false,
@@ -262,8 +308,8 @@ private func noOverrides(_ id: String) -> String? { nil }
         await settings.discoverProviders()
 
         #expect(settings.availableProviders.map(\.id) == ["iCloud", "OneDrive-Personal", "Dropbox"])
-        #expect(settings.path(for: "OneDrive-Personal") == "/Volumes/External/OneDrive")
-        #expect(settings.path(for: "Dropbox") == "/Users/test/Library/CloudStorage/Dropbox/Documents")
+        #expect(settings.rootPath(for: "OneDrive-Personal") == "/Volumes/External/OneDrive")
+        #expect(settings.rootPath(for: "Dropbox") == "/Users/test/Library/CloudStorage/Dropbox")
     }
 
     @MainActor
@@ -277,16 +323,16 @@ private func noOverrides(_ id: String) -> String? { nil }
             cloudStorageLister: { .read([folder("Dropbox")]) })
         await settings.discoverProviders()
 
-        let defaultPath = settings.path(for: "Dropbox")
+        let defaultPath = settings.rootPath(for: "Dropbox")
         settings.setPath("/tmp/dropbox-elsewhere", for: "Dropbox")
         await settings.discoverProviders()
-        #expect(settings.path(for: "Dropbox") == "/tmp/dropbox-elsewhere")
-        #expect(test.defaults.string(forKey: "path_override_Dropbox") == "/tmp/dropbox-elsewhere")
+        #expect(settings.rootPath(for: "Dropbox") == "/tmp/dropbox-elsewhere")
+        #expect(test.defaults.string(forKey: "root_override_Dropbox") == "/tmp/dropbox-elsewhere")
 
         settings.resetPath(for: "Dropbox")
         await settings.discoverProviders()
-        #expect(settings.path(for: "Dropbox") == defaultPath)
-        #expect(test.defaults.string(forKey: "path_override_Dropbox") == nil)
+        #expect(settings.rootPath(for: "Dropbox") == defaultPath)
+        #expect(test.defaults.string(forKey: "root_override_Dropbox") == nil)
     }
 
     @MainActor
@@ -424,10 +470,15 @@ private func noOverrides(_ id: String) -> String? { nil }
         await settings.discoverProviders()
         let providersAfterFirst = settings.availableProviders.map(\.id)
         let validationsAfterFirst = counter.count
+        // One stat per source, plus a second for each that lands somewhere other than its own
+        // root — a landing folder is a separate question from the root, and asking it is the point
+        // of `landingValidity`. Derived rather than written as a number so the pin stays about
+        // "every pass re-checks the disk" rather than about how many sources the fixture has.
+        let statsPerPass = settings.availableProviders.reduce(0) { $0 + ($1.openAt.isEmpty ? 1 : 2) }
         #expect(validationsAfterFirst >= providersAfterFirst.count)
 
         await settings.discoverProviders()
         #expect(settings.availableProviders.map(\.id) == providersAfterFirst)
-        #expect(counter.count == validationsAfterFirst + providersAfterFirst.count)
+        #expect(counter.count == validationsAfterFirst + statsPerPass)
     }
 }

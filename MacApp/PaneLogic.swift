@@ -599,10 +599,13 @@ enum PaneLogic {
     /// Builds a pane's full path from its provider root and in-pane relative path.
     /// An empty or absolute "relative" path yields just the root, so a stale or
     /// cross-provider relative path can never escape the pane's root.
+    ///
+    /// The rule itself is `PathBoundary.join`, which this shape was hoisted into when a source's
+    /// root and its landing folder became two values and the same composition had to hold for
+    /// `CloudProvider.landingPath`. Kept as a named seam because the pane call sites read as
+    /// "the pane's full path", not as a path join.
     static func fullPath(root: String, relativePath: String) -> String {
-        let expandedRoot = (root as NSString).expandingTildeInPath
-        guard !relativePath.isEmpty, !relativePath.hasPrefix("/") else { return expandedRoot }
-        return (expandedRoot as NSString).appendingPathComponent(relativePath)
+        PathBoundary.join(root: root, relative: relativePath)
     }
 
     /// The folder a lens scan targets: the focus root, walked down to where the pane is

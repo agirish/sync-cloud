@@ -14,6 +14,18 @@ public struct PaneNavigationHistory: Equatable, Sendable {
 
     public init() {}
 
+    /// A fresh history for a pane opening at `landing` — the source's `openAt` folder rather than
+    /// its root.
+    ///
+    /// The landing folder is the *first* entry, not a second one above the root, so Back is
+    /// unavailable immediately after a provider switch — exactly as it was when every pane opened
+    /// at its root. Seeding `["", landing]` instead would offer a Back into a folder the user has
+    /// not been to, which is not what Back means.
+    public init(startingAt landing: String) {
+        entries = [landing]
+        index = 0
+    }
+
     public var current: String { entries[index] }
     public var canGoBack: Bool { index > 0 }
     public var canGoForward: Bool { index < entries.count - 1 }
@@ -37,9 +49,10 @@ public struct PaneNavigationHistory: Equatable, Sendable {
         if canGoForward { index += 1 }
     }
 
-    /// Back to the initial root-only state.
-    public mutating func reset() {
-        entries = [""]
+    /// Back to a single-entry history at the pane's opening folder — the root unless the source
+    /// says otherwise.
+    public mutating func reset(to landing: String = "") {
+        entries = [landing]
         index = 0
     }
 }
@@ -100,11 +113,8 @@ extension FileSyncManager {
     /// walking into a column moves the breadcrumb exactly as re-rooting does — one location, one
     /// readout, and no way for the header to describe a folder the pane is not showing.
     public func combinedRelativePath(isLeft: Bool) -> String {
-        let focus = isLeft ? leftRelativePath : rightRelativePath
-        let browse = (isLeft ? leftBrowsePath : rightBrowsePath).relativePath
-        if focus.isEmpty { return browse }
-        if browse.isEmpty { return focus }
-        return focus + "/" + browse
+        PathBoundary.joinRelative(isLeft ? leftRelativePath : rightRelativePath,
+                                 (isLeft ? leftBrowsePath : rightBrowsePath).relativePath)
     }
 
     /// Where a pane **in a given presentation** is — the folder its header reads out, and the one
@@ -420,15 +430,32 @@ extension FileSyncManager {
     /// against the old roots carry absolute paths and copy directions that no longer match what
     /// the panes claim to show, so leaving them clickable until the rescan lands (seconds on
     /// network volumes) misdirects sync arrows and context-menu copy/move targets.
-    @MainActor public func resetNavigation() {
-        Logger.shared.info("User reset navigation to root.")
+    /// Re-homes both panes on their sources' opening folders and drops everything that was only
+    /// meaningful for where they were.
+    ///
+    /// - Parameters:
+    ///   - leftLanding: Where the left pane should open, relative to its root. `""` — the root —
+    ///     is the default and was the only possible answer before sources gained an `openAt`.
+    ///   - rightLanding: The same for the right pane.
+    ///
+    /// The landings are passed in rather than looked up because this type has no `SettingsManager`:
+    /// the manager owns the sources, this owns the panes, and the direction of that dependency is
+    /// what keeps the navigation layer testable without a provider list.
+    @MainActor public func resetNavigation(leftLanding: String = "", rightLanding: String = "") {
+        Logger.shared.info(
+            "User reset navigation to "
+            + "\(leftLanding.isEmpty ? "root" : leftLanding) / "
+            + "\(rightLanding.isEmpty ? "root" : rightLanding).")
         invalidateComparisonState()
         clearSessionIgnoredPaths()
         if !selectedLeftPaths.isEmpty { selectedLeftPaths = [] }
         if !selectedRightPaths.isEmpty { selectedRightPaths = [] }
 
-        if leftHistory != PaneNavigationHistory() { leftHistory.reset() }
-        if rightHistory != PaneNavigationHistory() { rightHistory.reset() }
+        // Compared against a history that is ALREADY at the landing, not against a root-only one:
+        // the guard exists to skip a no-op write, and with a landing folder the no-op state is a
+        // single entry naming that folder.
+        if leftHistory != PaneNavigationHistory(startingAt: leftLanding) { leftHistory.reset(to: leftLanding) }
+        if rightHistory != PaneNavigationHistory(startingAt: rightLanding) { rightHistory.reset(to: rightLanding) }
         // Both trees are about to be replaced by ones from different roots; a column stack naming
         // folders in the old ones is meaningless, not merely stale.
         resetBrowsePath(isLeft: true)

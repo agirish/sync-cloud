@@ -4,14 +4,52 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
     public let id: String
     public let displayName: String
     public let imageName: String
-    public var path: String
+    /// The source's **root** — the top of what this source covers, and the base every root-relative
+    /// path in the app (a pane's focus, a stored tab position, a pinned folder) is measured from.
+    ///
+    /// For a cloud account this is the account folder itself (`~/Library/CloudStorage/OneDrive-X`),
+    /// not the `Documents` inside it: the account folder is where the account's content actually
+    /// begins, and everything beside `Documents` — `Teams Recordings`, `TODO`, a shared library —
+    /// was unreachable while the root sat one level down. Discovered, never edited: there is one
+    /// true root per account, so an editable one is only a way to misconfigure it. A folder source
+    /// is its own root.
+    ///
+    /// iCloud is the exception, and deliberately: its real root
+    /// (`~/Library/Mobile Documents/com~apple~CloudDocs`) holds only the app folders, because with
+    /// Desktop & Documents syncing on, macOS keeps the real trees at `~/Documents` and `~/Desktop`
+    /// and leaves **hidden symlinks** behind in their place. Measured on this machine: the two
+    /// links carry `UF_HIDDEN` (so every `.skipsHiddenFiles` listing drops them) and report
+    /// `isDirectory == false` (so they are not drillable) — and this app skips symlinks wherever it
+    /// scans, on purpose (`StorageLens`: "no phantom tile / double-count for a link";
+    /// `DuplicateFinder`, `FolderSurveyBuilder` likewise). Rooting iCloud there would show two
+    /// folders out of four and scan a fraction of the user's files while claiming to scan the
+    /// cloud. `~/Documents` is the honest root until a synthetic one is built.
+    public var rootPath: String
+    /// The folder panes open at by default, **relative to `rootPath`**; `""` is the root itself.
+    ///
+    /// Separate from the root because the two answer different questions. The root is where the
+    /// source *ends* — how far up navigation, scanning and coverage may reach. This is merely where
+    /// a pane *starts*, a convenience the user sets from inside the root and can leave at any time
+    /// by clicking a breadcrumb. Conflating them is what made every source's breadcrumb read
+    /// `Documents` and put a ceiling one level below the content.
+    public var openAt: String
     public let type: ProviderType
 
-    public init(id: String, displayName: String, imageName: String, path: String, type: ProviderType) {
+    /// Where a pane on this source opens: `rootPath` with `openAt` applied.
+    ///
+    /// Composed rather than stored, so the two halves can never disagree. `PathBoundary.join`
+    /// carries the leading-slash rule — see there for why an absolute `openAt` yields the root.
+    public var landingPath: String {
+        PathBoundary.join(root: rootPath, relative: openAt)
+    }
+
+    public init(id: String, displayName: String, imageName: String,
+                rootPath: String, openAt: String = "", type: ProviderType) {
         self.id = id
         self.displayName = displayName
         self.imageName = imageName
-        self.path = path
+        self.rootPath = rootPath
+        self.openAt = openAt
         self.type = type
     }
 
@@ -98,7 +136,7 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
         // exactly as it did before folder sources existed (nothing claims it; the CLI falls back
         // to `.iCloud`'s empty rule set).
         guard !provider.isLocalFolder else { return [] }
-        let components = URL(fileURLWithPath: provider.path).standardizedFileURL.pathComponents
+        let components = URL(fileURLWithPath: provider.rootPath).standardizedFileURL.pathComponents
         // A provider's Location is user-settable to ANY folder, and a claim is not a harmless label:
         // it decides whether a path-addressed CLI root inherits that provider's name rules, which
         // decides whether files are silently skipped. Someone who points a provider at their home
@@ -112,12 +150,13 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
         // exists to carry. Meanwhile it let `~/Documents` through, which swallows just as much
         // local ground as `~` does.
         guard !isHomeOrAbove(components) else { return [] }
-        var roots = [provider.path]
-        // Widen to the CloudStorage ACCOUNT folder, so a sibling of the discovered root
-        // (`.../OneDrive-X/Photos` next to `.../OneDrive-X/Documents`) resolves to the same account.
-        // Anchored on `Library/CloudStorage` specifically, and on the LAST such pair: matching a
-        // bare "CloudStorage" component anywhere claimed unrelated trees for anyone who happens to
-        // keep a folder by that name.
+        var roots = [provider.rootPath]
+        // Widen to the CloudStorage ACCOUNT folder. A DISCOVERED root already *is* that folder, so
+        // this now finds nothing to add for the ordinary case — it earns its place for a root the
+        // migration pinned below the account level, which is what a pre-existing Location override
+        // pointing at `.../OneDrive-X/Documents` becomes. Anchored on `Library/CloudStorage`
+        // specifically, and on the LAST such pair: matching a bare "CloudStorage" component
+        // anywhere claimed unrelated trees for anyone who happens to keep a folder by that name.
         for index in components.indices.dropLast().reversed()
         where components[index] == "Library" && components[index + 1] == "CloudStorage" {
             let accountIndex = index + 2

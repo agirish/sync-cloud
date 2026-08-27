@@ -723,7 +723,12 @@ struct ContentView: View {
         func sameIdentity(_ a: CloudProvider?, _ b: CloudProvider?) -> Bool {
             switch (a, b) {
             case (nil, nil): return true
-            case let (a?, b?): return a.id == b.id && a.path == b.path && a.type == b.type
+            // The ROOT, and deliberately not the landing folder. A pane's tree is rooted at
+            // `rootPath`, so moving that is a root edit and must tear the comparison down. Changing
+            // where a source *opens* moves no pane that is already open — it decides where the
+            // next one starts — so treating it as a root edit would throw away an in-flight
+            // duplicate review to honour a preference the current panes never read.
+            case let (a?, b?): return a.id == b.id && a.rootPath == b.rootPath && a.type == b.type
             default: return false
             }
         }
@@ -1060,7 +1065,11 @@ struct ContentView: View {
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(newId, rightProviderId))
             // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
-            syncManager.resetNavigation()
+            // The new source opens at its own landing folder; the other pane is untouched, so it
+            // keeps the folder it is already on rather than being re-homed by a switch it had no
+            // part in.
+            syncManager.resetNavigation(leftLanding: settings.openAtIfReachable(for: newId),
+                                        rightLanding: syncManager.rightRelativePath)
         }
         .onChange(of: rightProviderId) { _, newId in
             // Through the same rule as the left handler above, which is where it is explained.
@@ -1078,7 +1087,9 @@ struct ContentView: View {
             syncManager.clearLensResultsForProviderSwitch()
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(leftProviderId, newId))
-            syncManager.resetNavigation()
+            // Mirror of the left handler: the switched pane lands, the untouched one stays put.
+            syncManager.resetNavigation(leftLanding: syncManager.leftRelativePath,
+                                        rightLanding: settings.openAtIfReachable(for: newId))
         }
         // The Info inspector reads the selection directly, so a selection change no longer needs to
         // switch tabs — it just clears any explicit "Get Info" target so the inspector follows the
@@ -1331,12 +1342,12 @@ struct ContentView: View {
 
     /// Builds the full path for the left pane. Uses only the left provider's root + left relative path to avoid mixing roots.
     var currentLeftPath: String {
-        PaneLogic.fullPath(root: settings.path(for: leftProviderId), relativePath: syncManager.leftRelativePath)
+        PaneLogic.fullPath(root: settings.rootPath(for: leftProviderId), relativePath: syncManager.leftRelativePath)
     }
 
     /// Builds the full path for the right pane. Uses only the right provider's root + right relative path to avoid mixing roots.
     var currentRightPath: String {
-        PaneLogic.fullPath(root: settings.path(for: rightProviderId), relativePath: syncManager.rightRelativePath)
+        PaneLogic.fullPath(root: settings.rootPath(for: rightProviderId), relativePath: syncManager.rightRelativePath)
     }
 
     // MARK: - Pane visibility & content layout
@@ -1579,12 +1590,27 @@ struct ContentView: View {
         let restores = await PaneLogic.paneFocusRestores(
             isEnabled: GeneralSettings.shouldRestoreLastFocus(),
             left: (UserDefaults.standard.string(forKey: GeneralSettings.lastLeftFocusKey) ?? "",
-                   settings.path(for: leftProviderId)),
+                   settings.rootPath(for: leftProviderId)),
             right: (UserDefaults.standard.string(forKey: GeneralSettings.lastRightFocusKey) ?? "",
-                    settings.path(for: rightProviderId)))
+                    settings.rootPath(for: rightProviderId)))
         for restore in restores {
             Logger.shared.info("Restoring \(restore.isLeft ? "left" : "right") pane to last session's folder: \(restore.relativePath)")
             syncManager.focusOn(relativePath: restore.relativePath, isLeft: restore.isLeft)
+        }
+        // A pane with nothing to restore — a fresh install, a source used for the first time, or
+        // restore switched off — opens at its source's landing folder rather than at the account
+        // root. Without this the only path that honoured `openAt` was a provider *switch*, so the
+        // first launch after connecting an account dropped the user at the top of it.
+        //
+        // `focusOn` rather than a history reset, matching the restore just above: both leave the
+        // root one Back away, which on a pane the user has not navigated yet is a way up, not a
+        // false step in their history.
+        let restoredSides = Set(restores.map(\.isLeft))
+        for isLeft in [true, false] where !restoredSides.contains(isLeft) {
+            let landing = settings.openAtIfReachable(for: isLeft ? leftProviderId : rightProviderId)
+            guard !landing.isEmpty else { continue }
+            Logger.shared.info("Opening \(isLeft ? "left" : "right") pane at its source's folder: \(landing)")
+            syncManager.focusOn(relativePath: landing, isLeft: isLeft)
         }
     }
 
@@ -2033,7 +2059,8 @@ struct ContentView: View {
         // The one filing scan publishes both of these lists — the loose files and the rename
         // backlog, risky names included — so either of them showing is a reason to refresh it.
         case .toFile, .renames:
-            let root = lensProviderRootExpanded
+            // The taxonomy a filing scan files against — the anchor, not the account root.
+            let root = lensProviderAnchorExpanded
             guard !target.isEmpty, !root.isEmpty else { return }
             syncManager.autoRescanFilingIfEligible(
                 folder: URL(fileURLWithPath: target), providerRoot: URL(fileURLWithPath: root),
@@ -2333,14 +2360,21 @@ struct ContentView: View {
     ///
     /// Pointing at the provider root **clears** the scope rather than setting it — see
     /// ``setOrganizeScope(_:)``.
-    func organizeFolderAction(_ node: FileNode, providerRoot: String) {
+    /// - Parameters:
+    ///   - providerRoot: The row's source root — what the new scope is measured against, and the
+    ///     bound on what may become a scope at all.
+    ///   - providerAnchor: The row's source anchor — the taxonomy the resulting scan files against.
+    ///     A separate argument because the two answers differ now and this one call needs both:
+    ///     passing the root for the taxonomy hands filing the whole account, and passing the anchor
+    ///     for the scope makes every folder above the documents tree un-scopable.
+    func organizeFolderAction(_ node: FileNode, providerRoot: String, providerAnchor: String) {
         let folder = (node.id as NSString).expandingTildeInPath
-        guard !folder.isEmpty, !providerRoot.isEmpty else { return }
+        guard !folder.isEmpty, !providerRoot.isEmpty, !providerAnchor.isEmpty else { return }
         Logger.shared.info("User requested Organize for \(folder)")
         setOrganizeScope(folder, providerRoot: providerRoot)
         show(.toFile)
         syncManager.startFindFilingSuggestions(
-            folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: providerRoot),
+            folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: providerAnchor),
             providerName: lensProviderName, nameProvider: lensProviderType)
     }
 
@@ -2446,6 +2480,31 @@ struct ContentView: View {
         providerRootExpanded(forProviderId: lensTargetIsRight ? rightProviderId : leftProviderId)
     }
 
+    /// The same pane's source **anchor**: the folder that everything the user authored as
+    /// "provider-relative" is measured from — an automation's `Invoices/{year}` destination, the
+    /// loose-files inbox, and the taxonomy a filing scan files against.
+    ///
+    /// The landing folder, not the root, and that is behaviour preservation rather than a
+    /// preference. Every one of those values was written when a source's only path was its
+    /// documents folder, so "provider-relative" meant relative to *that*. Anchoring them at the
+    /// account root instead would silently repoint them: `TODO` — the inbox default — names a real
+    /// folder at the top of this machine's OneDrive account as well as one inside its Documents,
+    /// so the inbox would quietly change which folder it offered. It would also hand the filing
+    /// taxonomy an account root full of `Teams Recordings` and a Copilot chat cache, which teaches
+    /// it nothing and costs gigabytes of walking to learn.
+    ///
+    /// Since `openAt` is seeded to exactly the folder that used to be the root, this resolves to
+    /// the same absolute path as before for every source — which is the point.
+    var lensProviderAnchorExpanded: String {
+        providerAnchorExpanded(forProviderId: lensTargetIsRight ? rightProviderId : leftProviderId)
+    }
+
+    /// One provider's anchor, expanded — ``lensProviderAnchorExpanded`` asked about a named
+    /// provider, for the row menus that must not ask about whichever pane holds focus.
+    func providerAnchorExpanded(forProviderId id: String) -> String {
+        (settings.landingPath(for: id) as NSString).expandingTildeInPath
+    }
+
     /// One provider's root, expanded — the same shape ``lensProviderRootExpanded`` answers, asked
     /// about a named provider rather than about whichever pane holds focus.
     ///
@@ -2453,7 +2512,7 @@ struct ContentView: View {
     /// starts: a SwiftUI context menu does not move focus, so a right-click in the pane that is not
     /// focused was answered with the other pane's root.
     func providerRootExpanded(forProviderId id: String) -> String {
-        (settings.path(for: id) as NSString).expandingTildeInPath
+        (settings.rootPath(for: id) as NSString).expandingTildeInPath
     }
 
     /// The provider ruleset the name check runs against — the targeted pane's source (the left
@@ -2509,10 +2568,11 @@ struct ContentView: View {
     /// the Automations lens's own button, so the pane is already on that lens when this runs.
     func startAutomationPreviewAction(only: UUID? = nil) {
         let root = lensScanRootExpanded
-        // Destinations anchor at the provider root, not the focused subfolder — so a rule's
-        // "Home/Utilities/…" template files into the provider root even when previewing inside a
-        // subfolder, instead of nesting the tree under whatever folder happened to be focused.
-        let providerRoot = lensProviderRootExpanded
+        // Destinations anchor at the source's anchor folder, not the focused subfolder — so a
+        // rule's "Home/Utilities/…" template files there even when previewing inside a subfolder,
+        // instead of nesting the tree under whatever folder happened to be focused. The ANCHOR and
+        // not the account root: every existing template was authored against the documents folder.
+        let providerRoot = lensProviderAnchorExpanded
         guard !root.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Rules preview for \(root)\(only == nil ? "" : " (single rule)")")
         show(.rules)
@@ -2557,7 +2617,10 @@ struct ContentView: View {
     /// that is not there is worse than no shortcut. nil when the setting is blank or the folder is
     /// missing, and blank is a state the Settings field can now express.
     var filingInboxFolder: String? {
-        let root = lensProviderRootExpanded
+        // The ANCHOR — see `lensProviderAnchorExpanded`. `TODO`, this setting's default, names a
+        // folder at the top of a OneDrive account as well as one inside its Documents, so anchoring
+        // at the root would change which folder the shortcut offers without saying a word.
+        let root = lensProviderAnchorExpanded
         guard !root.isEmpty else { return nil }
         let inbox = (UserDefaults.standard.string(forKey: GeneralSettings.filingInboxRelativePathKey) ?? "TODO")
             .trimmingCharacters(in: .whitespaces)
@@ -2578,7 +2641,7 @@ struct ContentView: View {
     /// loose files, and To File then reported "Nothing to do in TODO" without TODO ever having been
     /// enumerated.
     func findFilingSuggestionsAction(ignoringCache: Bool = false) {
-        let root = lensProviderRootExpanded
+        let root = lensProviderAnchorExpanded
         // The provider root is the taxonomy the scan files AGAINST, so it is required whichever
         // folder is being enumerated. `filingScanTargetFolder` folded that check in; the scope
         // branch needs it stated.
@@ -2603,7 +2666,9 @@ struct ContentView: View {
     /// no interest in — every already-filed one that changed — and its payoff is the *next* scan,
     /// not this one. Tying it to Rescan would make the common act pay for the occasional one.
     func updateFolderMemoryAction() {
-        let root = lensProviderRootExpanded
+        // The folder memory IS the taxonomy, so it is surveyed over the anchor — the same tree the
+        // scans that read it file against.
+        let root = lensProviderAnchorExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested a folder-memory re-survey of \(root)")
         Task { await syncManager.resurveyFilingMemory(root: URL(fileURLWithPath: root)) }
@@ -2733,7 +2798,7 @@ struct ContentView: View {
             PaneHeader(
                 title: pane.title,
                 provider: settings.availableProviders.first(where: { $0.id == pane.providerId }),
-                rootPath: settings.path(for: pane.providerId),
+                rootPath: settings.rootPath(for: pane.providerId),
                 relativePath: pane.relativePath,
                 canGoBack: pane.canGoBack,
                 canGoForward: pane.canGoForward,
@@ -3151,7 +3216,7 @@ struct ContentView: View {
         // Feed the pane header's quick-jump "Recent" list: every folder either pane focuses — by
         // drilling in, a crumb, back/forward, or a scan — is recorded against its provider root.
         .onChange(of: syncManager.leftRelativePath) { _, rel in
-            FolderJumpStore.shared.recordVisit(root: settings.path(for: leftProviderId),
+            FolderJumpStore.shared.recordVisit(root: settings.rootPath(for: leftProviderId),
                                                relativePath: rel, name: (rel as NSString).lastPathComponent)
             // The visit just recorded is a row the sidebar does not have yet. Same handler rather
             // than a second `onChange` on the same value: two would fire in an order SwiftUI does
@@ -3159,7 +3224,7 @@ struct ContentView: View {
             refreshFolderSidebarRows()
         }
         .onChange(of: syncManager.rightRelativePath) { _, rel in
-            FolderJumpStore.shared.recordVisit(root: settings.path(for: rightProviderId),
+            FolderJumpStore.shared.recordVisit(root: settings.rootPath(for: rightProviderId),
                                                relativePath: rel, name: (rel as NSString).lastPathComponent)
         }
         // The other moments the sidebar's answer can change: first appearance, a provider switch
@@ -3339,7 +3404,9 @@ struct ContentView: View {
             onFindDuplicatesOf: { node in findDuplicatesOfAction(node, isLeft: pane.isLeft) },
             // The ROW's pane, not the focused one — see `setOrganizeScope(_:providerRoot:)`.
             onOrganizeFolder: { node in
-                organizeFolderAction(node, providerRoot: providerRootExpanded(forProviderId: pane.providerId)) },
+                organizeFolderAction(node,
+                                     providerRoot: providerRootExpanded(forProviderId: pane.providerId),
+                                     providerAnchor: providerAnchorExpanded(forProviderId: pane.providerId)) },
             onOrganizeScope: { node in
                 setOrganizeScope(node.id, providerRoot: providerRootExpanded(forProviderId: pane.providerId)) },
             onOpenInNewTab: { node in openInNewTab(absolutePath: node.id, isLeft: pane.isLeft) },
@@ -3372,7 +3439,7 @@ struct ContentView: View {
             rootPathIsValid: settings.isPathValid(for: pane.providerId),
             providerIsEnabled: settings.isEnabled(pane.providerId),
             hasOnlyHiddenEntries: pane.hasOnlyHiddenEntries,
-            rootPath: settings.path(for: pane.providerId),
+            rootPath: settings.rootPath(for: pane.providerId),
             onOpenSettings: openProviderSettings,
             // The single-source rail has no opposite pane, so its row menu drops the
             // comparison-only items and renames "Compare only this folder" to "Open".

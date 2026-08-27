@@ -10,7 +10,7 @@ import Sync
 @Suite struct SourceOrderTests {
 
     private func provider(_ id: String, _ name: String) -> CloudProvider {
-        CloudProvider(id: id, displayName: name, imageName: "", path: "/x/\(id)", type: .iCloud)
+        CloudProvider(id: id, displayName: name, imageName: "", rootPath: "/x/\(id)", type: .iCloud)
     }
 
     private var discovered: [CloudProvider] {

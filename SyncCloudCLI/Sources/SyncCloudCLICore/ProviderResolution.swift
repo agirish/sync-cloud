@@ -56,19 +56,19 @@ public func resolveProviderOrPath(
         let asPath = expandPath(value)
         var isDirectory: ObjCBool = false
         if fileManager.fileExists(atPath: asPath, isDirectory: &isDirectory), isDirectory.boolValue,
-           canonicalPath(asPath) != canonicalPath(expandPath(provider.path)) {
+           canonicalPath(asPath) != canonicalPath(expandPath(provider.rootPath)) {
             throw ProviderResolutionError(
                 message: "'\(value)' for \(label) names both the provider '\(provider.displayName)' "
-                    + "(\(provider.path)) and a directory at \(asPath). "
+                    + "(\(provider.rootPath)) and a directory at \(asPath). "
                     + "Use './\(value)' or an absolute path for the directory, "
                     + "or rename the directory to address the provider by name.")
         }
         try requireDirectory(
-            atPath: expandPath(provider.path),
+            atPath: expandPath(provider.rootPath),
             fileManager: fileManager,
-            missingMessage: "Root '\(provider.path)' of provider '\(provider.displayName)' (\(label)) does not exist. "
+            missingMessage: "Root '\(provider.rootPath)' of provider '\(provider.displayName)' (\(label)) does not exist. "
                 + "The provider may be unmounted or signed out.",
-            notDirectoryMessage: "Root '\(provider.path)' of provider '\(provider.displayName)' (\(label)) is not a directory."
+            notDirectoryMessage: "Root '\(provider.rootPath)' of provider '\(provider.displayName)' (\(label)) is not a directory."
         )
         return provider
     }
@@ -87,11 +87,14 @@ public func resolveProviderOrPath(
     // set is empty — the right answer for an ordinary local folder, and what every path-addressed
     // root got before inference existed.
     let inferredType = CloudProvider.inferredType(forPath: expanded, among: providers) ?? .iCloud
+    // A path-addressed root is its own root and lands on itself: the user named one folder and
+    // meant that folder. `openAt` defaults to "", so `landingPath == rootPath` here and the two
+    // readings of this value cannot come apart.
     return CloudProvider(
         id: expanded,
         displayName: label,
         imageName: "folder",
-        path: expanded,
+        rootPath: expanded,
         type: inferredType
     )
 }

@@ -7,8 +7,8 @@ import Foundation
 /// exact comparison.
 @Suite struct DateToleranceTests {
 
-    private let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: "/l", type: .iCloud)
-    private let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: "/r", type: .dropBox)
+    private let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: "/l", type: .iCloud)
+    private let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", rootPath: "/r", type: .dropBox)
 
     private func pair(secondsApart: TimeInterval, size: Int = 10) -> (l: [String: FileDiffEngine.FileInfo], r: [String: FileDiffEngine.FileInfo]) {
         let base = Date(timeIntervalSince1970: 1_000_000)

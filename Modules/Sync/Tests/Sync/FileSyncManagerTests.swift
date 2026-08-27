@@ -160,8 +160,8 @@ import Foundation
     @MainActor
     @Test func testRefreshTreesAndScanCancellation() async throws {
         let manager = FileSyncManager()
-        let provider1 = CloudProvider(id: "p1", displayName: "P1", imageName: "", path: "/tmp/p1", type: .iCloud)
-        let provider2 = CloudProvider(id: "p2", displayName: "P2", imageName: "", path: "/tmp/p2", type: .iCloud)
+        let provider1 = CloudProvider(id: "p1", displayName: "P1", imageName: "", rootPath: "/tmp/p1", type: .iCloud)
+        let provider2 = CloudProvider(id: "p2", displayName: "P2", imageName: "", rootPath: "/tmp/p2", type: .iCloud)
         
         // Start a refresh
         let task1 = Task {
@@ -263,8 +263,8 @@ import Foundation
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
         
-        let provider1 = CloudProvider(id: "p1", displayName: "P1", imageName: "", path: "/tmp/p1", type: .iCloud)
-        let provider2 = CloudProvider(id: "p2", displayName: "P2", imageName: "", path: "/tmp/p2", type: .iCloud)
+        let provider1 = CloudProvider(id: "p1", displayName: "P1", imageName: "", rootPath: "/tmp/p1", type: .iCloud)
+        let provider2 = CloudProvider(id: "p2", displayName: "P2", imageName: "", rootPath: "/tmp/p2", type: .iCloud)
         
         // Simulate a directory that doesn't exist to trigger an error in scanDirectories
         await manager.scanDirectories(left: provider1, leftPath: "/non-existent", right: provider2, rightPath: "/tmp/p2")

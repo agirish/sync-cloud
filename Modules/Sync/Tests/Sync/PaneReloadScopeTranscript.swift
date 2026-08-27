@@ -139,9 +139,9 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let m = FileSyncManager()
         let left = CloudProvider(id: "L", displayName: "L", imageName: "folder",
-                                 path: fixture.left.path, type: .localFolder)
+                                 rootPath: fixture.left.path, type: .localFolder)
         let right = CloudProvider(id: "R", displayName: "R", imageName: "folder",
-                                  path: fixture.right.path, type: .localFolder)
+                                  rootPath: fixture.right.path, type: .localFolder)
 
         await m.refreshTreesAndScan(left: left, right: right)
         let stillRoot = movingLeft ? fixture.right : fixture.left
@@ -191,9 +191,9 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let m = FileSyncManager()
         let left = CloudProvider(id: "L", displayName: "L", imageName: "folder",
-                                 path: fixture.left.path, type: .localFolder)
+                                 rootPath: fixture.left.path, type: .localFolder)
         let right = CloudProvider(id: "R", displayName: "R", imageName: "folder",
-                                  path: fixture.right.path, type: .localFolder)
+                                  rootPath: fixture.right.path, type: .localFolder)
 
         // Stand in for a `.both` refresh already in flight — the key is what the supersede logic
         // reads, and it is the only part of an in-flight refresh this decision depends on. Taken
@@ -245,9 +245,9 @@ import Foundation
 
         let m = FileSyncManager()
         let left = CloudProvider(id: "L", displayName: "L", imageName: "folder",
-                                 path: fixture.left.path, type: .localFolder)
+                                 rootPath: fixture.left.path, type: .localFolder)
         let right = CloudProvider(id: "R", displayName: "R", imageName: "folder",
-                                  path: fixture.right.path, type: .localFolder)
+                                  rootPath: fixture.right.path, type: .localFolder)
         var transcript: [String] = []
         func record(_ label: String) {
             transcript.append(Self.snapshot(label, m, root: fixture.root))

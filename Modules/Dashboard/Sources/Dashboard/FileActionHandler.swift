@@ -80,8 +80,8 @@ public class FileActionHandler {
     ///   all of them, and the rule test calls this method directly, making itself its only reader.
     public func focusFolder(_ node: FileNode, isLeft: Bool, leftProviderId: String, rightProviderId: String, suppressLinkedNavigation: Bool) {
         let side = isLeft ? "left" : "right"
-        let rootPath = isLeft ? settings.path(for: leftProviderId) : settings.path(for: rightProviderId)
-        // path(for:) returns "" for a provider that vanished from settings; "" prefix-matches
+        let rootPath = isLeft ? settings.rootPath(for: leftProviderId) : settings.rootPath(for: rightProviderId)
+        // rootPath(for:) returns "" for a provider that vanished from settings; "" prefix-matches
         // every node, which would turn the node's absolute path into the "relative" focus path.
         guard !rootPath.isEmpty else {
             syncManager.present(paneUnavailableError(side: side))
@@ -176,11 +176,11 @@ public class FileActionHandler {
     /// The roots for a pane-to-pane transfer, or nil (after presenting an error) when either
     /// pane's provider is no longer known or the source root has vanished from disk — the
     /// window where a rediscovery pass dropped a provider while its stale tree is still showing.
-    /// `settings.path(for:)` returns "" for an unknown id, and an empty root must never reach
+    /// `settings.rootPath(for:)` returns "" for an unknown id, and an empty root must never reach
     /// the sync layer: it would resolve destinations against the process working directory.
     private func transferRoots(fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> (left: String, right: String)? {
-        let leftRoot = settings.path(for: leftProviderId)
-        let rightRoot = settings.path(for: rightProviderId)
+        let leftRoot = settings.rootPath(for: leftProviderId)
+        let rightRoot = settings.rootPath(for: rightProviderId)
         let sourceRoot = fromLeft ? leftRoot : rightRoot
         let destinationRoot = fromLeft ? rightRoot : leftRoot
 
@@ -347,7 +347,7 @@ public class FileActionHandler {
     func providerDisplayName(forPath path: String) -> String {
         let expanded = (path as NSString).expandingTildeInPath
         for p in settings.availableProviders {
-            let root = (p.path as NSString).expandingTildeInPath
+            let root = (p.rootPath as NSString).expandingTildeInPath
             if expanded == root || expanded.hasPrefix(root + "/") {
                 return p.displayName
             }
@@ -378,7 +378,7 @@ public class FileActionHandler {
     }
     
     public func beginCreateFolder(in path: String) {
-        // "" is the root of a pane whose provider vanished from settings (`settings.path(for:)`
+        // "" is the root of a pane whose provider vanished from settings (`settings.rootPath(for:)`
         // for an unknown id) while its stale tree was still showing. The sync layer refuses it
         // too; short-circuit here — like focusFolder/transferRoots — so the user is never
         // prompted for a name the folder cannot get.

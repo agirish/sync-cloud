@@ -76,8 +76,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
     @Test func testResolvedProviderSelectionPrefersDistinctDestinationDuringBootstrap() async throws {
         let providers = [
-            CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", path: "/iCloud", type: .iCloud),
-            CloudProvider(id: "oneDrive", displayName: "OneDrive", imageName: "onedrive", path: "/oneDrive", type: .oneDrive)
+            CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", rootPath: "/iCloud", type: .iCloud),
+            CloudProvider(id: "oneDrive", displayName: "OneDrive", imageName: "onedrive", rootPath: "/oneDrive", type: .oneDrive)
         ]
 
         let resolved = ContentView.resolvedProviderSelection(
@@ -93,8 +93,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
     @Test func testResolvedProviderSelectionPreservesExplicitSameProviderOutsideBootstrap() async throws {
         let providers = [
-            CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", path: "/iCloud", type: .iCloud),
-            CloudProvider(id: "oneDrive", displayName: "OneDrive", imageName: "onedrive", path: "/oneDrive", type: .oneDrive)
+            CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", rootPath: "/iCloud", type: .iCloud),
+            CloudProvider(id: "oneDrive", displayName: "OneDrive", imageName: "onedrive", rootPath: "/oneDrive", type: .oneDrive)
         ]
 
         let resolved = ContentView.resolvedProviderSelection(
@@ -111,7 +111,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     // MARK: Settings-driven rescan gating
 
     private func provider(_ id: String, path: String) -> CloudProvider {
-        CloudProvider(id: id, displayName: id, imageName: "icloud", path: path, type: .iCloud)
+        CloudProvider(id: id, displayName: id, imageName: "icloud", rootPath: path, type: .iCloud)
     }
 
     @Test func testUnrelatedProviderChangeDoesNotRequirePaneRefresh() {
@@ -137,7 +137,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         // no restore — and force a full rescan for a purely cosmetic edit.
         let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
         let new = [
-            CloudProvider(id: "iCloud", displayName: "My Renamed iCloud", imageName: "icloud", path: "/a", type: .iCloud),
+            CloudProvider(id: "iCloud", displayName: "My Renamed iCloud", imageName: "icloud", rootPath: "/a", type: .iCloud),
             provider("Dropbox", path: "/b")
         ]
 

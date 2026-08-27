@@ -34,7 +34,7 @@ import Sync
             iCloudDefaultPath: "/Users/u/Documents",
             folderSources: [FolderSource(id: "folder:b", path: "~/Projects"),
                             FolderSource(id: "folder:a", path: "/Volumes/Backup")],
-            pathOverride: { _ in nil }
+            rootOverride: { _ in nil }
         )
         #expect(providers.map(\.type) == [.iCloud, .dropBox, .localFolder, .localFolder])
         // Added-order, not alphabetical: sorting them by name would reshuffle the whole block
@@ -47,12 +47,12 @@ import Sync
             cloudStorageFolders: [],
             iCloudDefaultPath: "/Users/u/Documents",
             folderSources: [FolderSource(id: "folder:a", path: "~/Projects")],
-            pathOverride: { _ in nil }
+            rootOverride: { _ in nil }
         )
         let folder = try! #require(providers.last)
         #expect(folder.id == "folder:a")
         #expect(folder.displayName == "Projects")
-        #expect(folder.path == "~/Projects")
+        #expect(folder.rootPath == "~/Projects")
         #expect(folder.type == .localFolder)
         #expect(folder.isLocalFolder)
         // An SF Symbol, not an asset — `ProviderLogo` renders whichever it is handed.
@@ -68,7 +68,7 @@ import Sync
                 cloudStorageFolders: [],
                 iCloudDefaultPath: "/Users/u/Documents",
                 folderSources: [FolderSource(id: "folder:a", path: "~/Projects")],
-                pathOverride: { _ in nil },
+                rootOverride: { _ in nil },
                 nameOverride: { $0 == "folder:a" ? override : nil }
             ).last!
         }
@@ -165,7 +165,10 @@ import Sync
         let settings = manager(defaults, cloudStorage: [dropboxAccount])
         await settings.discoverProviders()
 
-        let id = settings.addFolderSource(path: "/Users/u/Library/CloudStorage/Dropbox/Documents")
+        // The account folder, which IS Dropbox's root now. (The `Documents` inside it is an
+        // ordinary folder within the source, and adding that as its own row is legitimate — nested
+        // sources are allowed, and it is no longer any source's root.)
+        let id = settings.addFolderSource(path: "/Users/u/Library/CloudStorage/Dropbox")
 
         #expect(id == "Dropbox")
         #expect(settings.folderSources.isEmpty)
@@ -224,7 +227,7 @@ import Sync
         await settings.discoverProviders()
 
         #expect(settings.folderSources.first?.path == "/Users/u/Archive")
-        #expect(settings.path(for: id) == "/Users/u/Archive")
+        #expect(settings.rootPath(for: id) == "/Users/u/Archive")
         #expect(defaults.defaults.string(forKey: "path_override_\(id)") == nil,
                 "an override here would be a second, stale copy of the path")
         // And it is the moved path that persists.
@@ -248,7 +251,7 @@ import Sync
 
         #expect(outcome == .refusedDuplicate(existingId: projects))
         #expect(settings.folderSources.count == 2, "still two sources, not two rows for one folder")
-        #expect(settings.path(for: archive) == "/Users/u/Archive", "and the refused one did not move")
+        #expect(settings.rootPath(for: archive) == "/Users/u/Archive", "and the refused one did not move")
         // The refusal has to survive a relaunch too — i.e. nothing was written on the way out.
         // No tildes here: these fixtures live under `/Users/u`, which is nobody's real home, so
         // `FolderSource.abbreviated` has nothing to fold.
@@ -268,7 +271,7 @@ import Sync
 
         #expect(settings.setPath("/users/u/projects/", for: archive)
                 == .refusedDuplicate(existingId: projects))
-        #expect(settings.path(for: archive) == "/Users/u/Archive")
+        #expect(settings.rootPath(for: archive) == "/Users/u/Archive")
     }
 
     /// A cloud account knows things about its folder that a plain folder source would throw away —
@@ -281,12 +284,12 @@ import Sync
         let settings = manager(defaults, cloudStorage: [dropboxAccount])
         let archive = settings.addFolderSource(path: "/Users/u/Archive")
         await settings.discoverProviders()
-        let dropboxPath = settings.path(for: "Dropbox")
+        let dropboxPath = settings.rootPath(for: "Dropbox")
 
         let outcome = settings.setPath(dropboxPath, for: archive)
 
         #expect(outcome == .refusedDuplicate(existingId: "Dropbox"))
-        #expect(settings.path(for: archive) == "/Users/u/Archive")
+        #expect(settings.rootPath(for: archive) == "/Users/u/Archive")
         #expect(settings.nameRuleType(for: "Dropbox") == .dropBox,
                 "the account keeps its own ruleset — the shadowing row is what would have taken it")
     }
@@ -315,7 +318,7 @@ import Sync
         await settings.discoverProviders()
 
         #expect(settings.setPath("/Users/u/Projects", for: other) == .changed)
-        #expect(settings.path(for: parent) == "/Users/u", "the parent is untouched")
+        #expect(settings.rootPath(for: parent) == "/Users/u", "the parent is untouched")
         #expect(settings.folderSources.count == 2)
     }
 

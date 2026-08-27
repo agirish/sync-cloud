@@ -156,7 +156,7 @@ import Settings
     }
 
     /// A provider id that vanished from settings resolves to an empty root ("" from
-    /// `settings.path(for:)`). The copy must abort with an error before reaching the sync
+    /// `settings.rootPath(for:)`). The copy must abort with an error before reaching the sync
     /// layer — previously the empty root sent files to a CWD-relative destination.
     @MainActor
     @Test func testCopyItemsWithUnknownProviderPresentsErrorAndCopiesNothing() async throws {
@@ -189,8 +189,8 @@ import Settings
         defer { try? FileManager.default.removeItem(at: existingRoot) }
         let goneRoot = "/nonexistent/FAH-\(UUID().uuidString)"
         let settings = makeSettings(providers: [
-            CloudProvider(id: "gone", displayName: "Gone", imageName: "icloud", path: goneRoot, type: .iCloud),
-            CloudProvider(id: "here", displayName: "Here", imageName: "icloud", path: existingRoot.path, type: .iCloud),
+            CloudProvider(id: "gone", displayName: "Gone", imageName: "icloud", rootPath: goneRoot, type: .iCloud),
+            CloudProvider(id: "here", displayName: "Here", imageName: "icloud", rootPath: existingRoot.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings)
         let node = FileNode(id: goneRoot + "/f.txt", name: "f.txt", isDirectory: false)
@@ -227,7 +227,7 @@ import Settings
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let settings = makeSettings(providers: [
-            CloudProvider(id: "p", displayName: "P", imageName: "icloud", path: root.path, type: .iCloud)
+            CloudProvider(id: "p", displayName: "P", imageName: "icloud", rootPath: root.path, type: .iCloud)
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings)
         let aliasedNode = FileNode(id: root.path + "-alias/sub", name: "sub", isDirectory: true)
@@ -263,7 +263,7 @@ import Settings
         try FileManager.default.createDirectory(at: root.appendingPathComponent("sub/inner"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let settings = makeSettings(providers: [
-            CloudProvider(id: "p", displayName: "P", imageName: "icloud", path: root.path, type: .iCloud)
+            CloudProvider(id: "p", displayName: "P", imageName: "icloud", rootPath: root.path, type: .iCloud)
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings)
         let node = FileNode(id: root.path + "/sub/inner", name: "inner", isDirectory: true)

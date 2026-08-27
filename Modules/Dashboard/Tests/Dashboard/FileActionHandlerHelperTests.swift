@@ -14,7 +14,7 @@ import Settings
         let settings = SettingsManager(autoDiscover: false) // seeded iCloud provider only
         let handler = FileActionHandler(syncManager: manager, settings: settings)
 
-        let root = settings.path(for: "iCloud")
+        let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
 
         handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud", suppressLinkedNavigation: false)
@@ -29,7 +29,7 @@ import Settings
         let settings = SettingsManager(autoDiscover: false)
         let handler = FileActionHandler(syncManager: manager, settings: settings)
 
-        let root = settings.path(for: "iCloud")
+        let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
 
         handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud", suppressLinkedNavigation: false)
@@ -50,7 +50,7 @@ import Settings
         let settings = SettingsManager(autoDiscover: false)
         let handler = FileActionHandler(syncManager: manager, settings: settings)
 
-        let root = settings.path(for: "iCloud")
+        let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
 
         handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud",
@@ -69,7 +69,7 @@ import Settings
         let settings = SettingsManager(autoDiscover: false)
         let handler = FileActionHandler(syncManager: manager, settings: settings)
 
-        let root = settings.path(for: "iCloud")
+        let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
 
         handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud", suppressLinkedNavigation: false)
@@ -83,7 +83,7 @@ import Settings
         let settings = SettingsManager(autoDiscover: false)
         let handler = FileActionHandler(syncManager: manager, settings: settings)
 
-        let root = settings.path(for: "iCloud")
+        let root = settings.rootPath(for: "iCloud")
         let node = FileNode(id: root, name: "root", isDirectory: true)
 
         handler.focusFolder(node, isLeft: false, leftProviderId: "iCloud", rightProviderId: "iCloud", suppressLinkedNavigation: false)
@@ -94,7 +94,7 @@ import Settings
     @Test func testProviderDisplayNameMatchesRootAndRespectsBoundary() {
         let settings = SettingsManager(autoDiscover: false)
         let handler = FileActionHandler(syncManager: FileSyncManager(), settings: settings)
-        let root = settings.path(for: "iCloud")
+        let root = settings.rootPath(for: "iCloud")
 
         // Exact root and a real subpath resolve to the provider.
         #expect(handler.providerDisplayName(forPath: root) == "iCloud")

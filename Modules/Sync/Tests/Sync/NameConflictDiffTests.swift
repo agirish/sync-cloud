@@ -14,10 +14,10 @@ import Foundation
     private let baseDate = Date(timeIntervalSince1970: 1_000_000)
 
     private func leftProvider() -> CloudProvider {
-        CloudProvider(id: "l", displayName: "iCloud", imageName: "folder", path: "/left", type: .iCloud)
+        CloudProvider(id: "l", displayName: "iCloud", imageName: "folder", rootPath: "/left", type: .iCloud)
     }
     private func rightProvider() -> CloudProvider {
-        CloudProvider(id: "r", displayName: "Dropbox", imageName: "folder", path: "/right", type: .dropBox)
+        CloudProvider(id: "r", displayName: "Dropbox", imageName: "folder", rootPath: "/right", type: .dropBox)
     }
 
     /// FileInfo for `relativePath` under the given root.

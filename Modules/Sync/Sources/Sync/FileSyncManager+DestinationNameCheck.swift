@@ -33,7 +33,7 @@ extension FileSyncManager {
     ) -> CloudProvider? {
         guard let providers else { return nil }
         for provider in [providers.left, providers.right] {
-            var root = (provider.path as NSString).expandingTildeInPath
+            var root = (provider.rootPath as NSString).expandingTildeInPath
             while root.hasSuffix("/") { root.removeLast() }
             guard !root.isEmpty else { continue }
             if path == root || path.hasPrefix(root + "/") { return provider }
@@ -51,7 +51,7 @@ extension FileSyncManager {
         isMove: Bool
     ) -> (prompt: NameViolationPrompt, sanitizedURL: URL)? {
         guard let provider = destinationProvider(forPath: url.path, providers: providers) else { return nil }
-        var root = (provider.path as NSString).expandingTildeInPath
+        var root = (provider.rootPath as NSString).expandingTildeInPath
         while root.hasSuffix("/") { root.removeLast() }
         let destinationPath = url.path
         guard destinationPath != root else { return nil }

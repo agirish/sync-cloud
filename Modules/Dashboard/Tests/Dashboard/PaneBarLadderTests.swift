@@ -88,7 +88,7 @@ import Design
             title: "Left",
             provider: providerName.map {
                 CloudProvider(id: "icloud", displayName: $0, imageName: "icloud-logo",
-                              path: "/Users/test/iCloud", type: .iCloud)
+                              rootPath: "/Users/test/iCloud", type: .iCloud)
             },
             rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
             canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
@@ -743,6 +743,13 @@ import Design
     /// gap of every rung does. Fifteen of them moved and kept their shape; the two flagged in the
     /// table shed the Preview toggle into ⋯ at a width that used to hold it. A row that changes ring
     /// *count* is the one worth reading — it is the ladder stepping down, not the bar sliding.
+    /// **The roots split moved the breadcrumb half of all sixteen rows, and only that half.** The
+    /// first crumb names the SOURCE now rather than the root folder, so it went from "iCloud"
+    /// (37pt) to "iCloud Drive" (62pt) and pushed the two crumbs behind it right by the difference.
+    /// Every row's bar rings are byte-identical to what they were, and no row changed its crumb
+    /// COUNT — which is the pair of facts that separates "the crumb is wider" from "the ladder
+    /// stepped down", and the reason to read those two things rather than the diff as a whole.
+    ///
     /// One golden row, as data rather than a string to be re-parsed.
     ///
     /// The keys used to be `"columns-icloud|0.9|250"`, split apart and force-unwrapped at read time.
@@ -773,9 +780,9 @@ import Design
     }
 
     private static let goldenTable: [(String, CGFloat, CGFloat, String)] = [
-        (iCloud, 0.9, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/37x13 49,508/58x13 110,508/44x13"),
-        (iCloud, 0.9, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,515/37x13 49,515/58x13 110,515/44x13"),
-        (iCloud, 0.9, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,515/37x13 49,515/58x13 110,515/44x13"),
+        (iCloud, 0.9, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/62x13 75,508/58x13 135,508/44x13"),
+        (iCloud, 0.9, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,515/62x13 75,515/58x13 135,515/44x13"),
+        (iCloud, 0.9, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,515/62x13 75,515/58x13 135,515/44x13"),
         // **A titled row, and one of only two rows here that is not identical to `v4.0`.** The bar
         // starts further left of its trailing edge because words are wider than their pills, and
         // its controls sit 6pt higher to make room for the title line beneath them. Ring heights
@@ -783,10 +790,10 @@ import Design
         // differs from `v4.0`, which had no titles; its sibling is (iCloud, 1.0, 710). Every other
         // row in this table was checked byte-for-byte against `v4.0` when the untitled gap was put
         // back to 6, and matched.
-        (iCloud, 0.9, 710, "329,473/29x20 361,473/29x20 401,473/33x20 440,473/33x20 481,473/33x20 530,473/33x20 580,473/33x20 621,473/33x20 665,473/29x20 10,515/37x13 49,515/58x13 110,515/44x13"),
-        (iCloud, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (iCloud, 1.0, 330, "157,481/27x17 190,481/27x17 223,481/27x17 256,481/27x17 289,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (iCloud, 1.0, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 0.9, 710, "329,473/29x20 361,473/29x20 401,473/33x20 440,473/33x20 481,473/33x20 530,473/33x20 580,473/33x20 621,473/33x20 665,473/29x20 10,515/62x13 75,515/58x13 135,515/44x13"),
+        (iCloud, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/67x15 80,508/63x15 145,508/47x15"),
+        (iCloud, 1.0, 330, "157,481/27x17 190,481/27x17 223,481/27x17 256,481/27x17 289,481/27x17 10,508/67x15 80,508/63x15 145,508/47x15"),
+        (iCloud, 1.0, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,514/67x15 80,514/63x15 145,514/47x15"),
         // **This row is the one to read if the untitled gap is ever widened again.** Charging the
         // titled bar's 8pt gap to this untitled rung cost it a control: nine rings became eight as
         // the trailing 23-wide segment — the Preview toggle — was shed into ⋯ at a width that had
@@ -794,17 +801,17 @@ import Design
         // (longName, 650) with it. Nothing was ever *lost* (Preview stays in the menu), which is
         // why a ladder stepping down early is so easy to ship: it is only visible as a control
         // that used to be on the bar and now is not.
-        (iCloud, 1.0, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (iCloud, 1.0, 570, "223,479/29x20 255,479/29x20 293,479/33x20 332,479/33x20 371,479/33x20 410,479/33x20 449,479/33x20 488,479/33x20 527,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (iCloud, 1.0, 710, "319,472/29x20 351,472/29x20 391,472/33x20 430,472/33x20 471,472/33x20 523,472/33x20 575,472/33x20 617,472/33x20 663,472/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (longName, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (longName, 1.0, 410, "237,481/27x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (longName, 1.0, 490, "317,481/27x17 350,481/27x17 383,481/27x17 416,481/27x17 449,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
-        (longName, 1.0, 570, "372,481/23x17 398,481/23x17 430,481/27x17 463,481/27x17 496,481/27x17 529,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 1.0, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,514/67x15 80,514/63x15 145,514/47x15"),
+        (iCloud, 1.0, 570, "223,479/29x20 255,479/29x20 293,479/33x20 332,479/33x20 371,479/33x20 410,479/33x20 449,479/33x20 488,479/33x20 527,479/29x20 10,514/67x15 80,514/63x15 145,514/47x15"),
+        (iCloud, 1.0, 710, "319,472/29x20 351,472/29x20 391,472/33x20 430,472/33x20 471,472/33x20 523,472/33x20 575,472/33x20 617,472/33x20 663,472/29x20 10,514/67x15 80,514/63x15 145,514/47x15"),
+        (longName, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/86x15 99,508/63x15 164,508/47x15"),
+        (longName, 1.0, 410, "237,481/27x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,508/189x15 202,508/63x15 267,508/47x15"),
+        (longName, 1.0, 490, "317,481/27x17 350,481/27x17 383,481/27x17 416,481/27x17 449,481/27x17 10,508/189x15 202,508/63x15 267,508/47x15"),
+        (longName, 1.0, 570, "372,481/23x17 398,481/23x17 430,481/27x17 463,481/27x17 496,481/27x17 529,481/27x17 10,514/189x15 202,514/63x15 267,514/47x15"),
         // The second of the two — same cause, same shed control, 160pt further out because this
         // provider name eats that much of the row before the bar sees any of it.
-        (longName, 1.0, 650, "357,481/23x17 383,481/23x17 415,481/27x17 448,481/27x17 481,481/27x17 514,481/27x17 547,481/27x17 580,481/27x17 613,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15"),
-        (longName, 1.0, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (longName, 1.0, 650, "357,481/23x17 383,481/23x17 415,481/27x17 448,481/27x17 481,481/27x17 514,481/27x17 547,481/27x17 580,481/27x17 613,481/23x17 10,514/189x15 202,514/63x15 267,514/47x15"),
+        (longName, 1.0, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/189x15 202,514/63x15 267,514/47x15"),
     ]
 
 }

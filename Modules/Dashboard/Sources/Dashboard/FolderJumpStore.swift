@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import Events
+import Sync
 
 /// One jump target within a provider pane: a folder to hop to, identified by its path relative to
 /// the pane's provider root ("" is the root), plus the display name shown in the menu. `Sendable`
@@ -253,22 +254,19 @@ public final class FolderJumpStore: ObservableObject {
     /// so a caller holding either spelling of the same root reaches the same entry.
     ///
     /// A folder source's path keeps its `~`, and the app carries both forms: the panes and the
-    /// breadcrumb hand over `settings.path(for:)` as stored, while surfaces that touch the disk
+    /// breadcrumb hand over `settings.rootPath(for:)` as stored, while surfaces that touch the disk
     /// expand it first. Used raw as dictionary keys, those two never met — a folder pinned from the
     /// breadcrumb was missing from every reader holding the expanded form, and "no pins" is exactly
     /// what an unpinned provider looks like, so nothing said so.
     ///
-    /// Expansion plus a trailing-slash trim, and deliberately no more: case-folding would merge two
-    /// genuinely distinct roots on a case-sensitive volume, and symlink resolution would make a key
-    /// depend on disk state that can change under a persisted pin.
     /// **The one spelling of a root.** Public since v4.4: `FolderSidebarRow.root` is normalised
     /// through this, so a host comparing a row's root against a provider's path has to normalise
     /// the same way or the two spellings never meet — which is the exact defect the migration in
-    /// `init` exists to repair.
+    /// `init` exists to repair. The rule itself lives in `PathBoundary.normalizedRoot`, hoisted
+    /// there so `RootsMigration` — which has to write these very keys from a module that cannot
+    /// import this one — spells them identically by construction rather than by a copied body.
     public nonisolated static func key(forRoot root: String) -> String {
-        var path = (root as NSString).expandingTildeInPath
-        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
-        return path
+        PathBoundary.normalizedRoot(root)
     }
 
     func recents(forRoot root: String) -> [JumpLocation] { recentsByRoot[Self.key(forRoot: root)] ?? [] }

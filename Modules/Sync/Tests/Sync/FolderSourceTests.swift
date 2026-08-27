@@ -111,12 +111,12 @@ import Testing
 
     private func folder(_ path: String) -> CloudProvider {
         CloudProvider(id: FolderSource.idPrefix + path, displayName: "F",
-                      imageName: "folder.fill", path: path, type: .localFolder)
+                      imageName: "folder.fill", rootPath: path, type: .localFolder)
     }
 
     private func dropbox(_ path: String) -> CloudProvider {
         CloudProvider(id: "Dropbox", displayName: "Dropbox", imageName: "dropbox",
-                      path: path, type: .dropBox)
+                      rootPath: path, type: .dropBox)
     }
 
     /// The one that matters. A folder source added INSIDE a cloud root would win
@@ -148,7 +148,7 @@ import Testing
         #expect(CloudProvider.inferredType(forPath: "/Users/u/Documents/x.txt",
                                            among: [folder("/Users/u")]) == nil)
         let providerAtHome = CloudProvider(id: "p", displayName: "P", imageName: "icloud",
-                                           path: "/Users/u", type: .oneDrive)
+                                           rootPath: "/Users/u", type: .oneDrive)
         #expect(CloudProvider.inferredType(forPath: "/Users/u/Documents/x.txt",
                                            among: [providerAtHome]) == nil)
     }
@@ -199,7 +199,7 @@ import Testing
         func differences(as type: CloudProvider.ProviderType) throws -> [FileDifference] {
             func provider(_ url: URL) -> CloudProvider {
                 CloudProvider(id: url.lastPathComponent, displayName: url.lastPathComponent,
-                              imageName: "folder.fill", path: url.path, type: type)
+                              imageName: "folder.fill", rootPath: url.path, type: type)
             }
             return FileDiffEngine.computeDifferences(
                 left: provider(left), leftURL: left,

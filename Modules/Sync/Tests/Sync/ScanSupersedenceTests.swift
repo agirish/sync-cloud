@@ -7,8 +7,8 @@ import Testing
 /// disk walk must abort instead of holding `isScanning` for results nobody will read.
 @Suite struct ScanSupersedenceTests {
 
-    private static let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: "/left", type: .iCloud)
-    private static let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: "/right", type: .iCloud)
+    private static let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", rootPath: "/left", type: .iCloud)
+    private static let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", rootPath: "/right", type: .iCloud)
 
     private func file() -> MockFileManager.FileStub {
         MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)

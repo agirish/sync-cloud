@@ -106,7 +106,7 @@ import Sync
     private func coverage(_ roots: [(String, String)]) -> FileLocation.Coverage {
         FileLocation.coverage(
             of: roots.map { CloudProvider(id: $0.0, displayName: $0.0, imageName: "icloud",
-                                          path: $0.1, type: .iCloud) },
+                                          rootPath: $0.1, type: .iCloud) },
             disabledProviderIds: [])
     }
 

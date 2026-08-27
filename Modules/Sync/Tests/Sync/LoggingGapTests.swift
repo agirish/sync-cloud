@@ -86,9 +86,9 @@ import Testing
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         let l = CloudProvider(id: "L", displayName: "L", imageName: "folder",
-                              path: left.path, type: .localFolder)
+                              rootPath: left.path, type: .localFolder)
         let r = CloudProvider(id: "R", displayName: "R", imageName: "folder",
-                              path: right.path, type: .localFolder)
+                              rootPath: right.path, type: .localFolder)
 
         // A refresh with a scope this one disagrees with, standing in for one still in flight — the
         // key is the only part of it this decision reads. `.rightOnly` rather than `.both`, and that

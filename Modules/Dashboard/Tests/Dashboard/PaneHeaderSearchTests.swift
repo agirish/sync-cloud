@@ -22,7 +22,7 @@ import Sync
         PaneHeader(
             title: "Left",
             provider: CloudProvider(id: "icloud", displayName: "iCloud", imageName: "icloud-logo",
-                                    path: "/root", type: .iCloud),
+                                    rootPath: "/root", type: .iCloud),
             rootPath: "/root",
             relativePath: "Documents",
             canGoBack: true, canGoForward: false,

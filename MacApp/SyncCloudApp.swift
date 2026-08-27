@@ -228,6 +228,21 @@ struct SyncCloudApp: App {
             // about and is cleared rather than trusted. Idempotent, like its neighbours above.
             OrganizeScopeDefaults.migrate(defaults: .standard)
 
+            // Sources now begin at their account folder rather than at the `Documents` inside it,
+            // so every position stored RELATIVE to a source root — the last-open folder of each
+            // pane, both tab strips, pinned and recent folders, the Favorites order, the filing
+            // destinations — is measured from one level too high until this moves it down.
+            //
+            // **Here, and synchronously, because of the readers.** The launch focus restore and
+            // both tab strips are read from the bootstrap task a moment later, and a strip whose
+            // folders no longer resolve is re-rooted and then saved that way — the loss would be
+            // permanent and silent. Running before any of them means the ordering does not depend
+            // on which task wins. Idempotent by its stamp, so the repeat App.init calls noted
+            // above are harmless.
+            if let line = RootsMigration.applyAtLaunch(defaults: .standard).logLine {
+                Logger.shared.info(line)
+            }
+
             // Main-thread hitch reporting, when the diagnostic flag is set. Installed here rather
             // than from a view so it covers the whole session — including launch, which is where a
             // wedged `getxattr` once cost the app every one of its windows. Idempotent, so the

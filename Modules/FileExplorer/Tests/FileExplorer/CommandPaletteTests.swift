@@ -460,21 +460,44 @@ import Foundation
                                      keys: ["Legal"]) == ["Legal"])
     }
 
-    /// A profile about a **different** tree contributes nothing.
+    /// A profile about a tree **outside** the provider root contributes nothing.
     ///
-    /// Equality, not containment. The keys are relative to the profile's root, so a profile rooted
-    /// anywhere else yields paths relative to the wrong thing — the first cut admitted a profile
-    /// root *under* the provider root and would have minted folder routes pointing at paths that do
-    /// not exist.
+    /// Containment, not equality — but containment in one direction only. A profile rooted *above*
+    /// the provider root, or off in another tree entirely, yields keys relative to the wrong thing,
+    /// and no prefix repairs them; a folder that cannot be named is not a destination.
     @Test func aProfileAboutADifferentTreeContributesNoFolders() {
         #expect(PaletteIndex.folders(profileRoot: "/a/Documents", providerRoot: "/b/Documents",
                                      keys: ["Legal"]).isEmpty)
-        #expect(PaletteIndex.folders(profileRoot: "/a/Documents/Sub", providerRoot: "/a/Documents",
-                                     keys: ["Legal"]).isEmpty)
+        // Above the provider root: its keys name paths that are not under this source at all.
         #expect(PaletteIndex.folders(profileRoot: "/a", providerRoot: "/a/Documents",
+                                     keys: ["Legal"]).isEmpty)
+        // A sibling that merely shares a string prefix is outside, not inside — the boundary rule
+        // `PathBoundary` exists for, and the one a `hasPrefix` re-implementation would get wrong.
+        #expect(PaletteIndex.folders(profileRoot: "/a/Documentsly", providerRoot: "/a/Documents",
                                      keys: ["Legal"]).isEmpty)
         #expect(PaletteIndex.folders(profileRoot: nil, providerRoot: "/a", keys: ["Legal"]).isEmpty)
         #expect(PaletteIndex.folders(profileRoot: "/a", providerRoot: "", keys: ["Legal"]).isEmpty)
+    }
+
+    /// A profile rooted **inside** the provider root contributes its folders, re-based.
+    ///
+    /// This is the ordinary case now, not an exotic one: a source's root is its account folder
+    /// while the folder profile is surveyed over the source's landing folder inside it, so the two
+    /// differ by exactly that source's `openAt` for every cloud account on the machine.
+    ///
+    /// The re-basing is what makes containment safe where equality used to be required. Every other
+    /// path in the index — recents, pins, a typed path — is measured from the provider root, and a
+    /// route is built by joining that root to what this returns; so a key handed back unchanged
+    /// would name `<account>/Legal` for a folder really at `<account>/Documents/Legal`. Returning
+    /// nothing instead, which is what an equality test does here, is no better: ⌘K's whole Folders
+    /// group and the "organize &lt;folder&gt;" lede go silently empty, which is how this last broke.
+    @Test func aProfileInsideTheProviderRootContributesItsFoldersRebased() {
+        #expect(PaletteIndex.folders(profileRoot: "/a/Documents", providerRoot: "/a",
+                                     keys: [".", "Legal", "Finance/US"])
+                == ["Documents/Legal", "Documents/Finance/US"])
+        // Two levels down, which is Google Drive's shape (`My Drive/Documents`).
+        #expect(PaletteIndex.folders(profileRoot: "/a/My Drive/Documents", providerRoot: "/a",
+                                     keys: ["Legal"]) == ["My Drive/Documents/Legal"])
     }
 
     // MARK: Each group appears once

@@ -335,7 +335,7 @@ import Foundation
         let body = try Self.body(of: "func openFolderSidebarRow(")
         try #require(body.contains("syncManager.focusOn(relativePath: row.relativePath, isLeft: isLeft)"),
                      "the open no longer focuses — this slice is not the member it claims to be")
-        #expect(body.contains("settings.path(for: isLeft ? leftProviderId : rightProviderId)"),
+        #expect(body.contains("settings.rootPath(for: isLeft ? leftProviderId : rightProviderId)"),
                 "the guard no longer derives the pane root from the pane being opened on")
         #expect(!body.contains("FolderJumpStore.key(forRoot: folderSidebarRoot)"),
                 "the guard asks the TARGET's root — it answers for the wrong pane exactly when `side` points the other way")

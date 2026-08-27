@@ -297,8 +297,8 @@ import Settings
             try? FileManager.default.removeItem(at: right)
         }
         let settings = makeSettings(providers: [
-            CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", path: left.path, type: .iCloud),
-            CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", path: right.path, type: .iCloud),
+            CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", rootPath: left.path, type: .iCloud),
+            CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", rootPath: right.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
                                         pasteboard: Self.scratchPasteboard("runPaneMove-\(fromLeft)"))
@@ -343,8 +343,8 @@ import Settings
             try? FileManager.default.removeItem(at: right)
         }
         let settings = makeSettings(providers: [
-            CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", path: left.path, type: .iCloud),
-            CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", path: right.path, type: .iCloud),
+            CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", rootPath: left.path, type: .iCloud),
+            CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", rootPath: right.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
                                         pasteboard: Self.scratchPasteboard("testCopyItemsFromLeftCopiesToRightPane"))
@@ -374,7 +374,7 @@ import Settings
         let left = try makeTempDir("move-dst-gone")
         defer { try? FileManager.default.removeItem(at: left) }
         let settings = makeSettings(providers: [
-            CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", path: left.path, type: .iCloud),
+            CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", rootPath: left.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
                                         pasteboard: Self.scratchPasteboard("testMoveItemsWithUnknownDestinationProviderPresentsErrorForDestinationSide"))
@@ -421,8 +421,8 @@ import Settings
             try? FileManager.default.removeItem(at: right)
         }
         let settings = makeSettings(providers: [
-            CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", path: left.path, type: .iCloud),
-            CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", path: right.path, type: .iCloud),
+            CloudProvider(id: "L", displayName: "LeftSide", imageName: "icloud", rootPath: left.path, type: .iCloud),
+            CloudProvider(id: "R", displayName: "RightSide", imageName: "icloud", rootPath: right.path, type: .iCloud),
         ])
         let handler = FileActionHandler(syncManager: manager, settings: settings,
                                         pasteboard: Self.scratchPasteboard("testMoveItemsWithMissingSourceFileShowsNoSuccessBanner"))

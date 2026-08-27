@@ -911,7 +911,7 @@ struct SetupSheet: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .help(provider.path)
+                    .help(provider.rootPath)
             }
             Spacer(minLength: 10)
 
@@ -992,9 +992,9 @@ struct SetupSheet: View {
     /// `HewlettPackardEnterp…dEnterprise/Documents` says one thing twice and truncates in the
     /// middle of both halves; the full path is on the row's tooltip, where it costs nothing.
     private func sourceDetail(_ provider: CloudProvider) -> String {
-        if provider.isLocalFolder { return shortPath(provider.path) }
+        if provider.isLocalFolder { return shortPath(provider.rootPath) }
         guard let open = provider.displayName.firstIndex(of: "("),
-              provider.displayName.hasSuffix(")") else { return shortPath(provider.path) }
+              provider.displayName.hasSuffix(")") else { return shortPath(provider.rootPath) }
         return String(provider.displayName[provider.displayName.index(after: open)...].dropLast())
     }
 
@@ -1459,11 +1459,16 @@ struct SetupSheet: View {
 
     /// Starts the walk root at the primary source, which is what the user just chose on Sources.
     ///
-    /// A *folder*, and the source's own path is the honest default: on this Mac the iCloud source's
-    /// path is already `~/Documents`, which is exactly the tree the hand-built profile describes.
+    /// A *folder*, and the source's LANDING folder is the honest default: on this Mac the iCloud
+    /// source lands at `~/Documents`, which is exactly the tree the hand-built profile describes.
+    ///
+    /// Landing rather than root, deliberately. The profile answers "where does a document like
+    /// this belong?", and it learns that from the document tree — an account's root also holds
+    /// `Teams Recordings` and a Copilot chat cache, which teach it nothing and would take a walk
+    /// over gigabytes to say so. This is the same folder the pre-roots code walked.
     private func seedWalkRoot() {
         guard !rootChosenByHand, let primary = primaryProvider else { return }
-        let seeded = URL(fileURLWithPath: primary.path)
+        let seeded = URL(fileURLWithPath: primary.landingPath)
         guard seeded != walkRoot else { return }
         walkRoot = seeded
         invalidateProposals()

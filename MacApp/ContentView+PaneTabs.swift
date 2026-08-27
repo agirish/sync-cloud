@@ -109,7 +109,7 @@ extension ContentView {
                 guard let provider = settings.availableProviders.first(where: { $0.id == id }) else { return nil }
                 return PaneTabChips.Source(displayName: provider.displayName,
                                            markImageName: provider.imageName,
-                                           root: provider.path)
+                                           root: provider.rootPath)
             })
     }
 
@@ -419,7 +419,7 @@ extension ContentView {
         // always absolute — `relativize` compares them as strings, so an unexpanded root matches
         // nothing and this whole entry point becomes a silent no-op. `PaneLogic.fullPath` and
         // `PaneLogic.paneFocusRestores` each expand for the same reason.
-        let root = (settings.path(for: providerId) as NSString).expandingTildeInPath
+        let root = (settings.rootPath(for: providerId) as NSString).expandingTildeInPath
         guard let relative = PathBoundary.relativize(absolutePath, under: root) else {
             // A folder outside this pane's root has no tab to be opened as: the strip is a list of
             // locations under one source, and inventing one here would name a path the pane could
@@ -458,7 +458,7 @@ extension ContentView {
         let providerId = paneProviderId(isLeft: other)
         // Expanded, for the reason `openInNewTab` gives above: a tilde root exists on no disk, so
         // every mirror would prune away to the sibling's root.
-        let root = (settings.path(for: providerId) as NSString).expandingTildeInPath
+        let root = (settings.rootPath(for: providerId) as NSString).expandingTildeInPath
         let landing = PaneTabMirror.landing(for: relative) { candidate in
             var isDirectory: ObjCBool = false
             let exists = FileManager.default.fileExists(
@@ -802,7 +802,7 @@ extension ContentView {
                 // come back pointing at nothing in particular.
                 var isDirectory: ObjCBool = false
                 let exists = FileManager.default.fileExists(
-                    atPath: PaneLogic.fullPath(root: settings.path(for: providerId),
+                    atPath: PaneLogic.fullPath(root: settings.rootPath(for: providerId),
                                                relativePath: relativePath),
                     isDirectory: &isDirectory)
                 return exists && isDirectory.boolValue

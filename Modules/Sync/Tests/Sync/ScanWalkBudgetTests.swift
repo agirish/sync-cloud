@@ -68,10 +68,10 @@ import Testing
     /// missing — the right holds files the left never got to, and offering to copy them in would
     /// be acting on an observation nobody made.
     private var leftProvider: CloudProvider {
-        CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: "/l", type: .iCloud)
+        CloudProvider(id: "L", displayName: "Left", imageName: "folder", rootPath: "/l", type: .iCloud)
     }
     private var rightProvider: CloudProvider {
-        CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: "/r", type: .iCloud)
+        CloudProvider(id: "R", displayName: "Right", imageName: "folder", rootPath: "/r", type: .iCloud)
     }
 
     @Test func aTruncatedSideNeverGetsMissingRows() {
