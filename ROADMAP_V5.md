@@ -281,11 +281,21 @@ blocked items below until the decisions block settled them.
 
 Two things every item after this one leans on, so they land before any of them.
 
-**Identity.** `StructureFinding.id` becomes `kind × family` — a `FindingKind` enum (`shape`,
-`series`/backlog, `shadowAxis`, `echoName`, `mirroredInbox`, `deadWeight`, `ask`) plus the family
-path. Today `id` is the family alone and `RestructureLens` does `ForEach(findings)`, so the second
-detector to land collides with the first in one `ForEach` (audit). The kind carries the **verb** the
-card shows (§5.1) and is the first half of every key below.
+**Identity.** `StructureFinding.id` becomes `kind × subject` — a `FindingKind` enum plus the path
+of the most specific folder the finding is about, which for shape is the family and for the others
+is narrower (the echoed child, the mirrored inbox, the backlog member). **Kind × family is not
+unique for every kind** — echo-name can fire twice in one family, on two different sibling pairs —
+so the subject, not the family, is the second half of the key; the family is still carried for the
+§5.2 grouping rule. The enum is the **complete** set of ten, settled before the store serialises a
+raw value: `shape`, `backlog`, `shadowAxis`, `echoName`, `mirroredInbox`, `deadWeight`,
+`looseAboveSeries`, `looseBesideContainer`, `duplicatedTaxonomy`, `ask` — the 2026-08-20 recovered
+detectors and §5.9 included, because adding a case later is cheap but re-keying a store is not
+(raw values are append-only, never reused). `deadWeight` renders as the crowding strip rather than
+as cards (§5.2), but keeps its kind: the empties-removal manifest's `kind` field and the
+suppression key both need the identity. Today `id` is the family alone and `RestructureLens` does
+`ForEach(findings)`, so the second detector to land collides with the first in one `ForEach`
+(audit). The kind carries the **verb** the card shows (§5.1) and is the first half of every key
+below.
 
 **The store.** One per-profile, app-owned, atomically written file, `restructure.json`, next to
 `people.json` — precedents `PeopleStore`, `PersonTagStore`, `StorageLensStore`,
@@ -380,10 +390,13 @@ which is a judgement the tree cannot support.
 
 The crowding strip is the answer to *"it sees a lot of folders"*: three counts above the findings,
 each a filter into a list. **Crowding is a property of the scope, not a finding** — always non-zero
-on a real tree — so it never takes a badge. The counts are **scope-dependent**, which is the one
-place this item can quietly put an O(folders) sweep behind a scroll: `structureFindings` is memoised
-precisely because the overview asks for it on every render, so every detector here joins that cache
-and the cache key grows a scope.
+on a real tree — so it never takes a badge. The counts are **scope-dependent, but the cache is
+not**: `LensWorkspaceView` already scopes the profile-wide memo at render time (a `filter` over
+`structureFindings`), and that is the right shape for everything here. Every detector *and* the
+per-folder crowding classification join the existing profile-keyed cache — computed once per
+profile, dropped by `filingFolderProfile`'s `didSet` — and the strip's three numbers are a count of
+that cached classification within the scope prefix, O(scope) at render. No second cache dimension,
+no scoped invalidation to get wrong.
 
 **Backlog is the one detector whose fix is cheap, safe and recurring — so it gets an Apply of its
 own, and it is the highest-value addition of the review.** The finding today is *the newest year
@@ -451,6 +464,13 @@ tree holds one Ask-shaped disagreement.
 suppressions are release-gating; the `answers` section is a second key in the same file). If the
 sheet and the one detector that asks are not done when the rest is, 5.0 ships without them and
 loses one finding on this tree. Fig. 32 stays as the design.
+
+**The detection rule itself is undesigned** — said here so it is not discovered on the branch.
+Everything above specifies what happens *after* a disagreement is found: the sheet, the store, the
+answer's lifetime. What rule finds `Health/Kaiser - PG&E` versus `Health/Medical/Kaiser` in the
+first place — anchor overlap between a folder and a non-sibling? a person/provider token shared
+across branches? — has never been written down or measured, and the one example is the only known
+instance. Design it against the live profile before building the sheet; it is in Open questions.
 
 ### 5.4 Choose → map → manifest, with Export — large
 
@@ -591,9 +611,14 @@ then moves and merges, then the removal step. All three are in 5.0 (decisions bl
    because the tree was re-read.
 7. **Replay the manifest onto the keys of the corpus, the memory and the store** — a `rename-dir`
    re-prefixes every key beneath it, a `move-file` re-keys one document, a merge re-keys each file
-   it moved — and write them. No page is re-read for a file that only moved. The fingerprint moves;
-   the **80 cached cloud verdicts** on this machine are invalidated, and that is correct — every one
-   of them names a destination as a path, and the paths just changed.
+   it moved — **and write them under the NEW profile id's directory**, along with `people.json`,
+   carried as-is. The per-profile artifacts live beside the profile they describe, and step 6 just
+   minted a fresh directory; a replay that wrote them back under the old id would leave
+   `profiles.json` pointing at a folder holding a profile and nothing else — suppressions, drafts
+   and the roster all silently gone on the first Apply. No page is re-read for a file that only
+   moved. The fingerprint moves; the **80 cached cloud verdicts** on this machine are invalidated,
+   and that is correct — every one of them names a destination as a path, and the paths just
+   changed.
 8. Log one line per landing: manifest id, family, counts, verifier result, old and new profile ids.
    The log is where the truth of an apply gets found later; make it findable by grepping the
    manifest id.
@@ -966,6 +991,11 @@ scheduled with `launchd`, or run over ssh.
 structure detectors are stateless over a walked tree — so this is command surface and output
 shaping, not new logic.
 
+**Where the CLI gets a profile:** exactly where the app does — the profiles directory's
+`profiles.json` names the active id, and `folder-profile.json` under it is the input. No walk, no
+app running, no new discovery logic; an explicit `--profiles-dir` override exists for pointing the
+command at a fixture, which is how the detector suite and the CLI stay comparable.
+
 **Build `restructure --json` with §5.2, and the argument is about testing rather than users.** The
 detectors are pure functions of the profile, so a CLI that prints them is the only way to run the
 whole set over a real tree without a Mac in front of you. **Every number in this file was produced
@@ -1047,6 +1077,11 @@ goes to a branch.
   for it: **offer it in the lens and in Organize's overview, never start it**, because an
   hours-long background pass the user did not ask for is exactly what the *"never make the app feel
   slow"* rule exists to protect.
+- **§5.3: what rule detects an Ask-shaped disagreement?** The sheet, the store and the answer's
+  lifetime are specified; the detector is not, and the one known instance (`Health/Kaiser - PG&E`
+  vs `Health/Medical/Kaiser`) is not enough to derive a rule from. Needs a candidate rule dry-run
+  against the live profile — with the silence bar the shape detector set — before the sheet is
+  worth building.
 - **§5.9: what share of shared content makes two folders duplicated taxonomy?** The detector reads
   `.sameText` groups, so it needs a threshold — two folders that share one document are not a
   duplicated taxonomy and two that share all of them plainly are. Unmeasurable from the profile;
