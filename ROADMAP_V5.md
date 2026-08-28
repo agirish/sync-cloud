@@ -536,7 +536,12 @@ mechanically.
    than a failure to produce one.
 2. **Tabulate the family group first** where parallel families share a vocabulary. Fixing H-4 alone
    would have left it disagreeing with its two siblings; laid out as a table the cause was visible
-   in one glance (each filing lands flat and is foldered later).
+   in one glance (each filing lands flat and is foldered later). *(2026-08-28: shipped as a
+   pointer, not yet the table — the sheet names the sibling families sharing ≥3 mapping names
+   (`RestructurePlanner.parallelFamilies`), which at that bar names H-1B beside H-4 and deliberately
+   not the two-name overlaps, because `Statements`/`Reference` pairs recur correctly all over the
+   tree. The side-by-side table belongs with §5.5, where planning several families in one sitting
+   becomes real.)*
 3. **The mapping editor** — one row per distinct source folder name across the family, target
    dropdown, **default keep**, never a guessed mapping. This is where the leverage is: edited once,
    applied to every member. Two sources onto one target is a **merge** and the row says so in the

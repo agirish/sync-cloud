@@ -23,16 +23,20 @@ public struct RestructureKey: Hashable, Codable, Sendable {
     public init(_ finding: StructureFinding) {
         self.init(kind: finding.kind, path: finding.subject)
     }
+
+    /// The ``StructureFinding/id`` this key corresponds to — the one spelling of the composite
+    /// identity, so a caller joining store sections to rendered findings never re-derives the
+    /// format by hand (two spellings of `kind|path` is how they drift apart).
+    public var findingId: String { "\(kind.rawValue)|\(path)" }
 }
 
 /// Everything Restructure remembers, in one app-owned file — `restructure.json`, beside
 /// `people.json`.
 ///
 /// **One store, not four** (ROADMAP_V5 §5.0, decisions block): suppressions, Ask answers, drafted
-/// plans and the applied ledger share the `kind × path` identity, so they share a file. The
-/// `drafts` and `applied` sections arrive with §5.4 and §5.5; until then the decoder carries any
-/// section it does not model across a save rather than deleting it, the same discipline
-/// ``PeopleStore`` has for hand-added keys.
+/// plans and the applied ledger share the `kind × path` identity, so they share a file — all four
+/// sections are modelled now. The decoder still carries any section it does not model across a
+/// save rather than deleting it, the same discipline ``PeopleStore`` has for hand-added keys.
 ///
 /// Writes are whole-file and atomic, like every store beside it (`PeopleStore`, `PersonTagStore`,
 /// `StorageLensStore`, `FilingVerdictCache`): the file is small, a rewrite costs nothing, and a
@@ -51,6 +55,29 @@ public final class RestructureStore: ObservableObject {
 
     /// Chosen options for Ask findings, so the detector that asked never asks twice (§5.3).
     @Published public private(set) var answers: [RestructureKey: String] = [:]
+
+    /// Drafted plans, keyed on `kind × family` — §5.7's *Planned, not applied*: a draft survives
+    /// the sheet closing, the app quitting, and a re-survey, because the key is a path and the
+    /// profile can be replaced underneath it. What it does not survive is its family ceasing to
+    /// exist, which the card says.
+    @Published public private(set) var drafts: [RestructureKey: DraftRecord] = [:]
+
+    public struct DraftRecord: Codable, Equatable, Sendable {
+        /// The plan as derived when the sheet last saved — mapping rows in its header, actions
+        /// ordered as they would run.
+        public var manifest: RestructureManifest
+        /// When the draft was saved, injected by the writer.
+        public var savedAt: String
+        /// The file `Export plan…` wrote, relative to the profile folder — nil for a draft that
+        /// was saved without exporting.
+        public var exportedTo: String?
+
+        public init(manifest: RestructureManifest, savedAt: String, exportedTo: String? = nil) {
+            self.manifest = manifest
+            self.savedAt = savedAt
+            self.exportedTo = exportedTo
+        }
+    }
 
     /// The applied ledger — one record per landing, in the order they landed (§5.0's `applied`
     /// section, §5.5's step 2 home). The inverse is ON DISK from the moment a landing starts,
@@ -152,6 +179,46 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
+    // MARK: - Drafts
+
+    public func draft(for key: RestructureKey) -> DraftRecord? { drafts[key] }
+
+    public func saveDraft(_ record: DraftRecord, for key: RestructureKey) {
+        guard drafts[key] != record else { return }
+        drafts[key] = record
+        save()
+    }
+
+    public func removeDraft(for key: RestructureKey) {
+        guard drafts[key] != nil else { return }
+        drafts[key] = nil
+        save()
+    }
+
+    /// Writes `manifest` beside the profile as `restructure-<date>-<family>.json` — reviewable
+    /// in a text editor with nothing at risk (§5.4 step 5). Returns the file name it chose.
+    ///
+    /// This is a NEW file, not `restructure.json`, so it is written even when the store itself is
+    /// refusing writes — the refusal protects the one file this build could not read, and an
+    /// export overwrites nothing but an earlier export of the same plan on the same day.
+    @discardableResult
+    public func exportPlan(_ manifest: RestructureManifest) throws -> String {
+        let date = manifest.createdAt.prefix(while: { $0 != "T" })
+        let family = manifest.family.replacingOccurrences(of: "/", with: "-")
+        let name = "restructure-\(date)-\(family).json"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let url = directory.appendingPathComponent("\(profileId)/\(name)")
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(),
+                                        withIntermediateDirectories: true)
+        try encoder.encode(manifest).write(to: url, options: .atomic)
+        // One greppable line, the scaffold's discipline: the export is an act a later reader
+        // may need to date and locate without the app open.
+        Logger.shared.info("Restructure plan exported — \(name): "
+                           + "\(manifest.actions.count) action(s) for \(manifest.family)")
+        return name
+    }
+
     // MARK: - The ledger
 
     /// Appends one landing's record. The write is immediate and whole-file, like every mutation
@@ -187,15 +254,26 @@ public final class RestructureStore: ObservableObject {
         guard !renames.isEmpty else { return }
         var newSuppressed = suppressed
         var newAnswers = answers
+        var newDrafts = drafts
         for rename in renames {
             newSuppressed = Set(newSuppressed.map { $0.rekeyed(rename) })
             newAnswers = Dictionary(uniqueKeysWithValues: newAnswers.map {
                 ($0.key.rekeyed(rename), $0.value)
             })
+            // The draft's KEY moves with the family; the manifest inside it keeps the paths it
+            // was derived against — §5.5's Apply re-validates a draft against the tree as it
+            // stands, and a stale path there is a card sentence, not a silent rewrite of a plan
+            // the user reviewed.
+            newDrafts = Dictionary(uniqueKeysWithValues: newDrafts.map {
+                ($0.key.rekeyed(rename), $0.value)
+            })
         }
-        guard newSuppressed != suppressed || newAnswers != answers else { return }
+        guard newSuppressed != suppressed || newAnswers != answers || newDrafts != drafts else {
+            return
+        }
         suppressed = newSuppressed
         answers = newAnswers
+        drafts = newDrafts
         save()
     }
 
@@ -207,10 +285,17 @@ public final class RestructureStore: ObservableObject {
         let choice: String
     }
 
+    private struct DraftEntry: Codable {
+        let kind: FindingKind
+        let path: String
+        let draft: DraftRecord
+    }
+
     private struct FileIn: Decodable {
         let schemaVersion: Int?
         let suppressed: [RestructureKey]?
         let answers: [AnswerRecord]?
+        let drafts: [DraftEntry]?
         let applied: [AppliedRecord]?
     }
 
@@ -218,12 +303,14 @@ public final class RestructureStore: ObservableObject {
         let schemaVersion: Int
         let suppressed: [RestructureKey]
         let answers: [AnswerRecord]
+        let drafts: [DraftEntry]
         let applied: [AppliedRecord]
 
         /// Everything this type writes. Anything else in the file belongs to a section this build
         /// does not model yet and is carried across a save — see `carriedKeys`. Spelled out rather
         /// than derived, for ``PeopleStore``'s stated reason.
-        static let modelledKeys: Set<String> = ["schemaVersion", "suppressed", "answers", "applied"]
+        static let modelledKeys: Set<String> = ["schemaVersion", "suppressed", "answers",
+                                                "drafts", "applied"]
     }
 
     /// The schema this build writes. A file carrying a **newer** number is treated as unreadable
@@ -258,6 +345,9 @@ public final class RestructureStore: ObservableObject {
         answers = Dictionary(uniqueKeysWithValues: (decoded.answers ?? []).map {
             (RestructureKey(kind: $0.kind, path: $0.path), $0.choice)
         })
+        drafts = Dictionary(uniqueKeysWithValues: (decoded.drafts ?? []).map {
+            (RestructureKey(kind: $0.kind, path: $0.path), $0.draft)
+        })
         applied = decoded.applied ?? []
         carriedKeys = object.filter { !FileOut.modelledKeys.contains($0.key) }
     }
@@ -279,6 +369,9 @@ public final class RestructureStore: ObservableObject {
                 suppressed: suppressed.sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
                 answers: answers
                     .map { AnswerRecord(kind: $0.key.kind, path: $0.key.path, choice: $0.value) }
+                    .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
+                drafts: drafts
+                    .map { DraftEntry(kind: $0.key.kind, path: $0.key.path, draft: $0.value) }
                     .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
                 applied: applied)
             var data = try encoder.encode(out)

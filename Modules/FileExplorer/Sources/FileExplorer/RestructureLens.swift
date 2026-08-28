@@ -2,18 +2,27 @@ import SwiftUI
 import Design
 import Sync
 
+/// What a card needs to say about a saved draft — the operation count for the trigger's words,
+/// the ledger sentence for the inline line. Derived from the store's draft by the workspace, so
+/// the lens never reads the store itself.
+struct PlannedPlanInfo: Equatable {
+    let operations: Int
+    let summary: String
+}
+
 /// Organize ▸ Restructure: families of sibling folders that were shaped differently at different
 /// times.
 ///
-/// **Report-only, deliberately.** A finding says *these thirteen folders use four different
-/// internal shapes*; it does not offer to fix them. The fix is a manifest of typed operations —
-/// create, rename, move — over years of documents, and that surface has six invariants of its own
-/// to satisfy before it can be safe to aim at a real tree (ROADMAP 20). Naming the disagreement is
-/// the half that is useful on its own and cannot do any harm.
+/// **Reporting first, acting only through reviewed plans.** A finding says *these thirteen
+/// folders use four different internal shapes*. Two actions exist so far, both bounded: the
+/// backlog scaffold (create-only, one ⌘Z) and §5.4's `Plan…`, which derives a manifest from a
+/// family mapping and ends at `Export plan…` — a reviewable file and a saved draft, with nothing
+/// moved. The Apply that lands a manifest is §5.5's, behind its six invariants.
 ///
-/// The three states are distinct on purpose, and none of them borrows another's words: **no
-/// profile** means the detectors have nothing to read, **no findings** means they ran and the tree
-/// agrees with itself, and a list means it does not.
+/// The states are distinct on purpose, and none borrows another's words: **no profile** means the
+/// detectors have nothing to read, **no findings** means they ran and the tree agrees with
+/// itself, a list means it does not — and a card with a draft says **Planned, not applied**
+/// (§5.7), which is a claim about a file, never about the tree.
 struct RestructureLens: View {
     let findings: [StructureFinding]
     /// Findings about a folder the scope sits *inside* — see ``ScopeRelation/aboutAncestor``.
@@ -60,6 +69,14 @@ struct RestructureLens: View {
     /// The To File hand-off, scoped to the finding's subject — the per-file half of a backlog or
     /// loose-files finding, sent to the surface that already makes per-file judgements.
     var onHandOff: ((StructureFinding) -> Void)?
+    /// §5.4's plan surface — opens the mapping sheet over the lens. Offered on shape cards only
+    /// in this milestone: the choose-a-shape step is theirs; the single-operation kinds get
+    /// their derived plans with §5.5. nil hides the button rather than promising a sheet that
+    /// does not open.
+    var onPlan: ((StructureFinding) -> Void)?
+    /// Saved drafts by finding id — §5.7's *Planned, not applied*: the card carries the plan's
+    /// ledger sentence inline, and its trigger reads *Review N operations* instead of *Plan…*.
+    var plannedPlans: [String: PlannedPlanInfo] = [:]
     /// Subjects whose scaffold has already landed (from the store's ledger). Until §5.5's
     /// re-derive exists the profile stays stale after a landing, so the finding keeps rendering —
     /// and its card must say the survey has not caught up rather than offer the same landing
@@ -266,13 +283,26 @@ struct RestructureLens: View {
                     }
                 }
                 Spacer(minLength: 8)
-                // `Reveal` holds the action slot until §5.4's sheet lands — a `Plan…` that opens
-                // nothing is a promise, and this lens's own setup card documents why those are
-                // worse than absence. The demotion to a link happens when the sheet exists.
+                // §5.4's sheet exists now, so `Plan…` takes the action slot on the cards that
+                // have one and `Reveal` is demoted to the secondary spot — the demotion this
+                // comment used to promise. A drafted plan changes the trigger's words: the plan
+                // already exists, so the button offers its review, not its creation (§5.7).
+                if finding.kind == .shape, let onPlan {
+                    Button(planTriggerTitle(for: finding)) { onPlan(finding) }
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(accent)
+                        .chromeHover()
+                        .help("Choose the target shape and map every name once — the operations "
+                              + "are derived, and Export writes a reviewable file. Nothing moves.")
+                }
                 Button("Reveal") { onReveal(finding.subject) }
-                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .scaledFont(.system(size: 11,
+                                        weight: finding.kind == .shape && onPlan != nil
+                                            ? .regular : .semibold))
                     .buttonStyle(.plain)
-                    .foregroundStyle(accent)
+                    .foregroundStyle(finding.kind == .shape && onPlan != nil
+                                        ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
                     .chromeHover()
             }
             // The schemes are shown rather than asserted: the eras are visible, and so is the odd
@@ -300,6 +330,14 @@ struct RestructureLens: View {
                 Text(radius)
                     .scaledFont(.system(size: 10.5))
                     .foregroundStyle(.tertiary)
+            }
+            if let plan = plannedPlans[finding.id] {
+                // §5.7's Planned-not-applied: the ledger inline, so the card says what the
+                // draft would do without opening the sheet — and says plainly that nothing
+                // has happened yet.
+                Text("Planned, not applied — \(plan.summary).")
+                    .scaledFont(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
             }
             actionRow(for: finding)
         }
@@ -365,6 +403,17 @@ struct RestructureLens: View {
     /// re-derived — applied is not resolved, and neither word may borrow the other's sentence.
     static let scaffoldLandedText =
         "Scaffolded — the survey hasn’t caught up yet, so this stays until it is updated."
+
+    /// The plan trigger's words: *Plan…* creates, *Review N operations* reopens what exists —
+    /// §5.7's stated trigger for the Planned state, and the pair must never both show.
+    private func planTriggerTitle(for finding: StructureFinding) -> String {
+        Self.planTriggerTitle(planned: plannedPlans[finding.id])
+    }
+
+    static func planTriggerTitle(planned: PlannedPlanInfo?) -> String {
+        guard let planned else { return "Plan…" }
+        return "Review \(planned.operations) operation\(planned.operations == 1 ? "" : "s")"
+    }
 
     private func kindTag(_ kind: FindingKind) -> some View {
         Text(Self.kindLabel(kind))

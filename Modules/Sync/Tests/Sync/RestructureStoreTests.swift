@@ -37,6 +37,16 @@ import Foundation
     /// Raw values are a file format — `restructure.json` serialises them — so they are pinned
     /// here the way `GlassLevel`'s are: append-only, never renamed, never reused. A failure here
     /// is a failure to keep that promise, not a test to update.
+    /// One spelling of the composite identity: a store key joined back to rendered findings must
+    /// produce exactly ``StructureFinding/id``, or the two drift apart in silence.
+    @Test func aKeysFindingIdMatchesTheFindingsOwnId() {
+        let finding = StructureFinding(kind: .echoName, family: "Home",
+                                       subject: "Home/ATT Bill",
+                                       detail: .echoName(counterpart: "Home/ATT",
+                                                         relation: .sibling))
+        #expect(RestructureKey(finding).findingId == finding.id)
+    }
+
     @Test func theRawValuesAreAFileFormatAndStayPinned() {
         let pinned: [FindingKind: String] = [
             .shape: "shape", .backlog: "backlog", .shadowAxis: "shadowAxis",
@@ -227,28 +237,115 @@ import Foundation
         #expect(try fileBytes(dir) == before)
     }
 
-    /// The `drafts` and `applied` sections arrive with §5.4 and §5.5; until then a file carrying
-    /// them (or anything hand-added) must survive a save from a build that models neither.
+    /// A section this build does not model — hand-added, or written by a future schema this build
+    /// happens to half-understand — must survive a save untouched. (`drafts` was this test's
+    /// example while §5.4 was unbuilt; it is modelled now, so the foreign section here is one no
+    /// planned schema claims.)
     @Test func sectionsThisBuildDoesNotModelSurviveASave() throws {
         let dir = try makeDirectory()
         let url = dir.appendingPathComponent("p/restructure.json")
-        let withDrafts = """
+        let withForeign = """
             {
               "schemaVersion": 1,
-              "drafts": [ { "kind": "shape", "path": "Finance/US/Income Tax", "mapping": [] } ],
+              "annotations": [ { "path": "Finance/US/Income Tax", "text": "revisit" } ],
               "_note": "hand-written, and load-bearing for this test"
             }
             """
-        try Data(withDrafts.utf8).write(to: url)
+        try Data(withForeign.utf8).write(to: url)
 
         let store = RestructureStore(directory: dir, profileId: "p")
         store.suppress(RestructureKey(kind: .shape, path: "A"))
 
         let object = try #require(try JSONSerialization.jsonObject(
             with: fileBytes(dir)) as? [String: Any])
-        #expect(object["drafts"] != nil)
+        #expect(object["annotations"] != nil)
         #expect(object["_note"] as? String == "hand-written, and load-bearing for this test")
         #expect((object["suppressed"] as? [[String: Any]])?.count == 1)
+    }
+
+    /// A `drafts` section in a shape this build cannot decode is an UNREADABLE file, not an empty
+    /// section: every save is whole-file, so writing would flatten what could not be read. Refusal
+    /// is the same protection the syntax-error case gets.
+    @Test func anUndecodableDraftsSectionRefusesWritesRatherThanFlattening() throws {
+        let dir = try makeDirectory()
+        let url = dir.appendingPathComponent("p/restructure.json")
+        try Data("""
+            {
+              "schemaVersion": 1,
+              "drafts": [ { "kind": "shape", "path": "F", "mapping": [] } ]
+            }
+            """.utf8).write(to: url)
+        let store = RestructureStore(directory: dir, profileId: "p")
+        #expect(store.isUnreadable)
+    }
+
+    // MARK: Drafts (§5.4)
+
+    private static func draftManifest(family: String = "Finance/US/Income Tax")
+        -> RestructureManifest {
+        RestructureManifest(
+            profileId: "p", manifestId: "m1", createdAt: "2026-08-28T10:00:00",
+            family: family, kind: .shape,
+            mapping: [.init(source: "Federal Tax", target: "Forms")],
+            actions: [.init(action: .renameDir, src: "\(family)/2013/Federal Tax",
+                            dst: "\(family)/2013/Forms", filesCarried: 3)])
+    }
+
+    /// §5.7's *Planned, not applied*: the draft survives the sheet closing and the app quitting —
+    /// mapping rows, actions and export mark all intact.
+    @Test func aDraftRoundTripsThroughTheFileWhole() throws {
+        let dir = try makeDirectory()
+        let key = RestructureKey(kind: .shape, path: "Finance/US/Income Tax")
+        let record = RestructureStore.DraftRecord(
+            manifest: Self.draftManifest(), savedAt: "2026-08-28T10:00:00",
+            exportedTo: "restructure-2026-08-28-Finance-US-Income Tax.json")
+        RestructureStore(directory: dir, profileId: "p").saveDraft(record, for: key)
+
+        let reread = RestructureStore(directory: dir, profileId: "p")
+        #expect(reread.draft(for: key) == record)
+        reread.removeDraft(for: key)
+        #expect(RestructureStore(directory: dir, profileId: "p").draft(for: key) == nil)
+    }
+
+    /// A rename replays onto the draft's KEY — the section survives an Apply of another plan —
+    /// while the manifest inside keeps the paths it was derived against: Apply re-validates a
+    /// draft against the tree as it stands, and a stale path there is a card sentence, not a
+    /// silent rewrite of a plan the user reviewed.
+    @Test func aRenameRekeysADraftsKeyButNotItsManifest() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        let manifest = Self.draftManifest(family: "Home/ATT Bill")
+        store.saveDraft(.init(manifest: manifest, savedAt: "t"),
+                        for: RestructureKey(kind: .echoName, path: "Home/ATT Bill"))
+
+        store.rekey(renames: [(from: "Home/ATT Bill", to: "Home/ATT")])
+
+        let reread = RestructureStore(directory: dir, profileId: "p")
+        let moved = try #require(reread.draft(for: RestructureKey(kind: .echoName,
+                                                                  path: "Home/ATT")))
+        #expect(reread.draft(for: RestructureKey(kind: .echoName, path: "Home/ATT Bill")) == nil)
+        #expect(moved.manifest == manifest, "the reviewed plan's contents are not rewritten")
+    }
+
+    /// `Export plan…` writes the manifest beside the profile, named for its date and family with
+    /// the path separators flattened — reviewable in a text editor with nothing at risk — and it
+    /// writes even when the store itself is refusing: the refusal protects `restructure.json`,
+    /// and this is a new file.
+    @Test func exportWritesTheManifestBesideTheProfileEvenWhenTheStoreIsUnreadable() throws {
+        let dir = try makeDirectory()
+        try Data("{ not json".utf8).write(to: dir.appendingPathComponent("p/restructure.json"))
+        let store = RestructureStore(directory: dir, profileId: "p")
+        #expect(store.isUnreadable)
+
+        let name = try store.exportPlan(Self.draftManifest())
+
+        #expect(name == "restructure-2026-08-28-Finance-US-Income Tax.json")
+        let data = try Data(contentsOf: dir.appendingPathComponent("p/\(name)"))
+        let decoded = try JSONDecoder().decode(RestructureManifest.self, from: data)
+        #expect(decoded == Self.draftManifest())
+        // The wire file is the log's vocabulary, and it carries the mapping it was derived from.
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(json.contains("rename-dir") && json.contains("\"mapping\""))
     }
 
     @Test func anUnchangedMutationDoesNotTouchTheDisk() throws {

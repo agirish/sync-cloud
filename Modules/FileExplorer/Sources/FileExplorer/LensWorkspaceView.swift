@@ -227,6 +227,10 @@ public struct LensWorkspaceView: View {
     /// other than the suggested home — the highest-value learning moment. Held (inline prompt shown)
     /// until they Remember it or dismiss it. Cleared when a new scan starts.
     @State private var pendingRememberPrompt: PendingRememberPrompt?
+
+    /// The shape finding whose §5.4 plan sheet is open — sheet presentation state, so it clears
+    /// itself when the sheet closes.
+    @State private var planningFinding: StructureFinding?
     /// A learn-by-example rule offered after the user files a loose file — turned into an editable
     /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
     /// until saved or dismissed; cleared when a new scan starts.
@@ -3159,6 +3163,22 @@ public struct LensWorkspaceView: View {
                         // To File, scoped to the finding's subject — the surface that already
                         // makes per-file judgements with a verdict, a shortlist and Undo.
                         onHandOff: handOffToToFile,
+                        // §5.4's plan surface, offered only when there is a store the draft can
+                        // PERSIST into — no store, or one refusing writes over an unreadable
+                        // file, would silently break §5.7's survives-a-quit promise. The same
+                        // gate applyScaffold enforces for its ledger.
+                        onPlan: syncManager.restructureStore?.isUnreadable == false
+                            ? { planningFinding = $0 }
+                            : nil,
+                        // §5.7's Planned-not-applied, derived from the store's drafts: the count
+                        // for the trigger's words, the ledger sentence for the inline line.
+                        plannedPlans: Dictionary(uniqueKeysWithValues:
+                            (syncManager.restructureStore?.drafts ?? [:]).map { key, draft in
+                                (key.findingId,
+                                 PlannedPlanInfo(
+                                     operations: draft.manifest.actions.count,
+                                     summary: RestructureLedger(of: draft.manifest).summary))
+                            }),
                         // Landed scaffolds, read off the ledger: the card for one says the
                         // survey has not caught up instead of offering the landing twice.
                         // The subject is the created folders' parent — the manifest records
@@ -3180,6 +3200,47 @@ public struct LensWorkspaceView: View {
                         // machine with no artifacts to rebuild, which withholds the button
                         // rather than offering one that would do nothing.
                         onUpdateSurvey: onUpdateFolderMemory)
+        .sheet(item: $planningFinding) { finding in
+            planSheet(for: finding)
+        }
+    }
+
+    /// §5.4's plan sheet, modal over the lens. The tree view is disk-backed — a plan is derived
+    /// against the tree as it stands now, and merges need file names the profile never stores.
+    @ViewBuilder
+    private func planSheet(for finding: StructureFinding) -> some View {
+        if let profile = syncManager.filingFolderProfile,
+           let store = syncManager.restructureStore {
+            let key = RestructureKey(finding)
+            RestructurePlanSheet(
+                finding: finding,
+                // Every member, both drop paths included — drift is the part that most needs
+                // housing, and the mapping is applied to all of them.
+                members: finding.schemes.flatMap(\.members) + finding.drift + finding.shapeless,
+                tree: .fromDisk(root: URL(fileURLWithPath: profile.root)),
+                // The folder the artifacts were read FROM, not the field inside them — the
+                // field decodes to "default" when a hand-built profile omits it, and every
+                // store and the scaffold already key on the directory id for that reason.
+                profileId: syncManager.filingProfileDirectoryId ?? profile.profileId,
+                accent: glassHue.accentColor,
+                initialRows: store.draft(for: key)?.manifest.mapping,
+                onExport: { manifest in
+                    // The file first, then the draft: the export is reviewable even when the
+                    // store is refusing writes, and the draft is what makes §5.7's Planned
+                    // state survive a quit.
+                    do {
+                        let name = try store.exportPlan(manifest)
+                        store.saveDraft(.init(manifest: manifest,
+                                              savedAt: manifest.createdAt,
+                                              exportedTo: name), for: key)
+                        return nil
+                    } catch {
+                        return "The plan could not be written beside the profile: "
+                            + error.localizedDescription
+                    }
+                },
+                onClose: { planningFinding = nil })
+        }
     }
 
     // MARK: Overview

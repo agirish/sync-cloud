@@ -36,10 +36,20 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         /// File moves only — **filled in at apply time, never at plan time** (invariant 5).
         public var bytes: Int?
         public var md5: String?
+        /// Plan time saw a same-named file already at `dst` — the ledger's *collisions kept*
+        /// line before anything runs. Predicted, not final: the tree can change between plan
+        /// and apply, which is why the field below exists separately.
+        public var collisionExpected: Bool?
+        /// Where the file actually landed when `dst` was taken — `generateUniqueURL`'s pick,
+        /// **filled at apply time**. Its own fact rather than folded into `dst`, because the
+        /// inverse must restore the file's *original* name: it reads `collidedInto ?? dst` as
+        /// its source (ROADMAP_V5 §5.4).
+        public var collidedInto: String?
 
         public init(action: ActionKind, src: String? = nil, dst: String? = nil,
                     evidence: String? = nil, filesCarried: Int? = nil,
-                    bytes: Int? = nil, md5: String? = nil) {
+                    bytes: Int? = nil, md5: String? = nil,
+                    collisionExpected: Bool? = nil, collidedInto: String? = nil) {
             self.action = action
             self.src = src
             self.dst = dst
@@ -47,6 +57,8 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
             self.filesCarried = filesCarried
             self.bytes = bytes
             self.md5 = md5
+            self.collisionExpected = collisionExpected
+            self.collidedInto = collidedInto
         }
     }
 
@@ -59,13 +71,18 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
     /// §5.0's kind — which detector's finding this plan answers.
     public let kind: FindingKind
     public var note: String?
+    /// The mapping the actions were derived from, as edited (§5.4's header field) — so the
+    /// exported file is auditable against its own rows, not just its consequences. Absent on
+    /// manifests that were never mapped (the scaffold's, the removal step's).
+    public var mapping: [RestructureMapping.Row]?
     /// Ordered as they run.
     public var actions: [Action]
 
     public static let currentSchema = 2
 
     public init(profileId: String, manifestId: String, createdAt: String, family: String,
-                kind: FindingKind, note: String? = nil, actions: [Action]) {
+                kind: FindingKind, note: String? = nil, mapping: [RestructureMapping.Row]? = nil,
+                actions: [Action]) {
         self.schemaVersion = Self.currentSchema
         self.profileId = profileId
         self.manifestId = manifestId
@@ -73,11 +90,13 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         self.family = family
         self.kind = kind
         self.note = note
+        self.mapping = mapping
         self.actions = actions
     }
 
     private init(schemaVersion: Int, profileId: String, manifestId: String, createdAt: String,
-                 family: String, kind: FindingKind, note: String?, actions: [Action]) {
+                 family: String, kind: FindingKind, note: String?,
+                 mapping: [RestructureMapping.Row]?, actions: [Action]) {
         self.schemaVersion = schemaVersion
         self.profileId = profileId
         self.manifestId = manifestId
@@ -85,6 +104,7 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         self.family = family
         self.kind = kind
         self.note = note
+        self.mapping = mapping
         self.actions = actions
     }
 
@@ -92,6 +112,11 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
     /// `create-dir` into `remove-empty-dir` and back. `keep` inverts to itself — doing nothing
     /// twice. Derived, never authored, which is what makes `inverse.inverse == self` a testable
     /// law rather than a hope.
+    ///
+    /// **The involution law holds for plan-time manifests.** An applied manifest can carry
+    /// `collidedInto` — the unique name a file actually landed under — and its inverse moves the
+    /// file back from *there* to its original name, deliberately collapsing the collision into
+    /// the real paths: the round trip restores the tree, not the bookkeeping.
     public var inverse: RestructureManifest {
         RestructureManifest(
             schemaVersion: schemaVersion,
@@ -105,6 +130,7 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
             family: family,
             kind: kind,
             note: note,
+            mapping: mapping,
             actions: actions.reversed().map { action in
                 var inverted = action
                 switch action.action {
@@ -115,8 +141,11 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
                     inverted = Action(action: .createDir, dst: action.src,
                                       evidence: action.evidence)
                 case .renameDir, .moveDir, .moveFile:
-                    inverted.src = action.dst
+                    // Where the item actually IS: the collision-renamed name when there was one.
+                    inverted.src = action.collidedInto ?? action.dst
                     inverted.dst = action.src
+                    inverted.collisionExpected = nil
+                    inverted.collidedInto = nil
                 case .keep:
                     break
                 }

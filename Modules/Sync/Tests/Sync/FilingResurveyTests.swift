@@ -382,6 +382,20 @@ import Events
         #expect(manager.filingArtifactFingerprint == fingerprint)
     }
 
+    /// §4.1 end to end: the unchanged survey above still moves the published stamp — "last
+    /// surveyed" answers when the survey LOOKED — and it lands both in memory and on disk, where
+    /// the next launch's attach reads it.
+    @Test func anUnchangedSurveyStillPublishesWhenItLooked() async throws {
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+
+        let later = Date(timeIntervalSince1970: 1_756_400_000)
+        _ = await manager.resurveyFilingMemory(root: docs, now: later)
+
+        #expect(manager.filingSurveyedAt == later)
+        #expect(FilingSurveyStore.surveyedAt(id: "t", in: profiles) == later)
+    }
+
     /// A real change does move the fingerprint — the other half, without which the test above passes
     /// on a survey that never writes anything.
     @Test func arealChangeMovesTheFingerprint() async throws {

@@ -174,6 +174,10 @@ import Testing
         // Sheet with a single Done button.
         "FilingSpendHistoryView.swift":
             "modal sheet: a lone Done button carrying .defaultAction",
+        // §5.4's plan sheet, presented via `.sheet` over the lens — modal, so ⏎ on
+        // `Export plan…` is the platform convention and cannot eat a key from the lens below.
+        "RestructurePlanSheet.swift":
+            "modal sheet: Export plan… carries .defaultAction beside Cancel",
     ]
 
     /// Is this file part of `FileExplorer`'s shipped source tree — at ANY depth under it?
