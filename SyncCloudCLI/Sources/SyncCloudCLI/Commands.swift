@@ -199,3 +199,35 @@ struct Providers: AsyncParsableCommand {
         }
     }
 }
+
+// MARK: - restructure
+
+/// Report-only, deliberately: no `--apply`, no `--plan`, not in 5.0 — the Apply invariants are
+/// all about a person reading a manifest before anything moves, and a flag that skips the
+/// reading skips the invariants (ROADMAP_V5 §13). No migration preflight either: this reads
+/// `folder-profile.json` and never touches providers, roots or the disk it describes.
+struct Restructure: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "restructure",
+        abstract: "Report where the surveyed tree disagrees with its own habits."
+    )
+
+    @Flag(name: .long, help: "Emit the full report as JSON (stable format; includes the crowding path lists the text summary only counts).")
+    var json: Bool = false
+
+    @Option(name: .long, help: "Profiles directory to read instead of the app's own — for fixtures and other machines' surveys.",
+            completion: .directory)
+    var profilesDir: String?
+
+    func run() async throws {
+        let directory = profilesDir.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+        let output: RestructureReporting.Output
+        do {
+            output = try RestructureReporting.report(profilesDirectory: directory)
+        } catch let failure as RestructureReporting.Failure {
+            throw CLIValidationError(message: failure.errorDescription ?? "\(failure)")
+        }
+        print(json ? try RestructureReporting.renderJSON(output)
+                   : RestructureReporting.renderText(output))
+    }
+}

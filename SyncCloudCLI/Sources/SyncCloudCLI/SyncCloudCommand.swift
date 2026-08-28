@@ -20,7 +20,8 @@ struct SyncCloudCommand: AsyncParsableCommand {
         subcommands: [
             Scan.self,
             SyncFiles.self,
-            Providers.self
+            Providers.self,
+            Restructure.self
         ],
         defaultSubcommand: Scan.self
     )

@@ -43,6 +43,11 @@ import Foundation
         // Three vouched schemes out of seventeen siblings — the number the detector's own doc
         // calibrates its silence bar against.
         #expect(flagship.schemes.count == 3)
+        // §5.1's count fix, on both drop paths: the subtitle counts the FAMILY. 11 vouched +
+        // 5 unvouched drift + 1 with no vocabulary at all (`CA State`, 3 files, 0 folders) = 17.
+        #expect(flagship.memberCount == 17)
+        #expect(flagship.drift.count == 5)
+        #expect(flagship.shapeless == ["CA State"])
     }
 
     // MARK: The reference tree

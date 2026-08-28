@@ -781,32 +781,37 @@ public class FileSyncManager: ObservableObject {
         didSet {
             invalidateFilingRouterIndex()
             rebuildPersonIdentityIndex()
-            cachedStructureFindings = nil
+            cachedStructureReport = nil
         }
     }
 
-    /// Where the tree disagrees with its own habits — the structure findings, computed once per
-    /// profile.
+    /// Where the tree disagrees with its own habits — the whole detector set's report, computed
+    /// once per profile.
     ///
-    /// **Cached, because the caller is a view body.** The detector walks every folder in the
+    /// **Cached, because the caller is a view body.** The detectors walk every folder in the
     /// profile (3,013 of them on the real tree) to build each family's vocabulary, and Organize's
     /// overview asks for this on every render. Recomputing there would put an O(folders²)-ish sweep
     /// on the main actor behind a scroll.
     ///
     /// The cache is keyed on nothing but the profile's own identity: `filingFolderProfile`'s
-    /// `didSet` drops it, which is the only way the answer can change — the detector reads the
-    /// profile and nothing else, no disk, no clock. That is also why this is not `@Published`: it
-    /// is a pure function of a stored property, and republishing it would be a second source of
-    /// truth for the same fact.
-    public var structureFindings: [StructureFinding] {
-        if let cachedStructureFindings { return cachedStructureFindings }
-        guard let profile = filingFolderProfile else { return [] }
-        let findings = StructureDivergence.findings(in: profile)
-        cachedStructureFindings = findings
-        return findings
+    /// `didSet` drops it, which is the only way the answer can change — the detectors read the
+    /// profile and nothing else, no disk, no clock. **Scope is deliberately not part of the key**
+    /// (ROADMAP_V5 §5.2): the lens scopes this report at render time by path prefix, so one cache
+    /// serves every scope and there is no scoped invalidation to get wrong. That is also why this
+    /// is not `@Published`: it is a pure function of a stored property, and republishing it would
+    /// be a second source of truth for the same fact.
+    public var structureReport: StructureReport {
+        if let cachedStructureReport { return cachedStructureReport }
+        guard let profile = filingFolderProfile else { return .empty }
+        let report = StructureDetectors.run(in: profile)
+        cachedStructureReport = report
+        return report
     }
 
-    private var cachedStructureFindings: [StructureFinding]?
+    /// The findings alone — every kind, in §5.2's grouped order.
+    public var structureFindings: [StructureFinding] { structureReport.findings }
+
+    private var cachedStructureReport: StructureReport?
 
     /// Whether the user has opened Restructure's answer **this launch**.
     ///

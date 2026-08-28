@@ -71,6 +71,36 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
         }
     }
 
+    /// Which of two folders echoes the other — the two sub-rules of one kind (ROADMAP_V5 §5.2:
+    /// count them as one kind with two sub-rules, or the card cannot say which shape it found).
+    public enum EchoRelation: Equatable, Sendable {
+        /// A child restating its parent's name — `PG&E/PGE`.
+        case parentChild
+        /// Two siblings spelling one name differently — `Form W-2` beside `Form W2`.
+        case sibling
+    }
+
+    /// What a non-shape detector saw — the payload the card renders. One case per kind that
+    /// carries more than its subject; ``FindingKind/shape`` keeps ``schemes`` instead, unchanged
+    /// from the shipped detector.
+    public enum Detail: Equatable, Sendable {
+        /// The newest member of a year run holds files and no folders; `scaffold` is the vouched
+        /// vocabulary the family expects, minus what the member already has.
+        case backlog(scaffold: [String], looseFiles: Int)
+        /// A year-bearing name beside bare-year siblings; `target` is the bare year it shadows,
+        /// which exists as a sibling (a merge) or does not (a rename).
+        case shadowAxis(target: String, targetExists: Bool)
+        /// The subject echoes `counterpart` — its parent, or a sibling.
+        case echoName(counterpart: String, relation: EchoRelation)
+        /// The subject sits inside an inbox and mirrors `destination`, the same path with the
+        /// inbox component removed.
+        case mirroredInbox(destination: String)
+        /// The subject holds `looseFiles` files above `seriesFolders` year folders.
+        case looseAboveSeries(looseFiles: Int, seriesFolders: Int)
+        /// The subject's name restates `container`, a sibling that should hold it.
+        case looseBesideContainer(container: String)
+    }
+
     /// Which detector produced this, and therefore what acting on it would do.
     public let kind: FindingKind
     /// The parent whose children disagree, relative to the profile root.
@@ -84,8 +114,22 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
     /// have silenced both (ROADMAP_V5 §5.0). The family is still carried for §5.2's grouping rule —
     /// a folder's rows sort together under one path heading.
     public let subject: String
-    /// The schemes found, largest membership first.
+    /// The schemes found, largest membership first. Non-empty only for ``FindingKind/shape``.
     public let schemes: [Scheme]
+
+    /// Siblings whose shape no second sibling vouches for — the unvouched drop path
+    /// (ROADMAP_V5 §5.1). Rendered greyed, as drift: they are members of the family, and a card
+    /// that says "11 folders" about a family of 17 is undercounting on purpose it cannot state.
+    public let drift: [String]
+
+    /// Siblings with no vocabulary at all — a leaf, or one whose children are all axis values.
+    /// **The folder the plan most needs to house**: it is evidence for no era, so nothing else
+    /// will claim it, and *no shape of its own* is a different sentence from *disagrees with the
+    /// others*.
+    public let shapeless: [String]
+
+    /// What the detector saw, for every kind whose card needs more than the subject.
+    public let detail: Detail?
 
     /// `kind × subject` — the composite identity every store key shares (ROADMAP_V5 §5.0).
     ///
@@ -94,20 +138,28 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
     /// *Ask* is the whole point of the detector set.
     public var id: String { "\(kind.rawValue)|\(subject)" }
 
-    /// How many siblings the finding covers.
-    public var memberCount: Int { schemes.reduce(0) { $0 + $1.members.count } }
+    /// How many siblings the finding covers — **the whole family**, both drop paths included.
+    /// The card read "11 folders" on a family of 17 while 5 drifted and one had no shape at all;
+    /// the subtitle counts the family, and the two dropped classes render as their own rows.
+    public var memberCount: Int {
+        schemes.reduce(0) { $0 + $1.members.count } + drift.count + shapeless.count
+    }
 
-    /// The one-line summary — "Finance/US/Income Tax — 13 years, 4 schemes".
+    /// The one-line summary — "Finance/US/Income Tax — 17 folders, 3 schemes".
     public var headline: String {
         "\(family) — \(memberCount) folders, \(schemes.count) schemes"
     }
 
     public init(kind: FindingKind = .shape, family: String, subject: String? = nil,
-                schemes: [Scheme]) {
+                schemes: [Scheme] = [], drift: [String] = [], shapeless: [String] = [],
+                detail: Detail? = nil) {
         self.kind = kind
         self.family = family
         self.subject = subject ?? family
         self.schemes = schemes
+        self.drift = drift
+        self.shapeless = shapeless
+        self.detail = detail
     }
 }
 
@@ -199,12 +251,18 @@ public enum StructureDivergence {
             return nil
         }
         // Each sibling's role vocabulary. A sibling with no vocabulary at all — a leaf, or one
-        // whose children are entirely axis values — carries no evidence either way and is dropped
-        // rather than counted as "disagreeing with everyone".
+        // whose children are entirely axis values — carries no evidence either way and takes no
+        // part in clustering; it is CARRIED on the finding as `shapeless` rather than silently
+        // dropped, because "no shape of its own" is a fact about the family the card must state.
+        var shapeless: [String] = []
         let vocabularies = children.reduce(into: [(name: String, words: Set<String>)]()) { acc, child in
             let words = vocabulary(of: child, in: profile)
-            guard !words.isEmpty else { return }
-            acc.append((name: (child as NSString).lastPathComponent, words: words))
+            let name = (child as NSString).lastPathComponent
+            guard !words.isEmpty else {
+                shapeless.append(name)
+                return
+            }
+            acc.append((name: name, words: words))
         }
         guard vocabularies.count >= AgreementRule.minimumSchemes * AgreementRule.minimumMembers else {
             return nil
@@ -224,7 +282,13 @@ public enum StructureDivergence {
                                                members: group.map(\.name))
             }
             .sorted { ($0.members.count, $0.members.first ?? "") > ($1.members.count, $1.members.first ?? "") }
-        return StructureFinding(family: family, schemes: schemes)
+        // The unvouched drop path, kept as drift: a scheme of one is an odd folder out, not an
+        // era, but it is still a member of the family the subtitle counts.
+        let drift = groups.filter { $0.count < AgreementRule.minimumMembers }
+            .flatMap { $0.map(\.name) }
+            .sorted()
+        return StructureFinding(family: family, schemes: schemes, drift: drift,
+                                shapeless: shapeless.sorted())
     }
 
     /// A folder's role vocabulary: its children's names, with the axis-valued ones dropped.
