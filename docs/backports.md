@@ -581,6 +581,44 @@ So it rides items 12 and 13, and taking it alone would give the untouched pane i
 still re-walking its root on every switch — the visible half fixed, the cost left in. Two callers on
 each line (`ContentView`'s two provider `onChange`s) plus `undoProviderPin`, which on `main` had to
 grow its own re-home once the caller's reset stopped covering it; expect the same here.
+### 15. Recents stops repeating the Locations rows — landed on `main` 2026-08-27 — CLOSED, not owed
+
+Switching a pane to a source lands it on that source's `openAt`, and the landing was recorded as a
+visit like any other — so with seven sources connected, six of the eight rows in the sidebar's
+**Recents** section named folders the **Locations** rows directly above already take you to
+(`Documents` under Dropbox, `Documents` under two OneDrive accounts, `My Drive` under two Drive
+accounts). Measured on the live store that day: 6 of 7 stored recents were landings. The fix
+subtracts each root's landing inside `FolderJumpStore.mostRecentAcrossRoots`, alongside the
+favorites subtraction that was already there and for the same reason — and, critically, *before* the
+cap, so the eight rows count only rows worth having.
+
+**Unreachable on both lines, twice over** (verified 2026-08-27; the positive control is the `main`
+column, which must be non-zero for every row before the zeros mean anything):
+
+| checked | `main` | `v3.x` | `v2.x` |
+|---|---|---|---|
+| `Modules/Dashboard/Sources/Dashboard/FolderSidebar.swift` present | 1 | 0 | 0 |
+| `mostRecentAcrossRoots` in `FolderJumpStore.swift` | 5 | 0 | 0 |
+| `visitedAt` in `FolderJumpStore.swift` | 12 | 0 | 0 |
+| `var openAt` in `CloudProvider.swift` | 1 | 0 | 0 |
+
+One line per row of the table, in its order — a combined `grep -c 'a\|b'` prints their SUM (17
+here) and would not match anything the table says:
+
+```sh
+for l in main v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- Modules/Dashboard/Sources/Dashboard/FolderSidebar.swift | wc -l
+  git show origin/$l:Modules/Dashboard/Sources/Dashboard/FolderJumpStore.swift | grep -c 'mostRecentAcrossRoots'
+  git show origin/$l:Modules/Dashboard/Sources/Dashboard/FolderJumpStore.swift | grep -c 'visitedAt'
+  git show origin/$l:Modules/Sync/Sources/Sync/CloudProvider.swift | grep -c 'var openAt'
+done
+```
+
+There is no Recents *section* on either line — the sidebar is v4.4 — and no landing folder for it to
+subtract: `openAt` arrived with the roots split, item 12. `FolderJumpStore` itself IS on both lines
+(it backs the pane's jump menu and ⌘K), but its recents are per root and undated there, so the
+global list this rule filters does not exist to be filtered. **A line that took the sidebar would
+have to take item 12 first, and then this comes with it.**
 
 ### Checked and NOT owed
 
@@ -879,6 +917,13 @@ flattened, selection cleared, Back stack emptied. Verified on `v2.x` 2026-08-27 
 `resetBrowsePath` count (2, both panes). Of the pieces a pick needs, only `resetBrowsePath(isLeft:)`
 is here — `invalidatePaneTree(isLeft:)` and `PaneReloadScope` both grep to nothing — so it rides
 items 12 and 13 exactly as on `v3.x`. Not owed: the standing direction is no backporting.
+
+### Recents stops repeating the Locations rows — landed on `main` 2026-08-27 — CLOSED, not owed
+
+Same item as `v3.x` #15, same verdict, and the same table settles it — this line's column is zero on
+every row of it. No folder sidebar, so no Recents section; no `openAt`, so no landing to subtract.
+`FolderJumpStore` is here and backs the pane's jump menu, but its recents are per root and carry no
+`visitedAt`, which is what the global cross-source list is built from.
 
 ### Nothing else confirmed
 

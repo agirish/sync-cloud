@@ -21,6 +21,12 @@ import Foundation
                      visitedAt: minutes.map { Self.at($0) })
     }
 
+    /// An empty favorites map shaped like the recents one — so a test about landings cannot pass
+    /// because of a favorite it forgot to declare.
+    private func favorites(none recents: [String: [JumpLocation]]) -> [String: [JumpLocation]] {
+        recents.mapValues { _ in [] }
+    }
+
     // MARK: - The ordering itself
 
     /// The headline: folders from four different sources come back as one list in the order they
@@ -114,6 +120,68 @@ import Foundation
             recents: ["/iCloud": [visit("Health", 100)], "/Dropbox": [visit("Health", 90)]],
             favorites: ["/iCloud": [visit("Health", nil)]], limit: 8)
         #expect(out.map(\.root) == ["/Dropbox"])
+    }
+
+    /// **The landing folder is subtracted**, which is the case that made this section useless with
+    /// several accounts connected: switching to a source lands the pane on its `openAt` and records
+    /// a visit, so Recents filled up with the very folders the Locations rows above take you to.
+    /// Measured on the real store, 2026-08-27: six of seven recents were landings.
+    ///
+    /// `/iCloud` lands at its root — the empty spelling — and its recent survives, which is the
+    /// case a rule written as "drop what equals the landing" gets right only because a recent for
+    /// the root itself is something `recordVisit` will not write.
+    @Test func aSourcesLandingFolderIsNotAlsoARecent() {
+        let out = FolderJumpStore.mostRecentAcrossRoots(
+            recents: ["/Dropbox": [visit("Documents", 100)],
+                      "/Drive-hpe": [visit("My Drive", 90)],
+                      "/iCloud": [visit("Finance/US", 80)]],
+            favorites: [:],
+            landings: ["/Dropbox": "Documents", "/Drive-hpe": "My Drive", "/iCloud": ""],
+            limit: 8)
+        #expect(out.map(\.relativePath) == ["Finance/US"])
+    }
+
+    /// **Only the landing itself.** A folder *inside* it is somewhere the user navigated to, and no
+    /// row anywhere else in the column goes there — the mirror of the favorites rule, and the half
+    /// a prefix match would have got wrong for every source whose landing is `Documents`.
+    @Test func aFolderUnderTheLandingIsStillARecent() {
+        let out = FolderJumpStore.mostRecentAcrossRoots(
+            recents: ["/Dropbox": [visit("Documents", 100), visit("Documents/Taxes 2026", 90)]],
+            favorites: [:], landings: ["/Dropbox": "Documents"], limit: 8)
+        #expect(out.map(\.relativePath) == ["Documents/Taxes 2026"])
+    }
+
+    /// Per root, like the favorites subtraction: `Documents` being one source's landing must not
+    /// hide the `Documents` you visited in another, whose landing is somewhere else entirely.
+    @Test func oneSourcesLandingDoesNotHideTheSamePathInAnother() {
+        let out = FolderJumpStore.mostRecentAcrossRoots(
+            recents: ["/Dropbox": [visit("Documents", 100)], "/OneDrive": [visit("Documents", 90)]],
+            favorites: [:], landings: ["/Dropbox": "Documents"], limit: 8)
+        #expect(out.map(\.root) == ["/OneDrive"])
+    }
+
+    /// **Subtracted before the cap, not after.** Eight landings ahead of a real recent is exactly
+    /// the shape a multi-account install reaches, and a filter applied to the result of a limit of
+    /// eight would have returned an empty section while `Finance/US` sat unshown behind them.
+    @Test func landingsDoNotConsumeTheLimit() {
+        var recents: [String: [JumpLocation]] = ["/iCloud": [visit("Finance/US", 1)]]
+        var landings: [String: String] = [:]
+        for i in 0..<8 {
+            recents["/source\(i)"] = [visit("Documents", Double(100 + i))]
+            landings["/source\(i)"] = "Documents"
+        }
+        let out = FolderJumpStore.mostRecentAcrossRoots(
+            recents: recents, favorites: favorites(none: recents), landings: landings, limit: 8)
+        #expect(out.map(\.relativePath) == ["Finance/US"],
+                "a landing displaced a real recent out of the eight")
+    }
+
+    /// No landings is the shape every other caller passes — the ⌘K palette, and any build before
+    /// this rule existed. Nothing is subtracted.
+    @Test func noLandingsSubtractsNothing() {
+        let recents = ["/Dropbox": [visit("Documents", 100)]]
+        #expect(FolderJumpStore.mostRecentAcrossRoots(recents: recents, favorites: [:], limit: 8)
+                    .map(\.relativePath) == ["Documents"])
     }
 
     /// The limit is applied to the merged list, which is the whole point — eight across every

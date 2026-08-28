@@ -72,6 +72,15 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   Locations on a machine with several cloud accounts is where you go to find an *account*. Removing
   either from Favorites returns it to Locations.
 - **"Restore Standard Folders" is now "Restore Standard Places",** because it restores a disk.
+- **Recents no longer repeats what Locations already lists.** Switching a pane to a source opens it
+  at that source's landing folder, and that arrival was recorded like any other visit — so with
+  several accounts connected, Recents filled up with the very folders the rows above take you to:
+  `Documents` under Dropbox, `Documents` under two OneDrive accounts, `My Drive` under two Drive
+  accounts. With seven sources connected, six of the seven remembered folders were landings. A
+  source's landing folder is now left out of Recents, exactly as a Favorite already was, and it is
+  left out *before* the list is cut to eight — so the eight rows are eight places you actually went.
+  A folder *inside* a landing (`Documents/Taxes 2026`) is somewhere you navigated to and still
+  counts.
 - **A recent no longer carries a second line.** A recent's qualifier is its parent folder, and that
   parent is a top-level folder often enough that the line came out repeating the source badge on the
   row's other end. A recent is somewhere you were minutes ago and recognise; a favorite is one you

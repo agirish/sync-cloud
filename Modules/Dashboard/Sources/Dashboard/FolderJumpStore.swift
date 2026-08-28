@@ -421,12 +421,13 @@ public final class FolderJumpStore: ObservableObject {
     /// **The per-root cap stays.** `maxRecents` still bounds what is *stored* per root; this bounds
     /// what is *shown*. Nothing about the store's size changes.
     ///
-    /// Three rules, in order:
+    /// Four rules, in order:
     ///
     /// 1. **Favorites are subtracted**, per root, exactly as `recentPaths(forRoot:)` does it — a
     ///    folder listed twice under two headings is one wasted row in a list of eight.
-    /// 2. **Dated entries first, newest first.**
-    /// 3. **Undated entries after every dated one** — see ``JumpLocation/visitedAt``: `nil` is
+    /// 2. **Landing folders are subtracted too**, per root — see `landings`.
+    /// 3. **Dated entries first, newest first.**
+    /// 4. **Undated entries after every dated one** — see ``JumpLocation/visitedAt``: `nil` is
     ///    unknown, not `.distantPast`, but "we do not know when" is still weaker evidence of
     ///    recency than any actual date, so unknown yields to known. Among themselves they are
     ///    ordered by root and then by position in that root's list, which is arbitrary but
@@ -435,14 +436,35 @@ public final class FolderJumpStore: ObservableObject {
     ///
     /// Pure, `static` and `nonisolated` — so the rule can be asserted without a store, a disk, a
     /// clock or a main actor, the same way `reachable` and `key(forRoot:)` are.
+    ///
+    /// - Parameter landings: each root's **landing folder**, root-relative — the folder a pane on
+    ///   that source opens at (`SettingsManager.openAt`). Subtracted for the same reason favorites
+    ///   are, and the redundancy is worse: a Locations row IS that source, one click away, and the
+    ///   landing is where the click arrives. So merely *visiting* a source writes a recent for a
+    ///   place already listed above, and with seven sources connected that filled seven of the
+    ///   eight rows — `Documents` under OneDrive, `Documents` under Dropbox, `My Drive` under two
+    ///   Drive accounts — leaving one row for anywhere the user actually went.
+    ///
+    ///   **Subtracted HERE rather than where the rows are drawn, because the cap is here.** A
+    ///   filter applied to the eight this returns would show fewer than eight and leave real
+    ///   recents unshown behind the landings that displaced them; this way the cap counts only
+    ///   rows worth having.
+    ///
+    ///   Only the landing itself, never the folders under it: `Documents/Taxes` is somewhere you
+    ///   navigated to and nothing else on the column will take you there.
     nonisolated static func mostRecentAcrossRoots(recents: [String: [JumpLocation]],
                                       favorites: [String: [JumpLocation]],
+                                      landings: [String: String] = [:],
                                       limit: Int) -> [RememberedVisit] {
         guard limit > 0 else { return [] }
         var dated: [(RememberedVisit, Date)] = []
         var undated: [RememberedVisit] = []
         for root in recents.keys.sorted() {
-            let pinned = Set((favorites[root] ?? []).map(\.relativePath))
+            var pinned = Set((favorites[root] ?? []).map(\.relativePath))
+            // No guard on an empty landing — that spelling means the source root, and `recordVisit`
+            // refuses to write a recent for it, so the entry it would match cannot exist. A guard
+            // here would be a clamp half nothing can reach and no test could hold to account.
+            if let landing = landings[root] { pinned.insert(landing) }
             for visit in recents[root] ?? [] where !pinned.contains(visit.relativePath) {
                 let entry = RememberedVisit(root: root, relativePath: visit.relativePath,
                                             name: visit.name, visitedAt: visit.visitedAt)
@@ -459,9 +481,16 @@ public final class FolderJumpStore: ObservableObject {
         return Array((dated.map(\.0) + undated).prefix(limit))
     }
 
-    /// ``mostRecentAcrossRoots(recents:favorites:limit:)`` against this store's two maps.
-    public func recentVisitsAcrossRoots(limit: Int = FolderJumpStore.maxRecents) -> [RememberedVisit] {
-        Self.mostRecentAcrossRoots(recents: recentsByRoot, favorites: pinnedByRoot, limit: limit)
+    /// ``mostRecentAcrossRoots(recents:favorites:landings:limit:)`` against this store's two maps.
+    ///
+    /// - Parameter landings: root-relative landing folders, keyed by ``key(forRoot:)``. The store
+    ///   does not know them — they are `SettingsManager`'s, and this module cannot see it — so the
+    ///   caller supplies them. Defaulted to none, which is the ⌘K palette's case: it asks per root
+    ///   and answers for one pane.
+    public func recentVisitsAcrossRoots(landings: [String: String] = [:],
+                                        limit: Int = FolderJumpStore.maxRecents) -> [RememberedVisit] {
+        Self.mostRecentAcrossRoots(recents: recentsByRoot, favorites: pinnedByRoot,
+                                   landings: landings, limit: limit)
     }
 
     /// **Every favorite, across every root**, in each root's curated order with the roots sorted —

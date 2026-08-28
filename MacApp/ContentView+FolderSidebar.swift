@@ -100,11 +100,37 @@ extension ContentView {
         }
         folderSidebarRows = FolderSidebarModel.rows(
             sources: sources,
-            recents: FolderJumpStore.shared.recentVisitsAcrossRoots(),
+            recents: FolderJumpStore.shared.recentVisitsAcrossRoots(
+                landings: Self.folderSidebarLandings(providers)),
             favoriteOrder: FolderJumpStore.shared.favoriteOrder)
         let places = splitFolderSidebarPlaceRows(providers)
         folderSidebarLocationRows = places.locations
         folderSidebarShortcutRows = places.shortcuts
+    }
+
+    /// **Each source's landing folder**, keyed the way the recents are — what Recents subtracts,
+    /// so that merely visiting a source does not write a row for a place Locations already lists.
+    ///
+    /// The provider's own `openAt` rather than `SettingsManager.openAtIfReachable`: the fallback
+    /// answers the *root* when the landing has gone, and the root is never a recent anyway
+    /// (`recordVisit` refuses to write one), so the two agree wherever the answer can matter —
+    /// while the plain value keeps this a read of eleven structs instead of eleven more `stat`s on
+    /// a path this refresh has already checked.
+    ///
+    /// **`static`, and taking its providers**, so the keying below is reachable from a test:
+    /// `ContentView` is a `View` with `@State` and cannot be instantiated, and the keying is the
+    /// half that silently does nothing when it is wrong — a raw `~/Dropbox` matches no root the
+    /// store holds, and the section comes back looking exactly as it did before the fix.
+    static func folderSidebarLandings(_ providers: [CloudProvider]) -> [String: String] {
+        // Keyed exactly as the store writes its recents, and as `sources` above is built —
+        // `key(forRoot:)` expands the `~` a folder source keeps in its stored path, which is the
+        // spelling the two would otherwise never meet on. An empty `openAt` is carried rather than
+        // skipped: it means the source lands on its root, which is a place no recent can name.
+        var landings: [String: String] = [:]
+        for provider in providers {
+            landings[FolderJumpStore.key(forRoot: provider.rootPath)] = provider.openAt
+        }
+        return landings
     }
 
     /// One canonical place, before it is known whether SyncCloud has it as a source.
