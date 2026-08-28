@@ -72,15 +72,6 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   Locations on a machine with several cloud accounts is where you go to find an *account*. Removing
   either from Favorites returns it to Locations.
 - **"Restore Standard Folders" is now "Restore Standard Places",** because it restores a disk.
-- **Recents no longer repeats what Locations already lists.** Switching a pane to a source opens it
-  at that source's landing folder, and that arrival was recorded like any other visit — so with
-  several accounts connected, Recents filled up with the very folders the rows above take you to:
-  `Documents` under Dropbox, `Documents` under two OneDrive accounts, `My Drive` under two Drive
-  accounts. With seven sources connected, six of the seven remembered folders were landings. A
-  source's landing folder is now left out of Recents, exactly as a Favorite already was, and it is
-  left out *before* the list is cut to eight — so the eight rows are eight places you actually went.
-  A folder *inside* a landing (`Documents/Taxes 2026`) is somewhere you navigated to and still
-  counts.
 - **A recent no longer carries a second line.** A recent's qualifier is its parent folder, and that
   parent is a top-level folder often enough that the line came out repeating the source badge on the
   row's other end. A recent is somewhere you were minutes ago and recognise; a favorite is one you
@@ -109,9 +100,10 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
 
 ### Speed
 
-- **Navigating one pane no longer reloads the other.** Every refresh request was honoured as "reload
-  both panes", including the commonest one in the app — one pane moving — so the other pane's tree
-  was re-walked on a source and a folder that had not changed. With the prefetch cache warm that is
+- **Navigating one pane no longer reloads the other.** Switching tabs already reloaded just the pane
+  that moved, but *navigating* — the commonest gesture in the app — went through a channel that
+  carried no pane with it, so it was honoured as "reload both" and the other pane's tree was
+  re-walked on a source and a folder that had not changed. With the prefetch cache warm that is
   wasted work you still see as a flicker; cold, after any file operation, sort change or force
   refresh, it is a full second walk of tens of thousands of files for a tree that was already
   correct. A refresh now names the pane that moved. Anything that genuinely changes both — a
