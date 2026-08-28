@@ -96,6 +96,16 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   the source's own name, or, for two folders under one source, the parent folder — and only where
   that actually separates them. Tabs that already read differently are untouched, and a duplicated
   tab is left alone rather than growing two identical suffixes.
+- **The strip reads like the list under it.** Every tab sits on a surface of its own now, and the
+  one you are on takes the same accent tint a selected folder takes in the pane below it — so the
+  strip and the list answer "which one am I on" in the same colour. Only the active tab had a
+  surface before, which left the others as bare labels and made a strip of five read as one tab with
+  some words after it. The live tab quietens in the pane you are not working in, exactly as that
+  pane's selected rows do; the rule under it does not, so the strip still names the live tab in the
+  pane you are not in.
+- **The strip follows the app's accent.** The rule under the live tab was drawn in the macOS system
+  accent rather than the one you picked, so it stayed system blue in a Green or Amber window. The
+  "None" accent is unaffected, because there it *is* the system accent.
 
 ### Speed
 
