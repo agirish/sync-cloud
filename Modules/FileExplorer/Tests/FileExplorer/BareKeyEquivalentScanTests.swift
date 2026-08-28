@@ -182,6 +182,10 @@ import Testing
         // from the lens below a `.sheet`.
         "RestructureRemovalSheet.swift":
             "modal sheet: Cancel carries .cancelAction so Escape dismisses",
+        // The cross-parent pair's confirm sheet, presented the same way and by the same rule as
+        // the two above it.
+        "RestructurePairMergeSheet.swift":
+            "modal sheet: Cancel carries .cancelAction so Escape dismisses",
     ]
 
     /// Is this file part of `FileExplorer`'s shipped source tree — at ANY depth under it?

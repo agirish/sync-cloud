@@ -11,6 +11,14 @@ import Sync
 /// manifest carries — there is no second implementation to drift.
 struct RestructurePlanSheet: View {
     let finding: StructureFinding
+    /// The parent the mapping's members are children of — **an input, not `finding.family`.**
+    ///
+    /// For a shape finding the two are the same. For a pair seeded through
+    /// ``RestructurePlanRoute/seededMapping(family:member:source:target:)`` the family is the
+    /// pair's *grandparent* and the single member is the folder they sit in, because the
+    /// mapping's unit is a child name inside a member. Reading `finding.family` here would have
+    /// pointed the planner one level too shallow on exactly those findings.
+    let family: String
     /// Every member of the family — scheme members, drift and shapeless alike: the mapping is
     /// applied to all of them, and drift is the part that most needs housing.
     let members: [String]
@@ -136,10 +144,10 @@ struct RestructurePlanSheet: View {
 
     private func seed() {
         guard rows.isEmpty else { return }
-        let sources = RestructurePlanner.distinctSources(family: finding.family,
+        let sources = RestructurePlanner.distinctSources(family: family,
                                                          members: members, in: tree)
         allSources = sources
-        parallelFamilies = RestructurePlanner.parallelFamilies(of: finding.family, in: tree)
+        parallelFamilies = RestructurePlanner.parallelFamilies(of: family, in: tree)
         if let initialRows {
             // The draft's rows, reconciled against the sources as they stand now: a source that
             // appeared since the draft gets a fresh keep row; one that vanished drops off.
@@ -172,9 +180,20 @@ struct RestructurePlanSheet: View {
 
     // MARK: - Header
 
+    /// The folder this mapping runs over, as the header names it.
+    ///
+    /// A family mapping covers many members, so the family path is the subject. A **seeded pair**
+    /// has exactly one member — the folder the two names sit in — and the family is that folder's
+    /// parent, which for a top-level pair is the empty string. Naming the member's own path is
+    /// both more useful and the only spelling that is never blank.
+    static func headerPath(family: String, members: [String]) -> String {
+        guard members.count == 1 else { return family }
+        return (family as NSString).appendingPathComponent(members[0])
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(finding.family)
+            Text(Self.headerPath(family: family, members: members))
                 .scaledFont(.system(size: 13, weight: .semibold, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.head)
@@ -509,7 +528,7 @@ struct RestructurePlanSheet: View {
             for row in rows {
                 var names: [String] = []
                 for member in members where names.count < 5 {
-                    let path = (((finding.family as NSString).appendingPathComponent(member))
+                    let path = (((family as NSString).appendingPathComponent(member))
                         as NSString).appendingPathComponent(row.source)
                     if let files = tree.files(path) {
                         names.append(contentsOf: files.prefix(5 - names.count))
@@ -520,7 +539,7 @@ struct RestructurePlanSheet: View {
         }
         var vocabularies = finding.schemes.map(\.vocabulary)
         if !vocabulary.isEmpty { vocabularies.append(vocabulary) }
-        return MappingRefineRequest(family: finding.family, members: members, rows: rows,
+        return MappingRefineRequest(family: family, members: members, rows: rows,
                                     candidateVocabularies: vocabularies,
                                     sampleFileNames: samples)
     }
@@ -546,7 +565,7 @@ struct RestructurePlanSheet: View {
 
     private var derived: Result<RestructureManifest, RestructurePlanner.PlanRefusal> {
         RestructurePlanner.manifest(
-            family: finding.family, members: members,
+            family: family, members: members,
             mapping: RestructureMapping(rows: rows), kind: finding.kind, in: tree,
             profileId: profileId, manifestId: manifestId, createdAt: createdAt)
     }
@@ -692,7 +711,7 @@ struct RestructurePlanSheet: View {
         let memberCount = Set(manifest.actions.compactMap { action -> String? in
             guard action.action == .moveFile || action.action == .moveDir,
                   let src = action.src else { return nil }
-            let prefix = finding.family + "/"
+            let prefix = family + "/"
             guard src.hasPrefix(prefix) else { return nil }
             let rest = src.dropFirst(prefix.count)
             let parts = rest.split(separator: "/", maxSplits: 2)

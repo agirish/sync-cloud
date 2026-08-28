@@ -292,6 +292,66 @@ public enum RestructurePlanner {
             family: family, kind: kind, note: note, mapping: mapping.rows, actions: actions))
     }
 
+    /// One folder's contents moved into another folder that is **not its sibling** — the merge
+    /// kinds whose two paths sit under different parents (ROADMAP_V5 §5.2's mirrored inbox, loose
+    /// folder beside its container, and a child echoing its parent).
+    ///
+    /// The family mapping cannot express these: a mapping row renames a child *within* its
+    /// member, and here the source changes parent. So the pair is derived directly — but by the
+    /// same rules and the same code as a mapped merge, because two implementations of "merge a
+    /// folder into a folder" is exactly the drift the mapping planner's own doc warns about.
+    ///
+    /// - A destination that does not exist yet is one `move-dir`: the folder travels whole and
+    ///   its files ride along, which is what the loose-folder card promises.
+    /// - A destination that stands is drained into per ``emitMerge`` — `move-file` per file,
+    ///   `move-dir` per subfolder, one level of same-name recursion, `keep` beyond that, and
+    ///   never a `move-dir` of the source onto the target, which would nest it.
+    ///
+    /// The emptied source is left standing for the removal step's own manifest, exactly as the
+    /// mapped planner leaves it.
+    public static func pairMergeManifest(source: String, destination: String, kind: FindingKind,
+                                         in view: RestructureTreeView,
+                                         profileId: String, manifestId: String, createdAt: String,
+                                         note: String? = nil)
+        -> Result<RestructureManifest, PlanRefusal> {
+        guard source != destination else { return .failure(.nothingMapped) }
+        // A folder cannot be moved inside itself, and a destination under the source is how a
+        // detector pair would express that. Refuse rather than derive a plan that eats its own
+        // source — the same class of refusal as an unresolvable order.
+        guard !RestructurePaths.isInside(destination, of: source) else {
+            return .failure(.unresolvableOrder(member: source))
+        }
+        let sourceName = (source as NSString).lastPathComponent
+        let targetName = (destination as NSString).lastPathComponent
+        var actions: [RestructureManifest.Action] = []
+
+        if view.childFolders(destination) == nil {
+            // Nothing stands at the destination: the whole folder travels, files included.
+            let newParent = (destination as NSString).deletingLastPathComponent
+            actions.append(RestructureManifest.Action(
+                action: .moveDir, src: source, dst: destination,
+                evidence: "\(sourceName)/ belongs in \(newParent)/ and nothing of that name "
+                    + "stands there — the folder moves whole and its files ride along.",
+                filesCarried: view.fileCount(source)))
+        } else {
+            var landed = LandedContents(of: destination, in: view)
+            var residue = LandedContents(of: nil, in: view)
+            if let refusal = emitMerge(of: source, sourceName: sourceName,
+                                       into: destination, targetName: targetName,
+                                       in: view, landed: &landed, residue: &residue,
+                                       actions: &actions) {
+                return .failure(refusal)
+            }
+        }
+        guard actions.contains(where: { $0.action != .keep }) else {
+            return .failure(.nothingMapped)
+        }
+        return .success(RestructureManifest(
+            profileId: profileId, manifestId: manifestId, createdAt: createdAt,
+            family: RestructurePaths.commonAncestor(of: [source, destination]),
+            kind: kind, note: note, actions: actions))
+    }
+
     // MARK: - One member
 
     /// One target's work inside one member: the sources the mapping sends there, and whether the

@@ -189,7 +189,8 @@ import Testing
             files: { files[$0] },
             fileCount: { files[$0]?.count })
         let sheet = RestructurePlanSheet(
-            finding: finding, members: ["2013", "2014"], tree: tree, profileId: "p",
+            finding: finding, family: finding.family, members: ["2013", "2014"],
+            tree: tree, profileId: "p",
             accent: .blue, initialRows: nil, onExport: { _, _ in .saved(filename: "f.json") },
             onClose: {})
         let hosting = NSHostingView(rootView: sheet.frame(width: 620, height: 560))

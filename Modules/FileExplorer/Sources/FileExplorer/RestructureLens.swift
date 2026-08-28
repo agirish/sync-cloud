@@ -92,10 +92,10 @@ struct RestructureLens: View {
     /// The To File hand-off, scoped to the finding's subject — the per-file half of a backlog or
     /// loose-files finding, sent to the surface that already makes per-file judgements.
     var onHandOff: ((StructureFinding) -> Void)?
-    /// §5.4's plan surface — opens the mapping sheet over the lens. Offered on shape cards only
-    /// in this milestone: the choose-a-shape step is theirs; the single-operation kinds get
-    /// their derived plans with §5.5. nil hides the button rather than promising a sheet that
-    /// does not open.
+    /// §5.4's plan surface — opens a plan over the lens. WHICH plan is
+    /// ``RestructurePlanRouting``'s answer, not this callback's: a family mapping for a shape, the
+    /// same mapping seeded for a pair under one parent, a confirm sheet for a pair across
+    /// parents. nil hides the button rather than promising a sheet that does not open.
     var onPlan: ((StructureFinding) -> Void)?
     /// Saved drafts by finding id — §5.7's *Planned, not applied*: the card carries the plan's
     /// ledger sentence inline, and its trigger reads *Review N operations* instead of *Plan…*.
@@ -463,23 +463,19 @@ struct RestructureLens: View {
                 // have one and `Reveal` is demoted to the secondary spot — the demotion this
                 // comment used to promise. A drafted plan changes the trigger's words: the plan
                 // already exists, so the button offers its review, not its creation (§5.7).
-                if finding.kind == .shape, let onPlan {
+                if let onPlan, RestructurePlanRouting.carriesPlanSurface(finding) {
                     Button(planTriggerTitle(for: finding)) { onPlan(finding) }
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .buttonStyle(.plain)
                         .foregroundStyle(accent)
                         .chromeHover()
-                        .help("Choose the target shape and map every name once — the operations "
-                              + "are derived for review. Opening the sheet moves nothing; only "
-                              + "its Apply button does.")
+                        .help(Self.planHelp(for: finding))
                 }
+                let hasPlan = onPlan != nil && RestructurePlanRouting.carriesPlanSurface(finding)
                 Button("Reveal") { onReveal(finding.subject) }
-                    .scaledFont(.system(size: 11,
-                                        weight: finding.kind == .shape && onPlan != nil
-                                            ? .regular : .semibold))
+                    .scaledFont(.system(size: 11, weight: hasPlan ? .regular : .semibold))
                     .buttonStyle(.plain)
-                    .foregroundStyle(finding.kind == .shape && onPlan != nil
-                                        ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
+                    .foregroundStyle(hasPlan ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
                     .chromeHover()
             }
             // The schemes are shown rather than asserted: the eras are visible, and so is the odd
@@ -585,6 +581,27 @@ struct RestructureLens: View {
     /// §5.7's stated trigger for the Planned state, and the pair must never both show.
     private func planTriggerTitle(for finding: StructureFinding) -> String {
         Self.planTriggerTitle(planned: plannedPlans[finding.id])
+    }
+
+    /// What the plan trigger promises — **the surface it opens**, which is not the same on every
+    /// kind. A shape finding opens the mapping editor with its choose-a-shape step; a pair opens
+    /// a review of operations that are already determined. Both end in a sheet that moves nothing
+    /// until its own Apply is pressed, and that half is said either way.
+    static func planHelp(for finding: StructureFinding) -> String {
+        let tail = " Opening the sheet moves nothing; only its Apply button does."
+        switch RestructurePlanRouting.route(for: finding) {
+        case .familyMapping:
+            return "Choose the target shape and map every name once — the operations are derived "
+                + "for review." + tail
+        case .seededMapping:
+            return "Opens the mapping for this folder with the pair already filled in — the "
+                + "operations are derived for review." + tail
+        case .pairMerge:
+            return "Reviews the operations this merge would run, derived from the two folders."
+                + tail
+        case nil:
+            return "No plan is derived for this kind."
+        }
     }
 
     static func planTriggerTitle(planned: PlannedPlanInfo?) -> String {

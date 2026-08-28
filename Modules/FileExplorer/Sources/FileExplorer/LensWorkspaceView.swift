@@ -3440,18 +3440,49 @@ public struct LensWorkspaceView: View {
                        caveat: outcome.surveyRefreshFailure)
     }
 
-    /// §5.4's plan sheet, modal over the lens. The tree view is disk-backed — a plan is derived
-    /// against the tree as it stands now, and merges need file names the profile never stores.
+    /// §5.4's plan surface, modal over the lens — **which one, by geometry.**
+    ///
+    /// A pair under one parent is one row of a family mapping, so it opens the mapping sheet
+    /// seeded and every downstream promise (drafts, Export, Apply) is the shipped path. A pair
+    /// across parents cannot be written as a mapping row at all and gets the confirm sheet over
+    /// its derived operations. ``RestructurePlanRouting`` is the one place that decides.
     @ViewBuilder
     private func planSheet(for finding: StructureFinding) -> some View {
         if let profile = syncManager.filingFolderProfile,
-           let store = syncManager.restructureStore {
+           let store = syncManager.restructureStore,
+           let route = RestructurePlanRouting.route(for: finding) {
             let key = RestructureKey(finding)
-            RestructurePlanSheet(
-                finding: finding,
+            switch route {
+            case .familyMapping(let family):
                 // Every member, both drop paths included — drift is the part that most needs
                 // housing, and the mapping is applied to all of them.
-                members: finding.schemes.flatMap(\.members) + finding.drift + finding.shapeless,
+                mappingPlanSheet(
+                    finding: finding, family: family,
+                    members: finding.schemes.flatMap(\.members) + finding.drift
+                        + finding.shapeless,
+                    seeded: nil, profile: profile, store: store, key: key)
+            case .seededMapping(let family, let member, let source, let target):
+                mappingPlanSheet(
+                    finding: finding, family: family, members: [member],
+                    seeded: RestructureMapping.Row(source: source, target: target),
+                    profile: profile, store: store, key: key)
+            case .pairMerge(let source, let destination):
+                pairMergeSheet(finding: finding, source: source, destination: destination,
+                               profile: profile, store: store, key: key)
+            }
+        }
+    }
+
+    /// §5.4's mapping sheet. The tree view is disk-backed — a plan is derived against the tree as
+    /// it stands now, and merges need file names the profile never stores.
+    @ViewBuilder
+    private func mappingPlanSheet(finding: StructureFinding, family: String, members: [String],
+                                  seeded: RestructureMapping.Row?, profile: FolderProfile,
+                                  store: RestructureStore, key: RestructureKey) -> some View {
+            RestructurePlanSheet(
+                finding: finding,
+                family: family,
+                members: members,
                 // `planDiskRoot`, not a bare URL: `profile.root` is stored tilde-abbreviated
                 // ("~/Documents"), and `URL(fileURLWithPath:)` resolves that relative to cwd —
                 // on every real profile the sheet's tree view read a path that does not exist,
@@ -3464,8 +3495,12 @@ public struct LensWorkspaceView: View {
                 // store and the scaffold already key on the directory id for that reason.
                 profileId: syncManager.filingProfileDirectoryId ?? profile.profileId,
                 accent: glassHue.accentColor,
-                initialRows: store.draft(for: key)?.manifest.mapping,
-                initialVocabulary: store.draft(for: key)?.vocabulary,
+                // A saved draft wins over the seed: it is the plan as the user last left it,
+                // and re-seeding over it would silently discard their edits. The seed is what a
+                // pair opens with the FIRST time.
+                initialRows: store.draft(for: key)?.manifest.mapping ?? seeded.map { [$0] },
+                initialVocabulary: store.draft(for: key)?.vocabulary
+                    ?? seeded?.target.map { [$0] },
                 onExport: { manifest, vocabulary in
                     // The file first, then the draft: the export is reviewable even when the
                     // store is refusing writes, and the draft is what makes §5.7's Planned
@@ -3508,7 +3543,54 @@ public struct LensWorkspaceView: View {
                 refineModelLabel: FilingSpendFormat.model(refineModelName),
                 onConfigureRefine: onConfigureCloudRefine,
                 onClose: { planningFinding = nil })
-        }
+    }
+
+    /// The cross-parent pair's confirm sheet. Same store, same key, same landing — a pair merge
+    /// exports and drafts like a mapped plan, so §5.7's *Planned, not applied* card state and the
+    /// *Review N operations* trigger work on these kinds without a second mechanism.
+    @ViewBuilder
+    private func pairMergeSheet(finding: StructureFinding, source: String, destination: String,
+                                profile: FolderProfile, store: RestructureStore,
+                                key: RestructureKey) -> some View {
+        RestructurePairMergeSheet(
+            source: source,
+            destination: destination,
+            kind: finding.kind,
+            tree: .fromDisk(root: Self.planDiskRoot(profile.root)).memoized(),
+            profileId: syncManager.filingProfileDirectoryId ?? profile.profileId,
+            accent: glassHue.accentColor,
+            // The card's own sentence about this pair, carried in — the review opens on the
+            // claim it was opened from rather than restating it in different words.
+            rationale: RestructureLens.blastRadius(for: finding)
+                ?? RestructureLens.subtitle(for: finding),
+            onExport: { manifest in
+                do {
+                    let name = try store.exportPlan(manifest)
+                    // No vocabulary: there is no picker here to restore. The draft exists for
+                    // the card's Planned state and its operation count.
+                    store.saveDraft(.init(manifest: manifest, savedAt: manifest.createdAt,
+                                          exportedTo: name, vocabulary: []), for: key)
+                    return .saved(filename: name)
+                } catch {
+                    return .failed("The plan could not be written beside the profile: "
+                        + error.localizedDescription)
+                }
+            },
+            onApply: { manifest in
+                let outcome = await syncManager.applyPlan(manifest)
+                if let refusal = outcome.refusal { return .refused(refusal) }
+                syncManager.restructureStore?.removeDraft(for: key)
+                var summary = outcome.summary
+                if let failure = outcome.surveyRefreshFailure {
+                    summary += " — " + failure
+                }
+                if !outcome.verifierMismatches.isEmpty {
+                    summary += " — the verifier found \(outcome.verifierMismatches.count) "
+                        + "mismatch(es); the log has each one"
+                }
+                return .applied(summary: summary)
+            },
+            onClose: { planningFinding = nil })
     }
 
     // MARK: Overview

@@ -32,4 +32,12 @@ public enum RestructurePaths {
         let name = (family as NSString).lastPathComponent
         return name.isEmpty || name == "." ? "the tree" : name
     }
+
+    /// Whether `path` is `ancestor` or lies underneath it — the containment test, by component.
+    public static func isInside(_ path: String, of ancestor: String) -> Bool {
+        let a = ancestor.split(separator: "/").map(String.init)
+        let p = path.split(separator: "/").map(String.init)
+        guard a.count <= p.count else { return false }
+        return Array(p.prefix(a.count)) == a
+    }
 }
