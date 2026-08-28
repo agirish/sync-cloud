@@ -50,6 +50,18 @@ struct RestructureLens: View {
     /// *Never suggest this again* — writes the finding's `kind × subject` into the store. nil
     /// hides the menu item rather than offering a promise nothing keeps.
     var onSuppress: ((StructureFinding) -> Void)?
+    /// The backlog scaffold (§5.2): creates the folders the family's vouched vocabulary expects,
+    /// then hands the flat files to To File. Only rendered on a backlog card whose scaffold is
+    /// non-empty — an all-drift family has nothing to copy and gets the hand-off alone.
+    var onScaffold: ((StructureFinding) -> Void)?
+    /// The To File hand-off, scoped to the finding's subject — the per-file half of a backlog or
+    /// loose-files finding, sent to the surface that already makes per-file judgements.
+    var onHandOff: ((StructureFinding) -> Void)?
+    /// Subjects whose scaffold has already landed (from the store's ledger). Until §5.5's
+    /// re-derive exists the profile stays stale after a landing, so the finding keeps rendering —
+    /// and its card must say the survey has not caught up rather than offer the same landing
+    /// twice. §5.7's third sentence, not a borrowed one.
+    var scaffoldedSubjects: Set<String> = []
     /// Whether the user has opened this answer **this launch** — see
     /// ``FileSyncManager/hasReviewedStructure``. False puts the setup card in front of a result
     /// that already exists, which is the whole point: it is read off a survey that may be weeks
@@ -286,6 +298,7 @@ struct RestructureLens: View {
                     .scaledFont(.system(size: 10.5))
                     .foregroundStyle(.tertiary)
             }
+            actionRow(for: finding)
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -299,6 +312,56 @@ struct RestructureLens: View {
             }
         }
     }
+
+    /// The actions a finding can offer today — the scaffold and the To File hand-off, on the two
+    /// kinds whose fix is per-file or create-only. Everything else waits for §5.4's `Plan…`.
+    @ViewBuilder
+    private func actionRow(for finding: StructureFinding) -> some View {
+        switch finding.detail {
+        case .backlog(let scaffold, _):
+            HStack(spacing: 14) {
+                if scaffoldedSubjects.contains(finding.subject) {
+                    Text(Self.scaffoldLandedText)
+                        .scaledFont(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                } else if !scaffold.isEmpty, let onScaffold {
+                    Button("Set up like its siblings") { onScaffold(finding) }
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(accent)
+                        .chromeHover()
+                        .help("Creates \(scaffold.joined(separator: ", ")) — folders only, one "
+                              + "⌘Z — then opens To File scoped here for the flat files.")
+                }
+                if let onHandOff {
+                    Button("File these…") { onHandOff(finding) }
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(accent)
+                        .chromeHover()
+                        .help("Opens To File scoped to this folder — the surface that judges "
+                              + "files one at a time.")
+                }
+            }
+        case .looseAboveSeries:
+            if let onHandOff {
+                Button("File these…") { onHandOff(finding) }
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(accent)
+                    .chromeHover()
+                    .help("Opens To File scoped to this folder — which year each file belongs "
+                          + "to is a per-file judgement.")
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    /// What a backlog card says once its scaffold has landed but the survey has not been
+    /// re-derived — applied is not resolved, and neither word may borrow the other's sentence.
+    static let scaffoldLandedText =
+        "Scaffolded — the survey hasn’t caught up yet, so this stays until it is updated."
 
     private func kindTag(_ kind: FindingKind) -> some View {
         Text(Self.kindLabel(kind))
@@ -593,10 +656,12 @@ struct RestructureLens: View {
         )
     }
 
-    /// The reveal trigger's words. **A count, because the badge beside it carries one** — a
-    /// button reading "Show findings" next to a rail badge reading 12 invites the question of
-    /// whether they are the same twelve, and the badge counts exactly this: `findings`, never the
-    /// ancestor list (which is context about the surroundings, not work in the scope).
+    /// The reveal trigger's words. **A count, of what opens** — every finding this lens will
+    /// render, ancestor list excluded. Since §5.1 the rail badge counts a SUBSET of this: the
+    /// plan-bearing kinds only, because a badge you cannot drive to zero stops being read. The
+    /// two numbers therefore may differ, deliberately — the badge answers "how much work is
+    /// here", this answers "how much will I see" — and this doc is where that difference is a
+    /// decision rather than a drift.
     ///
     /// Zero is its own phrasing rather than "Show 0 findings", which reads as a button that does
     /// nothing. What it opens is usually the clean state — but not always, because a scope with

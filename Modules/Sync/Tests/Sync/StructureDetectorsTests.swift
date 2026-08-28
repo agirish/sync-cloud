@@ -190,6 +190,18 @@ import Foundation
         #expect(hits.first?.detail == .mirroredInbox(destination: "Health/Dental"))
     }
 
+    @Test func onlyTheShallowestMirrorInASubtreeFires() {
+        // `TODO/Dental/Claims` mirroring `Dental/Claims` is the inside of the `TODO/Dental`
+        // finding, not a second one — the plan that merges the mirror carries it.
+        let hits = Self.findings([
+            ("Health", 0, 2),
+            ("Health/Dental", 0, 1), ("Health/Dental/Claims", 3, 0),
+            ("Health/TODO", 0, 1),
+            ("Health/TODO/Dental", 0, 1), ("Health/TODO/Dental/Claims", 2, 0),
+        ], .mirroredInbox)
+        #expect(hits.map(\.subject) == ["Health/TODO/Dental"])
+    }
+
     @Test func theInboxItselfAndUnmirroredContentsAreNotFindings() {
         // Health/TODO trivially "mirrors" Health with its component removed; Health/TODO/Vision
         // has no Health/Vision to mirror. Neither is a finding.

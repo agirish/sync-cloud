@@ -17,18 +17,18 @@ import Foundation
 enum StructureMirroredInbox {
 
     static func findings(in profile: FolderProfile) -> [StructureFinding] {
-        var out: [StructureFinding] = []
+        var hits: [StructureFinding] = []
         for path in profile.folders.keys {
             let components = path.split(separator: "/").map(String.init)
             guard components.count >= 2 else { continue }
-            // The deepest qualifying inbox ancestor wins; one finding per folder.
+            // The deepest qualifying inbox ancestor wins; one candidate per folder.
             for index in (0..<(components.count - 1)).reversed()
             where FolderProfile.isInboxPath(components[index]) {
                 var mirrored = components
                 mirrored.remove(at: index)
                 let destination = mirrored.joined(separator: "/")
                 if profile.folders[destination] != nil {
-                    out.append(StructureFinding(
+                    hits.append(StructureFinding(
                         kind: .mirroredInbox,
                         family: (path as NSString).deletingLastPathComponent,
                         subject: path,
@@ -37,6 +37,15 @@ enum StructureMirroredInbox {
                 break
             }
         }
-        return out.sorted { $0.subject < $1.subject }
+        // The SHALLOWEST mirror per subtree is the finding: `TODO/Dental/Claims` mirroring
+        // `Dental/Claims` is not a second observation, it is the inside of the first one — and
+        // the plan that merges `TODO/Dental` carries it. Sorted first so every ancestor
+        // precedes its descendants when the prefix test runs.
+        let sorted = hits.sorted { $0.subject < $1.subject }
+        var kept: [StructureFinding] = []
+        for hit in sorted where !kept.contains(where: { hit.subject.hasPrefix($0.subject + "/") }) {
+            kept.append(hit)
+        }
+        return kept
     }
 }

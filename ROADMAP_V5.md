@@ -433,9 +433,9 @@ rule applied to the folders that day's scope-bug taught it on, and it is the che
 this item.
 
 **Proof:** each detector gets a synthetic fixture that fires and a control that does not, *and* is
-run against the in-repo flagship/backlog fixtures lifted from the live profile with the numbers
-above pinned (`10`, `1`, `1`, `5`, `86 / 503 / 20`) — a detector whose count moves on the fixture
-moves for a reason someone has to write down. The scaffold card's `create-dir` list equals the
+run against the in-repo reference fixture lifted from the live profile with the numbers in the
+table above pinned (`11`, `5`, `0`, `3`, `11`, `2`, `86 / 503 / 20`) — a detector whose count
+moves on the fixture moves for a reason someone has to write down. The scaffold card's `create-dir` list equals the
 vouched vocabulary minus what the newest member already has; the To File hand-off opens scoped to
 that folder and to nothing wider.
 

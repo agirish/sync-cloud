@@ -52,6 +52,42 @@ public final class RestructureStore: ObservableObject {
     /// Chosen options for Ask findings, so the detector that asked never asks twice (§5.3).
     @Published public private(set) var answers: [RestructureKey: String] = [:]
 
+    /// The applied ledger — one record per landing, in the order they landed (§5.0's `applied`
+    /// section, §5.5's step 2 home). The inverse is ON DISK from the moment a landing starts,
+    /// which is what makes a reorganisation undoable after a quit, from here, not only with ⌘Z.
+    ///
+    /// **Keyed by manifest id and never re-keyed**: unlike the sections above, a ledger entry is
+    /// a record of what happened at the time it happened — replaying a later manifest onto its
+    /// paths would rewrite history to say the earlier landing touched folders it never saw.
+    @Published public private(set) var applied: [AppliedRecord] = []
+
+    public struct AppliedRecord: Codable, Equatable, Sendable {
+        public let manifest: RestructureManifest
+        public let inverse: RestructureManifest
+        /// The landing's stamp, injected by the writer.
+        public let at: String
+        /// Outcome counts — what actually happened, against what the manifest predicted.
+        public var created: Int
+        public var skipped: Int
+        /// §5.5 step 6's ids — nil until a landing re-derives the profile (stage one of Apply
+        /// records the scaffold without one; the field exists so the schema does not move when
+        /// re-derivation lands).
+        public var appliedUnderProfileId: String?
+        public var producedProfileId: String?
+
+        public init(manifest: RestructureManifest, inverse: RestructureManifest, at: String,
+                    created: Int, skipped: Int, appliedUnderProfileId: String? = nil,
+                    producedProfileId: String? = nil) {
+            self.manifest = manifest
+            self.inverse = inverse
+            self.at = at
+            self.created = created
+            self.skipped = skipped
+            self.appliedUnderProfileId = appliedUnderProfileId
+            self.producedProfileId = producedProfileId
+        }
+    }
+
     /// Whether something sits at `restructure.json`'s path that this build could not read — a
     /// syntax error, an I/O failure, or a schema newer than this build writes.
     ///
@@ -116,6 +152,28 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
+    // MARK: - The ledger
+
+    /// Appends one landing's record. The write is immediate and whole-file, like every mutation
+    /// here — §5.5 step 2 calls this with outcome *in progress* semantics folded into the counts
+    /// the caller passes, and a crash after this call leaves a reversible record on disk.
+    public func recordApplied(_ record: AppliedRecord) {
+        applied.append(record)
+        save()
+    }
+
+    /// Replaces the record with `manifestId`'s manifest — how a landing finalises its counts.
+    public func updateApplied(manifestId: String,
+                              _ change: (inout AppliedRecord) -> Void) {
+        guard let index = applied.firstIndex(where: { $0.manifest.manifestId == manifestId })
+        else { return }
+        var record = applied[index]
+        change(&record)
+        guard record != applied[index] else { return }
+        applied[index] = record
+        save()
+    }
+
     // MARK: - Replay
 
     /// Re-keys every section for a landed manifest's renames, in manifest order.
@@ -153,17 +211,19 @@ public final class RestructureStore: ObservableObject {
         let schemaVersion: Int?
         let suppressed: [RestructureKey]?
         let answers: [AnswerRecord]?
+        let applied: [AppliedRecord]?
     }
 
     private struct FileOut: Encodable {
         let schemaVersion: Int
         let suppressed: [RestructureKey]
         let answers: [AnswerRecord]
+        let applied: [AppliedRecord]
 
         /// Everything this type writes. Anything else in the file belongs to a section this build
         /// does not model yet and is carried across a save — see `carriedKeys`. Spelled out rather
         /// than derived, for ``PeopleStore``'s stated reason.
-        static let modelledKeys: Set<String> = ["schemaVersion", "suppressed", "answers"]
+        static let modelledKeys: Set<String> = ["schemaVersion", "suppressed", "answers", "applied"]
     }
 
     /// The schema this build writes. A file carrying a **newer** number is treated as unreadable
@@ -198,6 +258,7 @@ public final class RestructureStore: ObservableObject {
         answers = Dictionary(uniqueKeysWithValues: (decoded.answers ?? []).map {
             (RestructureKey(kind: $0.kind, path: $0.path), $0.choice)
         })
+        applied = decoded.applied ?? []
         carriedKeys = object.filter { !FileOut.modelledKeys.contains($0.key) }
     }
 
@@ -218,7 +279,8 @@ public final class RestructureStore: ObservableObject {
                 suppressed: suppressed.sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
                 answers: answers
                     .map { AnswerRecord(kind: $0.key.kind, path: $0.key.path, choice: $0.value) }
-                    .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) })
+                    .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
+                applied: applied)
             var data = try encoder.encode(out)
             if !carriedKeys.isEmpty,
                var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {

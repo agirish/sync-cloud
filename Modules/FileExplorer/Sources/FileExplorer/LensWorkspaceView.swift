@@ -508,6 +508,16 @@ public struct LensWorkspaceView: View {
         scopePathRaw = OrganizeScope.normalizedPath(path, providerRoot: providerRoot)
     }
 
+    /// The Restructure → To File hand-off (ROADMAP_V5 §5.2): a backlog or loose-files finding's
+    /// per-file half goes to the lens that judges files one at a time, scoped to the finding's
+    /// subject and to nothing wider.
+    private func handOffToToFile(_ finding: StructureFinding) {
+        guard let root = syncManager.filingFolderProfile?.root else { return }
+        let expanded = (root as NSString).expandingTildeInPath
+        setScope((expanded as NSString).appendingPathComponent(finding.subject))
+        withAnimation(listSettle) { railLens = .toFile }
+    }
+
     /// The rail selection, but only while Organize is the workspace.
     ///
     /// Storage is still a workspace of its own, and its `@AppStorage` neighbour keeps whatever
@@ -3130,6 +3140,34 @@ public struct LensWorkspaceView: View {
                         onSuppress: syncManager.restructureStore.map { store in
                             { store.suppress(RestructureKey($0)) }
                         },
+                        // The scaffold: one guarded, ledgered, ⌘Z-able landing of create-dirs,
+                        // then the same hand-off the button below offers on its own. A refusal
+                        // surfaces as a banner sentence, never a silent no-op.
+                        onScaffold: { finding in
+                            Task { @MainActor in
+                                let outcome = await syncManager.applyScaffold(for: finding)
+                                if let refusal = outcome.refusal {
+                                    syncManager.banner = .warning(refusal)
+                                } else {
+                                    handOffToToFile(finding)
+                                }
+                            }
+                        },
+                        // To File, scoped to the finding's subject — the surface that already
+                        // makes per-file judgements with a verdict, a shortlist and Undo.
+                        onHandOff: handOffToToFile,
+                        // Landed scaffolds, read off the ledger: the card for one says the
+                        // survey has not caught up instead of offering the landing twice.
+                        // The subject is the created folders' parent — the manifest records
+                        // the family, and the scaffold's dsts all sit under the subject.
+                        scaffoldedSubjects: Set(
+                            (syncManager.restructureStore?.applied ?? [])
+                                .filter { $0.manifest.kind == .backlog }
+                                .compactMap { record in
+                                    record.manifest.actions.first?.dst.map {
+                                        ($0 as NSString).deletingLastPathComponent
+                                    }
+                                }),
                         // The launch gate. Restructure is the only lens whose answer exists
                         // before anyone asks — see `FileSyncManager.hasReviewedStructure` for why
                         // it needs a flag the others get from their scan lifecycle.

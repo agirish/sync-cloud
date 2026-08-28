@@ -145,9 +145,24 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
         schemes.reduce(0) { $0 + $1.members.count } + drift.count + shapeless.count
     }
 
-    /// The one-line summary — "Finance/US/Income Tax — 17 folders, 3 schemes".
+    /// The one-line summary — "Finance/US/Income Tax — 17 folders, 3 schemes" for shape, the
+    /// kind's own phrase for the rest. The Organize overview prints this as its example lines,
+    /// and "Health/Dental/2025 — 0 folders, 0 schemes" was what a backlog finding read as when
+    /// this was shape's sentence for everyone.
     public var headline: String {
-        "\(family) — \(memberCount) folders, \(schemes.count) schemes"
+        switch kind {
+        case .shape:
+            return "\(family) — \(memberCount) folders, \(schemes.count) schemes"
+        case .backlog: return "\(subject) — no folders yet"
+        case .shadowAxis: return "\(subject) — a year in the name"
+        case .echoName: return "\(subject) — two names for one thing"
+        case .mirroredInbox: return "\(subject) — mirrors a real folder"
+        case .deadWeight: return "\(subject) — dead weight"
+        case .looseAboveSeries: return "\(subject) — files above the year run"
+        case .looseBesideContainer: return "\(subject) — beside its container"
+        case .duplicatedTaxonomy: return "\(subject) — duplicated taxonomy"
+        case .ask: return "\(subject) — needs an answer"
+        }
     }
 
     public init(kind: FindingKind = .shape, family: String, subject: String? = nil,
