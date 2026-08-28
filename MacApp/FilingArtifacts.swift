@@ -54,6 +54,9 @@ enum FilingArtifacts {
         // the person view writes through it, and nothing else on this machine may.
         manager.filingPersonTagStore = PersonTagStore(directory: profiles,
                                                       profileId: loaded.id)
+        // Everything Restructure remembers — suppressions and Ask answers, then drafts and the
+        // ledger as §5.4/§5.5 land. `loaded.id`, not `profile.profileId`, like every store here.
+        manager.restructureStore = RestructureStore(directory: profiles, profileId: loaded.id)
         // Part of the question every file is asked — a re-survey must not replay answers the
         // old tree produced. Read from the same directory the artifacts came from.
         manager.filingArtifactFingerprint =

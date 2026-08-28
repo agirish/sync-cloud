@@ -27,9 +27,11 @@ enum DuplicateGroupColumns {
     static let badgeGlyphGap: CGFloat = 6
     static var badgePadding: CGFloat { PillVariant.mini.horizontalPadding }
 
-    /// Every badge the vocabulary can produce, overlap pinned to its widest rendering (100%).
+    /// Every badge the vocabulary can produce — the EXCEPTIONS only: `identical` wears no badge
+    /// (ROADMAP.md, the Identical-badge item), so the slot is sized for the rows that have one
+    /// and the majority row spends the space on its own name.
     static let badgeVocabulary: [DuplicateMatchType] =
-        [.identical, .sameText, .overlapping(sharedFraction: 1.0), .nameOnly, .versions]
+        [.sameText, .overlapping(sharedFraction: 1.0), .nameOnly, .versions]
 
     /// The badge fonts, matching `DuplicateGroupCard.typeBadge` exactly — a slot measured in any
     /// other font is a slot measured for some other view.
@@ -41,10 +43,14 @@ enum DuplicateGroupColumns {
     }
 
     /// One badge's modelled width — the same arithmetic ``badgeSlotWidth(scale:)`` maximises over.
+    /// Measured over `badgeLabel`, the string the badge actually draws — a slot measured over the
+    /// category labels would be a slot for some other view.
     static func badgeWidth(_ type: DuplicateMatchType, scale: CGFloat) -> CGFloat {
         LabelMetrics.symbolWidth(DuplicateMatchStyle.symbol(type), font: badgeFont, scale: scale)
             + badgeGlyphGap
-            + LabelMetrics.width(of: DuplicateMatchStyle.label(type), font: badgeFont, scale: scale)
+            + LabelMetrics.width(of: DuplicateMatchStyle.badgeLabel(type)
+                                     ?? DuplicateMatchStyle.label(type),
+                                 font: badgeFont, scale: scale)
             + 2 * badgePadding
     }
 
@@ -88,7 +94,9 @@ struct DuplicateTypeBadge: View {
             Image(systemName: DuplicateMatchStyle.symbol(matchType))
                 .scaledFont(.system(size: 11, weight: .bold))
                 .symbolRenderingMode(.hierarchical)
-            Text(DuplicateMatchStyle.label(matchType))
+            // The want, not the category — and the category-label fallback is defensive only:
+            // the card constructs this badge exclusively for types whose `badgeLabel` is non-nil.
+            Text(DuplicateMatchStyle.badgeLabel(matchType) ?? DuplicateMatchStyle.label(matchType))
                 .scaledFont(.system(size: 11, weight: .bold))
         }
         .foregroundStyle(accent)

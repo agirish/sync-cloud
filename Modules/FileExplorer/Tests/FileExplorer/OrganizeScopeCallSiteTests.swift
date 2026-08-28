@@ -271,9 +271,12 @@ import Sync
         }
         // Restructure counts through `relation` rather than `matches`, and `.inside` ONLY: an
         // ancestor finding is shown in the lens but is not work in this subtree, so a badge that
-        // counted it would promise something here that is not here.
-        #expect(body.contains("OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,\n                                             scope: appliedScope(for: .restructure)) == .inside"),
+        // counted it would promise something here that is not here. And plan-bearing kinds only
+        // (ROADMAP_V5 §5.1): a badge you cannot drive to zero is a badge people stop reading.
+        #expect(body.contains("OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,\n                                                    scope: appliedScope(for: .restructure)) == .inside"),
                 "the restructure badge is unscoped, or counting ancestor findings as work in the scope")
+        #expect(body.contains("$0.kind.carriesPlan"),
+                "the restructure badge is counting kinds that carry no plan — an Ask or a hand-off inflates a number nobody can drive to zero")
         #expect(!body.contains("case .restructure: return 0"),
                 "the restructure badge is hard-wired to 0 again")
         // **Rules counts the whole list, and must not grow a scope test.** Not an omission — see

@@ -38,6 +38,16 @@ struct DuplicateGroupCard: View {
     // went with it into `DuplicateTypeBadge`, which asks the match type itself.
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
+    /// The exception treatment's colour — nil on the majority case, which wears no badge, no
+    /// stripe and no wash (ROADMAP.md, the Identical-badge item): on a real scan `identical`
+    /// fires on the overwhelming majority, and rows needing a human decision were wearing
+    /// identical weight and getting lost in the run. A row's visual weight now tracks how much
+    /// attention it deserves.
+    private var severity: Color? {
+        DuplicateMatchStyle.badgeLabel(group.matchType) == nil
+            ? nil : DuplicateMatchStyle.color(group.matchType)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -47,20 +57,45 @@ struct DuplicateGroupCard: View {
             }
         }
         .lensCard()
+        // The faint wash: over the card rather than under it, because `lensCard`'s own fill is
+        // what a background would hide behind. 0.035 is a tint on the whole card, not a colour
+        // on any text — the badge and stripe carry the semantics.
+        .overlay {
+            if let severity {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(severity.opacity(0.035))
+                    .allowsHitTesting(false)
+            }
+        }
+        // The severity stripe: inset rather than corner-flush, so it never fights the card
+        // radius, and non-interactive so the header's whole-row button keeps its target.
+        .overlay(alignment: .leading) {
+            if let severity {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(severity.opacity(0.75))
+                    .frame(width: 3)
+                    .padding(.vertical, 8)
+                    .padding(.leading, 1.5)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     // MARK: Header
 
     private var header: some View {
         Button(action: onToggle) {
-            // Invisible columns (DuplicateGroupColumns): the badge sits in a fixed leading slot so
-            // every name starts at one x; the subtitle right-aligns against the verb column;
-            // verb and digits each hold their own slot so "reclaim 157 KB" and "~24.2 MB
-            // shared" share one digit column instead of two ragged endings.
+            // Invisible columns (DuplicateGroupColumns): an exception's badge sits in a fixed
+            // leading slot; the majority row has no badge and spends the space on its own icon
+            // and name. The subtitle right-aligns against the verb column; verb and digits each
+            // hold their own slot so "reclaim 157 KB" and "~24.2 MB shared" share one digit
+            // column instead of two ragged endings.
             HStack(spacing: 12) {
-                typeBadge
-                    .frame(minWidth: DuplicateGroupColumns.badgeSlotWidth(scale: appFontScale),
-                           alignment: .leading)
+                if severity != nil {
+                    typeBadge
+                        .frame(minWidth: DuplicateGroupColumns.badgeSlotWidth(scale: appFontScale),
+                               alignment: .leading)
+                }
                 fileIcon
                 Text(group.name)
                     .scaledFont(.system(size: 14, weight: .semibold))
@@ -129,12 +164,23 @@ struct DuplicateGroupCard: View {
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .frame(minWidth: verbWidth, alignment: .trailing)
-            Text(isOverlap ? "~\(FileSyncManager.formatBytes(group.reclaimableBytes))"
-                           : FileSyncManager.formatBytes(group.reclaimableBytes))
-                .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(isOverlap ? AnyShapeStyle(.secondary)
-                                           : AnyShapeStyle(SemanticColor.success))
-                .frame(minWidth: digitsWidth, alignment: .trailing)
+            // The majority row's green pill lives HERE now — on the number the row is about —
+            // rather than on a leading badge naming a category (ROADMAP.md, the Identical-badge
+            // item). Exceptions keep plain digits: their colour budget is spent on the stripe.
+            if group.matchType.kind == .identical {
+                Text(FileSyncManager.formatBytes(group.reclaimableBytes))
+                    .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(SemanticColor.success)
+                    .pillSurface(.mini, tint: SemanticColor.success)
+                    .frame(minWidth: digitsWidth, alignment: .trailing)
+            } else {
+                Text(isOverlap ? "~\(FileSyncManager.formatBytes(group.reclaimableBytes))"
+                               : FileSyncManager.formatBytes(group.reclaimableBytes))
+                    .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isOverlap ? AnyShapeStyle(.secondary)
+                                               : AnyShapeStyle(SemanticColor.success))
+                    .frame(minWidth: digitsWidth, alignment: .trailing)
+            }
         } else {
             Text("nothing to reclaim")
                 .scaledFont(.system(size: 12, design: .monospaced))

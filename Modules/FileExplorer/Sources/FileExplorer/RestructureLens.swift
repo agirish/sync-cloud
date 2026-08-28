@@ -41,8 +41,15 @@ struct RestructureLens: View {
     /// The provider this lens's answer covers, for the setup card's title — it compares sibling
     /// families across the surveyed tree, not inside the focused folder.
     var providerName: String?
+    /// The crowding classification for this scope — path → class, already narrowed. Counts, not
+    /// findings: always non-zero on a real tree, so it renders as the strip's three filters and
+    /// never takes a badge (ROADMAP_V5 §5.2).
+    var deadWeight: [String: DeadWeightClass] = [:]
     let accent: Color
     let onReveal: (String) -> Void
+    /// *Never suggest this again* — writes the finding's `kind × subject` into the store. nil
+    /// hides the menu item rather than offering a promise nothing keeps.
+    var onSuppress: ((StructureFinding) -> Void)?
     /// Whether the user has opened this answer **this launch** — see
     /// ``FileSyncManager/hasReviewedStructure``. False puts the setup card in front of a result
     /// that already exists, which is the whole point: it is read off a survey that may be weeks
@@ -62,23 +69,43 @@ struct RestructureLens: View {
 
     private var isEmpty: Bool { findings.isEmpty && aboutAncestor.isEmpty }
 
+    /// Which crowding class the strip is currently expanded on, if any.
+    @State private var crowdingFilter: DeadWeightClass?
+
     var body: some View {
         if !hasProfile {
             noProfileState
         } else if !hasReviewed {
             readyState
         } else if isEmpty {
-            cleanState
+            // The strip renders in the clean state too — settled by rendering it (the roadmap's
+            // open question): the seal answers *shape*, the strip answers *crowding*, and a strip
+            // that vanished on a clean tree would make the empties filter unreachable exactly
+            // when it is the only thing left to do.
+            VStack(alignment: .leading, spacing: 0) {
+                if !deadWeight.isEmpty {
+                    crowdingStrip.padding(12)
+                }
+                cleanState
+            }
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(findings) { finding in
-                        findingCard(finding)
+                    if !deadWeight.isEmpty {
+                        crowdingStrip
+                    }
+                    // §5.2's grouping rule, the render half: rows arrive sorted so a folder's
+                    // findings are adjacent, and the second card about one folder drops the path
+                    // heading — a second thing about the same place, not a repeat.
+                    ForEach(Array(findings.enumerated()), id: \.element.id) { index, finding in
+                        findingCard(finding,
+                                    showsPath: index == 0
+                                        || findings[index - 1].subject != finding.subject)
                     }
                     if !aboutAncestor.isEmpty {
                         ancestorHeader
                         ForEach(aboutAncestor) { finding in
-                            findingCard(finding).opacity(0.72)
+                            findingCard(finding, showsPath: true).opacity(0.72)
                         }
                     }
                 }
@@ -112,20 +139,122 @@ struct RestructureLens: View {
             : "Nothing about this folder itself — but about the folder above it:"
     }
 
-    private func findingCard(_ finding: StructureFinding) -> some View {
+    // MARK: The crowding strip
+
+    /// Three counts above the findings, each a filter into a list (ROADMAP_V5 §5.2). Crowding is
+    /// a property of the scope — always non-zero on a real tree — so these are chips, not cards,
+    /// and none of them takes a badge. Only the empties will carry an action (§5.5's removal
+    /// sheet); the other two are report-only in 5.0, and the strip says the number, offers the
+    /// list, and offers no button.
+    private var crowdingStrip: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                ForEach(DeadWeightClass.allCases, id: \.self) { weightClass in
+                    crowdingChip(weightClass)
+                }
+                Spacer(minLength: 0)
+            }
+            if let crowdingFilter {
+                crowdingList(crowdingFilter)
+            }
+        }
+    }
+
+    static func crowdingLabel(_ weightClass: DeadWeightClass, count: Int) -> String {
+        switch weightClass {
+        case .passThrough: return "\(count) pass-through"
+        case .singleFileLeaf: return "\(count) single-file"
+        case .empty: return "\(count) empty"
+        }
+    }
+
+    private func crowdingPaths(_ weightClass: DeadWeightClass) -> [String] {
+        deadWeight.filter { $0.value == weightClass }.map(\.key).sorted()
+    }
+
+    private func crowdingChip(_ weightClass: DeadWeightClass) -> some View {
+        let count = crowdingPaths(weightClass).count
+        let isSelected = crowdingFilter == weightClass
+        return Button {
+            crowdingFilter = isSelected ? nil : weightClass
+        } label: {
+            Text(Self.crowdingLabel(weightClass, count: count))
+                .scaledFont(.system(size: 10.5, weight: isSelected ? .semibold : .medium))
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .background(Capsule().fill(isSelected ? AnyShapeStyle(accent.opacity(0.18))
+                                              : AnyShapeStyle(.quaternary.opacity(0.30))))
+        .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+        .disabled(count == 0)
+        .opacity(count == 0 ? 0.4 : 1)
+        .help(Self.crowdingHelp(weightClass))
+    }
+
+    /// Why the number is a number and not a button — each class states its own reason.
+    static func crowdingHelp(_ weightClass: DeadWeightClass) -> String {
+        switch weightClass {
+        case .passThrough:
+            return "Folders holding nothing but one subfolder. Report-only: hoisting one renames "
+                + "every path beneath it, for a defect that costs one click in a column view."
+        case .singleFileLeaf:
+            return "Folders holding exactly one file. Report-only: a folder can look like debt "
+                + "and be a destination waiting for its next file, and nothing in its own shape "
+                + "separates the two."
+        case .empty:
+            return "Folders holding nothing at all. The removal sheet takes these when Apply "
+                + "lands — nothing is deleted; folders go to the Trash."
+        }
+    }
+
+    private func crowdingList(_ weightClass: DeadWeightClass) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(crowdingPaths(weightClass), id: \.self) { path in
+                HStack(spacing: 8) {
+                    Text(path)
+                        .scaledFont(.system(size: 10.5, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                    Spacer(minLength: 8)
+                    Button("Reveal") { onReveal(path) }
+                        .scaledFont(.system(size: 10, weight: .semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(accent)
+                        .chromeHover()
+                }
+                .padding(.vertical, 2)
+                .padding(.horizontal, 8)
+            }
+        }
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.18)))
+    }
+
+    // MARK: Finding cards
+
+    private func findingCard(_ finding: StructureFinding, showsPath: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(finding.family)
-                        .scaledFont(.system(size: 12.5, weight: .semibold, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                    Text("\(finding.memberCount) folders, \(finding.schemes.count) internal shapes")
-                        .scaledFont(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                    if showsPath {
+                        Text(finding.subject)
+                            .scaledFont(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                    HStack(spacing: 6) {
+                        kindTag(finding.kind)
+                        Text(Self.subtitle(for: finding))
+                            .scaledFont(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer(minLength: 8)
-                Button("Reveal") { onReveal(finding.family) }
+                // `Reveal` holds the action slot until §5.4's sheet lands — a `Plan…` that opens
+                // nothing is a promise, and this lens's own setup card documents why those are
+                // worse than absence. The demotion to a link happens when the sheet exists.
+                Button("Reveal") { onReveal(finding.subject) }
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .buttonStyle(.plain)
                     .foregroundStyle(accent)
@@ -136,6 +265,27 @@ struct RestructureLens: View {
             ForEach(Array(finding.schemes.enumerated()), id: \.offset) { _, scheme in
                 schemeRow(scheme)
             }
+            // §5.1's two recovered rows — the drop paths, rendered instead of swallowed. Drift is
+            // greyed: members of the family whose shape no second sibling vouches for. The
+            // shape-less sibling gets its own words, because "no shape of its own" is a different
+            // sentence from "disagrees with the others".
+            if !finding.drift.isEmpty {
+                extraRow(members: finding.drift.joined(separator: ", "),
+                         note: "drift — no two agree on one shape")
+                    .opacity(0.6)
+            }
+            if !finding.shapeless.isEmpty {
+                extraRow(members: finding.shapeless.joined(separator: ", "),
+                         note: "no shape of its own")
+            }
+            if let scaffold = Self.scaffoldLine(for: finding) {
+                extraRow(members: scaffold.members, note: scaffold.note)
+            }
+            if let radius = Self.blastRadius(for: finding) {
+                Text(radius)
+                    .scaledFont(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -143,6 +293,138 @@ struct RestructureLens: View {
         // lensCard(), and this was the one set outside the family — flat gray, radius 9, and
         // no lit-glass hairline in dark. The scheme rows inside keep their quiet inner fills.
         .lensCard()
+        .contextMenu {
+            if let onSuppress {
+                Button("Never suggest this again") { onSuppress(finding) }
+            }
+        }
+    }
+
+    private func kindTag(_ kind: FindingKind) -> some View {
+        Text(Self.kindLabel(kind))
+            .scaledFont(.system(size: 9.5, weight: .semibold))
+            .padding(.vertical, 1.5)
+            .padding(.horizontal, 6)
+            .background(Capsule().fill(.quaternary.opacity(0.35)))
+            .foregroundStyle(.secondary)
+            .help(Self.kindVerb(kind))
+    }
+
+    /// The kind tag's noun — short enough for a chip, distinct enough to sort a mixed list by eye.
+    static func kindLabel(_ kind: FindingKind) -> String {
+        switch kind {
+        case .shape: return "Shape"
+        case .backlog: return "Series"
+        case .shadowAxis: return "Year in name"
+        case .echoName: return "Echo"
+        case .mirroredInbox: return "Mirrored inbox"
+        case .deadWeight: return "Dead weight"
+        case .looseAboveSeries: return "Loose files"
+        case .looseBesideContainer: return "Loose folder"
+        case .duplicatedTaxonomy: return "Duplicated"
+        case .ask: return "Ask"
+        }
+    }
+
+    /// The verb the tag's tooltip carries — what acting on this class of finding would do
+    /// (ROADMAP_V5 §5.1: the class of change is legible before any sheet opens).
+    static func kindVerb(_ kind: FindingKind) -> String {
+        switch kind {
+        case .shape: return "Renames or merges folders"
+        case .backlog: return "Creates folders and hands the files to To File"
+        case .shadowAxis: return "Renames or merges into the year run"
+        case .echoName: return "Merges two spellings of one name"
+        case .mirroredInbox: return "Merges the mirror into its destination"
+        case .deadWeight: return "Reports — no plan"
+        case .looseAboveSeries: return "Hands the files to To File"
+        case .looseBesideContainer: return "Moves the folder into its container"
+        case .duplicatedTaxonomy: return "Merges two folders holding the same documents"
+        case .ask: return "Asks — the answer is remembered, nothing moves"
+        }
+    }
+
+    /// The line under the path — each kind states what it saw, in its own words.
+    static func subtitle(for finding: StructureFinding) -> String {
+        switch (finding.kind, finding.detail) {
+        case (.shape, _):
+            return "\(finding.memberCount) folders, \(finding.schemes.count) internal shapes"
+        case (_, .backlog(_, let looseFiles)):
+            return "\(looseFiles) file\(looseFiles == 1 ? "" : "s"), no folders yet"
+        case (_, .shadowAxis(let target, let exists)):
+            return exists ? "hides the year \(target), which exists beside it"
+                          : "hides the year \(target)"
+        case (_, .echoName(let counterpart, let relation)):
+            let name = (counterpart as NSString).lastPathComponent
+            return relation == .parentChild ? "echoes its parent, \(name)"
+                                            : "echoes \(name) beside it"
+        case (_, .mirroredInbox(let destination)):
+            return "mirrors \(destination)"
+        case (_, .looseAboveSeries(let looseFiles, let seriesFolders)):
+            return "\(looseFiles) files above \(seriesFolders) year folders"
+        case (_, .looseBesideContainer(let container)):
+            return "belongs in \((container as NSString).lastPathComponent)/"
+        default:
+            return ""
+        }
+    }
+
+    /// The scaffold's own row, for a backlog card: what *Set up like its siblings* would create,
+    /// or the honest sentence when the family vouches for nothing.
+    static func scaffoldLine(for finding: StructureFinding) -> (members: String, note: String)? {
+        guard case .backlog(let scaffold, _) = finding.detail else { return nil }
+        guard !scaffold.isEmpty else {
+            return (members: "—", note: "no shared shape to copy — the files go to To File as they are")
+        }
+        return (members: scaffold.joined(separator: ", "), note: "what its siblings expect")
+    }
+
+    /// The card's blast-radius sentence (ROADMAP_V5 §5.1): the honest cost, derived from the
+    /// finding's own shape, and the sentence that makes someone open the sheet. nil for the kinds
+    /// whose subtitle already carries the whole story.
+    static func blastRadius(for finding: StructureFinding) -> String? {
+        switch (finding.kind, finding.detail) {
+        case (.shape, _):
+            // A bijection of names exists when every vouched scheme agrees on the same number of
+            // subfolders; anything else needs at least one merge to converge.
+            let sizes = Set(finding.schemes.map(\.vocabulary.count))
+            return sizes.count <= 1 && !sizes.contains(0)
+                ? "A plan here is folder renames — no file would move."
+                : "Converging these shapes needs merges — files would move."
+        case (_, .backlog(let scaffold, _)):
+            return scaffold.isEmpty ? nil
+                : "Creates folders only — nothing moves, nothing to undo but empty folders."
+        case (_, .shadowAxis(_, let exists)):
+            return exists ? "A plan here is one merge — its files would move into the year."
+                          : "A plan here is one rename — no file would move."
+        case (_, .echoName):
+            return "A plan here is a merge — one folder wearing two names becomes one."
+        case (_, .mirroredInbox):
+            return "A plan here merges the mirror into its destination — files would move."
+        case (_, .looseAboveSeries):
+            return "Per-file judgement — these hand off to To File, scoped here."
+        case (_, .looseBesideContainer):
+            return "A plan here moves one folder — its files ride along."
+        default:
+            return nil
+        }
+    }
+
+    /// A drift / shapeless / scaffold row — `schemeRow`'s two-column shape with a note instead of
+    /// a vocabulary.
+    private func extraRow(members: String, note: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(members)
+                .scaledFont(.system(size: 11, weight: .medium))
+                .frame(width: 150, alignment: .leading)
+                .lineLimit(2)
+            Text(note)
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.30)))
     }
 
     /// A scheme row for the setup card's sample — `schemeRow`'s two-column shape at sample scale.

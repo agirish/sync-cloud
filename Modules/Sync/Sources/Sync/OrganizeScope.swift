@@ -387,18 +387,23 @@ public enum OrganizeScopeFilter {
     /// which is also why the restructure rule could not just be dropped into `filteredRows` beside
     /// the other four without threading that root through.
     ///
-    /// A finding whose family is `.` (the profile root itself) relativizes to the root path and is
-    /// therefore an ancestor of any scope — reported as `aboutAncestor`, not dropped.
+    /// A finding whose subject is `.` (the profile root itself) relativizes to the root path and
+    /// is therefore an ancestor of any scope — reported as `aboutAncestor`, not dropped.
+    ///
+    /// **The subject, not the family** (ROADMAP_V5 §5.0): for shape they are the same folder, but
+    /// a backlog finding about `Health/Dental/2025` under a scope pointed at exactly that folder
+    /// is work *inside* the scope — reading the family would demote the one finding the user
+    /// scoped to into an ancestor note about `Health/Dental`.
     public static func relation(of finding: StructureFinding, profileRoot: String,
                                 scope: OrganizeScope?) -> ScopeRelation {
         guard let scope else { return .inside }
         let root = (profileRoot as NSString).expandingTildeInPath
         guard !root.isEmpty else { return .outside }
-        // `family == "."` is the profile root; `appendingPathComponent` would make it "<root>/."
+        // `subject == "."` is the profile root; `appendingPathComponent` would make it "<root>/."
         // and `PathBoundary` does no `..`/`.` resolution, so the root case is spelled out.
-        let absolute = finding.family == "."
+        let absolute = finding.subject == "."
             ? root
-            : (root as NSString).appendingPathComponent(finding.family)
+            : (root as NSString).appendingPathComponent(finding.subject)
         return scope.relation(of: absolute)
     }
 

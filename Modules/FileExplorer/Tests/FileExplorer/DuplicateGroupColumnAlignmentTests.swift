@@ -51,13 +51,15 @@ import Design
     }
 
     @Test func nameStartsAtOneXWhateverTheBadgeSays() throws {
-        // The widest badge and the narrowest: if the slot holds, the icon+name zone renders
-        // pixel-identical. (Verb/digits differ for overlap, so the comparison stops before the
-        // flexible middle — the zone right of the slot is where alignment must be proven.)
-        let identical = try #require(render(card(.identical)))
-        let overlap = try #require(render(card(.overlapping(sharedFraction: 1.0))))
+        // Two badge-WEARING types with different badge widths ("needs review" vs "needs a
+        // choice") but the same severity colour, so the wash tints both renders identically and
+        // any zone difference is the slot leaking width. The identical row is deliberately not
+        // in this comparison any more: it wears no badge at all (ROADMAP.md, the Identical-badge
+        // item), so its name starts at the icon — a different x by design, not a leak.
+        let narrow = try #require(render(card(.sameText)))
+        let wide = try #require(render(card(.nameOnly)))
         // Device-pixel space: colorAt indexes the backing store, which is retina-scaled.
-        let device = CGFloat(identical.pixelsWide) / Self.size.width
+        let device = CGFloat(narrow.pixelsWide) / Self.size.width
         let slotEndPoints = DuplicateGroupColumns.badgeSlotWidth(scale: 1) + 12 + 14 + 12
         let slotEnd = Int(ceil(slotEndPoints * device))
         let zoneWidth = Int(180 * device)   // icon + "Wedding Gifts.pdf" — same in both renders
@@ -68,8 +70,8 @@ import Design
         var differing = 0
         for x in slotEnd..<(slotEnd + zoneWidth) {
             for y in yBand {
-                let a = identical.colorAt(x: x, y: y)
-                let b = overlap.colorAt(x: x, y: y)
+                let a = narrow.colorAt(x: x, y: y)
+                let b = wide.colorAt(x: x, y: y)
                 if a != b { differing += 1 }
             }
         }

@@ -983,6 +983,30 @@ public class FileSyncManager: ObservableObject {
     }
     private var personTagCancellable: AnyCancellable?
 
+    /// Everything Restructure remembers — suppressions and Ask answers now, drafts and the
+    /// applied ledger when §5.4/§5.5 land. Wired exactly like the roster and the person tags: a
+    /// store rather than a value, with the change re-announced on this object so the lens and the
+    /// rail badge re-render the moment a finding is suppressed.
+    ///
+    /// **Not part of ``filingArtifactFingerprint``**, for `filingPersonTagStore`'s reason: a
+    /// suppression changes what the lens shows, never the question any classifier was asked.
+    public var restructureStore: RestructureStore? {
+        didSet {
+            restructureCancellable = restructureStore?.objectWillChange
+                .sink { [weak self] _ in self?.objectWillChange.send() }
+        }
+    }
+    private var restructureCancellable: AnyCancellable?
+
+    /// ``structureFindings`` minus what the user said never to suggest again — what every surface
+    /// renders and counts. One definition, because the lens, the overview and the rail badge all
+    /// filtered `structureFindings` independently, and a suppression honoured by two of the three
+    /// would leave a badge counting a card that never renders.
+    public var visibleStructureFindings: [StructureFinding] {
+        guard let store = restructureStore else { return structureFindings }
+        return structureFindings.filter { !store.isSuppressed(RestructureKey($0)) }
+    }
+
     /// Records a cross-person refusal, resolving the ids to the names a person would recognise.
     ///
     /// The engine reports registry **ids** because that is what it reasons with; nobody wants to

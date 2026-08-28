@@ -43,11 +43,19 @@ import Design
     /// the five shapes the enum had, which is the same hand copy as the vocabulary it is checking:
     /// a sixth case left both stale together and this test green — a "every X does Y" scan that
     /// cannot see the X it is missing.
-    @Test func theVocabularyCoversEveryMatchType() {
-        let represented = Set(DuplicateGroupColumns.badgeVocabulary.map { DuplicateMatchStyle.label($0) })
+    @Test func theVocabularyCoversEveryBadgeWearingMatchType() {
+        let represented = Set(DuplicateGroupColumns.badgeVocabulary
+            .compactMap { DuplicateMatchStyle.badgeLabel($0) })
         for kind in DuplicateMatchType.Kind.allCases {
             let type = Self.sample(of: kind)
-            #expect(represented.contains(DuplicateMatchStyle.label(type)),
+            guard let label = DuplicateMatchStyle.badgeLabel(type) else {
+                // The one badge-less case is the majority one, by design (ROADMAP.md, the
+                // Identical-badge item) — a second kind going badge-less silently would put an
+                // unmeasured badge back outside the slot model.
+                #expect(kind == .identical, "\(kind) has no badge label — only identical may")
+                continue
+            }
+            #expect(represented.contains(label),
                     "\(kind) is not represented in the badge vocabulary")
         }
     }

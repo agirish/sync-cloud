@@ -91,6 +91,20 @@ enum DuplicateMatchStyle {
         case .versions: return "Versions"
         }
     }
+
+    /// What the row's badge SAYS — the want, not the category (ROADMAP.md, the Identical-badge
+    /// item). nil for `identical`: the majority case wears no badge at all, its certainty moved
+    /// into the green reclaim figure at the trailing edge, and the freed leading space went to
+    /// the file icon and the name. The exceptions state what they need from a person — the
+    /// subtitle beside each already names its category, so a badge repeating it was spending the
+    /// row's loudest slot on the least useful words.
+    static func badgeLabel(_ type: DuplicateMatchType) -> String? {
+        switch type {
+        case .identical: return nil
+        case .sameText, .overlapping, .versions: return "needs review"
+        case .nameOnly: return "needs a choice"
+        }
+    }
 }
 
 // MARK: - Scan-start session reset
@@ -1748,9 +1762,13 @@ public struct LensWorkspaceView: View {
                 OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) },
             renames: syncManager.renamePlans.count {
                 OrganizeScopeFilter.matches($0, scope: appliedScope(for: .renames)) },
+            // …and plan-bearing kinds only (§5.1): a badge you cannot drive to zero is a badge
+            // people stop reading, which is why an Ask, the crowding classes and the To File
+            // hand-off kinds do not count — the finding renders, the badge stays honest.
             restructure: structureFindings.count {
-                OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,
-                                             scope: appliedScope(for: .restructure)) == .inside
+                $0.kind.carriesPlan
+                    && OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,
+                                                    scope: appliedScope(for: .restructure)) == .inside
             },
             // No scope test, because `appliedScope(for: .rules)` is always nil — a call written
             // here would read like a live narrowing and be one that can never fire.
@@ -2623,25 +2641,68 @@ public struct LensWorkspaceView: View {
         let needsReview = groups.filter { $0.matchType.kind == .nameOnly }.count
         return Group {
             duplicateScanRootChip
-            StatPill(count: groups.count, label: "groups", color: SemanticColor.info, systemImage: "square.on.square")
+            // §12: the pill reading a count IS the control that narrows to it. `groups` selects
+            // All (its click is the way back), `need review` toggles the name-only filter, and
+            // when any filter is active the unselected pills dim so the selected one reads as
+            // the state it is.
+            filteringPill(selects: .all,
+                          help: "Show every group. Click a narrower pill to filter; this one is "
+                              + "the way back.") {
+                StatPill(count: groups.count, label: "groups", color: SemanticColor.info, systemImage: "square.on.square")
+            }
+            // The reclaimable figure is not a subset, so it is not a filter — it shed its capsule
+            // (plain trailing text now) so the header never teaches that clicking a pill
+            // sometimes does nothing. The H5 flourish survives the capsule: the number still
+            // rolls and the resolve-glow rides on the text.
             ReclaimPill(reclaimableBytes: reclaimable,
                         freedCaption: reclaim.freedCaption(FileSyncManager.formatBytes(reclaim.totalBytes)),
                         flashToken: reclaimFlashToken,
                         reduceMotion: reduceMotion)
+                .opacity(filter == .all ? 1 : 0.55)
             if needsReview > 0 {
-                StatPill(count: needsReview, label: "need review", color: SemanticColor.caution, systemImage: "exclamationmark.triangle")
+                filteringPill(selects: .nameOnly, ring: SemanticColor.caution,
+                              help: "Same-name folders whose contents differ — the groups that "
+                                  + "need a human choice. Click to show only these.") {
+                    StatPill(count: needsReview, label: "need review", color: SemanticColor.caution, systemImage: "exclamationmark.triangle")
+                }
             }
             // Scan-level counterpart to the per-group unverified note (DuplicateUnverifiedNote): files
             // the scan never content-verified at all, so identical copies among them are absent
             // from every group below — without this pill the scan is silently blind to them. Not
-            // filtered: these files aren't rows, so no query can include or exclude them.
+            // filtered: these files aren't rows, so no query can include or exclude them — which
+            // is why it stays visibly inert (no button, and it dims with the rest).
             if let skipNote = DuplicateScanSkipNote.text(syncManager.duplicateScanSkips) {
                 StatPill(count: syncManager.duplicateScanSkips.total, label: "skipped",
                          color: SemanticColor.warning, systemImage: "eye.slash")
                     .help(skipNote)
                     .accessibilityLabel(skipNote)
+                    .opacity(filter == .all ? 1 : 0.55)
             }
         }
+    }
+
+    /// One filtering pill: a `StatPill` that is also the control narrowing the list to what it
+    /// counts. Selected wears a ring in the pill's own colour family; everything else dims while
+    /// any filter is active (the `.all` pill never rings — the default state is not a selection).
+    private func filteringPill(selects target: DuplicateMatchFilter, ring: Color = .clear,
+                               help: String,
+                               @ViewBuilder content: () -> some View) -> some View {
+        let isSelected = filter == target
+        return Button {
+            filter = (isSelected && target != .all) ? .all : target
+        } label: {
+            content()
+                .overlay {
+                    if isSelected && target != .all {
+                        Capsule(style: .continuous)
+                            .strokeBorder(ring.opacity(0.8), lineWidth: 1.5)
+                    }
+                }
+                .opacity(filter == .all || isSelected ? 1 : 0.55)
+                .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     /// The risky-names pills, over the rows on screen.
@@ -3010,7 +3071,24 @@ public struct LensWorkspaceView: View {
 
     /// Where the tree disagrees with its own habits. Cached on the manager — see
     /// ``FileSyncManager/structureFindings`` for why a view body must not run the detector.
-    private var structureFindings: [StructureFinding] { syncManager.structureFindings }
+    /// The VISIBLE set: suppressions are honoured here, at the one accessor every surface in this
+    /// file reads, so the lens, the overview section and the rail badge cannot disagree about
+    /// what "never suggest this again" meant.
+    private var structureFindings: [StructureFinding] { syncManager.visibleStructureFindings }
+
+    /// The crowding classification, narrowed to Restructure's scope at render — a count of the
+    /// profile-keyed cache within the scope prefix, O(scope), exactly as the findings are scoped
+    /// one property up. No store, no second cache.
+    private var scopedDeadWeight: [String: DeadWeightClass] {
+        let all = syncManager.structureReport.deadWeight
+        guard let scope = appliedScope(for: .restructure),
+              let root = syncManager.filingFolderProfile?.root else { return all }
+        let expandedRoot = (root as NSString).expandingTildeInPath
+        guard !expandedRoot.isEmpty else { return [:] }
+        return all.filter { path, _ in
+            scope.relation(of: (expandedRoot as NSString).appendingPathComponent(path)) == .inside
+        }
+    }
 
     /// Restructure's rows — **from `FilteredRows` now, not straight off the manager.**
     ///
@@ -3034,11 +3112,23 @@ public struct LensWorkspaceView: View {
                         // across the surveyed tree, so a folder-named setup card would promise a
                         // narrower answer than the one this lens gives.
                         providerName: providerName,
+                        // The crowding classification, narrowed to the scope the findings were —
+                        // strip counts beside a scoped list must count the same subtree
+                        // (ROADMAP_V5 §5.2: the counts are scope-dependent, the cache is not).
+                        deadWeight: scopedDeadWeight,
                         accent: glassHue.accentColor,
                         onReveal: { relative in
                             guard let root = syncManager.filingFolderProfile?.root else { return }
                             let full = (root as NSString).appendingPathComponent(relative)
                             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: full)])
+                        },
+                        // *Never suggest this again* — the store write, and nothing else: the
+                        // manager republishes the store's change, `visibleStructureFindings`
+                        // drops the row, and the badge follows because all three read one
+                        // accessor. nil before the store exists (no profile loaded), which
+                        // withholds the menu item rather than offering a write that goes nowhere.
+                        onSuppress: syncManager.restructureStore.map { store in
+                            { store.suppress(RestructureKey($0)) }
                         },
                         // The launch gate. Restructure is the only lens whose answer exists
                         // before anyone asks — see `FileSyncManager.hasReviewedStructure` for why
@@ -4457,16 +4547,12 @@ private struct ReclaimPill: View {
             }
         }
         .foregroundStyle(SemanticColor.success)
-        // The standard pill surface, inlined so the glow can ride on top of the shared base
-        // values: at rest (glow == 0) this is exactly `pillSurface(.standard)`.
-        .padding(.horizontal, PillVariant.standard.horizontalPadding)
-        .padding(.vertical, PillVariant.standard.verticalPadding)
-        .background(Capsule(style: .continuous)
-            .fill(SemanticColor.success.opacity(PillVariant.fillOpacity + 0.30 * glow)))
-        .overlay(Capsule(style: .continuous)
-            .strokeBorder(SemanticColor.success.opacity(PillVariant.strokeOpacity + 0.45 * glow),
-                          lineWidth: PillVariant.strokeWidth + glow))
-        .shadow(color: SemanticColor.success.opacity(0.55 * glow), radius: 7 * glow)
+        // No capsule (ROADMAP.md, the stat-pills item): the reclaimable figure is not a subset,
+        // so once the counting pills became filters this one had to stop dressing like them — a
+        // header where clicking a pill sometimes does nothing teaches people to stop clicking
+        // pills. The H5 flourish survives the shedding: the numbers still roll, and the
+        // once-per-resolve glow now rides on the text itself.
+        .shadow(color: SemanticColor.success.opacity(0.65 * glow), radius: 6 * glow)
         .fixedSize()
         // Roll the numbers whenever they change (both the count-down and the count-up caption).
         .animation(.easeInOut(duration: 0.35), value: reclaimableBytes)
