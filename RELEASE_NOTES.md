@@ -96,7 +96,16 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   wasted work you still see as a flicker; cold, after any file operation, sort change or force
   refresh, it is a full second walk of tens of thousands of files for a tree that was already
   correct. A refresh now names the pane that moved. Anything that genuinely changes both — a
-  finished file operation, a date-tolerance change, a source switch — still reloads both.
+  finished file operation, a date-tolerance change, a sort that needs fresh tags — still reloads
+  both.
+- **Changing one pane's source leaves the other pane alone.** Picking a different account on the
+  right used to reset the left pane as well — the pane you had not been near dropped its tree and
+  re-walked behind a spinner, flattened an open Columns stack, cleared its selection, emptied its
+  Back history, and went back to its own root. Editing a source's Location in Settings dropped and
+  re-walked both trees for the same reason, though it left the selection and history alone. Only
+  the pane you retargeted is touched now, on both paths. The comparison itself still refreshes
+  whole, because a comparison belongs to the pair — but a tree, a column stack, a selection and a
+  history belong to one pane, and the other pane's are all still correct.
 
 ### If you go back to v4.5 afterwards
 
