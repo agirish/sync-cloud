@@ -2876,6 +2876,12 @@ struct ContentView: View {
                     // pane's first chip — measured on the shipping app before this existed.
                     leadingInset: seamInset(isLeft: isLeft, leading: true),
                     trailingInset: seamInset(isLeft: isLeft, leading: false),
+                    // The hue, because `Color.accentColor` inside the strip would be the SYSTEM
+                    // accent — the strip's rule was blue in a green window until this was passed.
+                    accent: glassHue.accentColor,
+                    // The same predicate the pane's ROWS wash their selection from, so the live
+                    // chip and the selected rows under it can never name different panes.
+                    isActivePane: paneWearsActiveAccent(isLeft: isLeft),
                     onSelect: { selectTab(id: $0, isLeft: isLeft) },
                     onClose: { closeTab(id: $0, isLeft: isLeft) },
                     onCloseOthers: { closeOtherTabs(keeping: $0, isLeft: isLeft) },
@@ -3558,16 +3564,16 @@ struct ContentView: View {
                     if pane.isLeft { leftBarAtTop.toggle() } else { rightBarAtTop.toggle() }
                 }
             },
-            // Which pane the action bar is acting on — the same predicate that decides where the bar
-            // renders, so the strong selection wash and the bar can never point at different panes.
-            // The rail has no bar and no sibling, so it is always its own active pane.
             // What matched, and where the walk has got to. The pane draws its emphasis, dimming and
             // annotations from the first and reveals the hit named by the second — see
             // `FileTreeView.revealInTree` / `revealInColumns`.
             search: paneSearchResults(isLeft: pane.isLeft),
             searchHitIndex: paneSearchState(isLeft: pane.isLeft).wrappedValue.hitIndex,
             searchRevealNonce: paneSearchState(isLeft: pane.isLeft).wrappedValue.revealNonce,
-            isActivePane: isRail || paneActionBarSideActive(isLeft: pane.isLeft),
+            // Which pane the action bar is acting on — the same predicate that decides where the bar
+            // renders, so the strong selection wash and the bar can never point at different panes.
+            // The tab strip above takes it too, from the same helper.
+            isActivePane: paneWearsActiveAccent(isLeft: pane.isLeft),
             viewMode: pane.viewMode,
             // The same resolved answer the header's pill writes, so the pane and the pill can never be
             // looking at different keys — and so Browse's preview survives being turned off in Compare.

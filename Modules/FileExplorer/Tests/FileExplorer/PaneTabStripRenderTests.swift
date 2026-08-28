@@ -36,9 +36,16 @@ import Design
     /// The backdrop is a flat fill rather than the pane's card, for `CommandPaletteRenderTests`'
     /// measured reason: a glass wrapper renders the subject beneath it as white through a bare
     /// hosting view, and every colour assertion then reads zero.
+    ///
+    /// `accent` defaults to the system accent, which is what the strip falls back to when a caller
+    /// names no hue. Any test making a claim about the accent's COLOUR passes one explicitly — the
+    /// system accent is a machine setting (Graphite is a real choice here), and a test that reads
+    /// blue out of it is reading the user's System Settings.
     func render(items: [PaneTabStrip.Item], width: CGFloat,
-                       scheme: ColorScheme = .light, scale: CGFloat = 1) -> NSBitmapImageRep {
-        let subject = PaneTabStrip(items: items,
+                       scheme: ColorScheme = .light, scale: CGFloat = 1,
+                       accent: Color = .accentColor,
+                       isActivePane: Bool = true) -> NSBitmapImageRep {
+        let subject = PaneTabStrip(items: items, accent: accent, isActivePane: isActivePane,
                                    onSelect: { _ in }, onClose: { _ in }, onCloseOthers: { _ in },
                                    onDuplicate: { _ in }, onCopyPath: { _ in }, onNew: {})
             .environment(\.appFontScale, scale)
@@ -162,16 +169,29 @@ import Design
     }
 
 
-    /// Recognisably-accent pixels — the rule under the active tab.
-    func accentPixels(_ rep: NSBitmapImageRep) -> Int {
-        var count = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
+    /// How accent each ROW of `box` is, as peak against typical.
+    ///
+    /// The statistic per row is the mean blue-minus-red across the row — the strip is rendered with
+    /// an explicitly blue accent wherever this is used, so that axis is the accent and nothing else
+    /// on a chip travels along it (the grey slab, the folder mark and the title ink are all
+    /// near-neutral or dark).
+    ///
+    /// **Peak against median, rather than a count against a threshold**, because the live chip is
+    /// now accent-washed all over: a count says "there is accent here" and the wash answers it. The
+    /// rule is 2pt of a 26pt chip, so it is the only thing that can make ONE row stand clear of the
+    /// rest, and a wash of any strength moves peak and median together.
+    func rowAccentProfile(_ rep: NSBitmapImageRep, in box: NSRect) -> (peak: Double, median: Double) {
+        var rows: [Double] = []
+        for y in Int(box.minY)..<min(rep.pixelsHigh, Int(box.maxY)) {
+            var sum = 0.0, n = 0
+            for x in Int(box.minX)..<min(rep.pixelsWide, Int(box.maxX)) {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                if c.blueComponent - c.redComponent > 0.25 && c.blueComponent > 0.4 { count += 1 }
+                sum += Double(c.blueComponent - c.redComponent); n += 1
             }
+            if n > 0 { rows.append(sum / Double(n)) }
         }
-        return count
+        guard !rows.isEmpty else { return (0, 0) }
+        return (rows.max() ?? 0, rows.sorted()[rows.count / 2])
     }
 
     /// Differing pixels inside a box.
@@ -252,22 +272,103 @@ import Design
     }
 
     /// **The accent rule specifically**, and it needs its own assertion because the test above
-    /// cannot see it: that one measures "the live chip differs from a parked one", which the raised
-    /// ground satisfies on its own.
+    /// cannot see it: that one measures "the live chip differs from a parked one", which the chip's
+    /// accent wash satisfies on its own.
     ///
     /// **That gap is not hypothetical — it is why this test exists twice.** The rule was removed on
     /// 2026-08-24 as a duplicate of the pane's new accent card border, and the differential test
     /// stayed green throughout, because the ground alone does distinguish the chip. It went back in
     /// the same day: the border says which PANE is focused, this says which TAB is live, and no
     /// measurement of "are they different" can tell one missing marker from two present ones.
+    ///
+    /// **A global accent-pixel count no longer measures it, and the near miss is worth recording.**
+    /// Until the live chip took `PaneSelectionWash` the rule was the only accent in the strip, so
+    /// counting accent-coloured pixels found it. The wash is accent too, and it lands just under
+    /// the old count's threshold — mutating the rule out today still reads 0, by about two
+    /// hundredths of blue. That is a test that works by luck and would go blind the day the wash
+    /// was deepened, without failing. So this measures the rule's SHAPE: it is 2pt of a 26pt chip,
+    /// which makes one row of the chip far more accent than the rest, and a wash of any strength
+    /// moves every row together.
     @Test(.machinePinned(.pixelSampling)) func theAccentRuleUnderTheActiveTabIsPaintedInBothAppearances() {
         for scheme in [ColorScheme.light, .dark] {
             let live = render(items: [item("Finance", active: true), item("Photos")],
-                              width: 620, scheme: scheme)
-            let parked = render(items: [item("Finance"), item("Photos")], width: 620, scheme: scheme)
-            #expect(accentPixels(live) > accentPixels(parked) + 40,
-                    "no accent rule under the active tab in \(scheme)")
+                              width: 620, scheme: scheme, accent: .blue)
+            let parked = render(items: [item("Finance"), item("Photos")],
+                                width: 620, scheme: scheme, accent: .blue)
+            // The live chip's own box, found by differencing rather than named — see
+            // `activeChipBounds`.
+            let chip = activeChipBounds(live, parked: parked)
+            #expect(chip.width > 40, "the live chip was not located in \(scheme)")
+            let profile = rowAccentProfile(live, in: chip)
+            #expect(profile.peak > profile.median + 0.25, """
+                    no accent rule under the active tab in \(scheme) — its most accent row reads \
+                    \(profile.peak) against a typical \(profile.median), so the chip is washed \
+                    evenly and nothing marks its bottom edge
+                    """)
         }
+    }
+
+    /// **A PARKED chip has a ground of its own.** Every chip wears the grey slab; only the accent
+    /// on top of it says which one is live. This is the half of that arrangement no differential
+    /// test can see — every "live differs from parked" measurement in this file passes just as
+    /// happily with the parked chips drawn on bare backdrop, which is what they were until
+    /// `PaneTabStrip.chipGround`, and which read as one tab with some words floating beside it.
+    ///
+    /// Read at the SECOND chip's leading padding: inside its slab, short of its mark, so nothing is
+    /// drawn there and the colour is the ground or it is the backdrop.
+    @Test(.machinePinned(.pixelSampling)) func aParkedChipIsDrawnOnItsOwnGround() {
+        for scheme in [ColorScheme.light, .dark] {
+            let rep = render(items: [item("Finance", active: true), item("Photos")],
+                             width: 900, scheme: scheme)
+            let width = PaneTabStripLadder.layout(available: 890, titles: ["Finance", "Photos"],
+                                                  scale: 1).tabWidth
+            let ground = groundColor(rep, at: LiquidGlass.cardGutter + width
+                                     + PaneTabStripLadder.tabGap + 3)
+            guard let backdrop = rep.colorAt(x: 1, y: 1) else {
+                Issue.record("no backdrop pixel"); return
+            }
+            let delta = max(abs(ground.redComponent - backdrop.redComponent),
+                            max(abs(ground.greenComponent - backdrop.greenComponent),
+                                abs(ground.blueComponent - backdrop.blueComponent)))
+            #expect(delta > 0.02, """
+                    the parked chip's ground is \(delta) away from the strip's backdrop in \
+                    \(scheme) — the chip has no slab and reads as bare text on the strip
+                    """)
+        }
+    }
+
+    /// **The live chip dims in the pane that is not focused**, exactly as that pane's selected rows
+    /// do — same `PaneSelectionWash` constants, so the tab and the rows under it can never disagree
+    /// about which pane the window is acting on.
+    ///
+    /// Measured as the chip's accent, not as "the two renders differ": a strip that ignored
+    /// `isActivePane` and one that inverted it both differ from the focused render, and only the
+    /// direction says which.
+    @Test(.machinePinned(.pixelSampling)) func theLiveChipIsQuieterInTheUnfocusedPane() {
+        let items = [item("Finance", active: true), item("Photos")]
+        let parked = render(items: [item("Finance"), item("Photos")], width: 620, accent: .blue)
+        let focused = render(items: items, width: 620, accent: .blue, isActivePane: true)
+        let other = render(items: items, width: 620, accent: .blue, isActivePane: false)
+        let chip = activeChipBounds(focused, parked: parked)
+        #expect(chip.width > 40, "the live chip was not located")
+        // The chip's TYPICAL row — the wash — rather than its peak, which is the rule, and the rule
+        // deliberately does not dim: it is the marker that still answers "which tab" over there.
+        let strong = rowAccentProfile(focused, in: chip).median
+        let quiet = rowAccentProfile(other, in: chip).median
+        #expect(strong > quiet + 0.05, """
+                the live chip reads \(strong) accent in the focused pane and \(quiet) in the other \
+                — the strip is not dimming with its pane
+                """)
+        // …and it is still a selection over there, not a parked chip: the ratio the pane's rows
+        // keep (0.10 against 0.22) is a subordinate marker, never an absent one.
+        #expect(quiet > 0.02, "the unfocused pane's live chip has no wash at all")
+        // The rule is the half that does NOT dim.
+        let focusedPeak = rowAccentProfile(focused, in: chip).peak
+        let otherPeak = rowAccentProfile(other, in: chip).peak
+        #expect(abs(focusedPeak - otherPeak) < 0.05, """
+                the accent rule dimmed with the pane (\(focusedPeak) against \(otherPeak)) — it is \
+                the marker that has to survive there
+                """)
     }
 
     /// A chip squeezed to the floor still draws its name. This is what the measured floor is for,
@@ -418,16 +519,18 @@ import Design
     /// than places to go — which is why the button is drawn at `opacity` 0 unless the chip is active
     /// or hovered. Nothing pinned that, and the condition is one edit from being lost.
     ///
-    /// **Why an ink count is the right measure here and a saturating one everywhere else.** A parked
-    /// chip has no raised ground: its close slot is the strip's flat backdrop, so "pixels unlike the
-    /// backdrop" in that slot is exactly "a glyph is drawn there", and zero means zero. (Inside the
-    /// ACTIVE chip the same count saturates on the ground alone — measured 1,664 out of 1,664 — which
-    /// is why the tests above are differential.)
+    /// **Measured against the chip's own ground, and it has to be.** This test read `inked` — pixels
+    /// unlike the image's CORNER — for as long as a parked chip was drawn on bare backdrop, so its
+    /// close slot was the corner colour and zero meant zero. Every chip carries the grey slab now
+    /// (see `PaneTabStrip.chipGround`), and that count went straight to **1,664 out of 1,664**: the
+    /// slab alone saturates it, and the test would have passed with a ✕ on every parked chip. The
+    /// measure is `glyphPixels` instead — pixels unlike the SECOND CHIP's own ground, sampled out of
+    /// the same render, over the chip's interior rows only.
     ///
     /// Both halves are asserted, because the interesting direction is the silent one:
     /// - the parked chip's slot is **empty**, and
     /// - a glyph really would have been seen there — the same slot in a strip whose second tab is
-    ///   PINNED carries its pin, on the same groundless backdrop.
+    ///   PINNED carries its pin, on the same grey slab.
     @Test(.machinePinned(.pixelSampling)) func anUnhoveredParkedTabDrawsNoCloseButton() {
         // Two chips with the same title in a wide pane, so both strips lay out identically and the
         // second chip's close slot is the same box in each.
@@ -440,25 +543,30 @@ import Design
         let perPoint = plain.size.width > 0 ? CGFloat(plain.pixelsWide) / plain.size.width : 1
         // The SECOND chip's close slot: past the first chip and the gap, at the trailing end of the
         // second, inset by its padding.
-        let slot = NSRect(
-            x: (LiquidGlass.cardGutter + width + PaneTabStripLadder.tabGap + width
-                - PaneTabStripLadder.tabPadding - PaneTabStripLadder.closeSide) * perPoint,
-            y: 0,
-            width: PaneTabStripLadder.closeSide * perPoint,
-            height: CGFloat(plain.pixelsHigh))
+        let chipStart = LiquidGlass.cardGutter + width + PaneTabStripLadder.tabGap
+        let slotStart = chipStart + width - PaneTabStripLadder.tabPadding - PaneTabStripLadder.closeSide
+        let slotEnd = chipStart + width - PaneTabStripLadder.tabPadding
+        let slot = NSRect(x: slotStart * perPoint, y: 0,
+                          width: PaneTabStripLadder.closeSide * perPoint,
+                          height: CGFloat(plain.pixelsHigh))
+        // 3pt into the second chip: inside its slab, short of the mark, which starts at its 7pt
+        // padding. The same anchor `theChipRungWearsAChevron` reads its ground from.
+        let ground = groundColor(plain, at: chipStart + 3)
 
         // The harness control: the same render twice differs nowhere, so a difference below is a
         // difference in what was drawn rather than in how it was drawn.
         #expect(differingPixels(plain, again, in: slot) == 0,
                 "two identical strips differ in the parked chip's close slot — the harness is unstable")
         // The claim.
-        #expect(inked(plain, in: slot) < 10, """
-                an un-hovered parked tab draws \(inked(plain, in: slot)) pixels in its close slot — \
+        let drawn = glyphPixels(plain, from: slotStart, to: slotEnd, ground: ground)
+        #expect(drawn < 10, """
+                an un-hovered parked tab draws \(drawn) pixels in its close slot — \
                 it is wearing a ✕ nobody asked for
                 """)
-        // …and the slot is the right box, on a backdrop where a glyph WOULD have been seen: the pin
+        // …and the slot is the right box, on a ground where a glyph WOULD have been seen: the pin
         // a pinned tab wears sits in exactly this slot.
-        #expect(inked(pinned, in: slot) > 40, """
+        #expect(glyphPixels(pinned, from: slotStart, to: slotEnd,
+                            ground: groundColor(pinned, at: chipStart + 3)) > 40, """
                 the pinned tab's glyph is not in this box either — the box is wrong, so the \
                 emptiness above proves nothing
                 """)

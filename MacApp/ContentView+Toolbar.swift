@@ -65,6 +65,17 @@ extension ContentView {
         return focusedPane == side
     }
 
+    /// **Whether this pane wears the FULL-strength accent** — its selected rows, and the live chip
+    /// in its tab strip. Both read `PaneSelectionWash` and both must name the same pane, so the
+    /// predicate is written once here rather than at the two call sites that would otherwise have
+    /// to keep agreeing.
+    ///
+    /// The single-source rail has no sibling to be subordinate to, so it is always its own active
+    /// pane; `paneActionBarSideActive` answers false for every layout but Compare.
+    func paneWearsActiveAccent(isLeft: Bool) -> Bool {
+        layoutMode == .singleSource || paneActionBarSideActive(isLeft: isLeft)
+    }
+
     /// The nodes the action bar acts on: resolved once here (a tree walk) so `paneColumn` can pass
     /// the same array to both the bar's visibility gate and its contents. Empty when this side
     /// isn't the active pane, so the inactive column never walks its tree.

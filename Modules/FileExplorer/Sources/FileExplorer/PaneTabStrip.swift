@@ -68,6 +68,15 @@ public struct PaneTabStrip: View {
     /// Browse and the rail.
     let leadingInset: CGFloat
     let trailingInset: CGFloat
+    /// The window's `LiquidGlassHue.accentColor` — the same colour the pane's rows wash their
+    /// selection in, which is the whole point of taking it as a parameter rather than reaching for
+    /// `Color.accentColor`: that one is the SYSTEM accent and ignores the app's chosen hue, so a
+    /// strip that used it drew a blue rule inside a green pane. Passed in rather than read from
+    /// `@AppStorage` so this view stays renderable from a test with no app around it.
+    let accent: Color
+    /// Whether this pane is the one the action bar acts on. Feeds `PaneSelectionWash`, exactly as
+    /// the pane's rows do — see `chipGround`.
+    let isActivePane: Bool
 
     @Environment(\.appFontScale) private var fontScale
 
@@ -90,6 +99,8 @@ public struct PaneTabStrip: View {
     public init(items: [Item],
                 leadingInset: CGFloat = 0,
                 trailingInset: CGFloat = 0,
+                accent: Color = .accentColor,
+                isActivePane: Bool = true,
                 onSelect: @escaping (UUID) -> Void,
                 onClose: @escaping (UUID) -> Void,
                 onCloseOthers: @escaping (UUID) -> Void,
@@ -101,6 +112,8 @@ public struct PaneTabStrip: View {
         self.items = items
         self.leadingInset = leadingInset
         self.trailingInset = trailingInset
+        self.accent = accent
+        self.isActivePane = isActivePane
         self.onSelect = onSelect
         self.onClose = onClose
         self.onCloseOthers = onCloseOthers
@@ -362,8 +375,13 @@ public struct PaneTabStrip: View {
             .frame(width: width, height: PaneTabStripLadder.tabHeight)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.hoverAffordance(.segment))
-        .background(alignment: .bottom) { activeGround(item) }
+        // **The hue, and the chip's own corner radius.** `.segment`'s default hit shape is a
+        // CAPSULE, which went unnoticed while a parked chip had no ground of its own — the wash
+        // floated on the backdrop with nothing under it to disagree with. Now every chip is a 6pt
+        // rounded rect, so a capsule wash would round its ends past the slab underneath and bleed
+        // onto the backdrop at the corners.
+        .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: .roundedRect(Radius.chip)))
+        .background(alignment: .bottom) { chipGround(item) }
         // **Drag to reorder** (roadmap Fig. 8, left — the half that costs nothing; dropping FILES
         // on a tab is the other half and is deliberately not here).
         //
@@ -415,45 +433,69 @@ public struct PaneTabStrip: View {
         .contextMenu { menu(for: item) }
     }
 
-    /// The active tab: a raised surface with a 2pt accent rule under it.
+    /// Every chip's ground, in three rungs: the grey slab **all** of them wear, the accent wash the
+    /// live one takes on top of it, and the 2pt accent rule under that.
     ///
-    /// **Not an accent FILL.** The workspace bar 40pt above already owns that treatment, and two
-    /// accent-filled rows stacked read as one smear with a gap in it — the same reason
-    /// `ProviderLogo` refuses the accent for a folder's mark.
+    /// **The grey used to belong to the active tab alone**, and a parked chip was drawn on bare
+    /// backdrop. That is Finder's arrangement and it read as one tab with three labels floating
+    /// beside it — the parked chips had no edges, so a strip of five looked like a title with some
+    /// words after it rather than like five places to go. Giving every chip the slab makes the
+    /// TABS the constant and the accent the variable, which is the same division a list of rows
+    /// uses: the row is always there, the wash says which one you are on.
     ///
-    /// **The rule was removed on 2026-08-24 and put back the same day, and the mistake is worth
-    /// keeping.** It went out alongside the provider capsule's focus ring, on one argument covering
-    /// both: an accent marker inside a pane whose cards now carry an accent border
-    /// (`ActivePaneMark`) is a second marker for a fact already stated.
+    /// **The live tab's wash is `PaneSelectionWash`, and deliberately the very same numbers the
+    /// pane's rows use** (0.22 in the focused pane, 0.10 in the other). A tab and a row are both
+    /// answering "which one is selected" about the same pane, so a person reading the window learns
+    /// the colour once. Sharing the constant rather than copying the literals is what keeps them
+    /// from drifting apart the next time one of them is tuned.
     ///
-    /// That argument is true of the capsule ring and false of this rule, because **they mark
-    /// different facts**. The border says which PANE is focused; this says which TAB inside that
-    /// pane's strip is live — a question the border cannot answer and that has no other carrier
-    /// here. Sharing a colour is not the same as sharing a meaning, and grouping the two by how
-    /// they looked is what put this on the list.
+    /// It is a WASH and not a solid fill for the reason a row's selection is: `ProviderLogo` puts a
+    /// real, multi-coloured cloud mark on this chip, and the chip's title is `.primary` ink. A
+    /// solid `AccentFill` ground would need both of them re-inked to clear contrast, and the mark
+    /// cannot be — Dropbox's blue is Dropbox's blue. At 0.22 the ink underneath is untouched.
     ///
-    /// The ground alone does distinguish the live chip in both appearances — that was measured, not
-    /// assumed — but "distinguishable under inspection" is a weaker claim than "obvious at a
-    /// glance" over a strip of five, which is what a marker in a tab bar has to be.
+    /// **The rule stays, on top of the wash.** It was removed on 2026-08-24 and put back the same
+    /// day, and the mistake is worth keeping: it went out alongside the provider capsule's focus
+    /// ring, on one argument covering both — an accent marker inside a pane whose cards now carry
+    /// an accent border (`ActivePaneMark`) is a second marker for a fact already stated. That
+    /// argument is true of the capsule ring and false of this rule, because **they mark different
+    /// facts**. The border says which PANE is focused; this says which TAB inside that pane's strip
+    /// is live — a question the border cannot answer and that has no other carrier here.
+    ///
+    /// It survives the wash for a narrower reason of its own: **the wash dims and the rule does
+    /// not.** In the unfocused pane the wash drops to 0.10, and 0.10 of accent over a grey slab is
+    /// a shade rather than a statement — so without the rule the inactive pane's strip would stop
+    /// answering "which tab" at exactly the moment the pane border stops answering "which pane".
+    /// That is the case the 2026-08-24 removal could not see, and it is now two markers with two
+    /// jobs rather than one stated twice.
     @ViewBuilder
-    private func activeGround(_ item: Item) -> some View {
-        if item.isActive {
-            ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                    .fill(.quaternary.opacity(0.85))
-                RoundedRectangle(cornerRadius: 1, style: .continuous)
-                    .fill(Color.accentColor)
-                    .frame(height: 2)
-                    .padding(.horizontal, 3)
-            }
-            // Ground and rule travel together as one marker: they mark the same fact, and a rule
-            // that slid out from under a ground that blinked would read as two markers disagreeing.
-            //
-            // Both call sites are safe to share one id because they are mutually exclusive rungs —
-            // `.full`/`.compact` draw chips, `.chip` draws the menu — so exactly one source for
-            // this id is ever in the hierarchy. Two would be ambiguous and SwiftUI would say so.
-            .matchedGeometryEffect(id: Self.activeMarkerID, in: activeMarker)
+    private func chipGround(_ item: Item) -> some View {
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                .fill(.quaternary.opacity(0.85))
+            if item.isActive { activeMarkerLayer }
         }
+    }
+
+    /// The live chip's half of `chipGround` — everything that TRAVELS when the active tab changes.
+    ///
+    /// Wash and rule move together as one marker: they mark the same fact, and a rule that slid out
+    /// from under a wash that blinked would read as two markers disagreeing. The grey slab is
+    /// deliberately **not** in here — it is on every chip now, so it has nowhere to travel to.
+    ///
+    /// Both call sites are safe to share one id because they are mutually exclusive rungs —
+    /// `.full`/`.compact` draw chips, `.chip` draws the menu — so exactly one source for this id is
+    /// ever in the hierarchy. Two would be ambiguous and SwiftUI would say so.
+    private var activeMarkerLayer: some View {
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                .fill(accent.opacity(PaneSelectionWash.opacity(isActivePane: isActivePane)))
+            RoundedRectangle(cornerRadius: 1, style: .continuous)
+                .fill(accent)
+                .frame(height: 2)
+                .padding(.horizontal, 3)
+        }
+        .matchedGeometryEffect(id: Self.activeMarkerID, in: activeMarker)
     }
 
     private func closeButton(_ item: Item) -> some View {
@@ -532,7 +574,7 @@ public struct PaneTabStrip: View {
         .frame(maxWidth: max(0, width))
         .frame(height: PaneTabStripLadder.tabHeight)
         .fixedSize(horizontal: true, vertical: false)
-        .background(alignment: .bottom) { activeGround(active) }
+        .background(alignment: .bottom) { chipGround(active) }
         .help(active.fullPath)
         .contextMenu { menu(for: active) }
     }
