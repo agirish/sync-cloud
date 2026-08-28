@@ -39,6 +39,12 @@ public struct FolderProfile: Sendable, Equatable {
     /// See ``provenance``, which is the question callers actually ask.
     public let builtBy: String?
 
+    /// The profile id this one was re-derived from after a Restructure apply (§5.5 step 6) — nil
+    /// for a hand-built profile and for a plain walk. The old file is never deleted: this field
+    /// is what *Undo this reorganisation* re-points `profiles.json` back to, and it is the last
+    /// hand-built copy's name when the chain started from one.
+    public let derivedFrom: String?
+
     /// `role` strings this build has no case for, and how many folders carried each.
     ///
     /// **The profile is written by a generator that is not this app**, so a role added there
@@ -83,7 +89,7 @@ public struct FolderProfile: Sendable, Equatable {
 
     public init(profileId: String, root: String, folders: [String: FolderProfileEntry],
                 personTokens: Set<String>, personAliases: [String: String] = [:],
-                builtBy: String? = nil,
+                builtBy: String? = nil, derivedFrom: String? = nil,
                 unknownRoles: [String: Int] = [:], undecodableFolders: Int = 0) {
         self.profileId = profileId
         self.root = root
@@ -91,6 +97,7 @@ public struct FolderProfile: Sendable, Equatable {
         self.personTokens = personTokens
         self.personAliases = personAliases
         self.builtBy = builtBy
+        self.derivedFrom = derivedFrom
         self.unknownRoles = unknownRoles
         self.undecodableFolders = undecodableFolders
     }
@@ -142,6 +149,12 @@ public struct FolderProfileEntry: Sendable, Equatable, Decodable {
     public let anchors: [String]
     /// nil when the survey said nothing; only an explicit `false` forbids filing here.
     public let acceptsNewFiles: Bool?
+    /// WHY filing here is refused, when `acceptsNewFiles` is `false` and the author said — the
+    /// hand-built profile carries 45 of these (`outbound-pack`, `todo-inbox`, …), and §5.5's
+    /// re-derivation carries the pair forward together: a refusal that loses its reason is one
+    /// nobody can audit or revisit. Decoded only since the re-derivation existed; every read
+    /// before that ignored it on disk.
+    public let noIntakeReason: String?
     public let fileCount: Int
     public let subfolderCount: Int
     /// The axis values in play for this folder — `year`, `fiscalYear`, `jurisdiction`, `person`,
@@ -149,12 +162,14 @@ public struct FolderProfileEntry: Sendable, Equatable, Decodable {
     public let axes: [String: String]
 
     public init(path: String, role: FolderRole?, naming: String?, anchors: [String],
-                acceptsNewFiles: Bool?, fileCount: Int, subfolderCount: Int, axes: [String: String]) {
+                acceptsNewFiles: Bool?, noIntakeReason: String? = nil,
+                fileCount: Int, subfolderCount: Int, axes: [String: String]) {
         self.path = path
         self.role = role
         self.naming = naming
         self.anchors = anchors
         self.acceptsNewFiles = acceptsNewFiles
+        self.noIntakeReason = noIntakeReason
         self.fileCount = fileCount
         self.subfolderCount = subfolderCount
         self.axes = axes
@@ -211,7 +226,7 @@ public struct FolderProfileEntry: Sendable, Equatable, Decodable {
         return FolderProfileEntry.looksLikeYear(base) ? base : nil
     }
 
-    static func looksLikeYear(_ s: String) -> Bool {
+    public static func looksLikeYear(_ s: String) -> Bool {
         let parts = s.split(separator: "-", omittingEmptySubsequences: false)
         guard parts.count == 1 || parts.count == 2 else { return false }
         return parts.allSatisfy { p in
@@ -229,7 +244,7 @@ public enum FolderRole: String, Sendable, Equatable, Decodable {
 
 extension FolderProfile: Decodable {
     private enum Key: String, CodingKey {
-        case profileId, root, folders, axes, builtBy
+        case profileId, root, folders, axes, builtBy, derivedFrom
     }
     private struct AxisBox: Decodable {
         let values: [String]?
@@ -245,6 +260,7 @@ extension FolderProfile: Decodable {
         let naming: String?
         let anchors: [String]?
         let acceptsNewFiles: Bool?
+        let noIntakeReason: String?
         let fileCount: Int?
         let subfolderCount: Int?
         let axes: [String: String]?
@@ -254,7 +270,8 @@ extension FolderProfile: Decodable {
         var entry: FolderProfileEntry {
             FolderProfileEntry(path: path, role: role.flatMap(FolderRole.init(rawValue:)),
                                naming: naming, anchors: anchors ?? [],
-                               acceptsNewFiles: acceptsNewFiles, fileCount: fileCount ?? 0,
+                               acceptsNewFiles: acceptsNewFiles,
+                               noIntakeReason: noIntakeReason, fileCount: fileCount ?? 0,
                                subfolderCount: subfolderCount ?? 0, axes: axes ?? [:])
         }
     }
@@ -271,6 +288,9 @@ extension FolderProfile: Decodable {
         // Tolerated as absent, and as the wrong type: a hand-edited header should cost the file its
         // provenance — which reads as hand-built, the cautious answer — not its 3,013 folders.
         builtBy = try? c.decodeIfPresent(String.self, forKey: .builtBy)
+        // Same tolerance as `builtBy`, for the same reason: a hand-edited header costs the file
+        // its provenance chain, never its folders.
+        derivedFrom = (try? c.decodeIfPresent(String.self, forKey: .derivedFrom)) ?? nil
         // **One unknown `role` string used to kill the whole filing layer, unrepairably.**
         //
         // `FolderRole` is a raw-value enum and `role` is optional, but *optional* only makes an

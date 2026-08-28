@@ -89,22 +89,34 @@ public final class RestructureStore: ObservableObject {
     @Published public private(set) var applied: [AppliedRecord] = []
 
     public struct AppliedRecord: Codable, Equatable, Sendable {
-        public let manifest: RestructureManifest
-        public let inverse: RestructureManifest
+        /// `var`, not `let`, since §5.5: a landing finalises the manifest with what actually
+        /// happened — collision names, bytes, digests — and the inverse is recomputed from that,
+        /// because the inverse of the PLAN would move files back from names they never landed at.
+        public var manifest: RestructureManifest
+        public var inverse: RestructureManifest
         /// The landing's stamp, injected by the writer.
         public let at: String
         /// Outcome counts — what actually happened, against what the manifest predicted.
         public var created: Int
         public var skipped: Int
-        /// §5.5 step 6's ids — nil until a landing re-derives the profile (stage one of Apply
-        /// records the scaffold without one; the field exists so the schema does not move when
-        /// re-derivation lands).
+        /// §5.5 step 6's ids — nil until a landing re-derives the profile (the scaffold records
+        /// without one; a plan apply always fills both, or says why in `summary`).
         public var appliedUnderProfileId: String?
         public var producedProfileId: String?
+        /// The landing's one-line ledger sentence — what the Applied card renders.
+        public var summary: String?
+        /// Stamped when *Undo this reorganisation* ran this record's inverse — the Undone state's
+        /// evidence, and the guard against running it twice.
+        public var undoneAt: String?
+        /// What the undo run did — the Undone card's sentence, which never pretends the tree was
+        /// untouched: a file that had moved on and was skipped is in this line's skip count and
+        /// named in the log (§5.7).
+        public var undoSummary: String?
 
         public init(manifest: RestructureManifest, inverse: RestructureManifest, at: String,
                     created: Int, skipped: Int, appliedUnderProfileId: String? = nil,
-                    producedProfileId: String? = nil) {
+                    producedProfileId: String? = nil, summary: String? = nil,
+                    undoneAt: String? = nil, undoSummary: String? = nil) {
             self.manifest = manifest
             self.inverse = inverse
             self.at = at
@@ -112,6 +124,9 @@ public final class RestructureStore: ObservableObject {
             self.skipped = skipped
             self.appliedUnderProfileId = appliedUnderProfileId
             self.producedProfileId = producedProfileId
+            self.summary = summary
+            self.undoneAt = undoneAt
+            self.undoSummary = undoSummary
         }
     }
 

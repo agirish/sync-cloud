@@ -584,7 +584,7 @@ extension FileSyncManager {
     /// the banner here removes the affordance the moment it goes stale. The op that WANTS a banner
     /// registers its undo first and posts the banner after, so its own banner survives; non-undoable
     /// (warning/error) banners are left alone — an error must not vanish because an unrelated op ran.
-    private func invalidateUndoableBanner() {
+    func invalidateUndoableBanner() {
         if banner?.isUndoable == true { banner = nil }
     }
 

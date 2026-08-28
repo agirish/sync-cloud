@@ -42,7 +42,7 @@ import Foundation
             folderSidebar: .constant(true),
             organizeLens: OrganizeLensSwitch(current: .duplicates, select: { _ in }),
             organizeVerbs: OrganizeVerbs(organizeFolder: {}, findDuplicates: {},
-                                         fixName: {}, keepName: {}),
+                                         fixName: {}, keepName: {}, undoReorganisation: {}),
             paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, revealInFinder: {},
                                        rename: {}, chooseDestination: { _ in },
                                        ignore: PaneRowVerbs.IgnoreToggle(title: "Ignore in Comparison",

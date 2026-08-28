@@ -34,13 +34,12 @@ extension FileSyncManager {
     /// is step 6 (re-derive the profile): that machinery is §5.5's, so until it lands the
     /// finding stays visible and the card says the survey has not caught up — §5.7's third
     /// sentence, not a borrowed one.
-    public func applyScaffold(for finding: StructureFinding, now: Date = Date()) async
-        -> ScaffoldOutcome {
-        // §5.5 step 1, all three guards — this moves nothing, but it creates folders inside a
-        // subtree those passes may be reading, and a refusal is a sentence while a race is a
-        // debugging session.
+    /// §5.5 step 1's guard set, shared by every Restructure landing — the scaffold, a plan apply
+    /// and a ledger undo all move things inside subtrees the scans read, and a refusal is a
+    /// sentence while a race is a debugging session. Returns the sentence, or nil to proceed.
+    func restructureLandingRefusal() -> String? {
         if isVerifyAllRunning {
-            return ScaffoldOutcome(refusal: "Wait for Verify All to finish first.")
+            return "Wait for Verify All to finish first."
         }
         for (running, name): (Bool, String) in [
             (duplicateScanLifecycle.isRunning, "the duplicate scan"),
@@ -50,25 +49,35 @@ extension FileSyncManager {
             (filingSurveyLifecycle.isRunning, "a folder survey"),
             (automationDryRunLifecycle.isRunning, "an automations preview"),
         ] where running {
-            return ScaffoldOutcome(refusal: "Wait for \(name) to finish first.")
+            return "Wait for \(name) to finish first."
         }
         if activeFileOperationsCount > 0 {
-            return ScaffoldOutcome(refusal: "Wait for the current file operations to finish first.")
+            return "Wait for the current file operations to finish first."
         }
-        guard let store = restructureStore else {
-            return ScaffoldOutcome(refusal: "No profile is loaded, so there is nothing to record "
-                + "the landing against.")
+        if restructureStore == nil {
+            return "No profile is loaded, so there is nothing to record the landing against."
         }
         // The ledger IS the safety contract: its record, inverse included, must be on disk
         // before the first operation. A store that cannot write (restructure.json exists but is
         // unreadable) would swallow that record silently, so the landing refuses for the same
-        // reason the store refuses — better no folders than folders with no trace.
-        guard !store.isUnreadable else {
-            return ScaffoldOutcome(refusal: "restructure.json exists but could not be read, so "
-                + "the landing's record could not be kept. Fix the file first — the landing "
-                + "refuses rather than running unrecorded.")
+        // reason the store refuses — better nothing than moves with no trace.
+        if restructureStore?.isUnreadable == true {
+            return "restructure.json exists but could not be read, so the landing's record "
+                + "could not be kept. Fix the file first — the landing refuses rather than "
+                + "running unrecorded."
         }
-        guard let root = filingFolderProfile?.root else {
+        if filingFolderProfile?.root == nil {
+            return "No folder survey is loaded."
+        }
+        return nil
+    }
+
+    public func applyScaffold(for finding: StructureFinding, now: Date = Date()) async
+        -> ScaffoldOutcome {
+        if let refusal = restructureLandingRefusal() {
+            return ScaffoldOutcome(refusal: refusal)
+        }
+        guard let store = restructureStore, let root = filingFolderProfile?.root else {
             return ScaffoldOutcome(refusal: "No folder survey is loaded.")
         }
         let stamp = FilingProfileStore.stamp(now)

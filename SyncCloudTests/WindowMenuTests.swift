@@ -198,9 +198,18 @@ import AppKit
 
     @Test func theFourVerbsFollowTheSections() throws {
         let organize = Self.titles(try Self.menu("Organize"))
-        #expect(organize.suffix(4) == ["Organize This Folder…", "Find Duplicates of This",
-                                       "Fix Name…", "Always Allow This Name"],
-                "the Organize menu ends with \(organize.suffix(4))")
+        #expect(organize.suffix(5) == ["Organize This Folder…", "Find Duplicates of This",
+                                       "Fix Name…", "Always Allow This Name",
+                                       "Undo This Reorganisation"],
+                "the Organize menu ends with \(organize.suffix(5))")
+    }
+
+    /// §11's one hard constraint on the new verb: it must never sit beside ⌘Z's Undo. Edit is
+    /// where that mistake would live, so Edit is asserted clean of it.
+    @Test func editNeverCarriesTheReorganisationUndo() throws {
+        let edit = Self.titles(try Self.menu("Edit"))
+        #expect(!edit.contains("Undo This Reorganisation"),
+                "the ledger undo sat down beside ⌘Z — exactly the confusion §11 forbids")
     }
 
     /// **The word appears once per menu, and that is the whole point of the arrangement.**

@@ -864,13 +864,14 @@ import Testing
     /// otherwise be legitimately absent and the check would pass without seeing them.
     @Test func theEncoderWritesEveryFieldAnEntryStores() throws {
         let full = FolderProfileEntry(path: "Finance", role: .container, naming: "ordinal-month",
-                                      anchors: ["tax"], acceptsNewFiles: false, fileCount: 3,
+                                      anchors: ["tax"], acceptsNewFiles: false,
+                                      noIntakeReason: "outbound-pack", fileCount: 3,
                                       subfolderCount: 4, axes: ["year": "2024"])
         // The fixture has to be genuinely full, or "every stored field appears" is measured over
         // fields that are absent for a legitimate reason. A field added later with a default would
         // otherwise arrive nil and be reported as a missing key, blaming the encoder for the fixture.
         let children = Mirror(reflecting: full).children
-        #expect(children.count == 8, "FolderProfileEntry gained or lost a field — update this fixture")
+        #expect(children.count == 9, "FolderProfileEntry gained or lost a field — update this fixture")
         for child in children {
             #expect(!Self.isNilValue(child.value), "fixture leaves \(child.label ?? "?") nil, so it proves nothing about that field")
         }

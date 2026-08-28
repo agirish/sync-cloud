@@ -372,6 +372,22 @@ private struct FakeTree {
         }
     }
 
+    /// The removal step's scope: the folders a manifest's moves drained, shallowest only — a
+    /// one-level-down merge's `s/d` is inside the drained `s`, and counting both would offer the
+    /// removal sheet a folder inside a folder it is also offering.
+    @Test func emptiedFoldersAreTheShallowestDrainedSources() {
+        let manifest = RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: "F", kind: .shape,
+            actions: [
+                .init(action: .renameDir, src: "F/Big", dst: "F/Merged"),
+                .init(action: .moveFile, src: "F/Small/a.pdf", dst: "F/Merged/a.pdf"),
+                .init(action: .moveFile, src: "F/Small/Sub/b.pdf", dst: "F/Merged/Sub/b.pdf"),
+                .init(action: .moveDir, src: "F/Other/Refund", dst: "F/Merged/Refund"),
+            ])
+        #expect(RestructureLedger.emptiedFolders(of: manifest) == ["F/Other", "F/Small"],
+                "shallowest only, sorted; a rename drains nothing — it carries")
+    }
+
     // MARK: - Parallel families (§5.4 step 2's pointer)
 
     /// The 6 Aug case itself: H-4's mapping vocabulary is shared by H-1B, and the sheet must say

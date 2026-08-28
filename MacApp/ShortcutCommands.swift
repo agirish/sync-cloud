@@ -67,6 +67,11 @@ struct OrganizeVerbs {
     /// explains *why* is on the row, and a menu item cannot show it.
     let fixName: (() -> Void)?
     let keepName: (() -> Void)?
+    /// §5.5's ledger undo — the one verb here that is selection-FREE: it acts on the newest
+    /// landing in the Restructure ledger, so it is offered whenever one can be undone. In this
+    /// menu (never Edit) so it cannot sit beside ⌘Z's Undo and be mistaken for it — ROADMAP_V5
+    /// §11's one hard constraint on the verb.
+    let undoReorganisation: (() -> Void)?
 }
 
 /// File ▸ the verbs the row menu has always had, over the pane selection.
@@ -999,11 +1004,15 @@ extension ContentView {
         // Read ONCE. `activeSelectionNodes` resolves every selected path through the manager's
         // index on each access, and the first cut evaluated it three times to answer one question.
         let selection = activeSelectionNodes
+        // Selection-free, so it is resolved before the selection guard: the ledger undo is
+        // available whether or not a row is selected.
+        let undoReorganisation = shortcutUndoReorganisation
         guard actionHandler != nil,
               let pane = activePane,
               selection.count == 1,
               let node = selection.first else {
-            return OrganizeVerbs(organizeFolder: nil, findDuplicates: nil, fixName: nil, keepName: nil)
+            return OrganizeVerbs(organizeFolder: nil, findDuplicates: nil, fixName: nil,
+                                 keepName: nil, undoReorganisation: undoReorganisation)
         }
         let delegate = paneActionDelegate(for: paneContext(isLeft: pane == .left))
         let can = OrganizeVerbAvailability.resolve(selectionCount: selection.count,
@@ -1013,7 +1022,32 @@ extension ContentView {
             organizeFolder: can.organizeFolder ? { delegate.handleOrganizeFolder(node) } : nil,
             findDuplicates: can.findDuplicates ? { delegate.handleFindDuplicates(node) } : nil,
             fixName: can.fixName ? { delegate.handleFixName(node) } : nil,
-            keepName: can.keepName ? { delegate.handleKeepName(node) } : nil)
+            keepName: can.keepName ? { delegate.handleKeepName(node) } : nil,
+            undoReorganisation: undoReorganisation)
+    }
+
+    /// The newest un-undone landing in the Restructure ledger, as a runnable — nil when there is
+    /// nothing to undo, which greys the menu item.
+    var shortcutUndoReorganisation: (() -> Void)? {
+        // Only the landing the survey currently sits on — the same newest-first rule the engine
+        // enforces and the lens's cards follow; anything else would be an enabled item that can
+        // only refuse.
+        guard let record = syncManager.restructureStore?.applied.last(where: {
+            $0.undoneAt == nil && $0.appliedUnderProfileId != nil
+                && $0.producedProfileId == syncManager.filingProfileDirectoryId
+        }) else { return nil }
+        let manifestId = record.manifest.manifestId
+        let manager = syncManager
+        return {
+            Task { @MainActor in
+                let outcome = await manager.undoReorganisation(manifestId: manifestId)
+                if let refusal = outcome.refusal {
+                    manager.banner = .warning(refusal)
+                } else if let failure = outcome.surveyRefreshFailure {
+                    manager.banner = .warning(failure)
+                }
+            }
+        }
     }
 
     var shortcutGoBack: (() -> Void)? {
@@ -1489,6 +1523,11 @@ struct OrganizeVerbCommands: View {
             .disabled(verbs?.fixName == nil)
         Button("Always Allow This Name") { verbs?.keepName?() }
             .disabled(verbs?.keepName == nil)
+        Divider()
+        // Worded as its own sentence and kept out of Edit, so it can never sit beside ⌘Z's Undo
+        // and be mistaken for it (ROADMAP_V5 §11). Selection-free: the newest ledger landing.
+        Button("Undo This Reorganisation") { verbs?.undoReorganisation?() }
+            .disabled(verbs?.undoReorganisation == nil)
     }
 }
 

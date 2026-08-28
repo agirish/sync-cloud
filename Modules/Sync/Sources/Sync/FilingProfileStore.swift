@@ -343,6 +343,11 @@ extension FilingProfileStore {
         /// empty or separator-bearing id is refused at the door rather than writing somewhere
         /// surprising.
         case invalidProfileId(String)
+        /// ``writeDerivedProfile(_:replacing:in:builtBy:now:)``'s own refusal: the id the caller
+        /// claims to be replacing is not what `profiles.json` names as active. The unconditional
+        /// re-point is licensed by that claim being TRUE — an apply that raced a profile switch
+        /// must stop, not re-point away from a profile it never read.
+        case notReplacingTheActiveProfile(claimed: String, active: String?)
 
         public var description: String {
             switch self {
@@ -352,6 +357,9 @@ extension FilingProfileStore {
                 return "profiles.json cannot be safely amended (\(why)) — refusing to replace it"
             case .invalidProfileId(let id):
                 return "\(id.isEmpty ? "an empty profile id" : "profile id \"\(id)\"") cannot name a directory"
+            case .notReplacingTheActiveProfile(let claimed, let active):
+                return "the re-derivation claims to replace \(claimed) but the active profile is "
+                    + "\(active ?? "none") — refusing to re-point away from a profile it never read"
             }
         }
     }
@@ -486,6 +494,68 @@ extension FilingProfileStore {
         }
         try land(bytes, at: url, index: index, at: indexURL(in: directory))
         return url
+    }
+
+    /// Writes a profile re-derived after a Restructure apply, and re-points `profiles.json` at it
+    /// — **even away from a hand-built profile**, which `writeProfile` never does (§5.5 step 6).
+    ///
+    /// The licence for that is provenance, carried in the file: the caller proves it holds the
+    /// active profile by naming it in `replacing`, the new profile records it as `derivedFrom`,
+    /// and the old file is **never touched** — it is what *Undo this reorganisation* re-points
+    /// back to, and it is the last hand-built copy when the chain started from one. The create-only
+    /// guard's protection did not weaken; it moved from "never replace what exists" to "never lose
+    /// what exists", which is what it was protecting all along.
+    @discardableResult
+    public static func writeDerivedProfile(_ profile: FolderProfile, replacing oldId: String,
+                                           in directory: URL,
+                                           builtBy: String = "SyncCloud — restructure re-derivation",
+                                           now: Date = Date()) throws -> URL {
+        let id = profile.profileId
+        guard !id.isEmpty, !id.contains("/"), id != ".", id != ".." else {
+            throw WriteRefusal.invalidProfileId(id)
+        }
+        // The chain must be in the FILE, not only in the caller's intent: derivedFrom is what
+        // Undo reads, and a derived profile that forgot its parent is one that cannot be undone.
+        guard profile.derivedFrom == oldId else {
+            throw WriteRefusal.notReplacingTheActiveProfile(claimed: oldId,
+                                                            active: profile.derivedFrom)
+        }
+        let url = profileURL(id: id, in: directory)
+        guard !FileManager.default.fileExists(atPath: url.path) else {
+            throw WriteRefusal.profileExists(id: id)
+        }
+        let reading = try indexForAmending(in: directory)
+        // The claim that licenses the unconditional re-point, checked against the same parse the
+        // amendment uses: an apply that raced a profile switch stops here.
+        guard reading.activeProfileId == oldId else {
+            throw WriteRefusal.notReplacingTheActiveProfile(claimed: oldId,
+                                                            active: reading.activeProfileId)
+        }
+        let index = try amendedIndex(from: reading, naming: profile, now: now)
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent(id),
+                                                withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let bytes = try encoder.encode(ProfileDocument(profile: profile, generated: stamp(now),
+                                                       builtBy: builtBy))
+        guard !FileManager.default.fileExists(atPath: url.path) else {
+            throw WriteRefusal.profileExists(id: id)
+        }
+        try land(bytes, at: url, index: index, at: indexURL(in: directory))
+        return url
+    }
+
+    /// Re-points `profiles.json` at an id that already has a profile on disk — the Undo half of
+    /// ``writeDerivedProfile(_:replacing:in:builtBy:now:)``: the inverse ran, and the profile
+    /// recorded as `derivedFrom` (kept for exactly this) becomes active again.
+    public static func repointActiveProfile(to id: String, in directory: URL,
+                                            now: Date = Date()) throws {
+        guard let target = profile(id: id, in: directory) else {
+            throw WriteRefusal.indexUnreadable("no profile on disk for '\(id)' to re-point to")
+        }
+        let reading = try indexForAmending(in: directory)
+        let index = try amendedIndex(from: reading, naming: target, now: now)
+        try index.write(to: indexURL(in: directory), options: .atomic)
     }
 
     /// Writes the profile, then the index, undoing the profile if the index write fails.
@@ -724,7 +794,7 @@ extension FilingProfileStore {
 
         enum Key: String, CodingKey {
             case schemaVersion, profileId, portable, generated, root, note, builtBy
-            case folderCount, axes, folders
+            case derivedFrom, folderCount, axes, folders
         }
 
         /// The `axes.person` shape ``FolderProfile``'s decoder reads: a `values` list plus the
@@ -737,7 +807,8 @@ extension FilingProfileStore {
         struct EntryBox: Encodable {
             let entry: FolderProfileEntry
             enum Key: String, CodingKey {
-                case path, role, naming, anchors, acceptsNewFiles, fileCount, subfolderCount, axes
+                case path, role, naming, anchors, acceptsNewFiles, noIntakeReason
+                case fileCount, subfolderCount, axes
             }
             func encode(to encoder: Encoder) throws {
                 var c = encoder.container(keyedBy: Key.self)
@@ -748,6 +819,9 @@ extension FilingProfileStore {
                 // Omitted when nil, as the generator omits it: only an explicit `false` forbids
                 // filing, and `null` and absent mean the same thing to the decoder.
                 try c.encodeIfPresent(entry.acceptsNewFiles, forKey: .acceptsNewFiles)
+                // The refusal's WHY travels with the refusal — §5.5's carry-over is the writer
+                // whose entries hold one.
+                try c.encodeIfPresent(entry.noIntakeReason, forKey: .noIntakeReason)
                 try c.encode(entry.fileCount, forKey: .fileCount)
                 try c.encode(entry.subfolderCount, forKey: .subfolderCount)
                 try c.encode(entry.axes, forKey: .axes)
@@ -762,6 +836,9 @@ extension FilingProfileStore {
             try c.encode(generated, forKey: .generated)
             try c.encode(profile.root, forKey: .root)
             try c.encode(builtBy, forKey: .builtBy)
+            // The provenance chain (§5.5 step 6): what this profile was re-derived from, which is
+            // what Undo re-points to. Omitted for a plain walk, exactly as the decoder tolerates.
+            try c.encodeIfPresent(profile.derivedFrom, forKey: .derivedFrom)
             try c.encode(ProfileDocument.note, forKey: .note)
             try c.encode(profile.folders.count, forKey: .folderCount)
             // Written only when there is one: an empty person axis and no axis at all decode

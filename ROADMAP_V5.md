@@ -952,6 +952,13 @@ than bolted on: `Plan…` (§5.4), `Set up…` (§5.2's scaffold), `Answer…` (
 never be mistaken for it, and a menu item beside Undo that does something Undo does not is exactly
 how it would be. Put it in File, worded as its own sentence, never in Edit.
 
+*(2026-08-28: overtaken in part by the code — `c75927be` gave Organize a top-level menu after this
+was written, which supersedes "the verbs join File"; the constraint that survives is "never Edit,
+never beside ⌘Z", and a test now pins Edit clean of it. `Undo This Reorganisation` shipped there,
+selection-free, acting on the ledger's newest landing. `Plan…` and `Set up…` stay in-lens for now:
+as menu verbs they need a selected-folder→finding resolver plus cross-surface sheet routing, and
+they land with §5.3's `Answer…` so the selection plumbing is built once, not twice.)*
+
 ---
 
 ## 12. The two lens-workspace controls that are not what they look like — small

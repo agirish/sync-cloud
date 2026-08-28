@@ -10,6 +10,25 @@ struct PlannedPlanInfo: Equatable {
     let summary: String
 }
 
+/// One ledger record, as the card needs it — §5.7's Applied and Undone states. Derived from the
+/// store's `applied` section by the workspace; the lens never reads the store itself.
+struct ReorganisationDisplay: Equatable, Identifiable {
+    let manifestId: String
+    let family: String
+    /// The landing's stamp, as recorded.
+    let at: String
+    /// The ledger sentence — derived from what happened, never pasted.
+    let summary: String
+    let undoneAt: String?
+    let undoSummary: String?
+    /// True when a ledger undo is offered: the landing produced a profile to re-point back from
+    /// and has not been undone.
+    let canUndo: Bool
+    /// True when the landing drained folders the removal sheet could take (§5.5's opt-in step).
+    let hasEmptiedFolders: Bool
+    var id: String { manifestId }
+}
+
 /// Organize ▸ Restructure: families of sibling folders that were shaped differently at different
 /// times.
 ///
@@ -98,6 +117,15 @@ struct RestructureLens: View {
     /// action: the primary only reveals what is already computed, so this is the one that makes
     /// the answer more current. nil on a machine with nothing to re-survey.
     var onUpdateSurvey: (() -> Void)?
+    /// §5.7's Applied and Undone cards — the ledger's records, newest first. Rendered in the
+    /// clean state too, deliberately: a successful apply makes the finding vanish, and the clean
+    /// state is exactly where *Undo this reorganisation* has to live to be findable.
+    var reorganisations: [ReorganisationDisplay] = []
+    /// Runs the ledger's stored inverse for one record. Not ⌘Z — both exist, and the card says
+    /// which this is.
+    var onUndoReorganisation: ((String) -> Void)?
+    /// Opens §5.5's removal sheet, scoped to the folders that record's landing emptied.
+    var onRemoveEmptied: ((String) -> Void)?
 
     private var isEmpty: Bool { findings.isEmpty && aboutAncestor.isEmpty }
 
@@ -113,10 +141,18 @@ struct RestructureLens: View {
             // The strip renders in the clean state too — settled by rendering it (the roadmap's
             // open question): the seal answers *shape*, the strip answers *crowding*, and a strip
             // that vanished on a clean tree would make the empties filter unreachable exactly
-            // when it is the only thing left to do.
+            // when it is the only thing left to do. The reorganisation cards render here for the
+            // stronger reason their doc states: this is the state a successful apply lands in.
             VStack(alignment: .leading, spacing: 0) {
                 if !deadWeight.isEmpty {
                     crowdingStrip.padding(12)
+                }
+                if !reorganisations.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(reorganisations, content: reorganisationCard)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
                 }
                 cleanState
             }
@@ -126,6 +162,7 @@ struct RestructureLens: View {
                     if !deadWeight.isEmpty {
                         crowdingStrip
                     }
+                    ForEach(reorganisations, content: reorganisationCard)
                     // §5.2's grouping rule, the render half: rows arrive sorted so a folder's
                     // findings are adjacent, and the second card about one folder drops the path
                     // heading — a second thing about the same place, not a repeat.
@@ -144,6 +181,69 @@ struct RestructureLens: View {
                 .padding(12)
             }
         }
+    }
+
+    // MARK: §5.7's Applied and Undone cards
+
+    @ViewBuilder
+    private func reorganisationCard(_ record: ReorganisationDisplay) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(record.family)
+                    .scaledFont(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                Spacer(minLength: 8)
+                Text(record.undoneAt == nil ? "Applied" : "Undone")
+                    .scaledFont(.system(size: 9.5, weight: .semibold))
+                    .padding(.vertical, 1.5)
+                    .padding(.horizontal, 6)
+                    .background(Capsule().fill(.quaternary.opacity(0.35)))
+                    .foregroundStyle(.secondary)
+            }
+            Text(Self.reorganisationLine(record))
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if record.undoneAt == nil {
+                HStack(spacing: 14) {
+                    if record.canUndo, let onUndoReorganisation {
+                        Button("Undo this reorganisation") {
+                            onUndoReorganisation(record.manifestId)
+                        }
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(accent)
+                        .chromeHover()
+                        .help("Runs the inverse stored in the ledger and re-points the survey "
+                              + "back — it survives a quit, and it is not ⌘Z.")
+                    }
+                    if record.hasEmptiedFolders, let onRemoveEmptied {
+                        Button("Remove emptied folders…") { onRemoveEmptied(record.manifestId) }
+                            .scaledFont(.system(size: 11, weight: .semibold))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(accent)
+                            .chromeHover()
+                            .help("Only folders this landing itself emptied, only to the Trash, "
+                                  + "and only the ones you tick.")
+                    }
+                }
+            }
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .lensCard()
+    }
+
+    /// The card's sentence — Applied and Undone are different claims and neither borrows the
+    /// other's words (§5.7). The Undone line carries the undo run's own counts, because an undo
+    /// never pretends the tree was untouched.
+    static func reorganisationLine(_ record: ReorganisationDisplay) -> String {
+        if let undoneAt = record.undoneAt {
+            let tail = record.undoSummary.map { " — \($0)" } ?? ""
+            return "Undone \(undoneAt)\(tail). Anything skipped as drift is named in the log."
+        }
+        return "Applied \(record.at) — \(record.summary)."
     }
 
     /// Names what the section below it is, in the words the design asked for: these findings are

@@ -231,6 +231,16 @@ public struct LensWorkspaceView: View {
     /// The shape finding whose §5.4 plan sheet is open — sheet presentation state, so it clears
     /// itself when the sheet closes.
     @State private var planningFinding: StructureFinding?
+
+    /// §5.5's removal step, requested for one ledger record — the candidates are resolved (and
+    /// re-probed for emptiness) at request time, so the sheet opens on the truth.
+    struct RemovalRequest: Identifiable {
+        let manifestId: String
+        let family: String
+        let candidates: [RestructureRemovalSheet.Candidate]
+        var id: String { manifestId }
+    }
+    @State private var removalRequest: RemovalRequest?
     /// A learn-by-example rule offered after the user files a loose file — turned into an editable
     /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
     /// until saved or dismissed; cleared when a new scan starts.
@@ -3199,10 +3209,103 @@ public struct LensWorkspaceView: View {
                         // The refresh, and the same value the rescan menu offers: nil on a
                         // machine with no artifacts to rebuild, which withholds the button
                         // rather than offering one that would do nothing.
-                        onUpdateSurvey: onUpdateFolderMemory)
+                        onUpdateSurvey: onUpdateFolderMemory,
+                        // §5.7's Applied/Undone cards — every plan landing in the ledger,
+                        // newest first. Scaffolds keep their own card sentence and stay out.
+                        reorganisations: reorganisationDisplays,
+                        onUndoReorganisation: { manifestId in
+                            Task { @MainActor in
+                                let outcome = await syncManager.undoReorganisation(
+                                    manifestId: manifestId)
+                                if let refusal = outcome.refusal {
+                                    syncManager.banner = .warning(refusal)
+                                } else if let failure = outcome.surveyRefreshFailure {
+                                    syncManager.banner = .warning(failure)
+                                }
+                            }
+                        },
+                        onRemoveEmptied: requestRemoval)
         .sheet(item: $planningFinding) { finding in
             planSheet(for: finding)
         }
+        .sheet(item: $removalRequest) { request in
+            RestructureRemovalSheet(
+                family: request.family,
+                candidates: request.candidates,
+                accent: glassHue.accentColor,
+                onRemove: { paths in await removeEmptied(paths, for: request) },
+                onClose: { removalRequest = nil })
+        }
+    }
+
+    /// The ledger's plan landings as the lens renders them — records that re-derived a profile
+    /// (`producedProfileId`), which is what separates a plan apply from a scaffold's entry.
+    private var reorganisationDisplays: [ReorganisationDisplay] {
+        let records = (syncManager.restructureStore?.applied ?? [])
+            .filter { $0.producedProfileId != nil }
+        // Only the landing the survey currently sits on can be undone — an older inverse
+        // describes a tree a later landing reshaped, and the engine refuses it with the same
+        // sentence. Newest first, the way ⌘Z would.
+        let undoableId = records.last(where: {
+            $0.undoneAt == nil && $0.appliedUnderProfileId != nil
+                && $0.producedProfileId == syncManager.filingProfileDirectoryId
+        })?.manifest.manifestId
+        return records.reversed().map { record in
+            ReorganisationDisplay(
+                manifestId: record.manifest.manifestId,
+                family: record.manifest.family,
+                at: record.at,
+                summary: record.summary ?? "",
+                undoneAt: record.undoneAt,
+                undoSummary: record.undoSummary,
+                canUndo: record.manifest.manifestId == undoableId,
+                hasEmptiedFolders: record.undoneAt == nil
+                    && !RestructureLedger.emptiedFolders(of: record.manifest).isEmpty)
+        }
+    }
+
+    /// Opens the removal sheet on one landing's emptied folders, re-probed at this moment — a
+    /// folder that gained a file since the landing shows as "no longer empty" rather than
+    /// silently vanishing from the list.
+    private func requestRemoval(manifestId: String) {
+        guard let record = syncManager.restructureStore?.applied
+                .first(where: { $0.manifest.manifestId == manifestId }),
+              let root = syncManager.filingFolderProfile?.root else { return }
+        let expandedRoot = (root as NSString).expandingTildeInPath
+        let candidates = RestructureLedger.emptiedFolders(of: record.manifest).map { path in
+            let absolute = (expandedRoot as NSString).appendingPathComponent(path)
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: absolute)) ?? []
+            let isEmptyNow = FileManager.default.fileExists(atPath: absolute)
+                && names.allSatisfy { $0.hasPrefix(".") }
+            return RestructureRemovalSheet.Candidate(path: path, isStillEmpty: isEmptyNow)
+        }
+        removalRequest = RemovalRequest(manifestId: manifestId,
+                                        family: record.manifest.family,
+                                        candidates: candidates)
+    }
+
+    /// The removal landing itself: its own manifest through the same eight-step apply, so it gets
+    /// the ledger, ⌘Z, the re-derive and the log line like any landing. Returns the refusal, or
+    /// nil on success.
+    private func removeEmptied(_ paths: [String], for request: RemovalRequest) async -> String? {
+        guard !paths.isEmpty else { return "Nothing is ticked." }
+        let stamp = RestructurePlanSheet.nowStamp()
+        let manifest = RestructureManifest(
+            profileId: syncManager.filingProfileDirectoryId
+                ?? syncManager.filingFolderProfile?.profileId ?? "unknown",
+            manifestId: "removal-\(request.manifestId)-\(stamp)",
+            createdAt: stamp,
+            family: request.family,
+            kind: .deadWeight,
+            note: "Removal step for \(request.manifestId): folders that landing emptied, ticked "
+                + "by hand. To the Trash, never a hard delete.",
+            actions: paths.map { path in
+                RestructureManifest.Action(
+                    action: .removeEmptyDir, src: path,
+                    evidence: "Emptied by \(request.manifestId) and still empty when ticked.")
+            })
+        let outcome = await syncManager.applyPlan(manifest)
+        return outcome.refusal ?? outcome.surveyRefreshFailure
     }
 
     /// §5.4's plan sheet, modal over the lens. The tree view is disk-backed — a plan is derived
@@ -3238,6 +3341,24 @@ public struct LensWorkspaceView: View {
                         return "The plan could not be written beside the profile: "
                             + error.localizedDescription
                     }
+                },
+                // §5.5: the landing, from the same sheet that derived the plan — the review
+                // above the button IS the review being applied.
+                onApply: { manifest in
+                    let outcome = await syncManager.applyPlan(manifest)
+                    if let refusal = outcome.refusal { return .refused(refusal) }
+                    // The draft became a ledger record. The store was swapped to the new
+                    // profile's during the apply, and the draft rode along — drop it there.
+                    syncManager.restructureStore?.removeDraft(for: key)
+                    var summary = outcome.summary
+                    if let failure = outcome.surveyRefreshFailure {
+                        summary += " — " + failure
+                    }
+                    if !outcome.verifierMismatches.isEmpty {
+                        summary += " — the verifier found \(outcome.verifierMismatches.count) "
+                            + "mismatch(es); the log has each one"
+                    }
+                    return .applied(summary: summary)
                 },
                 onClose: { planningFinding = nil })
         }

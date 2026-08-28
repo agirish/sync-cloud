@@ -22,6 +22,16 @@ struct RestructurePlanSheet: View {
     var initialRows: [RestructureMapping.Row]?
     /// Writes the export file and saves the draft; returns a failure sentence, or nil on success.
     let onExport: (RestructureManifest) -> String?
+    /// §5.5's landing: runs the eight-step apply and returns its outcome sentence — the summary
+    /// on success (prefixed so the sheet can tell), or the refusal. nil while Apply is not
+    /// offered, which hides the button rather than promising a landing that cannot run.
+    var onApply: ((RestructureManifest) async -> ApplyResult)?
+
+    /// What a landing came back with — the summary, or the sentence that refused it.
+    enum ApplyResult: Equatable {
+        case applied(summary: String)
+        case refused(String)
+    }
     let onClose: () -> Void
 
     @State private var rows: [RestructureMapping.Row] = []
@@ -40,8 +50,11 @@ struct RestructurePlanSheet: View {
 
     private enum Outcome: Equatable {
         case exported(String)
+        case applied(String)
         case failed(String)
     }
+
+    @State private var applying = false
 
     var body: some View {
         // Derived ONCE per render and handed down. The margin renders per row, and a version
@@ -299,6 +312,11 @@ struct RestructurePlanSheet: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+            case .applied(let summary):
+                Text("Applied — \(summary).")
+                    .scaledFont(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             case .failed(let sentence):
                 Text(sentence)
                     .scaledFont(.system(size: 10.5))
@@ -309,10 +327,45 @@ struct RestructurePlanSheet: View {
             Spacer()
             Button(outcome == nil ? "Cancel" : "Done") { onClose() }
                 .scaledFont(.system(size: 11))
+            // Export keeps ⏎ — the safe act stays the default one; landing a plan is a plain
+            // deliberate click, styled as the destructive act it is.
             Button("Export plan…") { exportPlan(plan) }
                 .scaledFont(.system(size: 11, weight: .semibold))
                 .keyboardShortcut(.defaultAction)
-                .disabled((try? plan.get()) == nil)
+                .disabled((try? plan.get()) == nil || applying)
+            if let onApply {
+                Button(applyTitle(plan)) { apply(plan, onApply) }
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .disabled((try? plan.get()) == nil || applying || isApplied)
+                    .help("Runs the reviewed operations now: renames and merges on disk, one "
+                          + "grouped ⌘Z, the inverse in the ledger, and the survey re-derived.")
+            }
+        }
+    }
+
+    private var isApplied: Bool {
+        if case .applied = outcome { return true }
+        return false
+    }
+
+    private func applyTitle(_ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)
+        -> String {
+        let count = (try? plan.get())?.actions.count ?? 0
+        return applying ? "Applying…" : "Apply \(count) operation\(count == 1 ? "" : "s")"
+    }
+
+    private func apply(_ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
+                       _ run: @escaping (RestructureManifest) async -> ApplyResult) {
+        guard let manifest = try? plan.get() else { return }
+        applying = true
+        Task { @MainActor in
+            let result = await run(manifest)
+            applying = false
+            switch result {
+            case .applied(let summary): outcome = .applied(summary)
+            case .refused(let refusal): outcome = .failed(refusal)
+            }
         }
     }
 
@@ -479,6 +532,9 @@ struct RestructurePlanSheet: View {
                 + "cannot hold both side by side. Pick one spelling."
         }
     }
+
+    /// The shared stamp, for callers composing their own manifest ids (the removal step).
+    static func nowStamp() -> String { stamp(Date()) }
 
     private static func stamp(_ date: Date) -> String {
         let formatter = DateFormatter()

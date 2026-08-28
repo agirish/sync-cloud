@@ -487,6 +487,24 @@ public struct RestructureLedger: Equatable, Sendable {
     public let kept: Int
     public let collisionsKept: Int
 
+    /// The source folders a manifest's moves drained, shallowest only — what the removal step is
+    /// scoped to (§5.5: "folders the plan itself emptied"), and the ledger's *folders emptied*.
+    /// Whether each is STILL empty is the removal sheet's re-probe, not this function's claim.
+    public static func emptiedFolders(of manifest: RestructureManifest) -> [String] {
+        var drained: Set<String> = []
+        for action in manifest.actions
+        where action.action == .moveFile || action.action == .moveDir {
+            if let src = action.src {
+                drained.insert((src as NSString).deletingLastPathComponent)
+            }
+        }
+        return drained.filter { path in
+            !drained.contains { other in
+                other != path && path.hasPrefix(other + "/")
+            }
+        }.sorted()
+    }
+
     public init(of manifest: RestructureManifest) {
         var renames = 0, carried = 0, moved = 0, movedWhole = 0, created = 0, kept = 0
         var collisions = 0
@@ -516,6 +534,8 @@ public struct RestructureLedger: Equatable, Sendable {
         }
         // A one-level-down merge drains `s/d`, which sits inside the drained `s` — count the
         // shallowest only, because "folders emptied" answers how many mapping sources were.
+        // (`emptiedFolders(of:)` is the same rule with the names; this keeps its own count so
+        // the init stays one pass.)
         let shallow = drained.filter { path in
             !drained.contains { other in
                 other != path && path.hasPrefix(other + "/")
