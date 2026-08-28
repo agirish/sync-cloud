@@ -70,6 +70,31 @@ public struct PendingDestination: Identifiable {
 /// the app's materials composite onto that slab instead of onto live content and render flat. Glass
 /// needs something behind it. The host supplies the scrim and the surface treatment, exactly as it
 /// does for `settingsCard`.
+/// **The one outline every selectable row in this picker draws.**
+///
+/// Three surfaces here are the same shape — the locations rail row, a column row, and a search
+/// result row — and each stated that shape three times over: the ground it fills when chosen, the
+/// hit area it declares, and the shape it hands `HoverAffordanceStyle`. Nine statements, of which
+/// six said `RoundedRectangle(cornerRadius: Radius.chip)` and three said nothing at all — so all
+/// three controls took the hover style's CAPSULE default and wore a 6pt rounded-rect accent fill
+/// under an affordance whose ends pulled 14pt in. On a 220×28 row those two outlines disagree over
+/// 732 pixels, measured in `HoverAffordanceOutlineTests`.
+///
+/// **Both states were wrong, not just the hovered one.** These rows switch to `.filled` when
+/// selected, and `.filled`'s default is a capsule too — so a chosen row's hairline ring traced a
+/// pill around a rounded rectangle, which is if anything the more visible half.
+///
+/// The same defect had already shipped once in `PaneTabStrip` and been fixed there one call site at
+/// a time, which is why this is a shared value rather than three more overrides: a ground cannot
+/// disagree with the affordance over it if there is only one of it. See `HoverAffordanceOutline`.
+enum DestinationRowShape {
+    /// The value handed to `.hoverAffordance(_:tint:shape:)`.
+    static let kind = HoverAffordanceShape.roundedRect(Radius.chip)
+    /// The same shape, drawable — for the `.background` a chosen row fills and the `.contentShape`
+    /// it declares. Derived from `kind` rather than written out again, which is the entire point.
+    static let outline = kind.outline
+}
+
 public struct DestinationPicker: View {
     let request: DestinationRequest
     /// The space the host has, so the card can clamp itself rather than hang off the window edge.
@@ -345,13 +370,14 @@ public struct DestinationPicker: View {
             .padding(.vertical, 6)
             .background {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous).fill(glassHue.accentFillColor)
+                    DestinationRowShape.outline.fill(glassHue.accentFillColor)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+            .contentShape(DestinationRowShape.outline)
         }
         .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment,
-                                      tint: isSelected ? glassHue.onAccentLabelColor : accent))
+                                      tint: isSelected ? glassHue.onAccentLabelColor : accent,
+                                      shape: DestinationRowShape.kind))
         .padding(.horizontal, 10)
     }
 
@@ -751,6 +777,7 @@ struct DestinationColumn: View {
     let accent: Color
     let onOpen: (DestinationFolder) -> Void
 
+
     /// The wording comes from `DestinationFolderListing.emptyMessage`, which is where the
     /// distinction lives — a column deciding for itself that no rows means "Empty" is exactly how
     /// an unreadable folder came to be announced as an empty one.
@@ -807,9 +834,9 @@ struct DestinationColumn: View {
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(rowBackground(isChosen: isChosen, isTrail: isTrail))
-            .contentShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+            .contentShape(DestinationRowShape.outline)
         }
-        .buttonStyle(.hoverAffordance(.segment, tint: accent))
+        .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: DestinationRowShape.kind))
         .padding(.horizontal, 8)
         .accessibilityAddTraits(isChosen ? [.isButton, .isSelected] : .isButton)
     }
@@ -819,13 +846,11 @@ struct DestinationColumn: View {
         if isChosen {
             // The panes' own selection strength, so a chosen row here reads exactly as a selected
             // row in the rail behind the card.
-            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                .fill(accent.opacity(PaneSelectionWash.active))
+            DestinationRowShape.outline.fill(accent.opacity(PaneSelectionWash.active))
         } else if isTrail {
             // Quieter than a selection: this row is the trail, not the target — the same
             // distinction `PaneColumnsView` draws.
-            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                .fill(accent.opacity(PaneSelectionWash.inactive * 0.6))
+            DestinationRowShape.outline.fill(accent.opacity(PaneSelectionWash.inactive * 0.6))
         } else {
             Color.clear
         }
@@ -870,13 +895,14 @@ private struct DestinationResultRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 if isHighlighted {
-                    RoundedRectangle(cornerRadius: Radius.chip, style: .continuous).fill(accentFill)
+                    DestinationRowShape.outline.fill(accentFill)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+            .contentShape(DestinationRowShape.outline)
         }
         .buttonStyle(.hoverAffordance(isHighlighted ? .filled : .segment,
-                                      tint: isHighlighted ? onAccent : accent))
+                                      tint: isHighlighted ? onAccent : accent,
+                                      shape: DestinationRowShape.kind))
         .padding(.horizontal, 12)
     }
 }

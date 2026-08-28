@@ -44,6 +44,45 @@ public enum HoverAffordanceShape: Equatable, Sendable {
     case roundedRect(CGFloat)
 
     /// What each variant wears unless the call site says otherwise.
+    ///
+    /// **`.segment`'s capsule is right for a clear majority — so the rule for overriding it is
+    /// written here rather than rediscovered a third time.** Censused 2026-08-27 over all
+    /// twenty-six `.segment` call sites: sixteen draw a ground of their own, and **eleven of those
+    /// sixteen are genuine capsules** — the suggestion chips in `LogViewer` and `DifferencesView`,
+    /// `HelpBook`'s topic chips, all three `SetupSheet` chips, the log level chips, both
+    /// `DashboardViews` pills, `RuleOfferPrompt`'s match chips and the workspace bar. The other ten
+    /// paint nothing at rest and show only the affordance itself. Flipping this default to a
+    /// rounded rect would break eleven correct controls to fix three, which is why it stays a
+    /// capsule.
+    ///
+    /// Of the five that draw a non-capsule ground, **four had shipped wearing a capsule**: the tab
+    /// strip (fixed in `153b5ae7`) and all three of the destination picker's rows. Only
+    /// `SettingsLayout`'s tab row was written with the override from the start. That is the ratio
+    /// the rule below exists to change.
+    ///
+    /// **Count with the variant, not the call's opening.** Eight of those twenty-six spell it
+    /// `isSelected ? .filled : .segment`, so `grep 'hoverAffordance(\.segment'` finds eighteen of
+    /// them (plus this comment) and misses two live defects; `grep 'hoverAffordance(' |
+    /// grep '\.segment'` finds all twenty-six. Both
+    /// arms matter — `.filled` defaults to a capsule too, so a mis-shaped row is wrong selected
+    /// (a hairline ring tracing a pill round a rounded rectangle) as well as hovered.
+    ///
+    /// Override `shape:` when either is true of the control:
+    ///
+    /// - **It draws a non-capsule ground.** The wash lands *on* that ground, so a capsule over a
+    ///   6pt rounded rect pulls its ends in past the corners and leaves the fill showing round the
+    ///   outside of the wash. Invisible while the control has no resting ground — which is exactly
+    ///   how it hid in the tab strip until `153b5ae7` gave every chip a slab — and visible the
+    ///   moment one arrives. `PaneTabStrip` and all three of `DestinationPicker`'s row surfaces are
+    ///   this case, and each now names its outline once — `PaneTabStrip.chipShape` and
+    ///   `DestinationRowShape` — and draws its ground from the same value it hands this style, so
+    ///   the two cannot drift apart again (see `HoverAffordanceOutline`). The picker's hit shapes
+    ///   come from it too; the strip's does not, and should not — a tab's target is its whole frame
+    ///   including the padding around the chip.
+    /// - **It is tall relative to its width**, ground or no ground. A capsule's radius is half the
+    ///   short side, so on a squarish or upright control the wash is a lozenge rather than a hint of
+    ///   the control's own shape. `SettingsView`'s hue swatch — a disc stacked over its caption — is
+    ///   this case, and takes `.roundedRect(8)`.
     public static func `default`(for variant: HoverAffordanceVariant) -> HoverAffordanceShape {
         switch variant {
         case .glyph: return .roundedRect(8)
@@ -56,6 +95,77 @@ public enum HoverAffordanceShape: Equatable, Sendable {
         case .chrome: return .capsule
         }
     }
+}
+
+/// The outline a ``HoverAffordanceShape`` names, as a real `InsettableShape`.
+///
+/// **This is the seam that lets a control have exactly one outline.** The recurring defect here is
+/// not that a call site picks the wrong shape, it is that a control states its shape three times —
+/// once in the `.background` it fills, once in the `.contentShape` it declares, and once in the
+/// `shape:` it hands this style — and nothing makes the three agree. Two of the three are ordinary
+/// SwiftUI shapes and the third is an enum case, so they cannot even be compared. Given this type
+/// they can all be the *same value*:
+///
+/// ```swift
+/// enum DestinationRowShape {
+///     static let kind = HoverAffordanceShape.roundedRect(Radius.chip)   // for the style
+///     static let outline = kind.outline                                 // for the drawing
+/// }
+/// // …
+/// .background(DestinationRowShape.outline.fill(accent.opacity(PaneSelectionWash.active)))
+/// .contentShape(DestinationRowShape.outline)
+/// // …
+/// .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: DestinationRowShape.kind))
+/// ```
+///
+/// Drawing is delegated to the same three SwiftUI shapes the style used to switch over inline —
+/// `Capsule()`, `Circle()`, and a **continuous** `RoundedRectangle` — so this replaced those
+/// switches without changing a pixel. `HoverAffordanceOutlineTests` renders every case both
+/// ways and compares the bitmaps exactly, filled and `strokeBorder`-ed, because "it draws the same
+/// thing" is the one claim that would be worthless taken on trust.
+public struct HoverAffordanceOutline: InsettableShape {
+    /// Which outline this is. Named `kind` rather than `shape` so `.kind` reads correctly at the
+    /// call site that hands it back to `.hoverAffordance(_:tint:shape:)`.
+    public var kind: HoverAffordanceShape
+    /// How far the outline has been pulled in, which is how `strokeBorder` keeps a stroke inside
+    /// the shape instead of straddling its edge.
+    public var inset: CGFloat
+
+    public init(kind: HoverAffordanceShape, inset: CGFloat = 0) {
+        self.kind = kind
+        self.inset = inset
+    }
+
+    public func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: inset, dy: inset)
+        switch kind {
+        case .capsule:
+            // Spelled exactly as the style spelled it. Not because the alternative would look
+            // different — `Capsule(style: .continuous)` renders byte-identically at every size
+            // measured, a capsule's corner being a full semicircle with nothing left to smooth —
+            // but because keeping the spelling is what makes the equivalence obvious to read as
+            // well as asserted. The render test cannot pin this one either way.
+            return Capsule().path(in: r)
+        case .circle:
+            return Circle().path(in: r)
+        case .roundedRect(let radius):
+            // The corner tightens with the inset, which is what keeps an inset rounded rect
+            // concentric with the one it came from rather than square-shouldered inside it. This
+            // is `RoundedRectangle.inset(by:)`'s own behaviour, and the render test is what says
+            // so — it is not documented anywhere that binds.
+            return RoundedRectangle(cornerRadius: max(0, radius - inset), style: .continuous)
+                .path(in: r)
+        }
+    }
+
+    public func inset(by amount: CGFloat) -> HoverAffordanceOutline {
+        HoverAffordanceOutline(kind: kind, inset: inset + amount)
+    }
+}
+
+public extension HoverAffordanceShape {
+    /// This shape as something drawable — see ``HoverAffordanceOutline``.
+    var outline: HoverAffordanceOutline { HoverAffordanceOutline(kind: self) }
 }
 
 /// Where a hover-affordance button currently is. Published into the environment so a label's
@@ -260,25 +370,16 @@ private struct HoverAffordanceBody: View {
         }
     }
 
-    @ViewBuilder
+    // Both of these used to switch over `shape` inline, which meant the wash the style paints and
+    // the ground a call site draws were two independent spellings of "the same" outline with
+    // nothing holding them together. They go through `HoverAffordanceOutline` now so a call site
+    // can hand its ground and this style one shared value.
     private var washShape: some View {
-        let fill = washColor.opacity(metrics.wash)
-        switch shape {
-        case .capsule: Capsule().fill(fill)
-        case .circle: Circle().fill(fill)
-        case .roundedRect(let r): RoundedRectangle(cornerRadius: r, style: .continuous).fill(fill)
-        }
+        shape.outline.fill(washColor.opacity(metrics.wash))
     }
 
-    @ViewBuilder
     private var ringShape: some View {
-        let stroke = tint.opacity(metrics.ring)
-        switch shape {
-        case .capsule: Capsule().strokeBorder(stroke, lineWidth: 0.75)
-        case .circle: Circle().strokeBorder(stroke, lineWidth: 0.75)
-        case .roundedRect(let r):
-            RoundedRectangle(cornerRadius: r, style: .continuous).strokeBorder(stroke, lineWidth: 0.75)
-        }
+        shape.outline.strokeBorder(tint.opacity(metrics.ring), lineWidth: 0.75)
     }
 }
 

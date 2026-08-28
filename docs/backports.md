@@ -663,6 +663,62 @@ and nothing to re-derive next time. `main`'s 3 for `paneActionBarSideActive` aga
 commit's own addition, `paneWearsActiveAccent` — the one predicate the strip and the rows now share
 so they cannot come to name different panes.
 
+### 17. The destination picker's rows wore a capsule affordance — landed on `main` 2026-08-27 — RECORDED, not owed
+
+**Unlike item 16, this one is fully present here.** The tab strip is v4-only, so its half of the
+same defect was unreachable; `DestinationPicker.swift` is on all three lines and carries the bug
+verbatim. All three of its row surfaces — the locations rail row, a column row, and a search result
+row — draw a 6pt rounded-rect ground and hand `HoverAffordanceStyle` no `shape:` at all, so each
+takes the variant default, which is a **capsule** for `.segment` *and* for `.filled`. A chosen row
+therefore wears a rounded-rect accent fill under a pill: hovered, a wash whose ends pull 14pt in on
+a 28pt row; selected, a hairline ring tracing that pill around the rectangle. The two outlines
+disagree over 732 pixels of a 220×28 row, measured in `HoverAffordanceOutlineTests`.
+
+**Two of the three were invisible to the audit's own grep.** `grep 'hoverAffordance(\.segment'` — the
+instrument the audit started from — finds 18 of the 26 `.segment` call sites in the tree, because
+eight spell the variant `isSelected ? .filled : .segment`. The rail row and the result row are two
+of those eight. `grep 'hoverAffordance(' | grep '\.segment'` finds all 26; use that one here.
+
+**Portable in principle, and not free** (verified 2026-08-27). `main` is measured **before** this
+commit, so its column is a positive control for the DEFECT rather than for the fix: rows 1–5 must be
+non-zero on `main` or the grep is looking in the wrong place and the other columns mean nothing.
+The last row is the exception and is meant to read zero everywhere — it is the thing this commit
+adds, listed so a later audit can see what a pick would have to bring with it:
+
+| checked, in `DestinationPicker.swift` unless noted | `main` (pre-commit) | `v3.x` | `v2.x` |
+|---|---|---|---|
+| file present | 1 | 1 | 1 |
+| `.segment` call sites (any spelling) | 3 | 3 | 3 |
+| …handed an explicit `shape:` | 0 | 0 | 0 |
+| 6pt rounded-rect grounds drawn | 7 | 7 | 7 |
+| `shape:` parameter exists in `HoverAffordance.swift` | 1 | 1 | 1 |
+| `Radius.chip` in `Design/GeometryScale.swift` | 1 | **0** | **0** |
+| `HoverAffordanceOutline` in `HoverAffordance.swift` | 0 | 0 | 0 |
+
+```sh
+for l in main v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift | wc -l
+  git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift | grep 'hoverAffordance(' | grep -c '\.segment'
+  git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift | grep -A2 'hoverAffordance(' | grep -c 'shape:'
+  git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DestinationPicker.swift | grep -cE 'RoundedRectangle\(cornerRadius: (Radius\.chip|6),'
+  git show origin/$l:Modules/Design/Sources/Design/HoverAffordance.swift | grep -c 'shape: HoverAffordanceShape?'
+  git show origin/$l:Modules/Design/Sources/Design/GeometryScale.swift | grep -c 'static let chip'
+  git show origin/$l:Modules/Design/Sources/Design/HoverAffordance.swift | grep -c 'HoverAffordanceOutline'
+done
+```
+
+**The last two rows are the cost, and they are why this is not a clean pick.** The `shape:` override
+this needs has existed on both lines all along (row 5) — the one-line form of the fix would apply
+here today. But the commit does not take the one-line form: it adds `HoverAffordanceOutline` to
+`Design` and has each control name its outline ONCE, handing the same value to the ground it fills,
+the hit area it declares and the style. That is the part that stops a fifth instance, and it is a
+new public type on a line that has none (row 7). `Radius.chip` is `main`-only too (row 6) — the
+lines spell the radius as a bare `6` seven times over — so a pick would either drag
+`GeometryScale.swift` along or degrade to `.roundedRect(6)` literals, which is the very drift the
+change exists to remove. **Not owed: the standing direction is no backporting.** If it is ever
+authorised, take `HoverAffordanceOutline` and `GeometryScale` first, in that order, or the fix
+arrives as three more copies of a number.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -976,6 +1032,23 @@ that names it: tabs are v4, so there is no strip here whose chips could take a g
 line DOES carry is every ingredient — `PaneSelectionWash`, `paneActionBarSideActive`, and
 `HoverAffordance`'s `shape:` override — which is the part worth recording, because a future audit
 grepping for those will find them all present and could easily read that as "already here".
+
+### The destination picker's rows wore a capsule affordance — landed on `main` 2026-08-27 — RECORDED, not owed
+
+Same item as `v3.x` #17, same verdict, and **this line's column of that table is identical to
+`v3.x`'s on every row** — the file is here, all three of its `.segment` row surfaces are here, none
+of them is handed a `shape:`, and the seven 6pt rounded-rect grounds are here too. So the defect is
+present and the one-line form of the fix would apply, because the `shape:` override has existed in
+`HoverAffordance.swift` on this line all along.
+
+Recorded rather than shrugged off for the reason item 16's entry gives about ingredients: a future
+audit grepping this line for `shape: HoverAffordanceShape?` will find it present and could easily
+read that as "already fixed here". It is not — the parameter is present and **unused at all three
+call sites**. The one row that differs from `main` is `Radius.chip`, which is not here at all, so a
+pick would have to bring `Design/GeometryScale.swift` or degrade to seven `6` literals; and
+`HoverAffordanceOutline` is what the commit itself adds, so it is absent from every line including
+`main` before it. Those two together are what make this more than a one-line pick. Not owed: the
+standing direction is no backporting.
 
 ### Nothing else confirmed
 

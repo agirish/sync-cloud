@@ -88,6 +88,17 @@ public struct PaneTabStrip: View {
     /// the same thing, and the two bars now move alike.
     private static let activeMarkerID = "panetab.active.marker"
 
+    /// **The chip's outline, named once.** A chip stated this shape three times — the grey slab
+    /// under every tab, the accent wash under the live one, and the shape handed to
+    /// `HoverAffordanceStyle` for the hover wash. All three said `Radius.chip` and were correct,
+    /// but nothing held them together: the third was added by `153b5ae7` precisely because it had
+    /// been absent, taking `.segment`'s capsule default and rounding the wash's ends 8pt past the
+    /// slab. `DestinationPicker.rowOutline` is the same idiom for the same reason — see
+    /// `HoverAffordanceOutline`.
+    static let chipShape = HoverAffordanceShape.roundedRect(Radius.chip)
+    /// `chipShape`, drawable — the slab under every tab and the accent wash under the live one.
+    static let chipOutline = chipShape.outline
+
     /// Which chip the pointer is over — the ✕ shows on that one and on the active tab, and nowhere
     /// else (v4.x roadmap companion §1's anatomy). Held here rather than per chip so only one can be lit.
     @State private var hoveredTab: UUID?
@@ -375,12 +386,13 @@ public struct PaneTabStrip: View {
             .frame(width: width, height: PaneTabStripLadder.tabHeight)
             .contentShape(Rectangle())
         }
-        // **The hue, and the chip's own corner radius.** `.segment`'s default hit shape is a
-        // CAPSULE, which went unnoticed while a parked chip had no ground of its own — the wash
-        // floated on the backdrop with nothing under it to disagree with. Now every chip is a 6pt
-        // rounded rect, so a capsule wash would round its ends past the slab underneath and bleed
-        // onto the backdrop at the corners.
-        .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: .roundedRect(Radius.chip)))
+        // **The hue, and the chip's own outline.** `.segment`'s default hit shape is a CAPSULE,
+        // which went unnoticed while a parked chip had no ground of its own — the wash floated on
+        // the backdrop with nothing under it to disagree with. Now every chip is a 6pt rounded
+        // rect, so a capsule wash would round its ends past the slab underneath and bleed onto the
+        // backdrop at the corners. `chipOutline` is the same value the slab and the active wash are
+        // drawn from, so the three cannot answer differently.
+        .buttonStyle(.hoverAffordance(.segment, tint: accent, shape: Self.chipShape))
         .background(alignment: .bottom) { chipGround(item) }
         // **Drag to reorder** (roadmap Fig. 8, left — the half that costs nothing; dropping FILES
         // on a tab is the other half and is deliberately not here).
@@ -471,8 +483,7 @@ public struct PaneTabStrip: View {
     @ViewBuilder
     private func chipGround(_ item: Item) -> some View {
         ZStack(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                .fill(.quaternary.opacity(0.85))
+            Self.chipOutline.fill(.quaternary.opacity(0.85))
             if item.isActive { activeMarkerLayer }
         }
     }
@@ -488,7 +499,7 @@ public struct PaneTabStrip: View {
     /// ever in the hierarchy. Two would be ambiguous and SwiftUI would say so.
     private var activeMarkerLayer: some View {
         ZStack(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+            Self.chipOutline
                 .fill(accent.opacity(PaneSelectionWash.opacity(isActivePane: isActivePane)))
             RoundedRectangle(cornerRadius: 1, style: .continuous)
                 .fill(accent)
