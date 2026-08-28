@@ -147,7 +147,7 @@ enum HelpBook {
                         "Organize — five sections over a single tree: To File, Duplicates, Renames, Restructure, and Rules.",
                         "Storage — a treemap of where a folder's bytes are, its largest and longest-untouched files, and the large-and-idle overlap worth reclaiming.",
                     ]),
-                    .tip("Nothing is copied, moved, or removed until you ask, and every action can be undone with ⌘Z. ⌘1 through ⌘4 switch workspaces."),
+                    .tip("Nothing is copied, moved, or removed until you ask, and ⌘Z takes back what you just did. ⌘1 through ⌘4 switch workspaces."),
                 ],
                 related: ["setup", "browse-workspace", "organize-workspace", "scan"]
             )),
@@ -227,9 +227,8 @@ enum HelpBook {
                     .bullets([
                         "Analyze a folder to get a treemap of where its bytes actually are. It is a single ramp in your accent color ordered by size — the deepest tile is the biggest — so the color is the ranking, with no legend to learn.",
                         "The ranked lists show the largest files, the ones untouched longest, and the large-and-idle overlap worth reclaiming.",
-                        "The two size-ordered lists draw a magnitude bar beside each size, measured against that section’s own largest file, so a four-fold difference reads as one without comparing digits. It stays put while you search: filtering removes rows rather than rescaling the ones left.",
-                        "The oldest-first list has no bar — there it would fall and rise against an order it has nothing to do with. The share figure is on every row of all three, since how much of the scan a file accounts for is true however the list is sorted.",
-                        "A file too small to round to a whole percent reads “<1%” rather than “0%”, which would claim it is not there at all.",
+                        "The two size-ordered lists draw a magnitude bar beside each size, measured against that section’s own largest file, so a four-fold difference reads as one without comparing digits. Filtering removes rows rather than rescaling the ones left, so the bar keeps meaning the same thing while you search.",
+                        "The oldest-first list has no bar — it would rise and fall against an order it has nothing to do with. Every row of all three carries its share of the scan instead, and a file too small to round reads “<1%” rather than “0%”, which would claim it is not there at all.",
                         "Reopening Storage shows your last analysis, with its age beside it — re-analyze for current numbers.",
                     ]),
                     .tip("Storage never moves, deletes, or evicts anything. “Offload” reveals a file in Finder so you can decide there — the reading is the whole feature."),
@@ -304,7 +303,7 @@ enum HelpBook {
                 related: ["reading-differences", "keyboard-shortcuts"]
             )),
             Topic(id: "undo-redo", title: "Undo and redo", systemImage: "arrow.uturn.backward", article: Article(
-                intro: "If a copy or move wasn't what you wanted, take it straight back — ⌘Z reverses it. The one thing undo cannot reach is a removal that never went to the Trash, because there is nothing to bring back from.",
+                intro: "If a copy or move wasn't what you wanted, take it straight back — ⌘Z reverses it. Two things it cannot reach: a removal that never went to the Trash, because there is nothing to bring back from, and anything from a session you have already quit.",
                 blocks: [
                     .bullets([
                         "⌘Z undoes the last operation; ⇧⌘Z redoes it.",
@@ -376,10 +375,10 @@ enum HelpBook {
                         "Files renumbered to make room for one of those.",
                         "Files whose one-digit ordinals gain a leading zero, so 1. Jan 2011.pdf becomes 01. Jan 2011.pdf and the folder sorts the way you meant.",
                     ]),
-                    .paragraph("What gets renamed is always a file. A folder is how the list groups the work — never the thing being renamed."),
+                    .paragraph("What gets renamed here is always a file. A folder is how the list groups the work — never the thing being renamed. Folders are Restructure's half, and it only renames one as part of a plan you have reviewed."),
                     .tip("Nothing is renamed without your say-so, and every rename is undoable. Organize ▸ Fix Name… opens this on a pane's selected item, and Always Allow This Name tells SyncCloud to stop proposing a change for it."),
                 ],
-                related: ["organize-workspace", "undo-redo", "providers"]
+                related: ["organize-workspace", "undo-redo", "providers", "restructure-shapes"]
             )),
             Topic(id: "restructure-shapes", title: "What Restructure finds", systemImage: "square.stack.3d.up", article: Article(
                 intro: "Restructure is the section that looks at whole families of folders rather than one file at a time: siblings set up differently at different times, a year that never got its folders, two spellings of one name. It names what it saw and says what fixing it would cost, and nothing changes until you apply a plan.",
@@ -538,7 +537,7 @@ enum HelpBook {
                         "Glass effect — Clear, Frosted, or Solid surfaces.",
                         "Content surface — Unified or Cards panes.",
                     ]),
-                    .tip("Text size and row spacing used to sit at the bottom of this tab and now have one of their own — Settings ▸ Readability, directly below this one."),
+                    .tip("Text size and row spacing have a tab of their own — Settings ▸ Readability, directly below this one."),
                 ],
                 related: ["readability", "providers"]
             )),
@@ -564,10 +563,10 @@ enum HelpBook {
                         "On-device AI (Apple Intelligence) — free, private, and the first pass. Where it isn't available, Organize falls back to names and metadata.",
                         "Reading file contents on-device — more to go on for a file whose name says nothing.",
                         "Refine with Claude — the opt-in second pass. Once a scan has results, a Refine button re-asks Claude about them, billed to an API key you supply and kept in the macOS Keychain.",
-                        "“Try another” on a single suggestion is the other route that can spend, asking the better model again about that one file. It has no confirmation of its own, on purpose — a dialog on every card would cost more attention than it saves — so it is the one paid click you make without being asked twice.",
-                        "“Refine names with Claude”, inside a Restructure plan, is the third. It asks about folder names — the one question your tree genuinely cannot answer — and never about the operations, which are derived from the names either way. It sends the folder paths and the candidate names, plus up to five file names per folder if you turn that on, and never a file's contents. It answers row by row against your own mapping, declines where the folder says nothing, and accepting a row edits your mapping rather than the disk.",
+                        "“Try another” on a single suggestion is the second route that can spend, asking the better model again about that one file. It has no confirmation of its own, on purpose — a dialog on every card would cost more attention than it saves — so it is the one paid click you make without being asked twice.",
+                        "“Refine names with Claude”, inside a Restructure plan, is the third — and the only one not about a file. It asks what a family's folders should be called, sending their paths and the candidate names, plus up to five file names per folder if you turn that on, and never a file's contents. What comes back edits your mapping, so nothing from it reaches your folders except through the operations you review.",
                     ]),
-                    .paragraph("The cloud pass never runs on its own. You press Refine, and you see a cost estimate to confirm before each one — it is a bulk action, so it is priced before you agree to it. Both routes answer to the same two caps: a monthly one, off by default, and a lifetime cap that ships at $5 as a backstop. Reaching either stands the paid work down and leaves the free on-device suggestions in place, and so does a model this build has no price for — silently on screen for a single card, and in the Activity Log either way."),
+                    .paragraph("The cloud pass never runs on its own. You press Refine, and you see a cost estimate to confirm before each one — it is a bulk action, so it is priced before you agree to it. All three answer to the same two caps: a monthly one, off by default, and a lifetime cap that ships at $5 as a backstop. Reaching either stands the paid work down and leaves the free on-device suggestions in place, and so does a model this build has no price for — silently on screen for a single card, and in the Activity Log either way."),
                     .tip("A file that hasn't been edited, renamed, or moved keeps the suggestion it already had, so scanning the same folder again doesn't ask the model — or pay for it — a second time."),
                 ],
                 related: ["file-loose-items", "automation-rules", "staying-safe"]
@@ -618,7 +617,7 @@ enum HelpBook {
                         "Confirmations before transfers, overwrites, and deletes — each tunable in Settings.",
                         "Removed files go to the Trash wherever the volume has one, and the last copy is always kept.",
                         "Some volumes have no Trash — a network share, most often — and there is nowhere to put a file on the way out. SyncCloud says so and asks before removing anything there, naming the files it is about to destroy rather than counting them. That removal is permanent, and no undo is offered for it.",
-                        "⌘Z undoes an operation — the permanent removal above is the one exception — and undo refuses to overwrite something that changed underneath it.",
+                        "⌘Z undoes an operation, and refuses to overwrite something that changed underneath it. It cannot reach the permanent removal above, and it does not outlive the session — for a reorganisation, that is what the reversal on disk is for.",
                         "Quitting mid-operation warns you first, so a sync is never left half-done.",
                         "Organize proposes and never acts on its own. Every section shows what it would do and waits; nothing moves, renames or goes to the Trash without your confirmation.",
                         "Restructure's plan is the longest reach any of them has, so it carries the most guards: every operation is listed with its reason before you agree to it, re-checked against the disk at the moment it runs, counted afterwards by a second piece of code, and reversible from a record written to disk before the first folder moves.",
@@ -640,7 +639,7 @@ enum HelpBook {
                 related: ["sync-history", "staying-safe", "about"]
             )),
             Topic(id: "sync-history", title: "Sync History", systemImage: "clock.arrow.circlepath", article: Article(
-                intro: "Every copy, move, and delete is recorded in a durable history that survives quitting — filterable, exportable, and reversible a whole run at a time.",
+                intro: "Copies, moves and deletes are recorded in a durable history that survives quitting — filterable, exportable, and reversible a whole run at a time.",
                 blocks: [
                     .paragraph("Unlike the live Activity Log, which forgets when you quit, Sync History is written to disk as a structured record of each operation — its time, action, direction, the paths involved, and the size."),
                     .bullets([
@@ -648,10 +647,11 @@ enum HelpBook {
                         "Filter by action, date range, or path, and search across everything recorded.",
                         "Export the current view to CSV or JSON for a spreadsheet or your own tooling.",
                         "Undo Last Run reverses the most recent sync in one step, moving files back where they were.",
+                        "A Restructure landing is the one thing that does not appear here. It moves files, but it keeps its own reversal — the one behind “Undo this reorganisation” — and writes a single summary line to the Activity Log.",
                     ]),
                     .tip("Undoing a run reuses the same safe reversal as ⌘Z — files come back from where they went, and you can redo afterward."),
                 ],
-                related: ["undo-redo", "activity-log", "staying-safe"]
+                related: ["undo-redo", "activity-log", "staying-safe", "restructure-apply"]
             )),
             Topic(id: "about", title: "About SyncCloud", systemImage: "info.circle", article: Article(
                 intro: "SyncCloud compares and organizes your cloud folders — a macOS app, plus a matching synccloud command-line tool for scripted workflows.",
