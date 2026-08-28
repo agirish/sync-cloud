@@ -38,6 +38,12 @@ extension FileSyncManager {
     /// and a ledger undo all move things inside subtrees the scans read, and a refusal is a
     /// sentence while a race is a debugging session. Returns the sentence, or nil to proceed.
     func restructureLandingRefusal() -> String? {
+        // First, because it is the one hazard the counts below cannot see: a landing holds this
+        // flag across its whole run, including the re-derive awaits where no file operation is
+        // queued and no scan is running.
+        if restructureLandingInProgress {
+            return "Another reorganisation is landing right now — wait for it to finish first."
+        }
         if isVerifyAllRunning {
             return "Wait for Verify All to finish first."
         }
@@ -77,6 +83,8 @@ extension FileSyncManager {
         if let refusal = restructureLandingRefusal() {
             return ScaffoldOutcome(refusal: refusal)
         }
+        restructureLandingInProgress = true
+        defer { restructureLandingInProgress = false }
         guard let store = restructureStore, let root = filingFolderProfile?.root else {
             return ScaffoldOutcome(refusal: "No folder survey is loaded.")
         }

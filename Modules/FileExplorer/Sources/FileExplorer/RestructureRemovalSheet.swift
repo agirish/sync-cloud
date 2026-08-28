@@ -13,6 +13,10 @@ struct RestructureRemovalSheet: View {
         /// Re-probed by the caller at open — a folder that gained a file since the landing is
         /// shown disabled with the truth, never silently droppable.
         let isStillEmpty: Bool
+        /// Whether the folder stands on disk at all. A candidate already in the Trash (the
+        /// sheet reopened after its own landing) is "already removed" — labelling it
+        /// "no longer empty" would claim it gained content it never had.
+        var exists: Bool = true
         var id: String { path }
 
         var isDateBucket: Bool { Self.isDateBucket(path) }
@@ -27,15 +31,31 @@ struct RestructureRemovalSheet: View {
     let family: String
     let candidates: [Candidate]
     let accent: Color
-    /// Trashes the ticked paths as one recorded, undoable landing; returns a refusal sentence or
-    /// nil on success.
-    let onRemove: ([String]) async -> String?
+
+    /// What one removal landing came back as. A TYPED outcome, not a `String?` refusal, because
+    /// "landed, but the survey refresh failed" is a landing — the folders ARE in the Trash —
+    /// and carrying that sentence through a refusal channel left the button armed over
+    /// already-trashed rows, where a second click minted a junk all-skip ledger record.
+    enum RemovalResult: Equatable {
+        /// The folders were trashed; `caveat` names a follow-up failure (the survey refresh)
+        /// when there was one.
+        case landed(caveat: String?)
+        case refused(String)
+    }
+
+    /// Trashes the ticked paths as one recorded, undoable landing.
+    let onRemove: ([String]) async -> RemovalResult
     let onClose: () -> Void
 
     @State private var ticked: Set<String> = []
     @State private var seeded = false
     @State private var outcome: String?
     @State private var running = false
+    /// True only after a landing SUCCEEDED — the button retires then, and only then. A refusal
+    /// leaves `outcome` set for the sentence but must not kill the button: the refusals here
+    /// are transient (a scan running, the store mid-write), and a dead Remove behind one made
+    /// close-and-reopen the only retry.
+    @State private var landed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -66,11 +86,16 @@ struct RestructureRemovalSheet: View {
                         .lineLimit(2)
                 }
                 Spacer()
-                Button(outcome == nil ? "Cancel" : "Done") { onClose() }
+                // "Done" only after the landing landed — a refusal closes as "Cancel" (nothing
+                // moved). Held while the landing runs: dismissing mid-run would swallow the
+                // outcome sentence in a torn-down view.
+                Button(landed ? "Done" : "Cancel") { onClose() }
                     .scaledFont(.system(size: 11))
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(running)
                 Button(removeTitle) { remove() }
                     .scaledFont(.system(size: 11, weight: .semibold))
-                    .disabled(ticked.isEmpty || running || outcome != nil)
+                    .disabled(ticked.isEmpty || running || landed)
             }
         }
         .padding(18)
@@ -108,21 +133,32 @@ struct RestructureRemovalSheet: View {
             Spacer(minLength: 4)
             Text(candidate.isStillEmpty
                  ? (candidate.isDateBucket ? "date bucket" : "category")
-                 : "no longer empty")
+                 : (candidate.exists ? "no longer empty" : "already removed"))
                 .scaledFont(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(.secondary)
         }
     }
 
     private func remove() {
-        guard !running, outcome == nil else { return }
+        guard !running, !landed else { return }
         let paths = ticked.sorted()
         running = true
+        outcome = nil
         Task { @MainActor in
-            let refusal = await onRemove(paths)
+            let result = await onRemove(paths)
             running = false
-            outcome = refusal ?? "Moved to the Trash — Undo this reorganisation on the "
-                + "removal's own card puts them back, even after a quit."
+            switch result {
+            case .landed(let caveat):
+                landed = true
+                // A survey-refresh failure after a SUCCESSFUL trashing composes with the
+                // landing, never replaces it: a sentence that only named the failure read as
+                // "nothing happened" over a sheet whose button had gone dead.
+                outcome = caveat.map { "Moved to the Trash — but " + $0 }
+                    ?? "Moved to the Trash — Undo this reorganisation on the removal's own "
+                        + "card puts them back, even after a quit."
+            case .refused(let refusal):
+                outcome = refusal
+            }
         }
     }
 }

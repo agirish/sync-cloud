@@ -610,6 +610,16 @@ then moves and merges, then the removal step. All three are in 5.0 (decisions bl
 5. Register **one grouped ⌘Z** for the whole landing (`registerMoveUndo`, as the rename pass does),
    and finalise the ledger entry with counts and outcome. ⌘Z is this launch's undo; the ledger's
    inverse is every later one.
+
+   > **Known limitation, written down 2026-08-28 (round-3 review):** session ⌘Z reverses the
+   > *disk* only. The re-derived profile, replayed corpus keys and re-pointed `profiles.json`
+   > stay as the landing left them, so every survey-driven surface reasons over the reorganised
+   > shape until the next re-survey — and the ledger card stays "Applied" (its undo then refuses
+   > honestly as all-drift). Converging ⌘Z with the ledger undo's re-point would make the two
+   > indistinguishable, which §11 deliberately keeps apart; the cheap honest fix, if this bites,
+   > is a banner after a session undo pointing at re-survey. (A *removal* landing registers no
+   > ⌘Z at all and clears the stack instead — the previous landing's group was on top, and
+   > replaying it into just-trashed folders was worse than no ⌘Z.)
 6. **Re-derive the profile** — the decision. `buildTree` over the profile root, then
    `FolderSurveyBuilder.build` with the previous profile's registry and its *entry-level*
    jurisdiction values (`US`, `IN`, `Singapore`); then the **carry-over**: for every path that exists

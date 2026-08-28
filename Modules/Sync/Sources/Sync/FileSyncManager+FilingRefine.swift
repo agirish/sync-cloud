@@ -469,6 +469,17 @@ extension FileSyncManager {
             totalCapUSD: Self.totalBudgetCap(in: filingContentDefaults),
             unit: "folder name")
         guard filingCloudSpendConfirmer(preflight) else {
+            // Two different stories end in `false` from the confirmer, and the sheet's copy for
+            // each is different by design: over the cap, the dialog offered no proceed button at
+            // all — that is the BUDGET saying no (`.unavailable`'s sentence names the caps), not
+            // the person declining, and "Declined at the estimate" would blame them for a
+            // refusal they never made.
+            if preflight.wouldExceedCap {
+                Logger.shared.info("Mapping refine blocked at the budget cap "
+                    + "(\(FilingSpendFormat.cost(estCost)) for \(request.rows.count) name(s)) "
+                    + "— nothing was sent")
+                return .unavailable
+            }
             Logger.shared.info("Mapping refine declined at the estimate "
                 + "(\(FilingSpendFormat.cost(estCost)) for \(request.rows.count) name(s)) "
                 + "— nothing was sent")

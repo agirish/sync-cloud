@@ -1007,6 +1007,14 @@ public class FileSyncManager: ObservableObject {
     }
     private var restructureCancellable: AnyCancellable?
 
+    /// True while a Restructure landing (scaffold, plan apply, or ledger undo) is anywhere
+    /// between its guards passing and its last step finishing. `activeFileOperationsCount`
+    /// covers only step 3's queued moves — it drops to zero while steps 6–7 re-derive the
+    /// profile through long awaits, and a second landing entering through that window would
+    /// record itself under a profile id the first landing is about to replace, wedging the undo
+    /// chain behind two honest-but-permanent refusals. Checked by `restructureLandingRefusal`.
+    var restructureLandingInProgress = false
+
     /// ``structureFindings`` minus what the user said never to suggest again — what every surface
     /// renders and counts. One definition, because the lens, the overview and the rail badge all
     /// filtered `structureFindings` independently, and a suppression honoured by two of the three

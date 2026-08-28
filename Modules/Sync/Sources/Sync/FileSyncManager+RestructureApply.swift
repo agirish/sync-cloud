@@ -53,6 +53,8 @@ extension FileSyncManager {
             outcome.refusal = refusal
             return outcome
         }
+        restructureLandingInProgress = true
+        defer { restructureLandingInProgress = false }
         guard let store = restructureStore, let profile = filingFolderProfile,
               let profilesDirectory = filingProfilesDirectory else {
             outcome.refusal = "No folder survey is loaded."
@@ -142,6 +144,15 @@ extension FileSyncManager {
             }
             undo.endUndoGrouping()
             undo.setActionName(actionName)
+        } else if execution.removedEmpty > 0, let undo = undoManager {
+            // A removal landing registers no session undo of its own — nothing moved; folders
+            // went to the Trash — so the TOP of the ⌘Z stack would still be the previous
+            // landing's group, and a ⌘Z right after "remove emptied folders" would replay THAT
+            // group into source folders this landing just trashed. Clear the stack instead: the
+            // removal's own ledger card carries the undo that actually reverses it.
+            undo.removeAllActions()
+            Logger.shared.info("Restructure apply \(manifest.manifestId): removal landing — "
+                + "session ⌘Z cleared; Undo This Reorganisation is the way back")
         }
 
         // The manifest as it actually landed: performed actions only, with collision names,
@@ -219,7 +230,8 @@ extension FileSyncManager {
         filingFolderProfile = derived
         filingProfileDirectoryId = newId
         let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)
-        newStore.rekey(renames: RestructureRederive.renameMap(of: landed))
+        newStore.rekey(renames: RestructureRederive.renameMap(of: landed),
+                       context: manifest.manifestId)
         // The artifact carry copies best-effort, one file at a time — if restructure.json was
         // the copy that failed, the fresh store loads empty and the update below would no-op
         // silently, stranding the finalised record (and its inverse) in a directory nothing
@@ -267,6 +279,8 @@ extension FileSyncManager {
             outcome.refusal = refusal
             return outcome
         }
+        restructureLandingInProgress = true
+        defer { restructureLandingInProgress = false }
         guard let store = restructureStore, let profilesDirectory = filingProfilesDirectory else {
             outcome.refusal = "No folder survey is loaded."
             return outcome
@@ -314,6 +328,17 @@ extension FileSyncManager {
             outcome.refusal = "The survey has moved since this landing — the active profile is "
                 + "not the one it left behind, so re-pointing back would aim the survey at the "
                 + "wrong tree."
+            return outcome
+        }
+        // The store's `undoableReorganisation` is the ONE spelling of "which landing may be
+        // undone" — it is what enables the menu item and the ledger cards. The guards above
+        // exist to NAME the cause; this guard makes the decision itself the store's, so the
+        // two can never drift into an enabled surface whose engine quietly refuses (or the
+        // reverse). If a guard is ever edited without the predicate, this refusal is the tell.
+        guard store.undoableReorganisation(currentProfileId: filingProfileDirectoryId)?
+                .manifest.manifestId == manifestId else {
+            outcome.refusal = "This landing is not the one the ledger offers to undo right now "
+                + "— the cards and the Organize menu carry the one that is."
             return outcome
         }
 
@@ -529,23 +554,49 @@ extension FileSyncManager {
     /// shallowest-only without stranding the nested drained folders it deliberately drops —
     /// a shallow items-count probe called the parent "not empty" over an empty subfolder, and
     /// both lingered forever.
+    /// nil when the walk could not see everything — a directory it could not open reads as
+    /// UNKNOWN, never as empty: the old `return 0` default meant a permission-denied subtree
+    /// silently counted as nothing, and the removal step would have trashed a folder whose
+    /// contents it never saw. Callers treat nil as "not empty" and say so.
     nonisolated public static func visibleFileCount(atPath path: String,
-                                                    fm: FileManaging) -> Int {
+                                                    fm: FileManaging) -> Int? {
         // NOT `.skipsHiddenFiles`: that prunes hidden DIRECTORIES wholesale, and a drained
         // folder holding `Old/.git/…` would have read "still empty" over a full repository.
         // The walk descends everywhere; only files whose own name is dotted are ignorable —
         // the same junk class (.DS_Store) the shallow probe always ignored — because a hidden
         // directory's contents are content, however its container is named.
+        var sawError = false
         guard let walker = fm.enumerator(at: URL(fileURLWithPath: path),
                                          includingPropertiesForKeys: [.isDirectoryKey],
                                          options: [],
-                                         errorHandler: nil) else { return 0 }
+                                         errorHandler: { _, _ in sawError = true; return false })
+        else { return nil }
         var files = 0
         for case let url as URL in walker {
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if !isDir && !url.lastPathComponent.hasPrefix(".") { files += 1 }
         }
-        return files
+        return sawError ? nil : files
+    }
+
+    /// The audit digest for one moved file — bounded, and never a download trigger. A dataless
+    /// (cloud-only) placeholder is skipped before any byte is read, because opening one forces
+    /// the provider to fetch the whole file mid-landing — a multi-GB stall between the ledger
+    /// write and the finalize, exactly the window where a force-quit mints the
+    /// "never finished recording" record. Files over `cap` are skipped too (streamed hashing
+    /// still holds the landing for their full read), and the digest is audit-only — nothing
+    /// verifies it — so nil loses a nicety, not a safety.
+    nonisolated static func restructureDigest(atPath path: String, size: Int?,
+                                              cap: Int = 64 << 20) -> String? {
+        guard !MaterializationStatus.isCloudOnly(atPath: path) else { return nil }
+        if let size, size > cap { return nil }
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        var hasher = Insecure.MD5()
+        while let chunk = try? handle.read(upToCount: 4 << 20), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     nonisolated static func directoryNames(at path: String, fm: FileManaging) -> [String] {
@@ -690,10 +741,13 @@ extension FileSyncManager {
                 do {
                     // Bytes and digest are recorded NOW, from the disk (invariant 5) — before
                     // the move, while the source path is still the one the manifest names.
+                    // (The re-probe window above is real but bounded: a file APPEARING at the
+                    // destination between the probe and the move is replaced by `safeMoveItem`,
+                    // which trashes the old copy and logs — recoverable, never silent.)
                     let attributes = try? fm.attributesOfItem(atPath: srcPath)
                     performed.bytes = attributes?[.size] as? Int
-                    performed.md5 = (try? Data(contentsOf: URL(fileURLWithPath: srcPath)))
-                        .map { Insecure.MD5.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
+                    performed.md5 = FileSyncManager.restructureDigest(atPath: srcPath,
+                                                                      size: performed.bytes)
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: destination, fileManager: fm)
                     out.filesMoved += 1
@@ -737,7 +791,11 @@ extension FileSyncManager {
                     out.skipped.append("\(src)/ is already gone")
                     continue
                 }
-                let files = FileSyncManager.visibleFileCount(atPath: path, fm: fm)
+                guard let files = FileSyncManager.visibleFileCount(atPath: path, fm: fm) else {
+                    out.skipped.append("\(src)/ could not be fully read — kept; a folder "
+                        + "whose contents the walk cannot see is never treated as empty")
+                    continue
+                }
                 guard files == 0 else {
                     out.skipped.append("\(src)/ still holds \(files) file(s) — "
                         + "kept; no file is ever deleted")

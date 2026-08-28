@@ -2662,7 +2662,12 @@ public struct LensWorkspaceView: View {
     /// `skipped` stay scan-level facts: they describe what the scan did, not what the query kept.
     private func duplicatesSummary(_ groups: [DuplicateGroup]) -> some View {
         let reclaimable = groups.filter { $0.isRecommendedForBatch }.reduce(0) { $0 + $1.reclaimableBytes }
-        let needsReview = groups.filter { $0.matchType.kind == .nameOnly }.count
+        // Scan-level, NOT the filtered rows, exactly as the doc above promises: this pill is
+        // the name-only filter's TOGGLE, and counted over the filtered rows it vanished the
+        // moment a menu filter (Versions, Same text) excluded the name-only groups — taking
+        // the way into the filter with it.
+        let needsReview = syncManager.duplicateGroups.filter { $0.matchType.kind == .nameOnly }
+            .count
         return Group {
             duplicateScanRootChip
             // §12: the pill reading a count IS the control that narrows to it. `groups` selects
@@ -2727,6 +2732,11 @@ public struct LensWorkspaceView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        // The selected state otherwise lives only in a 1.5pt ring and the neighbours' dimming —
+        // invisible to VoiceOver, which heard two identical "button"s with no way to tell
+        // whether (or by which) the list is narrowed.
+        .accessibilityAddTraits(isSelected && target != .all ? [.isSelected] : [])
+        .accessibilityHint(help)
     }
 
     /// The risky-names pills, over the rows on screen.
@@ -3262,8 +3272,12 @@ public struct LensWorkspaceView: View {
                 undoneAt: record.undoneAt,
                 undoSummary: record.undoSummary,
                 canUndo: record.manifest.manifestId == undoableId,
+                // Disk-probed, like `scaffoldedSubjects`: `emptiedFolders(of:)` is a pure
+                // function of the manifest, so on its own the button would outlive its own
+                // landing forever — reopening a sheet of "already removed" rows over a
+                // permanently disabled button.
                 hasEmptiedFolders: record.undoneAt == nil && record.summary != nil
-                    && !RestructureLedger.emptiedFolders(of: record.manifest).isEmpty)
+                    && anyEmptiedFolderStillStands(of: record.manifest))
         }
     }
 
@@ -3290,6 +3304,26 @@ public struct LensWorkspaceView: View {
         return subjects
     }
 
+    /// The plan sheet's disk root. `FolderProfile.root` is stored tilde-abbreviated (the
+    /// survey's `recordedRoot` folds home to `"~"`), and `URL(fileURLWithPath:)` does NOT
+    /// expand tildes — it resolves them relative to cwd. Every other consumer of the root in
+    /// this file expands inline; this is the sheet's one spelling, pinned by test.
+    static func planDiskRoot(_ root: String) -> URL {
+        URL(fileURLWithPath: (root as NSString).expandingTildeInPath)
+    }
+
+    /// Whether any folder this landing emptied still stands on disk — the removal button's
+    /// licence. Bounded like `scaffoldedSubjects`: a handful of `fileExists` probes per
+    /// applied card.
+    private func anyEmptiedFolderStillStands(of manifest: RestructureManifest) -> Bool {
+        guard let root = syncManager.filingFolderProfile?.root else { return false }
+        let expanded = (root as NSString).expandingTildeInPath
+        return RestructureLedger.emptiedFolders(of: manifest).contains { path in
+            FileManager.default.fileExists(
+                atPath: (expanded as NSString).appendingPathComponent(path))
+        }
+    }
+
     /// Opens the removal sheet on one landing's emptied folders, re-probed at this moment — a
     /// folder that gained a file since the landing shows as "no longer empty" rather than
     /// silently vanishing from the list.
@@ -3303,10 +3337,13 @@ public struct LensWorkspaceView: View {
             // Recursive on purpose, matching the engine's own remove guard: a drained folder
             // whose only remainder is an equally drained subfolder is still "empty" here, or the
             // shallowest-only candidate list strands both forever behind "no longer empty".
-            let isEmptyNow = FileManager.default.fileExists(atPath: absolute)
+            let exists = FileManager.default.fileExists(atPath: absolute)
+            // nil (the walk could not see everything) reads as NOT empty — the engine's rule.
+            let isEmptyNow = exists
                 && FileSyncManager.visibleFileCount(atPath: absolute,
                                                     fm: FileManager.default) == 0
-            return RestructureRemovalSheet.Candidate(path: path, isStillEmpty: isEmptyNow)
+            return RestructureRemovalSheet.Candidate(path: path, isStillEmpty: isEmptyNow,
+                                                     exists: exists)
         }
         removalRequest = RemovalRequest(manifestId: manifestId,
                                         family: record.manifest.family,
@@ -3316,8 +3353,9 @@ public struct LensWorkspaceView: View {
     /// The removal landing itself: its own manifest through the same eight-step apply, so it gets
     /// the ledger, ⌘Z, the re-derive and the log line like any landing. Returns the refusal, or
     /// nil on success.
-    private func removeEmptied(_ paths: [String], for request: RemovalRequest) async -> String? {
-        guard !paths.isEmpty else { return "Nothing is ticked." }
+    private func removeEmptied(_ paths: [String], for request: RemovalRequest) async
+        -> RestructureRemovalSheet.RemovalResult {
+        guard !paths.isEmpty else { return .refused("Nothing is ticked.") }
         let stamp = RestructurePlanSheet.nowStamp()
         let manifest = RestructureManifest(
             profileId: syncManager.filingProfileDirectoryId
@@ -3334,15 +3372,13 @@ public struct LensWorkspaceView: View {
                     evidence: "Emptied by \(request.manifestId) and still empty when ticked.")
             })
         let outcome = await syncManager.applyPlan(manifest)
-        if let refusal = outcome.refusal { return refusal }
-        // A survey-refresh failure after a SUCCESSFUL trashing must not replace the outcome:
-        // the folders are in the Trash whether or not profiles.json rewrote, and a sentence
-        // that only names the failure reads as "nothing happened" over a sheet whose button
-        // has gone dead. Compose, the way the plan sheet's applied summary does.
-        if let failure = outcome.surveyRefreshFailure {
-            return "Moved to the Trash — but " + failure
-        }
-        return nil
+        if let refusal = outcome.refusal { return .refused(refusal) }
+        // Landed — the folders are in the Trash whether or not profiles.json rewrote. A
+        // survey-refresh failure rides as the CAVEAT, typed, so the sheet can both retire its
+        // button (the landing happened) and print the sentence; the old String? contract
+        // carried it through the refusal channel, which left the button armed over
+        // already-trashed rows.
+        return .landed(caveat: outcome.surveyRefreshFailure)
     }
 
     /// §5.4's plan sheet, modal over the lens. The tree view is disk-backed — a plan is derived
@@ -3357,14 +3393,21 @@ public struct LensWorkspaceView: View {
                 // Every member, both drop paths included — drift is the part that most needs
                 // housing, and the mapping is applied to all of them.
                 members: finding.schemes.flatMap(\.members) + finding.drift + finding.shapeless,
-                tree: .fromDisk(root: URL(fileURLWithPath: profile.root)),
+                // `planDiskRoot`, not a bare URL: `profile.root` is stored tilde-abbreviated
+                // ("~/Documents"), and `URL(fileURLWithPath:)` resolves that relative to cwd —
+                // on every real profile the sheet's tree view read a path that does not exist,
+                // every listing came back nil, and Plan… derived nothing with a misleading
+                // "Every row is keep" refusal. Memoized because the sheet re-derives the whole
+                // manifest per edit; one presentation reads each directory once.
+                tree: .fromDisk(root: Self.planDiskRoot(profile.root)).memoized(),
                 // The folder the artifacts were read FROM, not the field inside them — the
                 // field decodes to "default" when a hand-built profile omits it, and every
                 // store and the scaffold already key on the directory id for that reason.
                 profileId: syncManager.filingProfileDirectoryId ?? profile.profileId,
                 accent: glassHue.accentColor,
                 initialRows: store.draft(for: key)?.manifest.mapping,
-                onExport: { manifest in
+                initialVocabulary: store.draft(for: key)?.vocabulary,
+                onExport: { manifest, vocabulary in
                     // The file first, then the draft: the export is reviewable even when the
                     // store is refusing writes, and the draft is what makes §5.7's Planned
                     // state survive a quit.
@@ -3372,7 +3415,8 @@ public struct LensWorkspaceView: View {
                         let name = try store.exportPlan(manifest)
                         store.saveDraft(.init(manifest: manifest,
                                               savedAt: manifest.createdAt,
-                                              exportedTo: name), for: key)
+                                              exportedTo: name,
+                                              vocabulary: vocabulary), for: key)
                         return .saved(filename: name)
                     } catch {
                         return .failed("The plan could not be written beside the profile: "

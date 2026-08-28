@@ -178,6 +178,10 @@ import Testing
         // `Export plan…` is the platform convention and cannot eat a key from the lens below.
         "RestructurePlanSheet.swift":
             "modal sheet: Export plan… carries .defaultAction beside Cancel",
+        // §5.5's removal sheet, the same modal convention: Escape on Cancel cannot eat a key
+        // from the lens below a `.sheet`.
+        "RestructureRemovalSheet.swift":
+            "modal sheet: Cancel carries .cancelAction so Escape dismisses",
     ]
 
     /// Is this file part of `FileExplorer`'s shipped source tree — at ANY depth under it?

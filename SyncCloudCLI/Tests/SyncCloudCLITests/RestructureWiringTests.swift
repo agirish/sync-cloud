@@ -7,10 +7,12 @@ import ArgumentParser
 @Suite struct RestructureWiringTests {
 
     @Test func restructureIsARegisteredSubcommand() throws {
-        let command = try SyncCloudCommand.parseAsRoot(["restructure", "--help"])
-        // --help throws CleanExit before returning a command, so reaching here at all would be
-        // a parse failure; the throw is the pass.
-        _ = command
+        // Assert the parsed TYPE, not merely that parsing succeeds: `--help` parses fine (as a
+        // HelpCommand) whether or not the subcommand is registered, and a bare `restructure`
+        // could someday parse as a default subcommand's positional — either way a deleted
+        // registration stayed green. `is Restructure` is the claim.
+        let parsed = try SyncCloudCommand.parseAsRoot(["restructure"])
+        #expect(parsed is Restructure)
     }
 
     @Test func theDocumentedSpellingsParse() throws {

@@ -76,13 +76,21 @@ import Foundation
 /// profile that was active when it was made, and a manifest rename that re-keys every section that
 /// named the old path while leaving a sibling that merely shares a name prefix alone.
 @MainActor
-@Suite struct RestructureStoreTests {
+@Suite final class RestructureStoreTests {
+
+    // A class suite so `deinit` can sweep what each test created — the struct version leaked
+    // one fixture directory per test per run into the temp dir, standing debris on the
+    // self-hosted runner. Swift Testing instantiates one suite per test, so the sweep runs
+    // right after each test finishes.
+    private var scratch: [URL] = []
+    deinit { for dir in scratch { try? FileManager.default.removeItem(at: dir) } }
 
     private func makeDirectory() throws -> URL {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("restructure-store-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
                                                 withIntermediateDirectories: true)
+        scratch.append(dir)
         return dir
     }
 
@@ -298,11 +306,15 @@ import Foundation
         let key = RestructureKey(kind: .shape, path: "Finance/US/Income Tax")
         let record = RestructureStore.DraftRecord(
             manifest: Self.draftManifest(), savedAt: "2026-08-28T10:00:00",
-            exportedTo: "restructure-2026-08-28-Finance-US-Income Tax.json")
+            exportedTo: "restructure-2026-08-28-Finance-US-Income Tax.json",
+            // The picker vocabulary, UNUSED names included — what lets a reopened draft offer
+            // the same choices instead of only the targets its rows happen to use.
+            vocabulary: ["Forms", "Payments", "Correspondence"])
         RestructureStore(directory: dir, profileId: "p").saveDraft(record, for: key)
 
         let reread = RestructureStore(directory: dir, profileId: "p")
         #expect(reread.draft(for: key) == record)
+        #expect(reread.draft(for: key)?.vocabulary == ["Forms", "Payments", "Correspondence"])
         reread.removeDraft(for: key)
         #expect(RestructureStore(directory: dir, profileId: "p").draft(for: key) == nil)
     }
@@ -368,13 +380,19 @@ import Foundation
 /// The store under imperfect input and colliding history — every one of these used to trap
 /// (`Dictionary(uniqueKeysWithValues:)`) or silently lie (a swallowed ledger write).
 @MainActor
-@Suite struct RestructureStoreRobustnessTests {
+@Suite final class RestructureStoreRobustnessTests {
+
+    // Class + deinit for the same reason as `RestructureStoreTests`: each test's fixture
+    // directory is swept the moment its suite instance goes away.
+    private var scratch: [URL] = []
+    deinit { for dir in scratch { try? FileManager.default.removeItem(at: dir) } }
 
     private func makeDirectory() throws -> URL {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("restructure-robust-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
                                                 withIntermediateDirectories: true)
+        scratch.append(dir)
         return dir
     }
 

@@ -103,10 +103,56 @@ import Testing
                 .init(path: "Finance/US/Income Tax/2013/2013", isStillEmpty: true),
                 .init(path: "Finance/US/Income Tax/2016/Payment", isStillEmpty: false),
             ],
-            accent: .blue, onRemove: { _ in nil }, onClose: {})
+            accent: .blue, onRemove: { _ in .landed(caveat: nil) }, onClose: {})
         let hosting = NSHostingView(rootView: sheet.frame(width: 480, height: 400))
         hosting.frame = NSRect(x: 0, y: 0, width: 480, height: 400)
         hosting.layoutSubtreeIfNeeded()
         #expect(hosting.fittingSize.width > 0)
+    }
+
+    // MARK: The plan sheet's disk root
+
+    /// `FolderProfile.root` is stored tilde-abbreviated, and `URL(fileURLWithPath:)` does NOT
+    /// expand tildes — on every real profile the sheet's tree view read `<cwd>/~/Documents`,
+    /// every listing came back nil, and Plan… derived nothing. This is the one spelling the
+    /// sheet's wiring goes through, pinned.
+    @Test func thePlanDiskRootExpandsTheTilde() {
+        #expect(LensWorkspaceView.planDiskRoot("~/Documents").path
+                    == NSHomeDirectory() + "/Documents")
+        #expect(LensWorkspaceView.planDiskRoot("~").path == NSHomeDirectory())
+        #expect(LensWorkspaceView.planDiskRoot("/tmp/absolute").path == "/tmp/absolute",
+                "an already-absolute root passes through untouched")
+    }
+
+    /// The CALL SITE, pinned by source scan — the helper test above stays green if the sheet's
+    /// wiring reverts to the bare `URL(fileURLWithPath: profile.root)` that shipped the bug
+    /// (a tilde root resolved against cwd, so every real profile derived nothing).
+    @Test func thePlanSheetWiringGoesThroughPlanDiskRoot() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // FileExplorer (tests)
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // Modules/FileExplorer
+            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        #expect(text.contains(".fromDisk(root: Self.planDiskRoot(profile.root)).memoized()"),
+                "the sheet's tree must go through the expanding, memoizing spelling")
+        #expect(!text.contains("fromDisk(root: URL(fileURLWithPath: profile.root)"),
+                "the bare spelling is the shipped bug — a tilde root resolves against cwd")
+    }
+
+    // MARK: The stamp, written and read across the module boundary
+
+    /// The ledger cards parse `AppliedRecord.at` back into words, and the writer lives in Sync
+    /// — every phrase test above feeds the parser literal strings, which stays green while the
+    /// two spellings drift. This one round-trips a stamp the REAL writer produced: if the
+    /// writer ever gains fractional seconds or a zone suffix, the phrase falls back to the raw
+    /// machine stamp and this fails.
+    @Test func theLedgerStampRoundTripsThroughTheSharedWriter() {
+        let instant = Date(timeIntervalSince1970: 1_756_400_000)
+        let stamp = FilingArtifactStamp.string(from: instant)
+        let phrase = RestructureLens.landingPhrase(stamp, now: instant)
+        #expect(phrase.hasPrefix("today at "),
+                "a stamp written now must read as words, not as \(stamp)")
+        #expect(!phrase.contains("T"), "the raw-stamp fallback leaks the literal T")
     }
 }

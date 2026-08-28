@@ -96,6 +96,40 @@ public struct RestructureTreeView {
             fileCount: { entries($0)?.files.count })
     }
 
+    /// The same view with every listing read once and remembered. The plan sheet re-derives the
+    /// whole manifest on each edit, and a disk-backed view re-listed every mapped source and
+    /// target directory per keystroke in the name field; a plan is re-probed at apply anyway,
+    /// so mid-sheet disk changes were never something the derivation promised to see. The cache
+    /// lives as long as this view value does — one sheet presentation.
+    public func memoized() -> RestructureTreeView {
+        final class Cache {
+            var folders: [String: [String]?] = [:]
+            var files: [String: [String]?] = [:]
+            var counts: [String: Int?] = [:]
+        }
+        let cache = Cache()
+        let base = self
+        return RestructureTreeView(
+            childFolders: { path in
+                if let hit = cache.folders[path] { return hit }
+                let value = base.childFolders(path)
+                cache.folders[path] = value
+                return value
+            },
+            files: { path in
+                if let hit = cache.files[path] { return hit }
+                let value = base.files(path)
+                cache.files[path] = value
+                return value
+            },
+            fileCount: { path in
+                if let hit = cache.counts[path] { return hit }
+                let value = base.fileCount(path)
+                cache.counts[path] = value
+                return value
+            })
+    }
+
     /// The view a profile can give: structure and counts, no file names.
     public static func fromProfile(_ profile: FolderProfile) -> RestructureTreeView {
         var children: [String: [String]] = [:]
@@ -143,6 +177,10 @@ public enum RestructurePlanner {
         case nothingMapped
         /// A merge needs the files inside `source` and the view cannot name them.
         case unknownFiles(source: String)
+        /// The mapping lists one source name on two rows — a shape only a hand-built or
+        /// imported mapping can produce (the sheet seeds one row per distinct name), and the
+        /// rows may disagree, so neither is safe to prefer.
+        case duplicateMappingRows(source: String)
         /// A vacancy cycle runs through a multi-source group — a mapping this contorted needs a
         /// person, not a heuristic.
         case unresolvableOrder(member: String)
@@ -253,7 +291,16 @@ public enum RestructurePlanner {
         -> Result<[RestructureManifest.Action], PlanRefusal> {
         let children = view.childFolders(memberPath) ?? []
         let childSet = Set(children)
-        let rowBySource = Dictionary(uniqueKeysWithValues: mapping.rows.map { ($0.source, $0) })
+        // One row per source is the mapping's shape, but `RestructureMapping` is public and does
+        // not enforce it — the sheet seeds one row per distinct name, while a hand-built or
+        // imported mapping can repeat one. Imperfect input gets a refusal, never a trap.
+        var rowBySource: [String: RestructureMapping.Row] = [:]
+        for row in mapping.rows {
+            guard rowBySource[row.source] == nil else {
+                return .failure(.duplicateMappingRows(source: row.source))
+            }
+            rowBySource[row.source] = row
+        }
 
         // The active rows this member can act on.
         let active = mapping.activeRows.filter { childSet.contains($0.source) }
@@ -369,6 +416,13 @@ public enum RestructurePlanner {
         var tempFinal: [RestructureManifest.Action] = []
         var vacatedNames: Set<String> = []
         var actions: [RestructureManifest.Action] = []
+        // What remains of each DRAINED source — keyed by its path. A standing target that is
+        // itself an earlier group's merge source (the drain-before-fill ordering guarantees the
+        // drain ran first) must be read as the drain left it, not as the plan-time disk: its
+        // files are gone (so no false collisions) and its whole-carried subfolders are gone
+        // (so a later arrival with the same name lands whole instead of merging into nothing),
+        // while a merged subfolder's SHELL remains and still occupies its name.
+        var residues: [String: LandedContents] = [:]
 
         func emit(_ group: Group) -> PlanRefusal? {
             let targetPath = (memberPath as NSString).appendingPathComponent(group.target)
@@ -387,13 +441,29 @@ public enum RestructurePlanner {
                     filesCarried: view.fileCount(sourcePath) ?? 0))
                 vacatedNames.insert(chosen)
             }
+            // What the target holds as each merge source lands: the standing folder's contents,
+            // or — when the chosen rename is what creates the target — the rename's own payload,
+            // growing with every landing. Plan-time reads of the target alone were blind to
+            // both, so the plan promised whole-folder carries whose destination its own rename
+            // had just filled, and every one of them skipped at apply as "appeared since the
+            // plan" — the reviewed plan could not land as reviewed.
+            let chosenPath = chosen.map { (memberPath as NSString).appendingPathComponent($0) }
+            var landed: LandedContents
+            if group.destExists {
+                landed = residues[targetPath] ?? LandedContents(of: targetPath, in: view)
+            } else {
+                landed = LandedContents(of: chosenPath, in: view)
+            }
             for source in group.sources where source != chosen {
                 let sourcePath = (memberPath as NSString).appendingPathComponent(source)
+                var residue = LandedContents(of: nil, in: view)
                 if let refusal = emitMerge(of: sourcePath, sourceName: source,
                                            into: targetPath, targetName: group.target,
-                                           in: view, actions: &actions) {
+                                           in: view, landed: &landed, residue: &residue,
+                                           actions: &actions) {
                     return refusal
                 }
+                residues[sourcePath] = residue
             }
             return nil
         }
@@ -457,20 +527,58 @@ public enum RestructurePlanner {
         return .success(actions)
     }
 
+    /// What the merge target holds at the moment a source lands — the plan's own running model
+    /// of the destination, so a later source's derivation sees the chosen rename's payload and
+    /// every earlier source's landings, not just the plan-time disk.
+    private struct LandedContents {
+        var files: Set<String>
+        /// Occupied subfolder name → the plan-time path whose contents landed under it (the
+        /// standing target's own subfolder, the chosen rename's, or an earlier source's carried
+        /// folder). Presence is the occupancy test; the path is where a one-level-down merge
+        /// reads that occupant's contents from.
+        var subfolderOrigins: [String: String]
+        /// The running state of subfolders a one-level-down merge has already written into,
+        /// so two sources merging into the same occupied subfolder see each other's files.
+        var merged: [String: LandedSubfolder]
+
+        init(of path: String?, in view: RestructureTreeView) {
+            guard let path else {
+                files = []; subfolderOrigins = [:]; merged = [:]
+                return
+            }
+            files = Set(view.files(path) ?? [])
+            subfolderOrigins = Dictionary(uniqueKeysWithValues:
+                (view.childFolders(path) ?? []).map {
+                    ($0, (path as NSString).appendingPathComponent($0))
+                })
+            merged = [:]
+        }
+    }
+
+    /// `LandedContents` one level down — a separate flat type because the merge stops there
+    /// (deeper same-name pairs are `keep`), so it needs no origins of its own.
+    private struct LandedSubfolder {
+        var files: Set<String>
+        var subfolders: Set<String>
+    }
+
     /// One source folder merged into the target: `move-file` per file, `move-dir` per subfolder,
     /// one level of same-name subfolder recursion, `keep` beyond that. Never a `move-dir` of the
-    /// source onto the target.
+    /// source onto the target. `landed` is the group's running model of the target — collisions
+    /// and occupancy are judged against it, not against the plan-time disk alone. `residue`
+    /// accumulates what remains of the SOURCE after the drain (merged subfolders leave shells;
+    /// everything else leaves), for a later group whose standing target this source is.
     private static func emitMerge(of sourcePath: String, sourceName: String,
                                   into targetPath: String, targetName: String,
                                   in view: RestructureTreeView,
-                                  actions: inout [RestructureManifest.Action],
-                                  depth: Int = 0) -> PlanRefusal? {
+                                  landed: inout LandedContents,
+                                  residue: inout LandedContents,
+                                  actions: inout [RestructureManifest.Action]) -> PlanRefusal? {
         guard let files = view.files(sourcePath) else {
             return .unknownFiles(source: sourcePath)
         }
-        let targetFiles = view.files(targetPath).map(Set.init)
         for file in files.sorted() {
-            let collision = targetFiles?.contains(file) == true
+            let collision = landed.files.contains(file)
             actions.append(RestructureManifest.Action(
                 action: .moveFile,
                 src: (sourcePath as NSString).appendingPathComponent(file),
@@ -478,28 +586,63 @@ public enum RestructurePlanner {
                 evidence: "Merging \(sourceName)/ into \(targetName)/ — the mapping sends both "
                     + "names to one folder.",
                 collisionExpected: collision ? true : nil))
+            landed.files.insert(file)
         }
-        let targetSubfolders = Set(view.childFolders(targetPath) ?? [])
         for subfolder in (view.childFolders(sourcePath) ?? []).sorted() {
             let subSource = (sourcePath as NSString).appendingPathComponent(subfolder)
             let subTarget = (targetPath as NSString).appendingPathComponent(subfolder)
-            if !targetSubfolders.contains(subfolder) {
+            if let origin = landed.subfolderOrigins[subfolder] {
+                // One level down by the same rules (§5.4's collision policy for subfolders),
+                // against the occupant's contents wherever they stand at plan time, plus
+                // whatever earlier sources already merged into it.
+                var sub = landed.merged[subfolder] ?? LandedSubfolder(
+                    files: Set(view.files(origin) ?? []),
+                    subfolders: Set(view.childFolders(origin) ?? []))
+                guard let subFiles = view.files(subSource) else {
+                    return .unknownFiles(source: subSource)
+                }
+                var keptDeeper: Set<String> = []
+                for file in subFiles.sorted() {
+                    let collision = sub.files.contains(file)
+                    actions.append(RestructureManifest.Action(
+                        action: .moveFile,
+                        src: (subSource as NSString).appendingPathComponent(file),
+                        dst: (subTarget as NSString).appendingPathComponent(file),
+                        evidence: "Merging \(subfolder)/ into \(subfolder)/ — the mapping "
+                            + "sends both names to one folder.",
+                        collisionExpected: collision ? true : nil))
+                    sub.files.insert(file)
+                }
+                for deeper in (view.childFolders(subSource) ?? []).sorted() {
+                    let deepSource = (subSource as NSString).appendingPathComponent(deeper)
+                    if !sub.subfolders.contains(deeper) {
+                        actions.append(RestructureManifest.Action(
+                            action: .moveDir, src: deepSource,
+                            dst: (subTarget as NSString).appendingPathComponent(deeper),
+                            evidence: "Carried whole into \(subfolder)/ — the target has no "
+                                + "\(deeper)/ of its own."))
+                        sub.subfolders.insert(deeper)
+                    } else {
+                        actions.append(RestructureManifest.Action(
+                            action: .keep, src: deepSource,
+                            evidence: "Both sides have \(deeper)/ two levels down — deeper "
+                                + "than the merge reaches, so it is kept and reported rather "
+                                + "than guessed at."))
+                        keptDeeper.insert(deeper)
+                    }
+                }
+                landed.merged[subfolder] = sub
+                // The merge moved this subfolder's files but the DIRECTORY remains — a shell
+                // at the source, still occupying its name (a later whole-carry to it would
+                // skip at apply), holding only the deeper folders the merge kept.
+                residue.subfolderOrigins[subfolder] = subSource
+                residue.merged[subfolder] = LandedSubfolder(files: [], subfolders: keptDeeper)
+            } else {
                 actions.append(RestructureManifest.Action(
                     action: .moveDir, src: subSource, dst: subTarget,
                     evidence: "Carried whole into \(targetName)/ — the target has no "
                         + "\(subfolder)/ of its own."))
-            } else if depth == 0 {
-                // One level down by the same rules (§5.4's collision policy for subfolders).
-                if let refusal = emitMerge(of: subSource, sourceName: subfolder,
-                                           into: subTarget, targetName: subfolder,
-                                           in: view, actions: &actions, depth: 1) {
-                    return refusal
-                }
-            } else {
-                actions.append(RestructureManifest.Action(
-                    action: .keep, src: subSource,
-                    evidence: "Both sides have \(subfolder)/ two levels down — deeper than the "
-                        + "merge reaches, so it is kept and reported rather than guessed at."))
+                landed.subfolderOrigins[subfolder] = subSource
             }
         }
         return nil

@@ -235,6 +235,13 @@ import Testing
                 "Thread.sleep(forTimeInterval: 0.005)",                   // brief: a scheduling nudge
             ],
             "ProgressAccountingTests.swift": ["if gate.wait(timeout: .now() + 10) == .timedOut {"],
+            // GateFileManager parks the landing's OPERATION-QUEUE thread (never the pool: the
+            // gate refuses main, and the executor runs via enqueueFileOperation), and the
+            // test-side wait is bounded and runs on DispatchQueue.global(), which overcommits.
+            "RestructureApplyGuardTests.swift": [
+                "if first { entered.signal(); release.wait() }",
+                "done.resume(returning: gate.entered.wait(timeout: .now() + 10) == .success)",
+            ],
             "MergeUndoPromiseTests.swift": ["if release.wait(timeout: .now() + 10) == .timedOut {"],
             "BulkSyncCancellationAndReservationTests.swift": [
                 "if barrier.wait(timeout: .now() + 30) == .timedOut { recordTimeout() }",

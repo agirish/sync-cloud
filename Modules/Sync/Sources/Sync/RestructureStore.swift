@@ -71,11 +71,19 @@ public final class RestructureStore: ObservableObject {
         /// The file `Export plan…` wrote, relative to the profile folder — nil for a draft that
         /// was saved without exporting.
         public var exportedTo: String?
+        /// The sheet's full picker vocabulary when the draft was saved — the chosen scheme's
+        /// names plus any typed ones, INCLUDING names no row currently uses. Without it a
+        /// reopened draft could only rebuild the vocabulary from the rows' targets, so every
+        /// unused choice vanished and "reopens the plan as it was left" was false. Optional:
+        /// a draft saved by an earlier build reopens with the rows' targets alone, as before.
+        public var vocabulary: [String]?
 
-        public init(manifest: RestructureManifest, savedAt: String, exportedTo: String? = nil) {
+        public init(manifest: RestructureManifest, savedAt: String, exportedTo: String? = nil,
+                    vocabulary: [String]? = nil) {
             self.manifest = manifest
             self.savedAt = savedAt
             self.exportedTo = exportedTo
+            self.vocabulary = vocabulary
         }
     }
 
@@ -146,8 +154,10 @@ public final class RestructureStore: ObservableObject {
     let profileId: String
     private let fileManager: FileManager
 
-    /// Top-level keys in the file this build does not model — §5.4's `drafts`, §5.5's `applied`
-    /// until they land, and anything hand-added — carried across every save untouched.
+    /// Top-level keys in the file this build does not model — a future build's sections, and
+    /// anything hand-added — carried across every save untouched. (All four planned sections
+    /// are modelled now; this is what let `drafts` and `applied` arrive without a migration,
+    /// and what lets the next section do the same.)
     private var carriedKeys: [String: Any] = [:]
 
     /// `restructure.json` for the active profile.
@@ -223,8 +233,12 @@ public final class RestructureStore: ObservableObject {
     /// in a text editor with nothing at risk (§5.4 step 5). Returns the file name it chose.
     ///
     /// This is a NEW file, not `restructure.json`, so it is written even when the store itself is
-    /// refusing writes — the refusal protects the one file this build could not read, and an
-    /// export overwrites nothing but an earlier export of the same plan on the same day.
+    /// refusing writes — the refusal protects the one file this build could not read. The name
+    /// is date + family, so a SAME-DAY re-export for the family replaces the earlier file even
+    /// when the plan was edited in between — deliberate: the newest reviewed plan is the one
+    /// worth keeping, and two same-day files differing only in a suffix would leave a reader
+    /// guessing which one was reviewed last. (An older draft's `exportedTo` can therefore name
+    /// a file whose content is the newer plan.)
     @discardableResult
     public func exportPlan(_ manifest: RestructureManifest) throws -> String {
         let date = manifest.createdAt.prefix(while: { $0 != "T" })
@@ -239,7 +253,8 @@ public final class RestructureStore: ObservableObject {
         // One greppable line, the scaffold's discipline: the export is an act a later reader
         // may need to date and locate without the app open.
         Logger.shared.info("Restructure plan exported — \(name): "
-                           + "\(manifest.actions.count) action(s) for \(manifest.family)")
+                           + "\(manifest.actions.count) action(s) for \(manifest.family), "
+                           + "beside profile \(profileId)")
         return name
     }
 
@@ -257,7 +272,15 @@ public final class RestructureStore: ObservableObject {
     @discardableResult
     public func recordApplied(_ record: AppliedRecord) -> Bool {
         applied.append(record)
-        return save()
+        guard save() else {
+            // The record never reached the disk, so it must not survive in memory either: the
+            // caller refuses the landing on `false`, and a phantom in-memory entry would make
+            // the RETRY refuse too — through the lands-once guard, with a sentence claiming a
+            // landing that never happened.
+            applied.removeLast()
+            return false
+        }
+        return true
     }
 
     /// §5.5's undo chain, in one spelling — the ONE landing *Undo this reorganisation* may run,
@@ -304,7 +327,7 @@ public final class RestructureStore: ObservableObject {
     /// `A/BB` names a different folder. Applied sequentially because a manifest's operations are
     /// ordered (a folder is vacated before its name is filled, §5.4), so a later rename may
     /// legitimately act on the product of an earlier one.
-    public func rekey(renames: [(from: String, to: String)]) {
+    public func rekey(renames: [(from: String, to: String)], context: String? = nil) {
         guard !renames.isEmpty else { return }
         var newSuppressed = suppressed
         var newAnswers = answers
@@ -324,7 +347,8 @@ public final class RestructureStore: ObservableObject {
         suppressed = newSuppressed
         answers = newAnswers
         drafts = newDrafts
-        Logger.shared.info("Restructure: store rekeyed through \(renames.count) rename(s)")
+        Logger.shared.info("Restructure: store rekeyed through \(renames.count) rename(s)"
+            + (context.map { " after \($0)" } ?? ""))
         save()
     }
 

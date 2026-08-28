@@ -98,4 +98,24 @@ import Testing
         #expect(manager.duplicateScanCoversSurvey,
                 "the previous results stay covered while their replacement runs")
     }
+
+    /// A cap block is the BUDGET saying no, not the person declining: the over-cap dialog
+    /// offers no proceed button, so its `false` must land in `.unavailable` (whose sentence
+    /// names the caps), never in `.declined` ("their choice, not a failure" — a choice they
+    /// never made).
+    @Test func aCapBlockIsTheBudgetSayingNoNotADecline() async {
+        let calls = Calls()
+        let manager = makeManager(route: "cloud:claude", calls: calls)
+        manager.filingContentDefaults.set(0.000_000_1,
+                                          forKey: FileSyncManager.monthlyBudgetCapKey)
+        var seen: FilingSpendPreflight?
+        manager.filingCloudSpendConfirmer = { preflight in
+            seen = preflight
+            return false   // the blocked dialog's only button
+        }
+        let outcome = await manager.refineMapping(Self.request)
+        #expect(seen?.wouldExceedCap == true, "the fixture must actually be over the cap")
+        #expect(outcome == .unavailable)
+        #expect(calls.refined == 0)
+    }
 }

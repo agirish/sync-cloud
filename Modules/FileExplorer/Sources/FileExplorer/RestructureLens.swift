@@ -398,6 +398,9 @@ struct RestructureLens: View {
                         .scaledFont(.system(size: 10, weight: .semibold))
                         .buttonStyle(.plain)
                         .foregroundStyle(accent)
+                        // Every row in the crowding list says "Reveal" — VoiceOver needs each
+                        // to name where it goes.
+                        .accessibilityLabel("Reveal \(path)")
                         .chromeHover()
                 }
                 .padding(.vertical, 2)

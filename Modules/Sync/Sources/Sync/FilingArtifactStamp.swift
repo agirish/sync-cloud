@@ -15,7 +15,7 @@ import Foundation
 ///
 /// The format itself is frozen by the offline Python builder, whose output these files have to stay
 /// interchangeable with: local time, no zone suffix, seconds resolution.
-enum FilingArtifactStamp {
+public enum FilingArtifactStamp {
 
     /// `date` as the artifacts write it — `2026-08-16T09:41:07`.
     ///
@@ -23,7 +23,12 @@ enum FilingArtifactStamp {
     /// the offline builder stamps local time and these files are read by the person whose machine
     /// made them. The caller injects the instant rather than this reading a clock —
     /// `docs/flaky-tests.md` mechanism 5.
-    static func string(from date: Date) -> String {
+    ///
+    /// Public because the READERS live across a module boundary: FileExplorer's ledger cards
+    /// parse `AppliedRecord.at` back into words, and their agreement test has to round-trip a
+    /// stamp this writer actually produced — feeding the parser literal strings would leave it
+    /// green while the two spellings drift, the exact failure this type exists to prevent.
+    public static func string(from date: Date) -> String {
         formatter.string(from: date)
     }
 

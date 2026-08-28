@@ -20,6 +20,11 @@ struct RestructurePlanSheet: View {
     let accent: Color
     /// A saved draft's rows, so *Review N operations* reopens the plan as it was left.
     var initialRows: [RestructureMapping.Row]?
+    /// The saved draft's full picker vocabulary — names the last session could choose from,
+    /// including ones no row uses. Without it a reopened draft rebuilt the vocabulary from the
+    /// rows' targets alone, so every unused choice vanished and "reopens the plan as it was
+    /// left" was false. nil (an older draft, or no draft) falls back to the rows' targets.
+    var initialVocabulary: [String]?
     /// Writes the export file and saves the draft. The success case carries the file name the
     /// STORE chose — the footer used to re-derive it from the same recipe, which is two copies
     /// of a name that must match, and the copy in the store is the one on disk.
@@ -27,7 +32,9 @@ struct RestructurePlanSheet: View {
         case saved(filename: String)
         case failed(String)
     }
-    let onExport: (RestructureManifest) -> ExportResult
+    /// Writes the file and the draft; the vocabulary rides along so the draft can reopen with
+    /// the same choices on its pickers.
+    let onExport: (RestructureManifest, _ vocabulary: [String]) -> ExportResult
     /// §5.5's landing: runs the eight-step apply and returns its outcome sentence — the summary
     /// on success (prefixed so the sheet can tell), or the refusal. nil while Apply is not
     /// offered, which hides the button rather than promising a landing that cannot run.
@@ -112,9 +119,16 @@ struct RestructurePlanSheet: View {
         if let initialRows {
             // The draft's rows, reconciled against the sources as they stand now: a source that
             // appeared since the draft gets a fresh keep row; one that vanished drops off.
-            let saved = Dictionary(uniqueKeysWithValues: initialRows.map { ($0.source, $0) })
+            let saved = Dictionary(initialRows.map { ($0.source, $0) },
+                                   uniquingKeysWith: { first, _ in first })
             rows = sources.map { saved[$0] ?? RestructureMapping.Row(source: $0) }
-            vocabulary = orderedTargets(of: rows)
+            // The draft's saved vocabulary first (unused choices included), then any target a
+            // row uses that it somehow lacks — a picker must always offer the row's own value.
+            var restored = initialVocabulary ?? []
+            for target in orderedTargets(of: rows) where !restored.contains(target) {
+                restored.append(target)
+            }
+            vocabulary = restored
         } else {
             // Default keep on every row — the editor never guesses a mapping (§5.4 step 3).
             rows = sources.map { RestructureMapping.Row(source: $0) }
@@ -220,6 +234,8 @@ struct RestructurePlanSheet: View {
             }
         }
         .buttonStyle(.plain)
+        // The chosen state otherwise lives only in an SF-symbol swap — invisible to VoiceOver.
+        .accessibilityAddTraits(chosenScheme == index ? [.isSelected] : [])
     }
 
     private func addCustomName() {
@@ -372,6 +388,10 @@ struct RestructurePlanSheet: View {
                     if let accepted = acceptedTarget(of: proposal),
                        rows.first(where: { $0.source == proposal.source })?.target != accepted {
                         Button("Accept") { accept(proposal) }
+                            // Every proposal row says "Accept" — VoiceOver needs each to name
+                            // WHICH proposal it lands.
+                            .accessibilityLabel(
+                                "Accept for \(proposal.source): \(Self.proposalLine(proposal))")
                             .scaledFont(.system(size: 10.5, weight: .semibold))
                             .buttonStyle(.plain)
                             .foregroundStyle(accent)
@@ -531,8 +551,15 @@ struct RestructurePlanSheet: View {
                 EmptyView()
             }
             Spacer()
-            Button(outcome == nil ? "Cancel" : "Done") { onClose() }
+            // "Done" only after a LANDING — an exported plan or a refusal both close as
+            // "Cancel"-shaped acts (nothing on disk moved). Held while an apply or a paid
+            // refine is in flight: a "Cancel" clicked mid-apply reads as *abort*, but the
+            // eight-step landing keeps running, and a refusal (or the paid proposals) would
+            // land in a torn-down view with no banner to catch it.
+            Button(isApplied ? "Done" : "Cancel") { onClose() }
                 .scaledFont(.system(size: 11))
+                .keyboardShortcut(.cancelAction)
+                .disabled(applying || refining)
             // Export keeps ⏎ — the safe act stays the default one; landing a plan is a plain
             // deliberate click, styled as the destructive act it is.
             // Disabled once applied, like Apply itself: an export saves a draft, and a draft
@@ -583,7 +610,7 @@ struct RestructurePlanSheet: View {
     private func exportPlan(
         _ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>) {
         guard let manifest = try? plan.get() else { return }
-        switch onExport(manifest) {
+        switch onExport(manifest, vocabulary) {
         case .saved(let filename): outcome = .exported(filename)
         case .failed(let failure): outcome = .failed(failure)
         }
@@ -744,6 +771,9 @@ struct RestructurePlanSheet: View {
                 + "capitalisation — the volume cannot hold both. Map \(standing) to \(target) "
                 + "to step its case up, reuse its spelling — or, if this plan moves "
                 + "\(standing) elsewhere, land that change on its own first."
+        case .duplicateMappingRows(let source):
+            return "The mapping lists \(source) on two rows, and the rows may disagree — one "
+                + "row per name. Remove the duplicate and try again."
         }
     }
 

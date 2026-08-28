@@ -539,4 +539,165 @@ private struct FakeTree {
         #expect(sources.contains("Payment") && sources.contains("Payments"))
         #expect(sources.contains("Forms") && sources.contains("Tax Returns"))
     }
+
+    // MARK: - The target as the plan itself fills it
+
+    /// A merge source's derivation must see what the group's own earlier actions put at the
+    /// target. Here the target is CREATED by the chosen rename, whose payload includes a
+    /// `Receipts/` subfolder and a `same.pdf` — plan-time reads of the absent target saw
+    /// neither, so the plan emitted a whole-folder `move-dir` for the sibling's `Receipts/`
+    /// (which could only skip at apply as "appeared since the plan") and promised `same.pdf`
+    /// collision-free.
+    @Test func aRenameCreatedTargetsPayloadCountsAsLanded() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/2023": ["same.pdf", "only-2023.pdf"],
+            "F/2016/2023/Receipts": ["r1.pdf"],
+            "F/2016/2024": ["same.pdf"],
+            "F/2016/2024/Receipts": ["r2.pdf"],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "2023", target: "Archive"),
+                .init(source: "2024", target: "Archive"),
+            ]), in: tree.view)
+        // 2023 (more files) is the chosen rename; 2024 merges into what it lands.
+        #expect(manifest.actions.first?.action == .renameDir)
+        #expect(manifest.actions.first?.src == "F/2016/2023")
+        #expect(!manifest.actions.contains {
+            $0.action == .moveDir && $0.src == "F/2016/2024/Receipts"
+        }, "the rename already landed a Receipts/ — carrying the sibling's whole would skip")
+        #expect(manifest.actions.contains {
+            $0.action == .moveFile && $0.src == "F/2016/2024/Receipts/r2.pdf"
+                && $0.dst == "F/2016/Archive/Receipts/r2.pdf"
+        }, "the occupied subfolder merges one level down instead")
+        let same = manifest.actions.first { $0.src == "F/2016/2024/same.pdf" }
+        #expect(same?.collisionExpected == true,
+                "the rename's payload holds a same.pdf — the collision is predictable NOW")
+    }
+
+    /// Two merge sources sharing a subfolder name the standing target lacks: the first carries
+    /// it whole, and the SECOND must merge into what the first landed — a second `move-dir` to
+    /// the same destination could only skip at apply.
+    @Test func twoSourcesSharingASubfolderLandOnceThenMergeInto() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/Keep": ["k.pdf"],
+            "F/2016/Alpha": [],
+            "F/2016/Alpha/Receipts": ["a.pdf"],
+            "F/2016/Beta": [],
+            "F/2016/Beta/Receipts": ["b.pdf", "a.pdf"],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "Alpha", target: "Keep"),
+                .init(source: "Beta", target: "Keep"),
+            ]), in: tree.view)
+        let wholeCarries = manifest.actions.filter {
+            $0.action == .moveDir && $0.dst == "F/2016/Keep/Receipts"
+        }
+        #expect(wholeCarries.count == 1, "the name is occupied after the first landing")
+        #expect(wholeCarries.first?.src == "F/2016/Alpha/Receipts")
+        #expect(manifest.actions.contains {
+            $0.action == .moveFile && $0.src == "F/2016/Beta/Receipts/b.pdf"
+                && $0.dst == "F/2016/Keep/Receipts/b.pdf"
+        })
+        let collided = manifest.actions.first { $0.src == "F/2016/Beta/Receipts/a.pdf" }
+        #expect(collided?.collisionExpected == true,
+                "Alpha's landing already put an a.pdf there — the second source sees it")
+    }
+
+    /// A mapping that lists one source twice is refused, never trapped on —
+    /// `Dictionary(uniqueKeysWithValues:)` used to fatalError here, and `RestructureMapping`
+    /// is public input that nothing forces to be unique.
+    @Test func aDuplicateMappingRowRefusesInsteadOfTrapping() {
+        let tree = FakeTree(files: ["F": [], "F/2016": [], "F/2016/A": ["a.pdf"]])
+        let result = RestructurePlanner.manifest(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "A", target: "X"),
+                .init(source: "A", target: "Y"),
+            ]), kind: .shape, in: tree.view,
+            profileId: "p", manifestId: "m1", createdAt: "2026-08-28T00:00:00")
+        #expect(throws: RestructurePlanner.PlanRefusal.duplicateMappingRows(source: "A")) {
+            try result.get()
+        }
+    }
+
+    /// A standing target that an EARLIER group drains must be read as the drain left it, not
+    /// as the plan-time disk: `X → T1` empties `X`, so `A → X` merges into an empty folder —
+    /// no false collisions against files that just left, and a subfolder `X` carried whole to
+    /// `T1` no longer occupies its name, so `A`'s same-named subfolder lands whole.
+    @Test func aDrainedStandingTargetIsReadAsTheDrainLeftIt() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/T1": [],
+            "F/2016/X": ["shared.pdf"],
+            "F/2016/X/S": ["s1.pdf"],
+            "F/2016/A": ["shared.pdf"],
+            "F/2016/A/S": ["s2.pdf"],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "X", target: "T1"),
+                .init(source: "A", target: "X"),
+            ]), in: tree.view)
+        let aShared = manifest.actions.first { $0.src == "F/2016/A/shared.pdf" }
+        #expect(aShared?.collisionExpected == nil,
+                "X's shared.pdf left for T1 before A arrived — predicting a collision is false")
+        #expect(manifest.actions.contains {
+            $0.action == .moveDir && $0.src == "F/2016/A/S" && $0.dst == "F/2016/X/S"
+        }, "X/S was carried whole to T1/S, so A/S lands whole — a one-level merge into a gone folder could only skip")
+    }
+
+    /// The half of the drain that LEAVES something: a subfolder merged one level down (because
+    /// the drain's own target already had it) leaves its SHELL at the source, which still
+    /// occupies its name — a later arrival with the same name merges into the shell, against
+    /// its post-drain (empty) contents.
+    @Test func aMergedAwaySubfoldersShellStillOccupiesItsName() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/T1": [],
+            "F/2016/T1/S": ["t1s.pdf"],
+            "F/2016/X": [],
+            "F/2016/X/S": ["s1.pdf"],
+            "F/2016/A": [],
+            "F/2016/A/S": ["s1.pdf", "s3.pdf"],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "X", target: "T1"),
+                .init(source: "A", target: "X"),
+            ]), in: tree.view)
+        // X/S merged into T1/S (T1 already had one), so X/S remains as a SHELL: A/S must not
+        // be carried whole onto it, and its files merge against the shell's EMPTY contents —
+        // X/S's own s1.pdf left for T1/S, so A's s1.pdf is no collision.
+        #expect(!manifest.actions.contains {
+            $0.action == .moveDir && $0.src == "F/2016/A/S"
+        }, "the shell occupies the name — a whole-carry onto it could only skip at apply")
+        let aS1 = manifest.actions.first { $0.src == "F/2016/A/S/s1.pdf" }
+        #expect(aS1?.dst == "F/2016/X/S/s1.pdf")
+        #expect(aS1?.collisionExpected == nil,
+                "the shell is empty — its s1.pdf left with the drain")
+    }
+
+    /// `memoized()` reads each listing once, however often the derivation re-asks — the plan
+    /// sheet re-derives per keystroke, and a disk-backed view re-listed every directory each
+    /// time.
+    @Test func aMemoizedViewReadsEachListingOnce() {
+        var reads = 0
+        let counting = RestructureTreeView(
+            childFolders: { _ in reads += 1; return [] },
+            files: { _ in reads += 1; return ["f.pdf"] },
+            fileCount: { _ in reads += 1; return 1 })
+        let memo = counting.memoized()
+        _ = memo.files("a"); _ = memo.files("a"); _ = memo.files("a")
+        _ = memo.childFolders("a"); _ = memo.childFolders("a")
+        _ = memo.fileCount("a"); _ = memo.fileCount("a")
+        #expect(reads == 3, "one read per closure per path, not per call")
+    }
 }
