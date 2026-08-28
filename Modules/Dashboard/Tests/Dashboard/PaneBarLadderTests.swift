@@ -797,6 +797,22 @@ import Design
     ///   its width is a function of the pane and not of the font — which is the ladder's own
     ///   degradation working, visible here as an absence.
     ///
+    /// **Sizing the source chip as a control moved every row again, and again moved NOTHING in the
+    /// bar.** The paragraph above records the name at `.callout`; it is `SourceChip.font` — `.body`
+    /// — now, one step above the trail, and the chip also gained a mark, padding and a disclosure
+    /// indicator. That table was re-recorded without this note, so read the numbers here and not
+    /// that paragraph's for the current state:
+    ///
+    /// - **All sixteen rows' bar rings are byte-identical** — same x, same size, same count. Every
+    ///   bar still starts at x 17.
+    /// - **The whole bar rose** 2pt at the 0.9 text size (471 → 469) and 3pt at 1.0 (470 → 467),
+    ///   the header's height being pinned.
+    /// - **The crumbs behind the chip moved RIGHT by the width it gained** — 22pt for `iCloud
+    ///   Drive`, 32pt for `longName` from 490pt up.
+    /// - **FOUR rows' crumbs did not move**: all three 250pt rows and `longName @ 410`. At those
+    ///   widths the chip is truncated to the track available rather than sized by its content. The
+    ///   commit that made this change said three; there are three 250pt rows in this table, not two.
+    ///
     /// One golden row, as data rather than a string to be re-parsed.
     ///
     /// The keys used to be `"columns-icloud|0.9|250"`, split apart and force-unwrapped at read time.
