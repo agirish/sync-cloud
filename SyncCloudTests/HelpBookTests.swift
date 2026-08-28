@@ -290,6 +290,72 @@ import Testing
         }
     }
 
+    // MARK: - Restructure, since it grew a surface that writes
+
+    /// Restructure's four articles exist, and all four stay in the Organize section.
+    ///
+    /// ``everyOrganizeSectionHasAnArticle`` maps each rail item to **one** topic, so it is
+    /// satisfied by `restructure-shapes` alone — the three articles v5.0 added, for planning,
+    /// applying and scaffolding, are invisible to it. They are also the only articles in the book
+    /// about a surface that moves the reader's files, which is where a silent deletion would cost
+    /// the most.
+    @Test func restructureIsDocumentedInFourArticles() {
+        for id in ["restructure-shapes", "restructure-plan", "restructure-apply",
+                   "restructure-scaffold"] {
+            guard let topic = HelpBook.topic(id: id) else {
+                Issue.record("“\(id)” is gone — Restructure's help has lost an article")
+                continue
+            }
+            #expect(HelpBook.sectionTitle(forTopicID: id) == "Organize",
+                    "“\(topic.title)” has left the Organize section")
+        }
+    }
+
+    /// **Help may not call Restructure read-only while Apply exists.**
+    ///
+    /// Until v5.0 the lens only reported, and the book said so — `staying-safe` carried
+    /// *"Restructure cannot change a file at all"* and `organize-workspace` carried *"it reports;
+    /// it never rewrites"*. Apply shipped, and both became promises about the reader's data that
+    /// the app no longer keeps. **Nothing failed:** the sentences are grammatical, they name a
+    /// real section, and every other guard in this file reads structure rather than claims.
+    ///
+    /// So the ban is tied to the code that decides it. While `applyPlan` is in `Sync`, no article
+    /// may tell anyone Restructure leaves the tree alone; if Apply is ever taken out, the anchor
+    /// fails first and the ban is reconsidered rather than quietly outliving its reason.
+    @Test func noArticleCallsRestructureReadOnly() throws {
+        let sync = macAppDirectory().deletingLastPathComponent()
+            .appendingPathComponent("Modules/Sync/Sources/Sync")
+        let apply = try #require(
+            try? String(contentsOf: sync.appendingPathComponent("FileSyncManager+RestructureApply.swift"),
+                        encoding: .utf8),
+            "cannot read the Apply source — the ban below would rest on nothing")
+        try #require(apply.contains("func applyPlan("),
+                     "applyPlan is gone from Sync — the claims banned below may be true again")
+
+        for phrase in ["never rewrites", "cannot change a file", "it never acts"] {
+            let hits = HelpBook.filteredSections(matching: phrase).flatMap(\.topics).map(\.id)
+            #expect(hits.isEmpty,
+                    "Help still says “\(phrase)” about a section that now writes: \(hits)")
+        }
+    }
+
+    /// The two undos stay two, and stay distinguishable.
+    ///
+    /// ⌘Z and *Undo this reorganisation* are different mechanisms, and the app's own tooltip says
+    /// so — one is a grouped undo living in memory for the session, the other replays a reversal
+    /// kept on disk. A book that teaches only the first tells people a reorganisation stops being
+    /// reversible when they quit, which is the opposite of what v5.0 built; one that teaches only
+    /// the second loses the single keystroke that takes a landing straight back.
+    @Test func bothOfRestructuresUndosAreTaught() throws {
+        let topic = try #require(HelpBook.topic(id: "restructure-apply"))
+        let words = Self.copy(of: topic).joined(separator: " ")
+        #expect(words.contains("⌘Z"), "the session undo is no longer taught")
+        #expect(words.lowercased().contains("undo this reorganisation"),
+                "the ledger undo is no longer taught by name")
+        #expect(words.contains("survives quitting") || words.contains("survives a quit"),
+                "nothing says the ledger undo outlives the session — the whole difference between the two")
+    }
+
     /// The positive control for the walk above: a section name Organize does not have finds
     /// nothing, so the copy half is matching titles rather than matching everything.
     @Test func theOrganizeSectionScanCanActuallyFail() {

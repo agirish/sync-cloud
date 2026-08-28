@@ -131,7 +131,7 @@ enum HelpBook {
                         "People — anyone else whose documents live in your folders. SyncCloud proposes the names it found — a folder sitting directly under one that says what its children are, like a person's folder under Family — and each chip carries the folder that vouches for it. Nothing is ticked to begin with, and you can type a name that has no folder at all.",
                         "Folders — the tree SyncCloud learns from, and the places it found in that tree. Pick a root, confirm which of the proposed place names are real, and press the button: the walk reads folder names only, so it takes seconds. Nothing is ticked here either — handed only the names you confirm, the same code is right about all of them.",
                     ]),
-                    .paragraph("What that last step writes is the folder profile: the record of how your tree is shaped. It is what lets Organize propose a destination for a loose file and a better name for a badly named one, and it takes effect straight away — no relaunch."),
+                    .paragraph("What that last step writes is the folder survey: the record of how your tree is shaped. It is what lets Organize propose a destination for a loose file and a better name for a badly named one, and it is the only thing Restructure reads — without it that section has nothing to compare. It takes effect straight away, with no relaunch, and Restructure can re-read the tree at any time."),
                     .paragraph("Nothing here is locked in. Every answer has a home in Settings — Sources, People and Organize — and setup is a faster way to give them all at once rather than the only way."),
                     .tip("It all happens on this Mac. The one thing that can reach a third party is Organize's optional Refine pass, which asks Claude about a scan's results, is off until you turn it on in Settings ▸ Intelligence, and never runs on its own."),
                 ],
@@ -161,7 +161,7 @@ enum HelpBook {
                         "Each tab keeps its own folder, and its selection, search and Back history for as long as the app is open. With “Reopen panes where I left off” on — it is on by default — the tabs you leave open come back the next time you launch. ⇧⌘] and ⇧⌘[ step between them; ⌘W closes one, and closes the window on the last.",
                         "Drag a tab along the strip to reorder it. Right-click one to pin it: a pinned tab sits at the front, keeps its place when the strip runs out of room, survives “Close Other Tabs”, and drops its ✕ so a stray click can't take it.",
                         "⌘F searches the tree you're browsing; ⌘K opens Go to, which reaches anywhere the app can go by name.",
-                        "Right-click a folder for “Organize This Folder…” or “Check This Folder’s Shape”, or a file for “Find Duplicates of This” — each lands in the matching Organize section. “Organize This Folder…” and “Find Duplicates of This” also sit in the Organize menu, aimed at whatever the focused pane has selected, with “Undo This Reorganisation” at the bottom for the last landing Restructure applied; “Check This Folder’s Shape” lives in the row menu and ⌘K.",
+                        "Right-click a folder for “Organize This Folder…”, “Check This Folder’s Shape”, “Plan This Folder’s Shape…” or “Set Up Like Its Siblings”, or a file for “Find Duplicates of This” — each lands in the matching Organize section. Most of them are in the Organize menu as well, aimed at whatever the focused pane has selected, with “Undo This Reorganisation” at the bottom for the last landing Restructure applied. “Check This Folder’s Shape” is the one that lives in the row menu and ⌘K instead.",
                         "The rest of a row's right-click menu is in the File menu for the same reason — Open in New Tab, Quick Look, Reveal in Finder, Rename, Copy to… and Move to… all act on the focused pane's selection, so none of them needs you to find the right row to right-click first. Rename also answers to ↩ with a row selected, the way it does in Finder; the menu item carries no key because a bare ↩ registered there would take the Return that commits every sheet in the app.",
                     ]),
                     .tip("Browse and Compare's left pane share the same spot, so switching over keeps you in the folder you were just browsing — tabs and all. To aim Organize at a folder, use “Organize This Folder…” from its right-click menu."),
@@ -310,11 +310,13 @@ enum HelpBook {
                         "⌘Z undoes the last operation; ⇧⌘Z redoes it.",
                         "Undoing a move restores the file to where it came from.",
                         "A removal offers an undo only when all of it reached the Trash. If even one item in the batch had to be destroyed outright, no undo is offered at all — rather than one that would restore part of it and leave the rest gone without saying so.",
+                        "A Restructure landing is one ⌘Z for the whole thing, however many folders it touched.",
                         "The Activity Log records every operation with a timestamp.",
                     ]),
+                    .paragraph("Restructure's landings have a second undo of their own, and the difference matters. ⌘Z lives in memory and is gone when you quit; “Undo this reorganisation” replays a reversal kept on disk, so it still works tomorrow. It runs through the same guards as the landing did, it can partly fail on a file that has moved on since — which it names rather than glossing over — and only the newest landing can be taken back."),
                     .tip("Undo won't overwrite a file that changed in the meantime — it refuses rather than clobber your newer copy."),
                 ],
-                related: ["staying-safe", "activity-log", "sync-history"]
+                related: ["staying-safe", "activity-log", "sync-history", "restructure-apply"]
             )),
         ]),
         Section(title: "Organize", topics: [
@@ -325,11 +327,12 @@ enum HelpBook {
                         "To File — loose files, and where each one belongs.",
                         "Duplicates — identical content under different names or folders.",
                         "Renames — names worth changing: ones that won't store cleanly, files that ignore their folder's convention, and files whose numbering has drifted.",
-                        "Restructure — families of sibling folders that were set up differently at different times. It reports; it never rewrites.",
+                        "Restructure — families of sibling folders that were set up differently at different times. It finds them, derives a plan you review operation by operation, and can carry it out — keeping the way back on disk.",
                         "Rules — say once where a kind of file belongs, so To File stops asking the same question every time one turns up.",
                     ]),
                     .paragraph("A rail item is always there, whatever the counts are. The badge beside it is not: it appears when there is something to see and is absent at zero rather than showing one. So an empty section is a place you can legitimately stand — it says nothing here rather than vanishing from under you."),
-                    .paragraph("There is an Organize menu in the menu bar too: the five sections at the top, ticked so it says which one is on screen, then the verbs that act on a pane's selection — Organize This Folder…, Find Duplicates of This, Fix Name…, and Always Allow This Name — and, below them, Undo This Reorganisation, which needs no selection: it takes back the newest reorganisation Restructure applied, from the ledger, even after a quit. The selection verbs act on one item, so with two things selected they're greyed out. ⌘3 reaches the workspace they all live in; none of the items takes a chord of its own."),
+                    .paragraph("The overview in front of the five sections raises one thing on its own. When a new year's folder turns up holding files and no folders, it says so in a line with a Set up… beside it — the month it happens, rather than whenever you next open Restructure. Dismiss it and it stays gone until the year turns again."),
+                    .paragraph("There is an Organize menu in the menu bar too. The five sections are at the top, ticked so it says which one is on screen. Under them come the verbs that aim a section at whatever the focused pane has selected — Organize This Folder…, Find Duplicates of This, Plan This Folder’s Shape… and Set Up Like Its Siblings — then the two about a name, Fix Name… and Always Allow This Name, which appear only for a name SyncCloud would rewrite. Undo This Reorganisation sits alone at the bottom, and is the one item there that needs no selection: it takes back the newest reorganisation Restructure applied, from a record on disk, even after a quit. Everything above it acts on one thing, so selecting two rows greys them out, and the two that need a finding are greyed out when the folder you have selected has none. ⌘3 reaches the workspace they all live in; none of the items takes a chord of its own."),
                     .tip("Right-click a folder in any pane and choose “Organize This Folder…” to point Organize at it. The section then answers about the folder you aimed it at, rather than wherever Organize happened to be."),
                 ],
                 related: ["file-loose-items", "tidy-duplicates", "fix-names", "restructure-shapes", "automation-rules"]
@@ -338,14 +341,15 @@ enum HelpBook {
                 intro: "Organize's To File section suggests a home for the files sitting loose in a folder and can move them there — reusing the folders you already keep, and proposing a new one only when it's sure.",
                 blocks: [
                     .bullets([
-                        "SyncCloud reads your folder layout — the profile setup learned — and proposes where each loose file belongs.",
+                        "SyncCloud reads your folder layout — the survey setup learned — and proposes where each loose file belongs.",
                         "On-device content signals handle files whose name says nothing on its own.",
                         "Accept a suggestion to move the file. For a pattern you will meet again, say it once as a rule in Organize ▸ Rules.",
                         "Ask for a specific folder from a pane: right-click it and choose “Organize This Folder…”.",
+                        "Restructure hands work here rather than growing its own. A year's worth of files parked above the year folders, and the files left loose after a new year has been given its shape, both arrive as To File scoped to that one folder — the same evidence and the same undo as anything else here.",
                     ]),
                     .tip("Nothing moves without your say-so, and every move is undoable. Which engines run is up to you — see Settings ▸ Intelligence."),
                 ],
-                related: ["organize-workspace", "automation-rules", "intelligence", "people"]
+                related: ["organize-workspace", "automation-rules", "intelligence", "restructure-scaffold"]
             )),
             Topic(id: "tidy-duplicates", title: "Clear out duplicates", systemImage: "doc.on.doc", article: Article(
                 intro: "Duplicates scans one folder's tree for content that repeats under different names or in different places, and offers to trash the extra copies — keeping the best one.",
@@ -354,9 +358,11 @@ enum HelpBook {
                         "Scan the folder you're standing on from Organize ▸ Duplicates, or right-click a file and choose “Find Duplicates of This”.",
                         "SyncCloud picks a keeper — shortest path, cleanest name — and marks the rest.",
                         "Filter the groups by how they match: Identical, Same text, Overlapping, Name only, or Versions.",
+                        "The counts above the list are that filter too, not decoration beside it. Clicking “groups” is the way back to everything, and “need review” shows only the same-name-different-contents groups. The reclaimable figure describes the whole scan rather than a subset of the rows, so it is plain text and deliberately not clickable — a header that answers some clicks and not others is worse than one that never invited them.",
+                        "A badge marks the exception, not the rule. Most groups are byte-identical, so they wear none and their line simply reads “byte-for-byte”. “Same text” is the badge worth having: copies whose bytes differ, which no byte-for-byte check could have matched.",
                         "Review the groups, then move the extras to the Trash.",
                     ]),
-                    .paragraph("What counts as a duplicate is yours to set. Settings ▸ Duplicates turns on version detection — Report, Report (1), Report-final as one family — and reading PDFs to find copies a byte-for-byte hash would miss."),
+                    .paragraph("What counts as a duplicate is yours to set. Settings ▸ Duplicates turns on version detection — Report, Report (1), Report-final as one family — and reading PDFs to find copies a byte-for-byte hash would miss. That same content reading is what lets Restructure notice two whole branches holding the same documents under different names."),
                     .tip("The last remaining copy of a file is never trashed, and removed files go to the Trash — never a hard delete."),
                 ],
                 related: ["organize-workspace", "staying-safe", "storage-lens"]
@@ -375,19 +381,94 @@ enum HelpBook {
                 ],
                 related: ["organize-workspace", "undo-redo", "providers"]
             )),
-            Topic(id: "restructure-shapes", title: "Compare folder shapes", systemImage: "square.stack.3d.up", article: Article(
-                intro: "Restructure finds families of sibling folders that were set up differently at different times — the same kind of folder, organized four ways — and names the disagreement.",
+            Topic(id: "restructure-shapes", title: "What Restructure finds", systemImage: "square.stack.3d.up", article: Article(
+                intro: "Restructure is the section that looks at whole families of folders rather than one file at a time: siblings set up differently at different times, a year that never got its folders, two spellings of one name. It names what it saw and says what fixing it would cost, and nothing changes until you apply a plan.",
+                blocks: [
+                    .paragraph("It compares sibling families across the whole surveyed tree, not inside the one folder you happen to be standing in. A finding carries the family, what it found, and the class of change that would fix it — so you can tell a rename from a merge before any sheet opens. Once a plan is drafted the card drops the general sentence for the actual numbers: how many folders would be renamed, how many merged, and how many files would move."),
+                    .bullets([
+                        "Shape — a family whose siblings are organised more than one way: “17 folders, 3 internal shapes”. Each way is listed with the siblings that vouch for it and the subfolders they agree on. Renames or merges folders.",
+                        "Series — the newest member of a year run holds files and no folders yet. Creates the folders its siblings expect; see “Set up a new year”.",
+                        "Year in name — a folder like IRS Docs - 2023 sitting beside bare-year siblings. A rename, or a merge where that year already exists beside it.",
+                        "Echo — two names for one thing: a child restating its parent, or Form W-2 sitting beside Form W2. A merge.",
+                        "Mirrored inbox — a folder inside an inbox that mirrors a real destination beside the inbox. A merge into the destination.",
+                        "Loose files — files parked in the parent of a year run that has folders for them. These are per-file judgements, so they hand off to To File rather than growing a plan.",
+                        "Loose folder — a leaf sitting beside the folder that owns its concept. Moves the folder in; its files ride along.",
+                        "Duplicated — two branches holding the same documents under parallel names. It reads the duplicate scan rather than the folder survey, so where no scan has covered a pair it says exactly that instead of calling it clean.",
+                    ]),
+                    .paragraph("Above the findings sit three counts — pass-through folders, single-file folders, and empty ones. Crowding is a property of any real tree rather than a list of defects, so none of them takes a badge and none becomes a card. Each opens its list, grouped by top-level folder once there are more than a few dozen. Only the empty one offers to do anything about it, because only it has a rule anyone could state: “Remove empty folders…” takes the ones you tick to the Trash, with date buckets ticked to begin with and category names left alone. An empty 2019 is debt; an empty Payslips is a destination waiting for its next file."),
+                    .bullets([
+                        "The badge on the rail counts only the findings that can end in a plan — a badge you cannot drive to zero is a badge people stop reading. The “Show N findings” button counts everything the list will show, so the two numbers differ on purpose.",
+                        "Two detectors can both be right about one folder. Their cards sit together, and the second drops the path heading so it reads as a second thing about the same place rather than a repeat.",
+                        "Findings about a folder your scope sits inside are shown too, kept visually subordinate and labelled — under a scope pointed at a leaf they are often the only honest answer there is.",
+                        "Where a family's members are years, a strip across the card shows the eras in order and colours them by shape, so “the last three years all disagree” reads in a glance rather than out of a list. The rows underneath stay, and they are the authority.",
+                        "Children named for a year, a person, a jurisdiction or an inbox are set aside before two siblings are compared. Those recur by design, and counting them as structure would bury the real findings under hundreds of folders doing nothing wrong.",
+                        "A small trend line says how the finding count has moved since the survey started keeping them, with a dot for each landing — the counts the detectors produced, not a score.",
+                    ]),
+                    .paragraph("Restructure reads a survey of your folder names rather than the disk, so it has nothing to say until SyncCloud has learned your tree — setup's Folders step is what writes one. The card says when the tree was last looked at; once that stamp is old enough to matter it says so with a Rescan beside it, and “Update the survey” re-reads the tree at any time. That re-read is the only thing here that makes the answer current: showing the findings costs nothing, because they are already in hand."),
+                    .paragraph("“Nothing is wrong” and “I could not check” never share words here. A clean result names how many folders it checked; a missing survey says it has nothing to read; and the one detector that depends on a duplicate scan says when no scan has reached a pair, rather than calling it clean."),
+                    .tip("Looking is entirely read-only, and so is every count on this screen. Everything that writes goes through a plan you review first — see “Plan a new shape”."),
+                ],
+                related: ["organize-workspace", "restructure-plan", "restructure-scaffold", "setup"]
+            )),
+            Topic(id: "restructure-plan", title: "Plan a new shape", systemImage: "list.bullet.rectangle.portrait", article: Article(
+                intro: "A plan is one mapping — every folder name the family uses, listed once — applied to every member of that family. You answer “what should this be called” once per name instead of moving the files by hand, and every operation is derived from your answers rather than typed.",
+                blocks: [
+                    .paragraph("“Plan…” on a finding opens the sheet. It runs top to bottom, and nothing in it moves a folder."),
+                    .bullets([
+                        "Target shape — the shapes actually in use, each listing the siblings that vouch for it, with the largest group and the most recent marked. Nothing is pre-selected: neither of those is automatically the right answer, and a field under them lets you name the folders yourself instead. Where the newest folders all disagree the sheet says outright that there is no current shape to continue, so choosing one is a decision rather than carrying on.",
+                        "Mapping — one row per distinct name found across the whole family, every row defaulting to “keep”. Point two names at one target and the row says it is a merge, and in how many members. A count says how many rows you have mapped; above about a dozen rows a filter appears, and near-identical names — Payment beside Payments — are sorted next to each other so the choice between them is made in one place.",
+                        "Refine names with Claude — optional and paid, on the names only. It answers row by row against your own mapping, declines where the folder says nothing, and flags a proposal that reverses another. Accepting a row edits your mapping, and the plan is then derived from it exactly as before.",
+                        "Derived operations — one line per operation, each naming the member it happens in and the files it carries, in the order they will run. Above them is the one-line count the footer repeats; beside them, a before-and-after of one member's folders, so the shape is visible and not only listed.",
+                    ]),
+                    .paragraph("The rules that turn a mapping into operations are fixed, and worth knowing, because they decide how much actually moves. A mapping is one level deep: it names a member's direct children, and whatever is inside a folder is carried along. One name to one free target is a rename — a single operation that carries every file inside it, and on a cloud tree it never forces a stored-online file to download. Several names to one target renames the fullest and merges the rest into it. A merge moves the contents in; it never puts one folder inside the other, which would be the opposite of converging."),
+                    .bullets([
+                        "Nothing is dropped to make the shape fit. A folder the target shape has no slot for stays exactly where it is and is listed as kept.",
+                        "Collisions keep both. A file whose name already exists at the destination arrives under a new name and is counted on its own line — never an overwrite, never a deletion.",
+                        "The footer keeps apart the numbers people confuse: folders renamed, files moved by a merge, and files merely carried along by a rename — which move nothing at all. Folders kept, folders created and collisions join them when there are any, and a count of zero stays out of the sentence.",
+                        "“Export plan…” is the safe way to stop, and it does two things. It writes the plan as a dated JSON file beside your survey — readable in any text editor, with nothing at risk — and names the file in the sheet. It also keeps the plan, so the finding card swaps “Plan…” for “Review N operations” and still says so after you quit and come back. Closing the sheet without exporting keeps nothing.",
+                        "Where sibling families share this one's vocabulary the sheet names them, because a shape chosen for one alone can leave the others disagreeing with it. You can plan them together on a single shared mapping — each family's operations are still derived, reviewed and applied separately, since a row that is right for one can be wrong for its sibling.",
+                    ]),
+                    .tip("The only button in this sheet that touches your folders is Apply, and it is styled as the destructive act it is — see “Apply, and take it back”."),
+                ],
+                related: ["restructure-shapes", "restructure-apply", "intelligence", "organize-workspace"]
+            )),
+            Topic(id: "restructure-apply", title: "Apply, and take it back", systemImage: "arrow.uturn.backward.circle", article: Article(
+                intro: "Apply is the only thing in Restructure that writes. It runs the operations you reviewed, and it puts the way back on disk before it starts. The steps tick past as they run, so the reversal is visibly in place before the first folder moves.",
+                blocks: [
+                    .paragraph("What one landing does, in order:"),
+                    .bullets([
+                        "It refuses to start while a scan, a Verify All, or another file operation is running — with a sentence saying so, rather than a queue that would run later without you.",
+                        "The reversal is written to disk first, so a crash halfway still leaves something to undo.",
+                        "Every source and destination is re-probed immediately before its own operation. A folder holding a file the plan never listed is skipped and named, and the rest of the plan still runs. A destination taken since the plan was made gets a new name rather than an overwrite.",
+                        "The result is checked by re-listing every touched folder and counting it a second way, independently of the code that did the work. The card carries the verdict. A mismatch is reported and never rolled back on its own — a checker that says everything is broken is usually the thing that is broken.",
+                        "The survey is re-derived from a fresh walk of the tree. That walk reads folder and file names only, so it takes seconds — and it is why a finding disappears because the tree was re-read, not because something was marked done.",
+                    ]),
+                    .paragraph("The banner afterwards has the same shape whether or not everything ran: what happened, what did not, and what to press. A pass that skipped something never reports the way a clean one does. If the operations landed but the survey could not be refreshed, the card says that in its own words rather than borrowing either the success or the failure sentence."),
+                    .paragraph("Removing folders is a separate, opt-in step, and it only ever removes folders — no file is deleted by Restructure at any stage. “Remove emptied folders…” on an applied card offers the folders that landing itself emptied; the empty count in the crowding strip offers the same sheet for folders that were already empty before you started. Both split the list the same way: date buckets ticked, category names left for you to decide, each path printed in full because there are few enough to read. Everything ticked goes to the Trash."),
+                    .bullets([
+                        "⌘Z takes back the whole landing as one step. It lives in memory, so it is gone once you quit.",
+                        "“Undo this reorganisation” is the other one, and it is not ⌘Z. It replays the reversal kept on disk through the same guards and the same re-probing, points the survey back at the profile the landing started from, and survives quitting. It can partly fail — a file that has moved on since is left where it is and named — and the card says what could not be put back.",
+                        "Only the newest landing can be taken back. Older ones are listed under it, newest first, each saying to undo the newer landing first rather than offering a button that would refuse.",
+                        "Undo This Reorganisation is in the Organize menu too, where it needs no selection at all.",
+                    ]),
+                    .tip("Every landing is written to the Activity Log on one line — what ran, what it counted, what the check said, and which survey it produced. That line is how the truth of an apply is found months later."),
+                ],
+                related: ["restructure-plan", "undo-redo", "staying-safe", "activity-log"]
+            )),
+            Topic(id: "restructure-scaffold", title: "Set up a new year", systemImage: "calendar.badge.plus", article: Article(
+                intro: "Every January a folder turns up with files in it and no structure. “Set up like its siblings” gives it the folders the rest of the series already has — and moves nothing.",
                 blocks: [
                     .bullets([
-                        "It compares sibling families across the surveyed tree, not inside the one folder you happen to be standing in.",
-                        "A finding says something like “these thirteen folders use four different internal shapes”, with the folders listed.",
-                        "Findings about a folder your scope sits inside are shown too, kept visually subordinate — under a scope pointed at a leaf they're often the only honest answer there is.",
-                        "Children named for a year, a person, a jurisdiction or an inbox are set aside before two siblings are compared. Those recur by design, and counting them as structure would bury the real findings under hundreds of folders that are doing nothing wrong.",
+                        "Restructure reports it as a Series finding, listing the folders the family expects and how many of its siblings have each one.",
+                        "“Set up like its siblings” creates exactly those folders and nothing else. No file moves, and ⌘Z removes them again — as long as they are still empty.",
+                        "To File then opens scoped to that folder alone and proposes a home for each loose file, with its usual evidence and its usual undo.",
+                        "A family whose members all disagree offers no button, because there is no shape to copy. The card says so; the loose files still go to To File as they are.",
+                        "Until the survey catches up the card reads “Scaffolded”. “Update the survey now” re-reads the tree, and the finding then resolves itself.",
                     ]),
-                    .paragraph("It reads a folder profile, so it has nothing to say until SyncCloud has learned your tree — setup's Folders step is what writes one, and the section offers to re-learn from the tree as it stands now."),
-                    .tip("Looking is read-only. Acting goes through a plan: choose a target shape, map every name once, and review the derived operations before anything runs — Apply records the landing in a ledger with its inverse, so “Undo This Reorganisation” works even after a quit."),
+                    .paragraph("It is the smallest thing Restructure does and the one you will reach for most often, which is why the Organize overview raises it on its own the month it happens rather than waiting for you to go looking."),
+                    .tip("It is also the safest thing Restructure does: the worst it can leave behind is a few empty folders in the wrong place, and one ⌘Z removes them."),
                 ],
-                related: ["organize-workspace", "setup", "fix-names"]
+                related: ["restructure-shapes", "file-loose-items", "organize-workspace", "undo-redo"]
             )),
             Topic(id: "automation-rules", title: "Rules that run for you", systemImage: "wand.and.stars", article: Article(
                 intro: "Rules is where you say once where a kind of file belongs — “PDFs that mention ‘invoice’ go in Documents/Invoices/{year}” — instead of answering the same question every time one turns up.",
@@ -484,6 +565,7 @@ enum HelpBook {
                         "Reading file contents on-device — more to go on for a file whose name says nothing.",
                         "Refine with Claude — the opt-in second pass. Once a scan has results, a Refine button re-asks Claude about them, billed to an API key you supply and kept in the macOS Keychain.",
                         "“Try another” on a single suggestion is the other route that can spend, asking the better model again about that one file. It has no confirmation of its own, on purpose — a dialog on every card would cost more attention than it saves — so it is the one paid click you make without being asked twice.",
+                        "“Refine names with Claude”, inside a Restructure plan, is the third. It asks about folder names — the one question your tree genuinely cannot answer — and never about the operations, which are derived from the names either way. It sends the folder paths and the candidate names, plus up to five file names per folder if you turn that on, and never a file's contents. It answers row by row against your own mapping, declines where the folder says nothing, and accepting a row edits your mapping rather than the disk.",
                     ]),
                     .paragraph("The cloud pass never runs on its own. You press Refine, and you see a cost estimate to confirm before each one — it is a bulk action, so it is priced before you agree to it. Both routes answer to the same two caps: a monthly one, off by default, and a lifetime cap that ships at $5 as a backstop. Reaching either stands the paid work down and leaves the free on-device suggestions in place, and so does a model this build has no price for — silently on screen for a single card, and in the Activity Log either way."),
                     .tip("A file that hasn't been edited, renamed, or moved keeps the suggestion it already had, so scanning the same folder again doesn't ask the model — or pay for it — a second time."),
@@ -498,7 +580,7 @@ enum HelpBook {
                         "People — everything belonging to someone on your list.",
                         "Folders — anywhere SyncCloud has surveyed, plus recent and pinned folders. Type a path and it will take you there.",
                         "Sources — point the pane at another cloud account or folder.",
-                        "Actions — Rescan, New Folder…, Choose Folder…, Find in Pane…, Settings…, Keyboard Shortcuts, Activity Log.",
+                        "Actions — Rescan, New Folder…, Choose Folder…, Check This Folder’s Shape, Find in Pane…, Settings…, Keyboard Shortcuts, Activity Log.",
                         "Settings — one row per tab, titled “Settings ▸ Appearance”, and matched on the words of the controls on that page rather than on the tab's own name: “glass”, “accent” and “log level” each find the page that carries them. These appear once you type. The empty field answers with where you have been and where you can go, and “Settings…” in Actions is the honest reply there — somebody who has typed nothing has not named a tab.",
                     ]),
                     .paragraph("It answers to your words rather than the menu's: “keys” finds Keyboard Shortcuts, “preferences” finds Settings…, “search” finds Find in Pane…, and “refresh” finds Rescan — not one of which is the item's own name."),
@@ -523,7 +605,7 @@ enum HelpBook {
                         "Space opens Quick Look; ⌥-click a breadcrumb navigates both panes at once.",
                         "⌘X, ⌘C and ⌘V are the file clipboard, and they reach Finder; ⌘A selects the folder the focused pane is in; ↩ renames the selected row.",
                     ]),
-                    .paragraph("The menu bar carries the rest, a menu per place. File holds the folder and tab items, the verbs that act on the selected row, and Delete — its Ignore in Comparison appears only while you are comparing, because ignoring is a statement about a comparison and Browse and Storage have none. Edit holds the file clipboard — Cut, Copy, Paste and Select All — with Find in Pane… under them. Go holds ⌘K and the per-pane Back and Forward. Compare holds the four transfers plus Review and Verify. Organize holds its five sections and its verbs, and View holds the four workspaces and the show/hide switches — View ▸ Hidden Files and View ▸ Info Inspector among them."),
+                    .paragraph("The menu bar carries the rest, a menu per place. File holds the folder and tab items, the verbs that act on the selected row, and Delete — its Ignore in Comparison appears only while you are comparing, because ignoring is a statement about a comparison and Browse and Storage have none. Edit holds the file clipboard — Cut, Copy, Paste and Select All — with Find in Pane… under them. Go holds ⌘K and the per-pane Back and Forward. Compare holds the four transfers plus Review and Verify. Organize holds its five sections, the verbs that aim them at the selected folder, and Undo This Reorganisation, which is the only item there that needs no selection. View holds the four workspaces and the show/hide switches — View ▸ Hidden Files and View ▸ Info Inspector among them."),
                 ],
                 related: ["command-palette", "copy-move", "clipboard"]
             )),
@@ -538,10 +620,12 @@ enum HelpBook {
                         "Some volumes have no Trash — a network share, most often — and there is nowhere to put a file on the way out. SyncCloud says so and asks before removing anything there, naming the files it is about to destroy rather than counting them. That removal is permanent, and no undo is offered for it.",
                         "⌘Z undoes an operation — the permanent removal above is the one exception — and undo refuses to overwrite something that changed underneath it.",
                         "Quitting mid-operation warns you first, so a sync is never left half-done.",
-                        "Organize proposes and never acts: Restructure cannot change a file at all, and every other section asks before it moves, renames, or trashes anything.",
+                        "Organize proposes and never acts on its own. Every section shows what it would do and waits; nothing moves, renames or goes to the Trash without your confirmation.",
+                        "Restructure's plan is the longest reach any of them has, so it carries the most guards: every operation is listed with its reason before you agree to it, re-checked against the disk at the moment it runs, counted afterwards by a second piece of code, and reversible from a record written to disk before the first folder moves.",
+                        "Restructure deletes no files, at any stage. It renames, moves and merges folders; the only removal it offers is empty folders, ticked one at a time, to the Trash.",
                     ]),
                 ],
-                related: ["undo-redo", "activity-log", "intelligence"]
+                related: ["undo-redo", "activity-log", "intelligence", "restructure-apply"]
             )),
             Topic(id: "activity-log", title: "Activity Log and troubleshooting", systemImage: "clock.arrow.circlepath", article: Article(
                 intro: "Every scan and file operation is logged. If something looks off, the Activity Log is where to look — and what to send if you need help.",
@@ -575,10 +659,11 @@ enum HelpBook {
                     .bullets([
                         "SyncCloud ▸ About SyncCloud gives the version and the build number; the foot of the Settings rail carries the version on its own.",
                         "The CLI mirrors the app's scan and sync for the terminal.",
+                        "It also reports structure: synccloud restructure prints what Restructure would find in the surveyed tree, as a summary or as JSON for your own tooling. It is report-only by design — there is no flag that applies a plan, because every guard around Apply is about a person reading the operations first.",
                         minimumSystemRequirement,
                     ]),
                 ],
-                related: ["what-is-synccloud", "activity-log"]
+                related: ["what-is-synccloud", "activity-log", "restructure-shapes"]
             )),
         ]),
     ]
