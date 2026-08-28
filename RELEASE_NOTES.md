@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v4.6 — DRAFT, not released
-
-> **Not released.** This section describes `main` as it stands today and will change before the cut;
-> nothing here is installable yet.
+## v4.6
 
 **A source is the whole account now, not its Documents folder.** Every cloud source was discovered
 one level below where its content actually begins, so anything sitting beside Documents — Teams

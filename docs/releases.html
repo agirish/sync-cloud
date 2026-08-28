@@ -136,8 +136,8 @@
 <div class="timeline">
 
   <!-- v4.5 -->
-  <article class="rel draft">
-    <div class="rel-head"><span class="v">v4.6</span><span class="tag draft">In development</span></div>
+  <article class="rel">
+    <div class="rel-head"><span class="v">v4.6</span><span class="tag latest">Latest</span></div>
     <p class="lede"><b>A source is the whole account now, not its Documents folder.</b> Every cloud source was discovered one level below where its content actually begins, so anything sitting beside Documents &#8212; Teams Recordings, a shared team folder, whatever you keep at the top of the account &#8212; was not reachable in the app at all, and every source&#8217;s breadcrumb started on the same word. The account folder is the root, where a pane <i>opens</i> is a separate setting you can change, and the pane header was rebuilt around the crumb that now names the source. On the v4 line, so it <b>requires macOS 26</b> &#8212; coming from 3.x or 2.x, read the v4.0 entry first.</p>
     <div class="grp">
       <h3>Sources</h3>
@@ -191,11 +191,11 @@
       </ul>
     </div>
     <p class="known"><b>If you go back to v4.5 afterwards.</b> Your Location settings are safe: the old key is read and never rewritten, so an earlier release finds them exactly as it left them. Your stored positions are not &#8212; tabs, pins, recents and saved folders are rebased onto the new roots, and an older build reading them back will not find those folders and will re-root them. Tabs and pins degrade the way they already do for a folder that has gone; a durable ignore entry stops matching, which un-ignores rows rather than hiding extra ones. There is no reverse migration.</p>
-    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v4.5...main">v4.5...main</a></p>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v4.5...v4.6">v4.5...v4.6</a></p>
   </article>
 
   <article class="rel">
-    <div class="rel-head"><span class="v">v4.5</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v4.5</span><span class="tag">Refinement</span></div>
     <p class="lede"><b>Refinement, mostly &#8212; plus one freeze and one thing quietly wrong.</b> A bulk sync on a large comparison locked the window for about eleven seconds at each end, doing nothing in that time but setting a flag. And a file rewritten <i>while it was being hashed</i> could be remembered under a digest belonging to no version of it. Alongside those, &#8220;Text contains&#8221; means one thing on every surface rather than two, the &#8220;None&#8221; accent finally reads as no accent, and the markers saying which workspace and which tab you are in travel instead of blinking. On the v4 line, so it <b>requires macOS 26</b> &#8212; coming from 3.x or 2.x, read the v4.0 entry first.</p>
     <div class="grp">
       <h3>Organize</h3>
