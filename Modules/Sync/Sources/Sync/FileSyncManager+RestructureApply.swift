@@ -127,7 +127,7 @@ extension FileSyncManager {
             for url in execution.createdURLs {
                 registerCreateFolderUndo(url: url)
             }
-            let actionName = "Reorganise \((manifest.family as NSString).lastPathComponent)"
+            let actionName = "Reorganise \(RestructurePaths.familyLabel(manifest.family))"
             if !execution.renameItems.isEmpty {
                 // The renames get their OWN pair, not `registerMoveUndo`: that path records a
                 // shallow identity (child count AND the folder's mtime) at registration, and this

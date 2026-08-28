@@ -130,6 +130,10 @@ struct RestructureLens: View {
     var onUndoReorganisation: ((String) -> Void)?
     /// Opens §5.5's removal sheet, scoped to the folders that record's landing emptied.
     var onRemoveEmptied: ((String) -> Void)?
+    /// Opens the same sheet on §5.2's **pre-existing** empties — the crowding strip's third
+    /// filter, which the roadmap decided gets a Trash route and shipped without one. nil hides
+    /// the button rather than promising a sheet that does not open.
+    var onRemoveStandingEmpties: (() -> Void)?
 
     private var isEmpty: Bool { findings.isEmpty && aboutAncestor.isEmpty }
 
@@ -204,7 +208,7 @@ struct RestructureLens: View {
     private func reorganisationCard(_ record: ReorganisationDisplay) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(record.family)
+                Text(Self.familyHeading(record.family))
                     .scaledFont(.system(size: 12.5, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.head)
@@ -248,6 +252,14 @@ struct RestructureLens: View {
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .lensCard()
+    }
+
+    /// The path a landing's card is headed with. `"."` is the profile's own spelling for the tree
+    /// root, and a removal of empties scattered across the tree has no closer family than that —
+    /// rendering the character itself would head the card with a full stop. `""` reaches the same
+    /// state from the other direction, so both are named.
+    static func familyHeading(_ family: String) -> String {
+        family == "." || family.isEmpty ? "Across the tree" : family
     }
 
     /// The card's sentence — Applied and Undone are different claims and neither borrows the
@@ -380,15 +392,15 @@ struct RestructureLens: View {
                 + "and be a destination waiting for its next file, and nothing in its own shape "
                 + "separates the two."
         case .empty:
-            return "Folders holding nothing at all. Nothing here removes standing empties — a "
-                + "landing's removal sheet only offers folders that landing itself emptied — "
-                + "so housing or removing these is a call to make in Finder."
+            return "Folders holding nothing at all. Open the list to send them to the removal "
+                + "sheet — nothing is deleted; folders go to the Trash."
         }
     }
 
     private func crowdingList(_ weightClass: DeadWeightClass) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(crowdingPaths(weightClass), id: \.self) { path in
+        let paths = crowdingPaths(weightClass)
+        return VStack(alignment: .leading, spacing: 2) {
+            ForEach(paths, id: \.self) { path in
                 HStack(spacing: 8) {
                     Text(path)
                         .scaledFont(.system(size: 10.5, design: .monospaced))
@@ -406,6 +418,21 @@ struct RestructureLens: View {
                 }
                 .padding(.vertical, 2)
                 .padding(.horizontal, 8)
+            }
+            // The empties' Trash route (ROADMAP_V5 §5.2, decided). Only on this class — the
+            // other two are report-only and say so in their own tooltips — and only under the
+            // expanded list, so the paths it would act on are on screen above the button.
+            if weightClass == .empty, !paths.isEmpty, let onRemoveStandingEmpties {
+                Button("Remove empty folders…") { onRemoveStandingEmpties() }
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(accent)
+                    .chromeHover()
+                    .padding(.vertical, 3)
+                    .padding(.horizontal, 8)
+                    .help("Opens the removal sheet on these folders — you tick which ones, "
+                          + "date buckets start ticked, and they go to the Trash as one "
+                          + "undoable landing.")
             }
         }
         .padding(.vertical, 4)

@@ -31,6 +31,12 @@ struct RestructureRemovalSheet: View {
     let family: String
     let candidates: [Candidate]
     let accent: Color
+    /// True when these are §5.2's **pre-existing** empties from the crowding strip rather than
+    /// the folders one landing drained. Only the opening sentence differs — the split, the
+    /// re-probe, the Trash-only rule and the ledger are the same step either way — but that
+    /// sentence is the sheet's whole claim about where the list came from, and the landing's
+    /// wording would be a false one here.
+    var isStanding: Bool = false
 
     /// What one removal landing came back as. A TYPED outcome, not a `String?` refusal, because
     /// "landed, but the survey refresh failed" is a landing — the folders ARE in the Trash —
@@ -88,9 +94,7 @@ struct RestructureRemovalSheet: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Remove emptied folders")
                     .scaledFont(.system(size: 13, weight: .semibold))
-                Text("Only folders this reorganisation itself emptied, and only to the Trash. "
-                     + "Date buckets start ticked — they are debt; an empty category is a "
-                     + "destination, so it does not.")
+                Text(Self.introText(isStanding: isStanding))
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -131,6 +135,18 @@ struct RestructureRemovalSheet: View {
         .padding(18)
         .frame(width: 480)
         .onAppear(perform: seed)
+    }
+
+    /// The sentence under the title — where this list came from, then the rule that governs it.
+    /// The second half is shared because the rule is: date buckets are debt and start ticked, an
+    /// empty category is a destination and does not.
+    static func introText(isStanding: Bool) -> String {
+        let source = isStanding
+            ? "Folders that were already empty when the survey looked, and only to the Trash. "
+            : "Only folders this reorganisation itself emptied, and only to the Trash. "
+        return source
+            + "Date buckets start ticked — they are debt; an empty category is a destination, "
+            + "so it does not."
     }
 
     private var removeTitle: String {

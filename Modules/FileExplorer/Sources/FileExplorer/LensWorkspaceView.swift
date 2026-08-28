@@ -235,10 +235,20 @@ public struct LensWorkspaceView: View {
     /// §5.5's removal step, requested for one ledger record — the candidates are resolved (and
     /// re-probed for emptiness) at request time, so the sheet opens on the truth.
     struct RemovalRequest: Identifiable {
-        let manifestId: String
+        /// Which folders these are and how the landing will be identified — the landing that
+        /// drained them, or §5.2's standing empties.
+        let origin: RestructureRemoval.Origin
         let family: String
         let candidates: [RestructureRemovalSheet.Candidate]
-        var id: String { manifestId }
+        /// The sheet's presentation id. Distinct per origin so opening the standing sheet while
+        /// a landing's sheet id is remembered cannot re-present the wrong list.
+        var id: String {
+            switch origin {
+            case .landing(let manifestId): return manifestId
+            case .standing: return "standing-empties"
+            }
+        }
+        var isStanding: Bool { origin == .standing }
     }
     @State private var removalRequest: RemovalRequest?
     /// A learn-by-example rule offered after the user files a loose file — turned into an editable
@@ -3115,6 +3125,7 @@ public struct LensWorkspaceView: View {
                 family: request.family,
                 candidates: request.candidates,
                 accent: glassHue.accentColor,
+                isStanding: request.isStanding,
                 onRemove: { paths in await removeEmptied(paths, for: request) },
                 onClose: { removalRequest = nil })
         }
@@ -3257,7 +3268,9 @@ public struct LensWorkspaceView: View {
                                 }
                             }
                         },
-                        onRemoveEmptied: requestRemoval)
+                        onRemoveEmptied: requestRemoval,
+                        // §5.2's decided Trash route for the folders that were already empty.
+                        onRemoveStandingEmpties: standingEmptiesRemover)
     }
 
     /// The ledger's plan landings as the lens renders them — every record `applyPlan` wrote
@@ -3340,15 +3353,43 @@ public struct LensWorkspaceView: View {
     /// silently vanishing from the list.
     private func requestRemoval(manifestId: String) {
         guard let record = syncManager.restructureStore?.applied
-                .first(where: { $0.manifest.manifestId == manifestId }),
-              let root = syncManager.filingFolderProfile?.root else { return }
+                .first(where: { $0.manifest.manifestId == manifestId }) else { return }
+        openRemovalSheet(paths: RestructureLedger.emptiedFolders(of: record.manifest),
+                         family: record.manifest.family,
+                         origin: .landing(manifestId: manifestId))
+    }
+
+    /// §5.2's decided Trash route for the folders that were already empty, or nil when there is
+    /// no profile root — without one there is no absolute path to re-probe or trash, which is
+    /// what every path-taking action on this lens needs.
+    private var standingEmptiesRemover: (() -> Void)? {
+        syncManager.filingFolderProfile == nil ? nil : { requestStandingRemoval() }
+    }
+
+    /// Opens the same sheet on §5.2's pre-existing empties — the crowding strip's third filter.
+    ///
+    /// **Scoped, like the strip that offered them.** The list comes from `scopedDeadWeight`, so a
+    /// narrowed Organize removes what it showed and nothing outside it; the chip's count and the
+    /// sheet's rows are the same set by construction.
+    private func requestStandingRemoval() {
+        let paths = scopedDeadWeight.filter { $0.value == .empty }.map(\.key).sorted()
+        openRemovalSheet(paths: paths,
+                         family: RestructureRemoval.commonAncestor(of: paths),
+                         origin: .standing)
+    }
+
+    /// Re-probes a list of profile-relative folders and opens the sheet on the result, so it
+    /// opens on the truth: a folder that gained a file since the survey (or since the landing)
+    /// shows as "no longer empty" rather than silently vanishing from the list.
+    ///
+    /// **Off the main actor**: each probe below is a full recursive walk, and a candidate folder
+    /// REFILLED with a large subtree since it was enumerated would otherwise be walked entirely
+    /// in a button handler, on the main thread, once per candidate. The engine runs the same
+    /// probe off-main for the same reason.
+    private func openRemovalSheet(paths: [String], family: String,
+                                  origin: RestructureRemoval.Origin) {
+        guard let root = syncManager.filingFolderProfile?.root, !paths.isEmpty else { return }
         let expandedRoot = (root as NSString).expandingTildeInPath
-        let paths = RestructureLedger.emptiedFolders(of: record.manifest)
-        let family = record.manifest.family
-        // Off the main actor: each probe below is a full recursive walk, and a candidate
-        // folder REFILLED with a large subtree since the landing enumerated it entirely — in
-        // a button handler, on the main thread, once per candidate. The engine runs the same
-        // probe off-main for the same reason.
         Task { @MainActor in
             let candidates = await Task.detached(priority: .userInitiated) {
                 paths.map { path -> RestructureRemovalSheet.Candidate in
@@ -3368,8 +3409,8 @@ public struct LensWorkspaceView: View {
                                                              exists: exists)
                 }
             }.value
-            removalRequest = RemovalRequest(manifestId: manifestId,
-                                            family: family,
+            guard !candidates.isEmpty else { return }
+            removalRequest = RemovalRequest(origin: origin, family: family,
                                             candidates: candidates)
         }
     }
@@ -3379,22 +3420,14 @@ public struct LensWorkspaceView: View {
     /// nil on success.
     private func removeEmptied(_ paths: [String], for request: RemovalRequest) async
         -> RestructureRemovalSheet.RemovalResult {
-        guard !paths.isEmpty else { return .refused("Nothing is ticked.") }
         let stamp = RestructurePlanSheet.nowStamp()
-        let manifest = RestructureManifest(
+        guard let manifest = RestructureRemoval.manifest(
+            paths: paths,
+            family: request.family,
+            origin: request.origin,
             profileId: syncManager.filingProfileDirectoryId
                 ?? syncManager.filingFolderProfile?.profileId ?? "unknown",
-            manifestId: "removal-\(request.manifestId)-\(stamp)",
-            createdAt: stamp,
-            family: request.family,
-            kind: .deadWeight,
-            note: "Removal step for \(request.manifestId): folders that landing emptied, ticked "
-                + "by hand. To the Trash, never a hard delete.",
-            actions: paths.map { path in
-                RestructureManifest.Action(
-                    action: .removeEmptyDir, src: path,
-                    evidence: "Emptied by \(request.manifestId) and still empty when ticked.")
-            })
+            createdAt: stamp) else { return .refused("Nothing is ticked.") }
         let outcome = await syncManager.applyPlan(manifest)
         if let refusal = outcome.refusal { return .refused(refusal) }
         // Landed — whatever WAS trashed is in the Trash whether or not profiles.json rewrote.

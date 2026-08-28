@@ -165,6 +165,75 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
 
 }
 
+/// The removal step's manifest builder — §5.5's opt-in Trash pass.
+///
+/// **Two origins, one builder.** A landing drains folders and offers them on its own card; §5.2's
+/// third crowding filter lists the folders that were *already* empty when the survey looked, and
+/// the roadmap's decided behaviour is that they get the same sheet, the same date-bucket /
+/// category split, and the same ledgered, undoable landing. The only things that differ are the
+/// manifest's id and the sentences that justify it, so those are what the origin carries — a
+/// second copy of this construction is how the two routes would drift apart.
+public enum RestructureRemoval {
+
+    /// Where the ticked folders came from — the only axis on which the two removals differ.
+    public enum Origin: Equatable, Sendable {
+        /// Folders one landing itself emptied, scoped to that landing's manifest.
+        case landing(manifestId: String)
+        /// Folders that were already empty when the survey looked (ROADMAP_V5 §5.2).
+        case standing
+    }
+
+    /// One `remove-empty-dir` per ticked path, in the order given. nil for an empty list: a
+    /// landing with no actions is a junk ledger record, not a no-op.
+    ///
+    /// Emptiness is **not** re-checked here and must not be — the engine re-probes every path at
+    /// the moment it acts (a folder that gained a file is skipped, and a folder the walk cannot
+    /// fully read is never treated as empty). A plan-time check would only add a second, staler
+    /// opinion.
+    public static func manifest(paths: [String], family: String, origin: Origin,
+                                profileId: String, createdAt: String) -> RestructureManifest? {
+        guard !paths.isEmpty else { return nil }
+        let id: String
+        let note: String
+        let evidence: String
+        switch origin {
+        case .landing(let manifestId):
+            id = "removal-\(manifestId)-\(createdAt)"
+            note = "Removal step for \(manifestId): folders that landing emptied, ticked by "
+                + "hand. To the Trash, never a hard delete."
+            evidence = "Emptied by \(manifestId) and still empty when ticked."
+        case .standing:
+            id = "removal-standing-\(createdAt)"
+            note = "Removal step for folders that were already empty when the survey looked, "
+                + "ticked by hand. To the Trash, never a hard delete."
+            evidence = "Empty in the folder survey and still empty when ticked."
+        }
+        return RestructureManifest(
+            profileId: profileId,
+            manifestId: id,
+            createdAt: createdAt,
+            family: family,
+            kind: .deadWeight,
+            note: note,
+            actions: paths.map { path in
+                RestructureManifest.Action(action: .removeEmptyDir, src: path,
+                                           evidence: evidence)
+            })
+    }
+
+    /// The deepest folder that CONTAINS every one of these paths — the family a scattered removal
+    /// belongs to. `"."` when they share no ancestor but the root, which is the profile's own
+    /// spelling for the tree (`FolderProfile` keys the root that way), and the common answer for
+    /// the standing empties: they are wherever the tree left them.
+    ///
+    /// The parents are compared, not the paths themselves: one ticked `Travel/2019` belongs to
+    /// `Travel`, and calling the folder its own family would name the thing being removed.
+    public static func commonAncestor(of paths: [String]) -> String {
+        RestructurePaths.commonAncestor(
+            of: paths.map { ($0 as NSString).deletingLastPathComponent })
+    }
+}
+
 /// The scaffold's manifest builder — §5.2's backlog fix as §5.4's schema.
 public enum RestructureScaffold {
 

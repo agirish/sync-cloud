@@ -242,7 +242,11 @@ public final class RestructureStore: ObservableObject {
     @discardableResult
     public func exportPlan(_ manifest: RestructureManifest) throws -> String {
         let date = manifest.createdAt.prefix(while: { $0 != "T" })
-        let family = manifest.family.replacingOccurrences(of: "/", with: "-")
+        // A root-level family ("" or ".") would leave the name ending in a bare dash or a stray
+        // dot — the label is what a reader sees in the directory listing.
+        let family = manifest.family.isEmpty || manifest.family == "."
+            ? "tree"
+            : manifest.family.replacingOccurrences(of: "/", with: "-")
         let name = "restructure-\(date)-\(family).json"
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
