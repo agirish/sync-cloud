@@ -1,13 +1,14 @@
 # SyncCloud — working agreement
 
-## Three release lines: `main` is v5, `v3.x` and `v2.x` are maintenance
+## Four release lines: `main` is v5, `v4.x`, `v3.x` and `v2.x` are maintenance
 
-Three long-lived branches, and only three. Every shipped major keeps a maintenance line, cut from
+Four long-lived branches, and only four. Every shipped major keeps a maintenance line, cut from
 that major's last tag when the next major opens on `main`:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
 | `main` | the **v5 line** — where the next release is built | `5.0-dev` / `500` | **allowed** |
+| `v4.x` | maintenance for the shipped **4.x series** (cut at `v4.6`, 2026-08-28) | `4.7-dev` / `407` | **never** |
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
 | `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
 
@@ -20,7 +21,7 @@ the question per batch.
 *record* of what `main` carries that `v3.x` and `v2.x` do not — what a future audit needs if the
 direction ever changes — not a to-do list. Write down both directions: "checked and not owed" saves
 the next audit as much time as "owed", and the per-file pick notes are the expensive half to
-reconstruct. The file is carried on all three lines, so a maintainer on a maintenance line can read
+reconstruct. The file is carried on all four lines, so a maintainer on a maintenance line can read
 it without going through `main`. Largest known gap: **`v3.x` has none of the `DeleteOutcome`
 family**, so it cannot tell a trashed item from a permanently deleted one and offers ⌘Z for removals
 it cannot take back.
@@ -28,7 +29,7 @@ it cannot take back.
 Two commands answer "does this line even carry the code?", if an audit ever needs it:
 
 ```sh
-for l in v2.x v3.x; do git ls-tree -r --name-only origin/$l -- <path>; done
+for l in v2.x v3.x v4.x; do git ls-tree -r --name-only origin/$l -- <path>; done
 diff <(git show origin/main:<f>) <(git show origin/v3.x:<f>)
 ```
 
@@ -38,16 +39,16 @@ for eleven days: this file said "two lines", so every session backported to `v2.
 52 commits landed on `v2.x` unexamined for 3.x, CI never ran on `v3.x` at all, and its tip sat on the
 plain number `3.1` — exactly what "re-bump immediately" exists to prevent.
 
-**Never merge one line into another.** All three stay linear; move commits with `git cherry-pick`.
+**Never merge one line into another.** All four stay linear; move commits with `git cherry-pick`.
 
-**`origin` carries the three lines and nothing else — and that is a thing to CHECK, not assume.**
+**`origin` carries the four lines and nothing else — and that is a thing to CHECK, not assume.**
 A `roots` branch sat on `origin` from the roots work until 2026-08-27, unnoticed because nothing
 here or in the install skill ever looked. `git branch -d roots` refusing — *"not yet merged to
 `refs/remotes/origin/roots`"* — was the only thing that revealed it, which is luck rather than a
-process. One command, and it prints exactly three lines when the remote is clean:
+process. One command, and it prints exactly four lines when the remote is clean:
 
 ```sh
-git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x}, nothing else
+git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x}, nothing else
 ```
 
 A fourth is scaffolding by the rule below and can go — but **deleting a remote branch is
@@ -59,7 +60,7 @@ commits were a superseded two-round version of a review `main` carries at three 
 
 Releases are cut as **tags on the line that owns them** — `v2.9` from `v2.x`, `v4.0` from `main`.
 Tags mark history and are never branched from, except once when a new maintenance line is cut from a
-major's last tag; these three branches are the only ones that persist.
+major's last tag; these four branches are the only ones that persist.
 
 **One branch is a deliberate exception, and it is written here so nobody tidies it away:
 `candidate-tap-deferral` (`dba29645`).** It carries a single unlanded 2026-08-04 commit — the tap
@@ -134,7 +135,7 @@ Nothing failed, because nothing reads the version; it was simply wrong for two y
 `project.yml` is the only source of truth:
 
 ```yaml
-# main's values; v3.x carries "3.2-dev" / "302", v2.x carries "2.10-dev" / "210"
+# main's values; v4.x carries "4.7-dev" / "407", v3.x "3.2-dev" / "302", v2.x "2.10-dev" / "210"
 CFBundleShortVersionString: "5.0-dev"   # the marketing version — what people see
 CFBundleVersion: "500"                  # the build number — what Launch Services orders by
 ```
@@ -162,7 +163,7 @@ left all three lines' tables reading `4.1-dev` / `401`, and the table is what a 
 *before* a cut. This prints nothing when the table is right, and names the offender when it is not:
 
 ```sh
-for l in main v3.x v2.x; do
+for l in main v4.x v3.x v2.x; do
   m=$(git show origin/$l:project.yml | grep -o '"[0-9.]*-dev"' | tr -d '"')
   r=$(git show origin/main:CLAUDE.md | grep "^| \`$l\`" | grep -o '`[0-9.]*-dev`' | tr -d '`')
   [ "$m" = "$r" ] || echo "$l: table says $r, project.yml says $m"
@@ -379,5 +380,5 @@ behavior changes are costly.
 
 **Before blaming a commit for a red suite, read [`docs/flaky-tests.md`](docs/flaky-tests.md).** It
 carries the known flake mechanisms with the tell for each, and it is the difference between fixing a
-regression and re-diagnosing a machine. It is carried on all three lines, but **the numbering is
+regression and re-diagnosing a machine. It is carried on all four lines, but **the numbering is
 per-line and the counts differ** — cite a mechanism by its title, never by its number.
