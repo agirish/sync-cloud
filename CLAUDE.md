@@ -1,13 +1,13 @@
 # SyncCloud — working agreement
 
-## Three release lines: `main` is v4, `v3.x` and `v2.x` are maintenance
+## Three release lines: `main` is v5, `v3.x` and `v2.x` are maintenance
 
 Three long-lived branches, and only three. Every shipped major keeps a maintenance line, cut from
 that major's last tag when the next major opens on `main`:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
-| `main` | the **v4 line** — where the next release is built | `4.7-dev` / `407` | **allowed** |
+| `main` | the **v5 line** — where the next release is built | `5.0-dev` / `500` | **allowed** |
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
 | `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
 
@@ -135,8 +135,8 @@ Nothing failed, because nothing reads the version; it was simply wrong for two y
 
 ```yaml
 # main's values; v3.x carries "3.2-dev" / "302", v2.x carries "2.10-dev" / "210"
-CFBundleShortVersionString: "4.7-dev"   # the marketing version — what people see
-CFBundleVersion: "407"                  # the build number — what Launch Services orders by
+CFBundleShortVersionString: "5.0-dev"   # the marketing version — what people see
+CFBundleVersion: "500"                  # the build number — what Launch Services orders by
 ```
 
 `MacApp/Info.plist` is **generated from it by xcodegen and tracked in git** — run `xcodegen` after
