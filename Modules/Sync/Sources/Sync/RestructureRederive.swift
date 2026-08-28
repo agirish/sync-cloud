@@ -72,8 +72,28 @@ public enum RestructureRederive {
                                  through manifest: RestructureManifest) -> FolderProfile {
         let renames = renameMap(of: manifest)
         var folders = fresh.folders
-        for (oldPath, oldEntry) in old.folders {
+        // Two old paths can map onto one fresh path — a stale entry recorded at a rename's
+        // destination before that folder was hand-deleted, plus the renamed source itself. The
+        // winner is decided, not left to dictionary order: the entry that actually travelled
+        // through the manifest carries the judgements that belong at the destination; ties
+        // break lexicographically.
+        var carrier: [String: String] = [:]
+        for oldPath in old.folders.keys {
             let newPath = mapped(oldPath, through: renames)
+            guard let existing = carrier[newPath] else {
+                carrier[newPath] = oldPath
+                continue
+            }
+            let existingMoved = existing != newPath
+            let candidateMoved = oldPath != newPath
+            if candidateMoved != existingMoved {
+                if candidateMoved { carrier[newPath] = oldPath }
+            } else if oldPath < existing {
+                carrier[newPath] = oldPath
+            }
+        }
+        for (newPath, oldPath) in carrier {
+            guard let oldEntry = old.folders[oldPath] else { continue }
             guard let walked = folders[newPath] else { continue }
             let carried = FolderProfileEntry(
                 path: walked.path,

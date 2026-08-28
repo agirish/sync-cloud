@@ -82,7 +82,9 @@ import Testing
 
     /// The licence is the claim being TRUE: a `replacing` id that is not the active one is an
     /// apply that raced a profile switch, and it stops rather than re-pointing away from a
-    /// profile it never read. Same refusal when the chain is not in the file.
+    /// profile it never read. A missing chain is its OWN refusal, naming its own facts — the
+    /// first spelling filled the raced-switch case's `active:` with the profile's parent, so
+    /// "the active profile is none" was wrong on both counts.
     @Test func aWrongClaimOrAMissingChainRefusesTheWholeWrite() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -94,8 +96,8 @@ import Testing
                 Self.profile(id: "r1", derivedFrom: "somebody-else"),
                 replacing: "somebody-else", in: dir)
         }
-        #expect(throws: FilingProfileStore.WriteRefusal.notReplacingTheActiveProfile(
-            claimed: "abhishek", active: nil)) {
+        #expect(throws: FilingProfileStore.WriteRefusal.chainMissing(
+            derivedFrom: nil, claimed: "abhishek")) {
             try FilingProfileStore.writeDerivedProfile(
                 Self.profile(id: "r1", derivedFrom: nil), replacing: "abhishek", in: dir)
         }

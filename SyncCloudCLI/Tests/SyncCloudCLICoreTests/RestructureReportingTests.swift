@@ -109,6 +109,8 @@ import Foundation
             (.mirroredInbox(destination: "A/B"), { $0.destination == "A/B" }),
             (.looseAboveSeries(looseFiles: 5, seriesFolders: 3), { $0.looseFiles == 5 && $0.seriesFolders == 3 }),
             (.looseBesideContainer(container: "A/B"), { $0.container == "A/B" }),
+            (.duplicatedTaxonomy(counterpart: "A/B", matchedDocuments: 5),
+             { $0.counterpart == "A/B" && $0.matchedDocuments == 5 }),
         ]
         for (detail, check) in cases {
             let finding = StructureFinding(kind: .ask, family: "F", subject: "F/S",
@@ -116,5 +118,17 @@ import Foundation
             #expect(check(RestructureReporting.finding(for: finding)),
                     "detail \(detail) did not survive flattening")
         }
+    }
+    /// The human formatter's branch order is a claim about meaning: duplicatedTaxonomy also
+    /// carries a counterpart, and the bare-counterpart branch would print it as "echoes B" —
+    /// the wrong claim, minus its evidence count.
+    @Test func aDuplicatedTaxonomyRowSaysAlsoInNotEchoes() {
+        let finding = StructureFinding(
+            kind: .duplicatedTaxonomy, family: "Archive",
+            subject: "Archive/Forms",
+            detail: .duplicatedTaxonomy(counterpart: "Work/MapR/Forms", matchedDocuments: 5))
+        let suffix = RestructureReporting.detailSuffix(RestructureReporting.finding(for: finding))
+        #expect(suffix == " — 5 documents also in Work/MapR/Forms")
+        #expect(!suffix.contains("echoes"))
     }
 }

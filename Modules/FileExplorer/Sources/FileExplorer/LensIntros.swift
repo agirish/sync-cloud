@@ -75,15 +75,19 @@ enum LensIntros {
     ///
     /// Its safety line is the odd one out and says so plainly — **Restructure cannot touch a
     /// file at all.** It reports where the tree disagrees with itself and stops there (see
-    /// ``RestructureLens`` for why the fix is a separate surface with its own invariants). A
-    /// contract borrowed from the lenses that *do* move things would promise a confirmation step
-    /// for an action this lens has no way to take.
+    /// ``RestructureLens`` for why the fix is a separate surface with its own invariants). Since
+    /// §5.5 the lens's cards DO reach actions that move things — a reviewed plan's Apply, the
+    /// scaffold, the removal sheet — so the safety line promises the review gate, not
+    /// read-onlyness: a "nothing is renamed or moved" sentence over a surface that renames and
+    /// moves is the one kind of safety copy worse than none.
     static func restructure(providerName: String?) -> LensIntro {
         LensIntro(
             icon: "square.stack.3d.up",
             title: "Compare folder shapes across \(providerName ?? "this provider")",
             message: "Find families of sibling folders that were set up differently at different times — the same kind of folder, organized four ways.",
-            safety: "Read-only: it names the disagreement. Nothing is created, renamed, or moved."
+            // ONE line — the setup cards share a header budget (two lines of message, one of
+            // safety), and `everyLensTriggerLandsAtTheSameHeight` measures it in pixels.
+            safety: "Changes go through a plan you review — every landing is recorded and undoable."
         )
     }
 

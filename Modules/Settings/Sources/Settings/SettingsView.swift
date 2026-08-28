@@ -2623,7 +2623,7 @@ struct FilingSpendReadout: View {
                 figure("Cloud refines", "\(totals.scans)")
                 if let last {
                     figure("Last refine",
-                           "\(FilingSpendFormat.model(last.model)) · \(FilingSpendFormat.files(last.fileCount)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                           "\(FilingSpendFormat.model(last.model)) · \(FilingSpendFormat.counted(last)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
                 }
                 Spacer(minLength: 0)
             }
@@ -3253,7 +3253,7 @@ struct FilingSpendHistorySheet: View {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened)).scaledFont(.system(size: 12))
-                            Text("\(FilingSpendFormat.model(entry.model)) · \(FilingSpendFormat.files(entry.fileCount)) · placed \(entry.placedCount)")
+                            Text("\(FilingSpendFormat.model(entry.model)) · \(FilingSpendFormat.counted(entry)) · \(FilingSpendFormat.outcome(entry))")
                                 .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 8)

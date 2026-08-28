@@ -69,20 +69,35 @@ enum CloudMappingRefiner {
             }
             let proposals = MappingRefineProtocol.parseProposals(responseData: data,
                                                                  rows: request.rows)
+            let stop = CloudFilingProtocol.stopReason(responseData: data)
+            var costText = "cost unrecorded"
             if let usage = CloudFilingProtocol.parseUsage(responseData: data) {
                 let priced = CloudFilingProtocol.estimatedCostUSD(model: model, usage: usage)
+                if priced == nil {
+                    Logger.shared.warning("Mapping refine [\(requestID)]: model \(model) is not "
+                        + "in the price table — the entry is recorded at $0 and flagged unpriced")
+                }
                 FilingSpendStore.record(FilingSpendEntry(
                     timestamp: Date(), model: model, fileCount: request.rows.count,
                     placedCount: proposals?.count ?? 0,
                     inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
                     cacheReadTokens: usage.cacheReadTokens,
                     cacheCreationTokens: usage.cacheCreationTokens,
-                    estimatedCostUSD: priced ?? 0, costUnpriced: priced == nil),
+                    estimatedCostUSD: priced ?? 0, costUnpriced: priced == nil,
+                    unit: "folder name"),
                     defaults: defaults)
+                costText = "\(usage.inputTokens) in / \(usage.outputTokens) out tok · "
+                    + (priced.map { String(format: "~$%.4f", $0) } ?? "unpriced")
+            } else {
+                // The paid call happened; a spend record that silently fails to land is a cap
+                // enforced against the wrong total, and the log is where that gets found.
+                Logger.shared.warning("Mapping refine [\(requestID)]: usage could not be parsed "
+                    + "— this call's spend is NOT in the recorded total")
             }
             Logger.shared.info("Mapping refine done [\(requestID)]: \(model) · "
                 + "\(proposals?.count ?? 0)/\(request.rows.count) rows answered · "
-                + String(format: "%.1f", elapsed) + "s")
+                + costText + " · " + String(format: "%.1f", elapsed) + "s"
+                + (stop == "max_tokens" ? " · ⚠️ TRUNCATED (max_tokens)" : ""))
             return proposals
         } catch {
             Logger.shared.warning("Mapping refine failed: \(error.localizedDescription)")

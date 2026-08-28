@@ -115,6 +115,7 @@ struct RestructureRemovalSheet: View {
     }
 
     private func remove() {
+        guard !running, outcome == nil else { return }
         let paths = ticked.sorted()
         running = true
         Task { @MainActor in

@@ -286,6 +286,110 @@ private struct FakeTree {
                 == ["F/2016/Small/a.pdf"])
     }
 
+    /// The chosen rename comes FIRST in its group regardless of how the sources sort — it is the
+    /// action that CREATES the target directory, and the first spelling walked sources in sorted
+    /// order, so `Apple`'s merge was emitted before `Zebra`'s rename and every merged file
+    /// failed at apply against a parent that did not exist yet. (The test above could not see it:
+    /// `Big` happens to sort before `Small`.)
+    @Test func theRenamePrecedesItsGroupsMergesWhateverTheSortSays() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/Apple": ["a.pdf"],
+            "F/2016/Zebra": ["b.pdf", "c.pdf", "d.pdf"],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "Apple", target: "Merged"),
+                .init(source: "Zebra", target: "Merged"),
+            ]), in: tree.view)
+        let operational = manifest.actions.filter { $0.action != .keep }
+        #expect(operational.first?.action == .renameDir)
+        #expect(operational.first?.src == "F/2016/Zebra")
+        let renameIndex = try #require(manifest.actions.firstIndex {
+            $0.action == .renameDir })
+        let firstMerge = try #require(manifest.actions.firstIndex { $0.action == .moveFile })
+        #expect(renameIndex < firstMerge,
+                "every merge writes into the directory the rename creates")
+    }
+
+    /// A target occupied by a sibling differing only by case, which the mapping does NOT step
+    /// up, refuses at derivation — on the case-insensitive volumes this app targets the rename
+    /// could never land, and the first spelling derived it anyway, minting a reviewed plan whose
+    /// apply skipped with the false sentence "appeared since the plan".
+    @Test func aTargetTakenByAKeptCaseTwinRefuses() {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/Files": ["a.pdf"],
+            "F/2016/forms": ["b.pdf"],
+        ])
+        let result = RestructurePlanner.manifest(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "Files", target: "Forms"),
+                .init(source: "forms"),
+            ]), kind: .shape, in: tree.view,
+            profileId: "p", manifestId: "m", createdAt: "t")
+        guard case .failure(.targetTakenByCase(let target, let standing, let member)) = result
+        else {
+            Issue.record("expected targetTakenByCase, got \(result)")
+            return
+        }
+        #expect(target == "Forms")
+        #expect(standing == "forms")
+        #expect(member == "2016")
+    }
+
+    /// When a case twin of the target is one of the group's own sources, IT must be the rename —
+    /// whatever the file counts say: while `forms/` stands the volume cannot create `Forms/`,
+    /// and "merging" `forms` into `Forms` would move its files onto themselves.
+    @Test func aCaseTwinSourceIsAlwaysTheChosenRename() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/forms": ["a.pdf"],
+            "F/2016/Files": ["b.pdf", "c.pdf", "d.pdf"],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "forms", target: "Forms"),
+                .init(source: "Files", target: "Forms"),
+            ]), in: tree.view)
+        let rename = try #require(manifest.actions.first { $0.action == .renameDir })
+        #expect(rename.src == "F/2016/forms",
+                "the case-step wins the rename over the bigger source")
+        #expect(rename.dst == "F/2016/Forms")
+        #expect(manifest.actions.filter { $0.action == .moveFile }.map(\.src)
+                == ["F/2016/Files/b.pdf", "F/2016/Files/c.pdf", "F/2016/Files/d.pdf"])
+    }
+
+    /// Drain before fill, the MERGE half of the ordering rule: a standing folder that is both a
+    /// merge source (its files leave for T) and a merge target (X's files arrive) must be
+    /// drained first — its outbound moves were listed at plan time, and files arriving first
+    /// would trip the apply's unlisted-veto on the very folder the plan is emptying. Plain
+    /// target-name sort ran the fill first whenever the filled name sorted before the drain's
+    /// target.
+    @Test func aFolderDrainedByOneGroupIsDrainedBeforeAnotherFillsIt() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/Slips": ["s.pdf"],
+            "F/2016/Trove": ["t.pdf"],
+            "F/2016/Extra": ["x.pdf"],
+        ])
+        // Slips → Trove (fill of Trove... no: drain of Slips into standing Trove) and
+        // Extra → Slips (fill of standing Slips) — Slips must be drained before Extra arrives.
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "Slips", target: "Trove"),
+                .init(source: "Extra", target: "Slips"),
+            ]), in: tree.view)
+        let moves = manifest.actions.filter { $0.action == .moveFile }.map(\.src)
+        #expect(moves == ["F/2016/Slips/s.pdf", "F/2016/Extra/x.pdf"],
+                "Slips drains before Extra fills it")
+    }
+
+
     /// A same-named subfolder on both sides merges one level down; two levels down it is `keep`
     /// and reported rather than guessed at (§5.4's collision policy for subfolders).
     @Test func sameNamedSubfoldersMergeOneLevelDownThenKeep() throws {

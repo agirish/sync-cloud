@@ -22,18 +22,25 @@ public struct FilingSpendEntry: Codable, Equatable, Sendable, Identifiable {
     /// path coerced it to `0`, and that is the number the budget caps enforce against. Reachable
     /// through a hand-set model id, which the code explicitly promises to honour.
     public let costUnpriced: Bool
+    /// What `fileCount` counts — nil (entries written before §5.6) and "file" both mean the
+    /// filing refine's files; the mapping refine records "folder name". The durable record has
+    /// to carry this or every history row would describe a mapping refine as "24 files ·
+    /// placed 24", the exact misstatement the confirmation dialog's `unit` was added to stop.
+    public let unit: String?
 
     public var totalTokens: Int { inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens }
 
     public init(id: String = UUID().uuidString, timestamp: Date, model: String, fileCount: Int,
                 placedCount: Int, inputTokens: Int, outputTokens: Int, cacheReadTokens: Int,
-                cacheCreationTokens: Int, estimatedCostUSD: Double, costUnpriced: Bool = false) {
+                cacheCreationTokens: Int, estimatedCostUSD: Double, costUnpriced: Bool = false,
+                unit: String? = nil) {
         self.id = id; self.timestamp = timestamp; self.model = model
         self.fileCount = fileCount; self.placedCount = placedCount
         self.inputTokens = inputTokens; self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens; self.cacheCreationTokens = cacheCreationTokens
         self.estimatedCostUSD = estimatedCostUSD
         self.costUnpriced = costUnpriced
+        self.unit = unit
     }
 
     /// Optional-with-default for the same reason ``FilingSpendTotals`` is: an entry written before
@@ -52,6 +59,7 @@ public struct FilingSpendEntry: Codable, Equatable, Sendable, Identifiable {
         cacheCreationTokens = try c.decodeIfPresent(Int.self, forKey: .cacheCreationTokens) ?? 0
         estimatedCostUSD = try c.decodeIfPresent(Double.self, forKey: .estimatedCostUSD) ?? 0
         costUnpriced = try c.decodeIfPresent(Bool.self, forKey: .costUnpriced) ?? false
+        unit = try c.decodeIfPresent(String.self, forKey: .unit)
     }
 }
 
@@ -260,6 +268,19 @@ public enum FilingSpendFormat {
     /// "1 file" / "3 files" — both spend rows used to hard-code "\(n) files" and print "1 files".
     public static func files(_ n: Int) -> String {
         "\(n) file\(n == 1 ? "" : "s")"
+    }
+    /// The unit-aware spelling of an entry's count — "24 files" for the filing refine, "24
+    /// folder names" for the mapping refine. Every row that renders a spend entry goes through
+    /// this, or the history misdescribes whichever pass wrote it.
+    public static func counted(_ entry: FilingSpendEntry) -> String {
+        let unit = entry.unit ?? "file"
+        return "\(entry.fileCount) \(unit)\(entry.fileCount == 1 ? "" : "s")"
+    }
+    /// What the entry's `placedCount` was — placements for a filing refine, answered rows for a
+    /// mapping refine.
+    public static func outcome(_ entry: FilingSpendEntry) -> String {
+        (entry.unit ?? "file") == "file"
+            ? "placed \(entry.placedCount)" : "answered \(entry.placedCount)"
     }
     public static func model(_ id: String) -> String {
         if id.contains("haiku") { return "Haiku" }

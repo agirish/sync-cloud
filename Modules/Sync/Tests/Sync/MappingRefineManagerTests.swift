@@ -74,4 +74,28 @@ import Testing
                                   verdict: .propose(target: "Application"), why: "w"),
         ]))
     }
+    /// §5.9's staleness truth is a coverage question, not an emptiness one: a clean scan of the
+    /// surveyed root COVERS it with zero groups, and a scan of some other root covers nothing
+    /// however many groups it left. Both directions lied through `duplicateGroups.isEmpty`.
+    @Test func scanCoverageIsAboutTheRootNotTheGroupCount() {
+        let manager = FileSyncManager()
+        manager.filingFolderProfile = FolderProfile(profileId: "p", root: "/tree",
+                                                    folders: [:], personTokens: [])
+        #expect(!manager.duplicateScanCoversSurvey, "no scan has run")
+
+        manager.duplicateScanRoot = "/tree"
+        #expect(manager.duplicateScanCoversSurvey,
+                "a finished scan of the surveyed root covers it — zero groups included")
+
+        manager.duplicateScanRoot = "/elsewhere"
+        #expect(!manager.duplicateScanCoversSurvey,
+                "groups from an unrelated root say nothing about the survey's tree")
+
+        // A RE-scan does not flicker the answer off: the lifecycle publishes the root WITH
+        // results, so a non-nil root always labels what is on screen, mid-rescan included.
+        manager.duplicateScanRoot = "/tree"
+        manager.isFindingDuplicates = true
+        #expect(manager.duplicateScanCoversSurvey,
+                "the previous results stay covered while their replacement runs")
+    }
 }

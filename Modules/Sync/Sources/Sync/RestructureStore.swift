@@ -169,12 +169,16 @@ public final class RestructureStore: ObservableObject {
     public func suppress(_ key: RestructureKey) {
         guard !suppressed.contains(key) else { return }
         suppressed.insert(key)
+        // Each of these mutators logs: "never suggest this again" and its kin are consequential,
+        // persistent decisions, and the log is the only place they can be dated later.
+        Logger.shared.info("Restructure: suppressed \(key.findingId)")
         save()
     }
 
     public func unsuppress(_ key: RestructureKey) {
         guard suppressed.contains(key) else { return }
         suppressed.remove(key)
+        Logger.shared.info("Restructure: unsuppressed \(key.findingId)")
         save()
     }
 
@@ -185,12 +189,14 @@ public final class RestructureStore: ObservableObject {
     public func recordAnswer(_ choice: String, for key: RestructureKey) {
         guard answers[key] != choice else { return }
         answers[key] = choice
+        Logger.shared.info("Restructure: answered \(key.findingId) — \(choice)")
         save()
     }
 
     public func removeAnswer(for key: RestructureKey) {
         guard answers[key] != nil else { return }
         answers[key] = nil
+        Logger.shared.info("Restructure: answer removed for \(key.findingId)")
         save()
     }
 
@@ -201,12 +207,15 @@ public final class RestructureStore: ObservableObject {
     public func saveDraft(_ record: DraftRecord, for key: RestructureKey) {
         guard drafts[key] != record else { return }
         drafts[key] = record
+        Logger.shared.info("Restructure: draft saved for \(key.findingId) — "
+                           + "\(record.manifest.actions.count) action(s)")
         save()
     }
 
     public func removeDraft(for key: RestructureKey) {
         guard drafts[key] != nil else { return }
         drafts[key] = nil
+        Logger.shared.info("Restructure: draft removed for \(key.findingId)")
         save()
     }
 
@@ -239,16 +248,46 @@ public final class RestructureStore: ObservableObject {
     /// Appends one landing's record. The write is immediate and whole-file, like every mutation
     /// here — §5.5 step 2 calls this with outcome *in progress* semantics folded into the counts
     /// the caller passes, and a crash after this call leaves a reversible record on disk.
-    public func recordApplied(_ record: AppliedRecord) {
+    ///
+    /// Returns whether the record REACHED the disk — the one mutation where the caller must
+    /// know: §5.5's invariant is "inverse on disk before the first operation", and a swallowed
+    /// write failure here would let a full reorganisation run with no record anywhere once the
+    /// app quits. Every other mutator can shrug a failed save off as in-memory-only; this one
+    /// is the licence to move files.
+    @discardableResult
+    public func recordApplied(_ record: AppliedRecord) -> Bool {
         applied.append(record)
-        save()
+        return save()
+    }
+
+    /// §5.5's undo chain, in one spelling — the ONE landing *Undo this reorganisation* may run,
+    /// or nil. A reorganisation is a record `applyPlan` wrote (`appliedUnderProfileId` is set at
+    /// its step 2; scaffold records never carry one). Only the newest not-undone reorganisation
+    /// is offered, because an older record's inverse describes a tree a later landing reshaped.
+    /// It must have finished recording (`summary` is set when a landing finalises; a record
+    /// without one is a landing the app quit in the middle of, whose stored inverse may not
+    /// match what actually moved), and the survey must still be where the landing left it — the
+    /// produced directory when the re-derive landed, or the applied-under directory when step 6
+    /// failed before it could re-point.
+    public func undoableReorganisation(currentProfileId: String?) -> AppliedRecord? {
+        guard let record = applied.last(where: {
+            $0.appliedUnderProfileId != nil && $0.undoneAt == nil
+        }), record.summary != nil,
+        let current = currentProfileId,
+        (record.producedProfileId ?? record.appliedUnderProfileId) == current
+        else { return nil }
+        return record
     }
 
     /// Replaces the record with `manifestId`'s manifest — how a landing finalises its counts.
     public func updateApplied(manifestId: String,
                               _ change: (inout AppliedRecord) -> Void) {
         guard let index = applied.firstIndex(where: { $0.manifest.manifestId == manifestId })
-        else { return }
+        else {
+            Logger.shared.warning("restructure.json holds no record \(manifestId) to update — "
+                                  + "the change was dropped")
+            return
+        }
         var record = applied[index]
         change(&record)
         guard record != applied[index] else { return }
@@ -272,16 +311,12 @@ public final class RestructureStore: ObservableObject {
         var newDrafts = drafts
         for rename in renames {
             newSuppressed = Set(newSuppressed.map { $0.rekeyed(rename) })
-            newAnswers = Dictionary(uniqueKeysWithValues: newAnswers.map {
-                ($0.key.rekeyed(rename), $0.value)
-            })
+            newAnswers = Self.rekeyedMap(newAnswers, through: rename)
             // The draft's KEY moves with the family; the manifest inside it keeps the paths it
             // was derived against — §5.5's Apply re-validates a draft against the tree as it
             // stands, and a stale path there is a card sentence, not a silent rewrite of a plan
             // the user reviewed.
-            newDrafts = Dictionary(uniqueKeysWithValues: newDrafts.map {
-                ($0.key.rekeyed(rename), $0.value)
-            })
+            newDrafts = Self.rekeyedMap(newDrafts, through: rename)
         }
         guard newSuppressed != suppressed || newAnswers != answers || newDrafts != drafts else {
             return
@@ -289,6 +324,7 @@ public final class RestructureStore: ObservableObject {
         suppressed = newSuppressed
         answers = newAnswers
         drafts = newDrafts
+        Logger.shared.info("Restructure: store rekeyed through \(renames.count) rename(s)")
         save()
     }
 
@@ -357,22 +393,26 @@ public final class RestructureStore: ObservableObject {
                                   + "the newer schema carries. File: \(fileURL.path)")
         }
         suppressed = Set(decoded.suppressed ?? [])
-        answers = Dictionary(uniqueKeysWithValues: (decoded.answers ?? []).map {
+        // `uniquingKeysWith`: a hand-edited file with a duplicated row is imperfect input, not a
+        // reason to crash at store construction — the whole philosophy here is that unreadable
+        // input gets a refusal, never a trap. Last row wins, matching JSON's own object rule.
+        answers = Dictionary((decoded.answers ?? []).map {
             (RestructureKey(kind: $0.kind, path: $0.path), $0.choice)
-        })
-        drafts = Dictionary(uniqueKeysWithValues: (decoded.drafts ?? []).map {
+        }, uniquingKeysWith: { _, new in new })
+        drafts = Dictionary((decoded.drafts ?? []).map {
             (RestructureKey(kind: $0.kind, path: $0.path), $0.draft)
-        })
+        }, uniquingKeysWith: { _, new in new })
         applied = decoded.applied ?? []
         carriedKeys = object.filter { !FileOut.modelledKeys.contains($0.key) }
     }
 
-    private func save() {
+    @discardableResult
+    private func save() -> Bool {
         guard !isUnreadable else {
             Logger.shared.warning("Refusing to write restructure.json — it exists but could not "
                                   + "be read, so writing this session's state would overwrite the "
                                   + "real file. The change is in memory only.")
-            return
+            return false
         }
         do {
             try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(),
@@ -398,9 +438,34 @@ public final class RestructureStore: ObservableObject {
                                                             .withoutEscapingSlashes])
             }
             try data.write(to: fileURL, options: .atomic)
+            return true
         } catch {
             Logger.shared.warning("Could not write restructure.json: \(error.localizedDescription)")
+            return false
         }
+    }
+}
+
+extension RestructureStore {
+    /// One rename applied to a keyed section, collision-safe: a rename's destination can equal a
+    /// key recorded before the folder it named was hand-deleted, and two keys mapping onto one
+    /// is a fact about the tree's history, not a programming error — the first spelling trapped
+    /// (`Dictionary(uniqueKeysWithValues:)`) at the tail of a successful apply. The key that
+    /// actually MOVED through the rename wins over the one already sitting at the destination:
+    /// the moved claim is the one whose folder exists. (Within one rename the mapping is
+    /// injective, so a collision is always exactly one moved key against one stale one.)
+    static func rekeyedMap<Value>(_ map: [RestructureKey: Value],
+                                  through rename: (from: String, to: String))
+        -> [RestructureKey: Value] {
+        var out: [RestructureKey: Value] = [:]
+        for (key, value) in map {
+            let newKey = key.rekeyed(rename)
+            let moved = newKey != key
+            if out[newKey] == nil || moved {
+                out[newKey] = value
+            }
+        }
+        return out
     }
 }
 

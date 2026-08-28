@@ -61,11 +61,28 @@ extension FileSyncManager {
         let oldDirectoryId = filingProfileDirectoryId ?? profile.profileId
         let stamp = FilingProfileStore.stamp(now)
 
+        // A manifest lands once. The finalize below rewrites the record found by this id, so a
+        // second landing of the same id would replace the FIRST landing's stored inverse with
+        // its own near-empty one — destroying the post-quit undo of the real landing.
+        guard !store.applied.contains(where: { $0.manifest.manifestId == manifest.manifestId })
+        else {
+            outcome.refusal = "The ledger already records a landing of this plan "
+                + "(\(manifest.manifestId)) — a manifest lands once. Derive a fresh plan to "
+                + "run it again."
+            return outcome
+        }
+
         // Step 2: the record, inverse included, on disk BEFORE the first operation — a crash
-        // mid-run leaves a reversible trace (invariant 3).
-        store.recordApplied(RestructureStore.AppliedRecord(
+        // mid-run leaves a reversible trace (invariant 3). VERIFIED on disk: a swallowed write
+        // failure here would run a full reorganisation whose only inverse dies with the session.
+        guard store.recordApplied(RestructureStore.AppliedRecord(
             manifest: manifest, inverse: manifest.inverse, at: stamp, created: 0, skipped: 0,
-            appliedUnderProfileId: oldDirectoryId))
+            appliedUnderProfileId: oldDirectoryId)) else {
+            outcome.refusal = "The ledger could not be written, so nothing was moved — a "
+                + "reorganisation only runs once its inverse is safely on disk. Check "
+                + "restructure.json's folder is writable."
+            return outcome
+        }
 
         // Step 3: the operations, re-probing every claim at the moment of the action.
         let expandedRoot = (profile.root as NSString).expandingTildeInPath
@@ -86,6 +103,16 @@ extension FileSyncManager {
         // tree against what the performed actions claim, sharing none of the mover's arithmetic.
         outcome.verifierMismatches = FileSyncManager.verifyRestructureLanding(
             execution.performed, root: expandedRoot, fm: fm)
+
+        // Every skip and mismatch, one line each — the cards say "named in the log", and the
+        // finalize below replaces the stored manifest with the performed subset, so these lines
+        // are the only durable record of which planned actions did NOT run.
+        for sentence in execution.skipped {
+            Logger.shared.info("Restructure apply \(manifest.manifestId) skipped: \(sentence)")
+        }
+        for mismatch in outcome.verifierMismatches {
+            Logger.shared.warning("Restructure apply \(manifest.manifestId) verifier: \(mismatch)")
+        }
 
         // Step 5: one grouped ⌘Z for this launch; the ledger's inverse is every later one.
         if !execution.moveItems.isEmpty || !execution.renameItems.isEmpty
@@ -193,6 +220,18 @@ extension FileSyncManager {
         filingProfileDirectoryId = newId
         let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)
         newStore.rekey(renames: RestructureRederive.renameMap(of: landed))
+        // The artifact carry copies best-effort, one file at a time — if restructure.json was
+        // the copy that failed, the fresh store loads empty and the update below would no-op
+        // silently, stranding the finalised record (and its inverse) in a directory nothing
+        // reads. The ledger record is not best-effort: write it into the new store directly.
+        if !newStore.applied.contains(where: { $0.manifest.manifestId == manifest.manifestId }),
+           let finalised = store.applied.first(where: {
+               $0.manifest.manifestId == manifest.manifestId
+           }) {
+            newStore.recordApplied(finalised)
+            Logger.shared.warning("Restructure apply \(manifest.manifestId): restructure.json "
+                + "did not carry over; the ledger record was written into \(newId) directly")
+        }
         newStore.updateApplied(manifestId: manifest.manifestId) {
             $0.producedProfileId = newId
         }
@@ -247,12 +286,34 @@ extension FileSyncManager {
                 + "there is nothing safe to re-point to."
             return outcome
         }
-        // Only the NEWEST landing can be undone: an older record's inverse describes a tree a
-        // later landing has reshaped, and its re-point would aim the survey at a profile two
-        // generations stale. Undo in order, newest first — the same rule ⌘Z lives by.
-        guard record.producedProfileId == (filingProfileDirectoryId ?? "") else {
+        // Only the NEWEST not-undone reorganisation can be undone: an older record's inverse
+        // describes a tree a later landing has reshaped. The chain is walked by ledger order,
+        // NOT by profile-id equality — a later landing whose re-derive failed never re-pointed
+        // the survey, so an id comparison cannot see it sitting on top.
+        if let index = store.applied.firstIndex(where: { $0.manifest.manifestId == manifestId }),
+           store.applied[(index + 1)...].contains(where: {
+               $0.appliedUnderProfileId != nil && $0.undoneAt == nil
+           }) {
             outcome.refusal = "A later reorganisation sits on top of this one — undo that one "
                 + "first, newest first, the way ⌘Z would."
+            return outcome
+        }
+        // A record without a summary never finalised: the app quit mid-apply, and the stored
+        // inverse is the PLAN's — collision names never recorded — so replaying it could move
+        // the wrong file. Refusing is the only honest answer; the log from that run names what
+        // actually landed.
+        guard record.summary != nil else {
+            outcome.refusal = "This landing never finished recording what it did — the app "
+                + "quit mid-apply — so its stored inverse may not match the disk and will not "
+                + "be replayed. The log from that run (\(manifestId)) names what landed."
+            return outcome
+        }
+        // The survey must still be where the landing left it: the directory it produced, or —
+        // when its re-derive failed before re-pointing — the one it was applied under.
+        guard (record.producedProfileId ?? previousId) == (filingProfileDirectoryId ?? "") else {
+            outcome.refusal = "The survey has moved since this landing — the active profile is "
+                + "not the one it left behind, so re-pointing back would aim the survey at the "
+                + "wrong tree."
             return outcome
         }
 
@@ -272,6 +333,39 @@ extension FileSyncManager {
         outcome.skipped = execution.skipped
         outcome.verifierMismatches = FileSyncManager.verifyRestructureLanding(
             execution.performed, root: expandedRoot, fm: fm)
+        for sentence in execution.skipped {
+            Logger.shared.info("Restructure undo \(manifestId) skipped: \(sentence)")
+        }
+        for mismatch in outcome.verifierMismatches {
+            Logger.shared.warning("Restructure undo \(manifestId) verifier: \(mismatch)")
+        }
+
+        // An undo that could do NOTHING — every inverse step skipped as drift — must not mark
+        // the record undone or re-point the survey: the tree was not restored, so the kept
+        // profile would describe a tree that does not exist, and the record could never be
+        // retried after the drift is resolved by hand. Counted over OPERATIONAL actions:
+        // `keep` "performs" by doing nothing, so it can neither satisfy nor demand an undo.
+        let inverseIsOperational = record.inverse.actions.contains { $0.action != .keep }
+        let anythingMovedBack = execution.performed.contains { $0.action != .keep }
+        if inverseIsOperational && !anythingMovedBack {
+            outcome.refusal = "Nothing could be moved back — every step of the stored inverse "
+                + "found the tree already changed (each is named in the log). The record stays "
+                + "applied; resolve the drift and try again."
+            Logger.shared.warning("Restructure undo \(manifestId): refused — the whole inverse "
+                + "skipped as drift; record left applied")
+            return outcome
+        }
+
+        // The session ⌘Z stack described the tree as the landing left it; the ledger inverse has
+        // now reshaped it back, so every stacked group — and especially the landing's own redo —
+        // would replay against a tree that no longer matches its registrations. Clearing is the
+        // honest move: without it, ⌘⇧Z after this undo re-applied the era renames onto a tree
+        // the ledger records as undone.
+        if let undo = undoManager, undo.canUndo || undo.canRedo {
+            undo.removeAllActions()
+            Logger.shared.info("Restructure undo \(manifestId): session ⌘Z stack cleared — it "
+                + "described the pre-undo tree")
+        }
 
         // Re-point back and reload everything from the kept directory — the profile there
         // describes the restored tree, which is why the undo does not re-derive.
@@ -343,7 +437,12 @@ extension FileSyncManager {
                             + "longer there — nothing to rename back")
                         continue
                     }
+                    // The case-only pass exists because a case-insensitive volume answers the
+                    // existence probe for BOTH spellings; on a case-sensitive volume a standing
+                    // `item.from` really is a distinct occupant, and waving it past would let
+                    // `safeMoveItem` replace it wholesale.
                     let caseOnly = item.from.path.lowercased() == item.to.path.lowercased()
+                        && !FileSyncManager.volumeSupportsCaseSensitiveNames(for: item.to)
                     guard caseOnly || !fm.fileExists(atPath: item.from.path) else {
                         logger.warning("Undo (\(actionName)): \(item.from.lastPathComponent) is "
                             + "occupied — the rename back was refused rather than merged")
@@ -379,6 +478,7 @@ extension FileSyncManager {
                         continue
                     }
                     let caseOnly = item.from.path.lowercased() == item.to.path.lowercased()
+                        && !FileSyncManager.volumeSupportsCaseSensitiveNames(for: item.from)
                     guard caseOnly || !fm.fileExists(atPath: item.to.path) else {
                         logger.warning("Redo (\(actionName)): \(item.to.lastPathComponent) is "
                             + "occupied — the rename was refused rather than merged")
@@ -422,6 +522,32 @@ extension FileSyncManager {
     /// One directory level's entry names, through the protocol's own enumerator — the listing
     /// the unlisted-file rule and the empty-check re-run at the moment of the action.
     /// (`FileManaging` has no `contentsOfDirectory`; adding one strands every test double.)
+    /// How many visible FILES sit anywhere beneath `path` — empty directories and dotfiles do
+    /// not count as contents. This is the removal step's definition of "still empty": a drained
+    /// folder whose only remainders are the (equally drained) folders inside it can go to the
+    /// Trash whole, which is what lets ``RestructureLedger/emptiedFolders(of:)`` stay
+    /// shallowest-only without stranding the nested drained folders it deliberately drops —
+    /// a shallow items-count probe called the parent "not empty" over an empty subfolder, and
+    /// both lingered forever.
+    nonisolated public static func visibleFileCount(atPath path: String,
+                                                    fm: FileManaging) -> Int {
+        // NOT `.skipsHiddenFiles`: that prunes hidden DIRECTORIES wholesale, and a drained
+        // folder holding `Old/.git/…` would have read "still empty" over a full repository.
+        // The walk descends everywhere; only files whose own name is dotted are ignorable —
+        // the same junk class (.DS_Store) the shallow probe always ignored — because a hidden
+        // directory's contents are content, however its container is named.
+        guard let walker = fm.enumerator(at: URL(fileURLWithPath: path),
+                                         includingPropertiesForKeys: [.isDirectoryKey],
+                                         options: [],
+                                         errorHandler: nil) else { return 0 }
+        var files = 0
+        for case let url as URL in walker {
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if !isDir && !url.lastPathComponent.hasPrefix(".") { files += 1 }
+        }
+        return files
+    }
+
     nonisolated static func directoryNames(at path: String, fm: FileManaging) -> [String] {
         guard let walker = fm.enumerator(at: URL(fileURLWithPath: path),
                                          includingPropertiesForKeys: nil,
@@ -448,10 +574,23 @@ extension FileSyncManager {
         // runs: the planned set is what the manifest lists out of that folder; anything else on
         // disk is a file the plan never read, and moving around it would be guessing.
         var plannedOut: [String: Set<String>] = [:]
-        for action in actions where action.action == .moveFile || action.action == .moveDir {
+        for action in actions
+        where action.action == .moveFile || action.action == .moveDir || action.action == .keep {
             guard let src = action.src else { continue }
-            let parent = (src as NSString).deletingLastPathComponent
-            plannedOut[parent, default: []].insert((src as NSString).lastPathComponent)
+            // The item itself is listed at its parent — and so is every ancestor folder at ITS
+            // parent, because a subfolder whose contents the plan moves (or keeps) one level
+            // deeper is a folder the plan has accounted for, not a stray. Without the ancestor
+            // credit, the same-name-subfolder merge the planner itself derives (`Payment/` into
+            // `Payments/`, both holding `Receipts/`) vetoed its own parent folder: `Receipts`
+            // is never a move src, only its files are.
+            var name = (src as NSString).lastPathComponent
+            var parent = (src as NSString).deletingLastPathComponent
+            while !name.isEmpty {
+                plannedOut[parent, default: []].insert(name)
+                guard !parent.isEmpty else { break }
+                name = (parent as NSString).lastPathComponent
+                parent = (parent as NSString).deletingLastPathComponent
+            }
         }
         var vetoedSources: Set<String> = []
         var checkedSources: Set<String> = []
@@ -506,15 +645,21 @@ extension FileSyncManager {
                 }
                 // A taken destination turns a rename into a merge nobody reviewed — skipped,
                 // unless this is the case-only rename `safeMoveItem` owns the two-step for.
+                // The exemption holds only on a case-insensitive volume, where the existence
+                // probe answers for both spellings; on a case-sensitive one a standing `dst`
+                // differing only by case is a real, distinct occupant.
                 if fm.fileExists(atPath: dstPath),
-                   src.lowercased() != dst.lowercased() {
+                   src.lowercased() != dst.lowercased()
+                    || FileSyncManager.volumeSupportsCaseSensitiveNames(
+                        for: URL(fileURLWithPath: srcPath)) {
                     out.skipped.append("\(dst)/ appeared since the plan — the rename of "
                         + "\(src)/ was skipped rather than merged unreviewed")
                     continue
                 }
                 do {
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
-                                                    to: URL(fileURLWithPath: dstPath))
+                                                    to: URL(fileURLWithPath: dstPath),
+                                                    fileManager: fm)
                     out.renamed += 1
                     out.renameItems.append((from: URL(fileURLWithPath: srcPath),
                                             to: URL(fileURLWithPath: dstPath)))
@@ -550,7 +695,7 @@ extension FileSyncManager {
                     performed.md5 = (try? Data(contentsOf: URL(fileURLWithPath: srcPath)))
                         .map { Insecure.MD5.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
-                                                    to: destination)
+                                                    to: destination, fileManager: fm)
                     out.filesMoved += 1
                     out.moveItems.append((from: URL(fileURLWithPath: srcPath),
                                           to: destination, overwritten: nil))
@@ -575,7 +720,8 @@ extension FileSyncManager {
                 }
                 do {
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
-                                                    to: URL(fileURLWithPath: dstPath))
+                                                    to: URL(fileURLWithPath: dstPath),
+                                                    fileManager: fm)
                     out.foldersMovedWhole += 1
                     out.moveItems.append((from: URL(fileURLWithPath: srcPath),
                                           to: URL(fileURLWithPath: dstPath), overwritten: nil))
@@ -591,18 +737,16 @@ extension FileSyncManager {
                     out.skipped.append("\(src)/ is already gone")
                     continue
                 }
-                let contents = FileSyncManager.directoryNames(at: path, fm: fm)
-                    .filter { !$0.hasPrefix(".") }
-                guard contents.isEmpty else {
-                    out.skipped.append("\(src)/ is not empty (\(contents.count) item(s)) — "
+                let files = FileSyncManager.visibleFileCount(atPath: path, fm: fm)
+                guard files == 0 else {
+                    out.skipped.append("\(src)/ still holds \(files) file(s) — "
                         + "kept; no file is ever deleted")
                     continue
                 }
                 do {
                     // To the Trash, never a hard delete — the removal step's own rule, and the
                     // right caution for an inverse's `create-dir` turned back around.
-                    try FileManager.default.trashItem(at: URL(fileURLWithPath: path),
-                                                      resultingItemURL: nil)
+                    try fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
                     out.removedEmpty += 1
                     out.performed.append(action)
                 } catch {

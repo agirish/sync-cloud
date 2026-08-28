@@ -1029,13 +1029,12 @@ extension ContentView {
     /// The newest un-undone landing in the Restructure ledger, as a runnable — nil when there is
     /// nothing to undo, which greys the menu item.
     var shortcutUndoReorganisation: (() -> Void)? {
-        // Only the landing the survey currently sits on — the same newest-first rule the engine
-        // enforces and the lens's cards follow; anything else would be an enabled item that can
-        // only refuse.
-        guard let record = syncManager.restructureStore?.applied.last(where: {
-            $0.undoneAt == nil && $0.appliedUnderProfileId != nil
-                && $0.producedProfileId == syncManager.filingProfileDirectoryId
-        }) else { return nil }
+        // THE predicate, not a copy of it: `undoableReorganisation` is the one spelling of
+        // which landing may be undone, shared with the lens's cards and mirrored by the
+        // engine's own guards — a menu enabled by its own private rule is a menu that can
+        // drift into offering an undo whose card shows no button.
+        guard let record = syncManager.restructureStore?.undoableReorganisation(
+            currentProfileId: syncManager.filingProfileDirectoryId) else { return nil }
         let manifestId = record.manifest.manifestId
         let manager = syncManager
         return {
@@ -1075,9 +1074,10 @@ extension ContentView {
         actionHandler?.beginCreateFolder(in: target)
     }
 
-    /// ⌘K → *Restructure This Folder* — §5.10's palette route: the shape question about the
-    /// folder you are standing in. The target resolves the way ⇧⌘N's does: the aimed pane's
-    /// current folder, which in Columns is the deepest open column.
+    /// ⌘K → *Check This Folder's Shape* — §5.10's palette route: the shape question about the
+    /// folder you are standing in, wearing the row context menu's exact words. The target
+    /// resolves the way ⇧⌘N's does: the aimed pane's current folder, which in Columns is the
+    /// deepest open column.
     func restructureCurrentFolder() {
         let isLeft = shortcutTargetIsLeft
         let pane = paneContext(isLeft: isLeft)

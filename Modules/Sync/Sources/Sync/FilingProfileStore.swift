@@ -348,6 +348,11 @@ extension FilingProfileStore {
         /// re-point is licensed by that claim being TRUE — an apply that raced a profile switch
         /// must stop, not re-point away from a profile it never read.
         case notReplacingTheActiveProfile(claimed: String, active: String?)
+        /// The derived profile's own file does not chain to the id it claims to replace —
+        /// `derivedFrom` is what Undo reads, so a profile that forgot its parent is one that
+        /// could never be undone. Distinct from the case above: there the INDEX disagrees with
+        /// the caller, here the profile disagrees with itself.
+        case chainMissing(derivedFrom: String?, claimed: String)
 
         public var description: String {
             switch self {
@@ -360,6 +365,11 @@ extension FilingProfileStore {
             case .notReplacingTheActiveProfile(let claimed, let active):
                 return "the re-derivation claims to replace \(claimed) but the active profile is "
                     + "\(active ?? "none") — refusing to re-point away from a profile it never read"
+            case .chainMissing(let derivedFrom, let claimed):
+                return "the derived profile's own file names "
+                    + (derivedFrom.map { "\($0)" } ?? "no profile") + " as its parent, not "
+                    + "\(claimed) — the chain Undo reads must be in the file, so the write is "
+                    + "refused"
             }
         }
     }
@@ -517,8 +527,7 @@ extension FilingProfileStore {
         // The chain must be in the FILE, not only in the caller's intent: derivedFrom is what
         // Undo reads, and a derived profile that forgot its parent is one that cannot be undone.
         guard profile.derivedFrom == oldId else {
-            throw WriteRefusal.notReplacingTheActiveProfile(claimed: oldId,
-                                                            active: profile.derivedFrom)
+            throw WriteRefusal.chainMissing(derivedFrom: profile.derivedFrom, claimed: oldId)
         }
         let url = profileURL(id: id, in: directory)
         guard !FileManager.default.fileExists(atPath: url.path) else {

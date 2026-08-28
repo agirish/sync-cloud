@@ -364,3 +364,135 @@ import Foundation
         #expect(stamp as? Date == after as? Date)
     }
 }
+
+/// The store under imperfect input and colliding history — every one of these used to trap
+/// (`Dictionary(uniqueKeysWithValues:)`) or silently lie (a swallowed ledger write).
+@MainActor
+@Suite struct RestructureStoreRobustnessTests {
+
+    private func makeDirectory() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("restructure-robust-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
+                                                withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func manifest(id: String, family: String = "F") -> RestructureManifest {
+        RestructureManifest(profileId: "p", manifestId: id, createdAt: "t", family: family,
+                            kind: .shape, actions: [
+                                .init(action: .renameDir, src: "\(family)/a", dst: "\(family)/b"),
+                            ])
+    }
+
+    /// A rename whose destination equals a key recorded before that folder was hand-deleted is
+    /// history, not a programming error: the rekeyed claim wins and nothing traps at the tail
+    /// of a successful apply.
+    @Test func rekeyingTwoAnswersOntoOneKeySurvivesAndTheRekeyedClaimWins() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordAnswer("stale", for: RestructureKey(kind: .ask, path: "Tax/Tax Records"))
+        store.recordAnswer("fresh", for: RestructureKey(kind: .ask, path: "Tax/Forms"))
+
+        store.rekey(renames: [(from: "Tax/Forms", to: "Tax/Tax Records")])
+
+        #expect(store.answer(for: RestructureKey(kind: .ask, path: "Tax/Tax Records")) == "fresh")
+    }
+
+    /// A hand-edited file with a duplicated row loads (last row wins, JSON's own object rule) —
+    /// the whole philosophy here is refusal over trap, and `load` used to crash the store's
+    /// construction on exactly this input.
+    @Test func aDuplicatedAnswerRowLoadsInsteadOfTrapping() throws {
+        let dir = try makeDirectory()
+        let json = """
+        {"schemaVersion": 1, "answers": [
+          {"kind": "ask", "path": "A", "choice": "first"},
+          {"kind": "ask", "path": "A", "choice": "second"}
+        ]}
+        """
+        try Data(json.utf8).write(to: dir.appendingPathComponent("p/restructure.json"))
+        let store = RestructureStore(directory: dir, profileId: "p")
+        #expect(!store.isUnreadable)
+        #expect(store.answer(for: RestructureKey(kind: .ask, path: "A")) == "second")
+    }
+
+    /// §5.5's licence to move files: `recordApplied` reports whether the record REACHED the
+    /// disk, and the engine refuses the whole landing on false — tested here at the seam, with
+    /// an unwritable directory standing in for a full disk.
+    @Test func aFailedLedgerWriteIsReportedToTheCaller() throws {
+        let dir = try makeDirectory()
+        let folder = dir.appendingPathComponent("p")
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755],
+                                                       ofItemAtPath: folder.path) }
+        let store = RestructureStore(directory: dir, profileId: "p")
+        let landed = store.recordApplied(RestructureStore.AppliedRecord(
+            manifest: manifest(id: "m1"), inverse: manifest(id: "m1").inverse,
+            at: "t", created: 0, skipped: 0, appliedUnderProfileId: "p"))
+        #expect(!landed, "an unwritable ledger must be reported, not shrugged into memory")
+    }
+
+    // MARK: The one undoable landing (§5.5's chain, in its single spelling)
+
+    private func record(id: String, appliedUnder: String? = "prof-a",
+                        produced: String? = "prof-b", summary: String? = "did things",
+                        undoneAt: String? = nil) -> RestructureStore.AppliedRecord {
+        RestructureStore.AppliedRecord(
+            manifest: manifest(id: id), inverse: manifest(id: id).inverse, at: "t",
+            created: 0, skipped: 0, appliedUnderProfileId: appliedUnder,
+            producedProfileId: produced, summary: summary, undoneAt: undoneAt)
+    }
+
+    @Test func theNewestNotUndoneReorganisationIsTheOneOffered() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordApplied(record(id: "m1", produced: "prof-b"))
+        store.recordApplied(record(id: "m2", appliedUnder: "prof-b", produced: "prof-c"))
+        #expect(store.undoableReorganisation(currentProfileId: "prof-c")?
+            .manifest.manifestId == "m2")
+        #expect(store.undoableReorganisation(currentProfileId: "prof-b") == nil,
+                "the newest landing's produced directory is not active — nothing is offered")
+    }
+
+    /// A scaffold record never carries `appliedUnderProfileId`; it is not a link in the chain
+    /// and must neither be offered nor block the reorganisation beneath it.
+    @Test func aScaffoldRecordIsInvisibleToTheChain() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordApplied(record(id: "m1", produced: "prof-b"))
+        store.recordApplied(record(id: "scaffold-1", appliedUnder: nil, produced: nil,
+                                   summary: nil))
+        #expect(store.undoableReorganisation(currentProfileId: "prof-b")?
+            .manifest.manifestId == "m1")
+    }
+
+    /// A landing whose re-derive failed never re-pointed the survey (`producedProfileId` nil,
+    /// summary set): it anchors on the directory it was applied under, and is still undoable —
+    /// the first gate compared produced ids and stranded exactly these records forever.
+    @Test func aLandingWhoseRederiveFailedIsStillOffered() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordApplied(record(id: "m1", appliedUnder: "prof-a", produced: nil))
+        #expect(store.undoableReorganisation(currentProfileId: "prof-a")?
+            .manifest.manifestId == "m1")
+    }
+
+    /// A record without a summary never finalised — the app quit mid-apply, so its stored
+    /// inverse may not match the disk. Never offered.
+    @Test func aNeverFinalisedLandingIsNotOffered() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordApplied(record(id: "m1", produced: nil, summary: nil))
+        #expect(store.undoableReorganisation(currentProfileId: "prof-a") == nil)
+    }
+
+    @Test func anUndoneLandingReopensTheOneBeneathIt() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordApplied(record(id: "m1", produced: "prof-b"))
+        store.recordApplied(record(id: "m2", appliedUnder: "prof-b", produced: "prof-c",
+                                   undoneAt: "later"))
+        #expect(store.undoableReorganisation(currentProfileId: "prof-b")?
+            .manifest.manifestId == "m1")
+    }
+}

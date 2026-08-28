@@ -85,7 +85,11 @@ public enum PaletteAction: String, CaseIterable, Sendable {
         case .newFolder: return "New Folder…"
         case .chooseFolder: return "Choose Folder…"
         case .findInPane: return "Find in Pane…"
-        case .restructureThisFolder: return "Restructure This Folder"
+        // The row context menu's exact words — one action wears one name wherever it appears,
+        // and the row menu (a real menu item) is what makes this palette entry lawful. The
+        // roadmap drafted "Restructure This Folder" for this seat; two names for one verb was
+        // the kind of drift the palette law exists to prevent.
+        case .restructureThisFolder: return "Check This Folder’s Shape"
         case .settings: return "Settings…"
         case .shortcuts: return "Keyboard Shortcuts"
         case .activityLog: return "Activity Log"

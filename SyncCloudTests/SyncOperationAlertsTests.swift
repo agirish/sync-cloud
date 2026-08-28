@@ -50,12 +50,40 @@ import Sync
                                   model: String = "claude-haiku-4-5",
                                   estCostUSD: Double = 0.02,
                                   monthlySpentUSD: Double = 0, monthlyCapUSD: Double = 0,
-                                  totalSpentUSD: Double = 0, totalCapUSD: Double = 0) -> FilingSpendPreflight {
+                                  totalSpentUSD: Double = 0, totalCapUSD: Double = 0,
+                                  unit: String = "file") -> FilingSpendPreflight {
         FilingSpendPreflight(fileCount: fileCount, model: model,
                              estInputTokens: 8_000, estOutputTokens: 1_500,
                              estCostUSD: estCostUSD,
                              monthlySpentUSD: monthlySpentUSD, monthlyCapUSD: monthlyCapUSD,
-                             totalSpentUSD: totalSpentUSD, totalCapUSD: totalCapUSD)
+                             totalSpentUSD: totalSpentUSD, totalCapUSD: totalCapUSD,
+                             unit: unit)
+    }
+
+    /// §5.6's dialog: a mapping refine sends folder NAMES, and every branch of the prompt says
+    /// so — the verb ("Send", never "Classify"), the noun, and above a cap the consequence: the
+    /// filing refine falls back on-device, the mapping refine simply does not run, and the first
+    /// wording promised "free on-device suggestions" over a click that delivered nothing.
+    @Test func aFolderNameUnitReshapesTheVerbAndTheCapSentence() {
+        let names = Self.preflight(fileCount: 24, unit: "folder name")
+        #expect(SyncOperationAlerts.filingSpendMessage(names)
+                == "Send 24 folder names to Haiku?")
+        #expect(SyncOperationAlerts.filingSpendMessage(
+            Self.preflight(fileCount: 1, unit: "folder name"))
+                == "Send 1 folder name to Haiku?")
+
+        let blocked = Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80,
+                                     monthlyCapUSD: 1.00, unit: "folder name")
+        let body = SyncOperationAlerts.filingSpendInformativeText(blocked)
+        #expect(body.contains("only runs in the cloud"))
+        #expect(!body.contains("on-device suggestions"),
+                "the mapping refine has no on-device fallback to promise")
+
+        let blockedFiles = Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80,
+                                          monthlyCapUSD: 1.00)
+        #expect(SyncOperationAlerts.filingSpendInformativeText(blockedFiles)
+            .contains("on-device suggestions"),
+                "the filing refine's true fallback sentence stays")
     }
 
     @Test func spendMessageNamesCountAndModelWithSingularPlural() {

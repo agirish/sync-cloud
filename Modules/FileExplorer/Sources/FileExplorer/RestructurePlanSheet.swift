@@ -20,8 +20,14 @@ struct RestructurePlanSheet: View {
     let accent: Color
     /// A saved draft's rows, so *Review N operations* reopens the plan as it was left.
     var initialRows: [RestructureMapping.Row]?
-    /// Writes the export file and saves the draft; returns a failure sentence, or nil on success.
-    let onExport: (RestructureManifest) -> String?
+    /// Writes the export file and saves the draft. The success case carries the file name the
+    /// STORE chose — the footer used to re-derive it from the same recipe, which is two copies
+    /// of a name that must match, and the copy in the store is the one on disk.
+    enum ExportResult: Equatable {
+        case saved(filename: String)
+        case failed(String)
+    }
+    let onExport: (RestructureManifest) -> ExportResult
     /// §5.5's landing: runs the eight-step apply and returns its outcome sentence — the summary
     /// on success (prefixed so the sheet can tell), or the refusal. nil while Apply is not
     /// offered, which hides the button rather than promising a landing that cannot run.
@@ -256,6 +262,9 @@ struct RestructurePlanSheet: View {
                 }
             }
             .labelsHidden()
+            // The visible label is the source name to its left; VoiceOver needs the tie made
+            // explicit or this is an unnamed popup in a column of unnamed popups.
+            .accessibilityLabel("Target for \(row.wrappedValue.source)")
             .scaledFont(.system(size: 11))
             .frame(width: 180)
             if let margin = margin(for: row.wrappedValue, plan: plan) {
@@ -289,7 +298,8 @@ struct RestructurePlanSheet: View {
                             runRefine()
                         } label: {
                             Label(refining ? "Asking…"
-                                  : "Ask \(refineModelLabel) about \(rows.count) folder names",
+                                  : "Ask \(refineModelLabel) about \(rows.count) folder "
+                                    + "name\(rows.count == 1 ? "" : "s")",
                                   systemImage: "sparkles")
                         }
                         .buttonStyle(.bordered)
@@ -395,10 +405,13 @@ struct RestructurePlanSheet: View {
     }
 
     private func runRefine() {
-        guard let onRefineMapping else { return }
+        guard !refining, let onRefineMapping else { return }
         let request = refineRequest()
         refining = true
         refineFailedText = nil
+        // A failed second run must not leave the FIRST run's proposals rendered under its own
+        // failure sentence — nothing would say which run they belong to.
+        proposals = nil
         Task { @MainActor in
             let outcome = await onRefineMapping(request)
             refining = false
@@ -522,10 +535,13 @@ struct RestructurePlanSheet: View {
                 .scaledFont(.system(size: 11))
             // Export keeps ⏎ — the safe act stays the default one; landing a plan is a plain
             // deliberate click, styled as the destructive act it is.
+            // Disabled once applied, like Apply itself: an export saves a draft, and a draft
+            // saved AFTER the landing would put "Planned, not applied" on a card about
+            // operations that just ran.
             Button("Export plan…") { exportPlan(plan) }
                 .scaledFont(.system(size: 11, weight: .semibold))
                 .keyboardShortcut(.defaultAction)
-                .disabled((try? plan.get()) == nil || applying)
+                .disabled((try? plan.get()) == nil || applying || isApplied)
             if let onApply {
                 Button(applyTitle(plan)) { apply(plan, onApply) }
                     .scaledFont(.system(size: 11, weight: .semibold))
@@ -550,7 +566,9 @@ struct RestructurePlanSheet: View {
 
     private func apply(_ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
                        _ run: @escaping (RestructureManifest) async -> ApplyResult) {
-        guard let manifest = try? plan.get() else { return }
+        // The button's .disabled only holds if SwiftUI re-rendered between a double-click's two
+        // clicks; this guard is what actually stops a second eight-step apply racing the first.
+        guard !applying, let manifest = try? plan.get() else { return }
         applying = true
         Task { @MainActor in
             let result = await run(manifest)
@@ -565,11 +583,9 @@ struct RestructurePlanSheet: View {
     private func exportPlan(
         _ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>) {
         guard let manifest = try? plan.get() else { return }
-        if let failure = onExport(manifest) {
-            outcome = .failed(failure)
-        } else {
-            outcome = .exported("restructure-\(manifest.createdAt.prefix(while: { $0 != "T" }))-"
-                + manifest.family.replacingOccurrences(of: "/", with: "-") + ".json")
+        switch onExport(manifest) {
+        case .saved(let filename): outcome = .exported(filename)
+        case .failed(let failure): outcome = .failed(failure)
         }
     }
 
@@ -723,6 +739,11 @@ struct RestructurePlanSheet: View {
         case .conflictingTargets(let first, let second):
             return "\(first) and \(second) differ only by capitalisation, and this volume "
                 + "cannot hold both side by side. Pick one spelling."
+        case .targetTakenByCase(let target, let standing, let member):
+            return "\(member) already holds \(standing), which differs from \(target) only by "
+                + "capitalisation — the volume cannot hold both. Map \(standing) to \(target) "
+                + "to step its case up, reuse its spelling — or, if this plan moves "
+                + "\(standing) elsewhere, land that change on its own first."
         }
     }
 

@@ -25,14 +25,18 @@ import Testing
 
     /// Applied and Undone are different claims and neither borrows the other's words — and the
     /// Undone line carries the undo run's own counts, because an undo never pretends the tree
-    /// was untouched.
+    /// was untouched. The stamp renders in WORDS: this was the one user sentence in the app
+    /// carrying the ledger's machine stamp verbatim, literal `T` included.
     @Test func appliedAndUndoneNeverBorrowEachOthersWords() {
+        // A fixed "now" well after the stamp's day, so the phrase is the absolute form and the
+        // test does not depend on the day it runs.
+        let now = ISO8601DateFormatter().date(from: "2026-09-20T10:00:00Z")!
         let applied = ReorganisationDisplay(
             manifestId: "m1", family: "Finance/US/Income Tax",
             at: "2026-08-28T12:00:00", summary: "8 renames · 12 moved",
             undoneAt: nil, undoSummary: nil, canUndo: true, hasEmptiedFolders: true)
-        let appliedLine = RestructureLens.reorganisationLine(applied)
-        #expect(appliedLine == "Applied 2026-08-28T12:00:00 — 8 renames · 12 moved.")
+        let appliedLine = RestructureLens.reorganisationLine(applied, now: now)
+        #expect(appliedLine == "Applied on 28 Aug 2026 at 12:00 — 8 renames · 12 moved.")
         #expect(!appliedLine.contains("Undone"))
 
         let undone = ReorganisationDisplay(
@@ -40,12 +44,30 @@ import Testing
             at: "2026-08-28T12:00:00", summary: "8 renames · 12 moved",
             undoneAt: "2026-08-28T13:00:00", undoSummary: "8 renames · 11 moved · 1 skipped",
             canUndo: false, hasEmptiedFolders: false)
-        let undoneLine = RestructureLens.reorganisationLine(undone)
-        #expect(undoneLine.contains("Undone 2026-08-28T13:00:00"))
+        let undoneLine = RestructureLens.reorganisationLine(undone, now: now)
+        #expect(undoneLine.contains("Undone on 28 Aug 2026 at 13:00"))
         #expect(undoneLine.contains("1 skipped"),
                 "an undo never pretends the tree was untouched")
         #expect(undoneLine.contains("named in the log"))
         #expect(!undoneLine.hasPrefix("Applied"))
+    }
+
+    /// The stamp-in-words rule itself: today and yesterday by name, the absolute form beyond,
+    /// and an unparseable stamp rendered as itself — a wrong spelling of the truth beats a
+    /// pretty invention.
+    @Test func theLandingPhraseSpeaksInWords() {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = .current
+        parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        let now = parser.date(from: "2026-08-28T15:00:00")!
+        #expect(RestructureLens.landingPhrase("2026-08-28T09:14:00", now: now)
+                == "today at 09:14")
+        #expect(RestructureLens.landingPhrase("2026-08-27T18:40:00", now: now)
+                == "yesterday at 18:40")
+        #expect(RestructureLens.landingPhrase("2026-08-12T08:00:00", now: now)
+                == "on 12 Aug 2026 at 08:00")
+        #expect(RestructureLens.landingPhrase("not-a-stamp", now: now) == "not-a-stamp")
     }
 
     // MARK: Render smoke

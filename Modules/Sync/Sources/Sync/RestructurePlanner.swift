@@ -150,6 +150,11 @@ public enum RestructurePlanner {
         /// case-insensitive volumes this app runs against, both cannot exist side by side, and
         /// deriving operations toward them would fail at apply in a shape the plan promised away.
         case conflictingTargets(String, String)
+        /// A target name is occupied by a sibling differing only by case that this mapping does
+        /// not step up (`Files → Forms` while `forms/` stands, kept or merely emptied). The
+        /// volume cannot create `Forms/` beside `forms/`, so the derivation would fail at apply;
+        /// refusing here keeps that from becoming a reviewed plan that cannot land.
+        case targetTakenByCase(target: String, standing: String, member: String)
     }
 
     /// Every distinct child folder name across the members, disk-cased and sorted — the editor's
@@ -259,13 +264,19 @@ public enum RestructurePlanner {
         // "is `Forms` vacated?" depends on whether `Forms` is the chosen *rename* of its own
         // target group, which depends on whether THAT target stands. Memoised, with the path
         // stack doubling as the cycle detector.
-        enum Vacancy { case free, vacated(by: String), standing }
+        enum Vacancy { case free, vacated(by: String), standing, taken(by: String) }
         var memo: [String: Vacancy] = [:]
         var resolving: [String] = []
         var cycleMembers: Set<String> = []
 
         func renameChoice(target: String, sources: [String], destExists: Bool) -> String? {
             guard !destExists else { return nil }
+            // A source differing from the target only by case must be the rename: while it
+            // stands, the volume cannot create the target beside it, and merging it "into" the
+            // target would move its files onto themselves. The case-step wins over file count.
+            if let caseStep = sources.first(where: {
+                $0 != target && $0.lowercased() == target.lowercased()
+            }) { return caseStep }
             // The fewest moves that reach the shape: rename the source with the most files.
             return sources.max {
                 let a = view.fileCount((memberPath as NSString).appendingPathComponent($0)) ?? 0
@@ -279,7 +290,20 @@ public enum RestructurePlanner {
             if let cached = memo[name] { return cached }
             // A case-only rename occupies its own name: `forms → Forms` is one rename-dir on a
             // case-insensitive volume, so the name never blocks its own group.
-            guard childSet.contains(name) else { return .free }
+            guard childSet.contains(name) else {
+                // The exact name is absent, but on a case-insensitive volume a sibling differing
+                // only by case occupies it just as surely. The one shape that steps through is
+                // the case-step itself — the twin mapped onto this very name, whose single
+                // rename occupies and vacates in one action. Everything else (kept, emptied by
+                // a merge that leaves the directory, or renamed away on an ordering this
+                // resolver does not track across case) is a clash to refuse, not guess through.
+                guard let twin = children.first(where: {
+                    $0 != name && $0.lowercased() == name.lowercased()
+                }) else { return .free }
+                if rowBySource[twin]?.target == name { return .free }
+                memo[name] = .taken(by: twin)
+                return .taken(by: twin)
+            }
             guard let row = rowBySource[name], let rowTarget = row.target,
                   rowTarget != name, !groups[rowTarget, default: []].isEmpty else {
                 memo[name] = .standing
@@ -300,7 +324,7 @@ public enum RestructurePlanner {
             let targetVacancy = vacancy(of: rowTarget)
             let destExists: Bool
             switch targetVacancy {
-            case .standing: destExists = true
+            case .standing, .taken: destExists = true
             case .free, .vacated: destExists = false
             }
             let chosen = renameChoice(target: rowTarget,
@@ -324,6 +348,8 @@ public enum RestructurePlanner {
             // (`forms` stepping up to `Forms`) never reaches here: the exact-cased name is not
             // in `childSet`, so it resolves `.free`.
             case .vacated(let by): group.vacatedBy = by
+            case .taken(let by):
+                return .failure(.targetTakenByCase(target: target, standing: by, member: member))
             }
             resolved.append(group)
         }
@@ -348,21 +374,25 @@ public enum RestructurePlanner {
             let targetPath = (memberPath as NSString).appendingPathComponent(group.target)
             let chosen = renameChoice(target: group.target, sources: group.sources,
                                       destExists: group.destExists)
-            for source in group.sources {
+            // The chosen rename is what CREATES the target directory (when it does not stand
+            // yet), so it must run before any sibling's merge writes into it — sorted source
+            // order put a merge first whenever the biggest source sorted after a sibling, and
+            // every one of those moves failed at apply against the absent parent.
+            if let chosen {
+                let sourcePath = (memberPath as NSString).appendingPathComponent(chosen)
+                actions.append(RestructureManifest.Action(
+                    action: .renameDir, src: sourcePath, dst: targetPath,
+                    evidence: "The mapping names \(chosen)/ as \(group.target)/ in the "
+                        + "target shape; the rename is atomic and carries its files.",
+                    filesCarried: view.fileCount(sourcePath) ?? 0))
+                vacatedNames.insert(chosen)
+            }
+            for source in group.sources where source != chosen {
                 let sourcePath = (memberPath as NSString).appendingPathComponent(source)
-                if source == chosen {
-                    actions.append(RestructureManifest.Action(
-                        action: .renameDir, src: sourcePath, dst: targetPath,
-                        evidence: "The mapping names \(source)/ as \(group.target)/ in the "
-                            + "target shape; the rename is atomic and carries its files.",
-                        filesCarried: view.fileCount(sourcePath) ?? 0))
-                    vacatedNames.insert(source)
-                } else {
-                    if let refusal = emitMerge(of: sourcePath, sourceName: source,
-                                               into: targetPath, targetName: group.target,
-                                               in: view, actions: &actions) {
-                        return refusal
-                    }
+                if let refusal = emitMerge(of: sourcePath, sourceName: source,
+                                           into: targetPath, targetName: group.target,
+                                           in: view, actions: &actions) {
+                    return refusal
                 }
             }
             return nil
@@ -370,14 +400,31 @@ public enum RestructurePlanner {
 
         while !pending.isEmpty {
             if let index = pending.firstIndex(where: { group in
-                guard let by = group.vacatedBy else { return true }
-                return vacatedNames.contains(by)
+                if let by = group.vacatedBy, !vacatedNames.contains(by) { return false }
+                // Drain before fill, the merge half: a standing target that is itself another
+                // pending group's SOURCE must be drained before anything merges into it — its
+                // outbound moves were listed from the tree at plan time, and files arriving
+                // first would trip the apply's own unlisted-veto on the very folder the plan
+                // is emptying. (The rename half of this rule is `vacatedBy` above.)
+                if group.destExists, pending.contains(where: { other in
+                    other.target != group.target && other.sources.contains(group.target)
+                }) { return false }
+                return true
             }) {
                 let group = pending.remove(at: index)
                 if let refusal = emit(group) { return .failure(refusal) }
                 continue
             }
-            // Nothing runnable: the remaining groups form a ring. Break it at the first one.
+            // Nothing runnable: the remaining groups form a ring. The temp-name break below is
+            // only sound for a PURE-RENAME ring. The resolver pre-validates every ring it
+            // detects, and mutual mappings always resolve as rename rings (each mapped-away
+            // name vacates), so a non-rename stall is believed unreachable — but the
+            // drain-before-fill rule above is a second stall source, and if a shape ever
+            // reaches here impure, refusing beats temp-renaming a merge source and stranding
+            // its files under a scratch name.
+            guard pending.allSatisfy({ $0.sources.count == 1 && !$0.destExists }) else {
+                return .failure(.unresolvableOrder(member: member))
+            }
             let ring = pending.removeFirst()
             let source = ring.sources[0]
             let sourcePath = (memberPath as NSString).appendingPathComponent(source)

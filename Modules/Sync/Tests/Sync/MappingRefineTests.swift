@@ -103,4 +103,40 @@ import Testing
             for: MappingRefineProposal(source: "X", verdict: .declined, why: "w"),
             among: all, rows: rows) == nil, "a declined row reverses nothing")
     }
+    /// Parse hygiene, three ways — a model working a long list answers a row twice (first
+    /// answer wins: two proposals sharing one id break the sheet's ForEach), answers `A → A`
+    /// because the tool schema makes `target` mandatory (normalised to keep, which also kills
+    /// the false "swaps places with itself" label), and answers with sloppy casing (mapped back
+    /// to the asked spelling rather than dropped as invented).
+    @Test func theParseDedupesNormalisesSelfMapsAndForgivesCase() throws {
+        let rows = [RestructureMapping.Row(source: "Petition"),
+                    RestructureMapping.Row(source: "Claims")]
+        let parsed = try #require(MappingRefineProtocol.parseProposals(
+            responseData: Self.response([
+                ["source": "Petition", "verdict": "propose", "target": "Application", "why": "w1"],
+                ["source": "Petition", "verdict": "propose", "target": "Filing", "why": "w2"],
+                ["source": "claims", "verdict": "propose", "target": "claims", "why": "w3"],
+            ]), rows: rows))
+        #expect(parsed.count == 2)
+        #expect(parsed[0] == MappingRefineProposal(
+            source: "Petition", verdict: .propose(target: "Application"), why: "w1"),
+            "the FIRST answer per source wins")
+        #expect(parsed[1].source == "Claims", "the asked spelling, not the model's")
+        #expect(parsed[1].verdict == .keep, "A → A is keep, not a proposal")
+        #expect(MappingRefineProtocol.reversalNote(for: parsed[1], among: parsed, rows: rows)
+                == nil)
+    }
+    /// A malformed first answer for a row must not consume the row's dedupe slot — the model
+    /// stumbles (a propose with an empty target), then answers properly; the good answer wins.
+    @Test func aMalformedFirstAnswerDoesNotSwallowTheValidSecond() throws {
+        let rows = [RestructureMapping.Row(source: "Petition")]
+        let parsed = try #require(MappingRefineProtocol.parseProposals(
+            responseData: Self.response([
+                ["source": "Petition", "verdict": "propose", "target": "  ", "why": "stumble"],
+                ["source": "Petition", "verdict": "propose", "target": "Application",
+                 "why": "recovered"],
+            ]), rows: rows))
+        #expect(parsed == [MappingRefineProposal(
+            source: "Petition", verdict: .propose(target: "Application"), why: "recovered")])
+    }
 }

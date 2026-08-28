@@ -190,6 +190,11 @@ public enum RestructureReporting {
             return " — hides the year \(target)"
                 + ((finding.targetExists ?? false) ? ", which exists beside it" : "")
         }
+        // Before the bare-counterpart branch: duplicatedTaxonomy also carries a counterpart, and
+        // falling through would print it as an echo — the wrong claim, minus its evidence count.
+        if let matched = finding.matchedDocuments, let counterpart = finding.counterpart {
+            return " — \(count(matched, "document")) also in \(counterpart)"
+        }
         if let counterpart = finding.counterpart {
             return " — echoes \(counterpart)"
         }

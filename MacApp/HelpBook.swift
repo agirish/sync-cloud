@@ -385,7 +385,7 @@ enum HelpBook {
                         "Children named for a year, a person, a jurisdiction or an inbox are set aside before two siblings are compared. Those recur by design, and counting them as structure would bury the real findings under hundreds of folders that are doing nothing wrong.",
                     ]),
                     .paragraph("It reads a folder profile, so it has nothing to say until SyncCloud has learned your tree — setup's Folders step is what writes one, and the section offers to re-learn from the tree as it stands now."),
-                    .tip("Read-only, and the odd one out among Organize's sections for that reason: Restructure names the disagreement and stops. Nothing here is created, renamed, or moved."),
+                    .tip("Looking is read-only. Acting goes through a plan: choose a target shape, map every name once, and review the derived operations before anything runs — Apply records the landing in a ledger with its inverse, so “Undo This Reorganisation” works even after a quit."),
                 ],
                 related: ["organize-workspace", "setup", "fix-names"]
             )),

@@ -49,10 +49,12 @@ import Testing
         #expect(LensIntros.organize(scanTargetName: "TODO").safety.contains("undoable"))
         #expect(LensIntros.renames(providerName: nil).safety.contains("undoable"))
         #expect(LensIntros.storage(providerName: nil).safety.contains("Read-only"))
-        // Restructure is the second read-only lens, and for a different reason than Storage: it
-        // has an obvious fix it deliberately does not offer (see `RestructureLens`). Its card is
-        // the one place that promise is made, so it is the one place it can be checked.
-        #expect(LensIntros.restructure(providerName: nil).safety.contains("Read-only"))
+        // Restructure stopped being read-only at §5.5: a reviewed plan's Apply moves files. Its
+        // contract is now the same family as Organize's — reviewed, recorded, undoable — and the
+        // one claim its card must never make again is the old "nothing is renamed or moved".
+        #expect(LensIntros.restructure(providerName: nil).safety.contains("review"))
+        #expect(LensIntros.restructure(providerName: nil).safety.contains("undoable"))
+        #expect(!LensIntros.restructure(providerName: nil).safety.contains("Nothing is created"))
         // Rules never moves a file itself — a rule steers a suggestion, and the suggestion is
         // still confirmed. Both halves, because either alone overstates or understates it.
         // ("previewed" belongs to the message, not the contract: what a preview shows you is

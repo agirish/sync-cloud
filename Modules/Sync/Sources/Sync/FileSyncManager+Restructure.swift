@@ -90,10 +90,24 @@ extension FileSyncManager {
                 + "is nothing to scaffold — the files go to To File as they are.")
         }
 
+        // A double-click mints the same second-resolution id twice, and two records under one
+        // id leave `updateApplied` finalising the wrong one — the same landing-once rule as
+        // applyPlan, refused with the same shape of sentence.
+        guard !store.applied.contains(where: { $0.manifest.manifestId == manifest.manifestId })
+        else {
+            return ScaffoldOutcome(refusal: "This scaffold just landed (\(manifest.manifestId)) "
+                + "— it runs once.")
+        }
+
         // §5.5 step 2: the record, inverse included, is on disk BEFORE the first operation —
-        // a crash mid-run leaves a reversible trace, not a mystery.
-        store.recordApplied(RestructureStore.AppliedRecord(
+        // a crash mid-run leaves a reversible trace, not a mystery. Verified: a swallowed write
+        // failure would land folders whose only record dies with the session.
+        guard store.recordApplied(RestructureStore.AppliedRecord(
             manifest: manifest, inverse: manifest.inverse, at: stamp, created: 0, skipped: 0))
+        else {
+            return ScaffoldOutcome(refusal: "The ledger could not be written, so nothing was "
+                + "created — a scaffold only runs once its record is safely on disk.")
+        }
 
         let expandedRoot = (root as NSString).expandingTildeInPath
         let fm = fileManager

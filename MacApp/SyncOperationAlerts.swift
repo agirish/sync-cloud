@@ -231,8 +231,14 @@ struct SyncOperationAlerts {
         }
         if p.wouldExceedCap {
             let which = p.wouldExceedTotalCap && !p.wouldExceedMonthlyCap ? "total" : "monthly"
-            text += " Running this would exceed the \(which) cap, so it's blocked — Organize will use its "
-                + "free on-device suggestions instead. Raise or turn off the cap in Settings → Organize."
+            // The fallback sentence is only true of the filing refine — the mapping refine has
+            // no on-device model, so promising "free on-device suggestions" over its blocked
+            // dialog would be a fallback the click cannot deliver.
+            text += " Running this would exceed the \(which) cap, so it's blocked — "
+                + (p.unit == "file"
+                   ? "Organize will use its free on-device suggestions instead. "
+                   : "this pass only runs in the cloud, so nothing will be sent. ")
+                + "Raise or turn off the cap in Settings → Organize."
         }
         return text
     }
@@ -247,8 +253,9 @@ struct SyncOperationAlerts {
         alert.messageText = filingSpendMessage(p)
         alert.informativeText = filingSpendInformativeText(p)
         if p.wouldExceedCap {
-            // Over budget: no proceed path. Inform the user, then fall back on-device regardless.
-            alert.addButton(withTitle: "Use On-Device Instead")
+            // Over budget: no proceed path. The button says what actually happens next — the
+            // filing refine falls back on-device; the mapping refine simply does not run.
+            alert.addButton(withTitle: p.unit == "file" ? "Use On-Device Instead" : "OK")
             _ = alert.runModal()
             return false
         }

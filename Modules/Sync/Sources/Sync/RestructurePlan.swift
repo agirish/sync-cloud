@@ -113,10 +113,12 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
     /// twice. Derived, never authored, which is what makes `inverse.inverse == self` a testable
     /// law rather than a hope.
     ///
-    /// **The involution law holds for plan-time manifests.** An applied manifest can carry
-    /// `collidedInto` — the unique name a file actually landed under — and its inverse moves the
-    /// file back from *there* to its original name, deliberately collapsing the collision into
-    /// the real paths: the round trip restores the tree, not the bookkeeping.
+    /// **The involution law holds for collision-free manifests** — the shape the tests pin.
+    /// Both collision facts are deliberately stripped by inversion: `collidedInto` (apply-time —
+    /// the unique name a file actually landed under; its inverse moves the file back from
+    /// *there*) and `collisionExpected` (plan-time — a prediction about a landing the inverse
+    /// does not make). So `inverse.inverse` restores the tree's round trip exactly, and the
+    /// bookkeeping only up to those two fields.
     public var inverse: RestructureManifest {
         RestructureManifest(
             schemaVersion: schemaVersion,

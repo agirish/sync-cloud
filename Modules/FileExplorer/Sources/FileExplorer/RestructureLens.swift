@@ -147,18 +147,29 @@ struct RestructureLens: View {
             // that vanished on a clean tree would make the empties filter unreachable exactly
             // when it is the only thing left to do. The reorganisation cards render here for the
             // stronger reason their doc states: this is the state a successful apply lands in.
-            VStack(alignment: .leading, spacing: 0) {
-                if !deadWeight.isEmpty {
-                    crowdingStrip.padding(12)
-                }
-                if !reorganisations.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(reorganisations, content: reorganisationCard)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
-                }
+            if deadWeight.isEmpty && reorganisations.isEmpty {
                 cleanState
+            } else {
+                // Scrollable, because this is the state that ACCUMULATES: every successful apply
+                // lands its card here, and an expanded crowding filter lists hundreds of paths —
+                // a plain VStack clipped them all past the lens bounds with no way to reach them.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if !deadWeight.isEmpty {
+                            crowdingStrip.padding(12)
+                        }
+                        if !reorganisations.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(reorganisations, content: reorganisationCard)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 4)
+                        }
+                        // A floor, not a fill: inside a ScrollView "all the remaining space"
+                        // does not exist, and without it the seal huddled against the cards.
+                        cleanState.frame(minHeight: 240)
+                    }
+                }
             }
         } else {
             ScrollView {
@@ -242,12 +253,39 @@ struct RestructureLens: View {
     /// The card's sentence — Applied and Undone are different claims and neither borrows the
     /// other's words (§5.7). The Undone line carries the undo run's own counts, because an undo
     /// never pretends the tree was untouched.
-    static func reorganisationLine(_ record: ReorganisationDisplay) -> String {
+    static func reorganisationLine(_ record: ReorganisationDisplay, now: Date = Date()) -> String {
         if let undoneAt = record.undoneAt {
             let tail = record.undoSummary.map { " — \($0)" } ?? ""
-            return "Undone \(undoneAt)\(tail). Anything skipped as drift is named in the log."
+            return "Undone \(landingPhrase(undoneAt, now: now))\(tail). "
+                + "Anything skipped as drift is named in the log."
         }
-        return "Applied \(record.at) — \(record.summary)."
+        return "Applied \(landingPhrase(record.at, now: now)) — \(record.summary)."
+    }
+
+    /// The ledger stamp in words — "today at 12:04", "yesterday at 09:14", "on 12 Aug 2026 at
+    /// 09:14". The record stores the machine stamp ("2026-08-28T12:04:00"), and this was the one
+    /// user sentence in the app rendering it verbatim, a literal `T` included, one line under a
+    /// footnote that says "Surveyed yesterday". An unparseable stamp renders as itself — a wrong
+    /// spelling of the truth beats a pretty invention.
+    static func landingPhrase(_ stamp: String, now: Date = Date()) -> String {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = .current
+        parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        guard let date = parser.date(from: stamp) else { return stamp }
+        let clock = DateFormatter()
+        clock.locale = Locale(identifier: "en_US_POSIX")
+        clock.dateFormat = "HH:mm"
+        let time = clock.string(from: date)
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day],
+                                           from: calendar.startOfDay(for: date),
+                                           to: calendar.startOfDay(for: now)).day ?? 0
+        switch days {
+        case 0: return "today at \(time)"
+        case 1: return "yesterday at \(time)"
+        default: return "on \(Self.absolute(date)) at \(time)"
+        }
     }
 
     /// Names what the section below it is, in the words the design asked for: these findings are
@@ -323,8 +361,11 @@ struct RestructureLens: View {
         .background(Capsule().fill(isSelected ? AnyShapeStyle(accent.opacity(0.18))
                                               : AnyShapeStyle(.quaternary.opacity(0.30))))
         .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-        .disabled(count == 0)
-        .opacity(count == 0 ? 0.4 : 1)
+        // A SELECTED chip stays clickable at zero: the removal sheet can drain a class while
+        // its filter is open, and a selected-and-disabled chip left no way to ever clear the
+        // filter — the stub list under it was unreachable furniture.
+        .disabled(count == 0 && !isSelected)
+        .opacity(count == 0 && !isSelected ? 0.4 : 1)
         .help(Self.crowdingHelp(weightClass))
     }
 
@@ -398,7 +439,8 @@ struct RestructureLens: View {
                         .foregroundStyle(accent)
                         .chromeHover()
                         .help("Choose the target shape and map every name once — the operations "
-                              + "are derived, and Export writes a reviewable file. Nothing moves.")
+                              + "are derived for review. Opening the sheet moves nothing; only "
+                              + "its Apply button does.")
                 }
                 Button("Reveal") { onReveal(finding.subject) }
                     .scaledFont(.system(size: 11,
@@ -627,6 +669,11 @@ struct RestructureLens: View {
             return "Per-file judgement — these hand off to To File, scoped here."
         case (_, .looseBesideContainer):
             return "A plan here moves one folder — its files ride along."
+        case (_, .duplicatedTaxonomy):
+            // The one plan-bearing kind without its own Plan yet: resolving it merges two
+            // branches, which is a judgement the Duplicates lens's per-group review owns today.
+            return "Two branches hold the same documents — resolving them merges files, "
+                + "reviewed per group in Duplicates."
         default:
             return nil
         }

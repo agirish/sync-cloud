@@ -359,4 +359,165 @@ import Testing
             manifestId: world.manifest.manifestId)
         #expect(unblocked.refusal == nil)
     }
+    // MARK: - The full-branch review's catches
+
+    /// A manifest lands once: the finalize rewrites the record found by its id, so a second
+    /// landing of the same id would replace the FIRST landing's stored inverse with its own
+    /// near-empty one — destroying the post-quit undo of the real landing.
+    @Test func theSameManifestIdRefusesASecondLanding() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let first = await world.manager.applyPlan(world.manifest,
+                                                  now: Date(timeIntervalSince1970: 1_756_500_000))
+        #expect(first.refusal == nil)
+        let storedInverse = world.manager.restructureStore?.applied
+            .first { $0.manifest.manifestId == world.manifest.manifestId }?.inverse
+
+        let second = await world.manager.applyPlan(world.manifest,
+                                                   now: Date(timeIntervalSince1970: 1_756_500_100))
+        #expect(second.refusal?.contains("lands once") == true)
+        let after = world.manager.restructureStore?.applied
+            .filter { $0.manifest.manifestId == world.manifest.manifestId }
+        #expect(after?.count == 1, "no second record was appended")
+        #expect(after?.first?.inverse == storedInverse, "the real landing's inverse survives")
+    }
+
+    /// The chain is walked by ledger order, not by profile-id equality: a later landing whose
+    /// re-derive failed never re-pointed the survey, so an id comparison cannot see it sitting
+    /// on top — and the first gate happily undid the older landing straight through it.
+    @Test func aLaterUnfinalisedLandingStillBlocksTheOneBeneathIt() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let outcome = await world.manager.applyPlan(world.manifest,
+                                                    now: Date(timeIntervalSince1970: 1_756_500_000))
+        #expect(outcome.refusal == nil)
+        let store = try #require(world.manager.restructureStore)
+
+        // A later landing, applied under the produced profile, whose step 6 failed: summary set,
+        // producedProfileId nil — exactly the record shape applyPlan leaves on that path.
+        let later = RestructureManifest(profileId: "p", manifestId: "m-later", createdAt: "t",
+                                        family: "Tax", kind: .shape, actions: [
+                                            .init(action: .renameDir, src: "Tax/x", dst: "Tax/y"),
+                                        ])
+        store.recordApplied(RestructureStore.AppliedRecord(
+            manifest: later, inverse: later.inverse, at: "t2", created: 0, skipped: 0,
+            appliedUnderProfileId: world.manager.filingProfileDirectoryId,
+            producedProfileId: nil, summary: "renamed 1 folder"))
+
+        let blocked = await world.manager.undoReorganisation(
+            manifestId: world.manifest.manifestId)
+        #expect(blocked.refusal?.contains("later reorganisation") == true)
+
+        // A record that never finalised (no summary — the app quit mid-apply) refuses with its
+        // own sentence: the stored inverse may not match the disk.
+        store.recordApplied(RestructureStore.AppliedRecord(
+            manifest: RestructureManifest(profileId: "p", manifestId: "m-crashed",
+                                          createdAt: "t", family: "Tax", kind: .shape,
+                                          actions: later.actions),
+            inverse: later.inverse, at: "t3", created: 0, skipped: 0,
+            appliedUnderProfileId: world.manager.filingProfileDirectoryId))
+        let crashed = await world.manager.undoReorganisation(manifestId: "m-crashed")
+        #expect(crashed.refusal?.contains("never finished recording") == true)
+    }
+
+    /// An undo that could do NOTHING — the tree fully reshaped since — must not mark the record
+    /// undone or re-point the survey: the kept profile would describe a tree that does not
+    /// exist, and the record could never be retried.
+    @Test func aFullyDriftedUndoRefusesInsteadOfRepointing() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let outcome = await world.manager.applyPlan(world.manifest,
+                                                    now: Date(timeIntervalSince1970: 1_756_500_000))
+        #expect(outcome.refusal == nil)
+        let produced = world.manager.filingProfileDirectoryId
+
+        // Everything the landing touched is swept away — every inverse step will skip as drift.
+        try FileManager.default.removeItem(at: world.root.appendingPathComponent("Tax"))
+
+        let undo = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        #expect(undo.refusal?.contains("Nothing could be moved back") == true)
+        #expect(world.manager.filingProfileDirectoryId == produced,
+                "the survey stays where the landing left it")
+        #expect(world.manager.restructureStore?.applied
+            .first { $0.manifest.manifestId == world.manifest.manifestId }?.undoneAt == nil,
+                "the record stays applied, retryable once the drift is resolved")
+    }
+
+    /// The same-name-subfolder merge the planner itself derives must land whole: the subfolder
+    /// is never a move src — only its files are — and the first veto called it "unlisted" and
+    /// skipped its parent, half-landing every merge of this shape with a false sentence.
+    @Test func aSameNameSubfolderMergeLandsWhole() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "RestructureApplyMerge")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("Documents")
+        try Self.write(root.appendingPathComponent("F/2016/Payment/p.pdf"), "p")
+        try Self.write(root.appendingPathComponent("F/2016/Payment/Receipts/r1.pdf"), "r1")
+        try Self.write(root.appendingPathComponent("F/2016/Payments/Receipts/r2.pdf"), "r2")
+
+        let manifest = try RestructurePlanner.manifest(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [.init(source: "Payment", target: "Payments")]),
+            kind: .shape, in: .fromDisk(root: root),
+            profileId: "t", manifestId: "merge-1", createdAt: "t").get()
+        let execution = FileSyncManager.executeRestructureActions(
+            manifest.actions, root: root.path, fm: FileManager.default)
+
+        #expect(execution.skipped.isEmpty,
+                "nothing in this plan is drift — the veto must credit deeper actions")
+        let fm = FileManager.default
+        #expect(fm.fileExists(
+            atPath: root.appendingPathComponent("F/2016/Payments/p.pdf").path))
+        #expect(fm.fileExists(
+            atPath: root.appendingPathComponent("F/2016/Payments/Receipts/r1.pdf").path))
+        #expect(fm.fileExists(
+            atPath: root.appendingPathComponent("F/2016/Payments/Receipts/r2.pdf").path))
+    }
+
+    /// The removal step's "still empty" is recursive: a drained folder whose only remainder is
+    /// an equally drained subfolder goes to the Trash whole — the shallow items-count probe
+    /// called it "not empty" over an empty subfolder, and both lingered forever.
+    @Test func aDrainedFolderWithAnEmptyDrainedSubfolderIsRemovable() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "RestructureApplyEmpty")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("Documents")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("F/Payment/Receipts"),
+            withIntermediateDirectories: true)
+        #expect(FileSyncManager.visibleFileCount(
+            atPath: root.appendingPathComponent("F/Payment").path,
+            fm: FileManager.default) == 0)
+
+        let manifest = RestructureManifest(
+            profileId: "t", manifestId: "rm-1", createdAt: "t", family: "F", kind: .deadWeight,
+            actions: [.init(action: .removeEmptyDir, src: "F/Payment")])
+        let execution = FileSyncManager.executeRestructureActions(
+            manifest.actions, root: root.path, fm: FileManager.default)
+        #expect(execution.removedEmpty == 1)
+        #expect(execution.skipped.isEmpty)
+        #expect(!FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("F/Payment").path))
+
+        // And one visible file anywhere beneath still refuses — no file is ever deleted.
+        try Self.write(root.appendingPathComponent("F/Other/Sub/real.pdf"), "real")
+        let refused = FileSyncManager.executeRestructureActions(
+            [.init(action: .removeEmptyDir, src: "F/Other")], root: root.path,
+            fm: FileManager.default)
+        #expect(refused.removedEmpty == 0)
+        #expect(refused.skipped.contains { $0.contains("still holds 1 file") })
+
+        // A hidden DIRECTORY'S contents are content: `.git/config` refuses the removal even
+        // though its container is dotted — `.skipsHiddenFiles` pruned the whole subtree and
+        // read a full repository as "still empty". Only dot-named files themselves are junk.
+        try Self.write(root.appendingPathComponent("F/Repo/.git/config"), "[core]")
+        try Self.write(root.appendingPathComponent("F/Junk/Sub/.DS_Store"), "junk")
+        #expect(FileSyncManager.visibleFileCount(
+            atPath: root.appendingPathComponent("F/Repo").path, fm: FileManager.default) == 1)
+        #expect(FileSyncManager.visibleFileCount(
+            atPath: root.appendingPathComponent("F/Junk").path, fm: FileManager.default) == 0)
+        let repo = FileSyncManager.executeRestructureActions(
+            [.init(action: .removeEmptyDir, src: "F/Repo")], root: root.path,
+            fm: FileManager.default)
+        #expect(repo.removedEmpty == 0, "a repository is not an empty folder")
+    }
 }
+

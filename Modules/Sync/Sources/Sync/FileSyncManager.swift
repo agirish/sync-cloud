@@ -1016,12 +1016,30 @@ public class FileSyncManager: ObservableObject {
     /// publish cycle, and the profile cache must not be invalidated by a scan finishing. Cheap on
     /// every access — one pass over the current groups, which are already in memory.
     public var duplicatedTaxonomyFindings: [StructureFinding] {
-        guard let profile = filingFolderProfile, !duplicateGroups.isEmpty else { return [] }
+        guard let profile = filingFolderProfile, duplicateScanCoversSurvey else { return [] }
         return StructureDuplicatedTaxonomy.findings(groups: duplicateGroups, in: profile)
     }
 
+    /// §5.9's staleness truth, in one place: whether a finished duplicate scan that COVERS the
+    /// surveyed tree is on hand. Deliberately not `!duplicateGroups.isEmpty` — a clean scan
+    /// leaves zero groups while very much having run, and a scan of an unrelated root leaves
+    /// groups that say nothing about the survey's tree. Both directions lied through the
+    /// emptiness test. No `isRunning` guard, on the lifecycle's own rule: the root is published
+    /// WITH results, never at scan start, so a non-nil root always labels what is on screen —
+    /// guarding on the flag made the answer flicker off for the length of every re-scan.
+    public var duplicateScanCoversSurvey: Bool {
+        guard let scanRoot = duplicateScanRoot,
+              let profileRoot = filingFolderProfile?.root else { return false }
+        let surveyed = (profileRoot as NSString).expandingTildeInPath
+        return surveyed == scanRoot
+            || surveyed.hasPrefix(scanRoot.hasSuffix("/") ? scanRoot : scanRoot + "/")
+    }
+
     public var visibleStructureFindings: [StructureFinding] {
-        let all = structureFindings + duplicatedTaxonomyFindings
+        // Through `grouped`, not appended raw: §5.2's rule is that one folder's rows sit
+        // together, and the taxonomy findings joining the list after the report was grouped
+        // would strand a folder's second observation at the bottom.
+        let all = StructureDetectors.grouped(structureFindings + duplicatedTaxonomyFindings)
         guard let store = restructureStore else { return all }
         return all.filter { !store.isSuppressed(RestructureKey($0)) }
     }

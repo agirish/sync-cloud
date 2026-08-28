@@ -2057,7 +2057,7 @@ public struct LensWorkspaceView: View {
         HStack(spacing: 8) {
             Image(systemName: "cloud").scaledFont(.system(size: 10))
             if let last = spendLast {
-                Text("Last refine: \(FilingSpendFormat.model(last.model)) · \(FilingSpendFormat.files(last.fileCount)) · \(FilingSpendFormat.tokens(last.totalTokens)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                Text("Last refine: \(FilingSpendFormat.model(last.model)) · \(FilingSpendFormat.counted(last)) · \(FilingSpendFormat.tokens(last.totalTokens)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 8)
@@ -3136,7 +3136,7 @@ public struct LensWorkspaceView: View {
                         surveyedAt: syncManager.filingSurveyedAt,
                         // §5.9's staleness truth: groups on hand means the taxonomy detector had
                         // something to read this session.
-                        hasDuplicateScan: !syncManager.duplicateGroups.isEmpty,
+                        hasDuplicateScan: syncManager.duplicateScanCoversSurvey,
                         isScoped: scope != nil,
                         // The PROVIDER, like Renames: the detectors compare sibling families
                         // across the surveyed tree, so a folder-named setup card would promise a
@@ -3196,14 +3196,12 @@ public struct LensWorkspaceView: View {
                         // survey has not caught up instead of offering the landing twice.
                         // The subject is the created folders' parent — the manifest records
                         // the family, and the scaffold's dsts all sit under the subject.
-                        scaffoldedSubjects: Set(
-                            (syncManager.restructureStore?.applied ?? [])
-                                .filter { $0.manifest.kind == .backlog }
-                                .compactMap { record in
-                                    record.manifest.actions.first?.dst.map {
-                                        ($0 as NSString).deletingLastPathComponent
-                                    }
-                                }),
+                        // Probed against the disk, not the ledger alone: a scaffold's ⌘Z
+                        // removes the folders without marking the record, and a card claiming
+                        // "Scaffolded" over folders that are gone would also suppress the one
+                        // button that could bring them back. A handful of existence checks per
+                        // record, only for backlog records, only on render.
+                        scaffoldedSubjects: scaffoldedSubjects(),
                         // The launch gate. Restructure is the only lens whose answer exists
                         // before anyone asks — see `FileSyncManager.hasReviewedStructure` for why
                         // it needs a flag the others get from their scan lifecycle.
@@ -3241,30 +3239,55 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// The ledger's plan landings as the lens renders them — records that re-derived a profile
-    /// (`producedProfileId`), which is what separates a plan apply from a scaffold's entry.
+    /// The ledger's plan landings as the lens renders them — every record `applyPlan` wrote
+    /// (`appliedUnderProfileId` is set at its step 2; scaffolds never carry one). Deliberately
+    /// NOT filtered to the fully-finalised: a landing whose re-derive failed still moved files,
+    /// and a card the user cannot see is a landing they cannot ask about. Which ONE is undoable
+    /// is the store's `undoableReorganisation` — the same predicate the Organize menu and the
+    /// engine use, because two hand-synchronised copies of that rule is how the menu ends up
+    /// enabling an undo whose card shows no button.
     private var reorganisationDisplays: [ReorganisationDisplay] {
         let records = (syncManager.restructureStore?.applied ?? [])
-            .filter { $0.producedProfileId != nil }
-        // Only the landing the survey currently sits on can be undone — an older inverse
-        // describes a tree a later landing reshaped, and the engine refuses it with the same
-        // sentence. Newest first, the way ⌘Z would.
-        let undoableId = records.last(where: {
-            $0.undoneAt == nil && $0.appliedUnderProfileId != nil
-                && $0.producedProfileId == syncManager.filingProfileDirectoryId
-        })?.manifest.manifestId
+            .filter { $0.appliedUnderProfileId != nil }
+        let undoableId = syncManager.restructureStore?.undoableReorganisation(
+            currentProfileId: syncManager.filingProfileDirectoryId)?.manifest.manifestId
         return records.reversed().map { record in
             ReorganisationDisplay(
                 manifestId: record.manifest.manifestId,
                 family: record.manifest.family,
                 at: record.at,
-                summary: record.summary ?? "",
+                summary: record.summary
+                    ?? "this landing did not finish recording — the log from its run has the "
+                    + "detail",
                 undoneAt: record.undoneAt,
                 undoSummary: record.undoSummary,
                 canUndo: record.manifest.manifestId == undoableId,
-                hasEmptiedFolders: record.undoneAt == nil
+                hasEmptiedFolders: record.undoneAt == nil && record.summary != nil
                     && !RestructureLedger.emptiedFolders(of: record.manifest).isEmpty)
         }
+    }
+
+    /// Subjects whose scaffold landed AND still stands. A record whose created folders are all
+    /// gone — a ⌘Z, or a hand-tidy — no longer supports the "Scaffolded" claim, and the subject
+    /// drops back to offering the scaffold; one that partially stands keeps the claim, because
+    /// re-offering it would re-create the survivors' siblings around folders that still exist.
+    private func scaffoldedSubjects() -> Set<String> {
+        guard let root = syncManager.filingFolderProfile?.root else { return [] }
+        let expandedRoot = (root as NSString).expandingTildeInPath
+        var subjects: Set<String> = []
+        for record in (syncManager.restructureStore?.applied ?? [])
+        where record.manifest.kind == .backlog {
+            let created = record.manifest.actions.compactMap(\.dst)
+            guard let first = created.first else { continue }
+            let anyStanding = created.contains { relative in
+                FileManager.default.fileExists(
+                    atPath: (expandedRoot as NSString).appendingPathComponent(relative))
+            }
+            if anyStanding {
+                subjects.insert((first as NSString).deletingLastPathComponent)
+            }
+        }
+        return subjects
     }
 
     /// Opens the removal sheet on one landing's emptied folders, re-probed at this moment — a
@@ -3277,9 +3300,12 @@ public struct LensWorkspaceView: View {
         let expandedRoot = (root as NSString).expandingTildeInPath
         let candidates = RestructureLedger.emptiedFolders(of: record.manifest).map { path in
             let absolute = (expandedRoot as NSString).appendingPathComponent(path)
-            let names = (try? FileManager.default.contentsOfDirectory(atPath: absolute)) ?? []
+            // Recursive on purpose, matching the engine's own remove guard: a drained folder
+            // whose only remainder is an equally drained subfolder is still "empty" here, or the
+            // shallowest-only candidate list strands both forever behind "no longer empty".
             let isEmptyNow = FileManager.default.fileExists(atPath: absolute)
-                && names.allSatisfy { $0.hasPrefix(".") }
+                && FileSyncManager.visibleFileCount(atPath: absolute,
+                                                    fm: FileManager.default) == 0
             return RestructureRemovalSheet.Candidate(path: path, isStillEmpty: isEmptyNow)
         }
         removalRequest = RemovalRequest(manifestId: manifestId,
@@ -3308,7 +3334,15 @@ public struct LensWorkspaceView: View {
                     evidence: "Emptied by \(request.manifestId) and still empty when ticked.")
             })
         let outcome = await syncManager.applyPlan(manifest)
-        return outcome.refusal ?? outcome.surveyRefreshFailure
+        if let refusal = outcome.refusal { return refusal }
+        // A survey-refresh failure after a SUCCESSFUL trashing must not replace the outcome:
+        // the folders are in the Trash whether or not profiles.json rewrote, and a sentence
+        // that only names the failure reads as "nothing happened" over a sheet whose button
+        // has gone dead. Compose, the way the plan sheet's applied summary does.
+        if let failure = outcome.surveyRefreshFailure {
+            return "Moved to the Trash — but " + failure
+        }
+        return nil
     }
 
     /// §5.4's plan sheet, modal over the lens. The tree view is disk-backed — a plan is derived
@@ -3339,10 +3373,10 @@ public struct LensWorkspaceView: View {
                         store.saveDraft(.init(manifest: manifest,
                                               savedAt: manifest.createdAt,
                                               exportedTo: name), for: key)
-                        return nil
+                        return .saved(filename: name)
                     } catch {
-                        return "The plan could not be written beside the profile: "
-                            + error.localizedDescription
+                        return .failed("The plan could not be written beside the profile: "
+                            + error.localizedDescription)
                     }
                 },
                 // §5.5: the landing, from the same sheet that derived the plan — the review

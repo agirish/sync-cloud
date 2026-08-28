@@ -811,6 +811,11 @@ check you have to remember to run is a check nobody runs. But `ROADMAP.md` 20 al
 Only the first two are v5.0's; the Home tile arrives with the workspace that owns it and is listed
 here so nobody builds a third route by accident.
 
+*(2026-08-28: both routes shipped, under ONE name — the palette entry wears the row menu's exact
+words, "Check This Folder's Shape", not the "Restructure this folder" drafted above. The palette
+law wants a palette action to mirror a menu item, and two names for one verb across two surfaces
+was the drift it exists to prevent; the row menu's verb won because it says what the click does.)*
+
 **And from a terminal:** `synccloud restructure --json`, which is §13 — worth building *with* §5.2
 rather than after it, for the reason given there.
 

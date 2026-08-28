@@ -163,25 +163,46 @@ public enum MappingRefineProtocol {
               let toolUse = content.first(where: { ($0["type"] as? String) == "tool_use" }),
               let input = toolUse["input"] as? [String: Any],
               let proposals = input["proposals"] as? [[String: Any]] else { return nil }
-        // Only rows that were asked about may answer — a hallucinated source name is dropped.
+        // Only rows that were asked about may answer — a hallucinated source name is dropped. An
+        // answer differing from the asked name only by case is the model being sloppy about a
+        // real row, so it maps back to the asked spelling rather than being dropped as invented.
         let asked = Set(rows.map(\.source))
-        return proposals.compactMap { entry -> MappingRefineProposal? in
-            guard let source = entry["source"] as? String, asked.contains(source),
+        let askedByLowered = Dictionary(rows.map { ($0.source.lowercased(), $0.source) },
+                                        uniquingKeysWith: { first, _ in first })
+        // First answer per source wins: a model working a long list sometimes answers a row
+        // twice, and two proposals sharing one id break the sheet's ForEach and would write the
+        // same mapping row from two contradictory cards.
+        var seen: Set<String> = []
+        var out: [MappingRefineProposal] = []
+        for entry in proposals {
+            guard let raw = entry["source"] as? String,
+                  let source = asked.contains(raw) ? raw : askedByLowered[raw.lowercased()],
                   let verdictRaw = entry["verdict"] as? String,
-                  let why = entry["why"] as? String else { return nil }
+                  let why = entry["why"] as? String,
+                  !seen.contains(source) else { continue }
             let verdict: MappingRefineProposal.Verdict
             switch verdictRaw {
             case "keep": verdict = .keep
             case "declined": verdict = .declined
             case "propose":
                 guard let target = entry["target"] as? String,
-                      !target.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
-                verdict = .propose(target: target)
+                      !target.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+                // A tool-forced schema makes `target` mandatory, so a model with nothing to
+                // change answers `A → A` instead of keep — normalised here, or the degenerate
+                // self-proposal would even earn a false "swaps places with itself" label.
+                // Compared against the model's RAW spelling too: "claims → claims" is a keep
+                // even after the source is mapped back to the asked "Claims", or the case fix
+                // would turn the model's no-op into a down-casing proposal it never made.
+                verdict = target == source || target == raw ? .keep : .propose(target: target)
             default:
-                return nil
+                continue
             }
-            return MappingRefineProposal(source: source, verdict: verdict, why: why)
+            // The dedupe slot is taken by the first VALID answer — a malformed first entry for
+            // a row must not swallow the good one behind it.
+            seen.insert(source)
+            out.append(MappingRefineProposal(source: source, verdict: verdict, why: why))
         }
+        return out
     }
 
     /// A rough token estimate for the pre-flight quote — the request's text sizes over four
@@ -215,9 +236,12 @@ public enum MappingRefineProtocol {
                                     among proposals: [MappingRefineProposal],
                                     rows: [RestructureMapping.Row]) -> String? {
         guard case .propose(let target) = proposal.verdict else { return nil }
-        // Another proposal sending the target's name to this source's name: a swap.
+        // Another proposal sending the target's name to this source's name: a swap. Never the
+        // proposal itself — `parseProposals` normalises `A → A` to keep, and this guard keeps
+        // the rule safe against a caller that did not.
         if proposals.contains(where: { other in
-            other.source == target && other.verdict == .propose(target: proposal.source)
+            other.source != proposal.source
+                && other.source == target && other.verdict == .propose(target: proposal.source)
         }) {
             return "swaps places with \(target) — the two proposals reverse each other"
         }

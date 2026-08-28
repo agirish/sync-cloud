@@ -99,6 +99,46 @@ import Testing
         }
         #expect(StructureDuplicatedTaxonomy.findings(groups: groups, in: profile).isEmpty)
     }
+
+    /// One folder pairing with TWO counterparts must not mint two findings under one id — the
+    /// identity everything downstream keys on is `kind × subject`, and the first spelling gave
+    /// both pairs `subject = A`. Each pair takes whichever of its folders is still free; both
+    /// are real paths, so reveal and suppression keep working.
+    @Test func aFolderPairedWithTwoCounterpartsKeepsUniqueIds() {
+        let profile = Self.profile(["Archive/Forms": 6, "Work/MapR/Forms": 4,
+                                    "Finance/Tax/Forms": 4])
+        var groups: [DuplicateGroup] = []
+        for name in ["a.pdf", "b.pdf", "c.pdf"] {
+            groups.append(Self.sameTextGroup(["Archive/Forms/\(name)",
+                                              "Work/MapR/Forms/\(name)"]))
+            groups.append(Self.sameTextGroup(["Archive/Forms/x-\(name)",
+                                              "Finance/Tax/Forms/x-\(name)"]))
+        }
+        let findings = StructureDuplicatedTaxonomy.findings(groups: groups, in: profile)
+        #expect(findings.count == 2)
+        #expect(Set(findings.map(\.id)).count == 2, "two findings, two ids")
+        let subjects = Set(findings.map(\.subject))
+        #expect(subjects.contains("Archive/Forms"))
+        #expect(subjects.count == 2, "the second pair took its OTHER folder as subject")
+        for finding in findings {
+            #expect(profile.folders[finding.subject] != nil, "every subject is a real folder")
+        }
+    }
+
+    /// The pair key is a real pair, not a joined string — `|` is legal in a folder name, and a
+    /// joined key merged counts across pairs that happened to concatenate alike.
+    @Test func aPipeInAFolderNameDoesNotMergePairs(){
+        let profile = Self.profile(["A": 4, "B|C": 4, "A|B": 4, "C": 4])
+        // Two distinct pairs whose joined spellings would collide: (A, B|C) and (A|B, C).
+        var groups: [DuplicateGroup] = []
+        for name in ["a.pdf", "b.pdf"] {
+            groups.append(Self.sameTextGroup(["A/\(name)", "B|C/\(name)"]))
+        }
+        groups.append(Self.sameTextGroup(["A|B/z.pdf", "C/z.pdf"]))
+        // Neither pair reaches three matches, so a correct keying yields NO findings; the
+        // joined-string key summed 2 + 1 into one phantom pair of three.
+        #expect(StructureDuplicatedTaxonomy.findings(groups: groups, in: profile).isEmpty)
+    }
 }
 
 private extension Dictionary where Key == String {

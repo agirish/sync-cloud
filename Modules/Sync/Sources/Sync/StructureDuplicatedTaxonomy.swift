@@ -47,8 +47,11 @@ public enum StructureDuplicatedTaxonomy {
         }
 
         // Distinct matched documents per unordered folder pair: a group names one document that
-        // exists in several places, so each group contributes at most one to any pair.
-        var matched: [String: (a: String, b: String, count: Int)] = [:]
+        // exists in several places, so each group contributes at most one to any pair. The key
+        // is a real pair, not a joined string — a `|` is legal in a folder name, and a joined
+        // key would merge counts across different pairs that happen to concatenate alike.
+        struct PairKey: Hashable { let a: String, b: String }
+        var matched: [PairKey: Int] = [:]
         for group in groups where group.matchType == .sameText && !group.isDirectory {
             let folders = Set(group.copies.compactMap { relativeFolder(of: $0.path) })
             guard folders.count >= 2 else { continue }
@@ -59,26 +62,49 @@ public enum StructureDuplicatedTaxonomy {
                     // Ancestor and descendant are one branch, not two taxonomies — a stash
                     // inside its own archive is the Duplicates lens's ordinary case.
                     guard !b.hasPrefix(a + "/") else { continue }
-                    let key = a + "|" + b
-                    var entry = matched[key] ?? (a: a, b: b, count: 0)
-                    entry.count += 1
-                    matched[key] = entry
+                    matched[PairKey(a: a, b: b), default: 0] += 1
                 }
             }
         }
 
-        return matched.values.compactMap { pair -> StructureFinding? in
-            guard pair.count >= Rule.minimumMatchedDocuments else { return nil }
-            let filesA = profile.folders[pair.a]?.fileCount ?? 0
-            let filesB = profile.folders[pair.b]?.fileCount ?? 0
-            let smaller = max(1, min(filesA, filesB))
-            guard Double(pair.count) / Double(smaller) >= Rule.minimumShare else { return nil }
-            return StructureFinding(
+        let qualifying = matched
+            .filter { $0.value >= Rule.minimumMatchedDocuments }
+            .filter { pair, count in
+                let filesA = profile.folders[pair.a]?.fileCount ?? 0
+                let filesB = profile.folders[pair.b]?.fileCount ?? 0
+                // `max(1, …)` reads a zero recorded count as one: a folder the survey recorded
+                // empty whose only known contents ARE the matches degenerates the share rule to
+                // the floor rule, which is the honest reading — the survey knows nothing else
+                // about it.
+                let smaller = max(1, min(filesA, filesB))
+                return Double(count) / Double(smaller) >= Rule.minimumShare
+            }
+            .sorted { ($0.key.a, $0.key.b) < ($1.key.a, $1.key.b) }
+
+        // One finding per SUBJECT folder, because the identity everything downstream keys on —
+        // suppression, drafts, the cards' ForEach — is `kind × subject`, and a folder pairing
+        // with two counterparts would mint two findings under one id. Each pair takes whichever
+        // of its two folders is still free (both are real paths, so reveal and scoping keep
+        // working); a pair whose folders both already carry a finding is dropped this pass and
+        // resurfaces the moment either is resolved.
+        var used: Set<String> = []
+        var findings: [StructureFinding] = []
+        for (pair, count) in qualifying {
+            let subject: String, counterpart: String
+            if !used.contains(pair.a) {
+                subject = pair.a; counterpart = pair.b
+            } else if !used.contains(pair.b) {
+                subject = pair.b; counterpart = pair.a
+            } else {
+                continue
+            }
+            used.insert(subject)
+            findings.append(StructureFinding(
                 kind: .duplicatedTaxonomy,
-                family: (pair.a as NSString).deletingLastPathComponent,
-                subject: pair.a,
-                detail: .duplicatedTaxonomy(counterpart: pair.b, matchedDocuments: pair.count))
+                family: (subject as NSString).deletingLastPathComponent,
+                subject: subject,
+                detail: .duplicatedTaxonomy(counterpart: counterpart, matchedDocuments: count)))
         }
-        .sorted { $0.subject < $1.subject }
+        return findings.sorted { $0.subject < $1.subject }
     }
 }
