@@ -98,12 +98,13 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   accent rather than the one you picked, so it stayed system blue in a Green or Amber window. The
   "None" accent is unaffected, because there it *is* the system accent.
 - **A tab switch could leave the other pane on your previous sort order.** Changing the sort
-  re-orders both panes' trees off the main thread, and a switch arriving while that was in flight
-  threw the result away — on the reasoning that whatever interrupted it would hand both panes
-  freshly-ordered trees. A tab switch does not: it reloads only the pane that moved, so the pane you
-  did not move kept the order you had just changed away from, with nothing on screen saying so,
-  until something else reloaded it. The re-order now tries again instead of giving up. Changing a
-  pane's source reaches the same window in this release, so the fix covers that door too.
+  re-orders both panes' trees off the main thread — brief, but not instant on a large one — and a
+  tab switch landing inside that window threw the result away, on the reasoning that whatever
+  interrupted it would hand both panes freshly-ordered trees. A tab switch does not: it reloads only
+  the pane that moved, so the pane you did not move kept the order you had just changed away from,
+  with nothing on screen saying so, until something else reloaded it. You had to be quick to catch
+  it, which is most of why it went unnoticed. The re-order now tries again instead of giving up, and
+  changing a pane's source reaches the same window in this release, so the fix covers that door too.
 
 ### Speed
 
