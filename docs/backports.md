@@ -1274,3 +1274,14 @@ already present. State the symbol that was checked, not just the verdict; a bare
 sends the next person back to `git log`.
 
 Move an item out of "owed" only when `git branch -r --contains <sha>` names the line.
+
+## 2026-08-28 — the `v4.x` line opens; v5.0 lands on `main`
+
+`v4.x` was cut from the `v4.6` tag when the v5.0 Organize work landed on `main`. Recorded, not
+owed: **none of the maintenance lines carries any of the v5.0 Organize system** (the
+`RestructureStore`/planner/apply/undo family, the Restructure lens surfaces, `synccloud
+restructure`, and the §12 Duplicates header rework) — a feature line under the no-backport
+standing direction, not a fix. The two commits `main` carried between the `v4.6` tag and the cut
+(`68c71c62`, the 4.7-dev re-bump, and `05d11f5f`, the fourth-branch doc fix) are superseded on
+`v4.x` by its opening commit, which re-bumps to `4.7-dev`/`407` and carries the four-line
+documents — checked, nothing else in that range.

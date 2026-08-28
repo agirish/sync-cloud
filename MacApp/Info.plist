@@ -15,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>4.6</string>
+	<string>4.7-dev</string>
 	<key>CFBundleVersion</key>
-	<string>406</string>
+	<string>407</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2024. All rights reserved.</string>
 </dict>
