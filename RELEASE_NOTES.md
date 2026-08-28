@@ -54,7 +54,7 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
 - **The toolbar starts in the same place on every pane.** Measured across the header's sixteen
   layout cases: the bar's leading edge is now at 17pt in all sixteen, where it used to land anywhere
   between 77pt and 372pt depending on how long the source's name was. At 570pt wide, the same pane
-  started its toolbar at 223pt for a source called "iCloud" and 372pt for a long custom name — a
+  started its toolbar at 223pt for a source called "iCloud Drive" and 372pt for a long custom name — a
   149pt swing from the name alone.
 - **Narrow panes keep more of the toolbar.** A 250pt pane draws seven controls where it drew five.
   All nine are now drawn from 330pt, where it used to take 490pt; and a pane with a long custom
@@ -105,6 +105,15 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
   with nothing on screen saying so, until something else reloaded it. You had to be quick to catch
   it, which is most of why it went unnoticed. The re-order now tries again instead of giving up, and
   changing a pane's source reaches the same window in this release, so the fix covers that door too.
+
+### Moving and copying
+
+- **A chosen folder in the Move to… sheet was drawn as two shapes at once.** The sheet's shortcut
+  rail, its folder columns and its search results all draw a rounded-rect row, but handed their
+  selection and hover styling no shape to match it — and both of those default to a capsule. A
+  chosen row therefore wore a rounded-rect accent fill under a pill, and at rest the hairline ring
+  traced that pill around the rectangle. Each row now names its outline once and fills, hit-tests
+  and rings the same shape.
 
 ### Speed
 
