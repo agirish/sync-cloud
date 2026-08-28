@@ -1237,6 +1237,15 @@ struct ContentView: View {
                 // walked by the rescan stays blank, and a pane whose root did not move needs
                 // neither — editing the right source's Location used to reload the left pane
                 // and flatten its columns for a root it had not touched.
+                //
+                // **Logged, because the scope made this reload selective and nothing else says
+                // so.** The other route to a re-walk announces itself ("User switched left
+                // provider to …"); this one was silent even when it reloaded both panes, and a
+                // silent reload of ONE pane is worse — a pane spinning with its sibling still
+                // showing rows is exactly the "why did that happen?" a reader brings to the log.
+                // `[load]` lines are DEBUG and dropped at the level most sessions run at.
+                Logger.shared.info("A source root changed in Settings under \(edited.describedPanes); "
+                                   + "dropping the comparison and re-walking \(edited.describedPanes).")
                 reviewCoordinator.dispatchReview(.comparisonRootEdited)
                 syncManager.invalidateComparisonState(reloading: edited)
                 refreshAction(reloading: edited)

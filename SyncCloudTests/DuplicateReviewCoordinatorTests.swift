@@ -572,6 +572,12 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let harness = Harness()
         _ = harness.installReview()   // pins rightId to the left (lens) provider
         #expect(harness.rightId == harness.leftId)
+        // Seeded so the assertions at the end measure something: an empty stack and an empty tree
+        // are what a fresh manager already has, so without this the two checks below pass on a
+        // coordinator that does nothing at all.
+        harness.syncManager.rightBrowsePath.drill(into: "Invoices", atDepth: 0)
+        harness.syncManager.rightTree = [FileNode(id: "/pinned/x", name: "x", isDirectory: false)]
+        #expect(!harness.syncManager.rightBrowsePath.isEmpty && !harness.syncManager.rightTree.isEmpty)
         // The panes are NOT on the two copies — entering an Organize lens re-focused the shared left
         // pane — so the review is inactive and the right pane's pin is stale bookkeeping.
         // The user now repoints the rail (the LEFT pane) to a third provider.
@@ -599,6 +605,15 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // under the wrong root.
         #expect(harness.syncManager.rightRelativePath == "Was/Right",
                 "the pane whose source was put back was left on a path under the source it no longer shows")
+        // The folder is the least of it. That pane's ROOT moved, so its column stack names folders
+        // in a tree it is no longer showing and its tree has to be re-walked — the same three
+        // things `retargetPane` takes from any pane whose source changes. Asserted because
+        // "re-homed" is satisfied by the relative path alone, and the relative path is the one
+        // piece that would still look right if the effect had merely written it.
+        #expect(harness.syncManager.rightBrowsePath.isEmpty,
+                "the released pane kept a column stack indexed against the source the review pinned it to")
+        #expect(harness.syncManager.rightTree.isEmpty,
+                "the released pane kept the pinned source's tree while claiming the restored source")
         // The user's pane is untouched here: the handler that dispatched this event re-homes it
         // itself, a moment later.
         #expect(harness.syncManager.leftRelativePath == "")

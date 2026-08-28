@@ -62,10 +62,18 @@ two-writers-on-one-anchor bug that `96cfbb2` fixed, which is why that fix did no
 Both panes in **Columns** (`paneViewModeLeft`/`Right = columns`); switch a pane's provider. The
 `.onChange(of: rightProviderId)` handler calls `retargetPane(isLeft:landing:)`, which drops that
 pane's tree synchronously and reloads it from the new root; the crash lands while the replacement
-paints. (It dropped **both** trees, as `resetNavigation()`, until the switch was scoped to the pane
-the user actually switched. Every measurement below predates that and was taken against the
-two-tree drop; the fixtures themselves only ever mutated one pane, so they still describe what
-happens — the second one now exercises the whole of the switch rather than half of it.)
+paints.
+
+**It dropped BOTH trees, as `resetNavigation()`, until the switch was scoped to the pane the user
+actually switched, and every measurement below predates that.** The fixtures themselves only ever
+mutated one pane, so they still describe what they describe — the two-pane one now exercises the
+whole of a switch rather than half of it. What changed is the *amount of repainting a switch
+causes*: one pane's tree is replaced instead of two. **That does not clear the precondition this
+document is about.** The condition is a switch landing while a walk is still in flight, and it still
+arises — `refreshTreesAndScan` widens a one-pane request to `.both` when a wider refresh is already
+running, so a switch during a cold walk still re-walks and repaints both panes. The sibling keeps
+its rows while that happens rather than blanking, which is strictly less churn; treat the pass
+counts below as an upper bound now, not as a current measurement.
 
 Reproduces by hand, every time: open the app, change the right provider between two cloud accounts.
 

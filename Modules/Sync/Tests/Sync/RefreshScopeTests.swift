@@ -109,6 +109,18 @@ import Combine
         #expect(seen == [.rightOnly], "a switch that moved no folder widened to both panes: \(seen)")
     }
 
+    /// `describedPanes` is a log string, and a log string that names the wrong panes is worse than
+    /// none — a reader chasing "why did my left pane reload?" is sent to the wrong pane. Three cases,
+    /// each spelled out, because the mapping is the whole of the property.
+    @Test func theScopeNamesThePanesItMeans() {
+        #expect(FileSyncManager.PaneReloadScope.both.describedPanes == "both panes")
+        #expect(FileSyncManager.PaneReloadScope.leftOnly.describedPanes == "the left pane")
+        #expect(FileSyncManager.PaneReloadScope.rightOnly.describedPanes == "the right pane")
+        // Not the case name, which is what a bare interpolation gives and what this exists to
+        // replace. The widening line keeps that spelling on purpose — it is quoting a request.
+        #expect(FileSyncManager.PaneReloadScope.leftOnly.describedPanes != "\(FileSyncManager.PaneReloadScope.leftOnly)")
+    }
+
     /// **The senders that are not navigation still say both, and must.** A date-tolerance change
     /// alters what a scan makes of BOTH trees, so a scope narrowed here would leave one pane's
     /// differences computed under the old setting with nothing on screen saying so.

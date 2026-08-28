@@ -501,15 +501,25 @@ extension FileSyncManager {
         let moves = history.current != landing
         let rewrites = history != PaneNavigationHistory(startingAt: landing)
         let place = landing.isEmpty ? "the source root" : landing
-        // The untouched pane is named in both lines because "untouched" is now a claim about more
-        // than the folder — it keeps its tree, its columns, its selection and its history — and the
-        // log is the only place that says so to someone reading back a session.
+        // The sibling is named because "untouched" is now a claim about more than the folder — that
+        // pane keeps its tree, its columns, its selection and its history — and the log is the only
+        // place that says so to someone reading back a session.
+        //
+        // **Phrased as what THIS CALL did, not as the state the window ends in.** Two of these can
+        // land in one gesture: `undoProviderPin` releases a duplicate review's pin from the sibling
+        // and retargets it, and then the handler that dispatched the review retargets the pane the
+        // user actually switched. An earlier wording ("the right pane is untouched") then produced
+        // two consecutive lines each declaring the other pane untouched, for a gesture that moved
+        // both — a log that contradicts itself, about the one fact these lines exist to report.
+        // Two "this touched only the left/right pane" lines read as what they are: two pane
+        // re-points, one per call.
+        let onlyThisPane = "This touched only the \(side) pane — the \(other) pane's tree, "
+                         + "columns, selection and history are as they were."
         if moves {
-            Logger.shared.info("Re-homed the \(side) pane at \(place); "
-                               + "the \(other) pane is untouched.")
+            Logger.shared.info("Re-homed the \(side) pane at \(place). \(onlyThisPane)")
         } else {
-            Logger.shared.info("The \(side) pane did not move: it is already at \(place); "
-                               + "the \(other) pane is untouched.")
+            Logger.shared.info("The \(side) pane did not move: it is already at \(place). "
+                               + onlyThisPane)
         }
         // **The pane's half.** Only the moved pane's tree: the sibling's is a walk of a root and a
         // focus this switch did not touch, so it is still exactly right.

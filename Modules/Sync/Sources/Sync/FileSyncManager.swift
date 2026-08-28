@@ -2107,6 +2107,23 @@ public class FileSyncManager: ObservableObject {
         case rightOnly
 
         public static func movedPane(isLeft: Bool) -> PaneReloadScope { isLeft ? .leftOnly : .rightOnly }
+
+        /// How this scope reads in `~/sync-cloud.log`, as the object of a sentence: "…re-walking
+        /// \(scope.describedPanes)".
+        ///
+        /// Here rather than as a `switch` at the call site because the one caller is a closure in
+        /// `ContentView.body`, where no test can reach it — the same reason `PaneSideChoice.name`
+        /// exists in the app target. `String(describing:)` is not a substitute: it yields
+        /// `leftOnly`, which is a case name, not something a person reading a log has been told the
+        /// meaning of. (The widening line deliberately keeps the case name: it is naming the
+        /// *request* it received, and matching the source is the point there.)
+        public var describedPanes: String {
+            switch self {
+            case .both: return "both panes"
+            case .leftOnly: return "the left pane"
+            case .rightOnly: return "the right pane"
+            }
+        }
     }
 
     /// Epoch of "what a load/scan would produce". Bumped whenever something makes an
@@ -2674,21 +2691,75 @@ public class FileSyncManager: ObservableObject {
         )
     }
 
-    /// Re-sorts both raw trees off the main actor, then refilters. Skips publishing when a
-    /// tree load or another sort change landed mid-sort: fresh trees are built already sorted
-    /// by the then-current option, so the stale result would clobber newer data.
-    func resortTreesAndRefilter() async {
-        let option = sortOption
-        let left = rawLeftTree
-        let right = rawRightTree
-        let generation = rawTreeGeneration
-        let (sortedLeft, sortedRight) = await Task.detached(priority: .userInitiated) {
-            (Self.sort(nodes: left, by: option), Self.sort(nodes: right, by: option))
-        }.value
-        guard option == sortOption, generation == rawTreeGeneration else { return }
-        rawLeftTree = sortedLeft
-        rawRightTree = sortedRight
-        await applyFilters()
+    /// How many times `resortTreesAndRefilter` has taken a snapshot and sorted it.
+    ///
+    /// Test-only observability, in the same spirit as `publishedLeftTreeVersion`: a retry that
+    /// happens is indistinguishable from one that was never needed, so a test for the retry has no
+    /// way to tell "the interleaving I set up occurred and the retry saved it" from "the
+    /// interleaving never happened and the first pass was fine". Both end with correctly-sorted
+    /// trees, and the second is a test that proves nothing. See
+    /// `aSupersededResortTriesAgainInsteadOfLeavingAPaneOnTheOldOrder`.
+    internal private(set) var resortPasses = 0
+
+    /// Called on the main actor by `resortTreesAndRefilter` **after** it has snapshotted the trees
+    /// and **before** it suspends into the off-main sort. `nil` in the app; nothing production
+    /// installs it.
+    ///
+    /// A test seam, in the same shape as `paneSearchSnapshot`, and it exists because the bug the
+    /// retry fixes lives entirely inside that suspension: the supersede has to land after the
+    /// snapshot, and there is no way to ask for that from outside. Driving it with `Task.yield()`
+    /// was tried and did not hold — the resort had not taken its turn, the first pass was never
+    /// superseded, and the test measured nothing (which its pass-count assertion said, loudly, and
+    /// is why the seam is here rather than a wider timing window that would say it only sometimes).
+    internal var resortDidSnapshot: (() -> Void)?
+
+    /// Re-sorts both raw trees off the main actor, then refilters.
+    ///
+    /// **A pass that is superseded mid-sort tries again rather than giving up**, and the difference
+    /// is a pane silently left on the previous sort order.
+    ///
+    /// The original reasoning for giving up was sound as far as it went: `rawTreeGeneration` moves
+    /// when a fresh tree is adopted, and a fresh tree is built with the current option already
+    /// applied — so the stale snapshot would clobber newer, correctly-ordered data. But the
+    /// generation also moves for `supersedeInFlightPaneWork`, which does **not** hand every pane a
+    /// fresh tree. Since pane-scoped invalidation arrived, a source switch or a browse-tab switch
+    /// drops only the moving pane's tree and re-walks only that pane: the sibling's raw tree
+    /// survives, still ordered by the option the discarded sort was replacing. Nothing re-sorts it,
+    /// nothing says so, and it self-heals only on that pane's next reload.
+    ///
+    /// Retrying is safe for exactly the reason the bail was: each pass publishes only when the
+    /// generation held still across its own await, so it can never overwrite a newer tree. A retry
+    /// re-snapshots whatever is current — including a freshly adopted tree, which it sorts again
+    /// idempotently — so it is correct regardless of *why* the generation moved, which is the part
+    /// this function cannot see. Passes stop as soon as one publishes.
+    ///
+    /// - Parameter attempts: how many snapshots to try before giving up. Bounded because each pass
+    ///   is a full sort of both trees; a progressive load publishes shallow-then-deep, so two
+    ///   supersedes in a row is ordinary and three passes clears it. Giving up leaves exactly the
+    ///   state this method used to leave, plus a line saying so.
+    func resortTreesAndRefilter(attempts: Int = 3) async {
+        for _ in 0..<max(1, attempts) {
+            let option = sortOption
+            let left = rawLeftTree
+            let right = rawRightTree
+            let generation = rawTreeGeneration
+            resortPasses += 1
+            resortDidSnapshot?()
+            let (sortedLeft, sortedRight) = await Task.detached(priority: .userInitiated) {
+                (Self.sort(nodes: left, by: option), Self.sort(nodes: right, by: option))
+            }.value
+            // A newer OPTION is not a supersede to retry through — its own pass is already queued
+            // by the `didSet` that changed it, and retrying here would race that pass with a
+            // snapshot taken under the option the user has just moved off.
+            guard option == sortOption else { return }
+            guard generation == rawTreeGeneration else { continue }
+            rawLeftTree = sortedLeft
+            rawRightTree = sortedRight
+            await applyFilters()
+            return
+        }
+        Logger.shared.warning("Re-sort superseded \(max(1, attempts)) times running; a pane may still be "
+                              + "ordered by the previous sort until its next reload")
     }
 
     /// Recursively filters a tree removing nodes whose names start with a period if `showHidden` is false.

@@ -222,4 +222,43 @@ import Combine
         #expect(manager.rightHistory.entries == ["", "b"])
         #expect(manager.rightHistory.canGoBack, "the untouched pane lost the Back stack it had earned")
     }
+
+    /// The mirror. Polarity in this method is four separate `isLeft` branches — history, selection,
+    /// browse path, reload scope — and a test on one side cannot see a flip in any of them.
+    @MainActor
+    @Test func testRetargetPaneClearsOnlyItsOwnHistoryOnTheRight() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        manager.focusOn(relativePath: "a", isLeft: true)
+        manager.focusOn(relativePath: "b", isLeft: false)
+
+        manager.retargetPane(isLeft: false, landing: "")
+
+        #expect(manager.rightRelativePath == "")
+        #expect(manager.rightHistory == PaneNavigationHistory())
+        #expect(!manager.rightHistory.canGoBack)
+
+        #expect(manager.leftRelativePath == "a", "the untouched pane was re-homed by the other pane's switch")
+        #expect(manager.leftHistory.entries == ["", "a"])
+        #expect(manager.leftHistory.canGoBack, "the untouched pane lost the Back stack it had earned")
+    }
+
+    /// **The selection, both ways round.** The app-target test covers the left switch; this is the
+    /// half that would have gone unmeasured, and the fixture deliberately puts a selection in BOTH
+    /// panes — a state the one-pane-selected invariant forbids, and the only fixture that can tell
+    /// "cleared the pane that switched" from "cleared whichever pane it reached first".
+    @MainActor
+    @Test func testRetargetPaneClearsOnlyItsOwnSelection() async throws {
+        for switchedIsLeft in [true, false] {
+            let manager = FileSyncManager(fileManager: MockFileManager())
+            manager.selectedLeftPaths = ["/l/a.txt"]
+            manager.selectedRightPaths = ["/r/b.txt"]
+
+            manager.retargetPane(isLeft: switchedIsLeft, landing: "")
+
+            let cleared = switchedIsLeft ? manager.selectedLeftPaths : manager.selectedRightPaths
+            let kept = switchedIsLeft ? manager.selectedRightPaths : manager.selectedLeftPaths
+            #expect(cleared.isEmpty, "isLeft: \(switchedIsLeft) — the switched pane kept a selection under a root it no longer shows")
+            #expect(kept.count == 1, "isLeft: \(switchedIsLeft) — a switch on one pane cleared the other pane's selection")
+        }
+    }
 }

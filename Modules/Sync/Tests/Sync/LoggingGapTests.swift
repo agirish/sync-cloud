@@ -380,10 +380,17 @@ import Testing
         #expect(await loggedLine(containing: marker) != nil,
                 "the log window rolled past this test's own marker, so the reading below is vacuous")
         let line = await loggedLine(containing: landing)
-        #expect(line?.contains("the right pane is untouched") == true,
-                "the line does not say the untouched pane was left alone: \(line ?? "nothing was logged")")
+        #expect(line?.contains("This touched only the left pane") == true,
+                "the line does not say which pane the call touched: \(line ?? "nothing was logged")")
+        #expect(line?.contains("the right pane's tree, columns, selection and history are as they were") == true,
+                "the line does not spell out what the untouched pane kept — the folder is the least of it: \(line ?? "nothing was logged")")
         #expect(line?.contains("both panes") == false,
                 "the line credits a re-homing to a pane that did not move: \(line ?? "nothing was logged")")
+        // **Phrased about the CALL, not about the window.** Two of these land in one gesture when a
+        // duplicate review's pin is released from the sibling, and an earlier wording produced two
+        // consecutive lines each declaring the other pane "untouched" for a gesture that moved both.
+        #expect(line?.contains("the right pane is untouched") == false,
+                "the line makes a claim about the window's end state that a second retarget in the same gesture falsifies: \(line ?? "nothing was logged")")
 
         // The sibling's history is not the switched pane's to replace: its tree is still on screen,
         // so Back is still a step the user can take.

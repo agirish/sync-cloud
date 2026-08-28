@@ -165,6 +165,81 @@ import Testing
         #expect(manager.prefetchedTrees["/root"] == nil, "a pre-operation tree must never resurrect the cleared cache")
     }
 
+    // MARK: - A superseded re-sort
+
+    /// **A re-sort superseded mid-flight tries again, instead of leaving a pane on the old order.**
+    ///
+    /// `resortTreesAndRefilter` snapshots both raw trees, sorts them off the main actor, and
+    /// publishes only if `rawTreeGeneration` held still. Giving up was right while every supersede
+    /// came with fresh, correctly-ordered trees for BOTH panes. It stopped being right when
+    /// invalidation became pane-scoped: `retargetPane` (a source switch) and `applyTab` (a browse
+    /// tab switch) bump the generation via `supersedeInFlightPaneWork` while re-walking only the
+    /// pane that moved, so the sibling's raw tree survives — ordered by the option the discarded
+    /// sort was replacing, with nothing to correct it until that pane next reloads.
+    ///
+    /// Driven through `sortOption`'s own `didSet`, because that is the only thing that starts one of
+    /// these in the app, and interleaved through `resortDidSnapshot` — the seam that fires between
+    /// the snapshot and the suspension, which is the only window in which the supersede reproduces
+    /// the bug. **A `Task.yield()` was tried first and did not hold**: the resort had not taken its
+    /// turn, so the retarget landed BEFORE the snapshot, the first pass was never superseded, and
+    /// the trees came out sorted for the wrong reason.
+    ///
+    /// **The `resortPasses` assertion is what stops this proving nothing**, and it is what caught
+    /// that. Both worlds — retry-saved and never-superseded — end with identical trees; only the
+    /// pass count tells them apart, so it is asserted alongside the ordering rather than trusted.
+    @MainActor
+    @Test func aSupersededResortTriesAgainInsteadOfLeavingAPaneOnTheOldOrder() async {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        // The RIGHT pane is the survivor: name order, which for these sizes is the exact reverse of
+        // `.size` (descending), so a pane left on the old option is unmistakable.
+        manager.rawRightTree = [node("a.txt", size: 1), node("b.txt", size: 2), node("c.txt", size: 3)]
+        manager.rightTree = manager.rawRightTree
+
+        // The source switch, fired from inside the sort's own window. It drops the LEFT pane's tree
+        // and re-walks only the left, so the right pane's tree is the one nothing else will put
+        // right. Armed for the FIRST pass only — leaving it installed would supersede the retry too
+        // and measure the give-up path instead.
+        var supersededOnce = false
+        manager.resortDidSnapshot = { [weak manager] in
+            guard !supersededOnce, let manager else { return }
+            supersededOnce = true
+            manager.retargetPane(isLeft: true, landing: "")
+        }
+
+        let passesBefore = manager.resortPasses
+        manager.sortOption = .size          // the didSet enqueues the re-sort
+
+        await waitUntil("the re-sort published") { manager.rightTree.first?.name == "c.txt" }
+        #expect(supersededOnce, "the seam never fired, so no re-sort was superseded and this proves nothing")
+        #expect(manager.resortPasses - passesBefore >= 2,
+                "the pass was not superseded, so this measured a first pass that succeeded on its own — it proves nothing about the retry")
+        #expect(manager.rawRightTree.map(\.name) == ["c.txt", "b.txt", "a.txt"],
+                "the pane that was not re-walked kept the previous sort order")
+        #expect(manager.rightTree.map(\.name) == ["c.txt", "b.txt", "a.txt"],
+                "the raw tree was re-sorted but never republished through applyFilters")
+    }
+
+    /// The bound is real: a pass that keeps being superseded stops rather than spinning.
+    ///
+    /// `attempts: 1` is the smallest case of "every publish loses", and it is also the shape the old
+    /// code had — so this pins what giving up now costs, which is exactly what it always cost.
+    /// Called directly rather than through `sortOption`, whose `didSet` would enqueue a second,
+    /// three-attempt pass into the same pass counter.
+    @MainActor
+    @Test func aResortThatKeepsBeingSupersededGivesUpRatherThanSpinning() async {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        manager.rawRightTree = [node("b.txt", size: 2), node("a.txt", size: 1)]
+
+        let passesBefore = manager.resortPasses
+        manager.resortDidSnapshot = { [weak manager] in manager?.rawTreeGeneration += 1 }
+        await manager.resortTreesAndRefilter(attempts: 1)
+        #expect(manager.resortPasses - passesBefore == 1, "an `attempts: 1` pass tried more than once")
+        // Unchanged, which is the point: giving up leaves the state the old code always left, never
+        // something half-written. (`.name` is live here, so a successful pass WOULD have reordered
+        // these two — the absence of that is the measurement.)
+        #expect(manager.rawRightTree.map(\.name) == ["b.txt", "a.txt"])
+    }
+
     /// A superseded load resuming after adoptFreshDeepTree's awaits must not clear the
     /// SUCCESSOR's spinner: the loading flag is what keeps pruneSelection off the successor's
     /// interim shallow tree, so releasing it early can wipe valid deep selections.

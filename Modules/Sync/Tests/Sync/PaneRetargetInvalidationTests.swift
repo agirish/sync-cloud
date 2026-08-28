@@ -147,4 +147,54 @@ import Foundation
         #expect(manager.leftItemCount == 0)
         #expect(manager.duplicateGroups == [group])
     }
+
+    /// **`invalidateComparisonState(reloading:)` drops the named panes' trees and no others.**
+    ///
+    /// The scope arrived with the Settings Location edit, which asks `ContentView.paneRootEdits`
+    /// which pane's root actually moved and then spends the answer twice — here, and on the rescan.
+    /// Editing the right source's Location used to drop the left pane's tree as well and re-walk a
+    /// root that had not changed.
+    ///
+    /// **Both arms of both scopes, because one assertion cannot see a flipped comparison.** The
+    /// implementation is a pair of `scope != .rightOnly` / `scope != .leftOnly` guards; swapping
+    /// them drops exactly the wrong tree, and a test that only checked "the left tree went" for
+    /// `.leftOnly` would pass on the swap. `.both` is covered by the test above, which is the
+    /// default and the shape every pre-existing caller still uses.
+    @MainActor
+    @Test func aScopedInvalidationDropsOnlyTheNamedPanesTree() async throws {
+        for scope in [FileSyncManager.PaneReloadScope.leftOnly, .rightOnly] {
+            let manager = FileSyncManager(fileManager: MockFileManager())
+            let left = FileNode(id: "/left/docs", name: "docs", isDirectory: true)
+            let right = FileNode(id: "/right/docs", name: "docs", isDirectory: true)
+            manager.rawLeftTree = [left]; manager.leftTree = [left]; manager.leftItemCount = 1
+            manager.lastLoadedLeftFocusPath = "/left"
+            manager.rawRightTree = [right]; manager.rightTree = [right]; manager.rightItemCount = 1
+            manager.lastLoadedRightFocusPath = "/right"
+            let diff = makeDifference()
+            manager.rawDifferences = [diff]; manager.differences = [diff]; manager.hasScanned = true
+
+            manager.invalidateComparisonState(reloading: scope)
+
+            let droppedIsLeft = scope == .leftOnly
+            let context = "scope \(scope)"
+            // The named pane's tree is gone…
+            #expect((droppedIsLeft ? manager.leftTree : manager.rightTree).isEmpty, "\(context): the named pane's tree survived")
+            #expect((droppedIsLeft ? manager.rawLeftTree : manager.rawRightTree).isEmpty, "\(context): the named pane's raw tree survived")
+            #expect((droppedIsLeft ? manager.leftItemCount : manager.rightItemCount) == 0, "\(context): the named pane's count survived")
+            // …and the sibling's is untouched, INCLUDING its loaded-focus marker. That marker is
+            // what `pruneBrowsePath` reads to tell "this tree is empty" from "this tree is not
+            // loaded yet"; nulling it for a pane that still has its tree makes the next republish
+            // flatten a perfectly valid column stack.
+            #expect((droppedIsLeft ? manager.rightTree : manager.leftTree).count == 1, "\(context): the sibling's tree was dropped")
+            #expect((droppedIsLeft ? manager.rawRightTree : manager.rawLeftTree).count == 1, "\(context): the sibling's raw tree was dropped")
+            #expect((droppedIsLeft ? manager.rightItemCount : manager.leftItemCount) == 1, "\(context): the sibling's count was reset")
+            #expect((droppedIsLeft ? manager.lastLoadedRightFocusPath : manager.lastLoadedLeftFocusPath) != nil,
+                    "\(context): the sibling was marked unloaded, so its columns prune against a tree it still has")
+
+            // The comparison is the pair's and goes whichever pane moved.
+            #expect(manager.differences.isEmpty, "\(context): the stale comparison stayed actionable")
+            #expect(manager.rawDifferences.isEmpty, "\(context)")
+            #expect(manager.hasScanned == false, "\(context)")
+        }
+    }
 }
