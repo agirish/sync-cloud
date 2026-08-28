@@ -3117,6 +3117,9 @@ public struct LensWorkspaceView: View {
                         folderCount: scope == nil
                             ? syncManager.filingFolderProfile?.folders.count
                             : scopeFolders,
+                        // When the survey last looked (§4.1) — the corpus stamp, seeded at attach
+                        // and republished the moment a re-survey finishes.
+                        surveyedAt: syncManager.filingSurveyedAt,
                         isScoped: scope != nil,
                         // The PROVIDER, like Renames: the detectors compare sibling families
                         // across the surveyed tree, so a folder-named setup card would promise a

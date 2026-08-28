@@ -24,10 +24,24 @@ enum FilingArtifactStamp {
     /// made them. The caller injects the instant rather than this reading a clock —
     /// `docs/flaky-tests.md` mechanism 5.
     static func string(from date: Date) -> String {
+        formatter.string(from: date)
+    }
+
+    /// The stamp read back as an instant — nil for anything that is not exactly the format above.
+    ///
+    /// Reading exists for §4.1's `surveyedAt`: the corpus dates itself with the shared stamp so a
+    /// human reads one format across the artifacts, and the app parses it back to say "surveyed
+    /// 3 days ago". Local time on write, local time on read — the same machine both times, which
+    /// is the documented scope of these files.
+    static func date(from string: String) -> Date? {
+        formatter.date(from: string)
+    }
+
+    private static var formatter: DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        return formatter.string(from: date)
+        return formatter
     }
 }

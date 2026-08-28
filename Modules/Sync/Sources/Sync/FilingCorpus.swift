@@ -29,11 +29,21 @@ public struct FilingCorpus: Sendable, Equatable {
     /// ``FilingEngine/relativeFolderPaths(of:limit:)`` uses, so a corpus key and a memory key name
     /// the same folder.
     public var documents: [String: FilingCorpusDocument]
+    /// When a survey last LOOKED, whatever it found (ROADMAP_V5 §4.1).
+    ///
+    /// This lives on the corpus and not the memory, deliberately: the corpus is rewritten by every
+    /// survey while the memory is written only on change — because the memory's bytes are hashed
+    /// into the artifact fingerprint that keys every cached verdict. A stamp that moved with
+    /// "nothing changed" would otherwise throw the cache away to record that nothing happened.
+    /// Optional, so a corpus written earlier or by the offline builder still decodes.
+    public var surveyedAt: Date?
 
-    public init(profileId: String, salt: String, documents: [String: FilingCorpusDocument] = [:]) {
+    public init(profileId: String, salt: String, documents: [String: FilingCorpusDocument] = [:],
+                surveyedAt: Date? = nil) {
         self.profileId = profileId
         self.salt = salt
         self.documents = documents
+        self.surveyedAt = surveyedAt
     }
 
     public var isEmpty: Bool { documents.isEmpty }
@@ -99,7 +109,7 @@ extension FilingCorpusDocument: Codable {
 }
 
 extension FilingCorpus: Codable {
-    private enum Key: String, CodingKey { case schemaVersion, profileId, salt, note, documents }
+    private enum Key: String, CodingKey { case schemaVersion, profileId, salt, note, documents, surveyedAt }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
@@ -112,6 +122,11 @@ extension FilingCorpus: Codable {
         profileId = try c.decodeIfPresent(String.self, forKey: .profileId) ?? "default"
         salt = try c.decodeIfPresent(String.self, forKey: .salt) ?? ""
         documents = try c.decodeIfPresent([String: FilingCorpusDocument].self, forKey: .documents) ?? [:]
+        // The shared artifact stamp, parsed leniently: a hand-edited or foreign stamp reads as
+        // "unknown", which the footnote already has words for — never as a decode failure that
+        // would cost a full re-survey over a display field.
+        surveyedAt = (try? c.decodeIfPresent(String.self, forKey: .surveyedAt))
+            .flatMap { $0 }.flatMap(FilingArtifactStamp.date(from:))
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -120,6 +135,9 @@ extension FilingCorpus: Codable {
         try c.encode(profileId, forKey: .profileId)
         try c.encode(salt, forKey: .salt)
         try c.encode(documents, forKey: .documents)
+        if let surveyedAt {
+            try c.encode(FilingArtifactStamp.string(from: surveyedAt), forKey: .surveyedAt)
+        }
         try c.encode("Page-1 tokens of each already-filed document, so a re-survey only has to read "
                      + "what changed. Companion to filing-memory.json, which is this aggregated by "
                      + "folder. Digit-bearing tokens are salted hashes under the salt above; no raw "

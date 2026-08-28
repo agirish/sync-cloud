@@ -35,6 +35,9 @@ struct RestructureLens: View {
     /// scope is a subtree the survey has never seen — in which case the sentence drops the count
     /// rather than inventing a zero.
     let folderCount: Int?
+    /// When the survey last looked at the tree, or nil when unknown — a corpus that predates the
+    /// stamp, or no profile at all (ROADMAP_V5 §4.1).
+    var surveyedAt: Date? = nil
     /// Whether Organize is narrowed to a subtree — the clean state says a different thing about a
     /// folder than about the whole tree.
     var isScoped: Bool = false
@@ -674,11 +677,11 @@ struct RestructureLens: View {
 
     /// Says where the answer came from, so "update" is a choice rather than a guess.
     ///
-    /// **It claims coverage, never freshness.** The survey's own artifacts carry a generated
-    /// stamp, but it is rewritten only when a re-survey actually changes something — so a tree
-    /// that has not moved in a month has a stamp from whenever it last did, and "surveyed 3 days
-    /// ago" would be a date about the last change rather than the last look. The folder count is
-    /// a fact this view actually holds.
+    /// **The freshness claim became truthful in §4.1** — the corpus's `surveyedAt` now moves on
+    /// every survey, including one that changes nothing, so "surveyed N days ago" dates the last
+    /// LOOK rather than the last change. Before that stamp existed this note deliberately claimed
+    /// coverage only; a nil `surveyedAt` (a corpus from before the stamp) still falls back to
+    /// exactly that older sentence rather than inventing a date.
     ///
     /// **And the count is what this ANSWER covers, not how big the survey is.** `folderCount` is
     /// scoped (see its own doc), so under a narrowing it is 79 where the survey is 3,013 — and
@@ -690,17 +693,53 @@ struct RestructureLens: View {
     private var surveyNote: some View {
         HStack(spacing: 6) {
             Image(systemName: "clock.arrow.circlepath").scaledFont(.system(size: 10))
-            Text(Self.surveyNoteText(folderCount: folderCount))
+            Text(Self.surveyNoteText(folderCount: folderCount, surveyedAt: surveyedAt, now: Date()))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .scaledFont(.system(size: 11))
         .foregroundStyle(.secondary)
     }
 
-    static func surveyNoteText(folderCount: Int?) -> String {
+    static func surveyNoteText(folderCount: Int?, surveyedAt: Date? = nil,
+                               now: Date = Date()) -> String {
         let tail = "Read from the folder survey, not from your disk. Update it if the tree has changed since."
-        guard let folderCount else { return tail }
-        return "Covers \(folderCount.formatted()) folder\(folderCount == 1 ? "" : "s"). " + tail
+        var head: [String] = []
+        if let folderCount {
+            head.append("Covers \(folderCount.formatted()) folder\(folderCount == 1 ? "" : "s").")
+        }
+        if let surveyedAt {
+            head.append("Surveyed \(Self.surveyedPhrase(surveyedAt, now: now)).")
+        }
+        return (head + [tail]).joined(separator: " ")
+    }
+
+    /// "today" / "yesterday" / "5 days ago" / "on 12 Aug 2026" — absolute past two weeks, because
+    /// a checkable date beats a big round number (the release-notes rule, applied to UI).
+    ///
+    /// No caution tint yet, deliberately: the staleness threshold is unmeasured and ROADMAP_V5
+    /// §4.1 says to ship the plain variant first and pick the number from real stamps.
+    static func surveyedPhrase(_ surveyedAt: Date, now: Date) -> String {
+        let calendar = Calendar.current
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: surveyedAt),
+            to: calendar.startOfDay(for: now)).day ?? 0
+        switch days {
+        case ..<0:
+            // A stamp from the future is a wrong clock somewhere; the date is still the fact.
+            return "on \(Self.absolute(surveyedAt))"
+        case 0: return "today"
+        case 1: return "yesterday"
+        case 2...13: return "\(days) days ago"
+        default: return "on \(Self.absolute(surveyedAt))"
+        }
+    }
+
+    private static func absolute(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter.string(from: date)
     }
 
     private var samplesAccessibility: String {

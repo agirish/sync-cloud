@@ -61,6 +61,10 @@ enum FilingArtifacts {
         // old tree produced. Read from the same directory the artifacts came from.
         manager.filingArtifactFingerprint =
             FilingProfileStore.fingerprint(id: loaded.id, in: profiles)
+        // When a survey last looked (§4.1) — the corpus's stamp, read without building the
+        // documents dictionary. Nil for a corpus that predates the stamp, which the footnote
+        // has words for.
+        manager.filingSurveyedAt = FilingSurveyStore.surveyedAt(id: loaded.id, in: profiles)
         Logger.shared.info("Filing profile '\(loaded.id)' loaded — "
                            + "\(loaded.profile.folders.count) folder(s), "
                            + "\(loaded.memory?.folders.count ?? 0) with filing memory, "

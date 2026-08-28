@@ -584,6 +584,11 @@ public class FileSyncManager: ObservableObject {
     /// Published so the lens can say what happened rather than leaving a menu item that appears to
     /// do nothing — the common outcome is "up to date", which is invisible unless it is stated.
     @Published public internal(set) var filingSurveyReport: FilingSurveyReport?
+    /// When a survey last LOOKED at the tree, whatever it found — the corpus's `surveyedAt` stamp
+    /// (ROADMAP_V5 §4.1). The app seeds it from disk at attach; a finishing re-survey publishes it
+    /// directly, so the footnote updates the moment the survey does. Public set for the same
+    /// reason `filingMemory`'s is: the app hands over what it read.
+    @Published public var filingSurveyedAt: Date?
     /// The folder-memory re-survey lifecycle — a separate lens from the scan's on purpose.
     ///
     /// A re-survey is not a scan: it produces no suggestions, and flipping `isSuggestingFiles`

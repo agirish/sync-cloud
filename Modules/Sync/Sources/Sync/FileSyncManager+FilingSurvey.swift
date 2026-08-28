@@ -63,8 +63,12 @@ extension FileSyncManager {
     /// Returns ``FilingSurveyReport/none`` when the machine has no filing artifacts to update or no
     /// extractor to read with: both are the ordinary state for anyone whose tree was never surveyed,
     /// and neither is an error.
+    /// `now` is the instant the survey stamps the corpus's `surveyedAt` with — injected, not read
+    /// from a clock (`docs/flaky-tests.md` mechanism 5), and published as
+    /// ``FileSyncManager/filingSurveyedAt`` when the write lands.
     @discardableResult
-    public func resurveyFilingMemory(root: URL, taxonomy: [FileNode]? = nil) async -> FilingSurveyReport {
+    public func resurveyFilingMemory(root: URL, taxonomy: [FileNode]? = nil,
+                                     now: Date = Date()) async -> FilingSurveyReport {
         guard !filingSurveyLifecycle.isRunning else { return .none }
         guard let directory = filingProfilesDirectory else {
             Logger.shared.info("No filing profile directory — nothing to re-survey")
@@ -288,11 +292,14 @@ extension FileSyncManager {
         do {
             wrote = try FilingSurveyStore.write(corpus: merged, memory: memory,
                                                 previousMemory: previousMemory, id: profileId,
-                                                in: directory, root: root.path)
+                                                in: directory, root: root.path, now: now)
         } catch {
             Logger.shared.error("Couldn't write the re-surveyed folder memory: \(error.localizedDescription)")
             return .none
         }
+        // The stamp moved even when nothing else did — that is §4.1's whole point: "last surveyed"
+        // answers when the survey LOOKED, and the guard above already returned on a failed write.
+        filingSurveyedAt = now
         if wrote {
             // Publishing the memory drops the router's prepared index, so the next scan builds it
             // from the folders learned here. The fingerprint moves with the bytes, which is what

@@ -98,6 +98,21 @@ public enum FilingSurveyStore {
         corpusRead(id: id, in: directory).corpus
     }
 
+    /// The corpus's `surveyedAt` stamp alone — nil when the file is absent, unreadable, or predates
+    /// the stamp (ROADMAP_V5 §4.1).
+    ///
+    /// A separate read on purpose: the app wants this at launch, in the block that already loads
+    /// the profile, and building a nine-thousand-document dictionary to display one date would be
+    /// the wrong trade. The JSON is still parsed whole — that is Foundation's floor — but nothing
+    /// is materialised beyond the one field.
+    public static func surveyedAt(id: String, in directory: URL) -> Date? {
+        struct StampOnly: Decodable { let surveyedAt: String? }
+        guard let data = try? Data(contentsOf: corpusURL(id: id, in: directory)),
+              let decoded = try? JSONDecoder().decode(StampOnly.self, from: data)
+        else { return nil }
+        return decoded.surveyedAt.flatMap(FilingArtifactStamp.date(from:))
+    }
+
     /// Writes both artifacts atomically. Throws rather than logging, so a caller that promised the
     /// user a survey can say it failed.
     ///
@@ -114,7 +129,13 @@ public enum FilingSurveyStore {
                                                 withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        try encoder.encode(corpus).write(to: corpusURL(id: id, in: directory), options: .atomic)
+        // Stamped HERE, at the one write every survey goes through, so "last surveyed" moves even
+        // when the survey changed nothing (ROADMAP_V5 §4.1) — while the memory below still writes
+        // only on change, which is what keeps the fingerprint (and every cached verdict keyed on
+        // it) from moving with the stamp. The pair pulls both ways on purpose.
+        var stamped = corpus
+        stamped.surveyedAt = now
+        try encoder.encode(stamped).write(to: corpusURL(id: id, in: directory), options: .atomic)
 
         guard memory != previousMemory else { return false }
         let document = MemoryDocument(memory: memory, root: root, generated: Self.stamp(now),

@@ -96,12 +96,17 @@ import Testing
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let written = Self.corpus(documents: ["Family/Muktha/Passport.pdf": Self.document])
+        let noon = Date(timeIntervalSince1970: 1_755_000_000)
 
         try FilingSurveyStore.write(corpus: written, memory: Self.memory(folders: [:]),
-                                    previousMemory: nil, id: "p1", in: dir, root: "~/Documents")
+                                    previousMemory: nil, id: "p1", in: dir, root: "~/Documents",
+                                    now: noon)
 
         let read = try #require(FilingSurveyStore.corpus(id: "p1", in: dir))
-        #expect(read == written)
+        // The stamp is the one field the store sets for you (§4.1) — everything else round-trips.
+        var expected = written
+        expected.surveyedAt = noon
+        #expect(read == expected)
         let doc = try #require(read.documents["Family/Muktha/Passport.pdf"])
         #expect(doc.anchors == ["passport"])
         #expect(doc.idHashes == ["ab12"])
@@ -192,6 +197,52 @@ import Testing
         #expect(!wrote, "this fixture is about the memory standing still")
         #expect(FilingSurveyStore.corpus(id: "p1", in: dir)?.documents.count == 1,
                 "the corpus was not written, so the next survey re-reads every document")
+    }
+
+    // MARK: - The surveyed-at stamp (§4.1)
+
+    /// **The pair that pulls both ways** (ROADMAP_V5 §4.1): a survey that changes nothing must
+    /// still move the stamp — it answers "when did we last LOOK" — and must not move the
+    /// fingerprint, because the fingerprint keys every cached verdict and the stamp lives on the
+    /// corpus precisely so the two can move independently.
+    @Test func theStampMovesWhenASurveyChangesNothingAndTheFingerprintDoesNot() throws {
+        let dir = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let memory = Self.memory(folders: ["Family/Muktha": Self.entry(docs: 3, token: "passport")])
+        let first = Date(timeIntervalSince1970: 1_755_000_000)
+        try FilingSurveyStore.write(corpus: Self.corpus(), memory: memory, previousMemory: nil,
+                                    id: "p1", in: dir, root: "~", now: first)
+        let fingerprintBefore = FilingProfileStore.fingerprint(id: "p1", in: dir)
+
+        let later = first.addingTimeInterval(86_400)
+        try FilingSurveyStore.write(corpus: Self.corpus(), memory: memory, previousMemory: memory,
+                                    id: "p1", in: dir, root: "~", now: later)
+
+        #expect(FilingSurveyStore.surveyedAt(id: "p1", in: dir) == later,
+                "an unchanged survey must still say when it looked")
+        #expect(FilingProfileStore.fingerprint(id: "p1", in: dir) == fingerprintBefore,
+                "the stamp moved the fingerprint — every cached verdict is now void for nothing")
+    }
+
+    /// The stamp survives the trip through the shared artifact format — whole seconds, which is
+    /// that format's stated resolution — and an absent or pre-§4.1 corpus answers nil.
+    @Test func theStampRoundTripsAndPredatingCorporaAnswerNil() throws {
+        let dir = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(FilingSurveyStore.surveyedAt(id: "p1", in: dir) == nil, "absent file")
+
+        // A corpus written before the stamp existed — decodes, and the stamp is honestly unknown.
+        try Self.writeCorpusFile(#"{"schemaVersion": 1, "profileId": "p1", "salt": "s"}"#, in: dir)
+        #expect(FilingSurveyStore.surveyedAt(id: "p1", in: dir) == nil, "pre-stamp corpus")
+        #expect(FilingSurveyStore.corpus(id: "p1", in: dir)?.surveyedAt == nil)
+
+        let noon = Date(timeIntervalSince1970: 1_755_000_000)
+        try FilingSurveyStore.write(corpus: Self.corpus(),
+                                    memory: Self.memory(folders: [:]), previousMemory: nil,
+                                    id: "p1", in: dir, root: "~", now: noon)
+        #expect(FilingSurveyStore.surveyedAt(id: "p1", in: dir) == noon)
+        #expect(FilingSurveyStore.corpus(id: "p1", in: dir)?.surveyedAt == noon,
+                "the full decode and the stamp-only read must agree")
     }
 
     /// The header a person opening this file by hand needs. It is not decoration — these artifacts
