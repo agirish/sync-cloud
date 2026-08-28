@@ -179,14 +179,45 @@ Steps 5–6 only clean the bundle this install produced. Everything below is deb
     ```
 15. **Merged branches and dead worktrees.** A branch is a candidate only if it has **no worktree** and is **merged into `main`**; `git branch -d` then enforces the second condition itself. Before removing a worktree, check it for uncommitted work (`git -C <wt> status --short`) and for a process sitting in it (`lsof -a -d cwd +D <wt>`), and `git stash push` anything dirty rather than discarding it — an abandoned experiment has turned out to be the only copy before.
     ```bash
-    WT=$(git worktree list --porcelain | awk '/^branch /{sub("refs/heads/","",$2); print $2}')
-    for b in $(git for-each-ref --format='%(refname:short)' refs/heads); do
-      echo "$WT" | grep -qx "$b" || git branch -d "$b"     # -d, never -D: it refuses unmerged work
+    # Attached worktrees announce their branch; DETACHED ones do not, and a branch labelling a
+    # detached worktree looks exactly like a merged leftover. On 2026-08-27 two live sessions sat
+    # on detached worktrees whose `claude/*` labels were both ancestors of `main`, so the old
+    # keep-list would have deleted both out from under them. Protect every branch that points at
+    # ANY worktree HEAD, plus the one branch CLAUDE.md names as a deliberate exception.
+    #
+    # `while read`, not `for x in $VAR`: this runs under zsh, which does NOT word-split an
+    # unquoted parameter. The `for` spelling hands awk all the SHAs as one newline-laden string,
+    # awk dies with "newline in string", the keep-list silently comes back short — and the step
+    # deletes the very branches this block exists to save. Verified by dry run before trusting it.
+    KEEP=$(
+      git worktree list --porcelain | awk '/^branch /{sub("refs/heads/","",$2); print $2}'
+      git worktree list --porcelain | awk '/^HEAD /{print $2}' | while IFS= read -r sha; do
+        git for-each-ref --format='%(refname:short) %(objectname)' refs/heads |
+          awk -v s="$sha" '$2==s{print $1}'
+      done
+      echo candidate-tap-deferral
+    )
+    # Dry-run FIRST and read the list; only then drop the `echo`.
+    git for-each-ref --format='%(refname:short)' refs/heads | while IFS= read -r b; do
+      echo "$KEEP" | grep -qx "$b" || echo "would delete: $b"
     done
+    # git branch -d "$b"     # -d, never -D: it refuses unmerged work, and that refusal is the point
     git worktree prune
     git gc                  # NOT --prune=now while other sessions are live (see below)
     ```
     `git gc --prune=now` immediately discards unreachable objects. That is fine when you are the only session, but with concurrent worktrees another session may have just written objects that are not referenced yet — a commit being built, a stash mid-write — and `--prune=now` can take them. Plain `git gc` keeps the default two-week grace period, which is the whole safety margin. Only reach for `--prune=now` when `git worktree list` shows nothing but the primary.
-    `origin` has only ever held `main`, so there is nothing to prune remotely — don't go looking for stale remote branches.
+    **`origin` holds three lines — `main`, `v3.x`, `v2.x` — and scaffolding CAN reach it, so check
+    rather than assume.** This step used to say origin had "only ever held `main`", which was wrong
+    about the two maintenance lines and wrong again about `roots`: a leftover branch from the roots
+    work sat there until 2026-08-27, and the only thing that surfaced it was `git branch -d roots`
+    refusing with *"not yet merged to `refs/remotes/origin/roots`"*. A sweep told not to look found
+    nothing for weeks.
+    ```bash
+    git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x} and nothing else
+    ```
+    A fourth branch is scaffolding per CLAUDE.md — but **a remote delete is outward-facing: report
+    it and ask, never sweep it.** Before asking, establish nothing unique dies:
+    `git diff --name-status main <branch> | grep '^A'` prints nothing, and a local branch at the
+    same SHA keeps the commits reachable after the remote ref goes.
 
     Note for macOS: `xargs -a` is GNU-only, so read a branch list with `git branch -d $(cat file | tr '\n' ' ')` instead; and `rm -rf` on a path beginning with `-` (the Claude scratchpad dirs are named `-Users-abhishek-…`) needs a `./` prefix.

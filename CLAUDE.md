@@ -40,6 +40,23 @@ plain number `3.1` — exactly what "re-bump immediately" exists to prevent.
 
 **Never merge one line into another.** All three stay linear; move commits with `git cherry-pick`.
 
+**`origin` carries the three lines and nothing else — and that is a thing to CHECK, not assume.**
+A `roots` branch sat on `origin` from the roots work until 2026-08-27, unnoticed because nothing
+here or in the install skill ever looked. `git branch -d roots` refusing — *"not yet merged to
+`refs/remotes/origin/roots`"* — was the only thing that revealed it, which is luck rather than a
+process. One command, and it prints exactly three lines when the remote is clean:
+
+```sh
+git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x}, nothing else
+```
+
+A fourth is scaffolding by the rule below and can go — but **deleting a remote branch is
+outward-facing, so establish that nothing unique dies first and ask before pushing the delete.**
+Two checks settle it: `git diff --name-status main <branch> | grep '^A'` must print nothing (it
+adds no file `main` lacks), and a local branch at the same SHA means the commits outlive the
+remote ref. `roots` passed both — its tip was `backup-roots-preReviewSquash2` — and its two
+commits were a superseded two-round version of a review `main` carries at three rounds.
+
 Releases are cut as **tags on the line that owns them** — `v2.9` from `v2.x`, `v4.0` from `main`.
 Tags mark history and are never branched from, except once when a new maintenance line is cut from a
 major's last tag; these three branches are the only ones that persist.
