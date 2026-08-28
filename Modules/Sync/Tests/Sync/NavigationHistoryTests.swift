@@ -201,19 +201,25 @@ import Combine
         #expect(!manager.leftHistory.canGoForward)
     }
 
+    /// A source switch replaces the history of the pane it switched, and **only** that pane's.
+    ///
+    /// The switched pane's Back stack points into a tree that is being taken off screen, so it has
+    /// to go. The sibling's points into a tree that is still there — this used to clear it anyway,
+    /// so picking a source on one pane silently emptied the other pane's Back button.
     @MainActor
-    @Test func testResetNavigationClearsBothHistories() async throws {
+    @Test func testRetargetPaneClearsOnlyItsOwnHistory() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
         manager.focusOn(relativePath: "a", isLeft: true)
         manager.focusOn(relativePath: "b", isLeft: false)
 
-        manager.resetNavigation(leftLanding: "", rightLanding: "")
+        manager.retargetPane(isLeft: true, landing: "")
 
         #expect(manager.leftRelativePath == "")
-        #expect(manager.rightRelativePath == "")
         #expect(manager.leftHistory == PaneNavigationHistory())
-        #expect(manager.rightHistory == PaneNavigationHistory())
         #expect(!manager.leftHistory.canGoBack)
-        #expect(!manager.rightHistory.canGoBack)
+
+        #expect(manager.rightRelativePath == "b", "the untouched pane was re-homed by the other pane's switch")
+        #expect(manager.rightHistory.entries == ["", "b"])
+        #expect(manager.rightHistory.canGoBack, "the untouched pane lost the Back stack it had earned")
     }
 }

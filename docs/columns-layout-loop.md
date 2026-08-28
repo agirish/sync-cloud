@@ -60,8 +60,12 @@ two-writers-on-one-anchor bug that `96cfbb2` fixed, which is why that fix did no
 ## Reproducing it
 
 Both panes in **Columns** (`paneViewModeLeft`/`Right = columns`); switch a pane's provider. The
-`.onChange(of: rightProviderId)` handler calls `resetNavigation()`, which drops both pane trees
-synchronously and reloads from the new roots; the crash lands while the replacements paint.
+`.onChange(of: rightProviderId)` handler calls `retargetPane(isLeft:landing:)`, which drops that
+pane's tree synchronously and reloads it from the new root; the crash lands while the replacement
+paints. (It dropped **both** trees, as `resetNavigation()`, until the switch was scoped to the pane
+the user actually switched. Every measurement below predates that and was taken against the
+two-tree drop; the fixtures themselves only ever mutated one pane, so they still describe what
+happens — the second one now exercises the whole of the switch rather than half of it.)
 
 Reproduces by hand, every time: open the app, change the right provider between two cloud accounts.
 
@@ -165,7 +169,7 @@ which is itself worth noting given how much variance the crash rate has:
 
 | fixture | views | worst cycle |
 |---|---|---|
-| one pane, Columns, the `resetNavigation()` republish | 136 | **3 passes** |
+| one pane, Columns, the provider-switch republish | 136 | **3 passes** |
 | two panes in Columns, both drilled, preview up, real `PaneBarPlacement` and the host's `onBarEdgeFlip`, right pane's provider switched | 351 | **7 passes** |
 | the same, with a **risky-name badge on every row** | 351 | **7 passes** — no change at all |
 
@@ -441,8 +445,8 @@ popover's. After it, 9 of 10 switches ran away. The next session, driven identic
 **zero** interaction lines in the whole log (no `[click]`, `[columns]`, `[crumb]`, `[deselect]`),
 produced zero churning cycles across more than thirty switches, cold start and stall included.
 
-So the missing precondition is something a **click** leaves behind that `resetNavigation()` does not
-clear and a `defaults write` never creates. First responder inside the column's `NSTableView` is the
+So the missing precondition is something a **click** leaves behind that the provider switch does
+not clear and a `defaults write` never creates. First responder inside the column's `NSTableView` is the
 obvious candidate — it survives a provider switch, it is precisely the "the picker click also moves
 first responder; that difference has not been closed" note above, and it would explain the whole
 pattern at once: why clicking reproduces every time, why the scripted route is unreliable, why no

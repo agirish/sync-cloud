@@ -53,25 +53,31 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     }
 
     @MainActor
-    @Test func testProviderSwitchStateReset() async throws {
+    @Test func testProviderSwitchResetsOnlyTheSwitchedPane() async throws {
         let manager = FileSyncManager()
-        
-        // 1. Simulate active state
+
+        // 1. Simulate active state: both panes navigated, both holding a selection. (Two panes
+        //    selected at once is not a state the app reaches — see the one-pane-selected invariant
+        //    — but it is the fixture that can tell "cleared the switched pane" from "cleared
+        //    whichever one it found".)
         manager.selectedLeftPaths = ["/src/a.txt"]
         manager.selectedRightPaths = ["/dst/b.txt"]
-        manager.leftRelativePath = "subfolder"
-        manager.rightRelativePath = "otherfolder"
+        manager.focusOn(relativePath: "subfolder", isLeft: true)
+        manager.focusOn(relativePath: "otherfolder", isLeft: false)
 
-        // 2. This simulates what the ContentView .onChange(of: leftProviderId) does
-        manager.selectedLeftPaths = []
-        manager.leftRelativePath = ""
-        manager.resetNavigation(leftLanding: "", rightLanding: "")
-        
-        // 3. Verify specifically the navigation reset effects
+        // 2. This is what ContentView's .onChange(of: leftProviderId) does.
+        manager.retargetPane(isLeft: true, landing: "")
+
+        // 3. The switched pane is re-homed and cleared...
         #expect(manager.selectedLeftPaths.isEmpty)
         #expect(manager.leftRelativePath.isEmpty)
         #expect(manager.leftHistory == PaneNavigationHistory())
-        #expect(manager.rightHistory == PaneNavigationHistory())
+
+        // ...and the other pane is left entirely alone. Picking a source on one pane used to
+        // re-home the other, drop its selection and empty its Back stack.
+        #expect(manager.selectedRightPaths == ["/dst/b.txt"])
+        #expect(manager.rightRelativePath == "otherfolder")
+        #expect(manager.rightHistory.entries == ["", "otherfolder"])
     }
 
     @Test func testResolvedProviderSelectionPrefersDistinctDestinationDuringBootstrap() async throws {
@@ -120,14 +126,29 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b"), provider("OneDrive", path: "/c")]
         let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
 
-        #expect(!ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
+        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "Dropbox") == nil)
     }
 
+    /// **Editing ONE pane's Location scopes the teardown to that pane.** The answer is a side, not
+    /// a Bool, because the caller spends it twice — on `invalidateComparisonState(reloading:)` and
+    /// on the rescan — and a `true` took the other pane down with it: tree dropped, columns
+    /// flattened, spinner, for a root that had not moved.
     @Test func testPaneProviderPathEditRequiresPaneRefresh() {
         let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
         let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/elsewhere")]
 
-        #expect(ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
+        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "Dropbox") == .rightOnly)
+        // The mirror, so the polarity is measured rather than assumed.
+        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "Dropbox", rightId: "iCloud") == .leftOnly)
+    }
+
+    /// Both panes on one source is an ordinary configuration, and then one Location edit really
+    /// does move both roots.
+    @Test func testAPathEditUnderBothPanesRequiresBoth() {
+        let old = [provider("iCloud", path: "/a")]
+        let new = [provider("iCloud", path: "/elsewhere")]
+
+        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "iCloud") == .both)
     }
 
     @Test func testPaneProviderRenameIsANoOpForPaneRefresh() {
@@ -141,7 +162,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
             provider("Dropbox", path: "/b")
         ]
 
-        #expect(!ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
+        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "Dropbox") == nil)
     }
 
     @Test func testPaneProviderAppearingOrVanishingRequiresPaneRefresh() {
@@ -149,7 +170,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
 
         // A pane pointing at a provider that just became enabled must load it.
-        #expect(ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
+        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "Dropbox") == .rightOnly)
     }
 
     // MARK: Collision prompt wording (file vs. folder, and where-from/where-to)

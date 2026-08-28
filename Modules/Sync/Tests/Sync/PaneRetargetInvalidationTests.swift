@@ -68,7 +68,7 @@ import Foundation
         #expect(manager.hasScanned == false)
 
         // Untouched: the duplicate state (the whole reason the callers suppress the
-        // provider-id onChange instead of letting resetNavigation run).
+        // provider-id onChange instead of letting retargetPane run).
         #expect(manager.duplicateGroups == [group])
         #expect(manager.duplicateScanRoot == "/root")
         #expect(manager.hasFoundDuplicates == true)
@@ -92,7 +92,7 @@ import Foundation
         #expect(manager.duplicateGroups == [group])
     }
 
-    /// Navigation is NOT reset (unlike resetNavigation): the callers re-focus the panes
+    /// Navigation is NOT reset (unlike retargetPane): the callers re-focus the panes
     /// themselves right after, and wiping the histories/selections here would fight that.
     @MainActor
     @Test func retargetInvalidationLeavesNavigationAlone() async throws {

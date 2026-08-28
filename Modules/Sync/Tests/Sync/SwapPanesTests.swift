@@ -304,12 +304,18 @@ import Foundation
         #expect(manager.rightRelativePath == "docs")
     }
 
-    /// Pin: a provider switch (resetNavigation) drops differences and trees synchronously —
-    /// rows scanned against the old roots must not stay clickable while the new provider
-    /// loads — and resets `hasScanned` so the empty list reads "No Scan Performed", never a
-    /// false "Everything is in sync".
+    /// Pin: a provider switch (`retargetPane`) drops the differences and the SWITCHED pane's tree
+    /// synchronously — rows scanned against the old roots must not stay clickable while the new
+    /// provider loads — and resets `hasScanned` so the empty list reads "No Scan Performed", never
+    /// a false "Everything is in sync".
+    ///
+    /// **And leaves the other pane's tree exactly where it was**, which is the half this test grew.
+    /// A comparison belongs to the pair, so it goes; a tree belongs to one pane, and the sibling's
+    /// is a walk of a root this switch did not touch. Dropping it put a spinner over a pane the
+    /// user had not been near and — because the drop republishes an empty tree one view update
+    /// ahead of the reload — flattened the column stack standing in it (`pruneBrowsePath`).
     @MainActor
-    @Test func testResetNavigationClearsComparisonState() async throws {
+    @Test func testRetargetPaneClearsTheComparisonAndOnlyItsOwnTree() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
         let diff = makeDifference()
         manager.rawDifferences = [diff]
@@ -322,8 +328,13 @@ import Foundation
         manager.leftTree = [node]
         manager.leftItemCount = 1
         manager.lastLoadedLeftFocusPath = "/left"
+        let sibling = FileNode(id: "/right/b.txt", name: "b.txt", isDirectory: false)
+        manager.rawRightTree = [sibling]
+        manager.rightTree = [sibling]
+        manager.rightItemCount = 1
+        manager.lastLoadedRightFocusPath = "/right"
 
-        manager.resetNavigation(leftLanding: "", rightLanding: "")
+        manager.retargetPane(isLeft: true, landing: "")
 
         #expect(manager.differences.isEmpty)
         #expect(manager.rawDifferences.isEmpty)
@@ -334,6 +345,13 @@ import Foundation
         #expect(manager.rawLeftTree.isEmpty)
         #expect(manager.leftItemCount == 0)
         #expect(manager.lastLoadedLeftFocusPath == nil)
+
+        // The pane nobody switched.
+        #expect(manager.rightTree == [sibling], "a switch on the left pane threw away the right pane's tree")
+        #expect(manager.rawRightTree == [sibling])
+        #expect(manager.rightItemCount == 1)
+        #expect(manager.lastLoadedRightFocusPath == "/right",
+                "the untouched pane was marked unloaded, so the next republish prunes its columns against an empty tree")
     }
 
     /// Pin: `mirrored()` is an exact involution, and description mirroring flips only the

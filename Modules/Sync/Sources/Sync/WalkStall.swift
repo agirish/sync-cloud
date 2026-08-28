@@ -7,7 +7,8 @@ import Foundation
 /// had a deterministic repro, and the reason turned out to be a precondition nobody had identified:
 /// every crash, and every 9-13 s `publish`, happened while a provider was cold and the deep walk was
 /// taking **25-46 seconds**, so the next provider switch landed *while the previous load was still
-/// in flight* — `resetNavigation()` drops both pane trees onto an in-flight load. Warm, the same
+/// in flight* — a provider switch dropped both pane trees onto an in-flight load. (It drops one now:
+/// `retargetPane` touches only the pane that moved. The measurements below predate that.) Warm, the same
 /// walk takes 0.4-0.8 s, loads never overlap, and 38 consecutive provider switches across three
 /// configurations were all 12-22 ms with no crash.
 ///

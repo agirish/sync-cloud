@@ -44,14 +44,13 @@ import Testing
 
     /// **A tab-driven source change never asks for `.undoProviderPin`, in ANY state.**
     ///
-    /// That effect repoints the SIBLING pane's provider and deliberately restores no folder,
-    /// because its own note says the caller's `resetNavigation()` re-homes both panes a moment
-    /// later. `adoptProviderForTab` is the one caller that must never reset — the tab it is
-    /// applying carries the navigation — so pairing the two left the untouched pane claiming one
-    /// source while showing another's tree at a path under the wrong root, and `saveBrowseTabs`
-    /// then wrote that pane's active tab under the wrong source for good. The same "a tab silently
-    /// retargeted to another cloud" defect the tab fixes removed on the near pane, reintroduced on
-    /// the far one by the review dispatch that was supposed to be the safe part.
+    /// That effect repoints the SIBLING pane's provider and re-homes it onto the pre-review folder.
+    /// `adoptProviderForTab` is the one caller that must never have a pane re-homed under it — the
+    /// tab it is applying carries the navigation — so pairing the two moved the untouched pane off
+    /// the folder its own tab names, and `saveBrowseTabs` then wrote that displacement over the tab
+    /// for good. The same "a tab silently retargeted to another cloud" defect the tab fixes removed
+    /// on the near pane, reintroduced on the far one by the review dispatch that was supposed to be
+    /// the safe part.
     ///
     /// Every state, because the pin undo is reached only from ONE of them (review set, gone
     /// inactive) and a test that missed that state would pass on a reducer that still asked for it.

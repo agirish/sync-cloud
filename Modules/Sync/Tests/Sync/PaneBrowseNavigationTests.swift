@@ -119,14 +119,30 @@ import Events
         #expect(m.rightBrowsePath.isEmpty)
     }
 
-    @Test func testResetNavigationClearsBothStacks() {
+    /// **The reported bug, at the layer that caused it.** Changing the source on one pane closed
+    /// the columns the user had open on the other. The switched pane's stack names folders under a
+    /// root it is leaving, so it is meaningless; the sibling's names folders in a tree that is
+    /// still on screen.
+    @Test func testRetargetPaneClearsOnlyItsOwnStack() {
         let m = FileSyncManager()
         m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
         m.rightBrowsePath.drill(into: "Photos", atDepth: 0)
 
-        m.resetNavigation(leftLanding: "", rightLanding: "")
-        #expect(m.leftBrowsePath.isEmpty)
+        m.retargetPane(isLeft: false, landing: "")
         #expect(m.rightBrowsePath.isEmpty)
+        #expect(m.leftBrowsePath.components == ["Documents"],
+                "a source switch on the right pane closed the left pane's open columns")
+    }
+
+    /// The mirror, so neither side's polarity can be the one that is wrong.
+    @Test func testRetargetPaneClearsOnlyItsOwnStackOnTheLeft() {
+        let m = FileSyncManager()
+        m.leftBrowsePath.drill(into: "Documents", atDepth: 0)
+        m.rightBrowsePath.drill(into: "Photos", atDepth: 0)
+
+        m.retargetPane(isLeft: true, landing: "")
+        #expect(m.leftBrowsePath.isEmpty)
+        #expect(m.rightBrowsePath.components == ["Photos"])
     }
 
     /// The stack travels with the tree it indexes, like the history beside it.

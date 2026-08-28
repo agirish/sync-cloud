@@ -69,41 +69,44 @@ import Combine
                 "a move that took both panes somewhere new walked only one of them")
     }
 
-    /// **A provider switch walks both panes even though only one of them moved**, and this is the
-    /// test that stops the scoping from being a regression rather than an improvement.
+    /// **A provider switch walks the pane that switched, and only that one.**
     ///
-    /// `resetNavigation` calls `invalidateComparisonState()`, which empties BOTH pane trees, and a
-    /// left-source switch then hands the right pane its own current path as its landing — so the
-    /// right pane does not move. Scoped on movement alone that is `.leftOnly`, the right tree stays
-    /// `[]`, and nothing downstream ever refills it: a blank pane, from a switch on the other side.
-    /// The rule a narrow scope depends on is that the unmoved pane still HOLDS a usable tree, and
-    /// invalidation is precisely the case where it does not.
+    /// This test used to assert the opposite, and the reason it could is the whole of the bug it
+    /// now guards against: `resetNavigation` emptied BOTH pane trees, so `.both` was not a
+    /// preference but a repair — scoped on movement alone the untouched pane would have kept an
+    /// empty tree and rendered blank. `retargetPane` drops one pane's tree, so the sibling has a
+    /// real tree to contribute and the narrow scope is honest. The premise, not the rule, is what
+    /// changed; the rule a narrow scope depends on is still "the unmoved pane HOLDS a usable tree",
+    /// and the assertion below is what keeps that premise checkable rather than remembered.
     @MainActor
-    @Test func aProviderSwitchWalksBothPanesBecauseItThrewBothTreesAway() {
+    @Test func aProviderSwitchWalksOnlyThePaneThatSwitched() {
         let manager = FileSyncManager(fileManager: MockFileManager())
         manager.focusOn(relativePath: "Reports", isLeft: false)
+        let sibling = FileNode(id: "/right/Reports", name: "Reports", isDirectory: true)
+        manager.rawRightTree = [sibling]
+        manager.rightTree = [sibling]
 
         let seen = scopes(from: manager) {
-            // Exactly the shape `ContentView`'s left-provider handler uses: a landing for the pane
-            // that switched, and the other pane's OWN current path for the one that did not.
-            manager.resetNavigation(leftLanding: "Finance", rightLanding: manager.rightRelativePath)
+            manager.retargetPane(isLeft: true, landing: "Finance")
         }
-        #expect(seen == [.both],
-                "a provider switch asked to walk one pane after emptying both trees, so the other pane keeps an empty tree and renders blank")
-        #expect(manager.rawRightTree.isEmpty,
-                "invalidateComparisonState no longer empties the untouched pane's tree, so the reason this test exists has changed — re-derive the scope rule before relaxing it")
+        #expect(seen == [.leftOnly],
+                "a source switch on the left pane re-walked the right pane's root, which it never touched: \(seen)")
+        #expect(manager.rawRightTree == [sibling],
+                "the untouched pane's tree was thrown away, so a narrow scope leaves it blank — re-derive the scope rule before keeping it")
     }
 
-    /// The same call with nothing moving at all — a reset onto the folders both panes are already
-    /// on. Still both, for the same reason, and worth its own case because the movement booleans
-    /// take a different route to it.
+    /// The same call with the switched pane landing on the folder it was already on — a source
+    /// whose Open-at names the pane's current folder. **Still the switched pane**, and worth its
+    /// own case because it is the one the movement booleans get wrong: nothing moved, so inferring
+    /// the scope from the paths says `.both`, and the pane that needs walking is the one whose
+    /// ROOT changed under it — which no path comparison can see.
     @MainActor
-    @Test func aResetOntoTheCurrentFoldersStillWalksBoth() {
+    @Test func aSwitchOntoTheCurrentFolderStillWalksTheSwitchedPane() {
         let manager = FileSyncManager(fileManager: MockFileManager())
         let seen = scopes(from: manager) {
-            manager.resetNavigation(leftLanding: "", rightLanding: "")
+            manager.retargetPane(isLeft: false, landing: "")
         }
-        #expect(seen == [.both], "a reset that moved nothing narrowed itself: \(seen)")
+        #expect(seen == [.rightOnly], "a switch that moved no folder widened to both panes: \(seen)")
     }
 
     /// **The senders that are not navigation still say both, and must.** A date-tolerance change

@@ -113,7 +113,7 @@ struct ContentView: View {
     @State private var pendingSwapProviderChanges: Int = 0
 
     /// The same counter for a **tab switch**, which also writes a provider id behind the user's
-    /// back and must not have `resetNavigation()` run over the navigation it has just restored.
+    /// back and must not have `retargetPane()` run over the navigation it has just restored.
     ///
     /// Its own counter rather than the swap's, and not private because `ContentView+PaneTabs`
     /// writes it: sharing one would let a swap consume a tab switch's suppression (or the reverse)
@@ -711,18 +711,24 @@ struct ContentView: View {
         return (leftId, rightId)
     }
 
-    /// Whether either pane's provider differs between two versions of the enabled-provider
-    /// list — comparing only identity-relevant fields (id, root path, type), so a root-path
-    /// edit counts, but changes to other providers don't. Cosmetic fields are deliberately
-    /// excluded: comparing whole structs made a Settings rename (setCustomName → new
-    /// displayName) read as a root edit, which tore down an in-flight duplicate review
-    /// (`.comparisonRootEdited` has no restore) and forced a full rescan for a label change.
-    static func paneProvidersChanged(
+    /// **Which panes** a provider-list edit re-roots, or `nil` when it re-roots neither —
+    /// comparing only identity-relevant fields (id, root path, type), so a root-path edit counts,
+    /// but changes to other providers don't. Cosmetic fields are deliberately excluded: comparing
+    /// whole structs made a Settings rename (setCustomName → new displayName) read as a root edit,
+    /// which tore down an in-flight duplicate review (`.comparisonRootEdited` has no restore) and
+    /// forced a full rescan for a label change.
+    ///
+    /// **A side, not a Bool**, because the two panes are edited independently and the answer drives
+    /// what gets thrown away. Editing the right pane's source Location in Settings used to return
+    /// `true` and take the LEFT pane down with it — tree dropped, columns flattened, spinner — for
+    /// a root that had not moved. That is the same over-reach `retargetPane` exists to end, arriving
+    /// through Settings instead of through the pane's own source menu.
+    static func paneRootEdits(
         old: [CloudProvider],
         new: [CloudProvider],
         leftId: String,
         rightId: String
-    ) -> Bool {
+    ) -> FileSyncManager.PaneReloadScope? {
         func provider(_ id: String, in providers: [CloudProvider]) -> CloudProvider? {
             providers.first(where: { $0.id == id })
         }
@@ -738,8 +744,15 @@ struct ContentView: View {
             default: return false
             }
         }
-        return !sameIdentity(provider(leftId, in: old), provider(leftId, in: new))
-            || !sameIdentity(provider(rightId, in: old), provider(rightId, in: new))
+        let leftEdited = !sameIdentity(provider(leftId, in: old), provider(leftId, in: new))
+        let rightEdited = !sameIdentity(provider(rightId, in: old), provider(rightId, in: new))
+        switch (leftEdited, rightEdited) {
+        // Both panes on one source is an ordinary configuration, so one edit can move both roots.
+        case (true, true): return .both
+        case (true, false): return .leftOnly
+        case (false, true): return .rightOnly
+        case (false, false): return nil
+        }
     }
 
     /// The window content with its overlays, animations, and background. Split out of `body` so the
@@ -1083,12 +1096,11 @@ struct ContentView: View {
             syncManager.clearLensResultsForProviderSwitch()
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(newId, rightProviderId))
-            // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
-            // The new source opens at its own landing folder; the other pane is untouched, so it
-            // keeps the folder it is already on rather than being re-homed by a switch it had no
-            // part in.
-            syncManager.resetNavigation(leftLanding: settings.openAtIfReachable(for: newId),
-                                        rightLanding: syncManager.rightRelativePath)
+            // retargetPane() fires refreshSubject, which onReceive above turns into a refresh — of
+            // this pane only. The new source opens at its own landing folder; the other pane is
+            // untouched in every sense, keeping its tree, its open columns, its selection and its
+            // Back stack rather than being reset by a switch it had no part in.
+            syncManager.retargetPane(isLeft: true, landing: settings.openAtIfReachable(for: newId))
         }
         .onChange(of: rightProviderId) { _, newId in
             // Through the same rule as the left handler above, which is where it is explained.
@@ -1107,8 +1119,7 @@ struct ContentView: View {
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(leftProviderId, newId))
             // Mirror of the left handler: the switched pane lands, the untouched one stays put.
-            syncManager.resetNavigation(leftLanding: syncManager.leftRelativePath,
-                                        rightLanding: settings.openAtIfReachable(for: newId))
+            syncManager.retargetPane(isLeft: false, landing: settings.openAtIfReachable(for: newId))
         }
         // The Info inspector reads the selection directly, so a selection change no longer needs to
         // switch tabs — it just clears any explicit "Get Info" target so the inspector follows the
@@ -1126,7 +1137,7 @@ struct ContentView: View {
         // a provider switch (its file is on the old provider) or a tab switch (Organize is single-source
         // and shows its own selection). Without these, `DetailsSidebar` — which prefers `overridePath`
         // over everything — keeps showing the old-provider/old-tab file, defeating the single-source
-        // guard. `resetNavigation` only clears selections when non-empty, so the selection onChanges
+        // guard. `retargetPane` only clears a selection when non-empty, so the selection onChanges
         // above don't cover the no-selection case.
         //
         // **A person gather goes stale on the same switch, and nothing above could clear it.** The
@@ -1202,13 +1213,13 @@ struct ContentView: View {
             applyProviderSelection(preferDistinctPair: isBootstrappingProviders)
             guard !isBootstrappingProviders else { return }
             // If re-resolution switched a pane's provider, its id onChange below already
-            // refreshes via resetNavigation — don't schedule a second scan here.
+            // refreshes via retargetPane — don't schedule a second scan here.
             guard leftProviderId == previousLeftId, rightProviderId == previousRightId else { return }
             // Only rescan when a pane's own provider changed (e.g. its root path was
             // edited). Toggling or re-pathing a provider neither pane shows must not
             // reload the trees — that spurious rescan put spinners over both panes
             // on every unrelated Settings edit.
-            if Self.paneProvidersChanged(
+            if let edited = Self.paneRootEdits(
                 old: oldProviders,
                 new: newProviders,
                 leftId: previousLeftId,
@@ -1221,9 +1232,14 @@ struct ContentView: View {
                 // endReviewForComparisonChange inline and (like the two shipped bugs the
                 // reducer exists for) forgot to clear the duplicate review, whose keeper/
                 // copy paths live under the edited root.
+                //
+                // **The same scope to both calls.** A pane whose tree is dropped here and not
+                // walked by the rescan stays blank, and a pane whose root did not move needs
+                // neither — editing the right source's Location used to reload the left pane
+                // and flatten its columns for a root it had not touched.
                 reviewCoordinator.dispatchReview(.comparisonRootEdited)
-                syncManager.invalidateComparisonState()
-                refreshAction()
+                syncManager.invalidateComparisonState(reloading: edited)
+                refreshAction(reloading: edited)
             }
         }
         .modifier(SettingsEngineMirrors(syncManager: syncManager, settings: settings))
@@ -1488,9 +1504,11 @@ struct ContentView: View {
     ///
     /// - Parameter reloading: which panes to WALK. The scan that follows always compares both; a
     ///   pane left out contributes the tree it is already holding. Defaults to `.both`, which is
-    ///   what every direct caller here means — the force refresh, the launch bootstrap, a provider's
-    ///   root being edited in Settings. The narrow scopes arrive through `refreshSubject`, from the
-    ///   one sender that knows a single pane moved.
+    ///   what the force refresh, the launch bootstrap and a pane swap all mean. The narrow scopes
+    ///   come from the two places that know a single pane moved: `refreshSubject`, and the
+    ///   enabled-providers handler, which asks `paneRootEdits` which pane's Location was edited and
+    ///   must pass that same scope to `invalidateComparisonState` — a pane whose tree is dropped
+    ///   there and not walked here stays blank.
     private func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both) {
         guard let leftProvider = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
               let rightProvider = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else {

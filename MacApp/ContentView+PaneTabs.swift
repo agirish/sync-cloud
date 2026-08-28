@@ -13,7 +13,7 @@ import Sync
 /// own live here, and each is the reason this file exists rather than that one growing:
 ///
 /// - **The provider id is `@AppStorage` on this view.** A tab switch that changes source has to
-///   write it *and* suppress the `onChange` that would otherwise call `resetNavigation()` over the
+///   write it *and* suppress the `onChange` that would otherwise call `retargetPane()` over the
 ///   navigation the switch has just restored — the same suppression `swapPanesAction` uses, on its
 ///   own counter so the two can never consume each other's.
 /// - **The search field is this view's `@State`.** The manager reads it back through
@@ -275,7 +275,7 @@ extension ContentView {
     ///
     /// A tab switch that changes a pane's source is a provider switch; it differs from the one the
     /// source menu makes in exactly one way, which is that the tab carries the navigation, so the
-    /// `onChange` handler's `resetNavigation()` must not run. Everything else that handler does
+    /// `onChange` handler's `retargetPane()` must not run. Everything else that handler does
     /// still has to, and this is what the suppression counter was silently skipping:
     ///
     /// - the **ignored-items re-key**. That store is keyed on the PAIR of sources; leaving it on
@@ -288,10 +288,9 @@ extension ContentView {
     ///   no review is set, which is why the launch restore can share this path. It dispatches
     ///   `.tabChangedSource` rather than `.providerSwitched`, and the difference is load-bearing:
     ///   `.providerSwitched` can answer with `.undoProviderPin`, which repoints the SIBLING pane
-    ///   and restores no folder because it expects the caller's `resetNavigation()` to re-home both
-    ///   a moment later. This method exists precisely to NOT reset, so it would have left the other
-    ///   pane claiming one source while showing another's tree — and `saveBrowseTabs` would then
-    ///   persist that tab under the wrong source. The pin is left alone instead.
+    ///   and re-homes it. This method exists precisely to NOT re-home — the tab carries the
+    ///   navigation — so accepting that effect would yank the other pane off the folder its own tab
+    ///   names. The pin is left alone instead.
     ///
     /// Three callers wrote the id themselves and each forgot a different one of those: `.adopt`
     /// skipped all three, the discard branch never wrote the id at all, and the launch restore
@@ -846,7 +845,8 @@ extension ContentView {
             // evaluates `onChange` on the NEXT view update, and the bootstrap's tail lowers
             // `isBootstrappingProviders` synchronously right after these restores — so the handler
             // ran with the guard already DOWN and took the full user-switch path, whose
-            // `resetNavigation()` wiped BOTH panes back to their roots and left
+            // re-home (`resetNavigation()` then; `retargetPane()` now) put the pane back at its
+            // root and left
             // `BrowseTabPersistence` to save the wreckage over the strip that had just been
             // restored. (Measured with a minimal SwiftUI host: a `@State` write followed
             // synchronously by lowering a guard flag reaches `onChange` with the flag false; the
@@ -877,7 +877,7 @@ extension ContentView {
 /// the **source**.
 ///
 /// The source is the one that is easy to leave out and the one that bites hardest. Switching source
-/// while sitting at the root changes *nothing else* — `resetNavigation` finds the history already
+/// while sitting at the root changes *nothing else* — `retargetPane` finds the history already
 /// default, the column stack already empty and the relative path already `""`, so neither path
 /// `onChange` fires and nothing saves. The stored active entry keeps naming the old source, and
 /// because `restoreBrowseTabs` writes the restored tab's provider over `selectedLeftProviderId`,
@@ -1219,7 +1219,7 @@ enum PaneTabProviderSwitch: Equatable {
 /// after `isBootstrappingProviders` has already been lowered. Testing the guard first therefore
 /// failed in both directions at once: a bootstrap-time write left its counter stranded (swallowing
 /// the user's next real switch), and the launch tab restore's write ran the full user-switch path,
-/// whose `resetNavigation()` wiped the very strip the restore had just put back.
+/// whose re-home wiped the very strip the restore had just put back.
 ///
 /// **What this does NOT give you, stated because the first version of this note overstated it.**
 /// Both counters are single integers read by BOTH handlers, and this rule takes no side, so what

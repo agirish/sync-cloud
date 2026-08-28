@@ -2043,8 +2043,9 @@ public class FileSyncManager: ObservableObject {
     ///
     /// Senders that genuinely change what a walk would produce — a finished file operation, a
     /// date-tolerance change, a sort that needs fresh tags — still send `.both`, and must: their
-    /// change applies to both trees. The narrow scopes come from `syncPathsFromHistory`, which is
-    /// the one sender that knows a pane moved and the other did not.
+    /// change applies to both trees. The narrow scopes come from `syncPathsFromHistory`, the one
+    /// sender here that knows a pane moved and the other did not — through ordinary navigation, or
+    /// through `retargetPane`, which re-points a single pane at a new source.
     ///
     /// A narrow request is never a way to skip a load that is owed: `refreshTreesAndScan` unions a
     /// one-pane scope with any wider refresh already in flight, so a `.leftOnly` arriving mid-launch

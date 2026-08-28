@@ -23,10 +23,9 @@ enum CompareReviewEvent: Equatable {
     case providerSwitched(isLeft: Bool)
     /// **A TAB changed a pane's source** — the user chose it, exactly as with `.providerSwitched`,
     /// but the tab carries the navigation, so its caller (`adoptProviderForTab`) deliberately does
-    /// not `resetNavigation()`. That one difference rules out `.undoProviderPin`, which repoints the
-    /// SIBLING pane and leaves re-homing it to a reset that will never come — the sibling would be
-    /// left claiming one source while showing another's tree, and the next save would write that
-    /// tab's source over for good.
+    /// not re-home the pane. That one difference rules out `.undoProviderPin`, which repoints the
+    /// SIBLING pane and re-homes it onto the pre-review folder — yanking a pane off the folder its
+    /// own tab names, and the next save would then write that displacement over the tab for good.
     ///
     /// So the review's pin on the other pane is deliberately left in place here. That is what
     /// happened before tabs dispatched anything at all, it is the conservative half of the choice,
@@ -73,11 +72,13 @@ enum CompareReviewEffect: Equatable {
     /// the user is mid-gesture on the other pane, so putting the saved folders back would yank
     /// them out of it.
     ///
-    /// **Only for a caller that resets the navigation immediately afterwards.** This writes the
-    /// sibling pane's provider id and deliberately restores no folder, because `undoProviderPin`'s
-    /// own note says the caller's `resetNavigation()` re-homes both panes a moment later. A caller
-    /// that does not reset leaves that pane claiming one source while showing another's tree at a
-    /// path under the wrong root — which the next save then persists. See `.tabChangedSource`.
+    /// **This re-homes the sibling pane**, onto the folder the pre-review snapshot has for it —
+    /// its root is moving, so a pane left on its current path would be claiming one source while
+    /// showing another's tree, and the next save would persist that. `undoProviderPin` owns that
+    /// re-home itself; it used to leave it to the caller's `resetNavigation()`, which no longer
+    /// exists and whose replacement re-homes only the pane the user switched. A caller that must
+    /// not have a pane re-homed under it therefore cannot take this effect — see
+    /// `.tabChangedSource`, which is the one that cannot.
     case undoProviderPin(keepingUserChoiceOnLeft: Bool)
 }
 

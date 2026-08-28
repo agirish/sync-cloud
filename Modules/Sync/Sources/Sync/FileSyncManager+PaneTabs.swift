@@ -34,8 +34,8 @@ extension FileSyncManager {
     /// The comparison goes first: the differences and the verification results were built for the
     /// folder pair this pane is leaving, and a tab switch that left them on screen would show one
     /// pane's new contents against the other pane's answer to the old question. This is
-    /// `resetNavigation`'s opening, minus the part that resets the navigation — here the navigation
-    /// is precisely what is being restored. **The trees are the conditional half**; see below.
+    /// `retargetPane`'s opening, minus the part that resets the navigation — here the navigation is
+    /// precisely what is being restored. **The trees are the conditional half**; see below.
     ///
     /// **Why the refresh is the caller's and not `refreshSubject`'s.** A tab can carry a different
     /// provider, and the id lives in the host's `@AppStorage` — written *after* this returns. The

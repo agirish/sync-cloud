@@ -349,19 +349,21 @@ import Testing
 
     /// **A provider switch re-homes ONE pane, and the line must not claim both.**
     ///
-    /// `resetNavigation` runs for a user reset and for a provider switch alike, and a switch hands
-    /// the untouched side its own current path so it stays where it is. The line has to say that,
-    /// or every switch reads in the log as though the user had reset both panes.
+    /// The line is what a session read back in `~/sync-cloud.log` has to distinguish a source
+    /// switch from a two-pane reset, and "untouched" is a bigger claim than it used to be:
+    /// `retargetPane` leaves the sibling its tree, its columns, its selection and its history, and
+    /// the log is the only place that says so.
     ///
     /// **The first attempt at exactly this decided "moved" by comparing whole HISTORIES**, which is
     /// a different question: a pane sitting on the right folder with anything behind it differs
     /// from a fresh one-entry history, so any pane the user had navigated at all — the common case
     /// — reported as re-homed and the line said what it said before. This fixture is that case:
-    /// the right pane is at the folder it is handed, with one step of history behind it.
+    /// the right pane has one step of history behind it.
     ///
-    /// The write is still guarded on the history, and that is asserted here too, because the two
-    /// halves are now separate booleans and a fix that collapsed them back into one would take the
-    /// Back stack of a pane whose tree is being replaced along with it.
+    /// The write is still guarded on the history, and that is asserted here too — from the other
+    /// direction now. The sibling's Back stack must SURVIVE, because its tree is not being
+    /// replaced; it was cleared before, which is how a switch on one pane emptied the other pane's
+    /// Back button.
     @Test func aProviderSwitchDoesNotClaimToHaveRehomedBothPanes() async {
         let token = Self.token()
         let manager = FileSyncManager()
@@ -373,20 +375,19 @@ import Testing
         let marker = "logging-gap rehome marker \(token)"
         await Logger.shared.debug(marker).value
         let landing = "Left-\(token)"
-        manager.resetNavigation(leftLanding: landing, rightLanding: "Documents/Family")
+        manager.retargetPane(isLeft: true, landing: landing)
 
         #expect(await loggedLine(containing: marker) != nil,
                 "the log window rolled past this test's own marker, so the reading below is vacuous")
         let line = await loggedLine(containing: landing)
-        #expect(line?.contains("the right pane stays at Documents/Family") == true,
-                "the line does not say the untouched pane stayed put: \(line ?? "nothing was logged")")
-        #expect(line?.contains("Re-homed both panes") == false,
+        #expect(line?.contains("the right pane is untouched") == true,
+                "the line does not say the untouched pane was left alone: \(line ?? "nothing was logged")")
+        #expect(line?.contains("both panes") == false,
                 "the line credits a re-homing to a pane that did not move: \(line ?? "nothing was logged")")
 
-        // And the history WAS replaced, history-guard rather than position-guard: the right pane's
-        // tree is about to be reloaded from a different comparison, so a Back into the old one is
-        // not a step the user can take.
-        #expect(manager.rightHistory == PaneNavigationHistory(startingAt: "Documents/Family"),
-                "the right pane kept a Back stack pointing into the tree it is being taken off")
+        // The sibling's history is not the switched pane's to replace: its tree is still on screen,
+        // so Back is still a step the user can take.
+        #expect(manager.rightHistory.entries == ["", "Documents/Family"],
+                "a switch on the left pane emptied the right pane's Back stack")
     }
 }

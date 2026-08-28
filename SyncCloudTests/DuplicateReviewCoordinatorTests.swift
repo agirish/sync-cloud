@@ -390,9 +390,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// halves of that loss are now said out loud.**
     ///
     /// `.tabChangedSource` clears the review and *deliberately* strands the review's programmatic
-    /// provider pin on the sibling pane — undoing it would repoint a pane and restore no folder,
-    /// because `.undoProviderPin` expects a `resetNavigation()` that a tab-driven switch never
-    /// makes (see `CompareReviewEvent.tabChangedSource`). That is the right call, and it is still a
+    /// provider pin on the sibling pane — undoing it would repoint that pane AND re-home it, which
+    /// a tab-driven switch must never do: the tab carries the navigation (see
+    /// `CompareReviewEvent.tabChangedSource`). That is the right call, and it is still a
     /// loss the user can see and cannot explain: the banner is gone and the pane they did not touch
     /// sits on a source the *review* chose. Neither half wrote anything to `~/sync-cloud.log` — the
     /// clear case is a bare `duplicateReview = nil`, and the strand is represented by no effect at
@@ -591,10 +591,19 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.pendingCounterAtApply == [1])
         // …while the user's own choice on the left is left exactly alone.
         #expect(harness.leftId == "onedrive")
-        // No folders restored and no extra scan: the caller's own resetNavigation re-homes the
-        // panes a moment later, so doing it here would be undone and would double-scan.
+        // **The released pane is re-homed onto its pre-review folder, and that is this effect's own
+        // job now.** It used to restore no folder, on the reasoning that the caller's
+        // `resetNavigation()` re-homed both panes a moment later. Its replacement, `retargetPane`,
+        // re-homes only the pane the USER switched — so a pin release that restored no folder would
+        // leave this pane claiming "dropbox" while showing the pinned provider's tree at a path
+        // under the wrong root.
+        #expect(harness.syncManager.rightRelativePath == "Was/Right",
+                "the pane whose source was put back was left on a path under the source it no longer shows")
+        // The user's pane is untouched here: the handler that dispatched this event re-homes it
+        // itself, a moment later.
         #expect(harness.syncManager.leftRelativePath == "")
-        #expect(harness.syncManager.rightRelativePath == "")
+        // Still no `refreshAction()`: the walk this needs rides `refreshSubject`, which the host
+        // turns into one scoped reload, rather than a second full scan from here.
         #expect(harness.refreshCount == 0)
     }
 

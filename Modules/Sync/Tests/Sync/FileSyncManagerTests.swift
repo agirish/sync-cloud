@@ -146,15 +146,20 @@ import Foundation
     }
     
     @MainActor
-    @Test func testResetNavigation() async throws {
+    @Test func testRetargetPane() async throws {
         let manager = FileSyncManager()
-        manager.leftRelativePath = "some/path"
-        manager.rightRelativePath = "other/path"
+        // Through `focusOn`, not by writing the published paths: a pane's relative path and its
+        // history are written together everywhere in production (`focusOn`, `applyTab`,
+        // `syncPathsFromHistory`), and `retargetPane` puts both panes' paths back in step with
+        // their histories on the way out. A fixture that set only the path would be measuring that
+        // re-sync rather than the retarget, and would read as the sibling being re-homed.
+        manager.focusOn(relativePath: "some/path", isLeft: true)
+        manager.focusOn(relativePath: "other/path", isLeft: false)
 
-        manager.resetNavigation(leftLanding: "", rightLanding: "")
+        manager.retargetPane(isLeft: true, landing: "")
 
         #expect(manager.leftRelativePath == "")
-        #expect(manager.rightRelativePath == "")
+        #expect(manager.rightRelativePath == "other/path")
     }
     
     @MainActor

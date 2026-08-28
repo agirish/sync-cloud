@@ -531,19 +531,56 @@ change and its four `.send(.both)` sites, and `ContentView`'s `onReceive`. `refr
 which is `main`'s other caller and the reason the machinery existed before this commit, has nothing
 to apply to and should be left out.
 
-**Do not pick the movement test without the invalidation carve-out.** `resetNavigation` empties both
-pane trees via `invalidateComparisonState()`, and a source switch hands the unmoved pane its own
-current path — so scoped on movement alone that pane's tree stays `[]` and nothing refills it. A
-blank pane, from a switch on the other side. Both lines call `invalidateComparisonState()` from
-`resetNavigation` the same way, so the hazard picks forward with the fix; `RefreshScopeTests`'
-`aProviderSwitchWalksBothPanesBecauseItThrewBothTreesAway` is the test that pins it and is the one
-worth taking first.
+**Do not pick the movement test without the invalidation carve-out.** On both maintenance lines
+`resetNavigation` empties both pane trees via `invalidateComparisonState()`, and a source switch
+hands the unmoved pane its own current path — so scoped on movement alone that pane's tree stays
+`[]` and nothing refills it. A blank pane, from a switch on the other side. Both lines call
+`invalidateComparisonState()` from `resetNavigation` the same way, so the hazard picks forward with
+the fix. **`main` no longer has that hazard**, and the difference is a later commit, not a
+divergence to reconcile here: `resetNavigation` became `retargetPane(isLeft:landing:)`, which drops
+only the switched pane's tree, so `RefreshScopeTests`' pinning test now asserts the narrow scope
+(`aProviderSwitchWalksOnlyThePaneThatSwitched`) rather than `.both`. A pick onto a maintenance line
+takes the `.both` shape, not `main`'s — or takes the scoping commit too.
 
 **How exposed each line actually is.** The cost is a redundant walk of the untouched pane's root on
 every navigation — invisible while the prefetch cache is warm, a full second root walk once any file
 operation, sort change or force refresh has dropped it. That is a property of tree size, not of
 which line you are on, so both are exposed in proportion to the user's data rather than to the
 version.
+
+### 14. A source switch on one pane resetting the OTHER — landed on `main` 2026-08-27 — RECORDED, not owed
+
+**Both lines carry this defect, in a worse form than `main` did.** Changing a pane's source reset
+the pane the user had not touched: its tree dropped and re-walked (spinner over an unchanged root),
+its open Columns stack flattened, its selection cleared, and its Back stack emptied.
+
+`main` shipped `retargetPane(isLeft:landing:)` in place of `resetNavigation`, touching only the pane
+whose source changed, plus the differences — which belong to the pair and still go. Verified present
+on both lines 2026-08-27; the shape here is `resetNavigation()` with **no landings at all**, so the
+untouched pane is not merely reset but sent to its root:
+
+```sh
+for l in v3.x v2.x; do
+  git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Navigation.swift |
+    sed -n '/func resetNavigation/,/^    }/p' | grep -c 'resetBrowsePath'   # 2 on both: both panes
+done
+```
+
+**What a pick would need**, if the direction ever changes. Only one of the four pieces is here —
+checked, because the primitive that looks most likely to be present is the one that is not
+(2026-08-27):
+
+| Piece | On the maintenance lines? |
+|---|---|
+| `resetBrowsePath(isLeft:)` | **present**, already side-scoped — the switch just calls it twice |
+| `invalidatePaneTree(isLeft:)` | **absent** on both, everywhere: `git grep -c invalidatePaneTree origin/<line> -- Modules MacApp` is empty. `invalidateComparisonState` clears both trees inline, so the side-scoped tree drop has to be extracted first |
+| `PaneReloadScope` and the scoped `refreshTreesAndScan` | **absent** — see item 13, the same prerequisite |
+| the landings (`leftLanding:`/`rightLanding:`) | **absent** — `resetNavigation()` takes none; rides item 12's Open-at work |
+
+So it rides items 12 and 13, and taking it alone would give the untouched pane its state back while
+still re-walking its root on every switch — the visible half fixed, the cost left in. Two callers on
+each line (`ContentView`'s two provider `onChange`s) plus `undoProviderPin`, which on `main` had to
+grow its own re-home once the caller's reset stopped covering it; expect the same here.
 
 ### Checked and NOT owed
 
@@ -833,6 +870,15 @@ The shared-defaults-domain consequence written out under `v3.x` #12 applies to t
 identically, and is the part worth reading: Location survives a round trip because the migration
 never rewrites `path_override_`, while tab, pin, recent, destination and durable-ignore positions do
 not, because their values are rebased onto the account root that this line has no notion of.
+
+### A source switch on one pane resetting the OTHER — landed on `main` 2026-08-27 — RECORDED, not owed
+
+Same item as `v3.x` #14, same verdict, same shape: `resetNavigation()` here takes no landings, so a
+source switch on one pane sends the OTHER pane to its root — tree re-walked, Columns stack
+flattened, selection cleared, Back stack emptied. Verified on `v2.x` 2026-08-27 with the same
+`resetBrowsePath` count (2, both panes). Of the pieces a pick needs, only `resetBrowsePath(isLeft:)`
+is here — `invalidatePaneTree(isLeft:)` and `PaneReloadScope` both grep to nothing — so it rides
+items 12 and 13 exactly as on `v3.x`. Not owed: the standing direction is no backporting.
 
 ### Nothing else confirmed
 

@@ -251,7 +251,7 @@ import Sync
         let before = tableRowCounts(window.contentView!)
         #expect(before.contains(40), "columns did not lay out the root column: \(before)")
 
-        // resetNavigation(): the tree is dropped, then the shallow paint from the new root.
+        // retargetPane(): this pane's tree is dropped, then the shallow paint from the new root.
         box.tree = PaneTree(side: .left, version: 2, nodes: [])
         box.browsePath = PaneBrowsePath()
         box.tree = fixture.tree(files: 19, version: 3)
@@ -388,8 +388,9 @@ import Sync
     }
 
     /// The real thing: both panes in Columns, drilled one level, a file selected so the preview
-    /// column is up — then the right pane's provider switch, which is `resetNavigation()`: drop the
-    /// tree, clear the browse path, paint the new root.
+    /// column is up — then the right pane's provider switch, which is `retargetPane(isLeft: false)`:
+    /// drop THAT pane's tree, clear its browse path, paint the new root. The left pane is not
+    /// touched, which is why only `right` is mutated below.
     @Test func testTwoPaneProviderSwitchStaysInsideTheDisplayCycleBudget() async {
         let (worst, views) = await twoPaneProviderSwitch(badges: false)
         let detail = "worst display cycle spent \(worst) update-constraints passes against "
@@ -453,7 +454,7 @@ import Sync
         #expect(previewColumns(window.contentView!) == 2,
                 "the preview column never appeared, so this arm measured a pane without one")
 
-        // The provider switch: `resetNavigation()` on the right pane.
+        // The provider switch: `retargetPane(isLeft: false)` — the right pane only.
         right.tree = PaneTree(side: .right, version: 2, nodes: [])
         right.browsePath = PaneBrowsePath()
         right.selection = []

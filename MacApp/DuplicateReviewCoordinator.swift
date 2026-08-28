@@ -135,7 +135,7 @@ struct DuplicateReviewCoordinator {
         // from the very review that decides whether a copy is safe to trash).
         syncManager.ignoredItemsStore?.activate(
             pairKey: IgnoredItemsStore.pairKey(providerId, providerId))
-        // The suppression above also skips resetNavigation's comparison invalidation, so drop the
+        // The suppression above also skips retargetPane's comparison invalidation, so drop the
         // OLD comparison's differences here — they carry absolute paths for roots the panes are
         // about to stop showing, and would stay actionable until the re-diff lands. Targeted so
         // the duplicate results survive (the whole reason the onChange is suppressed).
@@ -264,8 +264,8 @@ struct DuplicateReviewCoordinator {
     /// **The half no effect represents, and the only place it is ever said.** `.tabChangedSource`
     /// drops the review and deliberately leaves its programmatic provider pin where it is — see
     /// `CompareReviewEvent.tabChangedSource` for why undoing it would be worse
-    /// (`.undoProviderPin` restores no folder, because it expects a `resetNavigation()` that a
-    /// tab-driven switch never makes). That is the right call and it is still a loss the user can
+    /// (`.undoProviderPin` re-homes the sibling pane, which a tab-driven switch must not do — the
+    /// tab carries the navigation). That is the right call and it is still a loss the user can
     /// see and cannot explain: the banner is gone, and the pane they did not touch is sitting on a
     /// source the *review* chose for them, which nothing will now put back.
     ///
@@ -322,14 +322,25 @@ struct DuplicateReviewCoordinator {
     }
 
     /// Releases the review's provider pin from the pane the user did NOT just repoint, leaving that
-    /// pane's provider at its pre-review value and everything else alone.
+    /// pane's provider at its pre-review value — and re-homing it, because its root just moved.
     ///
     /// The narrow counterpart to `restoreCompareState`, for the case where the user switches a
     /// provider while a duplicate review is set but no longer active. A full restore would fight
     /// the gesture in progress — it would put BOTH providers and both folders back, including the
-    /// pane they are actively repointing. Folders are deliberately not restored here at all: the
-    /// caller's own `resetNavigation()` re-homes the panes a moment later, so re-focusing saved
-    /// paths would be undone anyway, and a `refreshAction()` here would only add a second scan.
+    /// pane they are actively repointing. So only the sibling is touched.
+    ///
+    /// **The re-home is this method's own, and it did not use to be.** Folders were deliberately
+    /// not restored here on the reasoning that "the caller's own `resetNavigation()` re-homes the
+    /// panes a moment later, so re-focusing saved paths would be undone anyway". That caller is now
+    /// `retargetPane`, which re-homes the pane the USER switched and nothing else — so relying on
+    /// it would leave the sibling claiming a restored source while showing the pinned source's tree
+    /// at a path under the wrong root. That is precisely the failure `CompareReviewEvent`
+    /// `.tabChangedSource` refuses this effect to avoid; the fix is to make the effect complete,
+    /// not to keep depending on a blast radius that has (deliberately) shrunk.
+    ///
+    /// The saved relative path is the honest landing, and better than the root the reset used to
+    /// impose: it is where that pane was before the review pinned it, captured in the same snapshot
+    /// as the provider id it is being put back on.
     private func undoProviderPin(_ saved: SavedCompareState, keepingUserChoiceOnLeft: Bool) {
         // Target the user's live choice on their side, the saved value on the other — so
         // `ProviderPinPlan` sees no change for the side they are holding and suppresses only the
@@ -346,6 +357,13 @@ struct DuplicateReviewCoordinator {
         // id programmatically; the surviving pair is the user's side plus the restored one.
         syncManager.ignoredItemsStore?.activate(
             pairKey: IgnoredItemsStore.pairKey(targetLeft, targetRight))
+        // The sibling is the pane whose id this just wrote — the one the user is NOT holding.
+        // `retargetPane` drops its tree and stack (both indexed against the pinned root) and asks
+        // for the one walk that pane needs; the caller's own retarget of the user's pane widens
+        // that to both a moment later, which `refreshTreesAndScan` unions rather than duplicates.
+        let siblingIsLeft = !keepingUserChoiceOnLeft
+        syncManager.retargetPane(isLeft: siblingIsLeft,
+                                 landing: siblingIsLeft ? saved.leftRelativePath : saved.rightRelativePath)
     }
 
     /// Puts both Compare panes back to a saved setup — used when a duplicate review ends, so pinning

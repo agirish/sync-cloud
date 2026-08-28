@@ -101,7 +101,7 @@ struct SyncCloudApp: App {
             // `-[NSWindow(NSDisplayCycle) _postWindowNeedsUpdateConstraints]` raises
             // `NSGenericException` once a window "has already had more update constraints passes
             // than there are views in the window". A pane in COLUMNS reaches that on a provider
-            // switch: `resetNavigation()` drops both trees, and while the replacements paint a
+            // switch: `retargetPane()` drops that pane's tree, and while the replacement paints a
             // column row keeps reporting a new ideal height from inside the pass
             // (`OutlineListCoordinator.listTableCellView(_:didUpdateIdealHeight:)` →
             // `enqueueLayoutInvalidation()` → another pass).

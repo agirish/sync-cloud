@@ -171,7 +171,7 @@ import Sync
         let before = tableRowCounts(window.contentView!)
         #expect(before.contains(40), "columns did not lay out the root column: \(before)")
 
-        // resetNavigation(): tree dropped, then the shallow 19-node paint from the new root.
+        // retargetPane(): this pane's tree dropped, then the shallow 19-node paint from the new root.
         box.tree = PaneTree(side: .left, version: 2, nodes: [])
         box.browsePath = PaneBrowsePath()
         box.tree = fixture.tree(files: 19, version: 3)

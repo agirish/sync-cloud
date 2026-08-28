@@ -935,7 +935,7 @@ import Sync
     }
 
     /// The call site: adopting is what arms the suppression counter, and without that the provider
-    /// `onChange` runs `resetNavigation()` over the navigation the switch just restored.
+    /// `onChange` runs `retargetPane()` over the navigation the switch just restored.
     @Test func adoptingASourceArmsTheSuppressionCounter() throws {
         let body = try Self.memberBody("private func adoptProviderForTab(",
                                        in: Self.source("ContentView+PaneTabs.swift"))
@@ -1039,19 +1039,26 @@ import Sync
                 "a guided review framed on the old pair survives a tab-driven source change, or the event no longer says which pane the tab moved")
         // **Not `.providerSwitched`.** That event can answer with `.undoProviderPin`, which
         // repoints the SIBLING pane and restores no folder because it expects the caller's
-        // `resetNavigation()` to re-home it — and this method exists precisely to not reset. The
+        // `retargetPane()` to re-home it — and this method exists precisely to not reset. The
         // reducer half is `CompareReviewReducerTests.aTabDrivenSourceChangeNeverRepointsTheSiblingPane`;
         // this is the call site, which is what actually chooses the event.
         #expect(!Self.codeOnly(body).contains("providerSwitched"),
                 "the tab path is back on the event that can repoint the other pane")
         // **The NAME, not a spelling of the call.** This read `contains("resetNavigation()")` and
-        // was by then vacuous: every live call site spells `resetNavigation(leftLanding:…)` since
-        // the landings became arguments, so the realistic regression — pasting the provider-switch
-        // handler into the tab path — matched nothing and sailed through. A bare name cannot go
-        // stale the same way, and the `codeOnly` strip above is what keeps the doc comment two
-        // lines up from satisfying it.
-        #expect(!Self.codeOnly(body).contains("resetNavigation"),
-                "the whole point of the suppression is that the TAB carries the navigation")
+        // was by then vacuous: every live call site spells the landings as arguments, so the
+        // realistic regression — pasting the provider-switch handler into the tab path — matched
+        // nothing and sailed through. A bare name cannot go stale the same way, and the `codeOnly`
+        // strip above is what keeps the doc comment two lines up from satisfying it.
+        //
+        // **Both names, because the verb was renamed.** `resetNavigation(leftLanding:rightLanding:)`
+        // became `retargetPane(isLeft:landing:)` when the provider switch stopped resetting the pane
+        // the user had not touched. A scan naming only the old one would have gone quietly vacuous
+        // at that rename — which is the exact failure the paragraph above describes, so it is worth
+        // paying a dead string to keep it from happening twice.
+        for verb in ["resetNavigation", "retargetPane"] {
+            #expect(!Self.codeOnly(body).contains(verb),
+                    "the whole point of the suppression is that the TAB carries the navigation, but this calls \(verb)")
+        }
     }
 
     /// A discard that lands the pane on a third, live source adopts it.
@@ -2025,7 +2032,7 @@ import Sync
     /// second measurably so: SwiftUI evaluates `onChange` on the NEXT view update, and the
     /// bootstrap's tail lowers `isBootstrappingProviders` synchronously right after these restores
     /// — so the write arrived with the guard already DOWN and ran the full user-switch path, whose
-    /// `resetNavigation()` wiped both panes back to their roots over the strip just restored.
+    /// the user-switch path's re-home wiped the pane back to its root over the strip just restored.
     /// (Measured with a minimal SwiftUI host: a `@State` write followed synchronously by lowering
     /// a guard flag reaches `onChange` with the flag false; the same write with an `await` between
     /// is protected, which is why `applyProviderSelection` was genuinely safe.) Stranding is no
