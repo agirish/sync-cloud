@@ -620,6 +620,49 @@ subtract: `openAt` arrived with the roots split, item 12. `FolderJumpStore` itse
 global list this rule filters does not exist to be filtered. **A line that took the sidebar would
 have to take item 12 first, and then this comes with it.**
 
+### 16. The tab strip's grey/accent ladder — landed on `main` 2026-08-27 — CLOSED, not owed
+
+Every chip in a pane's tab strip now wears the grey slab that used to be the active tab's alone, and
+the live chip takes the accent wash on top of it — `PaneSelectionWash`, literally the constant the
+pane's selected ROWS use, so a tab and a row answer "which one is selected" in the same colour and
+dim together (0.22 focused, 0.10 in the other pane). The 2pt accent rule stays and deliberately does
+not dim: it is what still answers "which tab" in the pane whose border has stopped answering "which
+pane". Two defects went with it — the hover wash was a `Capsule` over a 6pt rounded-rect chip, and
+the strip's accent was `Color.accentColor`, the SYSTEM accent, so the rule drew blue inside a green
+window.
+
+**Unreachable on both lines: there is no tab strip there at all** (verified 2026-08-27; the `main`
+column is the positive control, and must be non-zero for every row before the zeros mean anything):
+
+| checked | `main` | `v3.x` | `v2.x` |
+|---|---|---|---|
+| `Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift` present | 1 | 0 | 0 |
+| files mentioning `PaneTabStrip` anywhere under `Modules`/`MacApp` | 9 | 0 | 0 |
+| `PaneSelectionWash` in `PaneListSelectionStyler.swift` | 2 | 2 | 2 |
+| `paneActionBarSideActive` in `MacApp/ContentView+Toolbar.swift` | 3 | 2 | 2 |
+| `shape: HoverAffordanceShape?` in `HoverAffordance.swift` | 1 | 1 | 1 |
+
+One line per row, in the table's order — a combined `grep -c 'a\|b'` prints their SUM and would not
+match anything the table says:
+
+```sh
+for l in main v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift | wc -l
+  git grep -l 'PaneTabStrip' origin/$l -- Modules MacApp | wc -l
+  git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/PaneListSelectionStyler.swift | grep -c 'PaneSelectionWash'
+  git show origin/$l:MacApp/ContentView+Toolbar.swift | grep -c 'paneActionBarSideActive'
+  git show origin/$l:Modules/Design/Sources/Design/HoverAffordance.swift | grep -c 'shape: HoverAffordanceShape?'
+done
+```
+
+**The last three rows are why this is worth a row rather than a shrug.** Both maintenance lines
+carry `PaneSelectionWash`, `paneActionBarSideActive` and the hover-affordance shape override — every
+ingredient — and neither carries a tab strip to spend them on. Tabs are v4: `PaneTabStrip` is
+reachable from nine files on `main` and none on either line, so there is no surface here to restyle
+and nothing to re-derive next time. `main`'s 3 for `paneActionBarSideActive` against 2 is this
+commit's own addition, `paneWearsActiveAccent` — the one predicate the strip and the rows now share
+so they cannot come to name different panes.
+
 ### Checked and NOT owed
 
 Verified present on `v3.x` on 2026-08-20, so a future audit need not re-raise them:
@@ -924,6 +967,15 @@ Same item as `v3.x` #15, same verdict, and the same table settles it — this li
 every row of it. No folder sidebar, so no Recents section; no `openAt`, so no landing to subtract.
 `FolderJumpStore` is here and backs the pane's jump menu, but its recents are per root and carry no
 `visitedAt`, which is what the global cross-source list is built from.
+
+### The tab strip's grey/accent ladder — landed on `main` 2026-08-27 — CLOSED, not owed
+
+Same item as `v3.x` #16, same verdict, and the same table settles it — this line's column matches
+`v3.x`'s on every row. No `PaneTabStrip.swift` and not one file anywhere under `Modules` or `MacApp`
+that names it: tabs are v4, so there is no strip here whose chips could take a ground. What this
+line DOES carry is every ingredient — `PaneSelectionWash`, `paneActionBarSideActive`, and
+`HoverAffordance`'s `shape:` override — which is the part worth recording, because a future audit
+grepping for those will find them all present and could easily read that as "already here".
 
 ### Nothing else confirmed
 
