@@ -1,5 +1,56 @@
 import Foundation
 
+/// What class of disagreement a structure finding names — and therefore what acting on it would do.
+///
+/// One case per detector, settled as the complete set **before** any store serialises a raw value
+/// (ROADMAP_V5 §5.0): `RestructureStore` keys suppressions and answers on `kind × path`, so a raw
+/// value is a file-format commitment. **Raw values are append-only and never reused** — the same
+/// rule `GlassLevel` follows, for the same reason.
+///
+/// Two cases are not like the others, deliberately:
+/// - ``deadWeight`` never renders as a finding card — crowding is a property of the scope, always
+///   non-zero on a real tree, and it shows as the strip's filtered counts (§5.2). The kind exists
+///   anyway because the empties-removal manifest and the suppression key both need the identity.
+/// - ``ask`` carries no plan at all: it is a question, and the answer is a remembered choice, not
+///   an operation (§5.3).
+public enum FindingKind: String, CaseIterable, Codable, Sendable {
+    /// Sibling folders shaped differently at different times — the shipped detector.
+    case shape
+    /// The newest instance of a recurring series has no folders yet.
+    case backlog
+    /// A year-bearing name beside bare-year siblings (`IRS Docs - 2023` beside `2023`).
+    case shadowAxis
+    /// Two names for one thing — a child echoing its parent, or two siblings echoing each other.
+    case echoName
+    /// An inbox path shadowing a real destination (`Health/TODO/Dental` beside `Health/Dental`).
+    case mirroredInbox
+    /// Pass-through folders, single-file leaves and wholly empty folders — the crowding strip.
+    case deadWeight
+    /// Files parked in the parent of a year run that has folders for them.
+    case looseAboveSeries
+    /// A loose folder beside the container it belongs in (`Home/ATT Bill` beside `Home/ATT/`).
+    case looseBesideContainer
+    /// Two folders holding the same documents under parallel taxonomies (§5.9, needs a scan).
+    case duplicatedTaxonomy
+    /// A disagreement no fact in the tree settles — answered, never applied.
+    case ask
+
+    /// Whether a finding of this kind can end in a plan — the rail badge counts only these,
+    /// because a badge you cannot drive to zero is a badge people stop reading (§5.1).
+    ///
+    /// `ask` is the stated exclusion; `deadWeight` is report-only in 5.0 (its sub-class with a
+    /// rule, the empties, is reached through the crowding strip rather than a card); and
+    /// `looseAboveSeries` hands its per-file fix to To File rather than growing an Apply, so
+    /// there is no plan here to count.
+    public var carriesPlan: Bool {
+        switch self {
+        case .ask, .deadWeight, .looseAboveSeries: return false
+        case .shape, .backlog, .shadowAxis, .echoName, .mirroredInbox,
+             .looseBesideContainer, .duplicatedTaxonomy: return true
+        }
+    }
+}
+
 /// One place where a tree disagrees with its own habits.
 ///
 /// Report-only. A finding names the family and the schemes it found; it does **not** carry a plan,
@@ -20,12 +71,28 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
         }
     }
 
+    /// Which detector produced this, and therefore what acting on it would do.
+    public let kind: FindingKind
     /// The parent whose children disagree, relative to the profile root.
     public let family: String
+    /// The most specific folder the finding is about, relative to the profile root.
+    ///
+    /// For ``FindingKind/shape`` this IS the family; for the others it is narrower — the echoed
+    /// child, the mirrored inbox, the backlog member. **The subject, not the family, is the second
+    /// half of the identity**, because `kind × family` is not unique: echo-name can fire twice in
+    /// one family on two different sibling pairs, and one suppression keyed on the family would
+    /// have silenced both (ROADMAP_V5 §5.0). The family is still carried for §5.2's grouping rule —
+    /// a folder's rows sort together under one path heading.
+    public let subject: String
     /// The schemes found, largest membership first.
     public let schemes: [Scheme]
 
-    public var id: String { family }
+    /// `kind × subject` — the composite identity every store key shares (ROADMAP_V5 §5.0).
+    ///
+    /// The kind went into the id before the second detector landed, not after: `RestructureLens`
+    /// renders one `ForEach(findings)`, and one family producing a *Shape* and a *Series* and an
+    /// *Ask* is the whole point of the detector set.
+    public var id: String { "\(kind.rawValue)|\(subject)" }
 
     /// How many siblings the finding covers.
     public var memberCount: Int { schemes.reduce(0) { $0 + $1.members.count } }
@@ -35,8 +102,11 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
         "\(family) — \(memberCount) folders, \(schemes.count) schemes"
     }
 
-    public init(family: String, schemes: [Scheme]) {
+    public init(kind: FindingKind = .shape, family: String, subject: String? = nil,
+                schemes: [Scheme]) {
+        self.kind = kind
         self.family = family
+        self.subject = subject ?? family
         self.schemes = schemes
     }
 }
@@ -74,10 +144,14 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
 /// **Keep this number current** — it is the sentence a reader calibrates the silence bar against,
 /// and a stale one reads as a detector that has quietly stopped firing.
 ///
-/// One detector is deliberately **absent**: *duplicated taxonomy* (two siblings with the same child
-/// names) is dominated by correct parallels — Vanguard's Roth and Traditional IRAs, four Chase
-/// accounts foldered by year, every `IN`/`US` jurisdiction pair. **Identical sibling structure is
-/// usually a sign of health**, and separating the real case needs content overlap, not names.
+/// One detector is still **absent, and no longer for the original reason**: *duplicated taxonomy*
+/// (two siblings with the same child names) is dominated by correct parallels — Vanguard's Roth
+/// and Traditional IRAs, four Chase accounts foldered by year, every `IN`/`US` jurisdiction pair.
+/// **Identical sibling structure is usually a sign of health**, and separating the real case needs
+/// content overlap, not names. That evidence now exists — the duplicate scan's `.sameText` pass
+/// groups documents across folders — so the detector is scheduled rather than refused
+/// (ROADMAP_V5 §5.9, last of the set, because it is the only one that can be stale: it reads a
+/// scan, not the profile).
 public enum StructureDivergence {
 
     /// The agreement gate: how many groups, and how big each has to be.

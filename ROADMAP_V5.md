@@ -551,7 +551,8 @@ mechanically.
    invariant 5, never at plan time). The ledger is a pure function of `actions`.
    **Prefer the rename whenever a mapping is one folder to one folder**: it is atomic, preserves
    file identity and cannot half-finish. The 6 Aug run brought fourteen eras into agreement with
-   4 renames carrying 58 files each and moving none.
+   4 renames carrying 74 files between them — 58, 11, 1 and 4; read from the log on 2026-08-28,
+   which is when "58 files each" was caught as the misquote it was — and moving none.
    **The inverse is derived, not authored**: reverse the list, swap `src`/`dst`, turn `create-dir`
    into `remove-empty-dir` and `remove-empty-dir` into `create-dir` — and a collision-renamed file's
    inverse restores its *original* name, which is why the collision has to be recorded as its own

@@ -1,0 +1,1758 @@
+{
+ "expected": [
+  {
+   "action": "rename-dir",
+   "dst": "Immigration/Authorization/H-1B/2021-2024/Petition",
+   "filesCarried": 58,
+   "src": "Immigration/Authorization/H-1B/2021-2024/Application"
+  },
+  {
+   "action": "rename-dir",
+   "dst": "Immigration/Authorization/H-4/2021-2024/Application",
+   "filesCarried": 11,
+   "src": "Immigration/Authorization/H-4/2021-2024/Petition"
+  },
+  {
+   "action": "rename-dir",
+   "dst": "Immigration/Authorization/H-4/2024-2026/Application",
+   "filesCarried": 1,
+   "src": "Immigration/Authorization/H-4/2024-2026/Petition"
+  },
+  {
+   "action": "rename-dir",
+   "dst": "Immigration/Visa/US/H-1B Visa/2021-2024/DS-160",
+   "filesCarried": 4,
+   "src": "Immigration/Visa/US/H-1B Visa/2021-2024/DS-160 Form"
+  }
+ ],
+ "note": "Pre-reorg state of the two 6 Aug families, reconstructed by inverting the log's four rename-dir operations against the post-reorg profile; expected ops carry no evidence strings (they quote file names). ROADMAP_V5 \u00a75.4's proof oracle. The four source folders' fileCount is set to the log's filesCarried: the Aug 9 profile was surveyed after further same-day moves, and at rename time the log is the authority.",
+ "profile": {
+  "folders": [
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization",
+    "role": "container",
+    "subfolderCount": 8
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/Form I-9",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-1B",
+    "role": "destination",
+    "subfolderCount": 5
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2016-2019",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2016-2019/Approval",
+    "role": "destination",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2016-2019/Approval/Receipt",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2016-2019/Approval/Reference",
+    "role": "pass-through",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 7,
+    "path": "Immigration/Authorization/H-1B/2016-2019/Approval/Reference/USCIS Updates",
+    "role": "destination",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active",
+     "year": "2016"
+    },
+    "fileCount": 5,
+    "path": "Immigration/Authorization/H-1B/2016-2019/Approval/Reference/USCIS Updates/2016",
+    "role": "year-bucket",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-1B/2016-2019/Petition",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2019-2022",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 5,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Approval",
+    "role": "destination",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Approval/Receipt",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition",
+    "role": "destination",
+    "subfolderCount": 6
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Consent Forms",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Fees",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Forms",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/LCA",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Questionnaire",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents",
+    "role": "container",
+    "subfolderCount": 9
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents/Employment Docs",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents/Form I-140",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents/Form I-94",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents/Form W-2",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents/H-4 EAD",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents/License",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents/Passport",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents/Payslips",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2019-2022/Petition/Supporting Documents/Resume",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2021-2024",
+    "role": "year-bucket",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 58,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application",
+    "role": "destination",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 9,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Petition",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Questionnaire",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents",
+    "role": "container",
+    "subfolderCount": 12
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form I-140",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form I-20",
+    "role": "container",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active",
+     "person": "Abhishek"
+    },
+    "fileCount": 6,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form I-20/Abhishek",
+    "role": "person-bucket",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active",
+     "person": "Shweta"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form I-20/Shweta",
+    "role": "person-bucket",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 8,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form I-797",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form I-94",
+    "role": "container",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active",
+     "person": "Abhishek"
+    },
+    "fileCount": 5,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form I-94/Abhishek",
+    "role": "person-bucket",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active",
+     "person": "Shweta"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form I-94/Shweta",
+    "role": "person-bucket",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form W-2",
+    "role": "container",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active",
+     "year": "2018"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form W-2/2018",
+    "role": "year-bucket",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active",
+     "year": "2019"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form W-2/2019",
+    "role": "year-bucket",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active",
+     "year": "2020"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Form W-2/2020",
+    "role": "year-bucket",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Offer Letter",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Passport",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Payslips",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Resume",
+    "role": "empty",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/School",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Visa",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Application/Supporting Documents/Work Docs",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2021-2024/Receipt",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2024-2026",
+    "role": "year-bucket",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2024-2026/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2024-2026/Petition",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-1B/2024-2026/Receipt",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-1B/2026-2029",
+    "role": "year-bucket",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-1B/2026-2029/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-1B/2026-2029/Petition",
+    "role": "destination",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-1B/2026-2029/Petition/Supporting Documents",
+    "role": "destination",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-1B/2026-2029/Petition/Supporting Documents/School",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-1B/2026-2029/Petition/Supporting Documents/pay_statements",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 7,
+    "path": "Immigration/Authorization/H-1B/2026-2029/Receipt",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4",
+    "role": "container",
+    "subfolderCount": 5
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4 EAD",
+    "role": "container",
+    "subfolderCount": 4
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4 EAD/2016-2019",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 11,
+    "path": "Immigration/Authorization/H-4 EAD/2016-2019/Application",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 6,
+    "path": "Immigration/Authorization/H-4 EAD/2016-2019/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4 EAD/2019-2022",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-4 EAD/2019-2022/Application",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-4 EAD/2019-2022/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4 EAD/2024-2026",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-4 EAD/2024-2026/Application",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-4 EAD/2024-2026/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4 EAD/2026-2029",
+    "role": "year-bucket",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-4 EAD/2026-2029/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4/2016-2019",
+    "role": "year-bucket",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4/2016-2019/Application",
+    "role": "pass-through",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/H-4/2016-2019/Application/Petition",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-4/2016-2019/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-4/2016-2019/Receipt",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4/2019-2022",
+    "role": "year-bucket",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4/2019-2022/Application",
+    "role": "pass-through",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-4/2019-2022/Application/Petition",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-4/2019-2022/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-4/2019-2022/Receipt",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4/2021-2024",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 11,
+    "path": "Immigration/Authorization/H-4/2021-2024/Petition",
+    "role": "destination",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "archive"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-4/2021-2024/Petition/Archive",
+    "role": "archive",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/H-4/2021-2024/Petition/Scanned",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "lifecycle": "active"
+    },
+    "fileCount": 5,
+    "path": "Immigration/Authorization/H-4/2021-2024/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/H-4/2024-2026",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-4/2024-2026/Petition",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-4/2024-2026/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-4/2026-2029",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/H-4/2026-2029/Application",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/H-4/2026-2029/Receipt",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/I-140",
+    "role": "destination",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/I-140/HPE",
+    "role": "container",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/I-140/HPE/HPE Manager",
+    "role": "container",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/I-140/HPE/HPE Manager/Application",
+    "role": "destination",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/I-140/HPE/HPE Manager/Application/Jan 2025",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/I-140/HPE/HPE Manager/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/I-140/HPE/HPE Manager/Reference",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/I-140/HPE/MapR Amendment",
+    "role": "container",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Authorization/I-140/HPE/MapR Amendment/Approval",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/I-140/HPE/MapR Amendment/Petition",
+    "role": "destination",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/I-140/HPE/MapR Amendment/Petition/Application",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/I-140/HPE/MapR Amendment/Petition/FOIA",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/I-140/MapR",
+    "role": "container",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/I-140/MapR/Approval",
+    "role": "destination",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "archive"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/I-140/MapR/Approval/Archive",
+    "role": "archive",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/I-140/MapR/Approval/Receipt",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/I-140/MapR/Petition",
+    "role": "destination",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/I-140/MapR/Petition/Fees",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Authorization/PERM",
+    "role": "container",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 5,
+    "path": "Immigration/Authorization/PERM/HPE",
+    "role": "destination",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Authorization/PERM/HPE/ETA 9089",
+    "role": "destination",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "archive"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/PERM/HPE/ETA 9089/Archive",
+    "role": "archive",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 5,
+    "path": "Immigration/Authorization/PERM/HPE/VOE Letters",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/PERM/MapR",
+    "role": "destination",
+    "subfolderCount": 5
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/PERM/MapR/ETA 9089",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/PERM/MapR/Job Description",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Authorization/PERM/MapR/Questionnaire",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "acceptsNewFiles": false,
+    "anchors": [],
+    "axes": {
+     "lifecycle": "inbox"
+    },
+    "fileCount": 7,
+    "path": "Immigration/Authorization/PERM/MapR/TODO",
+    "role": "inbox",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 5,
+    "path": "Immigration/Authorization/PERM/MapR/VOE",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/PERM/VOE Letters",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 7,
+    "path": "Immigration/Authorization/Registration",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Authorization/e-Verify",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Visa/US/H-1B Visa",
+    "role": "destination",
+    "subfolderCount": 6
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Visa/US/H-1B Visa/2016-2019",
+    "role": "year-bucket",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 5,
+    "path": "Immigration/Visa/US/H-1B Visa/2016-2019/DS-160",
+    "role": "destination",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2016-2019",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Visa/US/H-1B Visa/2016-2019/DS-160/Visa",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 7,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160",
+    "role": "destination",
+    "subfolderCount": 3
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "archive"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Archive",
+    "role": "archive",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Status",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Supporting Docs",
+    "role": "container",
+    "subfolderCount": 6
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Supporting Docs/HPE",
+    "role": "destination",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Supporting Docs/HPE/Form W-2",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Supporting Docs/I-797",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Supporting Docs/MapR",
+    "role": "destination",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Supporting Docs/MapR/MapR Payslips",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Supporting Docs/NC State",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 1,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Supporting Docs/Passport",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/DS-160/Supporting Docs/Petition",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2019-2022",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 2,
+    "path": "Immigration/Visa/US/H-1B Visa/2019-2022/Refusal",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 5,
+    "path": "Immigration/Visa/US/H-1B Visa/2021-2024",
+    "role": "year-bucket",
+    "subfolderCount": 1
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2021-2024",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 4,
+    "path": "Immigration/Visa/US/H-1B Visa/2021-2024/DS-160 Form",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Visa/US/H-1B Visa/2024-2026",
+    "role": "year-bucket",
+    "subfolderCount": 2
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Visa/US/H-1B Visa/2024-2026/Appointment",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2024-2026",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Visa/US/H-1B Visa/2024-2026/DS-160",
+    "role": "destination",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "fiscalYear": "2026-2029",
+     "jurisdiction": "US",
+     "lifecycle": "active"
+    },
+    "fileCount": 0,
+    "path": "Immigration/Visa/US/H-1B Visa/2026-2029",
+    "role": "empty",
+    "subfolderCount": 0
+   },
+   {
+    "anchors": [],
+    "axes": {
+     "jurisdiction": "US",
+     "lifecycle": "archive"
+    },
+    "fileCount": 3,
+    "path": "Immigration/Visa/US/H-1B Visa/Archive",
+    "role": "archive",
+    "subfolderCount": 0
+   }
+  ],
+  "profileId": "fixture-immigration-oracle",
+  "root": "~/Documents",
+  "schemaVersion": 1
+ }
+}

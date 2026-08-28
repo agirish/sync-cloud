@@ -1,0 +1,2823 @@
+{
+ "folders": [
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax",
+   "role": "destination",
+   "subfolderCount": 17
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2012"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2012",
+   "role": "year-bucket",
+   "subfolderCount": 1
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2012"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2012/Form 1098",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2013",
+   "role": "year-bucket",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2013/Federal Tax",
+   "role": "destination",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2013/Federal Tax/Filled",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2013/Federal Tax/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2013/Federal Tax/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2013/State Tax (California)",
+   "role": "container",
+   "subfolderCount": 2
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2013/State Tax (California)/Form 540",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2013/State Tax (California)/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2013/State Tax (North Carolina)",
+   "role": "container",
+   "subfolderCount": 4
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2013/State Tax (North Carolina)/Filled",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2013/State Tax (North Carolina)/Form 1098",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2013/State Tax (North Carolina)/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2013"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2013/State Tax (North Carolina)/Instructions",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014",
+   "role": "year-bucket",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2014/Federal Tax",
+   "role": "container",
+   "subfolderCount": 8
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2014/Federal Tax/Blank",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2014/Federal Tax/Extension",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2014/Federal Tax/Filled",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/Federal Tax/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2014/Federal Tax/Form W-7",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2014/Federal Tax/Instructions",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2014/Federal Tax/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/Federal Tax/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2014/State Tax (California)",
+   "role": "destination",
+   "subfolderCount": 6
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2014/State Tax (California)/Blank",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/State Tax (California)/Extension",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/State Tax (California)/Filled",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/State Tax (California)/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/State Tax (California)/Instructions",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/State Tax (California)/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2014/State Tax (North Carolina)",
+   "role": "container",
+   "subfolderCount": 6
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/State Tax (North Carolina)/Blank",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/State Tax (North Carolina)/Extension",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/State Tax (North Carolina)/Filled",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2014/State Tax (North Carolina)/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2014/State Tax (North Carolina)/Instructions",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2014"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2014/State Tax (North Carolina)/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2015",
+   "role": "year-bucket",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2015/Common",
+   "role": "container",
+   "subfolderCount": 2
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2015/Common/Form 1099",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2015/Common/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2015/Federal Tax",
+   "role": "destination",
+   "subfolderCount": 4
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 7,
+   "path": "Finance/US/Income Tax/2015/Federal Tax/Filled",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2015/Federal Tax/Instructions",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2015/Federal Tax/Payment",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 6,
+   "path": "Finance/US/Income Tax/2015/Federal Tax/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2015/State Tax",
+   "role": "container",
+   "subfolderCount": 2
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2015/State Tax/Form 540",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2015"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2015/State Tax/Instructions",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2016",
+   "role": "year-bucket",
+   "subfolderCount": 6
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2016/First Year Choice",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2016/Forms",
+   "role": "container",
+   "subfolderCount": 5
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2016/Forms/Form 1040",
+   "role": "destination",
+   "subfolderCount": 1
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "archive",
+    "year": "2016"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2016/Forms/Form 1040/Archive",
+   "role": "archive",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2016/Forms/Form 1095",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2016/Forms/Form 1099-INT",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2016/Forms/Form 540",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2016/Forms/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2016/Payments",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 6,
+   "path": "Finance/US/Income Tax/2016/Reference",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2016/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2016"
+   },
+   "fileCount": 7,
+   "path": "Finance/US/Income Tax/2016/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2017",
+   "role": "year-bucket",
+   "subfolderCount": 5
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2017/Credit Karma",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2017/Forms",
+   "role": "container",
+   "subfolderCount": 9
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2017/Forms/Form 1040",
+   "role": "destination",
+   "subfolderCount": 1
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "archive",
+    "year": "2017"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2017/Forms/Form 1040/Archive",
+   "role": "archive",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2017/Forms/Form 1095-C",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2017/Forms/Form 1099-B",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2017/Forms/Form 1099-DIV",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2017/Forms/Form 1099-INT",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2017/Forms/Form 1099-MISC",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2017/Forms/Form 540",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2017/Forms/Form 5498",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2017/Forms/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2017/Reference",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2017/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2017"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2017/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2018",
+   "role": "year-bucket",
+   "subfolderCount": 6
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2018/Credit Karma",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2018/Forms",
+   "role": "container",
+   "subfolderCount": 7
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2018/Forms/Form 1040",
+   "role": "destination",
+   "subfolderCount": 1
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "archive",
+    "year": "2018"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2018/Forms/Form 1040/Archive",
+   "role": "archive",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2018/Forms/Form 1095-C",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2018/Forms/Form 1099-B",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2018/Forms/Form 1099-INT",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2018/Forms/Form 540",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2018/Forms/Form 5498",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2018/Forms/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2018/Payment",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 7,
+   "path": "Finance/US/Income Tax/2018/Reference",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2018/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2018"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2018/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2019",
+   "role": "year-bucket",
+   "subfolderCount": 5
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2019/Forms",
+   "role": "container",
+   "subfolderCount": 12
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1040",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1095",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1098-T",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B",
+   "role": "destination",
+   "subfolderCount": 1
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/MapR",
+   "role": "container",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/MapR/Form 3921",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/MapR/Proof of Worthlessness",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/MapR/Stock Certificates",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-DIV",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-G",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-INT",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-MISC",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-R",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 540",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Forms/Form 5498",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2019/Forms/Form W2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Reference",
+   "role": "destination",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2019/Reference/Address Change",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/Reference/Instructions",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2019/Reference/Worthless Securities",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2019/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 6,
+   "path": "Finance/US/Income Tax/2019/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2019/TurboTax",
+   "role": "container",
+   "subfolderCount": 2
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2019/TurboTax/Receipt",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2019"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2019/TurboTax/Returns",
+   "role": "destination",
+   "subfolderCount": 1
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "archive",
+    "year": "2019"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2019/TurboTax/Returns/Archive",
+   "role": "archive",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2020",
+   "role": "year-bucket",
+   "subfolderCount": 5
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2020/Forms",
+   "role": "container",
+   "subfolderCount": 9
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2020/Forms/Form 1040",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2020/Forms/Form 1095-C",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2020/Forms/Form 1098-T",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2020/Forms/Form 1099",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2020/Forms/Form 1099-INT",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2020/Forms/Form 1099-R",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2020/Forms/Form 540",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2020/Forms/Form 5498",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2020/Forms/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2020/Reference",
+   "role": "container",
+   "subfolderCount": 2
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2020/Reference/Address Change",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2020/Reference/Instructions",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2020/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2020/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2020"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2020/TurboTax",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021",
+   "role": "year-bucket",
+   "subfolderCount": 7
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2021/Forms",
+   "role": "container",
+   "subfolderCount": 9
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Forms/Form 1040",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Forms/Form 1095",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Forms/Form 1098",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Forms/Form 1098-T",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 8,
+   "path": "Finance/US/Income Tax/2021/Forms/Form 1099",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Forms/Form 1099-R",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2021/Forms/Form 540",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2021/Forms/Form 5498",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Forms/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Payment",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2021/Reference",
+   "role": "destination",
+   "subfolderCount": 2
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Reference/Real Estate Agent",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Reference/SSA",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2021/Spend",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2021/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2021"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2021/TurboTax",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2022",
+   "role": "year-bucket",
+   "subfolderCount": 5
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2022/Forms",
+   "role": "container",
+   "subfolderCount": 7
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2022/Forms/Form 1095",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2022/Forms/Form 1098",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2022/Forms/Form 1098-T",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 9,
+   "path": "Finance/US/Income Tax/2022/Forms/Form 1099-Composite",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2022/Forms/Form 1099-R",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2022/Forms/Form 5498",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2022/Forms/Form W2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2022/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2022/Spend",
+   "role": "container",
+   "subfolderCount": 4
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2022/Spend/Dependent Care",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2022/Spend/Donations",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 8,
+   "path": "Finance/US/Income Tax/2022/Spend/Property Tax",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2022/Spend/Vehicle Registration",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2022/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2022"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2022/TurboTax",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2023",
+   "role": "year-bucket",
+   "subfolderCount": 6
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2023/Donations",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2023/Forms",
+   "role": "container",
+   "subfolderCount": 10
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2023/Forms/Form 1095",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2023/Forms/Form 1098",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2023/Forms/Form 1098-T",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 13,
+   "path": "Finance/US/Income Tax/2023/Forms/Form 1099 Composite",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2023/Forms/Form 1099-G",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2023/Forms/Form 1099-Q",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2023/Forms/Form 1099-R",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/2023/Forms/Form 5498",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2023/Forms/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2023/Forms/Form W2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2023/Property Taxes",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2023/Registration Fees",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2023/Transcripts",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2023"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2023/TurboTax",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2024",
+   "role": "year-bucket",
+   "subfolderCount": 4
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2024/Deductions",
+   "role": "container",
+   "subfolderCount": 5
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2024/Deductions/Donation",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2024/Deductions/Form 1095-B",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2024/Deductions/Mortgage Interest",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2024/Deductions/Property Taxes",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2024/Deductions/Vehicle Registration",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2024/Income",
+   "role": "container",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 9,
+   "path": "Finance/US/Income Tax/2024/Income/Form 1099",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2024/Income/Form 1099-R",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2024/Income/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 6,
+   "path": "Finance/US/Income Tax/2024/Tax Records",
+   "role": "destination",
+   "subfolderCount": 1
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2024/Tax Records/Tax Forms",
+   "role": "container",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "person": "Abhishek",
+    "year": "2024"
+   },
+   "fileCount": 16,
+   "path": "Finance/US/Income Tax/2024/Tax Records/Tax Forms/Abhishek",
+   "role": "person-bucket",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 8,
+   "path": "Finance/US/Income Tax/2024/Tax Records/Tax Forms/Combined",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "person": "Shweta",
+    "year": "2024"
+   },
+   "fileCount": 8,
+   "path": "Finance/US/Income Tax/2024/Tax Records/Tax Forms/Shweta",
+   "role": "person-bucket",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2024/Tax Returns",
+   "role": "destination",
+   "subfolderCount": 2
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2024/Tax Returns/Payments",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2024"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2024/Tax Returns/Refund",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 9,
+   "path": "Finance/US/Income Tax/2025",
+   "role": "year-bucket",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2025/Deductions",
+   "role": "destination",
+   "subfolderCount": 6
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2025/Deductions/Car Registration",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2025/Deductions/Dependent Care",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 9,
+   "path": "Finance/US/Income Tax/2025/Deductions/Donations",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2025/Deductions/Form 1095-C",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 1,
+   "path": "Finance/US/Income Tax/2025/Deductions/Mortgage",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 2,
+   "path": "Finance/US/Income Tax/2025/Deductions/Property Taxes",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2025/Income",
+   "role": "container",
+   "subfolderCount": 3
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 5,
+   "path": "Finance/US/Income Tax/2025/Income/Form 1099-X",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2025/Income/Form W-2",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "acceptsNewFiles": false,
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "inbox",
+    "year": "2025"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/2025/Income/TODO",
+   "role": "empty",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "year": "2025"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/2025/TurboTax",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/CA State",
+   "role": "destination",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/IRS Docs - 2023",
+   "role": "container",
+   "subfolderCount": 2
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/IRS Docs - 2023/Docs",
+   "role": "container",
+   "subfolderCount": 2
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "person": "Abhishek"
+   },
+   "fileCount": 21,
+   "path": "Finance/US/Income Tax/IRS Docs - 2023/Docs/Abhishek",
+   "role": "person-bucket",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "person": "Shweta"
+   },
+   "fileCount": 3,
+   "path": "Finance/US/Income Tax/IRS Docs - 2023/Docs/Shweta",
+   "role": "person-bucket",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/IRS Docs - 2023/Transcripts",
+   "role": "pass-through",
+   "subfolderCount": 1
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active",
+    "person": "Shweta"
+   },
+   "fileCount": 4,
+   "path": "Finance/US/Income Tax/IRS Docs - 2023/Transcripts/Shweta",
+   "role": "person-bucket",
+   "subfolderCount": 0
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/IRS Docs - 2024",
+   "role": "pass-through",
+   "subfolderCount": 1
+  },
+  {
+   "anchors": [],
+   "axes": {
+    "jurisdiction": "US",
+    "lifecycle": "active"
+   },
+   "fileCount": 0,
+   "path": "Finance/US/Income Tax/IRS Docs - 2024/Transcripts",
+   "role": "empty",
+   "subfolderCount": 0
+  }
+ ],
+ "profileId": "fixture-flagship",
+ "root": "~/Documents",
+ "schemaVersion": 1
+}
