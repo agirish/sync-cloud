@@ -1285,3 +1285,29 @@ standing direction, not a fix. The two commits `main` carried between the `v4.6`
 (`68c71c62`, the 4.7-dev re-bump, and `05d11f5f`, the fourth-branch doc fix) are superseded on
 `v4.x` by its opening commit, which re-bumps to `4.7-dev`/`407` and carries the four-line
 documents — checked, nothing else in that range.
+
+### The Help book's v5.0 pass — checked, not owed
+
+`MacApp/HelpBook.swift` grew the Organize section from six topics to nine and corrected seven
+claims in articles the release did not add. **None of it is owed to a maintenance line, and the
+second half is the interesting reason why.**
+
+The three new articles — *Plan a new shape*, *Apply, and take it back*, *Set up a new year* —
+describe machinery no maintenance line carries, so they have nothing to apply to. That much is the
+same verdict as the feature above them.
+
+**The corrections are corrections of v5.0's own consequences, so the sentences they replace are
+still true on the lines without v5.0.** `what-is-synccloud`'s "every action can be undone with ⌘Z",
+`undo-redo`'s "the one thing undo cannot reach", `staying-safe`'s "the one exception" and
+`sync-history`'s "Every copy, move, and delete is recorded" all became wrong *because* `applyPlan`
+started moving files outside `recordSyncHistory` and outliving its own ⌘Z. On `v4.x`, `v3.x` and
+`v2.x` nothing does that, so each sentence is accurate there and backporting the fix would make
+the copy wrong. Likewise `intelligence`: "Both routes" is the correct count on a line with two
+paid routes, and only v5.0's mapping Refine makes it three.
+
+What is left is cosmetic and covered by the standing direction anyway: Appearance's tip lost a
+"used to sit at the bottom of this tab" note that has been archaeology since before `v4.2`, and
+Storage's three consecutive magnitude-bar bullets became two. Neither is a fix.
+
+Checked against `applyPlan` (no `recordSyncHistory` call site), `refineMapping` (the third route,
+same caps and spend store), and `git log -S'case readability'` for the tab's age.
