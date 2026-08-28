@@ -5,6 +5,110 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v4.6 — DRAFT, not released
+
+> **Not released.** This section describes `main` as it stands today and will change before the cut;
+> nothing here is installable yet.
+
+**A source is the whole account now, not its Documents folder.** Every cloud source was discovered
+one level below where its content actually begins, so anything sitting beside Documents — Teams
+Recordings, a shared team folder, whatever you keep at the top of the account — was not reachable in
+the app at all, and every source's breadcrumb started on the same word. The account folder is the
+root, where a pane *opens* is a separate setting you can change, and the pane header was rebuilt
+around the crumb that now names the source.
+
+On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the v4.0 section first.
+
+### Sources
+
+- **A source now starts at the account folder.** Folders beside Documents are reachable, and the
+  breadcrumb names the source rather than opening on "Documents" for every account.
+- **Where a pane opens is yours to choose.** Each account source has an **Open at** row in Settings,
+  with **Choose…** and **Reset**; it is measured from the root, so it survives the account folder
+  moving. If the folder you picked is renamed away, panes open at the root and the row says so.
+- **The root itself is no longer a field, because it is not a preference.** An account has one true
+  root and the app discovers it; the row shows it with **Show in Finder**. If you had set a custom
+  Location in an earlier version, that is carried forward and the row offers **Reset** to go back to
+  the folder the account is signed in at. A folder source is its own root and keeps the single
+  editable **Location** field it has always had.
+- **iCloud deliberately stays rooted at your Documents folder.** Its real container is a dead end on
+  a Mac with Desktop & Documents syncing on — Desktop and Documents appear there as hidden symlinks
+  that report themselves as non-directories, so every listing that skips hidden files drops them.
+  Rooting iCloud there would have shown two folders out of four while claiming to cover the cloud.
+- **Everything you had stored moves with the root.** Both tab strips, each pane's last folder,
+  pinned and recent folders, the Favorites order, filing destinations and the per-pair ignore sets
+  are all measured from a source root, and are rebased on first launch so they name the same folders
+  as before.
+- **What you authored is left exactly where you put it.** An automation's destination, the
+  loose-files inbox and the taxonomy a filing scan files against stay anchored to the folder a pane
+  lands in rather than being re-pointed at the account root — `TODO` names a real folder at the top
+  of a OneDrive account as well as one inside its Documents, and moving them silently would have
+  changed which one they meant.
+
+### The pane header
+
+- **The provider capsule is gone; the first breadcrumb crumb is the source picker.** The two were
+  the same fact in the same corner, tinted the same hue, and the capsule was the larger of them —
+  it restated its own second row, and it was what pushed the toolbar off the left edge of the
+  header. Clicking the crumb opens the source list, with **Go to &lt;source&gt;** as its first item.
+- **The toolbar starts in the same place on every pane.** Measured across the header's sixteen
+  layout cases: the bar's leading edge is now at 17pt in all sixteen, where it used to land anywhere
+  between 77pt and 372pt depending on how long the source's name was. At 570pt wide, the same pane
+  started its toolbar at 223pt for a source called "iCloud" and 372pt for a long custom name — a
+  149pt swing from the name alone.
+- **Narrow panes keep more of the toolbar.** A 250pt pane draws seven controls where it drew five.
+  All nine are now drawn from 330pt, where it used to take 490pt; and a pane with a long custom
+  source name at 490pt had room for five and now has room for all nine.
+- **The source crumb is drawn as the control it is** — a capsule sized to match the toolbar's own
+  controls, carrying the source's mark, its name, and its own disclosure arrow.
+- **The trail is bigger.** Crumbs were the smallest text in the header; they are a size up now, with
+  more room between them and more space between the toolbar and the trail beneath it.
+
+### The sidebar
+
+- **Your home folder and the startup disk are in Favorites on a first run.** Five standard places
+  now, not three. They used to sit in Locations, on the reasoning that home contains the other three
+  and a disk is hardware — but they are the two places you navigate to from a standing start, and
+  Locations on a machine with several cloud accounts is where you go to find an *account*. Removing
+  either from Favorites returns it to Locations.
+- **"Restore Standard Folders" is now "Restore Standard Places",** because it restores a disk.
+- **A recent no longer carries a second line.** A recent's qualifier is its parent folder, and that
+  parent is a top-level folder often enough that the line came out repeating the source badge on the
+  row's other end. A recent is somewhere you were minutes ago and recognise; a favorite is one you
+  chose once and may not, so only favorites carry the second line. Recents still count toward the
+  collision that makes a favorite need one, and the source and folder are still in the tooltip on
+  both.
+
+### Tabs
+
+- **Two tabs that would otherwise read the same are told apart.** A tab is titled after its folder's
+  leaf name, and its brand mark separates a Dropbox tab from a OneDrive one — but not two accounts
+  of the same brand, which is the collision you are most likely to have. A colliding title now takes
+  the source's own name, or, for two folders under one source, the parent folder — and only where
+  that actually separates them. Tabs that already read differently are untouched, and a duplicated
+  tab is left alone rather than growing two identical suffixes.
+
+### Speed
+
+- **Navigating one pane no longer reloads the other.** Every refresh request was honoured as "reload
+  both panes", including the commonest one in the app — one pane moving — so the other pane's tree
+  was re-walked on a source and a folder that had not changed. With the prefetch cache warm that is
+  wasted work you still see as a flicker; cold, after any file operation, sort change or force
+  refresh, it is a full second walk of tens of thousands of files for a tree that was already
+  correct. A refresh now names the pane that moved. Anything that genuinely changes both — a
+  finished file operation, a date-tolerance change, a source switch — still reloads both.
+
+### If you go back to v4.5 afterwards
+
+Your **Location settings are safe**: the old key is read and never rewritten, so an earlier release
+finds them exactly as it left them. Your **stored positions are not** — tabs, pins, recents and
+saved folders are rebased onto the new roots, and an older build reading them back will not find
+those folders and will re-root them. Tabs and pins degrade the way they already do for a folder that
+has gone; a durable ignore entry stops matching, which un-ignores rows rather than hiding extra
+ones. There is no reverse migration.
+
+---
+
 ## v4.5
 
 **Refinement, mostly — plus one freeze and one thing quietly wrong.** A bulk sync on a large
