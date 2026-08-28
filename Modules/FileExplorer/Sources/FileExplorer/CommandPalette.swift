@@ -72,6 +72,9 @@ public enum PaletteAction: String, CaseIterable, Sendable {
     case newFolder
     case chooseFolder
     case findInPane
+    /// §5.10's palette route: the shape question about the folder you are standing in — the row
+    /// menu's "Check This Folder's Shape", aimed at the pane's current folder instead of a row.
+    case restructureThisFolder
     case settings
     case shortcuts
     case activityLog
@@ -82,6 +85,7 @@ public enum PaletteAction: String, CaseIterable, Sendable {
         case .newFolder: return "New Folder…"
         case .chooseFolder: return "Choose Folder…"
         case .findInPane: return "Find in Pane…"
+        case .restructureThisFolder: return "Restructure This Folder"
         case .settings: return "Settings…"
         case .shortcuts: return "Keyboard Shortcuts"
         case .activityLog: return "Activity Log"
@@ -94,6 +98,7 @@ public enum PaletteAction: String, CaseIterable, Sendable {
         case .newFolder: return "folder.badge.plus"
         case .chooseFolder: return "folder"
         case .findInPane: return "magnifyingglass"
+        case .restructureThisFolder: return "rectangle.3.group"
         case .settings: return "gearshape"
         case .shortcuts: return "keyboard"
         case .activityLog: return "list.bullet.rectangle"
@@ -111,6 +116,7 @@ public enum PaletteAction: String, CaseIterable, Sendable {
         case .newFolder: return ["make folder", "create folder"]
         case .chooseFolder: return ["add folder", "open folder", "pick folder", "source"]
         case .findInPane: return ["search", "find"]
+        case .restructureThisFolder: return ["shape", "structure", "check", "habits", "organize"]
         case .settings: return ["preferences", "options"]
         case .shortcuts: return ["keys", "chords", "help"]
         case .activityLog: return ["log", "history"]

@@ -674,6 +674,10 @@ public class FileSyncManager: ObservableObject {
     /// home (on-device Apple LLM, opt-in cloud), injected by the app. nil = keyword engine only.
     /// Its verdicts override the heuristic guess for files it's confident about.
     public var filingClassifier: FilingClassifier?
+    /// §5.6's seam — the mapping refine, injected by the app beside the classifier. nil when the
+    /// app has not wired it; whether a KEY is stored is `filingCloudRefineAvailable`'s question,
+    /// same as the filing refine's split.
+    public var mappingRefiner: MappingRefiner?
     /// Extracts a bounded text excerpt for the classifier (PDF text / OCR / plain), injected by the
     /// app. Gated by the same read-contents setting as F2's token extractor.
     public var filingSnippetExtractor: (@Sendable (String) async -> String?)?
@@ -1007,9 +1011,19 @@ public class FileSyncManager: ObservableObject {
     /// renders and counts. One definition, because the lens, the overview and the rail badge all
     /// filtered `structureFindings` independently, and a suppression honoured by two of the three
     /// would leave a badge counting a card that never renders.
+    /// §5.9's findings — the one detector that reads the duplicate scan rather than the profile,
+    /// so it lives beside the memoised report instead of inside it: `duplicateGroups` has its own
+    /// publish cycle, and the profile cache must not be invalidated by a scan finishing. Cheap on
+    /// every access — one pass over the current groups, which are already in memory.
+    public var duplicatedTaxonomyFindings: [StructureFinding] {
+        guard let profile = filingFolderProfile, !duplicateGroups.isEmpty else { return [] }
+        return StructureDuplicatedTaxonomy.findings(groups: duplicateGroups, in: profile)
+    }
+
     public var visibleStructureFindings: [StructureFinding] {
-        guard let store = restructureStore else { return structureFindings }
-        return structureFindings.filter { !store.isSuppressed(RestructureKey($0)) }
+        let all = structureFindings + duplicatedTaxonomyFindings
+        guard let store = restructureStore else { return all }
+        return all.filter { !store.isSuppressed(RestructureKey($0)) }
     }
 
     /// Records a cross-person refusal, resolving the ids to the names a person would recognise.

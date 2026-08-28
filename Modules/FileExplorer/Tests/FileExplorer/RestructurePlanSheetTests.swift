@@ -118,6 +118,31 @@ import Testing
                 "the clash names both spellings")
     }
 
+    // MARK: The refine slot's text rules (§5.6)
+
+    /// The disclosure is itemised: the toggle's clause appears exactly when the payload carries
+    /// it, and the never-clause is always there.
+    @Test func thePayloadDisclosureMatchesTheToggle() {
+        let off = RestructurePlanSheet.payloadDisclosure(includesFileNames: false)
+        #expect(!off.contains("file names per folder"))
+        #expect(off.contains("File contents are never sent"))
+        let on = RestructurePlanSheet.payloadDisclosure(includesFileNames: true)
+        #expect(on.contains("up to 5 file names per folder"))
+        #expect(on.contains("File contents are never sent"))
+        #expect(on.contains("Billed to your API key"))
+    }
+
+    /// Declined is a first-class rendered outcome — its row has its own words, not an absence.
+    @Test func everyVerdictHasItsOwnLine() {
+        #expect(RestructurePlanSheet.proposalLine(
+            .init(source: "s", verdict: .propose(target: "Forms"), why: "w")) == "→ Forms")
+        #expect(RestructurePlanSheet.proposalLine(
+            .init(source: "s", verdict: .keep, why: "w")) == "keep")
+        #expect(RestructurePlanSheet.proposalLine(
+            .init(source: "s", verdict: .declined, why: "w"))
+            == "declined — not enough evidence to say")
+    }
+
     // MARK: The card's trigger (§5.7)
 
     /// *Plan…* creates; *Review N operations* reopens what exists. The pair never both show —

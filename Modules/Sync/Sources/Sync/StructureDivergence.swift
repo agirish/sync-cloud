@@ -99,6 +99,10 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
         case looseAboveSeries(looseFiles: Int, seriesFolders: Int)
         /// The subject's name restates `container`, a sibling that should hold it.
         case looseBesideContainer(container: String)
+        /// The subject and `counterpart` hold the same documents under parallel taxonomies —
+        /// `matchedDocuments` distinct same-text pairs span the two (§5.9, the one detector that
+        /// reads the duplicate scan rather than the profile).
+        case duplicatedTaxonomy(counterpart: String, matchedDocuments: Int)
     }
 
     /// Which detector produced this, and therefore what acting on it would do.

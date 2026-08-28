@@ -3134,6 +3134,9 @@ public struct LensWorkspaceView: View {
                         // When the survey last looked (§4.1) — the corpus stamp, seeded at attach
                         // and republished the moment a re-survey finishes.
                         surveyedAt: syncManager.filingSurveyedAt,
+                        // §5.9's staleness truth: groups on hand means the taxonomy detector had
+                        // something to read this session.
+                        hasDuplicateScan: !syncManager.duplicateGroups.isEmpty,
                         isScoped: scope != nil,
                         // The PROVIDER, like Renames: the detectors compare sibling families
                         // across the surveyed tree, so a folder-named setup card would promise a
@@ -3360,6 +3363,13 @@ public struct LensWorkspaceView: View {
                     }
                     return .applied(summary: summary)
                 },
+                // §5.6: the paid pass on the mapping — the transport is the app's, the offer
+                // branch is "is a key stored", and the model label resolves the way the
+                // transport resolves it, all three exactly as the filing refine splits them.
+                onRefineMapping: { await syncManager.refineMapping($0) },
+                refineOffered: syncManager.filingCloudRefineAvailable,
+                refineModelLabel: FilingSpendFormat.model(refineModelName),
+                onConfigureRefine: onConfigureCloudRefine,
                 onClose: { planningFinding = nil })
         }
     }

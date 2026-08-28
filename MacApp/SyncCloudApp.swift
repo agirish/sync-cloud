@@ -430,6 +430,13 @@ struct SyncCloudApp: App {
             }
             return [:]
         }
+        // §5.6: the mapping refine — a paid call over folder NAMES, so it routes through the
+        // same key, model choice, budget caps and spend store as the filing refine. The sheet
+        // gates the offer on a stored key (`filingCloudRefineAvailable`); this closure is only
+        // the transport.
+        manager.mappingRefiner = { request in
+            await CloudMappingRefiner.refine(request)
+        }
         manager.filingSnippetExtractor = { path in
             await ContentSignalExtractor.snippet(forFileAt: path)
         }

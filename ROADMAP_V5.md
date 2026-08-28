@@ -787,6 +787,15 @@ two files**: two folders are duplicated taxonomy when a material share of their 
 **Schedule it last of the detectors**, after §5.2's seven, because it is the only one that can be
 wrong for a reason outside itself.
 
+*(2026-08-28: shipped as `StructureDuplicatedTaxonomy` — two profile-known, non-nested folders
+with **≥3 distinct `.sameText` documents** spanning them, where that count is **≥half the smaller
+folder's files** (the archive-absorbs-everything guard). Findings join `visibleStructureFindings`
+beside the profile-pure set but are computed off `duplicateGroups`' own publish cycle, so a scan
+finishing never invalidates the profile memo; with no scan the lens says the findings are absent,
+not clean. Yield on this tree still unmeasured, as ordered — it needs a scan, and no number goes
+anywhere until one has run. The card reports both branches; wiring its merge into §5.4's sheet
+waits for the pair→mapping flow.)*
+
 ### 5.10 Getting to a finding on purpose — and from the command line
 
 The lens is a **reporting** surface: it is found by opening Organize, and that is right, because a
@@ -1099,6 +1108,17 @@ goes to a branch.
   vs `Health/Medical/Kaiser`) is not enough to derive a rule from. Needs a candidate rule dry-run
   against the live profile — with the silence bar the shape detector set — before the sheet is
   worth building.
+  *(2026-08-28: the dry-run ran, and the answer is stronger than "not yet" — the one known
+  instance NO LONGER EXISTS. `Health/Kaiser - PG&E` is gone from the reference tree; only
+  `Health/Medical/Kaiser` remains, so the disagreement was resolved by hand sometime before the
+  fixture was cut. The candidate rule probed — a letter-bearing compound name (`X - Y`) whose left
+  part is another folder's full name in a different branch — fires 4 times on the tree, and every
+  hit is a generic-token false positive (`TODO - May 2025` against three `TODO` inboxes,
+  `Plan - HPE` against `Stock Options/Plan`, `DMV - Abhishek` against `Keys/DMV`). Zero ground
+  truth plus an all-noise candidate means no rule can be designed honestly today: 5.0 ships
+  without the Ask detector, exactly the outcome §5.3 sanctioned, and now it loses zero findings
+  on this tree rather than one. The `.ask` kind, the store's `answers` section and the identity
+  all exist; the next real instance the tree grows is the design input this needs.)*
 - **§5.9: what share of shared content makes two folders duplicated taxonomy?** The detector reads
   `.sameText` groups, so it needs a threshold — two folders that share one document are not a
   duplicated taxonomy and two that share all of them plainly are. Unmeasurable from the profile;

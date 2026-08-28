@@ -666,6 +666,7 @@ extension ContentView {
         case .chooseFolder:
             chooseFolderSource { id in aimProvider(id) }
         case .findInPane: beginPaneSearch()
+        case .restructureThisFolder: restructureCurrentFolder()
         case .settings: showSettings = true
         case .shortcuts: openWindow(id: "keyboard-shortcuts")
         case .activityLog: openWindow(id: "activity-log")

@@ -413,3 +413,68 @@ extension FileSyncManager {
             .union(filingSessionRejections[suggestion.filePath] ?? [])
     }
 }
+
+// MARK: - §5.6: the mapping refine
+
+extension FileSyncManager {
+
+    /// What a mapping refine came back with — three different stories the sheet must not
+    /// conflate: proposals, the user declining the quote, and a pass that could not run.
+    public enum MappingRefineOutcome: Sendable, Equatable {
+        case proposals([MappingRefineProposal])
+        /// The spend prompt was refused — nothing was sent, and "check your key" would be the
+        /// wrong sentence about it.
+        case declined
+        /// No transport, an unpriced model, or a hard failure — the sheet says the pass could
+        /// not run.
+        case unavailable
+    }
+
+    /// §5.6's entry point: the same spend pre-flight every paid call gets — quoted for the model
+    /// the transport will resolve, against the same caps and the same store — then the injected
+    /// transport. On the mapping, never on the apply; the caller edits rows with what comes back.
+    public func refineMapping(_ request: MappingRefineRequest) async -> MappingRefineOutcome {
+        guard let mappingRefiner else { return .unavailable }
+        // Unlike the filing refine there is NO on-device fallback for naming — the pass either
+        // reaches Claude or it does not run. So the route gate is a hard gate, and it is what
+        // keeps a stored key from being billed while the cloud toggle is off: the transport
+        // reads the Keychain directly and must never be reached around the router.
+        guard filingRoutesToCloud(.refine) else {
+            Logger.shared.info("Mapping refine skipped — the refine tier does not route to "
+                + "Claude (cloud off, or no usable key), and naming has no on-device model")
+            return .unavailable
+        }
+        let model = CloudFilingProtocol.currentModel(
+            for: filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey)
+                ?? CloudFilingProtocol.defaultModel)
+        // An unpriced model is not a free one — the same refusal the filing refine's gate
+        // documents at length: no quote, no cap arithmetic, no call.
+        guard let estCost = MappingRefineProtocol.estimatedCostUSD(model: model,
+                                                                   request: request) else {
+            Logger.shared.warning("Mapping refine skipped — no price is known for model "
+                + "“\(model)”, so the cost could not be quoted. Pick one of the offered "
+                + "models in Settings ▸ Intelligence.")
+            return .unavailable
+        }
+        let tokens = MappingRefineProtocol.estimateTokens(request: request)
+        let preflight = FilingSpendPreflight(
+            fileCount: request.rows.count, model: model,
+            estInputTokens: tokens.input, estOutputTokens: tokens.output,
+            estCostUSD: estCost,
+            monthlySpentUSD: FilingSpendBudget.monthlySpend(
+                entries: FilingSpendStore.entries(defaults: filingContentDefaults),
+                now: Date()),
+            monthlyCapUSD: filingContentDefaults.double(forKey: Self.monthlyBudgetCapKey),
+            totalSpentUSD: FilingSpendStore.totals(defaults: filingContentDefaults).costUSD,
+            totalCapUSD: Self.totalBudgetCap(in: filingContentDefaults),
+            unit: "folder name")
+        guard filingCloudSpendConfirmer(preflight) else {
+            Logger.shared.info("Mapping refine declined at the estimate "
+                + "(\(FilingSpendFormat.cost(estCost)) for \(request.rows.count) name(s)) "
+                + "— nothing was sent")
+            return .declined
+        }
+        guard let proposals = await mappingRefiner(request) else { return .unavailable }
+        return .proposals(proposals)
+    }
+}

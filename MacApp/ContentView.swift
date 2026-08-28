@@ -2443,6 +2443,20 @@ struct ContentView: View {
             providerName: lensProviderName, nameProvider: lensProviderType)
     }
 
+    /// §5.10's second deliberate route: the shape question, aimed at one folder — Restructure's
+    /// answer already exists (it is read off the survey), so unlike its sibling above there is no
+    /// scan to start. Arriving on purpose skips the reveal card, the overview's own rule: the
+    /// user asked about this folder, and a card whose button says "Show findings" would charge
+    /// that intent twice.
+    func checkFolderShapeAction(_ node: FileNode, providerRoot: String) {
+        let folder = (node.id as NSString).expandingTildeInPath
+        guard !folder.isEmpty, !providerRoot.isEmpty else { return }
+        Logger.shared.info("User asked for the shape of \(folder)")
+        setOrganizeScope(folder, providerRoot: providerRoot)
+        syncManager.hasReviewedStructure = true
+        show(.restructure)
+    }
+
     /// The one write of Organize's scope **from this view**, and the one place its callers — the
     /// folder context menu, ⌘K, "Organize This Folder…" — reach the stored form.
     ///
@@ -3525,6 +3539,9 @@ struct ContentView: View {
                 organizeFolderAction(node,
                                      providerRoot: providerRootExpanded(forProviderId: pane.providerId),
                                      providerAnchor: providerAnchorExpanded(forProviderId: pane.providerId)) },
+            onCheckFolderShape: { node in
+                checkFolderShapeAction(node,
+                                       providerRoot: providerRootExpanded(forProviderId: pane.providerId)) },
             onOrganizeScope: { node in
                 setOrganizeScope(node.id, providerRoot: providerRootExpanded(forProviderId: pane.providerId)) },
             onOpenInNewTab: { node in openInNewTab(absolutePath: node.id, isLeft: pane.isLeft) },

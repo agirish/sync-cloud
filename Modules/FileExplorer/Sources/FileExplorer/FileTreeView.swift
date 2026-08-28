@@ -1308,6 +1308,13 @@ struct FileContextMenu: View {
                         } label: {
                             Label("Organize This Folder…", systemImage: "folder.badge.gearshape")
                         }
+                        // §5.10's second deliberate route: the shape question, from the row you
+                        // are standing on. Same gate as its sibling — one workspace behind both.
+                        Button {
+                            delegate.handleCheckFolderShape(singleNode)
+                        } label: {
+                            Label("Check This Folder’s Shape", systemImage: "rectangle.3.group")
+                        }
                         Divider()
                     }
                     // **The same list the sidebar's own rows manage**, reached from the folder

@@ -33,7 +33,7 @@ import Sync
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [],
             homeBadgeCoverage: homeBadgeCoverage, onFindDuplicatesOf: { _ in },
-            onOrganizeFolder: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+            onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
     }
 
     // MARK: The gate, both ways
@@ -133,7 +133,7 @@ import Sync
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
-            onFindDuplicatesOf: { _ in }, onOrganizeFolder: { asked.append($0.id) }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+            onFindDuplicatesOf: { _ in }, onOrganizeFolder: { asked.append($0.id) }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
 
         d.handleOrganizeFolder(FileNode(id: "/Users/u/Projects/a.txt", name: "a.txt",
                                         isDirectory: false, children: nil))
@@ -157,7 +157,7 @@ import Sync
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false,
             forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
-            onFindDuplicatesOf: { asked.append($0.id) }, onOrganizeFolder: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+            onFindDuplicatesOf: { asked.append($0.id) }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
 
         d.handleFindDuplicates(FileNode(id: "/Users/u/Projects", name: "Projects",
                                         isDirectory: true, children: []))

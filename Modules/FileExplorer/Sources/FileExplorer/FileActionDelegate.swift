@@ -131,6 +131,11 @@ public protocol FileActionDelegate: Sendable {
     /// already has a home.
     func handleOrganizeFolder(_ node: FileNode)
 
+    /// Opens the Restructure lens scoped to this folder — ROADMAP_V5 §5.10's deliberate route:
+    /// the shape question, asked from the row you are standing on. Folders only, gated by
+    /// `canOrganizeFolder` like its sibling above (same workspace behind both doors).
+    func handleCheckFolderShape(_ node: FileNode)
+
     /// Whether this host can open a folder in a new tab. Gated for the same reason the two above
     /// are: a conformer with no pane strip behind it draws nothing rather than a door onto a no-op.
     var canOpenInNewTab: Bool { get }
@@ -228,6 +233,7 @@ extension FileActionDelegate {
     /// from the day it was written.
     public var canOrganizeFolder: Bool { false }
     public func handleOrganizeFolder(_ node: FileNode) {}
+    public func handleCheckFolderShape(_ node: FileNode) {}
 
     /// Same default, same reason, and declared as requirements above for the same one.
     public var canOpenInNewTab: Bool { false }

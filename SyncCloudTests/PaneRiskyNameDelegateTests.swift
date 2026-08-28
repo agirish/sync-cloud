@@ -20,7 +20,7 @@ import Sync
             // Required rather than defaulted, deliberately: a pane that forgot to pass its
             // coverage would silently lose every ⌂ badge, and a default here would let it.
             // `PaneHomeBadgeDelegateTests` owns what these two do.
-            homeBadgeCoverage: nil, onFindDuplicatesOf: { _ in }, onOrganizeFolder: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+            homeBadgeCoverage: nil, onFindDuplicatesOf: { _ in }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
     }
 
     /// **The staleness hazard, and the reason `keptNamesToken` is a stored property at all.**

@@ -23,10 +23,14 @@ public struct FilingSpendPreflight: Sendable, Equatable {
     public let totalSpentUSD: Double
     /// The total (lifetime) budget cap. 0 = no cap (unlimited/off).
     public let totalCapUSD: Double
+    /// What `fileCount` counts — "file" for the filing refine, "folder name" for §5.6's mapping
+    /// refine. The dialog pluralises it; a prompt claiming "24 files" over a payload of 24 names
+    /// would misstate exactly the thing a payment prompt exists to state.
+    public let unit: String
 
     public init(fileCount: Int, model: String, estInputTokens: Int, estOutputTokens: Int,
                 estCostUSD: Double, monthlySpentUSD: Double, monthlyCapUSD: Double,
-                totalSpentUSD: Double, totalCapUSD: Double) {
+                totalSpentUSD: Double, totalCapUSD: Double, unit: String = "file") {
         self.fileCount = fileCount
         self.model = model
         self.estInputTokens = estInputTokens
@@ -36,6 +40,7 @@ public struct FilingSpendPreflight: Sendable, Equatable {
         self.monthlyCapUSD = monthlyCapUSD
         self.totalSpentUSD = totalSpentUSD
         self.totalCapUSD = totalCapUSD
+        self.unit = unit
     }
 
     /// True when the monthly cap is set (> 0) and running this call would push the month's spend past it.

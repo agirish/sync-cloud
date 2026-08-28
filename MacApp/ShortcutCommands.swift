@@ -1075,6 +1075,24 @@ extension ContentView {
         actionHandler?.beginCreateFolder(in: target)
     }
 
+    /// ⌘K → *Restructure This Folder* — §5.10's palette route: the shape question about the
+    /// folder you are standing in. The target resolves the way ⇧⌘N's does: the aimed pane's
+    /// current folder, which in Columns is the deepest open column.
+    func restructureCurrentFolder() {
+        let isLeft = shortcutTargetIsLeft
+        let pane = paneContext(isLeft: isLeft)
+        let target = pane.viewMode == .columns
+            ? (isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath)
+                .currentDirectory(treeRoot: pane.currentPath)
+            : pane.currentPath
+        let providerRoot = providerRootExpanded(forProviderId: pane.providerId)
+        guard !target.isEmpty, !providerRoot.isEmpty else { return }
+        Logger.shared.info("Command palette: check shape of \(target)")
+        setOrganizeScope((target as NSString).expandingTildeInPath, providerRoot: providerRoot)
+        syncManager.hasReviewedStructure = true
+        show(.restructure)
+    }
+
     var shortcutNewFolder: (() -> Void)? {
         guard actionHandler != nil else { return nil }
         let isLeft = shortcutTargetIsLeft

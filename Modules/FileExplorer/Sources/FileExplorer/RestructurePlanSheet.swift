@@ -26,6 +26,17 @@ struct RestructurePlanSheet: View {
     /// on success (prefixed so the sheet can tell), or the refusal. nil while Apply is not
     /// offered, which hides the button rather than promising a landing that cannot run.
     var onApply: ((RestructureManifest) async -> ApplyResult)?
+    /// §5.6's paid pass — on the MAPPING, never on the apply. nil when the host has not wired a
+    /// transport; whether a key is stored is `refineOffered`'s separate question, the same split
+    /// the filing refine button documents.
+    var onRefineMapping: ((MappingRefineRequest) async -> FileSyncManager.MappingRefineOutcome)?
+    /// Is a key stored — the offer/invitation branch (`filingCloudRefineAvailable`'s answer).
+    var refineOffered: Bool = false
+    /// The model the button names, resolved the way the transport resolves it so the button
+    /// cannot name one model and send another.
+    var refineModelLabel: String = "Claude"
+    /// Opens Settings on the key row — the invitation's action.
+    var onConfigureRefine: (() -> Void)?
 
     /// What a landing came back with — the summary, or the sentence that refused it.
     enum ApplyResult: Equatable {
@@ -55,6 +66,10 @@ struct RestructurePlanSheet: View {
     }
 
     @State private var applying = false
+    @State private var includeFileSamples = false
+    @State private var refining = false
+    @State private var proposals: [MappingRefineProposal]?
+    @State private var refineFailedText: String?
 
     var body: some View {
         // Derived ONCE per render and handed down. The margin renders per row, and a version
@@ -65,6 +80,7 @@ struct RestructurePlanSheet: View {
             header
             shapeSection
             mappingSection(plan)
+            refineSection
             reviewSection(plan)
             footer(plan)
         }
@@ -259,6 +275,183 @@ struct RestructurePlanSheet: View {
         var names = vocabulary
         if let target = row.target, !names.contains(target) { names.append(target) }
         return names
+    }
+
+    // MARK: - 2b. Refine with Claude (§5.6)
+
+    @ViewBuilder
+    private var refineSection: some View {
+        if onRefineMapping != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                if refineOffered {
+                    HStack(spacing: 10) {
+                        Button {
+                            runRefine()
+                        } label: {
+                            Label(refining ? "Asking…"
+                                  : "Ask \(refineModelLabel) about \(rows.count) folder names",
+                                  systemImage: "sparkles")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(refining || rows.isEmpty)
+                        Toggle("Include up to 5 file names per folder", isOn: $includeFileSamples)
+                            .toggleStyle(.checkbox)
+                            .scaledFont(.system(size: 10.5))
+                            .disabled(refining)
+                    }
+                    // The itemised payload disclosure, at the button rather than behind it —
+                    // and the toggle's clause appears only when the toggle is on.
+                    Text(Self.payloadDisclosure(includesFileNames: includeFileSamples))
+                        .scaledFont(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let onConfigureRefine {
+                    Button(action: onConfigureRefine) {
+                        Label("Refine names with Claude…", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Proposes consistent names for this family's folders — billed to your "
+                          + "own API key, set up in Settings ▸ Intelligence. The mapping stays "
+                          + "yours: accepting a proposal edits a row, and the plan re-derives.")
+                }
+                if let refineFailedText {
+                    Text(refineFailedText)
+                        .scaledFont(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+                if let proposals {
+                    proposalList(proposals)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func proposalList(_ proposals: [MappingRefineProposal]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(proposals) { proposal in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(proposal.source)
+                        .scaledFont(.system(size: 10.5, design: .monospaced))
+                        .lineLimit(1)
+                        .frame(width: 180, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(Self.proposalLine(proposal))
+                            .scaledFont(.system(size: 10.5,
+                                                weight: proposal.verdict == .declined
+                                                    ? .regular : .medium))
+                            .foregroundStyle(proposal.verdict == .declined
+                                             ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                        Text(proposal.why)
+                            .scaledFont(.system(size: 9.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        // §5.6's adjacency rule: a proposal that reverses another — or the
+                        // user's own row — is labelled, or a reviewer reads the pair as a bug.
+                        if let note = MappingRefineProtocol.reversalNote(for: proposal,
+                                                                         among: proposals,
+                                                                         rows: rows) {
+                            Text(note)
+                                .scaledFont(.system(size: 9.5, weight: .semibold))
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if let accepted = acceptedTarget(of: proposal),
+                       rows.first(where: { $0.source == proposal.source })?.target != accepted {
+                        Button("Accept") { accept(proposal) }
+                            .scaledFont(.system(size: 10.5, weight: .semibold))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(accent)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.2)))
+    }
+
+    /// What accepting would set the row's target to — nil-in-optional for keep, absent for
+    /// declined (nothing to accept).
+    private func acceptedTarget(of proposal: MappingRefineProposal) -> String?? {
+        switch proposal.verdict {
+        case .propose(let target): return .some(target)
+        case .keep: return .some(nil)
+        case .declined: return nil
+        }
+    }
+
+    /// **No path to the disk that skips the manifest**: accepting edits the mapping row, the
+    /// derivation re-runs, and the review below is the same review it always was.
+    private func accept(_ proposal: MappingRefineProposal) {
+        guard let target = acceptedTarget(of: proposal),
+              let index = rows.firstIndex(where: { $0.source == proposal.source }) else { return }
+        rows[index].target = target
+        if let newTarget = target, !vocabulary.contains(newTarget) {
+            vocabulary.append(newTarget)
+        }
+    }
+
+    private func runRefine() {
+        guard let onRefineMapping else { return }
+        let request = refineRequest()
+        refining = true
+        refineFailedText = nil
+        Task { @MainActor in
+            let outcome = await onRefineMapping(request)
+            refining = false
+            switch outcome {
+            case .proposals(let result):
+                proposals = result
+            case .declined:
+                // Their choice, not a failure — "check your key" would be the wrong sentence.
+                refineFailedText = "Declined at the estimate — nothing was sent."
+            case .unavailable:
+                refineFailedText = "The pass didn’t run — the key, the budget caps or the "
+                    + "network said no. Settings ▸ Intelligence has the details."
+            }
+        }
+    }
+
+    private func refineRequest() -> MappingRefineRequest {
+        var samples: [String: [String]] = [:]
+        if includeFileSamples {
+            for row in rows {
+                var names: [String] = []
+                for member in members where names.count < 5 {
+                    let path = (((finding.family as NSString).appendingPathComponent(member))
+                        as NSString).appendingPathComponent(row.source)
+                    if let files = tree.files(path) {
+                        names.append(contentsOf: files.prefix(5 - names.count))
+                    }
+                }
+                if !names.isEmpty { samples[row.source] = names }
+            }
+        }
+        var vocabularies = finding.schemes.map(\.vocabulary)
+        if !vocabulary.isEmpty { vocabularies.append(vocabulary) }
+        return MappingRefineRequest(family: finding.family, members: members, rows: rows,
+                                    candidateVocabularies: vocabularies,
+                                    sampleFileNames: samples)
+    }
+
+    /// The disclosure sentence — itemised, with the toggle's clause present exactly when the
+    /// payload carries it, and the never-clause always (§5.6).
+    static func payloadDisclosure(includesFileNames: Bool) -> String {
+        var sent = "Sends this family’s folder paths, member names and candidate names"
+        if includesFileNames { sent += ", plus up to 5 file names per folder" }
+        return sent + ". File contents are never sent. Billed to your API key."
+    }
+
+    /// One proposal's verdict, as its row's first line.
+    static func proposalLine(_ proposal: MappingRefineProposal) -> String {
+        switch proposal.verdict {
+        case .propose(let target): return "→ \(target)"
+        case .keep: return "keep"
+        case .declined: return "declined — not enough evidence to say"
+        }
     }
 
     // MARK: - 3. Review

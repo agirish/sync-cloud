@@ -87,6 +87,8 @@ struct PaneActionDelegate: FileActionDelegate {
     let onFindDuplicatesOf: (FileNode) -> Void
     /// Points Organize at a folder — see ``handleOrganizeFolder(_:)``.
     let onOrganizeFolder: (FileNode) -> Void
+    /// §5.10's route to the shape question — aims the Restructure lens at the row's folder.
+    let onCheckFolderShape: (FileNode) -> Void
     /// Moves Organize's scope to a folder **without** starting a scan — see ``handleFocus(_:)``.
     ///
     /// Distinct from `onOrganizeFolder`, which also scans: Open is a navigation, and making it pay
@@ -323,6 +325,12 @@ struct PaneActionDelegate: FileActionDelegate {
         // with the handler rather than only with the one caller that happens to respect it.
         guard node.isDirectory else { return }
         onOrganizeFolder(node)
+    }
+
+    func handleCheckFolderShape(_ node: FileNode) {
+        // Folders only, for its sibling's reason: a file has no shape to check.
+        guard node.isDirectory else { return }
+        onCheckFolderShape(node)
     }
 
     func handleFixName(_ node: FileNode) {

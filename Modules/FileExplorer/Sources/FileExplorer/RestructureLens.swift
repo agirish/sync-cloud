@@ -66,6 +66,10 @@ struct RestructureLens: View {
     /// When the survey last looked at the tree, or nil when unknown — a corpus that predates the
     /// stamp, or no profile at all (ROADMAP_V5 §4.1).
     var surveyedAt: Date? = nil
+    /// Whether a duplicate scan's groups are on hand — §5.9's staleness truth: the
+    /// duplicated-taxonomy detector reads the scan, not the profile, so with no scan its findings
+    /// are ABSENT, not clean, and the lens says so rather than letting silence claim health.
+    var hasDuplicateScan: Bool = false
     /// Whether Organize is narrowed to a subtree — the clean state says a different thing about a
     /// folder than about the whole tree.
     var isScoped: Bool = false
@@ -578,6 +582,10 @@ struct RestructureLens: View {
             return "\(looseFiles) files above \(seriesFolders) year folders"
         case (_, .looseBesideContainer(let container)):
             return "belongs in \((container as NSString).lastPathComponent)/"
+        case (_, .duplicatedTaxonomy(let counterpart, let matched)):
+            // The counterpart's whole path, not its last component: the claim is that two
+            // BRANCHES hold the same documents, and `Forms` alone would not say which two.
+            return "\(matched) of its documents also sit in \(counterpart)"
         default:
             return ""
         }
@@ -840,14 +848,27 @@ struct RestructureLens: View {
     /// rather than naming the survey. This says "Covers N" for the same reason.
     @ViewBuilder
     private var surveyNote: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "clock.arrow.circlepath").scaledFont(.system(size: 10))
-            Text(Self.surveyNoteText(folderCount: folderCount, surveyedAt: surveyedAt, now: Date()))
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath").scaledFont(.system(size: 10))
+                Text(Self.surveyNoteText(folderCount: folderCount, surveyedAt: surveyedAt,
+                                         now: Date()))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !hasDuplicateScan {
+                Text(Self.taxonomyStalenessText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .scaledFont(.system(size: 11))
         .foregroundStyle(.secondary)
     }
+
+    /// §5.9's honesty line: the one detector that reads a scan says when the scan has not run —
+    /// absent is not clean.
+    static let taxonomyStalenessText =
+        "The duplicated-taxonomy check reads the duplicate scan, which hasn’t run — those "
+        + "findings are absent, not clean."
 
     static func surveyNoteText(folderCount: Int?, surveyedAt: Date? = nil,
                                now: Date = Date()) -> String {

@@ -205,12 +205,15 @@ struct SyncOperationAlerts {
     /// e.g. `Classify 12 files with Haiku?`. Over budget it leads with the block so the headline
     /// itself says the call won't run. Pure so the wording is unit-testable.
     nonisolated static func filingSpendMessage(_ p: FilingSpendPreflight) -> String {
-        let noun = p.fileCount == 1 ? "file" : "files"
+        let noun = p.fileCount == 1 ? p.unit : p.unit + "s"
         if p.wouldExceedCap {
             let which = p.wouldExceedTotalCap && !p.wouldExceedMonthlyCap ? "total" : "monthly"
             return "This would exceed your \(which) cloud budget"
         }
-        return "Classify \(p.fileCount) \(noun) with \(FilingSpendFormat.model(p.model))?"
+        // "Classify" is the filing refine's verb; any other unit is a send, said as one.
+        return p.unit == "file"
+            ? "Classify \(p.fileCount) \(noun) with \(FilingSpendFormat.model(p.model))?"
+            : "Send \(p.fileCount) \(noun) to \(FilingSpendFormat.model(p.model))?"
     }
 
     /// Body of the cloud-spend pre-flight: the estimated cost of this call, plus — when a monthly cap
@@ -249,7 +252,7 @@ struct SyncOperationAlerts {
             _ = alert.runModal()
             return false
         }
-        alert.addButton(withTitle: "Classify")   // Return key default
+        alert.addButton(withTitle: p.unit == "file" ? "Classify" : "Send")   // Return key default
         alert.addButton(withTitle: "Cancel")      // Escape
         return isConfirmed(alert.runModal())
     }

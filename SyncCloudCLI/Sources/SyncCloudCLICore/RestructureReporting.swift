@@ -44,6 +44,8 @@ public enum RestructureReporting {
             public var seriesFolders: Int?
             /// looseBesideContainer only.
             public var container: String?
+            /// duplicatedTaxonomy only — distinct same-text documents spanning the pair.
+            public var matchedDocuments: Int?
         }
 
         public struct Crowding: Codable, Equatable, Sendable {
@@ -133,6 +135,12 @@ public enum RestructureReporting {
             out.seriesFolders = seriesFolders
         case .looseBesideContainer(let container):
             out.container = container
+        case .duplicatedTaxonomy(let counterpart, let matchedDocuments):
+            // Reachable only if the CLI ever grows a scan-backed run — the profile-pure
+            // detectors it reports today never produce this kind — but the wire fields exist
+            // now, so a future scan-backed report does not move the schema.
+            out.counterpart = counterpart
+            out.matchedDocuments = matchedDocuments
         case nil:
             break
         }
