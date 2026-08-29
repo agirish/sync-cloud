@@ -89,19 +89,42 @@ import Testing
                 "the Rescan link appears with the caution and not otherwise")
     }
 
-    /// Both states render — and it is the same card, so a layout that only worked in one would
-    /// fail here rather than on a three-week-old survey.
-    @Test func theNoteRendersFreshAndStale() {
-        for age in [1, RestructureLens.staleSurveyDays + 3] {
-            let lens = RestructureLens(
+    /// **The card acts on `surveyIsStale`.** Comparing a fresh render against a stale one looks
+    /// like the test to write and is not one: the two also carry different date sentences ("1 day
+    /// ago" / "24 days ago"), so they differ whatever the staleness branch does — hard-coding
+    /// `stale = false` at the call site left that comparison passing.
+    ///
+    /// What only staleness controls is whether the Rescan link is offered at all. So the
+    /// comparison holds the date fixed and toggles the handler: on a stale survey that must
+    /// change the card, and on a fresh one it must change nothing, because a fresh survey offers
+    /// no link for a handler to attach to.
+    @Test func theCardOffersItsRemedyOnlyWhenTheSurveyIsStale() throws {
+        func lens(daysOld age: Int, remedy: Bool) -> RestructureLens {
+            RestructureLens(
                 findings: [], hasProfile: true, folderCount: 3013,
                 surveyedAt: Calendar.current.date(byAdding: .day, value: -age, to: Date()),
                 accent: .blue, onReveal: { _ in }, hasReviewed: false,
-                onUpdateSurvey: {})
-            let hosting = NSHostingView(rootView: lens.frame(width: 660, height: 520))
-            hosting.frame = NSRect(x: 0, y: 0, width: 660, height: 520)
-            hosting.layoutSubtreeIfNeeded()
-            #expect(hosting.fittingSize.width > 0)
+                onUpdateSurvey: remedy ? {} : nil)
         }
+        let old = RestructureLens.staleSurveyDays + 3
+        let stale = try #require(RestructureRender.raster(lens(daysOld: old, remedy: true),
+                                                          width: 660, height: 520))
+        let fresh = try #require(RestructureRender.raster(lens(daysOld: 1, remedy: true),
+                                                          width: 660, height: 520))
+        #expect(RestructureRender.inkedPixels(fresh) > 1000, "the note drew at all")
+
+        // §4.1's rule puts the caution on the GLYPH and nowhere else, so amber is present in
+        // exactly one state — and unlike a whole-render comparison it cannot be satisfied by the
+        // date sentence changing.
+        #expect(RestructureRender.cautionPixels(fresh) == 0, "a fresh survey raises no caution")
+        #expect(RestructureRender.cautionPixels(stale) > 5,
+                "a three-week-old survey tints its glyph")
+
+        // The remedy beside the warning: on a stale card the handler adds the Rescan link, and on
+        // a fresh one there is nothing for it to attach to.
+        let staleNoRemedy = try #require(RestructureRender.raster(lens(daysOld: old, remedy: false),
+                                                                  width: 660, height: 520))
+        #expect(RestructureRender.differingPixels(stale, staleNoRemedy) > 100,
+                "a stale survey offers the Rescan link")
     }
 }

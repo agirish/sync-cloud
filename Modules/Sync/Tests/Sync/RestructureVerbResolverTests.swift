@@ -124,4 +124,60 @@ import Testing
                                                      under: "~/Documents") == ".")
         #expect(RestructureVerbResolver.relativePath(of: "", under: "~/Documents") == nil)
     }
+
+    // MARK: The one answer both the menu and the workspace read
+
+    /// **A refusal, not a greyed item.** A plan's first act is to save a draft; when the store
+    /// cannot be read the card withholds its trigger, and the menu used to offer it anyway.
+    @Test func anUnreadableStoreRefusesThePlanVerbWithASentence() {
+        let findings = [Self.shape("Finance/US/Income Tax")]
+        let folder = "\(Self.root)/Finance/US/Income Tax"
+        let refused = RestructureVerbResolver.resolve(.plan, folder: folder, root: Self.root,
+                                                      in: findings, storeIsReadable: false)
+        guard case .refuse(let sentence) = refused else {
+            Issue.record("an unreadable store must refuse, not run")
+            return
+        }
+        #expect(sentence.contains("read-only"), "the sentence says what the state is")
+
+        // `setUp` creates folders and records a scaffold; it does not save a draft, so an
+        // unreadable plan store is not its problem.
+        let scaffold = RestructureVerbResolver.resolve(
+            .setUp, folder: "\(Self.root)/Health/Dental/2026", root: Self.root,
+            in: [Self.backlog("Health/Dental/2026")], storeIsReadable: false)
+        #expect(scaffold == .run(Self.backlog("Health/Dental/2026")),
+                "the scaffold does not need the draft store")
+    }
+
+    /// **A landed scaffold is no longer on offer.** The card swaps its button for "Scaffolded —
+    /// the survey hasn't caught up yet"; the menu item stayed enabled and minted a second ledger
+    /// record whose landing created nothing.
+    @Test func aScaffoldThatLandedIsNoLongerOffered() {
+        let findings = [Self.backlog("Health/Dental/2026")]
+        let folder = "\(Self.root)/Health/Dental/2026"
+        #expect(RestructureVerbResolver.resolve(.setUp, folder: folder, root: Self.root,
+                                                in: findings, storeIsReadable: true)
+                == .run(findings[0]))
+        #expect(RestructureVerbResolver.resolve(.setUp, folder: folder, root: Self.root,
+                                                in: findings, storeIsReadable: true,
+                                                alreadyScaffolded: ["Health/Dental/2026"])
+                == .unavailable)
+        // Another subject's landing is not this one's.
+        #expect(RestructureVerbResolver.resolve(.setUp, folder: folder, root: Self.root,
+                                                in: findings, storeIsReadable: true,
+                                                alreadyScaffolded: ["Work/Benefits/2026"])
+                == .run(findings[0]))
+    }
+
+    /// A folder outside the root, and one with no finding, are `unavailable` — a greyed item,
+    /// with nothing to say about it.
+    @Test func aFolderWithNothingToActOnIsUnavailable() {
+        let findings = [Self.shape("Finance/US/Income Tax")]
+        #expect(RestructureVerbResolver.resolve(.plan, folder: "/elsewhere/Finance",
+                                                root: Self.root, in: findings,
+                                                storeIsReadable: true) == .unavailable)
+        #expect(RestructureVerbResolver.resolve(.plan, folder: "\(Self.root)/Photos",
+                                                root: Self.root, in: findings,
+                                                storeIsReadable: true) == .unavailable)
+    }
 }

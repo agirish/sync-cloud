@@ -1320,26 +1320,43 @@ as the feature above, checked and not owed: every touched file is v5-only except
 — a flag (and a hazard) that exists only where Restructure landings do, so the maintenance lines
 have nothing to guard.
 
-### The Organize proposals O1–O6, O9 — checked, not owed
+### The Organize proposals O1–O14 — checked, not owed
 
-Seven proposals against the v5.0 Organize build: the Trash route for §5.2's standing empties (O1),
-`Plan…` on the merge kinds (O2), and the visual pass (O3 before/after preview, O4 kind glyphs,
-O5 era strip, O6 blast radius as counts, O9 grouped crowding lists).
+Fourteen proposals against the v5.0 Organize build: the Trash route for §5.2's standing empties
+(O1), `Plan…` on the merge kinds (O2), the visual pass (O3 before/after preview, O4 kind glyphs,
+O5 era strip, O6 blast radius as counts, O9 grouped crowding lists), the landing's own progress
+checklist (O7), the mapping editor's filter and similar-name aids (O8), a Finder-menu route into
+both plan verbs (O10), the ledger's history and verifier line (O11), the survey-refresh button and
+its staleness tint (O12, O13), and the Help Book link out of the lens (O14).
 
-**Every one of them extends machinery that exists only on `main`.** `RestructureLens`,
-`RestructurePlanSheet`, `RestructurePlanner`, `RestructureStore` and `FileSyncManager+RestructureApply`
-are all v5-only files — `git ls-tree -r --name-only origin/v4.x -- Modules/Sync/Sources/Sync/RestructurePlanner.swift`
+**Almost every one of them extends machinery that exists only on `main`.** `RestructureLens`,
+`RestructurePlanSheet`, `RestructurePlanner`, `RestructureStore` and
+`FileSyncManager+RestructureApply` are all v5-only files —
+`git ls-tree -r --name-only origin/v4.x -- Modules/Sync/Sources/Sync/RestructurePlanner.swift`
 prints nothing on all three maintenance lines. There is no crowding strip to grow a button on, no
-plan sheet to seed, and no ledger whose counts a chip could restate.
+plan sheet to seed, and no ledger whose counts a chip could restate. The five new files here
+(`RestructurePaths`, `RestructurePlanRouting`, `RestructureVerbResolver`,
+`RestructureVerbRequest`, `RestructurePairMergeSheet`) are v5-only by construction, and so is
+`OrganizeHelpTopics`.
 
-Two touched files exist off `main`, and neither is owed either:
+Five touched files exist off `main`. None is owed, and the reason differs per file:
 
-- `MacApp/HelpBook.swift` is on all three lines. It gains one paragraph, and that paragraph
-  describes the two sheets `Plan…` can open — both v5-only, so the sentence would be false on a
-  line that has neither.
-- `Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift` is on **`v4.x` only** (the
-  older two predate the lens workspace entirely). Every hunk here is inside its `.restructure`
-  branch or the Restructure helpers below it, none of which `v4.x` carries.
+- `MacApp/HelpBook.swift` — all three lines. It gains one Restructure paragraph and an `openAt:`
+  anchor, and that paragraph describes the two sheets `Plan…` opens; both are v5-only, so the
+  sentence would be false on a line that has neither.
+- `MacApp/ContentView.swift` — all three lines. Two hunks: the `helpTopic` state that carries
+  O14's anchor (meaningless without the anchors), and a `helpTopic = nil` when Help closes. The
+  second reads like a general fix but is not one — there is nothing to clear on a line where
+  nothing ever sets it.
+- `Modules/Sync/Sources/Sync/FileSyncManager.swift` — all three lines. One stored property,
+  `restructureApplyProgress`, typed `RestructureApplyProgress?` — a v5-only type. It does not
+  compile on the maintenance lines.
+- `MacApp/ShortcutCommands.swift` and
+  `Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift` — **`v4.x` only** (the older
+  two predate the lens workspace and this Commands file entirely). Every hunk is O10's two menu
+  items and the Restructure helpers below the `.restructure` branch, none of which `v4.x` carries.
 
-Checked with `git ls-tree` per file against all three lines — which is also what corrected this
-entry: it first claimed both files were shared by all three, and only `v4.x` has the second.
+Checked with `git ls-tree` per file against all three lines — which is also what corrected the
+earlier version of this entry, which claimed the two `v4.x`-only files were shared by all three.
+The per-file notes are the expensive half to reconstruct, which is why the "not owed" reasons are
+written out rather than summarised: they are not the same reason.

@@ -14,6 +14,13 @@ public struct RestructureApplyProgress: Equatable, Sendable {
 
     /// The stages a reader can distinguish. Steps 7 and 8 fold into `artifacts`: the corpus
     /// replay, the memory rebuild and the log line are one wait with no separable meaning.
+    ///
+    /// **What is promised is the ORDER, not a dwell on each line.** `guards` and `inverse` are
+    /// separated by synchronous work that takes well under a frame, so neither is ever the
+    /// *current* line for long — the sheet's checklist is what carries the meaning, showing them
+    /// ticked above `operations` while the moves run. The `Task.yield()`s in `applyPlan` exist so
+    /// each one gets a chance at a frame rather than being coalesced away entirely, which is
+    /// worth having on a slow disk and is not worth asserting a duration about.
     public enum Stage: Int, Comparable, Sendable, CaseIterable {
         case guards, inverse, operations, verify, rederive, artifacts
 
@@ -31,10 +38,6 @@ public struct RestructureApplyProgress: Equatable, Sendable {
         self.opsTotal = opsTotal
     }
 
-    /// How often step 3 may publish. A landing of 500 file moves publishing per file is 500 full
-    /// copies of a published value on the main actor; a tenth of a second is faster than a
-    /// reader can follow anyway.
-    public static let operationPublishInterval: TimeInterval = 0.1
 
     /// What each stage says while it is the current one. Written as the thing being done, in the
     /// order the engine does it, because the point is that a reader can see the inverse land
@@ -151,6 +154,10 @@ extension FileSyncManager {
         // mid-run leaves a reversible trace (invariant 3). VERIFIED on disk: a swallowed write
         // failure here would run a full reorganisation whose only inverse dies with the session.
         restructureApplyProgress = RestructureApplyProgress(stage: .inverse)
+        // See `Stage`: this and the yield below give the two pre-operations lines a chance at a
+        // frame. Without them the first thing drawn is `operations`, and the ordered checklist —
+        // not a dwell — is what makes "the inverse reached disk first" visible.
+        await Task.yield()
         guard store.recordApplied(RestructureStore.AppliedRecord(
             manifest: manifest, inverse: manifest.inverse, at: stamp, created: 0, skipped: 0,
             appliedUnderProfileId: oldDirectoryId)) else {
@@ -167,8 +174,10 @@ extension FileSyncManager {
         restructureApplyProgress = RestructureApplyProgress(
             stage: .operations, opsDone: 0, opsTotal: manifest.operationCount)
         // The counter arrives from the executor's own loop, off the main actor, and is coalesced
-        // there — see `operationPublishInterval`. Publishing per file would be an `@Published`
-        // write per file, which is the 11.1-second freeze this project already paid for once.
+        // there, through this module's own `ProgressPublishGate`. Publishing per file would be a
+        // published write per file, and every write to this manager re-evaluates the window's
+        // root view — both file panes, the differences pane and the inspector — which is the
+        // storm that gate was written for.
         let progressSink: @Sendable (Int) -> Void = { [weak self] done in
             Task { @MainActor in
                 guard let self, var current = self.restructureApplyProgress,
@@ -177,6 +186,7 @@ extension FileSyncManager {
                 self.restructureApplyProgress = current
             }
         }
+        await Task.yield()
         let execution: RestructureExecution = await enqueueFileOperation {
             FileSyncManager.executeRestructureActions(actions, root: expandedRoot, fm: fm,
                                                       onProgress: progressSink)
@@ -427,7 +437,14 @@ extension FileSyncManager {
     public func refreshDerivedProfile(now: Date = Date()) async -> String? {
         if let refusal = restructureLandingRefusal() { return refusal }
         restructureLandingInProgress = true
-        defer { restructureLandingInProgress = false }
+        // The progress value belongs to the operation that publishes it. `rederiveProfile` is
+        // shared with `applyPlan`, whose own defer clears it — without this one a refresh left
+        // `.artifacts` published for the rest of the session, and the next plan sheet opened
+        // showed a five-ticked checklist over a landing that never happened.
+        defer {
+            restructureLandingInProgress = false
+            restructureApplyProgress = nil
+        }
         guard let store = restructureStore, let profile = filingFolderProfile,
               let profilesDirectory = filingProfilesDirectory else {
             return "No folder survey is loaded."
@@ -446,6 +463,15 @@ extension FileSyncManager {
                                      expandedRoot: expandedRoot, ledgerId: nil,
                                      summaryForLedger: nil, now: now) {
         case .success(let newId):
+            // **Carry the undo chain across.** `undoableReorganisation` is keyed on a landing's
+            // produced profile being the current one, and this just minted a new current one
+            // without moving a single file — so without the re-point, a landing that was
+            // undoable a moment ago becomes permanently un-undoable and nothing says why.
+            restructureStore?.repointProduced(from: oldDirectoryId, to: newId)
+            // The stamp is what the staleness note reads, and a successful refresh must clear
+            // the caution even on a profile with no corpus to rewrite (`rederiveProfile` only
+            // stamps inside the corpus branch).
+            filingSurveyedAt = now
             Logger.shared.info("Restructure: survey re-derived on request — "
                 + "\(oldDirectoryId) → \(newId)")
             return nil
@@ -830,16 +856,24 @@ extension FileSyncManager {
         onProgress: (@Sendable (Int) -> Void)? = nil)
         -> RestructureExecution {
         var out = RestructureExecution()
-        // Coalesced HERE, where the loop is, so a landing of 500 moves publishes a handful of
-        // times rather than 500. `nil` for every caller that is not watching.
-        var lastReport = Date.distantPast
+        // The denominator the sheet renders against: operations, not signature `keep` rows.
+        let total = actions.count { $0.action != .keep }
+        // **`ProgressPublishGate`, not a clock.** This module already owns the publish-storm
+        // rule, and its doc gives the reason to prefer a percent gate over an interval: a gate
+        // keyed on elapsed time can only be tested against a clock seam, and a percent gate caps
+        // a run of ANY length at ~101 publishes where an interval is unbounded in total. The
+        // first cut here re-invented the interval and was weaker on both counts. `nil` for every
+        // caller that is not watching.
+        var gate = ProgressPublishGate()
         var completed = 0
+        var lastPublished = -1
         func report(force: Bool = false) {
             guard let onProgress else { return }
-            let now = Date()
-            guard force || now.timeIntervalSince(lastReport)
-                >= RestructureApplyProgress.operationPublishInterval else { return }
-            lastReport = now
+            // The gate already lets the terminal report through, so the forced call after the
+            // loop would otherwise publish the final count twice.
+            guard completed != lastPublished else { return }
+            guard force || gate.admits(completed: completed, total: total) else { return }
+            lastPublished = completed
             onProgress(completed)
         }
         func absolute(_ relative: String) -> String {

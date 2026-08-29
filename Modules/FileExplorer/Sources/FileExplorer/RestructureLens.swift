@@ -60,6 +60,47 @@ struct ReorganisationDisplay: Equatable, Identifiable {
     /// one record that IS undoable and on every record that has been undone.
     var blockedReason: String?
     var id: String { manifestId }
+
+    /// The ledger's records as the cards state them — **the whole mapping, as one rule.**
+    ///
+    /// Extracted from the workspace's private `reorganisationDisplays`, where every clause below
+    /// was unreachable from a test: mutating the verdict to `nil`, or dropping the `undoneAt`
+    /// half of the block reason so an undone landing claimed something newer was in its way,
+    /// left the suite green. `stillHasEmptiedFolders` is the one disk probe, passed in.
+    static func rows(from records: [RestructureStore.AppliedRecord],
+                     undoableId: String?,
+                     stillHasEmptiedFolders: (RestructureManifest) -> Bool)
+        -> [ReorganisationDisplay] {
+        records
+            .filter { $0.appliedUnderProfileId != nil }
+            .reversed()
+            .map { record in
+                ReorganisationDisplay(
+                    manifestId: record.manifest.manifestId,
+                    family: record.manifest.family,
+                    at: record.at,
+                    summary: record.summary
+                        ?? "this landing did not finish recording — the log from its run has the "
+                        + "detail",
+                    undoneAt: record.undoneAt,
+                    undoSummary: record.undoSummary,
+                    canUndo: record.manifest.manifestId == undoableId,
+                    // Disk-probed, like `scaffoldedSubjects`: `emptiedFolders(of:)` is a pure
+                    // function of the manifest, so on its own the button would outlive its own
+                    // landing forever — reopening a sheet of "already removed" rows over a
+                    // permanently disabled button.
+                    hasEmptiedFolders: record.undoneAt == nil && record.summary != nil
+                        && stillHasEmptiedFolders(record.manifest),
+                    verifierLine: RestructureLens.verifierLine(verifiedOK: record.verifiedOK,
+                                                               note: record.verifierNote),
+                    // **The store's order, never the view's.** `undoableReorganisation` is the
+                    // one spelling the engine and the Organize menu also read; a second copy
+                    // here is how a card ends up offering an undo the engine refuses.
+                    blockedReason: record.undoneAt == nil && undoableId != nil
+                        && record.manifest.manifestId != undoableId
+                        ? RestructureLens.blockedByNewerText : nil)
+            }
+    }
 }
 
 /// Organize ▸ Restructure: families of sibling folders that were shaped differently at different
@@ -167,11 +208,14 @@ struct RestructureLens: View {
     /// pointer at documentation, and one that goes nowhere is worse than none.
     var onOpenHelp: (() -> Void)?
     /// Re-derives the survey from the tree as it stands — §5.7's Scaffolded card, whose own
-    /// sentence describes a wait with nothing to end it. nil hides the button.
-    var onRefreshSurvey: (() -> Void)?
-    /// What the last refresh refused with, if it did — a sentence on the card rather than a
-    /// queue, because the guards are the landing's and "wait for the scan" means press it again.
-    var refreshSurveyRefusal: String?
+    /// sentence describes a wait with nothing to end it. Carries the asking card's subject so a
+    /// refusal lands on the card that asked. nil hides the button.
+    var onRefreshSurvey: ((String) -> Void)?
+    /// What the last refresh refused with, and **which card asked** — a sentence on the card
+    /// rather than a queue, because the guards are the landing's and "wait for the scan" means
+    /// press it again. Keyed by subject: a single string rendered under every scaffolded card,
+    /// which is a refusal reported for presses that never happened.
+    var refreshSurveyRefusal: (subject: String, sentence: String)?
     /// Opens the same sheet on §5.2's **pre-existing** empties — the crowding strip's third
     /// filter, which the roadmap decided gets a Trash route and shipped without one. nil hides
     /// the button rather than promising a sheet that does not open.
@@ -186,6 +230,16 @@ struct RestructureLens: View {
     @State private var expandedBranches: Set<String> = []
 
     var body: some View {
+        // The Help pointer rides the whole lens rather than the crowding strip: the strip renders
+        // only where the scope has dead-weight folders, so on a clean subtree — and in all three
+        // card states — the affordance vanished exactly where a reader is most likely to be lost.
+        lensBody.overlay(alignment: .topTrailing) {
+            helpPointer.padding(.top, 6).padding(.trailing, 10)
+        }
+    }
+
+    @ViewBuilder
+    private var lensBody: some View {
         if !hasProfile {
             noProfileState
         } else if !hasReviewed {
@@ -417,7 +471,6 @@ struct RestructureLens: View {
                     crowdingChip(weightClass)
                 }
                 Spacer(minLength: 0)
-                helpPointer
             }
             if let crowdingFilter {
                 crowdingList(crowdingFilter)
@@ -451,8 +504,10 @@ struct RestructureLens: View {
             .buttonStyle(.plain)
             // `.help` is the tooltip, not the name — a glyph-only control needs both.
             .accessibilityLabel("About Restructure")
-            .help("What Restructure looks for, how a plan is reviewed, and why taking a "
-                  + "landing back is not ⌘Z.")
+            // Says what THIS page covers. The earlier wording promised the ⌘Z explanation, which
+            // lives on *Apply, and take it back* — a tooltip that promises another page's content
+            // is a pointer that misses.
+            .help("What Restructure looks for, and how a plan is reviewed before anything moves.")
             .chromeHover()
         }
     }
@@ -767,15 +822,16 @@ struct RestructureLens: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         if let onRefreshSurvey {
-                            Button("Update the survey now") { onRefreshSurvey() }
+                            Button("Update the survey now") { onRefreshSurvey(finding.subject) }
                                 .scaledFont(.system(size: 11, weight: .semibold))
                                 .buttonStyle(.plain)
                                 .foregroundStyle(accent)
                                 .chromeHover()
                                 .help(Self.refreshSurveyHelp)
                         }
-                        if let refreshSurveyRefusal {
-                            Text(refreshSurveyRefusal)
+                        if let refreshSurveyRefusal,
+                           refreshSurveyRefusal.subject == finding.subject {
+                            Text(refreshSurveyRefusal.sentence)
                                 .scaledFont(.system(size: 10.5))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)

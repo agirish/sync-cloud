@@ -251,9 +251,9 @@ public struct LensWorkspaceView: View {
         var isStanding: Bool { origin == .standing }
     }
     @State private var removalRequest: RemovalRequest?
-    /// What the last *Update the survey now* refused with — shown on the Scaffolded card that
-    /// asked for it, and cleared when it is pressed again.
-    @State private var refreshSurveyRefusal: String?
+    /// What the last *Update the survey now* refused with, and which card asked — shown on that
+    /// card alone, and cleared when any of them is pressed again.
+    @State private var refreshSurveyRefusal: (subject: String, sentence: String)?
     /// A learn-by-example rule offered after the user files a loose file — turned into an editable
     /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
     /// until saved or dismissed; cleared when a new scan starts.
@@ -3270,7 +3270,20 @@ public struct LensWorkspaceView: View {
                         // The refresh, and the same value the rescan menu offers: nil on a
                         // machine with no artifacts to rebuild, which withholds the button
                         // rather than offering one that would do nothing.
-                        onUpdateSurvey: onUpdateFolderMemory,
+                        // **`refreshDerivedProfile`, not the document re-survey.** Restructure
+                        // reads the folder PROFILE, and `onUpdateFolderMemory` re-reads documents
+                        // and stamps the date without ever reassigning it — so this button
+                        // cleared its own staleness warning while every finding stayed
+                        // byte-identical. A warning the user can dismiss without fixing anything
+                        // is worse than no warning.
+                        onUpdateSurvey: {
+                            Task { @MainActor in
+                                refreshSurveyRefusal = nil
+                                if let refusal = await syncManager.refreshDerivedProfile() {
+                                    syncManager.banner = .warning(refusal)
+                                }
+                            }
+                        },
                         // §5.7's Applied/Undone cards — every plan landing in the ledger,
                         // newest first. Scaffolds keep their own card sentence and stay out.
                         reorganisations: reorganisationDisplays,
@@ -3291,11 +3304,12 @@ public struct LensWorkspaceView: View {
                         onOpenHelp: onOpenHelp.map { open in
                             { open(RestructureLens.helpTopicID) }
                         },
-                        onRefreshSurvey: {
+                        onRefreshSurvey: { subject in
                             Task { @MainActor in
                                 refreshSurveyRefusal = nil
-                                refreshSurveyRefusal =
-                                    await syncManager.refreshDerivedProfile()
+                                if let refusal = await syncManager.refreshDerivedProfile() {
+                                    refreshSurveyRefusal = (subject: subject, sentence: refusal)
+                                }
                             }
                         },
                         refreshSurveyRefusal: refreshSurveyRefusal,
@@ -3311,36 +3325,11 @@ public struct LensWorkspaceView: View {
     /// engine use, because two hand-synchronised copies of that rule is how the menu ends up
     /// enabling an undo whose card shows no button.
     private var reorganisationDisplays: [ReorganisationDisplay] {
-        let records = (syncManager.restructureStore?.applied ?? [])
-            .filter { $0.appliedUnderProfileId != nil }
-        let undoableId = syncManager.restructureStore?.undoableReorganisation(
-            currentProfileId: syncManager.filingProfileDirectoryId)?.manifest.manifestId
-        return records.reversed().map { record in
-            ReorganisationDisplay(
-                manifestId: record.manifest.manifestId,
-                family: record.manifest.family,
-                at: record.at,
-                summary: record.summary
-                    ?? "this landing did not finish recording — the log from its run has the "
-                    + "detail",
-                undoneAt: record.undoneAt,
-                undoSummary: record.undoSummary,
-                canUndo: record.manifest.manifestId == undoableId,
-                // Disk-probed, like `scaffoldedSubjects`: `emptiedFolders(of:)` is a pure
-                // function of the manifest, so on its own the button would outlive its own
-                // landing forever — reopening a sheet of "already removed" rows over a
-                // permanently disabled button.
-                hasEmptiedFolders: record.undoneAt == nil && record.summary != nil
-                    && anyEmptiedFolderStillStands(of: record.manifest),
-                verifierLine: RestructureLens.verifierLine(verifiedOK: record.verifiedOK,
-                                                           note: record.verifierNote),
-                // **The store's order, never the view's.** `undoableReorganisation` is the one
-                // spelling the engine and the Organize menu also read; a second copy here is how
-                // a card ends up offering an undo the engine refuses.
-                blockedReason: record.undoneAt == nil && undoableId != nil
-                    && record.manifest.manifestId != undoableId
-                    ? RestructureLens.blockedByNewerText : nil)
-        }
+        ReorganisationDisplay.rows(
+            from: syncManager.restructureStore?.applied ?? [],
+            undoableId: syncManager.restructureStore?.undoableReorganisation(
+                currentProfileId: syncManager.filingProfileDirectoryId)?.manifest.manifestId,
+            stillHasEmptiedFolders: { anyEmptiedFolderStillStands(of: $0) })
     }
 
     /// Subjects whose scaffold landed AND still stands. A record whose created folders are all
@@ -3514,9 +3503,22 @@ public struct LensWorkspaceView: View {
     /// was drawn, so the honest report is that the answer moved, not nothing at all.
     private func carryOut(_ request: RestructureVerbRequest) {
         guard let root = syncManager.filingFolderProfile?.root else { return }
-        guard let finding = RestructureVerbResolver.finding(
-            forFolder: request.folder, root: root,
-            in: syncManager.visibleStructureFindings, verb: request.verb) else {
+        // **The same answer the menu's availability read.** Two copies of this decision is how an
+        // item ends up enabled over a handler that refuses; `unavailable` here means the survey
+        // moved between the menu opening and the press, which is worth a sentence of its own.
+        let resolution = RestructureVerbResolver.resolve(
+            request.verb, folder: request.folder, root: root,
+            in: syncManager.visibleStructureFindings,
+            storeIsReadable: syncManager.restructureStore?.isUnreadable == false,
+            alreadyScaffolded: scaffoldedSubjects())
+        let finding: StructureFinding
+        switch resolution {
+        case .run(let resolved):
+            finding = resolved
+        case .refuse(let sentence):
+            syncManager.banner = .warning(sentence)
+            return
+        case .unavailable:
             syncManager.banner = .warning(
                 "There is no longer a finding for that folder — the survey may have been "
                 + "updated since the menu was opened.")
@@ -3667,6 +3669,7 @@ public struct LensWorkspaceView: View {
             // claim it was opened from rather than restating it in different words.
             rationale: RestructureLens.blastRadius(for: finding)
                 ?? RestructureLens.subtitle(for: finding),
+            applyProgress: syncManager.restructureApplyProgress,
             onExport: { manifest in
                 do {
                     let name = try store.exportPlan(manifest)

@@ -886,7 +886,12 @@ struct ContentView: View {
             showHelp = false
         }
         .onChange(of: showHelp) { _, isOpen in
-            guard isOpen, pendingDestination != nil else { return }
+            // One observer rather than a clear at each dismissal: Help closes from four places
+            // (its own button, the deep-link chain above, "Set Up SyncCloud…", and this refusal),
+            // and three of them left `helpTopic` set — so the next ⌘? opened on the Restructure
+            // page instead of the front of the book. Keying off the flag covers the next one too.
+            guard isOpen else { helpTopic = nil; return }
+            guard pendingDestination != nil else { return }
             showHelp = false
         }
         // Setup is the third member of the same chain. A destination pick is a direct answer to

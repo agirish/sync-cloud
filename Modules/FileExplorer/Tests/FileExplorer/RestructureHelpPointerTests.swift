@@ -36,18 +36,21 @@ import Testing
         #expect(text.contains("if let onOpenHelp {"))
     }
 
-    /// Rendered with and without the handler — the strip has to lay out either way.
-    @Test func theStripRendersWithAndWithoutThePointer() {
-        for handler in [{ }, nil] as [(() -> Void)?] {
-            let lens = RestructureLens(
+    /// Rendered with and without the handler — the strip lays out either way, **and the pointer
+    /// is visibly there in one and not the other.** A `fittingSize` closer here passed with the
+    /// whole overlay deleted, which is the mutation this exists to catch.
+    @Test func theStripRendersWithAndWithoutThePointer() throws {
+        func lens(_ handler: (() -> Void)?) -> RestructureLens {
+            RestructureLens(
                 findings: [], hasProfile: true, folderCount: 3013,
                 deadWeight: ["Travel/2019": .empty],
                 accent: .blue, onReveal: { _ in }, hasReviewed: true,
                 onOpenHelp: handler)
-            let hosting = NSHostingView(rootView: lens.frame(width: 660, height: 320))
-            hosting.frame = NSRect(x: 0, y: 0, width: 660, height: 320)
-            hosting.layoutSubtreeIfNeeded()
-            #expect(hosting.fittingSize.width > 0)
         }
+        let without = try #require(RestructureRender.raster(lens(nil), width: 660, height: 320))
+        let with = try #require(RestructureRender.raster(lens({ }), width: 660, height: 320))
+        #expect(RestructureRender.inkedPixels(without) > 1000, "the strip drew either way")
+        #expect(RestructureRender.differingPixels(without, with) > 20,
+                "the pointer is drawn when there is somewhere for it to go")
     }
 }

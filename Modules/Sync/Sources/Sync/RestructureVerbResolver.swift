@@ -18,6 +18,43 @@ public enum RestructureVerbResolver {
         case setUp
     }
 
+    /// What pressing a verb on a folder should do — **one answer, read by both the menu's
+    /// availability and the workspace that carries the press out.**
+    ///
+    /// They were two hand-synchronised copies, and every difference between them was a defect a
+    /// user could reach: the menu offered `Plan…` on a store the card withheld it for (a draft
+    /// that cannot persist breaks §5.7's survives-a-quit promise), and kept `Set Up Like Its
+    /// Siblings` enabled after the scaffold had landed, minting a second ledger record that
+    /// created nothing. An enabled item whose handler then refuses is the worst of the three
+    /// possible behaviours, so availability IS `resolve(...) == .run`.
+    public enum Resolution: Equatable {
+        /// Act on this finding.
+        case run(StructureFinding)
+        /// Do not offer the verb at all — there is nothing here it could act on.
+        case unavailable
+        /// The verb applies, but something outside the finding blocks it, and the user needs the
+        /// sentence rather than a silently greyed item.
+        case refuse(String)
+    }
+
+    /// The whole decision. `storeIsReadable` is false when `restructure.json` cannot be read.
+    public static func resolve(_ verb: Verb, folder: String, root: String,
+                               in findings: [StructureFinding],
+                               storeIsReadable: Bool,
+                               alreadyScaffolded: Set<String> = []) -> Resolution {
+        // A plan's first act is to save a draft. Refusing here rather than after the sheet opens
+        // is what the card does, and the sentence is the same one.
+        if verb == .plan, !storeIsReadable {
+            return .refuse("The plan store cannot be read, so a plan could not be saved — "
+                + "Restructure is read-only until that is fixed.")
+        }
+        guard let finding = finding(forFolder: folder, root: root, in: findings, verb: verb,
+                                    alreadyScaffolded: alreadyScaffolded) else {
+            return .unavailable
+        }
+        return .run(finding)
+    }
+
     /// The finding `folder` resolves to for `verb`, or nil when the menu should stay greyed.
     ///
     /// **Exact subject first, then the nearest ancestor.** Someone who selects
@@ -30,16 +67,27 @@ public enum RestructureVerbResolver {
     /// place that conversion happens for the menu.
     public static func finding(forFolder folder: String, root: String,
                                in findings: [StructureFinding],
-                               verb: Verb) -> StructureFinding? {
+                               verb: Verb,
+                               alreadyScaffolded: Set<String> = []) -> StructureFinding? {
         guard let relative = relativePath(of: folder, under: root) else { return nil }
-        let candidates = findings.filter { offers(verb, $0) }
+        // A scaffold that has already landed is not on offer — the card swaps its button for
+        // "Scaffolded — the survey hasn't caught up yet", and a menu item that stayed enabled
+        // minted a second ledger landing that created nothing.
+        let candidates = findings.filter {
+            offers(verb, $0) && !(verb == .setUp && alreadyScaffolded.contains($0.subject))
+        }
         guard !candidates.isEmpty else { return nil }
 
         if let exact = candidates.first(where: { $0.subject == relative }) { return exact }
-        // The nearest ancestor: deepest family that contains the folder. Sorting by the family's
-        // length picks the closest one when a folder sits inside two nested families.
+        // **The ancestor fallback is for `shape` alone**, and that is the whole of its
+        // justification: a shape finding's subject IS the family, so a member the user clicked is
+        // genuinely inside it. Every other kind's subject is one specific folder — falling back to
+        // one from a child meant selecting `PG&E/PGE/2024` and being offered a merge of
+        // `PG&E/PGE` into `PG&E`, two folders the user selected neither directly nor as a family,
+        // under a verb named "shape". A menu item that acts on a folder the user did not select is
+        // worse than a greyed one, which is this function's own stated rule.
         return candidates
-            .filter { RestructurePaths.isInside(relative, of: $0.subject) }
+            .filter { $0.kind == .shape && RestructurePaths.isInside(relative, of: $0.subject) }
             .max { $0.subject.count < $1.subject.count }
     }
 
@@ -67,6 +115,10 @@ public enum RestructureVerbResolver {
         guard !folder.isEmpty, !root.isEmpty else { return nil }
         guard folder != root else { return "." }
         guard RestructurePaths.isInside(folder, of: root) else { return nil }
-        return String(folder.dropFirst(root.count + 1))
+        // Drop the root's COMPONENTS rather than its characters: `root == "/"` made the character
+        // form eat the first letter of the name. Unreachable from a real profile, and one line
+        // cheaper than depending on that.
+        let components = folder.split(separator: "/").map(String.init)
+        return components.dropFirst(root.split(separator: "/").count).joined(separator: "/")
     }
 }

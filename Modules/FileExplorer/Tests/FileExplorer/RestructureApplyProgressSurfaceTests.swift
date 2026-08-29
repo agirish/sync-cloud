@@ -69,10 +69,10 @@ import Testing
         #expect(host.contains("applyProgress: syncManager.restructureApplyProgress"))
     }
 
-    /// The sheet renders mid-landing, at a stage with a count and at one without.
-    @Test func theSheetRendersItsChecklist() {
-        for progress in [RestructureApplyProgress(stage: .operations, opsDone: 12, opsTotal: 38),
-                         RestructureApplyProgress(stage: .inverse)] {
+    /// The sheet renders mid-landing, at a stage with a count and at one without — **and the
+    /// checklist is visibly there**, which the `fittingSize` closer this replaces did not check.
+    @Test func theSheetRendersItsChecklist() throws {
+        func sheet(progress: RestructureApplyProgress?) -> RestructurePlanSheet {
             let finding = StructureFinding(
                 family: "F",
                 schemes: [.init(vocabulary: ["forms"], members: ["2013"]),
@@ -81,15 +81,22 @@ import Testing
                 childFolders: { ["F": ["2013", "2014"], "F/2013": ["Federal"],
                                  "F/2014": ["Forms"]][$0] ?? [] },
                 files: { _ in [] }, fileCount: { _ in 0 })
-            let sheet = RestructurePlanSheet(
+            return RestructurePlanSheet(
                 finding: finding, family: "F", members: ["2013", "2014"], tree: tree,
                 profileId: "p", accent: .blue,
                 onExport: { _, _ in .saved(filename: "f.json") },
                 applyProgress: progress, onClose: {})
-            let hosting = NSHostingView(rootView: sheet.frame(width: 620, height: 760))
-            hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 760)
-            hosting.layoutSubtreeIfNeeded()
-            #expect(hosting.fittingSize.width > 0)
+        }
+        let idle = try #require(RestructureRender.raster(sheet(progress: nil),
+                                                         width: 620, height: 760))
+        #expect(RestructureRender.inkedPixels(idle) > 0, "the sheet drew at all")
+
+        for progress in [RestructureApplyProgress(stage: .operations, opsDone: 12, opsTotal: 38),
+                         RestructureApplyProgress(stage: .inverse)] {
+            let landing = try #require(RestructureRender.raster(sheet(progress: progress),
+                                                                width: 620, height: 760))
+            #expect(RestructureRender.differingPixels(idle, landing) > 200,
+                    "the checklist is drawn while the landing runs")
         }
     }
 }

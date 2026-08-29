@@ -97,17 +97,23 @@ import Testing
         // The derivation reads `rows` whole...
         #expect(text.contains("mapping: RestructureMapping(rows: rows)"))
         // ...and the filter is applied only where rows are RENDERED.
-        let renderUse = try #require(text.range(of: "if Self.matches(row.source, filter: filterText)"))
+        #expect(text.contains("if Self.matches(row.source, filter: filterText)"),
+                "the filter is applied at the row, in the list")
+        // **The derivation's own body, read directly.** The previous form of this test compared
+        // two file offsets with an `||`, and because the render use genuinely does sit earlier in
+        // the file its first disjunct was always true — the half that checked anything never ran.
+        // Slicing the property's body and looking inside it has no such escape.
         let derived = try #require(text.range(of: "private var derived:"))
-        #expect(renderUse.lowerBound < derived.lowerBound
-                    || !text[derived.lowerBound...].prefix(400).contains("filterText"),
-                "the derivation must not consult the filter")
-        #expect(text.components(separatedBy: "filterText").count - 1 <= 4,
-                "the filter should touch the view and nothing else")
+        let afterDerived = text[derived.upperBound...]
+        let bodyEnd = try #require(afterDerived.range(of: "\n    }\n"))
+        let body = afterDerived[..<bodyEnd.lowerBound]
+        #expect(body.contains("rows"), "a positive control: the slice really is the derivation")
+        #expect(!body.contains("filterText"),
+                "the derivation must not consult the filter — Apply does not narrow with the view")
     }
 
     /// The whole sheet renders with a filter present and with one applied.
-    @Test func theEditorRendersFilteredAndUnfiltered() {
+    @Test func theEditorRendersFilteredAndUnfiltered() throws {
         let finding = StructureFinding(
             family: "F",
             schemes: [.init(vocabulary: ["forms"], members: ["2013"]),
@@ -123,9 +129,9 @@ import Testing
             finding: finding, family: "F", members: ["2013", "2014"], tree: tree,
             profileId: "p", accent: .blue,
             onExport: { _, _ in .saved(filename: "f.json") }, onClose: {})
-        let hosting = NSHostingView(rootView: sheet.frame(width: 620, height: 700))
-        hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 700)
-        hosting.layoutSubtreeIfNeeded()
-        #expect(hosting.fittingSize.width > 0)
+        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
+        // `VStack`, so it passed with the subject of this test deleted.
+        let rep = try #require(RestructureRender.raster(sheet, width: 620, height: 700))
+        #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 }

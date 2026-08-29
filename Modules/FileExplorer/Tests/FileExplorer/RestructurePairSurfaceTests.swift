@@ -171,7 +171,7 @@ import Testing
                     == "Merge Dental into Health/Dental")
     }
 
-    @Test func thePairSheetRendersItsDerivedOperations() {
+    @Test func thePairSheetRendersItsDerivedOperations() throws {
         let sheet = RestructurePairMergeSheet(
             source: "Health/TODO/Dental",
             destination: "Health/Dental",
@@ -186,10 +186,10 @@ import Testing
             onExport: { _ in .saved(filename: "f.json") },
             onApply: { _ in .applied(summary: "2 moved") },
             onClose: {})
-        let hosting = NSHostingView(rootView: sheet.frame(width: 560, height: 420))
-        hosting.frame = NSRect(x: 0, y: 0, width: 560, height: 420)
-        hosting.layoutSubtreeIfNeeded()
-        #expect(hosting.fittingSize.width > 0)
+        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
+        // `VStack`, so it passed with the subject of this test deleted.
+        let rep = try #require(RestructureRender.raster(sheet, width: 560, height: 420))
+        #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 
     // MARK: The call site

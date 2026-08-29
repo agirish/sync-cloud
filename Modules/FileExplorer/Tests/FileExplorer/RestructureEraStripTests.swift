@@ -201,7 +201,7 @@ import Testing
     }
 
     /// The card renders with the strip and without it, and neither crashes offscreen.
-    @Test func shapeCardsRenderWithAndWithoutTheStrip() {
+    @Test func shapeCardsRenderWithAndWithoutTheStrip() throws {
         for finding in [
             StructureFinding(family: "Finance/US/Income Tax",
                              schemes: [Self.scheme(["forms"], ["2013", "2014"]),
@@ -212,10 +212,10 @@ import Testing
         ] {
             let lens = RestructureLens(findings: [finding], hasProfile: true, folderCount: 10,
                                        accent: .blue, onReveal: { _ in }, hasReviewed: true)
-            let hosting = NSHostingView(rootView: lens.frame(width: 640, height: 300))
-            hosting.frame = NSRect(x: 0, y: 0, width: 640, height: 300)
-            hosting.layoutSubtreeIfNeeded()
-            #expect(hosting.fittingSize.width > 0)
+            // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
+            // `VStack`, so it passed with the subject of this test deleted.
+            let rep = try #require(RestructureRender.raster(lens, width: 640, height: 300))
+            #expect(RestructureRender.inkedPixels(rep) > 1000)
         }
     }
 }

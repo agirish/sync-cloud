@@ -74,7 +74,7 @@ import Testing
 
     /// The lens renders both card states offscreen — a layout crash fails here, not at first
     /// apply on a real tree.
-    @Test func theLensRendersAppliedAndUndoneCards() {
+    @Test func theLensRendersAppliedAndUndoneCards() throws {
         let lens = RestructureLens(
             findings: [], hasProfile: true, folderCount: 10,
             accent: .blue, onReveal: { _ in }, hasReviewed: true,
@@ -89,13 +89,13 @@ import Testing
                                       canUndo: false, hasEmptiedFolders: false),
             ],
             onUndoReorganisation: { _ in }, onRemoveEmptied: { _ in })
-        let hosting = NSHostingView(rootView: lens.frame(width: 640, height: 480))
-        hosting.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
-        hosting.layoutSubtreeIfNeeded()
-        #expect(hosting.fittingSize.width > 0)
+        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
+        // `VStack`, so it passed with the subject of this test deleted.
+        let rep = try #require(RestructureRender.raster(lens, width: 640, height: 480))
+        #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 
-    @Test func theRemovalSheetRendersItsCandidates() {
+    @Test func theRemovalSheetRendersItsCandidates() throws {
         let sheet = RestructureRemovalSheet(
             candidates: [
                 .init(path: "Finance/US/Income Tax/2013/State Tax", isStillEmpty: true),
@@ -104,10 +104,10 @@ import Testing
             ],
             accent: .blue, onRemove: { _ in .landed(removed: 1, skippedCount: 0, caveat: nil) },
             onClose: {})
-        let hosting = NSHostingView(rootView: sheet.frame(width: 480, height: 400))
-        hosting.frame = NSRect(x: 0, y: 0, width: 480, height: 400)
-        hosting.layoutSubtreeIfNeeded()
-        #expect(hosting.fittingSize.width > 0)
+        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
+        // `VStack`, so it passed with the subject of this test deleted.
+        let rep = try #require(RestructureRender.raster(sheet, width: 480, height: 400))
+        #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 
     // MARK: The plan sheet's disk root

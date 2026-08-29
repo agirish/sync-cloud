@@ -283,11 +283,15 @@ public final class RestructureStore: ObservableObject {
     /// still replaces only itself.
     static func exportSubject(of manifest: RestructureManifest) -> String {
         guard manifest.kind != .shape else { return "" }
-        let subject = manifest.actions
-            .first { $0.action != .keep }
-            .flatMap { $0.src ?? $0.dst }
-            .map { ($0 as NSString).lastPathComponent } ?? ""
-        let cleaned = subject.replacingOccurrences(of: "/", with: "-")
+        // **The folder every operation comes out of, not the first action's own name.** A rename
+        // plan's first action names the folder, but a MERGE's first action is a `move-file`, so
+        // this used to name the first FILE — and two shadow-axis findings under one parent whose
+        // first file happened to share a name (`Summary.pdf`) wrote one filename and silently
+        // replaced each other. The common ancestor of the sources answers both shapes with the
+        // same folder, and it is stable when a file is added or removed.
+        let sources = manifest.actions.filter { $0.action != .keep }.compactMap { $0.src ?? $0.dst }
+        let subject = (RestructurePaths.commonAncestor(of: sources) as NSString).lastPathComponent
+        let cleaned = subject == "." ? "" : subject.replacingOccurrences(of: "/", with: "-")
         return cleaned.isEmpty ? "-\(manifest.kind.rawValue)"
                                : "-\(manifest.kind.rawValue)-\(cleaned)"
     }
@@ -362,6 +366,33 @@ public final class RestructureStore: ObservableObject {
         (record.producedProfileId ?? record.appliedUnderProfileId) == current
         else { return nil }
         return record
+    }
+
+    /// Moves every live landing's produced-profile id onto `to`, for a re-derive that **moved no
+    /// files**.
+    ///
+    /// The undo chain is keyed on a landing's produced profile still being the current one
+    /// (``undoableReorganisation``), and that contract assumed only a landing ever mints a profile
+    /// directory. A survey refresh mints one too — and without this, pressing "Update the survey
+    /// now" silently and permanently withdrew the Undo of a landing that had not been undone,
+    /// with no sentence anywhere saying why. The tree is byte-for-byte as that landing left it and
+    /// `appliedUnderProfileId` still names a live directory, so the landing is exactly as
+    /// reversible as it was; only the bookkeeping moved.
+    ///
+    /// Undone records are left alone: their chain is finished, and moving them would make an old
+    /// landing look current.
+    public func repointProduced(from: String, to: String) {
+        guard from != to else { return }
+        var changed = false
+        for index in applied.indices
+        where applied[index].undoneAt == nil && applied[index].producedProfileId == from {
+            applied[index].producedProfileId = to
+            changed = true
+        }
+        guard changed else { return }
+        Logger.shared.info("Restructure: ledger re-pointed from \(from) to \(to) after a "
+            + "re-derive that moved nothing")
+        save()
     }
 
     /// Replaces the record with `manifestId`'s manifest — how a landing finalises its counts.

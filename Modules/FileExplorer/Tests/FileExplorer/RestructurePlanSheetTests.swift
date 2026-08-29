@@ -167,7 +167,7 @@ import Testing
 
     /// The sheet renders offscreen against a dictionary-backed tree — layout crashes and
     /// unresolved bindings fail here rather than at first click.
-    @Test func theSheetRendersAgainstAFixtureTree() {
+    @Test func theSheetRendersAgainstAFixtureTree() throws {
         let family = "Finance/US/Income Tax"
         let finding = Self.shapeFinding(schemes: [
             .init(vocabulary: ["federal tax"], members: ["2013"]),
@@ -195,10 +195,10 @@ import Testing
             tree: tree, profileId: "p",
             accent: .blue, initialRows: nil, onExport: { _, _ in .saved(filename: "f.json") },
             onClose: {})
-        let hosting = NSHostingView(rootView: sheet.frame(width: 620, height: 560))
-        hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 560)
-        hosting.layoutSubtreeIfNeeded()
-        #expect(hosting.fittingSize.width > 0)
+        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
+        // `VStack`, so it passed with the subject of this test deleted.
+        let rep = try #require(RestructureRender.raster(sheet, width: 620, height: 560))
+        #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 }
 
@@ -312,7 +312,7 @@ import Testing
 
     /// The whole sheet renders with the preview present — a layout crash fails here rather than
     /// on a real family.
-    @Test func thePlanSheetRendersWithItsPreview() {
+    @Test func thePlanSheetRendersWithItsPreview() throws {
         let finding = StructureFinding(
             family: "F",
             schemes: [.init(vocabulary: ["forms"], members: ["2013"]),
@@ -337,9 +337,9 @@ import Testing
             initialRows: [.init(source: "Federal Tax", target: "Forms"),
                           .init(source: "State Tax", target: "Forms")],
             onExport: { _, _ in .saved(filename: "f.json") }, onClose: {})
-        let hosting = NSHostingView(rootView: sheet.frame(width: 620, height: 620))
-        hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 620)
-        hosting.layoutSubtreeIfNeeded()
-        #expect(hosting.fittingSize.width > 0)
+        // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
+        // `VStack`, so it passed with the subject of this test deleted.
+        let rep = try #require(RestructureRender.raster(sheet, width: 620, height: 620))
+        #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 }

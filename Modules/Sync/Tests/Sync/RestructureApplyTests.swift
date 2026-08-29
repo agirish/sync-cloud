@@ -1,3 +1,4 @@
+import Combine
 import CryptoKit
 import Foundation
 import Testing
@@ -262,6 +263,77 @@ import Testing
         #expect(world.manager.restructureStore?.applied.isEmpty == true)
         #expect(FileManager.default.fileExists(
             atPath: world.root.appendingPathComponent("Tax/2013/Federal Tax").path))
+    }
+
+    /// **Step 4's verdict reaches the ledger.** The card's sentence is a pure rule with its own
+    /// tests; what had none was the write — deleting `$0.verifiedOK = ...` from the finalize left
+    /// every card silent about verification with the suite green, because `nil` is also what a
+    /// record written before the field existed carries. A clean landing must say so positively.
+    @Test func theLedgerRecordsStepFoursVerdict() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        #expect(outcome.verifierMismatches.isEmpty, "this fixture lands cleanly")
+
+        let record = try #require(world.manager.restructureStore?.applied.first)
+        #expect(record.verifiedOK == true,
+                "a clean landing records agreement, not silence")
+        #expect(record.verifierNote == nil, "and has nothing to point at")
+    }
+
+    /// The other side of it: a disagreement is recorded WITH its note, so the card can point at
+    /// something. Forced by verifying a landing that claims an action nothing performed — the
+    /// verifier's own input, which is the only seam that does not require breaking the disk.
+    @Test func aDisagreementIsRecordedWithItsNote() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("verify-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Nothing was ever moved, so re-listing finds neither side of this claim.
+        let mismatches = FileSyncManager.verifyRestructureLanding(
+            [.init(action: .moveFile, src: "A/x.pdf", dst: "B/x.pdf")], root: root.path,
+            fm: FileManager.default)
+        #expect(!mismatches.isEmpty, "the verifier disagrees with a claim nothing performed")
+
+        // The note the record would carry — the card's own rendering of it is the lens's test.
+        // One mismatch is stated bare; several add the count and point at the log, so both
+        // shapes are checked here rather than only whichever this fixture happens to produce.
+        let note = try #require(FileSyncManager.verifierNote(mismatches))
+        #expect(note == mismatches[0], "a single disagreement is stated as itself")
+        let many = try #require(FileSyncManager.verifierNote(mismatches + ["B/y.pdf is missing"]))
+        #expect(many.contains("1 more"), "and several name the count")
+        #expect(many.contains("log"), "pointing the reader where the rest is")
+    }
+
+    /// **The engine visits the stages in the order the checklist draws them**, and clears the
+    /// value when it is done. The suite next door pins the enum's declaration order, which is a
+    /// different claim: it would still pass with `applyPlan` publishing `verify` before
+    /// `inverse`, or never publishing at all. This subscribes to the real landing.
+    @Test func theLandingPublishesItsStagesInOrderAndThenClearsThem() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+
+        var seen: [RestructureApplyProgress.Stage] = []
+        let sink = world.manager.$restructureApplyProgress.sink { progress in
+            if let stage = progress?.stage, seen.last != stage { seen.append(stage) }
+        }
+        defer { sink.cancel() }
+
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+
+        #expect(seen == seen.sorted(), "a checklist that went backwards would be unreadable")
+        #expect(seen.contains(.inverse))
+        #expect(seen.contains(.operations))
+        let inverse = try #require(seen.firstIndex(of: .inverse))
+        let operations = try #require(seen.firstIndex(of: .operations))
+        #expect(inverse < operations,
+                "the inverse is announced before the first file moves — the trust §5.5 paid for")
+        #expect(world.manager.restructureApplyProgress == nil,
+                "and nothing is left showing a checklist over a finished landing")
     }
 
     // MARK: - The two undos

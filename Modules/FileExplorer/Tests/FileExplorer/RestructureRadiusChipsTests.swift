@@ -136,20 +136,29 @@ import Testing
                 "the sentence is the fallback branch, not a sibling")
     }
 
-    @Test func aDraftedCardRendersItsChips() {
+    /// **The chips are drawn.** With a `fittingSize` closer this passed with the whole chip row
+    /// deleted, so the drafted card is compared against the same card with no draft.
+    @Test func aDraftedCardRendersItsChips() throws {
         let finding = StructureFinding(
             family: "Finance/US/Income Tax",
             schemes: [.init(vocabulary: ["forms"], members: ["2013", "2014"]),
                       .init(vocabulary: ["federal"], members: ["2016"])])
-        let lens = RestructureLens(
-            findings: [finding], hasProfile: true, folderCount: 10,
-            accent: .blue, onReveal: { _ in }, onPlan: { _ in },
-            plannedPlans: [finding.id: PlannedPlanInfo(operations: 9, summary: "s", renames: 3,
-                                                       carried: 0, merges: 2, filesMove: 41)],
-            hasReviewed: true)
-        let hosting = NSHostingView(rootView: lens.frame(width: 640, height: 300))
-        hosting.frame = NSRect(x: 0, y: 0, width: 640, height: 300)
-        hosting.layoutSubtreeIfNeeded()
-        #expect(hosting.fittingSize.width > 0)
+        func lens(planned: Bool) -> RestructureLens {
+            RestructureLens(
+                findings: [finding], hasProfile: true, folderCount: 10,
+                accent: .blue, onReveal: { _ in }, onPlan: { _ in },
+                plannedPlans: planned
+                    ? [finding.id: PlannedPlanInfo(operations: 9, summary: "s", renames: 3,
+                                                   carried: 0, merges: 2, filesMove: 41)]
+                    : [:],
+                hasReviewed: true)
+        }
+        let undrafted = try #require(RestructureRender.raster(lens(planned: false),
+                                                              width: 640, height: 300))
+        let drafted = try #require(RestructureRender.raster(lens(planned: true),
+                                                            width: 640, height: 300))
+        #expect(RestructureRender.inkedPixels(undrafted) > 0, "the card drew at all")
+        #expect(RestructureRender.differingPixels(undrafted, drafted) > 200,
+                "the radius chips are on the drafted card")
     }
 }

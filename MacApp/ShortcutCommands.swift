@@ -1051,13 +1051,35 @@ extension ContentView {
                          for node: FileNode) -> (() -> Void)? {
         guard node.isDirectory,
               let root = syncManager.filingFolderProfile?.root,
-              RestructureVerbResolver.finding(forFolder: node.id, root: root,
-                                              in: syncManager.visibleStructureFindings,
-                                              verb: verb) != nil else { return nil }
+              // **Availability is the workspace's own answer**, not a second copy of it: the
+              // store gate, the routing and the already-scaffolded check all live in `resolve`,
+              // and an item enabled over a handler that then refuses is the shape this closes.
+              case .run = RestructureVerbResolver.resolve(
+                  verb, folder: node.id, root: root,
+                  in: syncManager.visibleStructureFindings,
+                  storeIsReadable: syncManager.restructureStore?.isUnreadable == false,
+                  alreadyScaffolded: scaffoldedSubjectsForMenu())
+        else { return nil }
         let folder = node.id
+        let providerRoot = lensProviderRootExpanded
         return {
+            // **Navigate first.** The request's only consumer is `LensWorkspaceView`, which is
+            // not mounted in Browse or Compare (`Workspace.lens` is nil there), during a person
+            // gather, or in the Storage lens — so from those the press was silently eaten, and
+            // the stale request then sat unconsumed until a second press replaced it. Showing
+            // Restructure is also the deliberate arrival §5.10 established for these verbs.
+            checkFolderShapeAction(node, providerRoot: providerRoot)
             restructureVerbRequest = RestructureVerbRequest(verb: verb, folder: folder)
         }
+    }
+
+    /// Subjects whose scaffold has already landed, for the menu's own availability — the ledger
+    /// half of the card's disk-probed check. Cheap: a filter over the applied records.
+    func scaffoldedSubjectsForMenu() -> Set<String> {
+        Set((syncManager.restructureStore?.applied ?? [])
+            .filter { $0.manifest.kind == .backlog && $0.undoneAt == nil }
+            .compactMap { $0.manifest.actions.compactMap(\.dst).first }
+            .map { ($0 as NSString).deletingLastPathComponent })
     }
 
     /// The newest un-undone landing in the Restructure ledger, as a runnable — nil when there is

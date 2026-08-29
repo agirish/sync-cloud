@@ -41,7 +41,7 @@ import SwiftUI
         ]
     }
 
-    @Test func everyCardKindAndTheStripLayOut() {
+    @Test func everyCardKindAndTheStripLayOut() throws {
         let lens = RestructureLens(
             findings: Self.oneOfEachKind,
             aboutAncestor: [Self.oneOfEachKind[0]],
@@ -55,11 +55,11 @@ import SwiftUI
             onHandOff: { _ in },
             scaffoldedSubjects: ["Work/Benefits/2026"],
             hasReviewed: true)
-        let host = NSHostingView(rootView: AnyView(
-            lens.frame(width: 640, height: 900)))
-        host.frame = CGRect(x: 0, y: 0, width: 640, height: 900)
-        host.layoutSubtreeIfNeeded()
-        #expect(host.fittingSize.width > 0)
+        // An ink floor over the magenta backdrop, not a width — an offscreen host rasterizes
+        // transparent, and against a transparent ground a blank render and a drawn one read the
+        // same. This is the difference between "every card kind laid out" and "nothing trapped".
+        let rep = try #require(RestructureRender.raster(lens, width: 640, height: 900))
+        #expect(RestructureRender.inkedPixels(rep) > 5000, "every card kind drew")
 
         // The clean state with a non-empty strip — the roadmap's open question, settled by
         // rendering: the strip must lay out above the seal.
@@ -67,9 +67,8 @@ import SwiftUI
             findings: [], hasProfile: true, folderCount: 10,
             deadWeight: ["C": .empty], accent: .blue,
             onReveal: { _ in }, hasReviewed: true)
-        let cleanHost = NSHostingView(rootView: AnyView(clean.frame(width: 640, height: 400)))
-        cleanHost.frame = CGRect(x: 0, y: 0, width: 640, height: 400)
-        cleanHost.layoutSubtreeIfNeeded()
-        #expect(cleanHost.fittingSize.width > 0)
+        let cleanRep = try #require(RestructureRender.raster(clean, width: 640, height: 400))
+        #expect(RestructureRender.inkedPixels(cleanRep) > 1000,
+                "the strip and the seal both drew in the clean state")
     }
 }

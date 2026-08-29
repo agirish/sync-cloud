@@ -22,6 +22,9 @@ struct RestructurePairMergeSheet: View {
     /// The sentence the finding's card makes about this pair, carried into the sheet so the
     /// review opens on the claim it was opened from.
     let rationale: String
+    /// The landing's stage, straight from the manager — the same value the plan sheet reads. A
+    /// pair merge runs the identical eight steps, and showed only a button reading "Applying…".
+    var applyProgress: RestructureApplyProgress?
     let onExport: (RestructureManifest) -> RestructurePlanSheet.ExportResult
     var onApply: ((RestructureManifest) async -> RestructurePlanSheet.ApplyResult)?
     let onClose: () -> Void
@@ -51,6 +54,9 @@ struct RestructurePairMergeSheet: View {
         return VStack(alignment: .leading, spacing: 12) {
             header
             operationsSection(plan)
+            if let applyProgress {
+                RestructureApplyChecklist(progress: applyProgress, accent: accent)
+            }
             footer(plan)
         }
         .padding(18)

@@ -336,7 +336,7 @@ struct RestructurePlanSheet: View {
                     .onSubmit(addCustomName)
                 Button("Add") { addCustomName() }
                     .scaledFont(.system(size: 11))
-                    .disabled(!RestructurePlanner.isValidTargetName(customName))
+                    .disabled(!canAddCustomName())
             }
             if !customName.trimmingCharacters(in: .whitespaces).isEmpty,
                !RestructurePlanner.isValidTargetName(customName) {
@@ -354,9 +354,16 @@ struct RestructurePlanSheet: View {
             chosenScheme = index
             // The detector lowercases its vocabulary for comparison; target names take the
             // disk-cased spelling the family actually uses — the scaffold's own casing rule.
-            vocabulary = scheme.vocabulary.map { word in
+            // Typed names SURVIVE a scheme change. Replacing the vocabulary wholesale discarded
+            // whatever the user had added, silently, from every picker except the one row already
+            // pointing at it — losing input they cannot get back without retyping it.
+            let chosen = scheme.vocabulary.map { word in
                 allSources.first { $0.lowercased() == word } ?? word.localizedCapitalized
             }
+            let typed = vocabulary.filter { name in
+                !allSources.contains(name) && !chosen.contains(name)
+            }
+            vocabulary = chosen + typed
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: chosenScheme == index ? "largecircle.fill.circle" : "circle")
@@ -383,6 +390,13 @@ struct RestructurePlanSheet: View {
         .buttonStyle(.plain)
         // The chosen state otherwise lives only in an SF-symbol swap — invisible to VoiceOver.
         .accessibilityAddTraits(chosenScheme == index ? [.isSelected] : [])
+    }
+
+    /// Whether `Add` can do anything — a name that is already in the vocabulary would be
+    /// swallowed silently, with the field left full and nothing said.
+    func canAddCustomName() -> Bool {
+        let name = customName.trimmingCharacters(in: .whitespaces)
+        return RestructurePlanner.isValidTargetName(name) && !vocabulary.contains(name)
     }
 
     private func addCustomName() {
@@ -550,6 +564,14 @@ struct RestructurePlanSheet: View {
 
     @ViewBuilder
     private func proposalList(_ proposals: [MappingRefineProposal]) -> some View {
+        // Capped and scrollable like the mapping (210), the operations (150) and the preview
+        // (130). Twenty-four proposals of two to three wrapped lines each is the same unbounded
+        // growth that once pushed this sheet's footer off a short display.
+        ScrollView { proposalRows(proposals) }
+            .frame(maxHeight: 170)
+    }
+
+    private func proposalRows(_ proposals: [MappingRefineProposal]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(proposals) { proposal in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -573,9 +595,16 @@ struct RestructurePlanSheet: View {
                         if let note = MappingRefineProtocol.reversalNote(for: proposal,
                                                                          among: proposals,
                                                                          rows: rows) {
+                            // A warm CAPSULE, not warm text. Amber on 9.5pt body text is the
+                            // contrast trap this branch states as a rule twice and follows twice
+                            // elsewhere — the radius chip and the crowding tag both carry their
+                            // tint as a fill with `.secondary` text, and this is the same shape.
                             Text(note)
                                 .scaledFont(.system(size: 9.5, weight: .semibold))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 1)
+                                .padding(.horizontal, 5)
+                                .background(Capsule().fill(Color.orange.opacity(0.16)))
                         }
                     }
                     Spacer(minLength: 4)
@@ -897,10 +926,22 @@ struct RestructurePlanSheet: View {
     /// before anything moves, and the verify is a separate pass afterwards — the trust the
     /// design paid for, previously invisible behind a button reading "Applying…".
     private func progressChecklist(_ progress: RestructureApplyProgress) -> some View {
+        RestructureApplyChecklist(progress: progress, accent: accent)
+    }
+}
+
+/// §5.5's eight steps as they run, for whichever sheet is landing. Extracted rather than left
+/// private to the plan sheet: a pair merge runs the same `applyPlan`, through the same inverse-
+/// first order, and showed none of it.
+struct RestructureApplyChecklist: View {
+    let progress: RestructureApplyProgress
+    let accent: Color
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(RestructureApplyProgress.Stage.allCases, id: \.rawValue) { stage in
                 HStack(spacing: 6) {
-                    Image(systemName: Self.stageSymbol(stage, current: progress.stage))
+                    Image(systemName: RestructurePlanSheet.stageSymbol(stage, current: progress.stage))
                         .scaledFont(.system(size: 9))
                         .foregroundStyle(stage < progress.stage ? AnyShapeStyle(accent)
                                                                 : AnyShapeStyle(.secondary))
@@ -919,6 +960,9 @@ struct RestructurePlanSheet: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Applying — \(progress.line())")
     }
+}
+
+extension RestructurePlanSheet {
 
     /// Done, doing, still to come. A landing only moves forward, so a stage behind the current
     /// one is finished and one ahead has not started.

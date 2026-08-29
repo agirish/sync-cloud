@@ -48,14 +48,37 @@ import Testing
                 "no total yet is no count, not '0 of 0'")
     }
 
-    /// **Coalesced, and that is not a nicety.** An `@Published` element write is a full copy and
-    /// froze the main thread for 11.1 seconds once; a landing of 500 moves publishing per file
-    /// would be that mistake again. The interval is short enough that no reader notices.
-    @Test func theOperationCounterIsCoalesced() {
-        #expect(RestructureApplyProgress.operationPublishInterval > 0,
-                "publishing per operation is the freeze this project already paid for")
-        #expect(RestructureApplyProgress.operationPublishInterval <= 0.25,
-                "and slower than this stops looking like progress")
+    /// **Coalesced through this module's own gate, and measurably so.**
+    ///
+    /// The first cut invented a wall-clock interval, which `ProgressPublishGate`'s doc explicitly
+    /// rejects — an interval is unbounded in total (a long landing publishes forever) and can only
+    /// be tested against a clock seam. This drives a landing of 300 operations and counts the
+    /// publishes: a percent gate caps any run at ~101, and the assertion is that the count is far
+    /// below the operation count rather than that a constant sits in a range.
+    @Test func theOperationCounterIsCoalescedFarBelowOnePerOperation() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("coalesce-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        var actions: [RestructureManifest.Action] = []
+        for i in 0..<300 {
+            let dir = root.appendingPathComponent("s\(i)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: dir.appendingPathComponent("f.txt"))
+            actions.append(.init(action: .moveDir, src: "s\(i)", dst: "d\(i)",
+                                 movesWholeFolder: true))
+        }
+        let reports = Reports()
+        _ = FileSyncManager.executeRestructureActions(
+            actions, root: root.path, fm: FileManager.default,
+            onProgress: { reports.append($0) })
+
+        let seen = reports.values
+        #expect(seen.last == 300, "the run still lands on its true total")
+        #expect(seen.count <= 101,
+                "a percent gate caps any run at ~101 publishes; got \(seen.count)")
+        #expect(seen.count < 150,
+                "one publish per operation is the storm the gate exists to stop")
+        #expect(seen == seen.sorted())
     }
 
     /// The executor reports through the hook, coalesced, and **always ends on the true total** —

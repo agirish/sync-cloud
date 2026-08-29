@@ -65,4 +65,41 @@ import Sync
         #expect(first.verb == second.verb)
         #expect(first.folder == second.folder)
     }
+
+    /// **Availability and the handler read ONE answer.** `RestructureVerbResolver.resolve` is
+    /// where the decision lives and where it is tested; what no test in either module can reach
+    /// is whether these two call sites *ask it the same question* — `ContentView` is not
+    /// constructible here, and `carryOut` is private to a view in another package.
+    ///
+    /// So this reads the two call sites and checks their arguments agree. It is a source scan,
+    /// with a source scan's limits: it proves the store gate and the scaffolded set are passed at
+    /// both, and it would not notice either one passing a *wrong value*. Its worth is that the
+    /// specific drift it forbids — one site consulting the store and the other not — is exactly
+    /// what shipped: `Plan…` was offered on a store the card withheld it for, and `Set Up Like Its
+    /// Siblings` stayed enabled after its scaffold had landed.
+    @Test func bothCallSitesAskTheResolverTheSameQuestion() throws {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let menu = try String(contentsOf: repo.appendingPathComponent("MacApp/ShortcutCommands.swift"),
+                              encoding: .utf8)
+        let workspace = try String(
+            contentsOf: repo.appendingPathComponent(
+                "Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift"),
+            encoding: .utf8)
+
+        for (name, text) in [("the menu", menu), ("the workspace", workspace)] {
+            #expect(text.contains("RestructureVerbResolver.resolve("),
+                    "\(name) must read the shared resolution, not re-derive one")
+            #expect(text.contains("storeIsReadable:"),
+                    "\(name) drops the store gate")
+            #expect(text.contains("alreadyScaffolded:"),
+                    "\(name) drops the landed-scaffold check")
+        }
+        // And neither reaches past it to the finding lookup, which is the seam that let the two
+        // drift in the first place.
+        #expect(!menu.contains("RestructureVerbResolver.finding("),
+                "the menu asks for a resolution, not a finding")
+        #expect(!workspace.contains("RestructureVerbResolver.finding("),
+                "and so does the workspace")
+    }
 }

@@ -345,8 +345,12 @@ public enum RestructurePlanner {
         // plan" drift — the exact class the mapped planner already refuses, and which the pair
         // route reaches because a profile stores no file names for the detector to see.
         let destinationParent = (destination as NSString).deletingLastPathComponent
+        // Case-INSENSITIVELY, like the mapped planner's own occupancy test: the volumes this app
+        // runs against are case-insensitive, so a file called `att bill` occupies `ATT Bill` just
+        // as surely, and an exact-case test let exactly the case this guard exists for through.
         if view.childFolders(destination) == nil,
-           view.files(destinationParent)?.contains(targetName) == true {
+           view.files(destinationParent)?
+               .contains(where: { $0.lowercased() == targetName.lowercased() }) == true {
             return .failure(.targetTakenByFile(target: targetName, member: destinationParent))
         }
         if view.childFolders(destination) == nil {

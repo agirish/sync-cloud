@@ -1017,11 +1017,11 @@ public class FileSyncManager: ObservableObject {
 
     /// Where a landing has got to, while it is running — nil at every other moment.
     ///
-    /// **One small struct, published from the main actor, coalesced.** An `@Published` element
-    /// write is a full array copy and once froze the main thread for 11.1 seconds; a progress
-    /// value that published per file would be that mistake with a nicer name. `RestructureApply`
-    /// updates this at its own step boundaries and, inside step 3, no more often than
-    /// ``RestructureApplyProgress/operationPublishInterval``.
+    /// **One small struct, published from the main actor, coalesced.** Every write to a published
+    /// property on this manager re-evaluates the window's root view — both file panes, the
+    /// differences pane and the inspector — so a progress value that published once per file
+    /// would be the storm ``ProgressPublishGate`` was written to stop. `RestructureApply` updates
+    /// this at its own step boundaries, and inside step 3 through that same gate.
     @Published public var restructureApplyProgress: RestructureApplyProgress?
 
     /// ``structureFindings`` minus what the user said never to suggest again — what every surface

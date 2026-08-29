@@ -34,19 +34,45 @@ import Testing
         #expect(RestructureLens.scaffoldLandedText.contains("until it is updated"))
     }
 
-    /// A refusal is a sentence on the card, not a queue: the guards are the landing's, so the
-    /// honest answer is "wait and press it again".
-    @Test func aRefusalRendersOnTheCardItCameFrom() {
-        let lens = RestructureLens(
+    private static func lens(refusal: (subject: String, sentence: String)?,
+                             scaffolded: Bool = true) -> RestructureLens {
+        RestructureLens(
             findings: [Self.backlog()], hasProfile: true, folderCount: 10,
             accent: .blue, onReveal: { _ in },
-            scaffoldedSubjects: ["Health/Dental/2026"], hasReviewed: true,
-            onRefreshSurvey: {},
-            refreshSurveyRefusal: "Wait for the duplicate scan to finish first.")
-        let hosting = NSHostingView(rootView: lens.frame(width: 640, height: 300))
-        hosting.frame = NSRect(x: 0, y: 0, width: 640, height: 300)
-        hosting.layoutSubtreeIfNeeded()
-        #expect(hosting.fittingSize.width > 0)
+            scaffoldedSubjects: scaffolded ? ["Health/Dental/2026"] : [],
+            hasReviewed: true,
+            onRefreshSurvey: { _ in },
+            refreshSurveyRefusal: refusal)
+    }
+
+    /// A refusal is a sentence on the card, not a queue: the guards are the landing's, so the
+    /// honest answer is "wait and press it again".
+    ///
+    /// Read off the drawn pixels rather than a `fittingSize` closer — with a width assertion this
+    /// passed just as happily when the refusal was dropped on the floor.
+    @Test func aRefusalRendersOnTheCardItCameFrom() throws {
+        let without = try #require(RestructureRender.raster(
+            Self.lens(refusal: nil), width: 640, height: 300))
+        let with = try #require(RestructureRender.raster(
+            Self.lens(refusal: ("Health/Dental/2026",
+                                "Wait for the duplicate scan to finish first.")),
+            width: 640, height: 300))
+        #expect(RestructureRender.inkedPixels(without) > 0, "the card drew something at all")
+        #expect(RestructureRender.differingPixels(without, with) > 200,
+                "the refusal sentence is on the card")
+    }
+
+    /// **Keyed by card.** The refusal belongs to the card that asked; a refusal carrying another
+    /// subject must leave this one exactly as it was, or two Scaffolded cards would both show a
+    /// sentence one of them never asked for.
+    @Test func aRefusalForAnotherCardLeavesThisOneAlone() throws {
+        let none = try #require(RestructureRender.raster(
+            Self.lens(refusal: nil), width: 640, height: 300))
+        let elsewhere = try #require(RestructureRender.raster(
+            Self.lens(refusal: ("Work/Benefits/2026", "Wait for the scan.")),
+            width: 640, height: 300))
+        #expect(RestructureRender.differingPixels(none, elsewhere) == 0,
+                "another card's refusal draws nothing here")
     }
 
     /// **The button only exists on a card that is waiting.** A backlog finding whose scaffold has

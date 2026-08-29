@@ -48,19 +48,81 @@ import Testing
         #expect(RestructureLens.blockedByNewerText.contains("newest back"))
     }
 
-    /// **The order comes from the store, not the view.** A second copy of that rule is how a card
-    /// ends up offering an undo the engine refuses — the exact defect a previous round moved
-    /// everything onto `undoableReorganisation` to prevent.
-    @Test func theCardReadsTheStoresUndoOrder() throws {
-        let host = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent().deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift"),
-            encoding: .utf8)
-        #expect(host.contains("undoableReorganisation("))
-        #expect(host.contains("record.manifest.manifestId != undoableId"),
-                "the blocked reason is derived from the same id the button is")
+    // MARK: The mapping itself
+
+    private static func record(_ id: String, undoneAt: String? = nil, summary: String? = "s",
+                               verifiedOK: Bool? = nil, verifierNote: String? = nil,
+                               under: String? = "p") -> RestructureStore.AppliedRecord {
+        let manifest = RestructureManifest(
+            profileId: "p", manifestId: id, createdAt: "t", family: "Tax", kind: .shape,
+            actions: [.init(action: .renameDir, src: "Tax/A", dst: "Tax/B", filesCarried: 1)])
+        var r = RestructureStore.AppliedRecord(
+            manifest: manifest, inverse: manifest.inverse, at: "2026-08-2\(id.count)T09:00:00",
+            created: 0, skipped: 0, appliedUnderProfileId: under,
+            verifiedOK: verifiedOK, verifierNote: verifierNote)
+        r.undoneAt = undoneAt
+        r.summary = summary
+        return r
+    }
+
+    /// **Every clause of the card mapping, at the call site.** These all used to live in a
+    /// private `var` on the workspace, where each was unreachable: the verdict could be nulled,
+    /// the `undoneAt` half of the block reason dropped, and the scaffold filter inverted, with
+    /// the suite green throughout.
+    @Test func theRowsCarryEveryClauseOfTheMapping() throws {
+        let rows = ReorganisationDisplay.rows(
+            from: [Self.record("old", verifiedOK: false, verifierNote: "Forms/ is missing"),
+                   Self.record("new", verifiedOK: true)],
+            undoableId: "new",
+            stillHasEmptiedFolders: { _ in true })
+
+        #expect(rows.map(\.manifestId) == ["new", "old"], "newest first")
+
+        let newest = try #require(rows.first)
+        #expect(newest.canUndo)
+        #expect(newest.blockedReason == nil, "nothing stands in the undoable record's way")
+        #expect(newest.verifierLine == RestructureLens.verifierLine(verifiedOK: true, note: nil))
+        #expect(newest.hasEmptiedFolders)
+
+        let older = try #require(rows.last)
+        #expect(!older.canUndo)
+        #expect(older.blockedReason == RestructureLens.blockedByNewerText)
+        #expect(older.verifierLine?.contains("Forms/ is missing") == true,
+                "the note travels, not just the verdict")
+    }
+
+    /// The two halves of the block reason, each mutated on its own. An undone landing is not
+    /// "blocked by something newer" — it is finished — and with nothing undoable at all there is
+    /// no newer thing to name.
+    @Test func anUndoneOrUnblockedRecordCarriesNoReason() throws {
+        let undone = ReorganisationDisplay.rows(
+            from: [Self.record("old", undoneAt: "2026-08-28T10:00:00"), Self.record("new")],
+            undoableId: "new", stillHasEmptiedFolders: { _ in true })
+        #expect(undone.last?.blockedReason == nil, "an undone landing is finished, not blocked")
+        #expect(undone.last?.hasEmptiedFolders == false,
+                "and its drained folders were put back")
+
+        let noneUndoable = ReorganisationDisplay.rows(
+            from: [Self.record("a"), Self.record("b")],
+            undoableId: nil, stillHasEmptiedFolders: { _ in true })
+        #expect(noneUndoable.allSatisfy { $0.blockedReason == nil },
+                "with nothing undoable there is no newer landing to name")
+    }
+
+    /// The filter and the two fallbacks: a scaffold (no `appliedUnderProfileId`) is not a plan
+    /// landing, an unfinished record still gets a card, and the disk probe can veto the button.
+    @Test func scaffoldsAreExcludedAndAnUnfinishedRecordStillShows() throws {
+        let rows = ReorganisationDisplay.rows(
+            from: [Self.record("scaffold", under: nil), Self.record("half", summary: nil)],
+            undoableId: nil, stillHasEmptiedFolders: { _ in true })
+        #expect(rows.map(\.manifestId) == ["half"], "a scaffold is not a plan landing")
+        #expect(rows[0].summary.contains("did not finish recording"))
+        #expect(rows[0].hasEmptiedFolders == false, "an unfinished record offers no removal")
+
+        let probed = ReorganisationDisplay.rows(
+            from: [Self.record("m")], undoableId: "m", stillHasEmptiedFolders: { _ in false })
+        #expect(probed[0].hasEmptiedFolders == false,
+                "the disk probe alone can withdraw the button")
     }
 
     /// The undoable record shows no blocked reason, and an undone one shows neither.
@@ -79,9 +141,8 @@ import Testing
         #expect(blocked.blockedReason != nil)
     }
 
-    /// Both new lines render on a real card.
-    @Test func theCardRendersItsVerdictAndItsBlockedReason() {
-        let lens = RestructureLens(
+    private static func ledgerLens(verifier: Bool, blocked: Bool) -> RestructureLens {
+        RestructureLens(
             findings: [], hasProfile: true, folderCount: 10,
             accent: .blue, onReveal: { _ in }, hasReviewed: true,
             reorganisations: [
@@ -89,20 +150,37 @@ import Testing
                     manifestId: "m2", family: "Finance/US/Income Tax", at: "2026-08-28T12:00:00",
                     summary: "8 renames · 41 moved", undoneAt: nil, undoSummary: nil,
                     canUndo: true, hasEmptiedFolders: true,
-                    verifierLine: RestructureLens.verifierLine(verifiedOK: true, note: nil),
+                    verifierLine: verifier
+                        ? RestructureLens.verifierLine(verifiedOK: true, note: nil) : nil,
                     blockedReason: nil),
                 ReorganisationDisplay(
                     manifestId: "m1", family: "Immigration/H-4", at: "2026-08-27T09:00:00",
                     summary: "2 renames", undoneAt: nil, undoSummary: nil,
                     canUndo: false, hasEmptiedFolders: false,
-                    verifierLine: RestructureLens.verifierLine(
-                        verifiedOK: false, note: "Forms/ is missing after its move"),
-                    blockedReason: RestructureLens.blockedByNewerText),
+                    verifierLine: verifier
+                        ? RestructureLens.verifierLine(
+                            verifiedOK: false, note: "Forms/ is missing after its move") : nil,
+                    blockedReason: blocked ? RestructureLens.blockedByNewerText : nil),
             ],
             onUndoReorganisation: { _ in })
-        let hosting = NSHostingView(rootView: lens.frame(width: 640, height: 420))
-        hosting.frame = NSRect(x: 0, y: 0, width: 640, height: 420)
-        hosting.layoutSubtreeIfNeeded()
-        #expect(hosting.fittingSize.width > 0)
+    }
+
+    /// **Both new lines are drawn, and each on its own.** The previous closer here was
+    /// `fittingSize.width > 0`, which passed with the verdict line and the blocked reason both
+    /// deleted — so the two are toggled one at a time and the pixels compared.
+    @Test func theCardRendersItsVerdictAndItsBlockedReason() throws {
+        let bare = try #require(RestructureRender.raster(
+            Self.ledgerLens(verifier: false, blocked: false), width: 640, height: 420))
+        #expect(RestructureRender.inkedPixels(bare) > 0, "the ledger drew its rows")
+
+        let withVerdict = try #require(RestructureRender.raster(
+            Self.ledgerLens(verifier: true, blocked: false), width: 640, height: 420))
+        #expect(RestructureRender.differingPixels(bare, withVerdict) > 200,
+                "step 4's verdict is on the card")
+
+        let withBoth = try #require(RestructureRender.raster(
+            Self.ledgerLens(verifier: true, blocked: true), width: 640, height: 420))
+        #expect(RestructureRender.differingPixels(withVerdict, withBoth) > 200,
+                "and the blocked reason is its own line, not a re-render of the verdict")
     }
 }
