@@ -1397,12 +1397,31 @@ struct RestructureLens: View {
     /// rather than naming the survey. This says "Covers N" for the same reason.
     @ViewBuilder
     private var surveyNote: some View {
+        let stale = Self.surveyIsStale(surveyedAt, now: Date())
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Image(systemName: "clock.arrow.circlepath").scaledFont(.system(size: 10))
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                // **The glyph, and only the glyph.** Amber on 11pt body text is the documented
+                // contrast trap; §4.1's rule is that the tint lands here and the sentence keeps
+                // its ordinary colour.
+                Image(systemName: stale ? "clock.badge.exclamationmark"
+                                        : "clock.arrow.circlepath")
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(stale ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 Text(Self.surveyNoteText(folderCount: folderCount, surveyedAt: surveyedAt,
                                          now: Date()))
                     .fixedSize(horizontal: false, vertical: true)
+                // The remedy beside the warning: a caution with nothing to do about it is a
+                // caution people learn to scroll past.
+                if stale, let onUpdateSurvey {
+                    Button("Rescan") { onUpdateSurvey() }
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(accent)
+                        .chromeHover()
+                        .help("Re-reads the tree and rebuilds the folder memory these findings "
+                              + "come from. Slower, and the only thing here that makes the "
+                              + "answer current.")
+                }
             }
             if !hasDuplicateScan {
                 Text(Self.taxonomyStalenessText)
@@ -1432,11 +1451,36 @@ struct RestructureLens: View {
         return (head + [tail]).joined(separator: " ")
     }
 
+    /// How old a survey has to be before the note takes its caution tint.
+    ///
+    /// **Measured, not chosen** (2026-08-28, this machine). A month of log — 2026-07-28 to
+    /// 2026-08-28, launched most days — contains exactly ONE completed re-survey, on 9 Aug, and
+    /// the survey artifacts on disk (`filing-corpus.json`, `filing-memory.json`,
+    /// `folder-profile.json`) were all still dated 9 Aug: nineteen days old and current.
+    ///
+    /// So a fortnight would tint the state this tree is in most of the time, which is how a
+    /// caution stops being read; a month would not fire inside the only interval ever observed.
+    /// Three weeks sits past the ordinary age and short of never. §4.1 said to ship the plain
+    /// variant first and pick the number from real stamps — these are the stamps.
+    static let staleSurveyDays = 21
+
+    /// Whether the survey is old enough to say so. **Unknown is not stale**: a corpus from before
+    /// §4.1's stamp existed has no date, and inventing a warning about an unknown age would be
+    /// the same overreach as inventing the date.
+    static func surveyIsStale(_ surveyedAt: Date?, now: Date) -> Bool {
+        guard let surveyedAt else { return false }
+        let days = Calendar.current.dateComponents(
+            [.day],
+            from: Calendar.current.startOfDay(for: surveyedAt),
+            to: Calendar.current.startOfDay(for: now)).day ?? 0
+        return days >= staleSurveyDays
+    }
+
     /// "today" / "yesterday" / "5 days ago" / "on 12 Aug 2026" — absolute past two weeks, because
     /// a checkable date beats a big round number (the release-notes rule, applied to UI).
     ///
-    /// No caution tint yet, deliberately: the staleness threshold is unmeasured and ROADMAP_V5
-    /// §4.1 says to ship the plain variant first and pick the number from real stamps.
+    /// The caution tint is ``surveyIsStale``'s, and it lands on the glyph beside this sentence
+    /// rather than on the sentence — see ``staleSurveyDays`` for where the number came from.
     static func surveyedPhrase(_ surveyedAt: Date, now: Date) -> String {
         let calendar = Calendar.current
         let days = calendar.dateComponents(
