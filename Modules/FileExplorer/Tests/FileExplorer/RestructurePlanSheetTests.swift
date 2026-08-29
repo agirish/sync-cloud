@@ -156,9 +156,9 @@ import Testing
     @Test func theTriggerOffersReviewOnceADraftExists() {
         #expect(RestructureLens.planTriggerTitle(planned: nil) == "Plan…")
         #expect(RestructureLens.planTriggerTitle(
-            planned: PlannedPlanInfo(operations: 9, summary: "s")) == "Review 9 operations")
+            planned: PlannedPlanInfo(operations: 9, summary: "s", renames: 0, merges: 0, filesMove: 0)) == "Review 9 operations")
         #expect(RestructureLens.planTriggerTitle(
-            planned: PlannedPlanInfo(operations: 1, summary: "s")) == "Review 1 operation")
+            planned: PlannedPlanInfo(operations: 1, summary: "s", renames: 0, merges: 0, filesMove: 0)) == "Review 1 operation")
     }
 
     // MARK: Render smoke

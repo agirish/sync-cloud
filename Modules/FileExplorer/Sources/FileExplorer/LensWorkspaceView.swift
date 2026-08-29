@@ -3227,13 +3227,7 @@ public struct LensWorkspaceView: View {
                         // for the trigger's words, the ledger sentence for the inline line.
                         plannedPlans: Dictionary(uniqueKeysWithValues:
                             (syncManager.restructureStore?.drafts ?? [:]).map { key, draft in
-                                (key.findingId,
-                                 PlannedPlanInfo(
-                                     // `operationCount`: keeps are the signature block, and
-                                     // counting them overstated the card's "Review N
-                                     // operations" the same way it did the Apply button.
-                                     operations: draft.manifest.operationCount,
-                                     summary: RestructureLedger(of: draft.manifest).summary))
+                                (key.findingId, Self.plannedInfo(of: draft.manifest))
                             }),
                         // Landed scaffolds, read off the ledger: the card for one says the
                         // survey has not caught up instead of offering the landing twice.
@@ -3326,6 +3320,26 @@ public struct LensWorkspaceView: View {
             }
         }
         return subjects
+    }
+
+    /// What a card says about a drafted plan — the trigger's count, the ledger's sentence, and
+    /// §5.1's blast radius as numbers. **All of it derived from the manifest**, in one place, so
+    /// the chips and the sentence cannot disagree about the same plan.
+    ///
+    /// A "merge" here is a source folder the plan drains, which is what the ledger already counts
+    /// as *folders emptied* — the number of folders that stop existing as themselves. Whole-folder
+    /// carries are renames for this purpose: the folder keeps its contents and its identity.
+    static func plannedInfo(of manifest: RestructureManifest) -> PlannedPlanInfo {
+        let ledger = RestructureLedger(of: manifest)
+        return PlannedPlanInfo(
+            // `operationCount`, not `actions.count`: keeps are the signature block, and counting
+            // them overstated the card's "Review N operations" the same way it did the Apply
+            // button.
+            operations: manifest.operationCount,
+            summary: ledger.summary,
+            renames: ledger.foldersRenamed + ledger.foldersMovedWhole,
+            merges: ledger.foldersEmptied,
+            filesMove: ledger.filesMoved)
     }
 
     /// The plan sheet's disk root. `FolderProfile.root` is stored tilde-abbreviated (the

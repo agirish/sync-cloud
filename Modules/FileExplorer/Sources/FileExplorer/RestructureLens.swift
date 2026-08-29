@@ -8,6 +8,25 @@ import Sync
 struct PlannedPlanInfo: Equatable {
     let operations: Int
     let summary: String
+    /// The blast radius as numbers, once a draft makes them knowable. **Derived from the draft's
+    /// own manifest** by the workspace — never pasted, and never estimated from the finding: the
+    /// card's prose sentence is what the finding alone can honestly say.
+    let renames: Int
+    let merges: Int
+    let filesMove: Int
+
+    /// The three chips a card shows in place of its blast-radius sentence — the zero ones stay
+    /// out, so a rename-only plan says "3 renames" rather than "3 renames · 0 merges".
+    var radiusChips: [(text: String, movesFiles: Bool)] {
+        var out: [(String, Bool)] = []
+        if renames > 0 { out.append(("\(renames) rename\(renames == 1 ? "" : "s")", false)) }
+        if merges > 0 { out.append(("\(merges) merge\(merges == 1 ? "" : "s")", false)) }
+        if filesMove > 0 {
+            // The VERB agrees, not just the noun: one file moves, many files move.
+            out.append(("\(filesMove) file\(filesMove == 1 ? " moves" : "s move")", true))
+        }
+        return out
+    }
 }
 
 /// One ledger record, as the card needs it — §5.7's Applied and Undone states. Derived from the
@@ -600,7 +619,23 @@ struct RestructureLens: View {
             if let scaffold = Self.scaffoldLine(for: finding) {
                 extraRow(members: scaffold.members, note: scaffold.note)
             }
-            if let radius = Self.blastRadius(for: finding) {
+            // Where a draft exists the numbers are KNOWN, so the card states them instead of
+            // describing the shape of the cost. The sentence stays as the no-draft fallback —
+            // it is the honest answer when nothing has been derived yet.
+            if let chips = plannedPlans[finding.id]?.radiusChips, !chips.isEmpty {
+                HStack(spacing: 5) {
+                    ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                        Text(chip.text)
+                            .scaledFont(.system(size: 9.5, weight: .medium))
+                            .padding(.vertical, 1.5)
+                            .padding(.horizontal, 6)
+                            .background(Capsule().fill(chip.movesFiles
+                                                       ? AnyShapeStyle(Color.orange.opacity(0.16))
+                                                       : AnyShapeStyle(.quaternary.opacity(0.30))))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else if let radius = Self.blastRadius(for: finding) {
                 Text(radius)
                     .scaledFont(.system(size: 10.5))
                     .foregroundStyle(.tertiary)
