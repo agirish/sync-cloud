@@ -168,6 +168,25 @@ struct ContentView: View {
     /// publishing a pin or a visit.
     @State var folderSidebarRows: [FolderSidebarRow] = []
     @State var folderSidebarLocationRows: [SidebarSourceRow] = []
+    /// **The mount points a row may be ejected from**, resolved with the rows rather than in the
+    /// view body.
+    ///
+    /// It was computed inline in the sidebar's arguments for one build, which put a
+    /// `mountedVolumeURLs` call plus a `resourceValues` read per volume into **every** evaluation of
+    /// that body — and the body re-evaluates on hover, on a drag, on every selection change. That
+    /// is the exact cost `refreshFolderSidebarRows`'s own gate exists to keep off the render path,
+    /// and under an unresponsive network mount a resource read can block. Resolved on the same
+    /// pass as the rows, it happens when the volumes can actually have changed.
+    @State var folderSidebarEjectablePaths: Set<String> = []
+    /// **The narrower half: where an unmount actually forgets the sources.**
+    ///
+    /// Eject is offered on anything Finder would eject, a network share included; a share is not
+    /// local, so unmounting it leaves its sources in place. The confirmation has to know which of
+    /// the two it is looking at, or it promises a removal that will not happen — which it did until
+    /// this was split out. Resolved on the same walk as the rows, from
+    /// `SidebarSourceModel.Volume.losesItsSourcesOnUnmount`, so the sentence the user reads and the
+    /// rule `MountedVolumeMemory` applies are one rule.
+    @State var folderSidebarDetachablePaths: Set<String> = []
     @State var folderSidebarShortcutRows: [SidebarSourceRow] = []
     /// A promotion that can still be taken back, until the next one or a workspace change.
     @State var folderSidebarNotice: FolderSidebarNotice?

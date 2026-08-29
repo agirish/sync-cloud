@@ -112,6 +112,20 @@ extension ContentView {
         let places = splitFolderSidebarPlaceRows(providers, volumes: volumes)
         folderSidebarLocationRows = places.locations
         folderSidebarShortcutRows = places.shortcuts
+        // **Every mounted volume you could eject in Finder, source or not.** Keyed by mount point
+        // because a card SyncCloud has not been given still draws a row, and refusing to eject it
+        // for that reason would be an odd rule for a verb about the hardware. The internal check
+        // keeps the startup disk out — `isRemovable` is already false for it, so this is the belt
+        // to that braces.
+        folderSidebarEjectablePaths = Set(volumes.filter { $0.isRemovable && !$0.isInternal }
+                                              .map { FolderSidebarView.mountKey($0.path) })
+        // **A NARROWER set, and the difference is a promise the dialog would otherwise break.**
+        // Eject is offered on anything Finder would eject, which includes a network share — Finder
+        // draws one an eject arrow. But a share is not `isLocal`, so unmounting it does NOT forget
+        // its sources (`MountedVolumeMemory.Facts.isDetachable`), and a confirmation telling the
+        // user their source is about to go would be describing something that will not happen.
+        folderSidebarDetachablePaths = Set(volumes.filter(\.losesItsSourcesOnUnmount)
+                                              .map { FolderSidebarView.mountKey($0.path) })
     }
 
     /// **Each source's landing folder**, keyed the way the recents are — what Recents subtracts,
@@ -493,6 +507,9 @@ extension ContentView {
             // source — and `removeFolderSource` ignores a discovered account's id, so offering the
             // item on one would name an act that silently does nothing.
             removableSourceIds: Set(settings.folderSources.map(\.id)),
+            onEjectSource: { source in ejectFolderSidebarVolume(source) },
+            ejectablePaths: folderSidebarEjectablePaths,
+            detachablePaths: folderSidebarDetachablePaths,
             onRestoreStandardFavorites: { restoreStandardFolderSidebarFavorites() },
             canRestoreStandardFavorites: SidebarFavoritePlaces.isMissingStandard(folderSidebarFavoritePlaces),
             onMoveFavorite: { from, to in moveFolderSidebarFavorite(from: from, to: to) },
@@ -781,6 +798,53 @@ extension ContentView {
                 message: "Added \(source.name) as a source", action: .undoPromotion(sourceId: id))
         }
         refreshFolderSidebarRows()
+    }
+
+    /// **Ejects the volume a row sits on** — Finder's verb, in the place the user is already
+    /// looking at the card.
+    ///
+    /// It does not remove the source itself, and deliberately: the *unmount* does that, through
+    /// `didUnmountNotification` → `forgetFolderSidebarSourcesOnUnmount`. One path for "this volume
+    /// went away" means an eject from here and an eject from Finder land in exactly the same state,
+    /// rather than this one having to remember to do both halves and the Finder one only getting
+    /// whichever half the notification carries.
+    ///
+    /// **A refused eject is reported, not swallowed.** macOS refuses when a file on the card is
+    /// open — in this app or another — and a menu item that silently does nothing is the failure
+    /// mode this whole area has been reported for twice.
+    func ejectFolderSidebarVolume(_ source: SidebarSourceRow) {
+        let url = URL(fileURLWithPath: source.absolutePath)
+        let name = source.name
+        // **Off the main thread, because ejecting is not instant.** macOS flushes the volume's
+        // buffers before it unmounts, which on a card with writes still in flight takes seconds —
+        // and `unmountAndEjectDevice(at:)` is synchronous, so on the main thread that is a frozen
+        // window with no indication of why. This app has already shipped one wedged main thread
+        // (the `getxattr` inside a `body` getter, 2026-07-30); a known-slow syscall does not go
+        // back on it.
+        Task {
+            do {
+                try await Self.ejectVolume(at: url)
+                Logger.shared.info("User ejected \(name) (\(url.path))")
+            } catch {
+                // **The real reason, not a guess at it.** "Something is still using it" is the
+                // common case and not the only one — a disk that will not spin down and a volume
+                // that refuses for its own reasons both land here, and naming the wrong cause
+                // sends the user looking for a file that is not open.
+                Logger.shared.warning("Could not eject \(name): \(error.localizedDescription)")
+                folderSidebarNotice = FolderSidebarNotice(
+                    message: "Could not eject \(name). \(error.localizedDescription)",
+                    action: .dismiss)
+            }
+        }
+    }
+
+    /// The eject itself, on a background thread. `nonisolated` so the `await` really does leave the
+    /// main actor — an `async` member of a `@MainActor` type would hop straight back onto it and
+    /// block exactly as before, which is the way this fix fails silently.
+    nonisolated static func ejectVolume(at url: URL) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            try NSWorkspace.shared.unmountAndEjectDevice(at: url)
+        }.value
     }
 
     /// **Forgets the sources on a volume that has just been unmounted.**

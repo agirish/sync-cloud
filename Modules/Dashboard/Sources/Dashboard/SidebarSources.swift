@@ -199,6 +199,17 @@ public enum SidebarSourceModel {
             self.isLocal = isLocal
         }
 
+        /// **Whether unmounting this volume means the sources on it are GONE, not asleep.**
+        ///
+        /// The rule the eject behaviour turns on, named here so the two places that need it — the
+        /// confirmation the user reads, and `MountedVolumeMemory` acting on the unmount — cannot
+        /// answer it differently. They did: the dialog asked only whether the row was a source, so
+        /// for a network share it promised a removal that `isDetachable` was never going to make.
+        ///
+        /// A share is *ejectable* (Finder draws it an eject arrow) but not local, and a share that
+        /// drops comes back — so the volume must be both.
+        public var losesItsSourcesOnUnmount: Bool { isRemovable && isLocal }
+
         /// `internaldrive` for the startup disk, `sdcard` for something you can pull out,
         /// `externaldrive` for a disk that is neither.
         public var symbol: String {

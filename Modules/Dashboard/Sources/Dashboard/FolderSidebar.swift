@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Sync
 import Design
 
 /// One row of the folder sidebar: a remembered folder, under the heading that remembered it.
@@ -377,6 +378,10 @@ public enum FolderSidebarModel {
 /// not built; here it is also next to the row the user just clicked, which is where they are looking.
 public struct SidebarNotice: Equatable, Sendable {
     public let message: String
+    /// **Always present, and "Dismiss" is a real one.** A notice about a card that has been ejected
+    /// has nothing to undo — the volume is gone — but it still needs a way off the column, because
+    /// nothing else clears one and an actionless line would sit at the bottom of the sidebar for
+    /// the rest of the session. The host decides the word; see `FolderSidebarNotice.actionTitle`.
     public let actionTitle: String
 
     public init(message: String, actionTitle: String) {
@@ -536,6 +541,28 @@ public struct FolderSidebarView: View {
     /// is dead or offers a way out. Until this, the only route was Settings ▸ Sources, which is not
     /// where the user is when they see the problem.
     private let onRemoveSource: (SidebarSourceRow) -> Void
+    /// Eject the volume a row sits on — Finder's own verb, on the rows Finder offers it for.
+    ///
+    /// **Ejecting is what makes the row go away now**, since an unmount removes the sources on a
+    /// detachable volume (`SettingsManager.removeFolderSources(onVolume:)`). Before that landed,
+    /// an in-app Eject would have left the same dead row this column already had too many of; it
+    /// is offered here because the two halves arrived together.
+    private let onEjectSource: (SidebarSourceRow) -> Void
+    /// **Which rows can be ejected, by mount point**, decided by the caller because only it has
+    /// walked the mounted volumes.
+    ///
+    /// Keyed by PATH rather than by source id, unlike `removableSourceIds`: a card that is not a
+    /// source yet still draws a row, and refusing to eject it because SyncCloud has not been given
+    /// it would be an odd rule for a verb that is about the hardware.
+    private let ejectablePaths: Set<String>
+    /// **Where an unmount actually forgets the sources**, which is narrower than `ejectablePaths`
+    /// and is the difference between a confirmation that is true and one that is not.
+    ///
+    /// Eject is offered on anything Finder would eject, a network share included. A share is not
+    /// local, so unmounting it leaves its sources alone — and a dialog that told the user their
+    /// source was about to go would be promising something that will not happen. Supplied by the
+    /// caller for the same reason `ejectablePaths` is: only it has walked the volumes.
+    private let detachablePaths: Set<String>
     /// **Which rows Remove is offered on, decided by the caller because it owns the list.**
     /// Only a folder source can be removed: a discovered account is discovered, so removing it
     /// would name an act that cannot happen — `SettingsManager.removeFolderSource` ignores the id
@@ -563,15 +590,92 @@ public struct FolderSidebarView: View {
     /// Which heading the pointer is over, so its chevron can be revealed the way Finder reveals
     /// Show/Hide rather than keeping a glyph on screen at all times.
     @State private var hoveredHeader: Section?
-    /// The source a Remove is waiting on confirmation for.
+    /// The row action waiting on a confirmation, if any.
     ///
-    /// **Confirmed rather than undone**, which is the opposite of what promoting a shortcut does
-    /// one file over — and the difference is that promotion is exactly reversible while this is
-    /// not. A removed source loses its id, and with it the name the user gave it, the folder it
-    /// opened at, and whether it was switched off; re-adding the same path mints a new source that
-    /// has none of those. An "Undo" that quietly hands back less than it took is worse than a
-    /// question asked first.
-    @State private var pendingSourceRemoval: SidebarSourceRow?
+    /// **Both of this menu's consequential verbs are confirmed, and neither can be undone from
+    /// here** — which is the opposite of what promoting a shortcut does one file over, and the
+    /// difference is that promotion is exactly reversible while these are not. A removed source
+    /// loses its id, and with it the name the user gave it, the folder it opened at and whether it
+    /// was switched off; re-adding the same path mints a new source with none of those. An "Undo"
+    /// that quietly hands back less than it took is worse than a question asked first.
+    ///
+    /// **One state and one dialog rather than two of each.** Two `confirmationDialog` modifiers on
+    /// one view is a shape SwiftUI presents unreliably when both could be armed, and the two can be
+    /// armed at once here — a right-click on a second row while the first dialog is up. One
+    /// presented value cannot be in two states.
+    @State private var pendingRowAction: PendingRowAction?
+    /// **The dialog's title, latched.** It is a plain parameter rather than part of the
+    /// `presenting:` mechanism, so it is re-read from this body on every render — including the
+    /// ones during the dismissal animation, when the action has already gone back to nil and a
+    /// title derived from it would read as an empty heading on the way out. `arm(_:)` sets both,
+    /// so the two cannot come apart.
+    @State private var pendingRowTitle = ""
+
+    /// **A consequential verb the user has asked for but not yet confirmed.**
+    ///
+    /// Carries the row rather than an id, because the dialog names the place and the row is what
+    /// knows its name — and re-resolving it by id at confirm time would be a second lookup that
+    /// could disagree with what the menu was opened on.
+    enum PendingRowAction: Equatable {
+        case removeSource(SidebarSourceRow)
+        /// Whether SyncCloud holds this volume as a source travels with the action, because it
+        /// changes what the dialog can honestly promise: ejecting a card that is not a source
+        /// costs nothing but the mount.
+        /// Whether confirming this will ALSO cost the source — true only when SyncCloud holds the
+        /// volume as one *and* unmounting it is the kind that forgets. Named for the consequence
+        /// rather than for the row's status, because those two came apart: a network share can be
+        /// a source and keep being one through an eject.
+        case eject(SidebarSourceRow, losesItsSource: Bool)
+
+        var row: SidebarSourceRow {
+            switch self {
+            case .removeSource(let row): return row
+            case .eject(let row, _): return row
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .removeSource: return "Remove this source?"
+            case .eject(let row, _): return "Eject \(row.name)?"
+            }
+        }
+
+        /// **What the dialog says, and the eject wording is the point of it existing.**
+        ///
+        /// Ejecting reaches past SyncCloud: the volume is unmounted from macOS, so it leaves
+        /// Finder and every other app at the same moment. A confirmation that only mentioned the
+        /// source would be describing the smaller half of what the click does.
+        var message: String {
+            switch self {
+            case .removeSource(let row):
+                return "\(row.name) is removed from SyncCloud. The folder itself is not deleted, and you can add it again — but the name you gave the source, where it opens, and whether it was switched off are not kept."
+            case .eject(let row, let losesItsSource):
+                let system = "\(row.name) is unmounted from macOS, not just from SyncCloud — it leaves Finder and every other app until you plug it in again. Nothing on it is changed."
+                guard losesItsSource else { return system }
+                return system + " SyncCloud also stops holding it as a source, so the name you gave it and where it opens are not kept."
+            }
+        }
+
+        /// The confirming button's word — the verb the user reached for, restated.
+        var verb: String {
+            switch self {
+            case .removeSource(let row): return "Remove \(row.name)"
+            case .eject: return "Eject"
+            }
+        }
+
+        /// **Red only where something cannot be got back.** Removing a source loses the name, the
+        /// landing folder and the enabled flag; so does ejecting a card that is one. Ejecting a
+        /// card that is NOT a source costs only the mount, which plugging it back in returns — and
+        /// dressing that as destructive would teach the colour to mean nothing.
+        var isDestructive: Bool {
+            switch self {
+            case .removeSource: return true
+            case .eject(_, let losesItsSource): return losesItsSource
+            }
+        }
+    }
     /// The ambient text scale, so a mark can be sized by the same curve as the label beside it.
     @Environment(\.appFontScale) private var fontScale
 
@@ -643,6 +747,9 @@ public struct FolderSidebarView: View {
                 onToggleSourceFavorite: @escaping (SidebarSourceRow) -> Void = { _ in },
                 onRemoveSource: @escaping (SidebarSourceRow) -> Void = { _ in },
                 removableSourceIds: Set<String> = [],
+                onEjectSource: @escaping (SidebarSourceRow) -> Void = { _ in },
+                ejectablePaths: Set<String> = [],
+                detachablePaths: Set<String> = [],
                 onRestoreStandardFavorites: @escaping () -> Void = {},
                 canRestoreStandardFavorites: Bool = false,
                 onMoveFavorite: @escaping (Int, Int) -> Void = { _, _ in },
@@ -670,6 +777,9 @@ public struct FolderSidebarView: View {
         self.onToggleSourceFavorite = onToggleSourceFavorite
         self.onRemoveSource = onRemoveSource
         self.removableSourceIds = removableSourceIds
+        self.onEjectSource = onEjectSource
+        self.ejectablePaths = ejectablePaths
+        self.detachablePaths = detachablePaths
         self.onRestoreStandardFavorites = onRestoreStandardFavorites
         self.canRestoreStandardFavorites = canRestoreStandardFavorites
         self.onMoveFavorite = onMoveFavorite
@@ -754,19 +864,20 @@ public struct FolderSidebarView: View {
         // than a view of its own, so a per-row presenter would have nowhere to keep its state —
         // and the alternative, a `@State` on a struct rebuilt for every row, is the classic way to
         // get a dialog that presents against a stale row.
-        .confirmationDialog("Remove this source?",
-                            isPresented: Binding(get: { pendingSourceRemoval != nil },
-                                                 set: { if !$0 { pendingSourceRemoval = nil } }),
-                            presenting: pendingSourceRemoval) { source in
-            Button("Remove \(source.name)", role: .destructive) {
-                onRemoveSource(source)
-                pendingSourceRemoval = nil
+        .confirmationDialog(pendingRowTitle,
+                            isPresented: Binding(get: { pendingRowAction != nil },
+                                                 set: { if !$0 { pendingRowAction = nil } }),
+                            presenting: pendingRowAction) { action in
+            Button(action.verb, role: action.isDestructive ? .destructive : nil) {
+                switch action {
+                case .removeSource(let row): onRemoveSource(row)
+                case .eject(let row, _): onEjectSource(row)
+                }
+                pendingRowAction = nil
             }
-            Button("Cancel", role: .cancel) { pendingSourceRemoval = nil }
-        } message: { source in
-            // Says what is lost and what is not. The folder is the thing a person is actually
-            // afraid for, and it is the one thing this cannot touch.
-            Text("\(source.name) is removed from SyncCloud. The folder itself is not deleted, and you can add it again — but the name you gave the source, where it opens, and whether it was switched off are not kept.")
+            Button("Cancel", role: .cancel) { pendingRowAction = nil }
+        } message: { action in
+            Text(action.message)
         }
     }
 
@@ -802,6 +913,13 @@ public struct FolderSidebarView: View {
         .padding(.top, 8)
         .padding(.bottom, 6)
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// **Arms a confirmation.** One door, so the latched title cannot be set without the action it
+    /// belongs to — the drift a second `@State` invites, and the only reason it is not derived.
+    private func arm(_ action: PendingRowAction) {
+        pendingRowTitle = action.title
+        pendingRowAction = action
     }
 
     /// Pinned to the bottom, outside the `ScrollView`, so it cannot be scrolled away from — the
@@ -1263,15 +1381,39 @@ public struct FolderSidebarView: View {
                 Divider()
                 Button(verb) { onToggleSourceFavorite(source) }
             }
+            // **Above Remove, and it is the commoner verb of the two.** Ejecting is something a
+            // person does to a card every time they finish with one; removing a source is
+            // something they do once, if ever.
+            if ejectablePaths.contains(FolderSidebarView.mountKey(source.absolutePath)) {
+                Divider()
+                Button("Eject \(source.name)…") {
+                    // **Both halves, or the dialog lies.** It is not enough that SyncCloud holds
+                    // this folder as a source: the unmount has to be one that forgets it, which a
+                    // network share's is not.
+                    let key = FolderSidebarView.mountKey(source.absolutePath)
+                    arm(.eject(source, losesItsSource: removableSourceIds.contains(source.id)
+                                                       && detachablePaths.contains(key)))
+                }
+                .disabled(!source.isAvailable)
+            }
             // **Last, and behind its own rule.** It is the one item here that changes what the app
             // holds rather than what it is showing, and the row above it is a toggle a user reaches
             // for often — so it sits where a mis-aimed click is least likely to land on it.
             if removableSourceIds.contains(source.id) {
                 Divider()
-                Button("Remove Source…") { pendingSourceRemoval = source }
+                Button("Remove Source…") { arm(.removeSource(source)) }
             }
         }
     }
+
+    /// **The one spelling of a mount point**, so `ejectablePaths` and a row's `absolutePath` meet.
+    ///
+    /// A row carries the path the place was built from and the caller builds the set from what
+    /// `FileManager.mountedVolumeURLs` returned; those agree today and would stop agreeing the
+    /// first time either side gained a trailing slash. `PathBoundary.normalizedRoot` is the rule
+    /// `FolderJumpStore` and `MountedVolumeMemory` already key by, so this is the third reader of
+    /// one rule rather than a fourth spelling of it.
+    public static func mountKey(_ path: String) -> String { PathBoundary.normalizedRoot(path) }
 
     /// **The tooltip is where the three states are spelled out**, because the row itself only has
     /// room to be dimmed or not.

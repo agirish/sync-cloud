@@ -157,8 +157,8 @@ import Sync
                 "the handler does not actually remove the source")
         let sidebar = try Self.source("Sources/Dashboard/FolderSidebar.swift")
         #expect(sidebar.contains("Remove Source…"), "the context menu offers no Remove")
-        #expect(sidebar.contains("pendingSourceRemoval"),
-                "Remove is not confirmed — and it is not reversible, so it must be")
+        #expect(sidebar.contains("case .removeSource(let row): onRemoveSource(row)"),
+                "Remove is not routed through the confirmation — and it is not reversible, so it must be")
     }
 
     // MARK: Reading the tree
