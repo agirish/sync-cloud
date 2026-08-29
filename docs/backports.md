@@ -1373,3 +1373,83 @@ Checked with `git ls-tree` per file against all three lines — which is also wh
 earlier version of this entry, which claimed the two `v4.x`-only files were shared by all three.
 The per-file notes are the expensive half to reconstruct, which is why the "not owed" reasons are
 written out rather than summarised: they are not the same reason.
+
+### 2026-08-29 — the Duplicates and Renames lens redesign — SPLIT VERDICT, two rows genuinely owed
+
+Landed on `main` as `ec68e687`, `ab495a8e`, `9c446094`, `57ce00e4`. **Unlike everything above it in
+this section, this one is not "checked, not owed" throughout** — most of it is v5 lens UI, but two
+of the files it touches are carried by all four lines and carry a defect there, so those two rows
+are owed and are recorded as owed. Not picked: the standing direction is no backporting. What
+follows is what a future audit would otherwise have to re-derive.
+
+**OWED 1 — the folder-overlap gate measures against the smaller side.**
+`Modules/Sync/Sources/Sync/DuplicateFinder.swift`, present on **all three** maintenance lines.
+The folder pass buckets candidates by name and asks content to justify the bucket; the fraction it
+computed was the shared count over the *copy's own* size, so a one-item folder whose single file
+also lives in a 361-item folder scores **1.0** and is offered as a merge. That is the defect the
+user hit in the app — two folders six levels apart under `Immigration`, proposed for merging when
+one is wholly contained in the other. `main` now scores the **mutual** fraction (intersection over
+the larger side), which scores that pair `1/361` and leaves genuine version-pairs at ~0.9.
+Confirmed present, not assumed:
+
+```sh
+for l in v4.x v3.x v2.x; do git show origin/$l:Modules/Sync/Sources/Sync/DuplicateFinder.swift \
+  | grep -c mutualFraction; done          # 0, 0, 0 — none of them has the fix
+git show origin/v4.x:Modules/Sync/Sources/Sync/DuplicateFinder.swift | sed -n '806,822p'
+```
+
+That last prints the pre-fix shape verbatim: `ordered.dropFirst().map { sharedFraction(...) }`,
+averaged, then gated on `options.overlapThreshold`. **The average is a second, separate defect in
+the same lines** — it decides per bucket what it then applies per folder, so a genuine six-against-
+six twin sharing its name with three one-file subsets fails *as a unit* (the user's `Form W-2`
+set). `main` filters per copy. A line taking one of these should take both; taking the mutual
+fraction alone would drop those twins instead of admitting them.
+
+**OWED 2 — the duplicate thumbnail lifts under the pointer and does nothing.**
+`Modules/FileExplorer/Sources/FileExplorer/DuplicateThumbnail.swift`, present on **all three**.
+Each line scales the tile to 1.1 on hover with no tap handler anywhere in the file — an affordance
+that reads as a control and is not one, with the only real keeper control a small radio in the row
+beneath. `main` makes the tile (and the whole row) the picker.
+
+```sh
+for l in v4.x v3.x v2.x; do git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DuplicateThumbnail.swift \
+  | grep -c onTapGesture; done            # 0, 0, 0 — while all three carry `.scaleEffect(isHovering …)`
+```
+
+**NOT owed — dropping the name-only match kind**, and the three files that only move because it
+did (`SemanticColor.swift`'s doc sentence, `FileSyncManager+Duplicates.swift`'s review counting,
+`DuplicateFinderGoldenTests`' fixture). All three lines carry `.nameOnly` (7 hits each), so this is
+reachable there — but it is a **product decision and a breaking one**: it removes a public enum
+case and stops reporting a finding the user has been shown for releases. Maintenance lines take no
+breaking changes, and the user's reason for it was about v5's Duplicates lens being overwhelming,
+not about the kind being wrong to compute. Grounded first in his own `content-hash-index.json`:
+across `~/Documents`, 115 same-name folder sets share not one file (`2020` ×36, `2021` ×25, `2023`
+×23, `Archive`, `Approval`, `Payslips`). Nothing is lost by the removal on `main` because that
+branch never wrote `coveredRoots`, so genuinely shared documents still surface as identical FILE
+groups — which is also why a maintenance line keeping the kind loses nothing either.
+
+**NOT owed — the header card's rigid summary row, with one honest caveat.**
+`Modules/Design/Sources/Design/LensHeaderCard.swift` is on all three lines and all three carry the
+pre-fix `HStack(spacing: 8) { summary() }`; `ShrinkableRun.swift` exists on none of them. So the
+*mechanism* is present everywhere: an incompressible row 2 makes the card draw wider than its
+proposal, and a `.frame(maxWidth: .infinity)` ancestor then reports the drawn width. **Whether it
+manifests depends on how wide that line's own lenses fill `summary`, and I did not measure that** —
+on `main` it took Duplicates' pill run to spill the card past both pane edges at 492pt. Recorded as
+not owed under the standing direction rather than as checked-and-absent, because those are
+different claims and only the first one is established here. What would settle it: build the line
+and lay out its widest lens header at the 760pt window floor.
+
+**NOT owed — everything else**, which is the bulk of the 40 files. `LensWorkspaceView.swift`,
+`DuplicateGroupCard.swift`, `DuplicateGroupColumns.swift`, `RenameCategories.swift` and
+`RenamePassLens.swift` are **`v4.x` only** (`v3.x` and `v2.x` predate the lens workspace entirely),
+and their hunks are the sectioned tile grid, the redesigned card, and the two-column renames card —
+lens surfaces, not fixes. The eight new files (`ShrinkableRun`, `LensCardGrid`, `DuplicateSections`
+and their tests) are `main`-only by construction. `MacApp/HelpBook.swift`, `README.md`,
+`RELEASE_NOTES.md`, `docs/index.html` and `docs/releases.html` are on all three lines but every
+hunk describes the removed kind or the redesigned lens, so copying them would document behaviour
+those lines do not have — the same reason the Help book's v5.0 pass is not owed above.
+
+Checked with `git ls-tree` per file against all three lines, and with `git show origin/<line>:<f>`
+for the two owed rows rather than inferring absence from the file list — a file being present says
+nothing about which version of it is present, which is the whole difference between the two
+verdicts in this entry.
