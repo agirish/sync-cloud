@@ -33,8 +33,13 @@ public enum StructureDuplicatedTaxonomy {
     ///   - profile: supplies the folder universe and file counts — both folders must be folders
     ///     the survey knows, because the claim is about two organised branches, not about a copy
     ///     stash the profile never recorded.
+    /// - Parameter minimumShare: injected only so the §5.9 measurement can sweep it — the app
+    ///   always passes the default. A rule with a tunable constant and no way to try another
+    ///   value is a constant nobody ever revisits, which is how the threshold went unmeasured for
+    ///   as long as it did.
     public static func findings(groups: [DuplicateGroup],
-                                in profile: FolderProfile) -> [StructureFinding] {
+                                in profile: FolderProfile,
+                                minimumShare: Double = Rule.minimumShare) -> [StructureFinding] {
         let root = (profile.root as NSString).expandingTildeInPath
         let prefix = root.hasSuffix("/") ? root : root + "/"
 
@@ -77,7 +82,7 @@ public enum StructureDuplicatedTaxonomy {
                 // the floor rule, which is the honest reading — the survey knows nothing else
                 // about it.
                 let smaller = max(1, min(filesA, filesB))
-                return Double(count) / Double(smaller) >= Rule.minimumShare
+                return Double(count) / Double(smaller) >= minimumShare
             }
             .sorted { ($0.key.a, $0.key.b) < ($1.key.a, $1.key.b) }
 

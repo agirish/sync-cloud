@@ -806,6 +806,39 @@ not clean. Yield on this tree still unmeasured, as ordered — it needs a scan, 
 anywhere until one has run. The card reports both branches; wiring its merge into §5.4's sheet
 waits for the pair→mapping flow.)*
 
+*(2026-08-28, proposal O18 — **the measurement was attempted and is BLOCKED, and the merge stays
+unwired.** `DuplicatedTaxonomyMeasurementTests` is the scan: a real walk of the profile's root fed
+to `DuplicateFinder.findGroups` with the persisted content-hash and content-fingerprint indexes,
+then this detector over the groups, sweeping the share threshold. It cannot run from a terminal
+without **Full Disk Access** — `~/Documents` is TCC-protected, and the walker returns an empty tree
+with `stalled == false`, which downstream is indistinguishable from a tree with no duplicates. The
+first version of that suite printed "0 findings" at every threshold on exactly that basis; it now
+refuses to compute anything and says BLOCKED instead, because a permission result wearing a
+measurement's clothes is the precise failure the standing order exists to prevent. **Still no
+yield number here.**
+
+What IS readable without walking anything is `content-fingerprint-index.json`, and reading the
+*shapes* out of it (never the counts — those are the scan's to produce) changed what this detector
+looks like it needs. Three shapes are now pinned in `StructureDuplicatedTaxonomyTests`, and two of
+them are cases the rule gets **wrong**:
+
+- **Combined statements.** One PDF covering a checking and a savings account, correctly filed
+  under both. Every document of the smaller side is a `.sameText` partner of the larger, so the
+  rule calls two correct branches a duplicated taxonomy. This is the *content* version of the
+  name-parallel trap the detector was designed around — and it clears **every** value of the share
+  threshold from a fifth to the whole folder, so **the open question below is answered in the
+  negative: the share is not the discriminator, and no tuning of `minimumShare` separates these.**
+- **An inbox staging folder.** `TODO` holding copies of what has just been filed. Fires, dissolves
+  when the staging copies are cleared, and is not two taxonomies.
+- **A petition packet** — pay statements copied into an immigration filing. The closest thing on
+  the tree to the real case, and arguably still correct filing.
+
+**Which is why the merge is not wired.** O18's plan was measurement then merge; on this evidence
+`Plan…` on the top-ranked pair would offer to merge two bank accounts' folders. Whatever unblocks
+this detector is a rule that can tell "the same document legitimately belongs in both" from "these
+are two taxonomies", and that rule does not exist yet. `RestructurePlanRouting` continues to return
+nil for `.duplicatedTaxonomy`, now for a measured reason rather than a pending one.)*
+
 ### 5.10 Getting to a finding on purpose — and from the command line
 
 The lens is a **reporting** surface: it is found by opening Organize, and that is right, because a
@@ -1134,11 +1167,17 @@ goes to a branch.
   without the Ask detector, exactly the outcome §5.3 sanctioned, and now it loses zero findings
   on this tree rather than one. The `.ask` kind, the store's `answers` section and the identity
   all exist; the next real instance the tree grows is the design input this needs.)*
-- **§5.9: what share of shared content makes two folders duplicated taxonomy?** The detector reads
-  `.sameText` groups, so it needs a threshold — two folders that share one document are not a
-  duplicated taxonomy and two that share all of them plainly are. Unmeasurable from the profile;
-  it needs a duplicate scan over the reference tree, which is why the item ships last and carries
-  no number until then.
+- ~~**§5.9: what share of shared content makes two folders duplicated taxonomy?**~~ **Answered
+  2026-08-28, and the answer is that the share is the wrong question.** The three shapes this
+  detector fires on across the reference tree (pinned in `StructureDuplicatedTaxonomyTests`; see
+  §5.9's second dated note) include two false positives that clear **every** threshold from a
+  fifth to the whole folder — a bank statement covering two accounts and correctly filed under
+  both makes the smaller folder wholly shared. No value of `minimumShare` separates those from a
+  real duplicated taxonomy, so tuning it cannot be the fix. Struck rather than deleted because
+  the replacement question is the useful part: **what distinguishes "the same document
+  legitimately belongs in both folders" from "these are two taxonomies of one thing"?** The
+  yield number is still owed and still needs a scan — `DuplicatedTaxonomyMeasurementTests` is
+  that scan, blocked on Full Disk Access.
 - **§6: what should the Organize overview ledger count while a survey is running?** Making
   Restructure runnable changes `countedLenses` and `pendingPasses`
   (`Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift:418`, `:468`), and a lens that

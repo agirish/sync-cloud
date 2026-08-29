@@ -66,9 +66,16 @@ public enum RestructurePlanRouting {
                     .appendingPathComponent((finding.subject as NSString).lastPathComponent))
 
         // Named rather than defaulted, so a new detail case has to be decided here.
-        // `duplicatedTaxonomy` resolves two branches holding the same documents; its pair is
-        // only trustworthy once a duplicate scan has measured it, so it waits for that
-        // measurement rather than shipping a plan over an unmeasured claim.
+        //
+        // **`duplicatedTaxonomy` stays unrouted, and now for a measured reason** (proposal O18,
+        // ROADMAP_V5 §5.9's 2026-08-28 note). Its pair is a merge, and the shapes this detector
+        // actually fires on — pinned in `StructureDuplicatedTaxonomyTests` — are dominated by
+        // correct parallels: one bank statement covering two accounts and filed under both makes
+        // the whole of the smaller folder a `.sameText` partner of the larger. Offering `Plan…`
+        // there would offer to merge two accounts' folders. The share threshold does not separate
+        // them (the false positives clear every value of it), so what this waits on is a rule
+        // that can tell "the same document belongs in both" from "these are two taxonomies" —
+        // not a tuning, and not the scan alone.
         case .backlog, .looseAboveSeries, .duplicatedTaxonomy, nil:
             return nil
         }
