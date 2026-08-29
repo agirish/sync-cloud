@@ -1539,3 +1539,41 @@ owed, not picked, under the standing direction.
 **NOT owed — the Help book bullet and paragraph.** `MacApp/HelpBook.swift` is on all lines, but the
 new copy describes behaviour those lines do not have; documenting it there would be worse than
 silence, the same verdict the v5.0 Help pass got above.
+
+### 2026-08-29 — ejecting a card forgets its sources, and an Eject verb — SPLIT VERDICT, one row owed
+
+The second half of the same report. It rests on the same `FolderSource` volume rule as the entry
+above, so the line-by-line availability is the same and is not restated; what differs is which of
+the two halves each line can actually carry.
+
+**OWED (`v4.x` and `v3.x`) — the auto-removal.** `SettingsManager.removeFolderSources(onVolume:)`
+plus `FolderSource.isOnVolume/idsOnVolume` need only `FolderSource.swift` and `SettingsManager`,
+both of which those two lines carry (`v2.x` has neither folder sources nor `removeFolderSource`, so
+the whole feature is unreachable there). Nothing on any line watches for an unmount:
+
+```sh
+for l in v4.x v3.x v2.x; do git grep -c didUnmountNotification origin/$l -- MacApp Modules; done  # no hits
+```
+
+The notification wiring is `ContentView`'s, which every line has, so this is portable — with one
+substitution: `MountedVolumeMemory.swift` is a new file and would have to come with it. It is what
+decides whether an unmounted volume was a card or a network share, and **without it the feature is
+actively dangerous rather than merely absent**: a share is ejectable too, so a Wi-Fi drop would
+delete the sources on it. A line taking the removal takes the memory, or takes neither.
+
+**NOT owed — "Eject" on the row, and the notice's Dismiss.** `FolderSidebar.swift` is `v4.x`-only
+(`v3.x` and `v2.x` predate the folder sidebar entirely), so there is no row to put the verb on
+below `v4.x`. On `v4.x` it IS reachable and is recorded as owed on the same footing as the
+`Remove Source…` row in the entry above — an addition rather than the repair, and the two make more
+sense taken together than apart. `SidebarNotice` exists only on `v4.x` for the same reason
+(`git grep -c 'struct SidebarNotice'` → 1, 0, 0), so its `Dismiss` action goes wherever it goes.
+
+**NOT owed — the Help copy.** `MacApp/HelpBook.swift` is on all lines and the new bullet and
+paragraph describe behaviour they do not have. Same verdict, same reason, as every Help row above.
+
+**A caveat the maintainer of any line should read before picking this.** The rule removes sources on
+**any** local removable-or-ejectable volume, which includes an external SSD and a mounted disk
+image, not only an SD card. That is what was asked for and it is deliberate — an eject is the user
+saying they are done with the volume — but it means a backup drive that is ejected nightly loses its
+source each time, name override and landing folder included. Nothing measures how often that
+happens; it is stated here so a line taking this takes it knowingly.

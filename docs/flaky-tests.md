@@ -673,9 +673,19 @@ The window is `mockFM.enumeratorDelay = 0.15`: scan A must still be walking when
 all three assertions fall together — which is what makes it read like a real supersedence
 regression rather than a timing miss.
 
-**Not reproduced locally in 28 runs**: 12 `--filter` idle, 8 `--filter` under eight spinners, 8
-full-package idle, 6 full-package under load (loadavg 10.7). So the CI runner's own
+**Not reproduced locally in 28 runs** (2026-08-04): 12 `--filter` idle, 8 `--filter` under eight
+spinners, 8 full-package idle, 6 full-package under load (loadavg 10.7). So the CI runner's own
 osx-x64-under-Rosetta environment is part of it, and a local green says little here.
+
+**It DOES reproduce locally now — 2026-08-29, and that changes how to read a red here.** Nine
+full-package `Modules/Sync` runs at loadavg ~5: **three red, six green**, with the same three
+assertions falling together each time (`ScanSupersedenceTests.swift:41` `waitUntil` first, then
+`:42` and `:48`). Measured on `main` at `39dc5fff` **and** on a branch above it, at the same rate —
+which is what makes it the flake rather than either tree. `--filter ScanSupersedenceTests` alone
+passed every time, in 0.3 s against the ~8 s the test takes inside a full run: the suite only misses
+its 150 ms window when it is competing with the other 292 suites. So **the discriminator is not
+`--filter` green vs full-package red** — that is the flake's own signature, not evidence about a
+change. Run the full package at the BASE SHA, several times, and compare rates.
 
 Left alone deliberately rather than half-fixed by widening the delay, which only moves the
 boundary. The real fix is mechanism 5's: make the walk's progress a value the test controls — a
