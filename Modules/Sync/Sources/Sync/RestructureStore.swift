@@ -87,6 +87,14 @@ public final class RestructureStore: ObservableObject {
         }
     }
 
+    /// Which backlog nudges have been dismissed, and **for which year** (§5.6; proposal O15).
+    ///
+    /// A year rather than a flag, because §5.6's whole point is recurrence: dismissing the 2026
+    /// gap in Health/Dental must not silence the 2027 one, which is a fresh fact about a fresh
+    /// year. A fifth section keyed like the other three, so `rekey` moves it with a rename and a
+    /// store written before it existed decodes with it absent.
+    @Published public private(set) var nudgesAcknowledged: [RestructureKey: String] = [:]
+
     /// The applied ledger — one record per landing, in the order they landed (§5.0's `applied`
     /// section, §5.5's step 2 home). The inverse is ON DISK from the moment a landing starts,
     /// which is what makes a reorganisation undoable after a quit, from here, not only with ⌘Z.
@@ -425,27 +433,54 @@ public final class RestructureStore: ObservableObject {
         var newSuppressed = suppressed
         var newAnswers = answers
         var newDrafts = drafts
+        var newNudges = nudgesAcknowledged
         for rename in renames {
             newSuppressed = Set(newSuppressed.map { $0.rekeyed(rename) })
             newAnswers = Self.rekeyedMap(newAnswers, through: rename)
+            // A backlog subject IS a folder path, so a landing that renames it moves this key
+            // with everything else — otherwise the nudge would re-fire for a year already
+            // dismissed, under the folder's new name.
+            newNudges = Self.rekeyedMap(newNudges, through: rename)
             // The draft's KEY moves with the family; the manifest inside it keeps the paths it
             // was derived against — §5.5's Apply re-validates a draft against the tree as it
             // stands, and a stale path there is a card sentence, not a silent rewrite of a plan
             // the user reviewed.
             newDrafts = Self.rekeyedMap(newDrafts, through: rename)
         }
-        guard newSuppressed != suppressed || newAnswers != answers || newDrafts != drafts else {
+        guard newSuppressed != suppressed || newAnswers != answers || newDrafts != drafts
+                || newNudges != nudgesAcknowledged else {
             return
         }
         suppressed = newSuppressed
         answers = newAnswers
         drafts = newDrafts
+        nudgesAcknowledged = newNudges
         Logger.shared.info("Restructure: store rekeyed through \(renames.count) rename(s)"
             + (context.map { " after \($0)" } ?? ""))
         save()
     }
 
+    // MARK: - Nudges
+
+    /// Record that the nudge for this finding has been seen for `year` (proposal O15).
+    ///
+    /// Not a suppression: suppression is "never suggest this again" and hides the finding from
+    /// every surface, while this hides one overview line for the remainder of one year. The lens
+    /// keeps saying it either way.
+    public func acknowledgeNudge(_ key: RestructureKey, year: String) {
+        guard nudgesAcknowledged[key] != year else { return }
+        nudgesAcknowledged[key] = year
+        Logger.shared.info("Restructure: nudge acknowledged for \(key.findingId) (\(year))")
+        save()
+    }
+
     // MARK: - Disk
+
+    private struct NudgeRecord: Codable {
+        let kind: FindingKind
+        let path: String
+        let year: String
+    }
 
     private struct AnswerRecord: Codable {
         let kind: FindingKind
@@ -465,6 +500,7 @@ public final class RestructureStore: ObservableObject {
         let answers: [AnswerRecord]?
         let drafts: [DraftEntry]?
         let applied: [AppliedRecord]?
+        let nudgesAcknowledged: [NudgeRecord]?
     }
 
     private struct FileOut: Encodable {
@@ -473,12 +509,13 @@ public final class RestructureStore: ObservableObject {
         let answers: [AnswerRecord]
         let drafts: [DraftEntry]
         let applied: [AppliedRecord]
+        let nudgesAcknowledged: [NudgeRecord]
 
         /// Everything this type writes. Anything else in the file belongs to a section this build
         /// does not model yet and is carried across a save — see `carriedKeys`. Spelled out rather
         /// than derived, for ``PeopleStore``'s stated reason.
         static let modelledKeys: Set<String> = ["schemaVersion", "suppressed", "answers",
-                                                "drafts", "applied"]
+                                                "drafts", "applied", "nudgesAcknowledged"]
     }
 
     /// The schema this build writes. A file carrying a **newer** number is treated as unreadable
@@ -520,6 +557,9 @@ public final class RestructureStore: ObservableObject {
             (RestructureKey(kind: $0.kind, path: $0.path), $0.draft)
         }, uniquingKeysWith: { _, new in new })
         applied = decoded.applied ?? []
+        nudgesAcknowledged = Dictionary((decoded.nudgesAcknowledged ?? []).map {
+            (RestructureKey(kind: $0.kind, path: $0.path), $0.year)
+        }, uniquingKeysWith: { _, new in new })
         carriedKeys = object.filter { !FileOut.modelledKeys.contains($0.key) }
     }
 
@@ -545,7 +585,10 @@ public final class RestructureStore: ObservableObject {
                 drafts: drafts
                     .map { DraftEntry(kind: $0.key.kind, path: $0.key.path, draft: $0.value) }
                     .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
-                applied: applied)
+                applied: applied,
+                nudgesAcknowledged: nudgesAcknowledged
+                    .map { NudgeRecord(kind: $0.key.kind, path: $0.key.path, year: $0.value) }
+                    .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) })
             var data = try encoder.encode(out)
             if !carriedKeys.isEmpty,
                var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {

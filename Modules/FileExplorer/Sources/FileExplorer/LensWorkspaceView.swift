@@ -3501,6 +3501,52 @@ public struct LensWorkspaceView: View {
     /// Carries out a menu verb: resolve the folder to a finding, then open the surface the card
     /// itself would open. A miss is a banner rather than silence — the item was enabled when it
     /// was drawn, so the honest report is that the answer moved, not nothing at all.
+    /// §5.6's nudge for the overview, or nil (proposal O15).
+    ///
+    /// The rule decides; this only carries the effects. **`visibleStructureFindings`**, so a
+    /// suppressed finding cannot nudge — suppression is the stronger statement and the one the
+    /// user made deliberately.
+    private func backlogNudge() -> OrganizeOverview.BacklogNudge? {
+        guard let store = syncManager.restructureStore else { return nil }
+        let due = RestructureNudge.due(in: syncManager.visibleStructureFindings,
+                                       now: Date(),
+                                       acknowledged: store.nudgesAcknowledged)
+        guard let sentence = RestructureNudge.sentence(for: due), let first = due.first else {
+            return nil
+        }
+        return OrganizeOverview.BacklogNudge(
+            sentence: sentence,
+            setUp: {
+                // The same arrival the menu verbs take: show Restructure, then ask the workspace
+                // to carry out the scaffold — one route, so a nudge cannot reach a state the menu
+                // could not.
+                syncManager.hasReviewedStructure = true
+                withAnimation(listSettle) { railLens = .restructure }
+                restructureVerbRequest = RestructureVerbRequest(
+                    verb: .setUp, folder: Self.absolutePath(of: first.finding.subject,
+                                                            under: syncManager
+                                                                .filingFolderProfile?.root))
+            },
+            dismiss: {
+                // Every finding the sentence covered, not just the one it named — dismissing a
+                // line that says "and 3 more" and having it come back naming the rest is the
+                // shape of a nag.
+                for item in due {
+                    store.acknowledgeNudge(
+                        RestructureKey(kind: item.finding.kind, path: item.finding.subject),
+                        year: item.year)
+                }
+            })
+    }
+
+    /// A profile-relative subject as an absolute path — the spelling the verb request carries,
+    /// because the resolver converts back and both spellings of the root are accepted there.
+    static func absolutePath(of subject: String, under root: String?) -> String {
+        guard let root, !root.isEmpty else { return subject }
+        return ((root as NSString).expandingTildeInPath as NSString)
+            .appendingPathComponent(subject)
+    }
+
     private func carryOut(_ request: RestructureVerbRequest) {
         guard let root = syncManager.filingFolderProfile?.root else { return }
         // **The same answer the menu's availability read.** Two copies of this decision is how an
@@ -3725,6 +3771,7 @@ public struct LensWorkspaceView: View {
             scopeLabel: scope?.name,
             accent: glassHue.accentColor,
             inboxShortcut: inboxShortcut,
+            backlogNudge: backlogNudge(),
             ledger: overviewLedger(model, scopeFolders: scopeFolders),
             runnablePasses: runnablePasses,
             onOpen: { item in

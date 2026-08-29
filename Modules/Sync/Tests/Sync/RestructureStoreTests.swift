@@ -164,6 +164,61 @@ import Foundation
         #expect(reread.answer(for: RestructureKey(kind: .ask, path: "Home/ATT")) == "keep")
     }
 
+    /// The nudge section round-trips, and — the point of it being a **year** rather than a flag —
+    /// re-acknowledging under a new year replaces the old value rather than accumulating.
+    @Test func aNudgeAcknowledgementRoundTripsAndCarriesItsYear() throws {
+        let dir = try makeDirectory()
+        let key = RestructureKey(kind: .backlog, path: "Health/Dental/2026")
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.acknowledgeNudge(key, year: "2026")
+
+        let reread = RestructureStore(directory: dir, profileId: "p")
+        #expect(reread.nudgesAcknowledged[key] == "2026")
+        #expect(reread.nudgesAcknowledged.count == 1)
+
+        reread.acknowledgeNudge(key, year: "2027")
+        let third = RestructureStore(directory: dir, profileId: "p")
+        #expect(third.nudgesAcknowledged[key] == "2027", "the newer year replaces the older")
+        #expect(third.nudgesAcknowledged.count == 1)
+    }
+
+    /// A store written before this section existed decodes with it absent — the tolerant-decoder
+    /// rule every section here follows, and the reason the fifth one needed no migration.
+    @Test func aStoreWithNoNudgeSectionDecodesWithoutOne() throws {
+        let dir = try makeDirectory()
+        let before = RestructureStore(directory: dir, profileId: "p")
+        before.suppress(RestructureKey(kind: .shape, path: "Finance"))
+        // Strip the section the way a v5.0 file would not have had it at all.
+        var object = try #require(try JSONSerialization.jsonObject(with: fileBytes(dir))
+                                    as? [String: Any])
+        #expect(object["nudgesAcknowledged"] != nil, "a positive control: this build writes it")
+        object["nudgesAcknowledged"] = nil
+        try JSONSerialization.data(withJSONObject: object)
+            .write(to: dir.appendingPathComponent("p/restructure.json"))
+
+        let reread = RestructureStore(directory: dir, profileId: "p")
+        #expect(!reread.isUnreadable, "an absent section is absent, not unreadable")
+        #expect(reread.nudgesAcknowledged.isEmpty)
+        #expect(reread.isSuppressed(RestructureKey(kind: .shape, path: "Finance")))
+    }
+
+    /// A backlog subject IS a folder path, so a landing that renames it must move this key with
+    /// the rest — otherwise the nudge re-fires for a year already dismissed, under the new name.
+    @Test func aRenameRekeysANudgeAcknowledgement() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.acknowledgeNudge(RestructureKey(kind: .backlog, path: "Health/Dental/2026"),
+                               year: "2026")
+
+        store.rekey(renames: [(from: "Health/Dental", to: "Health/Dental Care")])
+
+        let reread = RestructureStore(directory: dir, profileId: "p")
+        #expect(reread.nudgesAcknowledged[
+            RestructureKey(kind: .backlog, path: "Health/Dental Care/2026")] == "2026")
+        #expect(reread.nudgesAcknowledged[
+            RestructureKey(kind: .backlog, path: "Health/Dental/2026")] == nil)
+    }
+
     @Test func aRenameRekeysDescendantsButNotASiblingSharingANamePrefix() throws {
         let dir = try makeDirectory()
         let store = RestructureStore(directory: dir, profileId: "p")

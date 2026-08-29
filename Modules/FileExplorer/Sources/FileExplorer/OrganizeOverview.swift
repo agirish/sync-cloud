@@ -315,6 +315,25 @@ struct OrganizeOverview: View {
     /// one for everything else.
     var inboxShortcut: InboxShortcut?
 
+    /// §5.6's nudge, when one is due (proposal O15): the sentence, the verb, and dismissal.
+    ///
+    /// **A line, not a card, and outside the ledger entirely.** The counted lenses' ratio has a
+    /// documented can't-close invariant — a check that can never run must not sit in the
+    /// denominator — and a nudge is not a check at all: nothing scans to produce it and nothing
+    /// closes it but the user's own filing. So it renders above the sections and is counted
+    /// nowhere.
+    var backlogNudge: BacklogNudge?
+
+    struct BacklogNudge {
+        /// The sentence, from `RestructureNudge.sentence(for:)` — derived, never composed here.
+        let sentence: String
+        /// Opens the Restructure lens on the first due finding, through the same resolver route
+        /// the Organize menu's verbs use.
+        let setUp: () -> Void
+        /// Records the year for every due finding, so the same gap is quiet until the next one.
+        let dismiss: () -> Void
+    }
+
     struct InboxShortcut {
         /// The inbox's leaf name — "TODO" unless the setting was changed.
         let name: String
@@ -530,6 +549,7 @@ struct OrganizeOverview: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if !ledger.isEmpty { ledgerStrip }
+                if let backlogNudge { nudgeLine(backlogNudge) }
                 ForEach(reporting) { section in
                     sectionView(section)
                 }
@@ -547,6 +567,44 @@ struct OrganizeOverview: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    // MARK: The backlog nudge
+
+    /// One quiet line, a verb and a dismissal — the whole of §5.6's "say it the month it happens"
+    /// outside the lens.
+    ///
+    /// Deliberately the plainest row on the surface: no tile, no tint, no count. It is news about
+    /// a year that has just started, and next January it is news again.
+    private func nudgeLine(_ nudge: BacklogNudge) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "calendar.badge.plus")
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(nudge.sentence)
+                .scaledFont(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Set up…", action: nudge.setUp)
+                .buttonStyle(.link)
+                .scaledFont(.system(size: 12, weight: .medium))
+            Spacer(minLength: 0)
+            Button {
+                nudge.dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .scaledFont(.system(size: 9))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.tertiary)
+            .accessibilityLabel("Dismiss this reminder until next year")
+            .help("Dismisses it for this year. The same folders raise it again when a new year "
+                  + "arrives with the same gap.")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.35)))
     }
 
     // MARK: The ledger

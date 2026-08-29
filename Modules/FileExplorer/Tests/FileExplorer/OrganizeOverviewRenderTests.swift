@@ -70,10 +70,12 @@ import Design
     }
 
     private func mount(_ sections: [OrganizeOverviewSection],
-                       runnable: Set<OrganizePass> = Set(OrganizePass.allCases)) -> Mounted {
+                       runnable: Set<OrganizePass> = Set(OrganizePass.allCases),
+                       nudge: OrganizeOverview.BacklogNudge? = nil) -> Mounted {
         let subject = OrganizeOverview(
             sections: sections, scopeLabel: nil,
             accent: LiquidGlassHue.blue.accentColor,
+            backlogNudge: nudge,
             ledger: OrganizeOverview.Ledger(checksRun: 2, checksTotal: 5),
             runnablePasses: runnable,
             onOpen: { _ in }, onRun: { _ in })
@@ -432,5 +434,40 @@ import Design
         let reach = CGFloat(try #require(rows.last)) / scale
         #expect(reach > 400,
                 "the overview's content stops \(Int(reach))pt into a \(Int(band.height))pt pane")
+    }
+
+    // MARK: The backlog nudge (proposal O15)
+
+    /// **The line is drawn, and only when one is due.** §5.6's argument is that the gap is worth
+    /// saying the month it happens, and the overview is the surface someone sees without opening
+    /// the Restructure lens — so "nil renders nothing, a value renders something" is the whole
+    /// claim, and it is one a rule test cannot make.
+    @Test func theNudgeLineRendersOnlyWhenOneIsDue() throws {
+        let without = try #require(bitmap(mount(Self.sections(examples: 1)), Self.fullBand))
+        let with = try #require(bitmap(
+            mount(Self.sections(examples: 1),
+                  nudge: OrganizeOverview.BacklogNudge(
+                    sentence: "2026 has files but no folders yet in Health/Dental.",
+                    setUp: {}, dismiss: {})),
+            Self.fullBand))
+        #expect(differingPixels(without, with) > 500,
+                "the nudge line, its verb and its dismissal are on the surface")
+    }
+
+    /// **And it stays out of the ledger.** The counted lenses' ratio has a documented
+    /// can't-close invariant; a nudge is not a check, nothing scans to produce it, and nothing
+    /// closes it but the user's own filing. The tiles must read identically either way.
+    @Test func theNudgeDoesNotTouchTheChecksLedger() throws {
+        // The ledger strip is the top band; the nudge renders beneath it.
+        let ledgerBand = CGRect(x: 0, y: 0, width: Self.canvas.width, height: 74)
+        let without = try #require(bitmap(mount(Self.sections(examples: 1)), ledgerBand))
+        let with = try #require(bitmap(
+            mount(Self.sections(examples: 1),
+                  nudge: OrganizeOverview.BacklogNudge(
+                    sentence: "2026 has files but no folders yet in Health/Dental.",
+                    setUp: {}, dismiss: {})),
+            ledgerBand))
+        #expect(differingPixels(without, with) == 0,
+                "the checks tile counts checks, and a nudge is not one")
     }
 }
