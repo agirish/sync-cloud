@@ -5,6 +5,175 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v5.0 — DRAFT, not released
+
+> **This section is a draft.** v5.0 has not been tagged. It describes the release as planned,
+> including parts still being built, so read it as intent rather than as a record of a shipped
+> version. Every claim gets audited against `v4.6` at the cut.
+
+**Restructure stops being a report.** It could recognise one thing — a family of folders organised
+more than one way — and all it could do was say so. It now recognises eight kinds of structural drift,
+turns one into a plan you review name by name, applies that plan, and writes the way back to disk
+before it starts. v5.0 is the Organize release, so the rest of that tab comes with it: the new verbs
+reach the menu bar, two deliberate routes in, two Duplicates controls that stop misleading
+you, and `synccloud restructure` on the command line.
+
+Requires **macOS 26**, unchanged from the 4.x line — coming from 3.x or 2.x, read the v4.0 section
+first.
+
+### What Restructure finds
+
+- **Eight kinds of finding where there was one.** A family whose siblings are shaped differently; a
+  year that has files and no folders yet; a year hiding inside a name like `IRS Docs - 2023`; two
+  names for one thing (`Form W-2` beside `Form W2`, or a child restating its parent); a folder
+  inside an inbox that mirrors a real destination; files parked above a run of year folders; a leaf
+  sitting beside the folder that owns its concept; and two branches holding the same documents under
+  parallel names. Each card names the family, what was seen, and the class of change that would fix
+  it — so a rename reads differently from a merge before any sheet opens.
+- **Crowding is counted, not accused.** Pass-through folders, single-file folders and empty ones get
+  three counts above the findings. None of them takes a badge or becomes a card, because every real
+  tree has them. Each opens its list, grouped by top-level folder once there are more than a few
+  dozen. Only the empty count offers to act, because only it has a rule anyone could state.
+- **The badge counts what you can drive to zero.** Findings that hand off to another surface, and
+  the crowding counts, are excluded from it — and the "Show N findings" button counts everything the
+  list will show, so the two numbers differ on purpose.
+- **Two detectors can both be right about one folder.** Their cards sit together and the second drops
+  the path heading, so it reads as a second observation rather than a repeat.
+- **Findings the scope sits inside are still shown,** kept subordinate and labelled. Pointed at a
+  single leaf there are often no siblings to compare, and the ancestor's finding is the only honest
+  answer there is.
+- **Where a family's members are years, a strip across the card shows the eras in order,** coloured
+  by shape, so "the last three years all disagree" reads at a glance rather than out of a list. The
+  rows underneath stay, and they are the authority.
+- **"Nothing is wrong" and "I could not check" never share words.** A clean result names how many
+  folders it checked; a missing survey says it has nothing to read; and the one detector that reads
+  the duplicate scan says where no scan has covered a pair rather than calling it clean.
+- **The lens says when the tree was last looked at.** It used to name only how many folders it
+  covers, and deliberately no date: the survey's one stamp moved when a re-survey *changed*
+  something, so on a settled tree it was a date about the last change rather than the last look. A
+  stamp now moves at every survey, so the lens reads "Surveyed today", or an absolute date past a
+  fortnight, with a Rescan beside it once it is old enough to matter.
+
+### Planning a new shape
+
+- **One mapping, applied to every member.** The sheet lists every distinct folder name the family
+  uses, once, each defaulting to keep. Answering "what should this be called" a couple of dozen times
+  is what converges thirteen years of folders — not dragging four hundred files.
+- **Nothing is pre-selected.** The target shapes on offer are the ones actually in use, each naming
+  the siblings that vouch for it, with the largest group and the most recent marked; a field under
+  them lets you name the folders yourself. Where the newest members all disagree the sheet says
+  outright that there is no current shape to continue.
+- **The cost of a choice is shown where the choice is made.** Point two names at one target and the
+  row says it is a merge, and in how many members. A count tracks how many rows you have mapped, a
+  filter appears above about a dozen rows, and near-identical names — `Payment` beside `Payments` —
+  are sorted adjacent so the choice between them is made once.
+- **Every operation is derived, never typed.** The review lists them in run order, each naming its
+  member and the files it carries, beside a before-and-after of one member's folders. One name to one
+  free target is a rename, which carries its contents in a single operation and never forces a
+  stored-online file to download; several names to one target renames the fullest and merges the rest.
+- **Nothing is dropped to make the shape fit,** and collisions keep both. A folder the target has no
+  slot for stays where it is and is listed as kept; a file whose name already exists at the
+  destination arrives under a new name and is counted on its own line. Never an overwrite.
+- **Optional refinement with Claude, on the names only.** It answers row by row against your own
+  mapping, declines where a folder says nothing about itself, and flags a proposal that reverses
+  another. Accepting a row edits your mapping and the plan is re-derived exactly as before — there is
+  no path from a suggestion to the disk that skips the review.
+- **Sibling families sharing this one's vocabulary are named,** because a shape chosen for one alone
+  can leave the others disagreeing with it. You can plan them on a single shared mapping — each
+  family's operations are still derived, reviewed and applied separately, since a row that is right
+  for one can be wrong for its sibling.
+- **"Export plan…" is the safe way to stop.** It writes the plan as a dated JSON file beside your
+  survey, readable in any text editor, and keeps it — so the card offers "Review N operations"
+  afterwards, and still does after you quit.
+
+### Applying, and taking it back
+
+- **Apply is the only thing here that writes,** and it runs in eight steps you can watch. It refuses
+  to start while a scan, a Verify All or another file operation is running — with a sentence, not a
+  queue. The reversal is written to disk before the first folder moves.
+- **Every claim is re-probed at the moment of the action.** A planning-time fact is a fact about a
+  past state of the disk. A folder holding a file the plan never listed is skipped and named while
+  the rest of the plan runs, and a destination taken since gets a new name rather than an overwrite.
+- **The result is checked by a second code path** — every touched folder re-listed and counted
+  independently of the code that did the work, with the verdict on the card. A mismatch is reported
+  and never rolled back automatically, because a checker claiming everything is broken is usually the
+  thing that is broken.
+- **A finding disappears because the tree was re-read.** The landing ends by re-deriving the survey
+  from a fresh walk of folder and file names — seconds, no document opened — carrying forward the
+  judgements a walk cannot recompute and writing a new survey rather than overwriting the old one. If
+  that step fails the card says so in its own words instead of borrowing the success sentence.
+- **The banner has the same shape whether or not everything ran:** what happened, what did not, and
+  what to press. A pass that skipped something never reports like a clean one.
+- **Removing folders is separate, opt-in, and folders only.** No file is deleted by Restructure at any
+  stage. The sheet covers both what a landing emptied and what was already empty, ticks date buckets,
+  leaves category names for you, prints every path in full, and moves what you tick to the Trash.
+- **Two undos, and the card says which is which.** ⌘Z takes the whole landing back as one step and
+  lives in memory, so it is gone once you quit. "Undo this reorganisation" replays the reversal kept
+  on disk through the same guards and the same re-probing, points the survey back at the profile the
+  landing started from, and survives quitting — it can partly fail, and it names what it could not put
+  back. Older landings are listed newest-first, each saying to undo the newer one first.
+- **One line per landing in the Activity Log** — what ran, what it counted, what the check said, and
+  which survey it produced.
+
+### Setting up a new year
+
+- **"Set up like its siblings" creates the folders and moves nothing.** Every January a folder turns
+  up with files in it and no structure; this gives it the folders the rest of the series has, each
+  justified by how many siblings already have it. ⌘Z removes them again, as long as they are still
+  empty.
+- **The loose files go to To File,** scoped to that folder alone, with its usual evidence and its usual
+  undo. A family whose members all disagree offers no button and says why — there is no shape to copy,
+  and inventing one would be worse than the answer.
+- **The Organize overview raises it the month it happens** rather than waiting for you to go looking,
+  once a year, and remembers being dismissed.
+
+### Getting to Organize
+
+- **The Organize menu learns the new verbs.** It has carried the five sections and the row verbs
+  since v4.2; "Plan This Folder's Shape…" and "Set Up Like Its Siblings" join them, aimed at whatever
+  the focused pane has selected, so planning a folder is reachable from the menu bar and not only
+  from a card.
+- **"Undo This Reorganisation" is deliberately not in Edit.** It is not ⌘Z — it replays an inverse from
+  disk, survives a quit, and can partly fail — so putting it beside Undo would have been the most
+  misleading place available. It is the one item there that needs no selection.
+- **Two deliberate routes to a finding.** "Check This Folder's Shape" is in a folder's row menu and in
+  ⌘K, aimed at the folder you are already standing on and named in the row so there is no doubt which
+  one it means. Neither replaces the lens; they are for the moment you are looking at a folder and want
+  the question asked about it.
+
+### Duplicates
+
+- **The pills that name a subset are the filter now.** They looked interactive and were inert. The two that name a subset of the list now *are* the control that narrows to it — the group
+  count is the way back, and "need review" shows only the groups that need a human choice, with the
+  unselected pills dimming so the active one reads as the state it is. The figures that are not
+  subsets stopped dressing like filters: the reclaimable total is plain text now, and the count of
+  files the scan skipped stays visibly inert. The full filter menu is still in the header.
+- **The badge says what you need to do, not what the match was.** Every row's subtitle already names
+  its category, so a badge repeating it spent the loudest slot in the row on the least useful words —
+  and it was loudest on the commonest case. Byte-identical groups now carry no badge at all; their
+  certainty reads in the green reclaim figure, and the space goes to the file's icon and name. The
+  rest say "needs review", or "needs a choice" for two folders sharing a name.
+
+### On the command line
+
+- **`synccloud restructure` reports the whole detector set** over a surveyed tree, with `--json` for
+  the full report including the crowding path lists the text summary only counts, and `--profiles-dir`
+  to read a survey from somewhere other than the app's own. It reads the folder survey and never
+  touches the disk it describes.
+
+### Still to come in v5.0
+
+- **The document survey is after this release.** The folder half — the tree walk Restructure actually
+  reads — ships in setup's Folders step. Reading page one of every document, which is what the filing
+  router wants, is an hours-long background pass and is deliberately not in this release.
+- **The command line stops at report.** There is no `--apply` and no `--plan`: Apply's guarantees are
+  all about a person reading a plan before anything moves, and a flag that skips the reading skips the
+  guarantees.
+- **The trend line starts here.** It draws the finding counts the survey has recorded, so it has
+  nothing to show until this release has been running for a while.
+
+---
+
 ## v4.6
 
 **A source is the whole account now, not its Documents folder.** Every cloud source was discovered
