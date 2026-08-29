@@ -621,11 +621,95 @@ struct RestructurePlanSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 150)
+                // The operations say what runs; this says what it LEAVES. One member, because
+                // the mapping is applied to all of them identically and one worked example is
+                // what makes the shape legible — the list above is the exhaustive answer.
+                if let exemplar = previewMember(of: manifest),
+                   let preview = RestructurePlanner.preview(member: exemplar, in: manifest,
+                                                            tree: tree) {
+                    treePreview(exemplar, preview)
+                }
             case .failure(let refusal):
                 Text(Self.refusalText(refusal))
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// Which member the before/after is drawn for: the first one the plan actually touches, in
+    /// the manifest's own order. A member the plan leaves alone would draw two identical columns
+    /// and teach nothing.
+    private func previewMember(of manifest: RestructureManifest) -> String? {
+        for action in manifest.actions where action.action != .keep {
+            guard let path = action.src ?? action.dst else { continue }
+            for member in members {
+                let full = (family as NSString).appendingPathComponent(member)
+                if RestructurePaths.isInside(path, of: full) { return full }
+            }
+        }
+        return nil
+    }
+
+    /// Two mono columns — the member as it stands, and as this plan would leave it.
+    private func treePreview(_ member: String,
+                             _ preview: RestructurePlanner.RestructurePreview) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\((member as NSString).lastPathComponent) — before and after")
+                .scaledFont(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 10) {
+                previewColumn("NOW", rows: preview.before)
+                previewColumn("AFTER", rows: preview.after)
+            }
+        }
+    }
+
+    private func previewColumn(_ title: String,
+                               rows: [RestructurePlanner.RestructurePreview.Row]) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title)
+                .scaledFont(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            ForEach(rows, id: \.name) { row in
+                HStack(spacing: 6) {
+                    Text(row.name)
+                        .scaledFont(.system(size: 10, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    if let files = row.files {
+                        Text("\(files)")
+                            .scaledFont(.system(size: 9.5))
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                }
+                if let note = Self.fateNote(row.fate) {
+                    Text(note)
+                        .scaledFont(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(6)
+        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.18)))
+    }
+
+    /// What became of a row, in the after column's own words. nil for a folder the plan never
+    /// touched — an annotation on every row is an annotation nobody reads.
+    static func fateNote(_ fate: RestructurePlanner.RestructurePreview.Fate) -> String? {
+        switch fate {
+        case .renamedFrom(let old): return "was \(old)"
+        case .mergedFrom(let old, let sources):
+            let absorbed = "absorbed \(sources.joined(separator: ", "))"
+            return old.map { "was \($0), " + absorbed } ?? absorbed
+        case .created: return "created"
+        case .kept: return "kept — no slot in the target shape"
+        case .unchanged: return nil
         }
     }
 

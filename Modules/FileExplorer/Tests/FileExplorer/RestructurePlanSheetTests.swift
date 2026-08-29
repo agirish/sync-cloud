@@ -199,3 +199,80 @@ import Testing
         #expect(hosting.fittingSize.width > 0)
     }
 }
+
+/// §5.4's review section grew a before/after of one member (proposal O3) — the words it puts on
+/// each row, and the choice of which member to draw.
+@MainActor
+@Suite struct RestructureTreePreviewSurfaceTests {
+
+    /// Every fate the rule can produce has words except the one that means "nothing happened" —
+    /// an annotation on every row is an annotation nobody reads.
+    @Test func everyFateThatMattersCarriesANote() {
+        typealias Fate = RestructurePlanner.RestructurePreview.Fate
+        #expect(RestructurePlanSheet.fateNote(.renamedFrom("Federal Tax")) == "was Federal Tax")
+        #expect(RestructurePlanSheet.fateNote(
+            .mergedFrom(renamedFrom: nil, sources: ["State Tax", "Payments"]))
+                    == "absorbed State Tax, Payments")
+        #expect(RestructurePlanSheet.fateNote(
+            .mergedFrom(renamedFrom: "Federal Tax", sources: ["State Tax"]))
+                    == "was Federal Tax, absorbed State Tax")
+        #expect(RestructurePlanSheet.fateNote(.created) == "created")
+        #expect(RestructurePlanSheet.fateNote(.kept) == "kept — no slot in the target shape")
+        #expect(RestructurePlanSheet.fateNote(.unchanged) == nil,
+                "an untouched folder says nothing rather than saying \"unchanged\"")
+    }
+
+    /// A kept folder's note is the one that has to explain itself: it is there BECAUSE the target
+    /// shape has no slot for it, and "kept" alone reads as a choice the user made.
+    @Test func theKeptNoteSaysWhy() {
+        let note = try? #require(RestructurePlanSheet.fateNote(.kept))
+        #expect(note?.contains("no slot") == true)
+    }
+
+    /// The sheet draws the preview from the planner's rule rather than deriving a second answer,
+    /// and it picks a member the plan actually touches — two identical columns teach nothing.
+    @Test func theSheetDrawsTheRulesPreviewForATouchedMember() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/RestructurePlanSheet.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        #expect(text.contains("RestructurePlanner.preview(member: exemplar, in: manifest,"),
+                "the columns come from the shared rule, not a second derivation")
+        #expect(text.contains("for action in manifest.actions where action.action != .keep"),
+                "the exemplar is a member the plan touches")
+    }
+
+    /// The whole sheet renders with the preview present — a layout crash fails here rather than
+    /// on a real family.
+    @Test func thePlanSheetRendersWithItsPreview() {
+        let finding = StructureFinding(
+            family: "F",
+            schemes: [.init(vocabulary: ["forms"], members: ["2013"]),
+                      .init(vocabulary: ["federal tax"], members: ["2014"])])
+        let files: [String: [String]] = [
+            "F/2013/Federal Tax": ["a.pdf", "b.pdf"],
+            "F/2013/State Tax": ["c.pdf"],
+            "F/2014/Forms": ["d.pdf"],
+        ]
+        let folders: [String: [String]] = [
+            "F": ["2013", "2014"],
+            "F/2013": ["Federal Tax", "State Tax"],
+            "F/2014": ["Forms"],
+        ]
+        let tree = RestructureTreeView(
+            childFolders: { folders[$0] ?? (files[$0] != nil ? [] : nil) },
+            files: { files[$0] },
+            fileCount: { files[$0]?.count })
+        let sheet = RestructurePlanSheet(
+            finding: finding, family: "F", members: ["2013", "2014"], tree: tree,
+            profileId: "p", accent: .blue,
+            initialRows: [.init(source: "Federal Tax", target: "Forms"),
+                          .init(source: "State Tax", target: "Forms")],
+            onExport: { _, _ in .saved(filename: "f.json") }, onClose: {})
+        let hosting = NSHostingView(rootView: sheet.frame(width: 620, height: 620))
+        hosting.frame = NSRect(x: 0, y: 0, width: 620, height: 620)
+        hosting.layoutSubtreeIfNeeded()
+        #expect(hosting.fittingSize.width > 0)
+    }
+}

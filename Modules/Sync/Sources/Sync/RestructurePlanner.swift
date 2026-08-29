@@ -371,6 +371,163 @@ public enum RestructurePlanner {
             kind: kind, note: note, actions: actions))
     }
 
+    // MARK: - One member's before and after
+
+    /// One member's children as they stand and as the plan would leave them — §5.4's review
+    /// section shows the operations, and this is the shape those operations produce.
+    ///
+    /// Derived from the manifest's own actions filtered to that member, so it cannot describe a
+    /// plan other than the one being reviewed, and from the tree view's counts — **never from a
+    /// second walk of the disk**. The sheet re-derives on every keystroke, and per-row derivation
+    /// there was already measured at hundreds of directory reads per edit.
+    public struct RestructurePreview: Equatable, Sendable {
+
+        /// What the plan does to one child folder, as the after-column labels it.
+        public enum Fate: Equatable, Sendable {
+            /// Renamed from another name, which is named.
+            case renamedFrom(String)
+            /// Other folders were drained into this one — and, when the row also took its name
+            /// from a folder, which one. Both facts, because a row that only says what it
+            /// absorbed leaves the reader hunting for where the renamed folder went.
+            case mergedFrom(renamedFrom: String?, sources: [String])
+            /// Created by the plan; it holds nothing yet.
+            case created
+            /// The target shape has no slot for it, so it stays exactly as it is.
+            case kept
+            /// Untouched by the plan and untouched in the after column.
+            case unchanged
+        }
+
+        public struct Row: Equatable, Sendable {
+            public let name: String
+            /// Files directly inside, or nil when the view cannot count them.
+            public let files: Int?
+            public let fate: Fate
+        }
+
+        /// The member's children now, in name order, with their current file counts.
+        public let before: [Row]
+        /// The member's children after the plan, in name order.
+        public let after: [Row]
+    }
+
+    /// The before and after of one member under a manifest. nil when the view has never heard of
+    /// the member — an absent folder has no before to show.
+    public static func preview(member: String, in manifest: RestructureManifest,
+                               tree view: RestructureTreeView) -> RestructurePreview? {
+        guard let children = view.childFolders(member) else { return nil }
+        let childSet = Set(children)
+        func path(_ name: String) -> String {
+            (member as NSString).appendingPathComponent(name)
+        }
+        /// The parts of a path below the member, or nil when it is not under it at all.
+        func parts(_ full: String?) -> [String]? {
+            guard let full, RestructurePaths.isInside(full, of: member), full != member else {
+                return nil
+            }
+            let rest = full.dropFirst(member.isEmpty ? 0 : member.count + 1)
+            return rest.split(separator: "/").map(String.init)
+        }
+        /// A DIRECT child folder of the member — `member/Forms`, never `member/Forms/Sub`.
+        func directChild(_ full: String?) -> String? {
+            guard let p = parts(full), p.count == 1 else { return nil }
+            return p[0]
+        }
+        /// The child a file sits DIRECTLY inside — `member/Forms/a.pdf` is Forms's file, while
+        /// `member/Forms/Sub/a.pdf` is Sub's and changes nothing about Forms's own count.
+        func fileOwner(_ full: String?) -> String? {
+            guard let p = parts(full), p.count == 2 else { return nil }
+            return p[0]
+        }
+
+        var renamedFrom: [String: String] = [:]      // new name -> old name
+        var renamedAway: Set<String> = []            // names vacated by a rename
+        var mergedInto: [String: Set<String>] = [:]  // target -> sources drained into it
+        var arrived: Set<String> = []                // carried in from outside the member
+        var created: Set<String> = []
+        var kept: Set<String> = []
+        var removed: Set<String> = []
+        var fileDelta: [String: Int] = [:]
+        var subfoldersOut: [String: Int] = [:]
+
+        for action in manifest.actions {
+            switch action.action {
+            case .renameDir, .moveDir:
+                let from = directChild(action.src)
+                let to = directChild(action.dst)
+                if let from, let to {
+                    renamedFrom[to] = from
+                    renamedAway.insert(from)
+                    fileDelta[to, default: 0] += view.fileCount(path(from)) ?? 0
+                } else if let from {
+                    // Left the member entirely.
+                    renamedAway.insert(from)
+                } else if let to {
+                    arrived.insert(to)
+                    fileDelta[to, default: 0] += action.filesCarried ?? 0
+                } else if let owner = fileOwner(action.src) {
+                    // A subfolder of a child moved away — the child keeps its own files but
+                    // loses a folder, which is what decides whether it survives at all.
+                    subfoldersOut[owner, default: 0] += 1
+                }
+            case .moveFile:
+                let from = fileOwner(action.src)
+                let to = fileOwner(action.collidedInto ?? action.dst)
+                if let from { fileDelta[from, default: 0] -= 1 }
+                if let to { fileDelta[to, default: 0] += 1 }
+                if let from, let to, from != to { mergedInto[to, default: []].insert(from) }
+            case .createDir:
+                if let name = directChild(action.dst) { created.insert(name) }
+            case .keep:
+                if let name = directChild(action.src) { kept.insert(name) }
+            case .removeEmptyDir:
+                if let name = directChild(action.src) { removed.insert(name) }
+            }
+        }
+
+        func resultingFiles(_ name: String) -> Int {
+            let base = childSet.contains(name) && !renamedAway.contains(name)
+                ? (view.fileCount(path(name)) ?? 0) : 0
+            return max(0, base + (fileDelta[name] ?? 0))
+        }
+
+        // A drained source stops existing as itself only when nothing of it is left: every file
+        // gone AND every subfolder gone. A folder that gave up one file still stands, and the
+        // after column would be lying to drop it.
+        var gone = renamedAway.union(removed)
+        for source in mergedInto.values.flatMap({ $0 }) where !gone.contains(source) {
+            let subfoldersLeft = (view.childFolders(path(source))?.count ?? 0)
+                - (subfoldersOut[source] ?? 0)
+            if resultingFiles(source) == 0 && subfoldersLeft <= 0 { gone.insert(source) }
+        }
+
+        let before = children.sorted().map { name in
+            RestructurePreview.Row(name: name, files: view.fileCount(path(name)),
+                                   fate: .unchanged)
+        }
+
+        var afterNames = childSet.subtracting(gone)
+        afterNames.formUnion(renamedFrom.keys)
+        afterNames.formUnion(created)
+        afterNames.formUnion(arrived)
+        let after = afterNames.sorted().map { name -> RestructurePreview.Row in
+            let fate: RestructurePreview.Fate
+            if let sources = mergedInto[name], !sources.isEmpty {
+                fate = .mergedFrom(renamedFrom: renamedFrom[name], sources: sources.sorted())
+            } else if let from = renamedFrom[name] {
+                fate = .renamedFrom(from)
+            } else if created.contains(name) || arrived.contains(name) {
+                fate = .created
+            } else if kept.contains(name) {
+                fate = .kept
+            } else {
+                fate = .unchanged
+            }
+            return RestructurePreview.Row(name: name, files: resultingFiles(name), fate: fate)
+        }
+        return RestructurePreview(before: before, after: after)
+    }
+
     // MARK: - One member
 
     /// One target's work inside one member: the sources the mapping sends there, and whether the
