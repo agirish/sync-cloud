@@ -623,13 +623,47 @@ struct RestructureLens: View {
     }
 
     private func kindTag(_ kind: FindingKind) -> some View {
-        Text(Self.kindLabel(kind))
-            .scaledFont(.system(size: 9.5, weight: .semibold))
-            .padding(.vertical, 1.5)
-            .padding(.horizontal, 6)
-            .background(Capsule().fill(.quaternary.opacity(0.35)))
-            .foregroundStyle(.secondary)
-            .help(Self.kindVerb(kind))
+        HStack(spacing: 3.5) {
+            Image(systemName: Self.kindSymbol(kind))
+                .scaledFont(.system(size: 8.5, weight: .semibold))
+                // **The glyph, and only the glyph.** The capsule's fill and its text keep the
+                // shipped treatment: accent on 9.5pt text is exactly the contrast trap the
+                // repo's amber-on-body-text rule exists for, and a tag is not a control.
+                .foregroundStyle(kind.carriesPlan ? AnyShapeStyle(accent)
+                                                  : AnyShapeStyle(.secondary))
+                // Decorative — the label beside it already says which kind this is, and the
+                // tooltip says what acting on it would do.
+                .accessibilityHidden(true)
+            Text(Self.kindLabel(kind))
+                .scaledFont(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 1.5)
+        .padding(.horizontal, 6)
+        .background(Capsule().fill(.quaternary.opacity(0.35)))
+        .help(Self.kindVerb(kind))
+    }
+
+    /// One symbol per kind, so a mixed list sorts by eye before it is read (ROADMAP_V5 §5.1's
+    /// stated aim for the tag).
+    ///
+    /// **Exhaustive on purpose**: a detector added later fails to compile here rather than
+    /// rendering a blank square. Each symbol says what the finding IS, not what would be done
+    /// about it — the verb is the tooltip's job, and two kinds whose fix is a merge still look
+    /// different because they were found by different rules.
+    static func kindSymbol(_ kind: FindingKind) -> String {
+        switch kind {
+        case .shape: return "square.on.square.dashed"
+        case .backlog: return "calendar.badge.plus"
+        case .shadowAxis: return "calendar.badge.exclamationmark"
+        case .echoName: return "doc.on.doc"
+        case .mirroredInbox: return "tray.full"
+        case .deadWeight: return "wind"
+        case .looseAboveSeries: return "doc.badge.ellipsis"
+        case .looseBesideContainer: return "arrow.turn.down.right"
+        case .duplicatedTaxonomy: return "arrow.triangle.branch"
+        case .ask: return "questionmark.circle"
+        }
     }
 
     /// The kind tag's noun — short enough for a chip, distinct enough to sort a mixed list by eye.

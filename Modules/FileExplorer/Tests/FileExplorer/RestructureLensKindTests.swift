@@ -19,6 +19,48 @@ import SwiftUI
         }
     }
 
+    /// Every kind has a symbol too, and no two share one — the glyph's whole job is letting a
+    /// mixed list sort by eye before it is read, which two kinds wearing one symbol defeat.
+    @Test func everyKindHasADistinctSymbol() {
+        var symbols = Set<String>()
+        for kind in FindingKind.allCases {
+            let symbol = RestructureLens.kindSymbol(kind)
+            #expect(!symbol.isEmpty)
+            #expect(symbols.insert(symbol).inserted, "\(kind.rawValue) shares a symbol")
+            #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
+                    "\(symbol) is not a real SF Symbol — it would render as a blank square")
+        }
+    }
+
+    /// The tint splits the list the way the badge does: a kind that ends in a plan takes the
+    /// accent, a report-only one stays quiet. The rule is `carriesPlan`, not a second copy of it.
+    @Test func onlyThePlanBearingKindsTakeTheAccent() {
+        #expect(FindingKind.shape.carriesPlan)
+        #expect(FindingKind.echoName.carriesPlan)
+        #expect(!FindingKind.deadWeight.carriesPlan)
+        #expect(!FindingKind.looseAboveSeries.carriesPlan)
+        #expect(!FindingKind.ask.carriesPlan)
+    }
+
+    /// The glyph is tinted; the LABEL is not. Accent on 9.5pt text is the contrast trap the
+    /// repo's amber-on-body-text rule exists for, and this pins the call site.
+    @Test func theTagTintsItsGlyphAndNeverItsText() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        let tag = try #require(text.range(of: "private func kindTag(_ kind: FindingKind)"))
+        let body = String(text[tag.lowerBound...].prefix(1200))
+        let glyph = try #require(body.range(of: "Image(systemName: Self.kindSymbol(kind))"))
+        let label = try #require(body.range(of: "Text(Self.kindLabel(kind))"))
+        let accent = try #require(body.range(of: "carriesPlan ? AnyShapeStyle(accent)"))
+        #expect(accent.lowerBound > glyph.lowerBound && accent.lowerBound < label.lowerBound,
+                "the accent belongs to the glyph, above the label")
+        #expect(body[label.lowerBound...].prefix(200).contains("foregroundStyle(.secondary)"),
+                "the label keeps the quiet treatment")
+    }
+
     /// The blast radius states the honest cost, and the two shape sentences are the two §5.1
     /// names: renames-only for a one-to-one family, merges for the flagship's.
     @Test func theShapeBlastRadiusTellsRenamesFromMerges() {
