@@ -157,14 +157,31 @@ public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing
             .frame(height: LensHeaderMetrics.tabRow)
 
             HStack(spacing: 8) {
-                // **The prose yields first.** `SummaryRun` — what every lens puts here — is
-                // `.fixedSize()`, so row 2 as a whole refused to compress and simply drew wider
-                // than the column. Giving the summary a lower layout priority means the counts
-                // truncate before a control does, which is the right order: "1.7 MB reclaimable"
-                // shortened still reads, and "Apply 410 recommended" cut in half is a control the
-                // user cannot use. It changes nothing at any width where the row already fits.
-                summary()
-                    .layoutPriority(-1)
+                // **The prose yields first** — the rule this row has always stated, and now the
+                // one it can keep.
+                //
+                // A layout priority only decides who is *asked* to shrink; it cannot make a child
+                // that refuses do it. What every lens puts here is a run of `.fixedSize()` pills,
+                // so the low priority bought nothing: the row insisted on its natural width, the
+                // card's `maxWidth: .infinity` frame reported that larger width rather than the
+                // proposal (see the note below, and `LensHeaderCardOverflowTests`), and the parent
+                // CENTRED the oversized card — spilling it past **both** edges of the column. On
+                // Duplicates at 492pt that clipped the scan-root chip on the leading edge and
+                // "Apply 31 recommended" on the trailing one, in the same render.
+                //
+                // **A `ScrollView` was tried here first and is wrong in the other direction.** It
+                // is greedy, so in an `HStack` it soaks up the row's slack like a `Spacer` and
+                // starves a flexible sibling: To File's folder-survey sentence, which has room for
+                // its full 490pt at a 1,400pt card, came out at a constant 414 at every width and
+                // every text size. `ShrinkableRun` reports the content's width as ideal AND
+                // maximum, so it takes what it needs and no more.
+                //
+                // What a squeeze cuts is the run's tail, and the cut is silent — there is no
+                // indicator, because this row is 22pt and cannot spare the height. That is a real
+                // cost and the lesser one: a readout you must widen the window to finish reading
+                // beats a readout AND a destructive button both drawn cut in half.
+                ShrinkableRun { summary() }
+                    .clipped()
                 Spacer(minLength: 8)
                 trailing()
             }

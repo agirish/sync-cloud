@@ -23,8 +23,19 @@ import Testing
     /// A canvas with room on both sides, so overflow has somewhere to show up.
     static let canvas = CGSize(width: 900, height: 140)
 
-    /// Row 2 as Duplicates draws it: prose and pills that refuse to compress (`SummaryRun` uses
-    /// `.fixedSize()`), plus a live control on the trailing edge.
+    /// Row 2 with an incompressible half.
+    ///
+    /// **The incompressible half is the CONTROLS now, and the fixture moved with it.** The readouts
+    /// used to be it — `SummaryRun` is `.fixedSize()` — and this fixture put them in `summary`.
+    /// They yield now (`ShrinkableRun`), which fixed the reported overrun and left this fixture
+    /// unable to reproduce any overrun at all: it passed while asserting a defect it no longer
+    /// produced, and would then have passed with the split's clip removed.
+    ///
+    /// What genuinely cannot compress is the trailing set — a filter menu, a rescan control and
+    /// "Apply 410 recommended", all `.fixedSize()`, the last of them at `layoutPriority(1)` because
+    /// a destructive button cut in half is worse than a truncated readout. A rigid stand-in rather
+    /// than the three real controls, and deliberately wider than the column, so the fixture cannot
+    /// quietly stop reproducing the overrun when a label is reworded.
     struct Subject: View {
         var body: some View {
             LensHeaderCard(
@@ -50,7 +61,7 @@ import Testing
                     }
                 },
                 trailing: {
-                    Button("Apply 410 recommended") {}.fixedSize()
+                    Color.black.frame(width: LensHeaderCardOverrunTests.column + 40, height: 18)
                 }
             )
         }
@@ -101,6 +112,12 @@ import Testing
     /// larger of the proposal and what the child insists on, so the card resolves to its own ~600pt
     /// and clips to that. The clip has to belong to whoever owns a DEFINITE width — the split,
     /// which frames the workspace at `totalWidth - railWidth`. This models both.
+    ///
+    /// **It characterises the mechanism, not `LensHeaderCard`.** The trailing stand-in is rigid
+    /// and wider than the column, so `spilled > 0` holds for any implementation of the card: no
+    /// one-line change to `LensHeaderCard.swift` reddens it. Deliberate for a fixture whose job is
+    /// the CLIP's placement, which lives in `ContentView+SplitLayout`. The card's own behaviour is
+    /// pinned by `LensHeaderCardOverflowTests`, whose arms do bind to it.
     @Test func theCardOverrunsItsColumnAndOnlyTheOwnerOfTheWidthCanClipIt() {
         // Controls, so a number here cannot be an artefact of the ink detector.
         #expect(Self.inkOutsideTheColumn(Color.clear, clipping: false) == 0,

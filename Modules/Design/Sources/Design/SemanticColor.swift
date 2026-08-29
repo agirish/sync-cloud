@@ -15,8 +15,8 @@ public enum SemanticColor {
     /// Needs attention but nothing was lost.
     public static let warning = Color.orange
     /// Needs the user's *judgment* before anything happens — softer than `warning`, which flags
-    /// something the app skipped or that went wrong on its own. Name-only duplicate groups,
-    /// risky file names, and low-confidence matches wear this. The same glyph may appear in
+    /// something the app skipped or that went wrong on its own. Risky file names, duplicate
+    /// groups that need a person, and low-confidence matches wear this. The same glyph may appear in
     /// both tiers (a triangle can mean "skipped" in orange and "your call" in yellow); the
     /// TIER carries the meaning, the glyph carries the topic.
     public static let caution = Color.yellow
