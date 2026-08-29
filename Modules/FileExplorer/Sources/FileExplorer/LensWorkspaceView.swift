@@ -282,6 +282,8 @@ public struct LensWorkspaceView: View {
     /// nil when this machine has no filing profile to update, which withholds the item rather than
     /// offering one that would do nothing.
     private let onUpdateFolderMemory: (() -> Void)?
+    /// Opens the app's Help overlay at a named topic — the one front door, never a second one.
+    private let onOpenHelp: ((String) -> Void)?
     /// Opens Settings ▸ Intelligence, where the cloud backend is set up. Optional so the previews and
     /// the tests that mount this view without a host don't have to fake a Settings overlay; nil
     /// simply withholds the "Refine with Claude…" invitation, which is the honest outcome for a
@@ -394,6 +396,7 @@ public struct LensWorkspaceView: View {
         onFindFilingSuggestionsFresh: @escaping () -> Void = {},
         onUpdateFolderMemory: (() -> Void)? = nil,
         onConfigureCloudRefine: (() -> Void)? = nil,
+        onOpenHelp: ((String) -> Void)? = nil,
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onApplyRenames: @escaping ([RenamePlan]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
@@ -430,6 +433,7 @@ public struct LensWorkspaceView: View {
         self.onFindFilingSuggestions = onFindFilingSuggestions
         self.onFindFilingSuggestionsFresh = onFindFilingSuggestionsFresh
         self.onUpdateFolderMemory = onUpdateFolderMemory
+        self.onOpenHelp = onOpenHelp
         self.onConfigureCloudRefine = onConfigureCloudRefine
         self.onNormalizeNames = onNormalizeNames
         self.onApplyRenames = onApplyRenames
@@ -3267,6 +3271,9 @@ public struct LensWorkspaceView: View {
                         onRemoveEmptied: requestRemoval,
                         // §5.7's Scaffolded card, made resolvable — the re-derive a landing
                         // already runs, with a manifest that moves nothing.
+                        onOpenHelp: onOpenHelp.map { open in
+                            { open(RestructureLens.helpTopicID) }
+                        },
                         onRefreshSurvey: {
                             Task { @MainActor in
                                 refreshSurveyRefusal = nil

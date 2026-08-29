@@ -22,6 +22,9 @@ struct ContentView: View {
     /// Drives the in-window Help overlay (owned by the App so the Help ▸ SyncCloud Help / ⌘?
     /// menu command can open it). ContentView renders it and owns dismissal.
     @Binding var showHelp: Bool
+    /// The topic Help should open on when a surface pointed here rather than the reader opening
+    /// it cold. Cleared on close, so the next ⌘? opens the book at its front as before.
+    @State private var helpTopic: String?
     /// Whether the once-per-session part of the `onAppear` bootstrap has already run. Owned by
     /// the App (session-scoped, never persisted) because closing and Dock-reopening the single
     /// window recreates ContentView and all its `@State` — a view-owned flag would forget.
@@ -1722,7 +1725,8 @@ struct ContentView: View {
             glassHue: glassHue,
             glassLevel: glassLevel,
             surfaceTint: surfaceTint,
-            onClose: { showHelp = false }
+            openAt: helpTopic,
+            onClose: { showHelp = false; helpTopic = nil }
         )
     }
 
@@ -3875,6 +3879,12 @@ struct ContentView: View {
                 // user offered "set up cloud refine" arrives at a page with no cloud anything on
                 // it. `theCloudRefineOfferLandsOnTheTabThatHoldsTheKey` is what fails on that now.
                 onConfigureCloudRefine: { openSettings(on: .cloudRefineSetup) },
+                // The app's ONE Help front door, opened at a named page — Settings and Help
+                // never stack, and this must not grow a second overlay to sit beside them.
+                onOpenHelp: { topic in
+                    helpTopic = topic
+                    showHelp = true
+                },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onApplyRenames: { plans in Task { await syncManager.applyRenamePlans(plans) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },

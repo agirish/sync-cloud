@@ -876,6 +876,8 @@ struct HelpOverlay: View {
     let glassHue: LiquidGlassHue
     let glassLevel: GlassLevel
     let surfaceTint: Double
+    /// The topic to open on, when something pointed here rather than opening Help cold.
+    var openAt: String?
     let onClose: () -> Void
 
     var body: some View {
@@ -905,7 +907,7 @@ struct HelpOverlay: View {
     /// answers that without collapsing Clear and Frosted into the same card.
     @ViewBuilder
     private func card(available: CGSize) -> some View {
-        HelpView(available: available, onClose: onClose)
+        HelpView(available: available, openAt: openAt, onClose: onClose)
             .contentSurface(hue: glassHue, tint: surfaceTint)
             // No hairline overlay here: `groundedGlassCard` now draws it for BOTH schemes. Adding
             // one on top put a second border over the dark specular edge.
@@ -943,10 +945,18 @@ struct HelpView: View {
     /// once per drag rather than once per frame.
     @State private var dragging: CGSize?
 
-    init(available: CGSize, onClose: @escaping () -> Void) {
+    init(available: CGSize, openAt topic: String? = nil, onClose: @escaping () -> Void) {
         self.available = available
         self.onClose = onClose
-        _selectedTopicID = State(initialValue: HelpBook.sections.first?.topics.first?.id ?? "")
+        // An addressable opening topic, so a surface can point at its own page instead of
+        // dropping the reader at the front of the book (proposal O14). An id that does not
+        // resolve opens the front, which is the same thing the book does with no id at all —
+        // a broken pointer must not be a blank card.
+        let opening = topic.flatMap { id in
+            HelpBook.sections.contains { $0.topics.contains { $0.id == id } } ? id : nil
+        }
+        _selectedTopicID = State(
+            initialValue: opening ?? HelpBook.sections.first?.topics.first?.id ?? "")
     }
 
     private var results: [HelpBook.Section] { HelpBook.filteredSections(matching: query) }

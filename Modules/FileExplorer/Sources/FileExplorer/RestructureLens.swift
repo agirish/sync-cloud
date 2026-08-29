@@ -163,6 +163,9 @@ struct RestructureLens: View {
     var onUndoReorganisation: ((String) -> Void)?
     /// Opens §5.5's removal sheet, scoped to the folders that record's landing emptied.
     var onRemoveEmptied: ((String) -> Void)?
+    /// Opens the Help book at Restructure's own page. nil hides the affordance — this is a
+    /// pointer at documentation, and one that goes nowhere is worse than none.
+    var onOpenHelp: (() -> Void)?
     /// Re-derives the survey from the tree as it stands — §5.7's Scaffolded card, whose own
     /// sentence describes a wait with nothing to end it. nil hides the button.
     var onRefreshSurvey: (() -> Void)?
@@ -414,6 +417,7 @@ struct RestructureLens: View {
                     crowdingChip(weightClass)
                 }
                 Spacer(minLength: 0)
+                helpPointer
             }
             if let crowdingFilter {
                 crowdingList(crowdingFilter)
@@ -431,6 +435,30 @@ struct RestructureLens: View {
                                       hasHandler: Bool) -> Bool {
         weightClass == .empty && pathCount > 0 && hasHandler
     }
+
+    /// **Where the anxiety is.** The Help book already explains the plan flow and why the
+    /// ledger's undo is not ⌘Z; nothing in the lens pointed at it, so the reader most in need of
+    /// that page was the one least likely to go looking. One affordance, routed through the app's
+    /// existing Help front door — never a second overlay, and never a sheet.
+    @ViewBuilder
+    private var helpPointer: some View {
+        if let onOpenHelp {
+            Button(action: onOpenHelp) {
+                Image(systemName: "questionmark.circle")
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            // `.help` is the tooltip, not the name — a glyph-only control needs both.
+            .accessibilityLabel("About Restructure")
+            .help("What Restructure looks for, how a plan is reviewed, and why taking a "
+                  + "landing back is not ⌘Z.")
+            .chromeHover()
+        }
+    }
+
+    /// The Help topic this lens points at — see ``OrganizeHelpTopics/restructure``.
+    static let helpTopicID = OrganizeHelpTopics.restructure
 
     static func crowdingLabel(_ weightClass: DeadWeightClass, count: Int) -> String {
         switch weightClass {
