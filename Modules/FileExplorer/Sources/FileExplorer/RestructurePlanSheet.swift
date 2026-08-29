@@ -76,6 +76,8 @@ struct RestructurePlanSheet: View {
     @State private var parallelFamilies: [String] = []
     @State private var chosenScheme: Int?
     @State private var customName = ""
+    /// Narrows the mapping's VIEW, never its rows — see `mappingSection`.
+    @State private var filterText = ""
     @State private var outcome: Outcome?
     @State private var createdAt = ""
     @State private var manifestId = ""
@@ -158,7 +160,7 @@ struct RestructurePlanSheet: View {
             // appeared since the draft gets a fresh keep row; one that vanished drops off.
             let saved = Dictionary(initialRows.map { ($0.source, $0) },
                                    uniquingKeysWith: { first, _ in first })
-            rows = sources.map { saved[$0] ?? RestructureMapping.Row(source: $0) }
+            rows = Self.adjacentOrder(sources.map { saved[$0] ?? RestructureMapping.Row(source: $0) })
             // The draft's saved vocabulary first (unused choices included), then any target a
             // row uses that it somehow lacks — a picker must always offer the row's own value.
             var restored = initialVocabulary ?? []
@@ -168,7 +170,7 @@ struct RestructurePlanSheet: View {
             vocabulary = restored
         } else {
             // Default keep on every row — the editor never guesses a mapping (§5.4 step 3).
-            rows = sources.map { RestructureMapping.Row(source: $0) }
+            rows = Self.adjacentOrder(sources.map { RestructureMapping.Row(source: $0) })
         }
         let stamp = Self.stamp(Date())
         createdAt = stamp
@@ -195,6 +197,72 @@ struct RestructurePlanSheet: View {
     /// family; for a seeded pair it is the member's own path, because the family is that folder's
     /// parent and can be the empty string.
     private var planFamily: String { Self.headerPath(family: family, members: members) }
+
+    /// Above this many rows the filter appears. Twelve is where a list stops being scannable —
+    /// the flagship family has 24 — and below it a filter is a control that costs more than the
+    /// scrolling it saves.
+    static let filterAppearsAbove = 12
+
+    /// How many rows would change something, out of how many there are. The editor's default is
+    /// keep, so "9 of 24 mapped" is the difference between a plan half-made and one deliberately
+    /// left mostly alone.
+    static func mappedCount(_ rows: [RestructureMapping.Row]) -> String {
+        let mapped = rows.filter { row in
+            guard let target = row.target else { return false }
+            return target != row.source
+        }.count
+        return "\(mapped) of \(rows.count) mapped — the rest keep their name"
+    }
+
+    /// Whether a row survives the filter. Case- and punctuation-insensitive, because the names
+    /// this searches are exactly the ones that differ by punctuation: typing `w2` has to find
+    /// `Form W-2`, which is the pair the editor exists to reconcile.
+    static func matches(_ source: String, filter: String) -> Bool {
+        let needle = similarKey(filter)
+        guard !needle.isEmpty else { return true }
+        return similarKey(source).contains(needle)
+    }
+
+    /// A name reduced to what makes two spellings the SAME name — lowercased, stripped of
+    /// everything but letters and digits, with a trailing plural folded away.
+    ///
+    /// Deliberately a plain tokenizer rather than a regex: Swift's `\b` is a Unicode word
+    /// boundary and NFC normalisation is implicit, so a regex here would answer differently for
+    /// composed and decomposed spellings of the same folder name.
+    static func similarKey(_ name: String) -> String {
+        var key = name.lowercased().unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init).joined()
+        // Fold a trailing plural, but only when a real stem is left. `Bus` reduced to `bu`
+        // matched a folder actually called `Bu`, which is the fold inventing a pair rather than
+        // finding one — and this editor's whole job is deciding that two names are one.
+        if key.count >= 4, key.hasSuffix("s") { key.removeLast() }
+        return key
+    }
+
+    /// The rows in the order the editor shows them: near-identical names adjacent, so the choice
+    /// between `Payment` and `Payments` is made in one place instead of twelve rows apart.
+    /// Within a group and between groups the order is the disk's own, so nothing else moves.
+    static func adjacentOrder(_ rows: [RestructureMapping.Row]) -> [RestructureMapping.Row] {
+        var firstSeen: [String: Int] = [:]
+        for (index, row) in rows.enumerated() where firstSeen[similarKey(row.source)] == nil {
+            firstSeen[similarKey(row.source)] = index
+        }
+        return rows.enumerated().sorted { left, right in
+            let leftGroup = firstSeen[similarKey(left.element.source)] ?? left.offset
+            let rightGroup = firstSeen[similarKey(right.element.source)] ?? right.offset
+            if leftGroup != rightGroup { return leftGroup < rightGroup }
+            return left.offset < right.offset
+        }.map(\.element)
+    }
+
+    /// True when this row shares its similar-key with another — the quiet marker that says why
+    /// two rows are neighbours.
+    static func hasSimilarNeighbour(_ row: RestructureMapping.Row,
+                                    in rows: [RestructureMapping.Row]) -> Bool {
+        let key = similarKey(row.source)
+        return rows.contains { $0.source != row.source && similarKey($0.source) == key }
+    }
 
     /// The folder this mapping runs over, as the header names it.
     ///
@@ -332,13 +400,38 @@ struct RestructurePlanSheet: View {
     private func mappingSection(
         _ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionLabel(isSeededPair
-                         ? "Mapping — one row per name in this folder, default keep"
-                         : "Mapping — one row per name found across the family, default keep")
+            HStack(spacing: 8) {
+                sectionLabel(isSeededPair
+                             ? "Mapping — one row per name in this folder, default keep"
+                             : "Mapping — one row per name found across the family, default keep")
+                Spacer(minLength: 8)
+                Text(Self.mappedCount(rows))
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            // 24 rows on the flagship family: past a dozen the list stops being scannable and
+            // the name you are looking for is the thing you cannot find. The filter narrows the
+            // VIEW only — `rows` stays canonical and complete, so the derived manifest below is
+            // identical with a filter active.
+            if rows.count > Self.filterAppearsAbove {
+                HStack(spacing: 6) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .scaledFont(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    TextField("Filter names", text: $filterText)
+                        .textFieldStyle(.roundedBorder)
+                        .scaledFont(.system(size: 11))
+                        .frame(width: 220)
+                        .accessibilityLabel("Filter the mapping by name")
+                }
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach($rows) { $row in
-                        mappingRow($row, plan: plan)
+                        if Self.matches(row.source, filter: filterText) {
+                            mappingRow($row, plan: plan)
+                        }
                     }
                 }
             }
@@ -350,10 +443,20 @@ struct RestructurePlanSheet: View {
                             plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)
         -> some View {
         HStack(spacing: 8) {
-            Text(row.wrappedValue.source)
-                .scaledFont(.system(size: 11, design: .monospaced))
-                .lineLimit(1)
-                .frame(width: 220, alignment: .leading)
+            HStack(spacing: 4) {
+                Text(row.wrappedValue.source)
+                    .scaledFont(.system(size: 11, design: .monospaced))
+                    .lineLimit(1)
+                // A quiet marker saying WHY this row has the neighbour it has — without it,
+                // adjacency is a reordering the reader cannot account for.
+                if Self.hasSimilarNeighbour(row.wrappedValue, in: rows) {
+                    Image(systemName: "link")
+                        .scaledFont(.system(size: 8))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityLabel("Near-identical to the row beside it")
+                }
+            }
+            .frame(width: 220, alignment: .leading)
             Picker("", selection: row.target) {
                 Text("Keep").tag(String?.none)
                 ForEach(pickerTargets(for: row.wrappedValue), id: \.self) { name in
