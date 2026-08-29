@@ -96,4 +96,48 @@ enum RestructureRender {
         }
         return count
     }
+
+    /// Pixels that read as a **success tint** — green-dominant, which none of the greys, the text
+    /// or the accent blue on these surfaces are.
+    ///
+    /// The counterpart to ``cautionPixels`` and there for the same reason: a render comparison
+    /// between two states can pass on any incidental difference, so the assertion that a run is
+    /// *marked* has to name the mark rather than the difference.
+    static func successPixels(_ rep: NSBitmapImageRep) -> Int {
+        guard let data = rep.bitmapData else { return 0 }
+        let bpr = rep.bytesPerRow, spp = rep.samplesPerPixel
+        guard spp >= 3 else { return 0 }
+        var count = 0
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                let p = y * bpr + x * spp
+                let r = Int(data[p]), g = Int(data[p + 1]), b = Int(data[p + 2])
+                if g - r > 25, g - b > 25 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// Where the leftmost success-tinted pixel is, as a fraction of the render's width — nil when
+    /// nothing green was drawn.
+    ///
+    /// **A column's x position is a claim a bitmap can settle.** The renames card's "After" column
+    /// is the only green thing on it, so this locates that column; two renders at different widths
+    /// then say whether the columns divide the card evenly (the edge tracks the width) or are
+    /// sized to their content (it does not move). A fraction rather than a pixel count, because
+    /// the rep comes back at the display's backing scale.
+    static func leftmostSuccessFraction(_ rep: NSBitmapImageRep) -> Double? {
+        guard let data = rep.bitmapData, rep.samplesPerPixel >= 3, rep.pixelsWide > 0 else {
+            return nil
+        }
+        let bpr = rep.bytesPerRow, spp = rep.samplesPerPixel
+        for x in 0..<rep.pixelsWide {
+            for y in 0..<rep.pixelsHigh {
+                let p = y * bpr + x * spp
+                let r = Int(data[p]), g = Int(data[p + 1]), b = Int(data[p + 2])
+                if g - r > 25, g - b > 25 { return Double(x) / Double(rep.pixelsWide) }
+            }
+        }
+        return nil
+    }
 }

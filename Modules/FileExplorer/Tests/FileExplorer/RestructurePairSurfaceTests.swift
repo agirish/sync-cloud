@@ -225,4 +225,109 @@ import Testing
         #expect(host.contains("?? seeded.map { [$0] }"),
                 "the seed is the whole promise of \"already filled in\"")
     }
+
+    // MARK: The row text — names, not truncated paths
+
+    /// **A row names what moves, not where it already is.** Both folders are in the header, and
+    /// every row of a pair merge runs between those two — so repeating them spent the row's whole
+    /// width on what the reader knew and truncated what they did not. On the real tree this read
+    /// `…on/Form ETA-9035 (DOL).pdf → …n/Form ETA-9035 (DOL).pdf`: two ellipses, no answer.
+    @Test func anOrdinaryRowIsJustTheFileName() {
+        let action = RestructureManifest.Action(
+            action: .moveFile,
+            src: "Immigration/Authorization/H-1B/2021-2024/Petition/Petition/Form I-129.pdf",
+            dst: "Immigration/Authorization/H-1B/2021-2024/Petition/Form I-129.pdf")
+        let row = RestructurePairMergeSheet.rowText(
+            action,
+            source: "Immigration/Authorization/H-1B/2021-2024/Petition/Petition",
+            destination: "Immigration/Authorization/H-1B/2021-2024/Petition")
+        #expect(row.name == "Form I-129.pdf")
+        #expect(row.detail == nil, "it goes where the header says everything goes")
+    }
+
+    /// A file nested inside the source keeps the part of its path that is not the source folder —
+    /// dropping to the leaf alone would show two rows as identical names.
+    @Test func aNestedFileKeepsWhatDistinguishesIt() {
+        let action = RestructureManifest.Action(
+            action: .moveFile, src: "A/Inbox/2024/receipt.pdf", dst: "A/Real/2024/receipt.pdf")
+        let row = RestructurePairMergeSheet.rowText(action, source: "A/Inbox",
+                                                    destination: "A/Real")
+        #expect(row.name == "2024/receipt.pdf")
+        #expect(row.detail == nil,
+                "a merge preserves structure, so the mirrored landing repeats the name back")
+    }
+
+    /// **A row that does something the header does not describe says so.** A collision rename and
+    /// a landing outside the common destination are exactly the rows a reader must not miss, and
+    /// they are the ones a leaf-only row would hide.
+    @Test func aRowThatDivergesFromTheHeaderSaysHow() {
+        let renamed = RestructurePairMergeSheet.rowText(
+            RestructureManifest.Action(action: .moveFile, src: "A/Inbox/tax.pdf",
+                                       dst: "A/Real/tax 2.pdf"),
+            source: "A/Inbox", destination: "A/Real")
+        #expect(renamed.name == "tax.pdf")
+        #expect(renamed.detail == "as tax 2.pdf", "the collision's new name is on the row")
+
+        let elsewhere = RestructurePairMergeSheet.rowText(
+            RestructureManifest.Action(action: .moveDir, src: "A/Inbox/Forms",
+                                       dst: "A/Somewhere Else/Forms"),
+            source: "A/Inbox", destination: "A/Real")
+        #expect(elsewhere.detail?.contains("A/Somewhere Else/Forms") == true,
+                "a destination the header never named is stated in full")
+
+        // A file landing somewhere else UNDER the destination names the place, not the path.
+        let deeper = RestructurePairMergeSheet.rowText(
+            RestructureManifest.Action(action: .moveFile, src: "A/Inbox/tax.pdf",
+                                       dst: "A/Real/2024/tax.pdf"),
+            source: "A/Inbox", destination: "A/Real")
+        #expect(deeper.detail == "into 2024/tax.pdf")
+    }
+
+    /// `relative` is component-wise — a sibling sharing a name prefix is not a child.
+    @Test func theSourcePrefixIsStrippedByComponentNotByCharacter() {
+        #expect(RestructurePairMergeSheet.relative(of: "A/Inbox/x.pdf", under: "A/Inbox")
+                == "x.pdf")
+        #expect(RestructurePairMergeSheet.relative(of: "A/InboxOld/x.pdf", under: "A/Inbox")
+                == nil, "InboxOld is another folder, not a child of Inbox")
+        #expect(RestructurePairMergeSheet.relative(of: "A/Inbox", under: "A/Inbox") == nil)
+    }
+
+    // MARK: The safe button says what it is for
+
+    /// It was labelled "Export plan…" with no help at all — a file format for a name, and nothing
+    /// about why anyone would press it. Both of the things it does have to be in the sentence,
+    /// because the durable one (the card remembers) is the one people actually want.
+    @Test func theSaveButtonExplainsBothOfTheThingsItDoes() {
+        let help = RestructurePairMergeSheet.exportHelp
+        #expect(help.contains("Review N operations"), "the card state it produces")
+        #expect(help.contains("after you quit"), "and that it survives one")
+        #expect(help.contains("JSON"), "the file, for anyone who wants to read it")
+        #expect(help.contains("Nothing moves"), "the reassurance the red button needs beside it")
+    }
+
+    // MARK: Both paths reach the pixels
+
+    /// **The two folders are the sheet's whole subject, and they were the first thing truncated.**
+    /// Rendered at the minimum width, a deep source and a deep destination must still draw
+    /// differently from a shallow pair — a header that clipped both to `…/Petition` would not.
+    @Test func bothFullPathsAreDrawnEvenWhenDeep() throws {
+        func sheet(source: String, destination: String) -> RestructurePairMergeSheet {
+            RestructurePairMergeSheet(
+                source: source, destination: destination, kind: .echoName,
+                tree: RestructureTreeView(childFolders: { _ in [] },
+                                          files: { $0 == source ? ["Form I-129.pdf"] : [] },
+                                          fileCount: { _ in 1 }),
+                profileId: "p", accent: .blue, rationale: "echoes its parent",
+                onExport: { _ in .saved(filename: "f.json") }, onClose: {})
+        }
+        let deep = try #require(RestructureRender.raster(
+            sheet(source: "Immigration/Authorization/H-1B/2021-2024/Petition/Petition",
+                  destination: "Immigration/Authorization/H-1B/2021-2024/Petition"),
+            width: 520, height: 460))
+        let shallow = try #require(RestructureRender.raster(
+            sheet(source: "A/B", destination: "A"), width: 520, height: 460))
+        #expect(RestructureRender.inkedPixels(deep) > 1000, "the sheet drew")
+        #expect(RestructureRender.differingPixels(deep, shallow) > 400,
+                "the paths themselves are on screen, not one shared ellipsis")
+    }
 }
