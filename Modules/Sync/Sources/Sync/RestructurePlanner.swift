@@ -259,6 +259,131 @@ public enum RestructurePlanner {
         }
     }
 
+    /// The side-by-side table the pointer above stands in for (proposal O17).
+    ///
+    /// **This is what made the 6 Aug cause visible in one glance**: three immigration families
+    /// whose child names nearly agreed, and whose disagreements were invisible until they were
+    /// laid out in a grid. `parallelFamilies` names the set and says "worth planning together";
+    /// this is the thing that shows what "together" would have to reconcile.
+    ///
+    /// One row per distinct child name across every family in the group, one column per family,
+    /// each cell a plain yes/no. **No counts and no judgement** — a cell saying "3 files" invites
+    /// reading weight into a name that is either there or not, and a cell marked "wrong" would be
+    /// the planner asserting a shape before the user has chosen one.
+    ///
+    /// Rows are ordered by how many families carry the name, then alphabetically: the names
+    /// everyone shares are the spine, and the ones only one family has are the disagreements — so
+    /// the interesting rows collect at the bottom rather than scattering.
+    public static func familyGroupTable(families: [String], in view: RestructureTreeView)
+        -> FamilyGroupTable? {
+        guard families.count >= 2 else { return nil }
+        var namesByFamily: [String: Set<String>] = [:]
+        for family in families {
+            namesByFamily[family] = Set(distinctSources(family: family,
+                                                        members: view.childFolders(family) ?? [],
+                                                        in: view))
+        }
+        let allNames = namesByFamily.values.reduce(into: Set<String>()) { $0.formUnion($1) }
+        guard !allNames.isEmpty else { return nil }
+        let rows = allNames
+            .map { name in
+                FamilyGroupTable.Row(
+                    name: name,
+                    presentIn: families.map { namesByFamily[$0]?.contains(name) == true })
+            }
+            .sorted {
+                let mine = $0.presentIn.filter { $0 }.count
+                let theirs = $1.presentIn.filter { $0 }.count
+                if mine != theirs { return mine > theirs }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+        return FamilyGroupTable(families: families, rows: rows)
+    }
+
+    /// One shared mapping, **derived separately per family** (proposal O17).
+    ///
+    /// The whole safety of batch planning is in that separation. A mapping row can be right for
+    /// one family and wrong for a sibling — `Application → Forms` may be exactly right in H-4 and
+    /// a collision waiting to happen in H-1B — so nothing is shared but the *intent*: each
+    /// family's manifest is derived against its own members and its own tree, and each carries
+    /// its own refusal. A single manifest spanning three families would have made one refusal
+    /// stop all three, and one bad row poison two good plans.
+    ///
+    /// A family whose derivation refuses stays in the result with its refusal, in the order it
+    /// was asked for — the sheet reviews them all before anything lands, and a group where one
+    /// member cannot be planned is a thing to see, not to silently drop.
+    ///
+    /// Manifest ids are `manifestIdPrefix` plus the family's own leaf name, so the ledger's
+    /// records and the exported filenames stay one-per-family and a landing can be undone alone.
+    public static func groupManifests(
+        families: [String], mapping: RestructureMapping, kind: FindingKind,
+        in view: RestructureTreeView, profileId: String, manifestIdPrefix: String,
+        createdAt: String)
+        -> [(family: String, result: Result<RestructureManifest, PlanRefusal>)] {
+        families.map { family in
+            let members = view.childFolders(family) ?? []
+            // Each family's mapping is the shared one NARROWED to the sources it actually has:
+            // a row naming a folder this family does not carry is not an error, it is simply not
+            // about this family, and passing it through would refuse the whole plan on a name
+            // that only a sibling has.
+            let mine = Set(distinctSources(family: family, members: members, in: view))
+            let narrowed = RestructureMapping(
+                rows: mapping.rows.filter { mine.contains($0.source) })
+            return (family,
+                    manifest(family: family, members: members, mapping: narrowed, kind: kind,
+                             in: view, profileId: profileId,
+                             manifestId: manifestIdPrefix + "-"
+                                + (family as NSString).lastPathComponent,
+                             createdAt: createdAt))
+        }
+    }
+
+    /// Every distinct child name across a group — the sources one shared mapping is edited over.
+    public static func groupSources(families: [String], in view: RestructureTreeView) -> [String] {
+        var seen: Set<String> = []
+        var names: [String] = []
+        for family in families {
+            for name in distinctSources(family: family,
+                                        members: view.childFolders(family) ?? [], in: view)
+            where seen.insert(name).inserted {
+                names.append(name)
+            }
+        }
+        return names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// Child names across a group of families, as a grid.
+    public struct FamilyGroupTable: Equatable, Sendable {
+        /// The columns, in the order they were asked for — the subject family first, by the
+        /// caller's convention, so the table reads outward from the one being planned.
+        public let families: [String]
+        public let rows: [Row]
+
+        public struct Row: Equatable, Sendable {
+            public let name: String
+            /// One flag per family, positionally aligned with ``families``.
+            public let presentIn: [Bool]
+
+            public init(name: String, presentIn: [Bool]) {
+                self.name = name
+                self.presentIn = presentIn
+            }
+
+            /// True when every family in the group carries this name — the spine, and the rows a
+            /// shared mapping can leave alone.
+            public var isUniversal: Bool { presentIn.allSatisfy { $0 } }
+        }
+
+        public init(families: [String], rows: [Row]) {
+            self.families = families
+            self.rows = rows
+        }
+
+        /// Names not every family has — what planning the group together would reconcile, and
+        /// the honest measure of how far apart these families actually are.
+        public var disagreements: [Row] { rows.filter { !$0.isUniversal } }
+    }
+
     /// The derived manifest — every member's operations in member order, each member internally
     /// ordered so it can run top to bottom.
     /// - Parameter recordedFamily: what the manifest, the ledger card and the exported filename

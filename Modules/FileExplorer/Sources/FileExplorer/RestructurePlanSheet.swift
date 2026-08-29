@@ -78,6 +78,20 @@ struct RestructurePlanSheet: View {
     /// Sibling families sharing this one's vocabulary (§5.4 step 2's pointer). Resolved once at
     /// open — it walks every sibling's members, and the tree does not move under a modal sheet.
     @State private var parallelFamilies: [String] = []
+    /// The group laid out (proposal O17), resolved beside `parallelFamilies` and for the same
+    /// reason: it walks every sibling's members, and the tree does not move under a modal sheet.
+    @State private var groupTable: RestructurePlanner.FamilyGroupTable?
+    /// Collapsed by default. The pointer above it is the summary; the grid is what you open when
+    /// the summary is not enough, and a table that arrives expanded pushes the mapping — the
+    /// thing the sheet is for — below the fold on a family with twenty child names.
+    @State private var groupTableOpen = false
+    /// Whether the mapping being edited covers the whole group (proposal O17).
+    ///
+    /// **Off by default, and switching it re-seeds the rows.** Turning it on widens the sources
+    /// to every child name across the group; turning it off narrows them back. Both directions
+    /// keep the targets already chosen for names that survive the change, because a user who
+    /// mapped six rows and then opened the group out did not ask to lose them.
+    @State private var planTogether = false
     @State private var chosenScheme: Int?
     @State private var customName = ""
     /// Narrows the mapping's VIEW, never its rows — see `mappingSection`.
@@ -160,6 +174,13 @@ struct RestructurePlanSheet: View {
         parallelFamilies = isSeededPair
             ? []
             : RestructurePlanner.parallelFamilies(of: family, in: tree)
+        // The subject family FIRST, so the table reads outward from the one being planned.
+        groupTable = parallelFamilies.isEmpty ? nil : RestructurePlanner.familyGroupTable(
+            families: [family] + parallelFamilies.map {
+                ((family as NSString).deletingLastPathComponent as NSString)
+                    .appendingPathComponent($0)
+            },
+            in: tree)
         if let initialRows {
             // The draft's rows, reconciled against the sources as they stand now: a source that
             // appeared since the draft gets a fresh keep row; one that vanished drops off.
@@ -303,10 +324,111 @@ struct RestructurePlanSheet: View {
                     .scaledFont(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let groupTable {
+                    groupTableDisclosure(groupTable)
+                    Toggle(isOn: Binding(get: { planTogether },
+                                         set: { planTogether = $0; reseedForGroup($0) })) {
+                        Text("Plan all \(groupTable.families.count) together")
+                            .scaledFont(.system(size: 10.5, weight: .medium))
+                    }
+                    .toggleStyle(.checkbox)
+                    .disabled(locked)
+                    .help("Edits ONE mapping over every child name in the group. Each family's "
+                          + "plan is still derived against its own folders and reviewed "
+                          + "separately below, and they land one after another.")
+                }
             }
         }
     }
 
+
+    /// Every family the shared mapping covers — the subject first, then its parallels.
+    private var groupFamilies: [String] { groupTable?.families ?? [family] }
+
+    /// Widen or narrow the mapping to the whole group (proposal O17), keeping every target
+    /// already chosen for a source that survives the change.
+    private func reseedForGroup(_ together: Bool) {
+        let sources = together
+            ? RestructurePlanner.groupSources(families: groupFamilies, in: tree)
+            : RestructurePlanner.distinctSources(family: family, members: members, in: tree)
+        let kept = Dictionary(rows.map { ($0.source, $0) }, uniquingKeysWith: { first, _ in first })
+        allSources = sources
+        rows = Self.adjacentOrder(sources.map { kept[$0] ?? RestructureMapping.Row(source: $0) })
+    }
+
+    /// The per-family plans a shared mapping derives (proposal O17).
+    ///
+    /// Derived here, in the same pass as `derived`, for the reason that property documents: a
+    /// version computing this per row ran the whole planner — disk listings included — once per
+    /// row per render.
+    private var groupPlans: [(family: String,
+                              result: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)] {
+        RestructurePlanner.groupManifests(
+            families: groupFamilies, mapping: RestructureMapping(rows: rows), kind: finding.kind,
+            in: tree, profileId: profileId, manifestIdPrefix: manifestId, createdAt: createdAt)
+    }
+
+    /// The disclosure's own line — **the number that decides whether opening the grid is worth
+    /// doing**, which is the only thing a collapsed table can usefully say.
+    ///
+    /// A group that already agrees says so rather than offering a grid under a count of zero: the
+    /// answer is the sentence, and the table below it would only confirm it row by row.
+    static func groupHeaderText(disagreements: Int, families: Int) -> String {
+        guard disagreements > 0 else {
+            return "These \(families) families already agree on every name"
+        }
+        return "\(disagreements) name\(disagreements == 1 ? "" : "s") "
+            + "\(disagreements == 1 ? "is" : "are") not shared by all \(families)"
+    }
+
+    /// The group as a grid — §5.4 step 2's pointer, opened out (proposal O17).
+    ///
+    /// A `DisclosureGroup` rather than a permanent panel: the pointer's sentence is the summary,
+    /// and the grid is for when the summary is not enough. The header states the disagreement
+    /// count, which is the number that decides whether opening it is worth doing.
+    @ViewBuilder
+    private func groupTableDisclosure(_ table: RestructurePlanner.FamilyGroupTable) -> some View {
+        let apart = table.disagreements.count
+        DisclosureGroup(isExpanded: $groupTableOpen) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 3) {
+                    GridRow {
+                        Text("").gridColumnAlignment(.leading)
+                        ForEach(table.families, id: \.self) { family in
+                            Text((family as NSString).lastPathComponent)
+                                .scaledFont(.system(size: 9.5, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    ForEach(table.rows, id: \.name) { row in
+                        GridRow {
+                            Text(row.name)
+                                .scaledFont(.system(size: 10.5,
+                                                    weight: row.isUniversal ? .regular : .medium))
+                                .foregroundStyle(row.isUniversal ? AnyShapeStyle(.secondary)
+                                                                 : AnyShapeStyle(.primary))
+                            ForEach(Array(row.presentIn.enumerated()), id: \.offset) { cell in
+                                // A tick or an em dash — present or not, nothing else. A count
+                                // here would invite reading weight into a name that either is
+                                // there or is not, and a "wrong" marker would be the planner
+                                // asserting a shape before the user has chosen one.
+                                Text(cell.element ? "✓" : "—")
+                                    .scaledFont(.system(size: 10))
+                                    .foregroundStyle(cell.element ? AnyShapeStyle(accent)
+                                                                  : AnyShapeStyle(.tertiary))
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+        } label: {
+            Text(Self.groupHeaderText(disagreements: apart, families: table.families.count))
+                .scaledFont(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .disclosureGroupStyle(.automatic)
+    }
 
     // MARK: - 1. The target shape
 
@@ -739,11 +861,47 @@ struct RestructurePlanSheet: View {
             recordedFamily: planFamily)
     }
 
+    /// What each family's own plan comes to (proposal O17). The subject's operations are listed
+    /// in full below; this is the group's shape at a glance, including any family whose plan
+    /// refuses — a group where one member cannot be planned is a thing to see, not to drop.
+    @ViewBuilder
+    private var groupReview: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(groupPlans, id: \.family) { plan in
+                HStack(spacing: 6) {
+                    Text((plan.family as NSString).lastPathComponent)
+                        .scaledFont(.system(size: 10.5, weight: .medium))
+                    Spacer(minLength: 6)
+                    switch plan.result {
+                    case .success(let manifest):
+                        Text(RestructureLedger(of: manifest).summary)
+                            .scaledFont(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    case .failure(let refusal):
+                        Text(Self.refusalText(refusal))
+                            .scaledFont(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+            }
+        }
+        .padding(6)
+        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.18)))
+    }
+
     @ViewBuilder
     private func reviewSection(
         _ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel("Derived operations")
+            // **Batch never skips the per-family review.** One shared mapping row can be right
+            // for this family and wrong for a sibling, and that is precisely what the group is
+            // for; so the counts below are per family, derived separately, before anything runs.
+            if planTogether { groupReview }
             switch plan {
             case .success(let manifest):
                 Text(RestructureLedger(of: manifest).summary)
@@ -912,12 +1070,29 @@ struct RestructurePlanSheet: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled((try? plan.get()) == nil || applying || isApplied)
             if let onApply {
-                Button(applyTitle(plan)) { apply(plan, onApply) }
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.red)
-                    .disabled((try? plan.get()) == nil || applying || isApplied)
-                    .help("Runs the reviewed operations now: renames and merges on disk, one "
-                          + "grouped ⌘Z, the inverse in the ledger, and the survey re-derived.")
+                if planTogether {
+                    let plans = groupPlans
+                    let landable = plans.compactMap { try? $0.result.get() }
+                    Button(applying
+                           ? "Applying…"
+                           : "Apply to \(landable.count) famil\(landable.count == 1 ? "y" : "ies")") {
+                        applyGroup(plans, onApply)
+                    }
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.red)
+                        .disabled(landable.isEmpty || applying || isApplied)
+                        .help("Lands each family's own plan, one after another — never at once, "
+                              + "because each landing re-derives the survey the next one reads. "
+                              + "It stops at the first refusal, leaving the rest unrun.")
+                } else {
+                    Button(applyTitle(plan)) { apply(plan, onApply) }
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.red)
+                        .disabled((try? plan.get()) == nil || applying || isApplied)
+                        .help("Runs the reviewed operations now: renames and merges on disk, one "
+                              + "grouped ⌘Z, the inverse in the ledger, and the survey "
+                              + "re-derived.")
+                }
             }
         }
     }
@@ -998,6 +1173,51 @@ extension RestructurePlanSheet {
             switch result {
             case .applied(let summary): outcome = .applied(summary)
             case .refused(let refusal): outcome = .failed(refusal)
+            }
+        }
+    }
+
+    /// Land each family's plan in turn (proposal O17).
+    ///
+    /// **Sequentially, and never in parallel.** Every landing re-derives the survey and replaces
+    /// the active profile, so two at once would have the second running against a profile the
+    /// first invalidated — and the engine's own operation guard would refuse it anyway, which is
+    /// a refusal the user would have to read rather than a design.
+    ///
+    /// **Stops at the first refusal.** The alternative is finishing the queue and reporting three
+    /// outcomes at once, which leaves the tree half-reorganised while the reader works out which
+    /// half. Everything that landed before the refusal stays landed and is in the ledger, each
+    /// under its own manifest id and each undoable on its own.
+    private func applyGroup(
+        _ plans: [(family: String,
+                   result: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)],
+        _ run: @escaping (RestructureManifest) async -> ApplyResult) {
+        guard !applying else { return }
+        let landable = plans.compactMap { plan -> (String, RestructureManifest)? in
+            (try? plan.result.get()).map { (plan.family, $0) }
+        }
+        guard !landable.isEmpty else { return }
+        applying = true
+        Task { @MainActor in
+            var landed: [String] = []
+            var refusal: String?
+            for (family, manifest) in landable {
+                switch await run(manifest) {
+                case .applied(let summary):
+                    landed.append("\((family as NSString).lastPathComponent): \(summary)")
+                case .refused(let sentence):
+                    refusal = "\((family as NSString).lastPathComponent) refused — \(sentence)"
+                }
+                if refusal != nil { break }
+            }
+            applying = false
+            if let refusal {
+                outcome = .failed(landed.isEmpty
+                    ? refusal
+                    : refusal + ". Landed before it: " + landed.joined(separator: "; ")
+                        + " — each is undoable on its own.")
+            } else {
+                outcome = .applied(landed.joined(separator: "; "))
             }
         }
     }
