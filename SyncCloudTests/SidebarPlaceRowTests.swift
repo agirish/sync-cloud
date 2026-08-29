@@ -127,12 +127,35 @@ import Foundation
                 "the order is written as the visible list plus the rest, which relocates every source nobody dragged")
     }
 
-    /// One pass per refresh. Two would enumerate the mounted volumes twice, which is a disk hit per
-    /// render of a column that redraws on every pane move.
+    /// One pass per refresh. Two would build every place row twice for one column.
+    ///
+    /// **The disk hit this used to be about has moved, and the guard is better for it.** The pass
+    /// no longer enumerates the mounted volumes itself — the refresh walks them once and hands the
+    /// result down (`deviceEntries(_:)`), because it now has to record what those volumes ARE for
+    /// the unmount that cannot ask. So the cost is guarded by the parameter rather than by this
+    /// count, and `EjectWiringTests.theRefreshWalksTheVolumesOnce` is where the walk is pinned.
+    /// What survives here is the plainer invariant: one build per refresh.
+    ///
+    /// Matched on the call's opening rather than on a whole argument list, so adding an argument
+    /// does not silently take the count to zero — which is what a signature change did to the
+    /// exact-match spelling this replaced, and a zero reads as "never called" rather than as a
+    /// stale scan.
     @Test func theRowsAreBuiltOncePerRefresh() throws {
         let code = try Self.source()
-        let calls = code.components(separatedBy: "buildFolderSidebarPlaceRows(providers)").count - 1
-        #expect(calls == 1, "buildFolderSidebarPlaceRows runs \(calls) times per refresh — each pass enumerates the mounted volumes")
+        let calls = code.components(separatedBy: "buildFolderSidebarPlaceRows(providers").count - 1
+        #expect(calls == 1, "buildFolderSidebarPlaceRows runs \(calls) times per refresh")
+    }
+
+    /// **The walk is handed down, not repeated.** `deviceEntries` making its own would put a second
+    /// `mountedVolumeURLs` plus a resource read per volume into every refresh — and under an
+    /// unreachable network mount each of those reads can block, which is the same reason the
+    /// refresh's `reachable` call answers both its lists in a single pass.
+    @Test func thePlaceRowsTakeTheVolumeWalkRatherThanMakingOne() throws {
+        let code = try Self.source()
+        #expect(code.contains("Self.deviceEntries(volumes)"),
+                "the place-row build enumerates the mounted volumes itself again")
+        #expect(!code.contains("Self.deviceEntries()"),
+                "a caller still asks deviceEntries to make its own walk")
     }
 }
 

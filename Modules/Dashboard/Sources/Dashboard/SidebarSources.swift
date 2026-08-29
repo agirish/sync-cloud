@@ -179,12 +179,24 @@ public enum SidebarSourceModel {
         /// The startup disk. Drawn first among the volumes, because it is the one that is always
         /// there.
         public let isInternal: Bool
+        /// **Local, as opposed to a network share.** Nothing about the row uses it — a share is
+        /// browsed like any other volume — but ``MountedVolumeMemory`` does: a share is
+        /// `ejectable` too, so without this a Wi-Fi drop and a card being pulled are the same
+        /// event, and only one of them means the sources on it are gone for good.
+        ///
+        /// **Defaulted, and the default is the safe direction.** A test constructing a `Volume`
+        /// without saying gets `true`, which is what an SD card is; the removability flag beside
+        /// it is what actually gates anything, and `false` here would silently exempt every
+        /// fixture from the rule.
+        public let isLocal: Bool
 
-        public init(name: String, path: String, isRemovable: Bool, isInternal: Bool) {
+        public init(name: String, path: String, isRemovable: Bool, isInternal: Bool,
+                    isLocal: Bool = true) {
             self.name = name
             self.path = path
             self.isRemovable = isRemovable
             self.isInternal = isInternal
+            self.isLocal = isLocal
         }
 
         /// `internaldrive` for the startup disk, `sdcard` for something you can pull out,

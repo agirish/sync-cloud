@@ -103,7 +103,13 @@ extension ContentView {
             recents: FolderJumpStore.shared.recentVisitsAcrossRoots(
                 landings: Self.folderSidebarLandings(providers)),
             favoriteOrder: FolderJumpStore.shared.favoriteOrder)
-        let places = splitFolderSidebarPlaceRows(providers)
+        // **One walk, threaded.** `mountedVolumeURLs` plus a resource read per volume is not free,
+        // and under an unreachable network mount each of those reads can block — the same reason
+        // the `reachable` call above answers both of its lists in a single pass. Building the rows
+        // and recording the volumes both need it, and asking twice doubled that exposure.
+        let volumes = Self.mountedVolumes()
+        Self.rememberMountedVolumes(volumes)
+        let places = splitFolderSidebarPlaceRows(providers, volumes: volumes)
         folderSidebarLocationRows = places.locations
         folderSidebarShortcutRows = places.shortcuts
     }
@@ -158,14 +164,15 @@ extension ContentView {
     /// Building places first inverts it: a place decides its own name, symbol and band, and a
     /// provider whose root is that folder merely lends it an id and makes it `.configured`. Adding
     /// a place as a source can then change what clicking it does, and nothing else.
-    func buildFolderSidebarPlaceRows(_ providers: [CloudProvider]) -> [SidebarSourceRow] {
+    func buildFolderSidebarPlaceRows(_ providers: [CloudProvider],
+                                     volumes: [SidebarSourceModel.Volume]) -> [SidebarSourceRow] {
         let roots = folderSidebarRoots(providers)
         var claimed = Set<String>()
 
         var places: [KnownPlace] = SidebarSourceModel.favoriteShortcuts.map {
             KnownPlace(name: $0.name, symbol: $0.symbol, path: $0.path, band: .shortcut)
         }
-        places += Self.deviceEntries().map {
+        places += Self.deviceEntries(volumes).map {
             KnownPlace(name: $0.name, symbol: $0.symbol, path: $0.path, band: .device)
         }
         let trash = SidebarSourceModel.trashEntry
@@ -283,9 +290,10 @@ extension ContentView {
     /// the cloud accounts — which all share a band — would have been free to shuffle between
     /// renders. Walking the bands in order and appending keeps every row's relative position
     /// exactly as the builder produced it.
-    func splitFolderSidebarPlaceRows(_ providers: [CloudProvider])
+    func splitFolderSidebarPlaceRows(_ providers: [CloudProvider],
+                                     volumes: [SidebarSourceModel.Volume])
         -> (locations: [SidebarSourceRow], shortcuts: [SidebarSourceRow]) {
-        let all = buildFolderSidebarPlaceRows(providers)
+        let all = buildFolderSidebarPlaceRows(providers, volumes: volumes)
         var locations: [SidebarSourceRow] = []
         for band in [SidebarSourceRow.Band.cloud, .device, .trash] {
             locations += all.filter { $0.band == band }
@@ -314,9 +322,12 @@ extension ContentView {
     /// **Sorted rather than left in mount order**, which is arrival order and therefore differs
     /// between boots; a sidebar whose disks rearranged themselves would look broken. Same reason
     /// the favorites and source orders are partitioned rather than sorted by an optional rank.
-    static func deviceEntries() -> [(name: String, symbol: String, path: String)] {
+    /// **Takes the walk rather than making one**, so a refresh that also has to record what those
+    /// volumes ARE (for the unmount that cannot ask) pays for `mountedVolumeURLs` once.
+    static func deviceEntries(_ volumes: [SidebarSourceModel.Volume])
+        -> [(name: String, symbol: String, path: String)] {
         let home = SidebarSourceModel.homeEntry
-        return [home] + SidebarSourceModel.orderedVolumes(mountedVolumes())
+        return [home] + SidebarSourceModel.orderedVolumes(volumes)
             .map { (name: $0.name, symbol: $0.symbol, path: $0.path) }
     }
 
@@ -328,7 +339,7 @@ extension ContentView {
     /// guessed name.
     static func mountedVolumes() -> [SidebarSourceModel.Volume] {
         let keys: [URLResourceKey] = [.volumeNameKey, .volumeIsRemovableKey, .volumeIsEjectableKey,
-                                      .volumeIsInternalKey, .volumeIsBrowsableKey]
+                                      .volumeIsInternalKey, .volumeIsBrowsableKey, .volumeIsLocalKey]
         guard let urls = FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) else { return [] }
         return urls.compactMap { url in
@@ -341,7 +352,13 @@ extension ContentView {
                 // `volumeIsInternal` is optional on some volume types; absent is not internal,
                 // which is the safe direction — a wrong glyph on an unusual disk beats promoting
                 // an external one to the top of the list.
-                isInternal: values.volumeIsInternal ?? false)
+                isInternal: values.volumeIsInternal ?? false,
+                // **Absent reads as local**, which is what a card whose filesystem does not answer
+                // the key is. It is read at all because a network share is *ejectable* — Finder
+                // draws it an eject arrow — so removable-or-ejectable alone cannot tell a Wi-Fi
+                // drop from a card being pulled, and only the second means the sources on it are
+                // gone. Removability still has to agree before anything is removed.
+                isLocal: values.volumeIsLocal ?? true)
         }
     }
 
@@ -451,7 +468,7 @@ extension ContentView {
             width: width,
             collapsed: folderSidebarCollapsedSections,
             notice: folderSidebarNotice.map {
-                SidebarNotice(message: $0.message, actionTitle: "Remove")
+                SidebarNotice(message: $0.message, actionTitle: $0.actionTitle)
             },
             target: folderSidebarTarget,
             onOpenRowOnSide: { row, isLeft in
@@ -466,7 +483,7 @@ extension ContentView {
             onOpenSource: { source, inNewTab in openFolderSidebarSource(source, inNewTab: inNewTab) },
             onToggleSection: { section in toggleFolderSidebarSection(section) },
             onNoticeAction: {
-                if let notice = folderSidebarNotice { removeFolderSidebarPromotion(notice) }
+                if let notice = folderSidebarNotice { actOnFolderSidebarNotice(notice) }
             },
             onShowEnclosingFolder: { row in showFolderSidebarRowEnclosingFolder(row) },
             onToggleSourceFavorite: { source in toggleFolderSidebarPlaceFavorite(source) },
@@ -761,9 +778,64 @@ extension ContentView {
         }
         if wasAdded {
             folderSidebarNotice = FolderSidebarNotice(
-                message: "Added \(source.name) as a source", sourceId: id)
+                message: "Added \(source.name) as a source", action: .undoPromotion(sourceId: id))
         }
         refreshFolderSidebarRows()
+    }
+
+    /// **Forgets the sources on a volume that has just been unmounted.**
+    ///
+    /// Ejecting a card is the user saying they are done with it, so its source goes rather than
+    /// dimming — dimming is what a source that is *asleep* does, and until this the two looked
+    /// identical. Safe to do silently for the same reason the rename-follow is: an unmount is an
+    /// event the app is told about, never an inference from a source having stopped answering.
+    ///
+    /// **`MountedVolumeMemory` decides whether the volume counted**, because the fact cannot be
+    /// read once it has gone: a network share is ejectable too, so without that record a Wi-Fi drop
+    /// and a card being pulled are one event. A volume SyncCloud never saw mounted is left alone.
+    ///
+    /// The pins and recents under that root are kept — they are keyed by path, so the card comes
+    /// back whole if it is plugged in and added again.
+    func forgetFolderSidebarSourcesOnUnmount(_ note: Notification) {
+        guard let unmounted = NSWorkspace.DidUnmountVolumeMessage.makeMessage(note) else {
+            Logger.shared.warning("A volume was unmounted but the notification did not say which — nothing removed")
+            return
+        }
+        let path = unmounted.volumeURL.path
+        defer {
+            MountedVolumeMemory.shared.forget(volume: path)
+            // **Unconditional, and it is the half that is easy to leave out.** The volume's own
+            // Locations row is built from the mounted-volume walk, so it is stale the moment this
+            // fires — whether or not anything was removed. Returning early on "nothing to remove"
+            // left a card that was never a source drawn in the column until some unrelated edit
+            // happened to refresh it.
+            refreshFolderSidebarRows()
+        }
+        guard MountedVolumeMemory.shared.isDetachable(volume: path) else { return }
+        let removed = settings.removeFolderSources(onVolume: path)
+        guard !removed.isEmpty else { return }
+        // **"No longer connected", not "ejected".** `didUnmount` fires for a card pulled out of the
+        // reader as readily as for one ejected in Finder, and macOS does not say which happened —
+        // so a message naming the tidy one would be telling the user something the app does not
+        // know, in the exact case where they did the untidy thing.
+        folderSidebarNotice = FolderSidebarNotice(
+            message: removed.count == 1
+                ? "\(removed[0]) is no longer connected — removed it as a source."
+                : "\(unmounted.localizedVolumeName) is no longer connected — removed \(removed.count) sources on it.",
+            action: .dismiss)
+    }
+
+    /// Records what a volume is while it is still mounted, for the unmount that cannot ask.
+    ///
+    /// Fed from three places, because no one of them covers every card: the launch walk (a card
+    /// already in the reader), `didMountNotification` (one inserted while the app runs), and the
+    /// sidebar's own refresh — which is NOT enough on its own, since it returns early whenever the
+    /// column is hidden.
+    static func rememberMountedVolumes(_ volumes: [SidebarSourceModel.Volume]) {
+        MountedVolumeMemory.shared.record(volumes.map {
+            (path: $0.path,
+             facts: MountedVolumeMemory.Facts(isRemovable: $0.isRemovable, isLocal: $0.isLocal))
+        })
     }
 
     /// **Takes a folder source out of the app, from the column where the user is looking at it.**
@@ -788,10 +860,17 @@ extension ContentView {
 
     /// Undoes a promotion the user did not mean. Removes only what this added, and only while the
     /// notice offering it is still on screen.
-    func removeFolderSidebarPromotion(_ notice: FolderSidebarNotice) {
-        settings.removeFolderSource(id: notice.sourceId)
+    func actOnFolderSidebarNotice(_ notice: FolderSidebarNotice) {
+        // The line goes either way — a `switch` rather than an `if`, so a third kind added later
+        // has to say what its link does instead of silently inheriting one of these.
+        switch notice.action {
+        case .undoPromotion(let sourceId):
+            settings.removeFolderSource(id: sourceId)
+            refreshFolderSidebarRows()
+        case .dismiss:
+            break
+        }
         folderSidebarNotice = nil
-        refreshFolderSidebarRows()
     }
 
     // MARK: - Reordering
@@ -961,8 +1040,44 @@ extension ContentView {
 
 /// A promotion that can still be taken back — the inline alternative to ⌘Z.
 struct FolderSidebarNotice: Equatable, Identifiable {
+
+    /// **What the notice's link does, and whether there is one at all.**
+    ///
+    /// The column posts two kinds of notice now and they are not symmetric. A promotion is an act
+    /// *this column* performed and can undo exactly. An eject-removal is a consequence of something
+    /// the user did in Finder to hardware that is no longer attached — there is no folder left for
+    /// an "undo" to re-add a source at, so the notice states the fact and stops.
+    enum Action: Equatable {
+        /// Take back the promotion this session made — the source `addFolderSource` created.
+        case undoPromotion(sourceId: String)
+        /// **Just clear the line.** A notice about a volume that has gone has nothing to undo — the
+        /// hardware is not there for a re-added source to point at — but it still needs a way OFF
+        /// the column: nothing else in this file clears a notice, so an actionless one would sit at
+        /// the bottom of the sidebar for the rest of the session. A fact worth stating once is not
+        /// a fact worth stating permanently.
+        case dismiss
+    }
+
+    /// The link's word, which is the action's own name for itself.
+    var actionTitle: String {
+        switch action {
+        case .undoPromotion: return "Remove"
+        case .dismiss: return "Dismiss"
+        }
+    }
+
     let message: String
-    /// The source `addFolderSource` created, so Remove takes back exactly what was added.
-    let sourceId: String
-    var id: String { sourceId }
+    let action: Action
+
+    /// **Keyed by the message**, because a notice no longer always has a source to be about.
+    /// Distinct messages are distinct notices, which is all `Identifiable` is asked for here — the
+    /// column shows one at a time.
+    var id: String { message }
+
+    /// The source a promotion notice is about, where there is one. `nil` for every other kind, so
+    /// a caller clearing "the notice about this source" cannot match an eject notice by accident.
+    var sourceId: String? {
+        if case .undoPromotion(let id) = action { return id }
+        return nil
+    }
 }

@@ -129,6 +129,12 @@ extension FolderSource {
     /// `/` is refused as an old volume: the startup disk keeps its mount point through a rename, so
     /// a rewrite there would repoint every source on the machine at the new name.
     ///
+    /// **The cut is `old.count` Characters into the ORIGINAL string, while the match above is made
+    /// on lowercased forms** — safe because `String.count` counts grapheme clusters and case
+    /// mapping stays inside one. Measured rather than assumed: lowercasing changes the Character
+    /// count of nothing in U+0000…U+2FFFF. (It does change the *scalar* count — `/Volumes/İST` goes
+    /// 12 → 13 — so the same code written against `unicodeScalars` would cut in the wrong place.)
+    ///
     /// - Returns: the new path, already ``abbreviated(_:)`` the way a stored path is spelled.
     public static func repathed(_ path: String,
                                 whenVolumeMovedFrom oldVolume: String,
@@ -136,10 +142,34 @@ extension FolderSource {
         let source = expandedAndTrimmed(path)
         let old = expandedAndTrimmed(oldVolume)
         let new = expandedAndTrimmed(newVolume)
-        guard !old.isEmpty, old != "/", !new.isEmpty, new.lowercased() != old.lowercased() else { return nil }
-        if source.lowercased() == old.lowercased() { return abbreviated(new) }
-        guard source.lowercased().hasPrefix(old.lowercased() + "/") else { return nil }
+        guard !new.isEmpty, new.lowercased() != old.lowercased(), isOnVolume(path, volume: oldVolume)
+        else { return nil }
         return abbreviated(new + String(source.dropFirst(old.count)))
+    }
+
+    /// **Whether a path lives on a given volume** — equal to its mount point, or under it.
+    ///
+    /// Shared by the rename rule above and the eject rule below, because they ask exactly the same
+    /// question and got the same three details wrong independently the first time: the mount point
+    /// is case-folded (`/Volumes` is on the case-insensitive boot volume), the match is on a
+    /// **component boundary** so `/Volumes/OLD CARD 2` is a different card rather than a longer
+    /// spelling of this one, and `/` is refused — the startup disk keeps its mount point through a
+    /// rename and cannot be unmounted at all, so treating it as a volume here would sweep up every
+    /// source on the machine.
+    public static func isOnVolume(_ path: String, volume: String) -> Bool {
+        let source = expandedAndTrimmed(path).lowercased()
+        let mount = expandedAndTrimmed(volume).lowercased()
+        guard !mount.isEmpty, mount != "/" else { return false }
+        return source == mount || source.hasPrefix(mount + "/")
+    }
+
+    /// **The sources that go away when a volume is unmounted**, in the order they are listed.
+    ///
+    /// Its own member rather than a `filter` at the call site so the boundary rule above is the one
+    /// that decides membership here too — a hand-rolled `hasPrefix` at the caller is exactly how
+    /// `/Volumes/CARD 2` would come to be swept up with `/Volumes/CARD`.
+    public static func idsOnVolume(_ volume: String, in sources: [FolderSource]) -> [String] {
+        sources.filter { isOnVolume($0.path, volume: volume) }.map(\.id)
     }
 
     /// The folder-source list after the volume at `oldVolume` was renamed to `newVolume`.

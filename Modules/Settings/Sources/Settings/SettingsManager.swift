@@ -537,6 +537,44 @@ public class SettingsManager: ObservableObject {
         return plan.moved
     }
 
+    /// **Forgets the sources on a volume that has been unmounted.**
+    ///
+    /// The counterpart to ``followVolumeRename(from:to:)``, and safe for the same reason: an
+    /// unmount is an EVENT the app is told about, not an inference from a source having gone quiet.
+    /// Ejecting a card in Finder is the user saying they are done with it, so the row goes rather
+    /// than dimming — which is what a source that is merely asleep does, and the two used to look
+    /// identical.
+    ///
+    /// **The caller decides whether the volume was detachable; this does not.** That fact cannot be
+    /// read once the volume has gone, so it comes from ``MountedVolumeMemory``, which recorded it
+    /// while the volume was mounted. Calling this for a network share that dropped would delete
+    /// sources that are coming back.
+    ///
+    /// Sources are removed the same way Settings removes one, so the name override and the enabled
+    /// flag go with them rather than being left keyed to an id nothing holds. **The pinned and
+    /// recent folders under that root are deliberately kept**: they are keyed by path, so plugging
+    /// the card back in and adding it again finds them exactly where they were, and nothing is
+    /// gained by throwing them away.
+    ///
+    /// - Returns: the display names of what was removed, in list order, so a caller can say so.
+    @discardableResult
+    public func removeFolderSources(onVolume volume: String) -> [String] {
+        let ids = FolderSource.idsOnVolume(volume, in: folderSources)
+        guard !ids.isEmpty else { return [] }
+        // **Names read BEFORE the removal**, from the published provider list — that is where a
+        // source's *effective* name lives, override applied, and `removeFolderSource` is about to
+        // clear both the entry and the override key. Falling back to the folder's own name keeps
+        // the message honest for a source that discovery has not published yet.
+        let names = ids.map { id in
+            availableProviders.first { $0.id == id }?.displayName
+                ?? folderSources.first { $0.id == id }?.defaultDisplayName
+                ?? id
+        }
+        Logger.shared.info("Volume \(volume) was unmounted — removing \(ids.count) source(s) on it: \(names.joined(separator: ", "))")
+        for id in ids { removeFolderSource(id: id) }
+        return names
+    }
+
     /// Adds a normalized ignore pattern; whitespace-only input and duplicates are dropped.
     /// - Returns: True when the pattern was added.
     @discardableResult

@@ -3387,7 +3387,13 @@ struct ContentView: View {
         // every evaluation of this body, and `onReceive` has no way to see it as the same one — so
         // it tears down and re-subscribes on every render, and an event that lands in the gap is
         // simply lost. `ObservableObjectPublisher` itself is one stable instance.
-        .onAppear { refreshFolderSidebarRows() }
+        .onAppear {
+            // **The launch walk**, and it is NOT redundant with the refresh beside it: that one
+            // returns early wherever the column is hidden, and a card already in the reader has to
+            // be recorded before it is ejected whether or not the sidebar is on screen.
+            Self.rememberMountedVolumes(Self.mountedVolumes())
+            refreshFolderSidebarRows()
+        }
         .onChange(of: leftProviderId) { _, _ in refreshFolderSidebarRows() }
         // **The two the gate makes necessary.** `refreshFolderSidebarRows` now returns early
         // wherever the column is not on screen — which is right, because it `stat`s a provider root
@@ -3421,6 +3427,24 @@ struct ContentView: View {
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didRenameVolumeNotification)) { note in
                 followVolumeRename(note)
+        }
+        // **Ejecting a card removes the sources on it**, so the row goes rather than dimming — and
+        // the three subscriptions are one mechanism, not three features. The unmount notification
+        // cannot say what the volume WAS, so the two before it record that while it is still there:
+        // the launch walk in `onAppear` catches a card already in the reader, `didMount` catches one
+        // inserted while the app runs, and `willUnmount` is the last chance before it goes.
+        .onReceive(NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didMountNotification)) { _ in
+                Self.rememberMountedVolumes(Self.mountedVolumes())
+                refreshFolderSidebarRows()
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.willUnmountNotification)) { _ in
+                Self.rememberMountedVolumes(Self.mountedVolumes())
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didUnmountNotification)) { note in
+                forgetFolderSidebarSourcesOnUnmount(note)
         }
     }
 
