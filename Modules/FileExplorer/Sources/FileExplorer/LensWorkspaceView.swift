@@ -3372,10 +3372,18 @@ public struct LensWorkspaceView: View {
     /// narrowed Organize removes what it showed and nothing outside it; the chip's count and the
     /// sheet's rows are the same set by construction.
     private func requestStandingRemoval() {
-        let paths = scopedDeadWeight.filter { $0.value == .empty }.map(\.key).sorted()
+        let paths = Self.standingEmptyPaths(in: scopedDeadWeight)
         openRemovalSheet(paths: paths,
                          family: RestructureRemoval.commonAncestor(of: paths),
                          origin: .standing)
+    }
+
+    /// The folders the standing-removal sheet may offer: **the wholly empty ones and nothing
+    /// else**. A single-file leaf holds a file, and routing one here would put a sheet titled
+    /// "Remove empty folders" over a folder with contents — the exact judgement §5.2 refuses to
+    /// make. Sorted so the sheet's rows and the chip's list read in one order.
+    static func standingEmptyPaths(in deadWeight: [String: DeadWeightClass]) -> [String] {
+        deadWeight.filter { $0.value == .empty }.map(\.key).sorted()
     }
 
     /// Re-probes a list of profile-relative folders and opens the sheet on the result, so it
@@ -3524,7 +3532,8 @@ public struct LensWorkspaceView: View {
                     if let refusal = outcome.refusal { return .refused(refusal) }
                     // The draft became a ledger record. The store was swapped to the new
                     // profile's during the apply, and the draft rode along — drop it there.
-                    syncManager.restructureStore?.removeDraft(for: key)
+                    syncManager.restructureStore?.removeDraft(for: key,
+                                                              consumedBy: manifest)
                     var summary = outcome.summary
                     if let failure = outcome.surveyRefreshFailure {
                         summary += " — " + failure
@@ -3579,7 +3588,7 @@ public struct LensWorkspaceView: View {
             onApply: { manifest in
                 let outcome = await syncManager.applyPlan(manifest)
                 if let refusal = outcome.refusal { return .refused(refusal) }
-                syncManager.restructureStore?.removeDraft(for: key)
+                syncManager.restructureStore?.removeDraft(for: key, consumedBy: manifest)
                 var summary = outcome.summary
                 if let failure = outcome.surveyRefreshFailure {
                     summary += " — " + failure

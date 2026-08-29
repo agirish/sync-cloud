@@ -28,6 +28,33 @@ import Testing
     /// The sheet's opening sentence is its whole claim about where the list came from, so the two
     /// origins say different things. The rule underneath — date buckets are debt, categories are
     /// destinations — is shared, and must stay in both.
+    /// *Emptied* is a provenance claim: something drained these. True of a landing's folders,
+    /// false of the ones that were empty all along.
+    @Test func theTitleDoesNotClaimSomethingEmptiedThem() {
+        #expect(RestructureRemovalSheet.titleText(isStanding: true) == "Remove empty folders")
+        #expect(RestructureRemovalSheet.titleText(isStanding: false) == "Remove emptied folders")
+    }
+
+    /// One folder trashed used to read "1 emptied folders removed" — the removal is the landing
+    /// most likely to have a count of one, and the ledger sentence is what its card carries.
+    @Test func theLedgerCountsReadInTheSingular() {
+        var outcome = FileSyncManager.RestructureApplyOutcome()
+        outcome.removedEmpty = 1
+        outcome.foldersMovedWhole = 1
+        #expect(outcome.summary.contains("1 empty folder removed"))
+        #expect(outcome.summary.contains("1 folder carried whole"))
+        var many = FileSyncManager.RestructureApplyOutcome()
+        many.removedEmpty = 3
+        many.foldersMovedWhole = 2
+        #expect(many.summary.contains("3 empty folders removed"))
+        #expect(many.summary.contains("2 folders carried whole"))
+        // The DURABLE record, which outlives the sheet that made the provenance split. §5.2's
+        // standing empties were empty all along — nothing emptied them — so this sentence may
+        // not say "emptied" the way a landing-scoped removal could.
+        #expect(!many.summary.contains("emptied"),
+                "the ledger card carries this sentence for both removal origins")
+    }
+
     @Test func theSheetSaysWhichListItIsLookingAt() {
         let standing = RestructureRemovalSheet.introText(isStanding: true)
         let landing = RestructureRemovalSheet.introText(isStanding: false)
@@ -49,6 +76,77 @@ import Testing
         #expect(RestructureLens.familyHeading("Finance/US/Income Tax")
                     == "Finance/US/Income Tax",
                 "every real family renders as itself — this rule has exactly one special case")
+    }
+
+    // MARK: The two decisions the button rests on
+
+    /// The button's own gate. A render smoke test cannot see this — deleting the whole button
+    /// block left the entire FileExplorer package green — so the decision is a rule, and the
+    /// scan below pins that the view still asks it.
+    @Test func onlyTheEmptiesEndInATrashRoute() {
+        #expect(RestructureLens.offersStandingRemoval(.empty, pathCount: 3, hasHandler: true))
+        for other in [DeadWeightClass.passThrough, .singleFileLeaf] {
+            #expect(!RestructureLens.offersStandingRemoval(other, pathCount: 3, hasHandler: true),
+                    "a report-only class must not offer to trash anything")
+        }
+        #expect(!RestructureLens.offersStandingRemoval(.empty, pathCount: 0, hasHandler: true))
+        #expect(!RestructureLens.offersStandingRemoval(.empty, pathCount: 3, hasHandler: false),
+                "no handler means no button, rather than one that does nothing")
+    }
+
+    /// What the sheet is allowed to be seeded with. Widening this filter to "anything that is not
+    /// pass-through" survived the whole package, and it routes folders that hold a file into a
+    /// sheet whose own sentence says they were empty.
+    @Test func onlyWhollyEmptyFoldersAreOfferedForTheTrash() {
+        let classified: [String: DeadWeightClass] = [
+            "Travel/2019": .empty,
+            "Finance/IN/SBI NRE/2013-2014": .empty,
+            "Work/HPE/Offer Letter": .singleFileLeaf,
+            "Work/MapR": .passThrough,
+        ]
+        #expect(LensWorkspaceView.standingEmptyPaths(in: classified)
+                    == ["Finance/IN/SBI NRE/2013-2014", "Travel/2019"],
+                "sorted, and the two folders that hold something are not in it")
+        #expect(LensWorkspaceView.standingEmptyPaths(in: [:]) == [])
+    }
+
+    /// The rules above are one revert away from being unused, and the display rules in this
+    /// change were each shown to survive being unwired. This pins every call site.
+    @Test func theSurfacesActuallyAskTheseRules() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer")
+        func read(_ name: String) throws -> String {
+            try String(contentsOf: sources.appendingPathComponent(name), encoding: .utf8)
+        }
+        let lens = try read("RestructureLens.swift")
+        #expect(lens.contains("Self.offersStandingRemoval(weightClass, pathCount: paths.count,"),
+                "the button's gate is the rule, not an inline condition")
+        #expect(lens.contains("Text(Self.familyHeading(record.family))"),
+                "the card renders a root family in words")
+        let host = try read("LensWorkspaceView.swift")
+        #expect(host.contains("Self.standingEmptyPaths(in: scopedDeadWeight)"))
+        let sheet = try read("RestructureRemovalSheet.swift")
+        #expect(sheet.contains("Text(Self.titleText(isStanding: isStanding))"))
+        #expect(sheet.contains("Text(Self.introText(isStanding: isStanding))"),
+                "both halves of the provenance split have to be wired, not just written")
+        let plan = try read("RestructurePlanSheet.swift")
+        #expect(plan.contains("Text(planFamily)"),
+                "the header names the folder being planned, never a bare empty family")
+    }
+
+    /// The ⌘Z action name is the one place `familyLabel` earns its keep, and reverting its call
+    /// site to `lastPathComponent` survived all 3,054 Sync tests.
+    @Test func theGroupedUndoNamesARootFamilyInWords() throws {
+        let engine = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sync/Sources/Sync/FileSyncManager+RestructureApply.swift")
+        let text = try String(contentsOf: engine, encoding: .utf8)
+        #expect(text.contains("RestructurePaths.familyLabel(manifest.family)"),
+                "\"Reorganise \" with nothing after it was a real menu item")
+        #expect(!text.contains("\"Reorganise \\((manifest.family as NSString).lastPathComponent)\""))
     }
 
     /// The state that grew the control: a clean tree whose only remaining work is the crowding
@@ -77,7 +175,8 @@ import Testing
                 .init(path: "Health/Dental/2024", isStillEmpty: false),
             ],
             accent: .blue, isStanding: true,
-            onRemove: { _ in .landed(caveat: nil) }, onClose: {})
+            onRemove: { _ in .landed(removed: 2, skippedCount: 0, caveat: nil) },
+            onClose: {})
         let hosting = NSHostingView(rootView: sheet.frame(width: 480, height: 400))
         hosting.frame = NSRect(x: 0, y: 0, width: 480, height: 400)
         hosting.layoutSubtreeIfNeeded()

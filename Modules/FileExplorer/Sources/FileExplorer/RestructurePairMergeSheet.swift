@@ -31,6 +31,12 @@ struct RestructurePairMergeSheet: View {
     @State private var outcome: Outcome?
     @State private var applying = false
     @State private var landed = false
+    /// The manifest as it stood when Apply ran. **The sheet's whole content is a pure function of
+    /// the tree**, and a successful landing changes the tree — the source is gone, so re-deriving
+    /// afterwards refuses, and the operation list would be replaced by "nothing was derived"
+    /// directly above a footer reporting the landing. Holding the manifest keeps the review
+    /// showing what actually ran.
+    @State private var landedManifest: RestructureManifest?
 
     private enum Outcome: Equatable {
         case exported(String)
@@ -61,7 +67,8 @@ struct RestructurePairMergeSheet: View {
     }
 
     private var derived: Result<RestructureManifest, RestructurePlanner.PlanRefusal> {
-        RestructurePlanner.pairMergeManifest(
+        if let landedManifest { return .success(landedManifest) }
+        return RestructurePlanner.pairMergeManifest(
             source: source, destination: destination, kind: kind, in: tree,
             profileId: profileId, manifestId: manifestId, createdAt: createdAt,
             note: Self.note(source: source, destination: destination))
@@ -87,6 +94,7 @@ struct RestructurePairMergeSheet: View {
                 Image(systemName: "arrow.right")
                     .scaledFont(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
                 Text(destination)
                     .scaledFont(.system(size: 11, design: .monospaced))
                     .lineLimit(1)
@@ -99,9 +107,20 @@ struct RestructurePairMergeSheet: View {
         }
     }
 
+    /// **The two last components are frequently the same word** — a child echoing its parent is
+    /// four of the five echo hits on the real tree (`TODO/IRS/IRS`, `ACI/ACI`), and a loose
+    /// folder keeps its own name inside the container. "Merge IRS into IRS" names neither folder,
+    /// so where the names match the title states the RELATION the card stated, and the two paths
+    /// underneath stay the precise answer.
     static func title(source: String, destination: String) -> String {
-        "Merge \((source as NSString).lastPathComponent) into "
-        + "\((destination as NSString).lastPathComponent)"
+        let from = (source as NSString).lastPathComponent
+        let into = (destination as NSString).lastPathComponent
+        guard from == into else { return "Merge \(from) into \(into)" }
+        let sourceParent = (source as NSString).deletingLastPathComponent
+        if sourceParent == destination { return "Merge \(from) into its parent" }
+        let destinationParent = (destination as NSString).deletingLastPathComponent
+        return "Merge \(from) into "
+            + "\(RestructurePaths.familyLabel(destinationParent))/\(into)"
     }
 
     // MARK: - The operations
@@ -138,7 +157,10 @@ struct RestructurePairMergeSheet: View {
             Text(Self.verb(action.action))
                 .scaledFont(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 74, alignment: .leading)
+                // 86, not 74: "move folder" measures 73.81pt at the top text size against a
+                // 74pt frame, so the longest verb was 0.19pt from wrapping every row.
+                .frame(width: 86, alignment: .leading)
+                .lineLimit(1)
             Text(action.src ?? action.dst ?? "—")
                 .scaledFont(.system(size: 10.5, design: .monospaced))
                 .lineLimit(1)
@@ -147,6 +169,7 @@ struct RestructurePairMergeSheet: View {
                 Image(systemName: "arrow.right")
                     .scaledFont(.system(size: 8, weight: .semibold))
                     .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
                 Text(dst)
                     .scaledFont(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -162,6 +185,10 @@ struct RestructurePairMergeSheet: View {
         }
         .padding(.vertical, 1.5)
         .padding(.horizontal, 8)
+        // One element per operation. Four separate Texts per row makes a 40-operation merge a
+        // 160-element walk, and this is the only Restructure review list that fragments that way
+        // — the mapping sheet's rows are one Text and the removal sheet's are labelled Toggles.
+        .accessibilityElement(children: .combine)
     }
 
     /// The operation's verb in the words the card and the ledger use — not the schema's raw
@@ -185,11 +212,19 @@ struct RestructurePairMergeSheet: View {
         case .unknownFiles(let path):
             return "The files inside \(path) could not be listed, and a merge that cannot name "
                 + "what it moves is a guess. Nothing was derived."
-        case .unresolvableOrder:
-            return "\(source) would have to move inside itself. Nothing was derived."
-        case .duplicateMappingRows, .conflictingTargets, .targetTakenByCase:
+        case .unresolvableOrder(let member):
+            // The refusal's OWN folder, not the argument — they are the same on today's only
+            // route, and a message naming the wrong one would be undetectable if they diverge.
+            return "\(member) would have to move inside itself. Nothing was derived."
+        case .targetTakenByFile(let target, _):
+            // The planner's occupancy model is folder-shaped; the disk is not. Reachable here
+            // because a pair's destination name can be worn by a file.
+            return "A file named \(target) already stands where this would go. Nothing was "
+                + "derived — the plan would have failed at apply and blamed drift."
+        case .duplicateMappingRows, .conflictingTargets, .targetTakenByCase, .invalidTargetName:
             // Reachable only through the mapping editor, which this sheet does not have. Named
-            // rather than defaulted so a new refusal has to be worded before it can appear.
+            // rather than defaulted so a new refusal has to be worded before it can appear —
+            // which is how the two cases added by main's round-4 review surfaced here at all.
             return "This pair cannot be planned automatically."
         }
     }
@@ -211,23 +246,46 @@ struct RestructurePairMergeSheet: View {
                 .scaledFont(.system(size: 11))
                 .keyboardShortcut(.cancelAction)
                 .disabled(applying)
-            if case .success(let manifest) = plan {
-                Button("Export plan…") { export(manifest) }
-                    .scaledFont(.system(size: 11))
-                    .disabled(applying || landed)
-                if let onApply {
-                    Button(applying ? "Applying…" : "Apply") { apply(manifest, run: onApply) }
-                        .scaledFont(.system(size: 11, weight: .semibold))
-                        .disabled(applying || landed)
+            // Present on a refusal too, disabled — nesting these inside the success case made
+            // them VANISH rather than grey out, which reads as a sheet that changed its mind
+            // about what it offers.
+            let manifest = try? plan.get()
+            Button("Export plan…") { if let manifest { export(manifest) } }
+                .scaledFont(.system(size: 11))
+                .keyboardShortcut(.defaultAction)
+                .disabled(manifest == nil || applying || landed)
+            if let onApply {
+                Button(Self.applyTitle(manifest: manifest, applying: applying)) {
+                    if let manifest { apply(manifest, run: onApply) }
                 }
+                .scaledFont(.system(size: 11, weight: .semibold))
+                // The one control here that moves files wears the colour the mapping sheet's
+                // Apply wears; the two sheets must not price the same act differently.
+                .foregroundStyle(.red)
+                .disabled(manifest == nil || applying || landed)
+                .help("Runs the operations above. The inverse is written to disk first, every "
+                      + "one is re-probed as it runs, and the landing is undoable from its own "
+                      + "card after a quit — ⌘Z covers only this launch.")
             }
         }
+    }
+
+    /// The count is the point: the card that opened this sheet says "Review 3 operations", and a
+    /// button reading only "Apply" leaves the two disagreeing about what is about to happen.
+    static func applyTitle(manifest: RestructureManifest?, applying: Bool) -> String {
+        if applying { return "Applying…" }
+        guard let manifest else { return "Apply" }
+        let count = manifest.actions.count
+        return "Apply \(count) operation\(count == 1 ? "" : "s")"
     }
 
     private static func outcomeText(_ outcome: Outcome) -> String {
         switch outcome {
         case .exported(let name): return "Exported as \(name) — nothing has moved."
-        case .applied(let summary): return summary
+        // "Applied — ", like the mapping sheet: a bare counts string reads as one more preview
+        // of the list above it rather than a report that it ran.
+        case .applied(let summary): return "Applied — \(summary)"
+
         case .failed(let sentence): return sentence
         }
     }
@@ -251,6 +309,8 @@ struct RestructurePairMergeSheet: View {
             switch result {
             case .applied(let summary):
                 landed = true
+                // Before the tree moves under the derivation — see `landedManifest`.
+                landedManifest = manifest
                 outcome = .applied(summary)
             case .refused(let refusal):
                 // A refusal here is transient — a scan running, the store mid-write — so the

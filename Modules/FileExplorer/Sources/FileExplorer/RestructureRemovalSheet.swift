@@ -2,10 +2,12 @@ import Design
 import SwiftUI
 import Sync
 
-/// §5.5's removal step: a separate sheet, opt-in, scoped to the folders one landing itself
-/// emptied — never a general empties sweep. Split by the shape of the name: an empty **date
-/// bucket** is debt and starts ticked; an empty **category** is a destination and does not, its
-/// path printed where the choice is made. No file is ever deleted; folders go to the Trash.
+/// §5.5's removal step: a separate sheet, opt-in, over a list the caller resolved — either the
+/// folders one landing itself emptied, or §5.2's folders that were already empty when the survey
+/// looked (``isStanding``). **Never an unbounded sweep**: both lists are enumerated, re-probed
+/// and ticked one by one. Split by the shape of the name: an empty **date bucket** is debt and
+/// starts ticked; an empty **category** is a destination and does not, its path printed where the
+/// choice is made. No file is ever deleted; folders go to the Trash.
 struct RestructureRemovalSheet: View {
 
     struct Candidate: Equatable, Identifiable {
@@ -92,7 +94,7 @@ struct RestructureRemovalSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Remove emptied folders")
+                Text(Self.titleText(isStanding: isStanding))
                     .scaledFont(.system(size: 13, weight: .semibold))
                 Text(Self.introText(isStanding: isStanding))
                     .scaledFont(.system(size: 11))
@@ -135,6 +137,12 @@ struct RestructureRemovalSheet: View {
         .padding(18)
         .frame(width: 480)
         .onAppear(perform: seed)
+    }
+
+    /// The title is a claim about provenance too: *emptied* says something drained these, which
+    /// is true of a landing's folders and false of the ones that were empty all along.
+    static func titleText(isStanding: Bool) -> String {
+        isStanding ? "Remove empty folders" : "Remove emptied folders"
     }
 
     /// The sentence under the title — where this list came from, then the rule that governs it.

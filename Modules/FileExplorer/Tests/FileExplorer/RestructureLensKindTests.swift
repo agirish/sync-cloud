@@ -89,11 +89,13 @@ import SwiftUI
         #expect(RestructureLens.subtitle(for: parent) == "echoes its parent, ACI")
     }
 
-    /// The crowding strip's words: counts in the chips, reasons in the help. All three classes
-    /// are report-only in 5.0, and the empty chip must SAY that its number is not the removal
-    /// sheet's queue — the old help promised "the removal sheet takes these when Apply lands",
-    /// but that sheet only ever offers folders a landing itself emptied; a user counting on
-    /// the promise for STANDING empties waited forever.
+    /// The crowding strip's words: counts in the chips, reasons in the help.
+    ///
+    /// **This help has been wrong in two directions, so it is pinned in both.** It first promised
+    /// "the removal sheet takes these when Apply lands" over a build where nothing removed
+    /// standing empties, and was then corrected to say that removing them was a job for Finder —
+    /// which O1 made false in turn by building the route. It now describes the button that is
+    /// actually under the list, and the two dead wordings are named so neither returns.
     @Test func theCrowdingStripSaysWhyOnlyEmptiesGetAnAction() {
         #expect(RestructureLens.crowdingLabel(.passThrough, count: 86) == "86 pass-through")
         #expect(RestructureLens.crowdingLabel(.singleFileLeaf, count: 503) == "503 single-file")
@@ -101,11 +103,14 @@ import SwiftUI
 
         #expect(RestructureLens.crowdingHelp(.passThrough).contains("Report-only"))
         #expect(RestructureLens.crowdingHelp(.singleFileLeaf).contains("Report-only"))
-        #expect(RestructureLens.crowdingHelp(.empty)
-            .contains("only offers folders that landing itself emptied"),
-                "the help must scope the removal sheet truthfully")
-        #expect(!RestructureLens.crowdingHelp(.empty).contains("takes these when Apply lands"),
+        let empties = RestructureLens.crowdingHelp(.empty)
+        #expect(empties.contains("Open the list"),
+                "the help points at the control that exists")
+        #expect(empties.contains("Trash"), "the Trash-only rule is the reassurance")
+        #expect(!empties.contains("takes these when Apply lands"),
                 "the false promise must not come back")
+        #expect(!empties.contains("call to make in Finder"),
+                "nor the sentence that outlived the route being built")
     }
 
     /// The subtitle counts the family on both drop paths — §5.1's 11 → 17, as a rule rather

@@ -33,9 +33,20 @@ extension FileSyncManager {
         public var summary: String {
             var parts = ["\(renamed) rename\(renamed == 1 ? "" : "s")",
                          "\(filesMoved) moved"]
-            if foldersMovedWhole > 0 { parts.append("\(foldersMovedWhole) folders carried whole") }
+            if foldersMovedWhole > 0 {
+                parts.append("\(foldersMovedWhole) folder"
+                    + "\(foldersMovedWhole == 1 ? "" : "s") carried whole")
+            }
             if created > 0 { parts.append("\(created) created") }
-            if removedEmpty > 0 { parts.append("\(removedEmpty) emptied folders removed") }
+            if removedEmpty > 0 {
+                // "empty", not "emptied". The removal step now serves two origins, and only one
+                // of them drained the folders it trashes — §5.2's standing empties were empty
+                // all along. The sheet's own title makes that split; this sentence is the one
+                // that outlives it on the ledger card, so it may not claim otherwise. "Empty" is
+                // true of both.
+                parts.append("\(removedEmpty) empty folder"
+                    + "\(removedEmpty == 1 ? "" : "s") removed")
+            }
             if collisions > 0 {
                 parts.append("\(collisions) name collision\(collisions == 1 ? "" : "s"), both kept")
             }
@@ -806,11 +817,22 @@ extension FileSyncManager {
             case .moveDir:
                 guard let src = action.src, let dst = action.dst else { continue }
                 let parent = (src as NSString).deletingLastPathComponent
+                // A folder already vetoed is left alone WHOLE — nothing drains out from under
+                // it, and this holds for a relocation too: the plan has decided it cannot
+                // safely touch that folder, and carrying one of its children away anyway would
+                // be the drain by another name.
                 if let covering = vetoedAncestor(of: parent) {
                     out.skipped.append("\(src)/ sits under \(covering)/ — left untouched with it")
                     continue
                 }
-                guard !sourceFolderVeto(parent) else { continue }
+                // But a relocation does not DRAIN its source's parent, so the unlisted-file rule
+                // has nothing to protect there — and applying it anyway vetoed every
+                // loose-folder plan, because that detector only fires when a sibling container
+                // exists and a sibling is precisely what the veto reads as unlisted. Skipping
+                // the call matters as much as skipping the `continue`: `sourceFolderVeto`
+                // RECORDS the folder it refuses, and a relocation must not mark its parent
+                // vetoed for every action that follows.
+                if action.movesWholeFolder != true, sourceFolderVeto(parent) { continue }
                 if let covering = vetoedAncestor(of: (dst as NSString).deletingLastPathComponent) {
                     out.skipped.append("\(src)/ was headed into \(covering)/, which holds items "
                         + "the plan never listed — left where it stands")

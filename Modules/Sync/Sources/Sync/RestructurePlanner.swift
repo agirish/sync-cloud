@@ -261,11 +261,17 @@ public enum RestructurePlanner {
 
     /// The derived manifest — every member's operations in member order, each member internally
     /// ordered so it can run top to bottom.
+    /// - Parameter recordedFamily: what the manifest, the ledger card and the exported filename
+    ///   should CALL this family, when that differs from the path the members hang off. They
+    ///   differ for a seeded pair: the mapping's unit is a child name inside a member, so a pair
+    ///   under `Travel/` is planned with `family: ""` and `members: ["Travel"]` — and recording
+    ///   `""` would head its landing card "Across the tree" for two folders inside `Travel`.
+    ///   nil records `family`, which is what every family mapping wants.
     public static func manifest(family: String, members: [String],
                                 mapping: RestructureMapping, kind: FindingKind,
                                 in view: RestructureTreeView,
                                 profileId: String, manifestId: String, createdAt: String,
-                                note: String? = nil)
+                                note: String? = nil, recordedFamily: String? = nil)
         -> Result<RestructureManifest, PlanRefusal> {
         guard !mapping.activeRows.isEmpty else { return .failure(.nothingMapped) }
         // Distinct targets that differ only by case cannot coexist on a case-insensitive volume.
@@ -289,7 +295,8 @@ public enum RestructurePlanner {
         }
         return .success(RestructureManifest(
             profileId: profileId, manifestId: manifestId, createdAt: createdAt,
-            family: family, kind: kind, note: note, mapping: mapping.rows, actions: actions))
+            family: recordedFamily ?? family, kind: kind, note: note,
+            mapping: mapping.rows, actions: actions))
     }
 
     /// One folder's contents moved into another folder that is **not its sibling** — the merge
@@ -321,6 +328,13 @@ public enum RestructurePlanner {
         guard !RestructurePaths.isInside(destination, of: source) else {
             return .failure(.unresolvableOrder(member: source))
         }
+        // The source has to exist before either branch is worth deriving. Without this the
+        // whole-move branch happily plans a `move-dir` out of a folder that vanished since the
+        // survey — the merge branch refuses that through `view.files`, and the two sides of one
+        // function should not disagree about whether a missing source is a plan.
+        guard view.childFolders(source) != nil else {
+            return .failure(.unknownFiles(source: source))
+        }
         let sourceName = (source as NSString).lastPathComponent
         let targetName = (destination as NSString).lastPathComponent
         var actions: [RestructureManifest.Action] = []
@@ -332,7 +346,12 @@ public enum RestructurePlanner {
                 action: .moveDir, src: source, dst: destination,
                 evidence: "\(sourceName)/ belongs in \(newParent)/ and nothing of that name "
                     + "stands there — the folder moves whole and its files ride along.",
-                filesCarried: view.fileCount(source)))
+                filesCarried: view.fileCount(source),
+                // The source's PARENT is not being drained by this — see the field's own doc.
+                // Without the flag the apply's unlisted veto skips every one of these (the
+                // detector requires a sibling container, which is exactly what the veto sees),
+                // and the removal step offers that parent as a folder this landing emptied.
+                movesWholeFolder: true))
         } else {
             var landed = LandedContents(of: destination, in: view)
             var residue = LandedContents(of: nil, in: view)
@@ -697,6 +716,7 @@ public enum RestructurePlanner {
         for subfolder in (view.childFolders(sourcePath) ?? []).sorted() {
             let subSource = (sourcePath as NSString).appendingPathComponent(subfolder)
             let subTarget = (targetPath as NSString).appendingPathComponent(subfolder)
+            let actionsBefore = actions.count
             if let origin = landed.subfolderOrigins[subfolder] {
                 // One level down by the same rules (§5.4's collision policy for subfolders),
                 // against the occupant's contents wherever they stand at plan time, plus
@@ -744,6 +764,16 @@ public enum RestructurePlanner {
                                 + "than guessed at."))
                         keptDeeper.insert(deeper)
                     }
+                }
+                // An EMPTY same-name subfolder produces no file moves and no deeper rows, so
+                // nothing in the manifest ever names it — and the apply's unlisted-file rule
+                // then reads it as an item the plan never listed and vetoes the whole merge.
+                // A listed `keep` is the honest record of what happens to it: nothing.
+                if actions.count == actionsBefore {
+                    actions.append(RestructureManifest.Action(
+                        action: .keep, src: subSource,
+                        evidence: "Both sides have \(subfolder)/ and this one is empty — there "
+                            + "is nothing to move, so it is kept and reported."))
                 }
                 landed.merged[subfolder] = sub
                 // The merge moved this subfolder's files but the DIRECTORY remains — a shell
@@ -807,9 +837,12 @@ public struct RestructureLedger: Equatable, Sendable {
         var drained: Set<String> = []
         for action in manifest.actions
         where action.action == .moveFile || action.action == .moveDir {
-            if let src = action.src {
-                drained.insert((src as NSString).deletingLastPathComponent)
-            }
+            // A whole-folder relocation empties nothing: its source travels intact and its
+            // PARENT — which is what the line below would otherwise record — keeps every other
+            // child it had. Reading this off the path made the removal sheet offer `Work/` as a
+            // folder the landing emptied, over the sibling that never moved.
+            guard action.movesWholeFolder != true, let src = action.src else { continue }
+            drained.insert((src as NSString).deletingLastPathComponent)
         }
         return drained.filter { path in
             !drained.contains { other in
@@ -821,7 +854,6 @@ public struct RestructureLedger: Equatable, Sendable {
     public init(of manifest: RestructureManifest) {
         var renames = 0, carried = 0, moved = 0, movedWhole = 0, created = 0, kept = 0
         var collisions = 0
-        var drained: Set<String> = []
         for action in manifest.actions {
             switch action.action {
             case .renameDir:
@@ -829,36 +861,25 @@ public struct RestructureLedger: Equatable, Sendable {
                 carried += action.filesCarried ?? 0
             case .moveFile:
                 moved += 1
-                if let src = action.src {
-                    drained.insert((src as NSString).deletingLastPathComponent)
-                }
                 if action.collisionExpected == true || action.collidedInto != nil {
                     collisions += 1
                 }
             case .moveDir:
                 movedWhole += 1
-                if let src = action.src {
-                    drained.insert((src as NSString).deletingLastPathComponent)
-                }
             case .createDir: created += 1
             case .keep: kept += 1
             case .removeEmptyDir: break
-            }
-        }
-        // A one-level-down merge drains `s/d`, which sits inside the drained `s` — count the
-        // shallowest only, because "folders emptied" answers how many mapping sources were.
-        // (`emptiedFolders(of:)` is the same rule with the names; this keeps its own count so
-        // the init stays one pass.)
-        let shallow = drained.filter { path in
-            !drained.contains { other in
-                other != path && path.hasPrefix(other + "/")
             }
         }
         foldersRenamed = renames
         filesCarried = carried
         filesMoved = moved
         foldersMovedWhole = movedWhole
-        foldersEmptied = shallow.count
+        // ONE rule, not a second copy of it. This used to re-derive the drained set inline "so
+        // the init stays one pass", and the two then disagreed the moment a whole-folder
+        // relocation existed: `emptiedFolders(of:)` learned to exclude it and this did not, so
+        // the ledger counted an emptied folder the removal step correctly refused to offer.
+        foldersEmptied = Self.emptiedFolders(of: manifest).count
         foldersCreated = created
         self.kept = kept
         collisionsKept = collisions
@@ -872,7 +893,10 @@ public struct RestructureLedger: Equatable, Sendable {
             "\(filesMoved) moved",
             "\(filesCarried) carried",
         ]
-        if foldersMovedWhole > 0 { parts.append("\(foldersMovedWhole) folders carried whole") }
+        if foldersMovedWhole > 0 {
+            parts.append("\(foldersMovedWhole) folder"
+                + "\(foldersMovedWhole == 1 ? "" : "s") carried whole")
+        }
         if kept > 0 { parts.append("\(kept) kept") }
         if foldersCreated > 0 { parts.append("\(foldersCreated) created") }
         if collisionsKept > 0 {

@@ -13,7 +13,7 @@ import Foundation
 /// scaffold first proves the manifest, the ledger and ⌘Z before anything destructive exists.
 public struct RestructureManifest: Codable, Equatable, Sendable {
 
-    public enum ActionKind: String, Codable, Equatable, Sendable {
+    public enum ActionKind: String, Codable, Equatable, Sendable, CaseIterable {
         case createDir = "create-dir"
         case renameDir = "rename-dir"
         case moveDir = "move-dir"
@@ -45,11 +45,25 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         /// inverse must restore the file's *original* name: it reads `collidedInto ?? dst` as
         /// its source (ROADMAP_V5 §5.4).
         public var collidedInto: String?
+        /// `move-dir` only: this action relocates its source directory **intact, to a different
+        /// parent** — it does not drain the folder the source sits in.
+        ///
+        /// Two rules read a `move-dir`'s source *parent* and both assume the plan is emptying it,
+        /// which held for every manifest until the cross-parent pair merge existed: the apply's
+        /// unlisted-source-folder veto (a parent holding anything the plan never listed is left
+        /// untouched) and ``RestructureLedger/emptiedFolders(of:)`` (the removal step's scope).
+        /// For a relocation both are wrong — the parent keeps everything else, and nothing was
+        /// emptied — so the intent is recorded rather than inferred from the path.
+        ///
+        /// nil means the old, draining shape, so every manifest already on disk keeps its
+        /// behaviour exactly.
+        public var movesWholeFolder: Bool?
 
         public init(action: ActionKind, src: String? = nil, dst: String? = nil,
                     evidence: String? = nil, filesCarried: Int? = nil,
                     bytes: Int? = nil, md5: String? = nil,
-                    collisionExpected: Bool? = nil, collidedInto: String? = nil) {
+                    collisionExpected: Bool? = nil, collidedInto: String? = nil,
+                    movesWholeFolder: Bool? = nil) {
             self.action = action
             self.src = src
             self.dst = dst
@@ -59,6 +73,7 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
             self.md5 = md5
             self.collisionExpected = collisionExpected
             self.collidedInto = collidedInto
+            self.movesWholeFolder = movesWholeFolder
         }
     }
 

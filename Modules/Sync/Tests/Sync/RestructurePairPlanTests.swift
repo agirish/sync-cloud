@@ -235,6 +235,89 @@ import Foundation
                     == .failure(.unknownFiles(source: "A/Inbox")))
     }
 
+    /// The merge branch refuses a source it cannot read; the whole-move branch used to plan one
+    /// happily. Two sides of one function must not disagree about whether a missing source is a
+    /// plan.
+    @Test func aVanishedSourceIsRefusedOnBothBranches() {
+        let tree = Self.view(["Work": (["MapR"], []), "Work/MapR": ([], [])])
+        #expect(RestructurePlanner.pairMergeManifest(
+            source: "Work/Badge", destination: "Work/MapR/Badge",
+            kind: .looseBesideContainer, in: tree,
+            profileId: "p", manifestId: "m", createdAt: "t")
+                    == .failure(.unknownFiles(source: "Work/Badge")))
+    }
+
+    /// A relocation declares itself, because two rules downstream read a `move-dir`'s source
+    /// PARENT and both would otherwise assume the plan is draining it.
+    @Test func onlyTheWholeMoveBranchMarksItself() throws {
+        let relocation = try #require(try RestructurePlanner.pairMergeManifest(
+            source: "Work/Badge", destination: "Work/MapR/Badge",
+            kind: .looseBesideContainer,
+            in: Self.view(["Work": (["Badge", "MapR"], []),
+                           "Work/Badge": ([], ["badge.pdf"]),
+                           "Work/MapR": ([], [])]),
+            profileId: "p", manifestId: "m", createdAt: "t").get())
+        #expect(relocation.actions.allSatisfy { $0.movesWholeFolder == true })
+
+        let merge = try #require(try RestructurePlanner.pairMergeManifest(
+            source: "Health/TODO/Dental", destination: "Health/Dental", kind: .mirroredInbox,
+            in: Self.view(["Health/TODO/Dental": (["Claims"], ["a.pdf"]),
+                           "Health/TODO/Dental/Claims": ([], ["b.pdf"]),
+                           "Health/Dental": ([], [])]),
+            profileId: "p", manifestId: "m", createdAt: "t").get())
+        #expect(merge.actions.allSatisfy { $0.movesWholeFolder != true },
+                "a merge drains its source — the veto still protects it")
+    }
+
+    /// The flag has to survive inversion, or the undo of a relocation is vetoed the way the
+    /// landing was.
+    @Test func theRelocationFlagRidesOnTheInverse() throws {
+        let manifest = try #require(try RestructurePlanner.pairMergeManifest(
+            source: "Work/Badge", destination: "Work/MapR/Badge",
+            kind: .looseBesideContainer,
+            in: Self.view(["Work": (["Badge", "MapR"], []),
+                           "Work/Badge": ([], ["badge.pdf"]),
+                           "Work/MapR": ([], [])]),
+            profileId: "p", manifestId: "m", createdAt: "t").get())
+        #expect(manifest.inverse.actions.allSatisfy { $0.movesWholeFolder == true })
+    }
+
+    /// A kind with no detail and no schemes is not a shape, and must not fall through to the
+    /// family-mapping route on the strength of a nil.
+    @Test func aDetaillessNonShapeFindingGetsNoRoute() {
+        let deadWeight = StructureFinding(kind: .deadWeight, family: "Travel",
+                                          subject: "Travel/2019", detail: nil)
+        #expect(RestructurePlanRouting.route(for: deadWeight) == nil)
+        let ask = StructureFinding(kind: .ask, family: "Health", subject: "Health/TODO",
+                                   detail: nil)
+        #expect(RestructurePlanRouting.route(for: ask) == nil)
+    }
+
+    /// What a landing gets CALLED can differ from the path its members hang off — a seeded pair
+    /// is planned with the grandparent as its family, and recording that would head its ledger
+    /// card "Across the tree" for two folders inside one named parent.
+    @Test func aPlanCanBeRecordedUnderADifferentFamilyThanItWalks() throws {
+        let tree = Self.view(["": (["Travel"], []),
+                              "Travel": (["Reciepts", "Receipts"], []),
+                              "Travel/Reciepts": ([], ["a.pdf"]),
+                              "Travel/Receipts": ([], ["b.pdf"])])
+        let mapping = RestructureMapping(rows: [.init(source: "Reciepts", target: "Receipts"),
+                                                .init(source: "Receipts")])
+        let manifest = try #require(try RestructurePlanner.manifest(
+            family: "", members: ["Travel"], mapping: mapping, kind: .echoName, in: tree,
+            profileId: "p", manifestId: "m", createdAt: "t",
+            recordedFamily: "Travel").get())
+        #expect(manifest.family == "Travel")
+        #expect(manifest.actions.contains { $0.src == "Travel/Reciepts/a.pdf" },
+                "the paths are still walked from the real family")
+
+        // Omitted, it records what it walked — every family mapping wants that.
+        let plain = try #require(try RestructurePlanner.manifest(
+            family: "", members: ["Travel"], mapping: mapping, kind: .echoName, in: tree,
+            profileId: "p", manifestId: "m", createdAt: "t").get())
+        #expect(plain.family == "")
+    }
+
     // MARK: - The manifest is a manifest
 
     /// Whatever route derived it, a landing is undone by the mechanical inverse — so the pair

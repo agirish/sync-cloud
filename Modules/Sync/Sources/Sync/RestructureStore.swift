@@ -229,6 +229,27 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
+    /// Drops the draft a landing consumed — **through the landing's own renames.**
+    ///
+    /// A plan can rename the finding's own subject: a shadow-axis finding with no bare-year
+    /// sibling derives `rename-dir IRS Docs - 2024 → 2024`, and the draft is keyed on
+    /// `kind × subject`. `applyPlan` calls ``rekey(renames:)`` before it returns, so by the time
+    /// the caller drops its draft the key has already moved and removing the pre-landing one is a
+    /// miss — the draft survives forever, holding a manifest derived against a tree that no
+    /// longer exists, and its card offers *Review N operations* over it.
+    ///
+    /// Both keys are dropped because which one is present depends on whether the rekey ran, and
+    /// a draft is consumed either way.
+    public func removeDraft(for key: RestructureKey, consumedBy manifest: RestructureManifest) {
+        removeDraft(for: key)
+        var landedKey = key
+        for rename in RestructureRederive.renameMap(of: manifest) {
+            landedKey = landedKey.rekeyed(rename)
+        }
+        guard landedKey != key else { return }
+        removeDraft(for: landedKey)
+    }
+
     /// Writes `manifest` beside the profile as `restructure-<date>-<family>.json` — reviewable
     /// in a text editor with nothing at risk (§5.4 step 5). Returns the file name it chose.
     ///
@@ -243,9 +264,12 @@ public final class RestructureStore: ObservableObject {
     public func exportPlan(_ manifest: RestructureManifest) throws -> String {
         let date = manifest.createdAt.prefix(while: { $0 != "T" })
         // A root-level family ("" or ".") would leave the name ending in a bare dash or a stray
-        // dot — the label is what a reader sees in the directory listing.
+        // dot — the label is what a reader sees in the directory listing. Two unrelated plans
+        // can both be root-level (a top-level pair and a scattered empties removal), and
+        // same-day replacement is only sanctioned WITHIN one family, so the kind disambiguates
+        // them rather than letting one silently overwrite the other.
         let family = manifest.family.isEmpty || manifest.family == "."
-            ? "tree"
+            ? "tree-\(manifest.kind.rawValue)"
             : manifest.family.replacingOccurrences(of: "/", with: "-")
         let name = "restructure-\(date)-\(family).json"
         let encoder = JSONEncoder()

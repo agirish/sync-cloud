@@ -147,7 +147,12 @@ struct RestructurePlanSheet: View {
         let sources = RestructurePlanner.distinctSources(family: family,
                                                          members: members, in: tree)
         allSources = sources
-        parallelFamilies = RestructurePlanner.parallelFamilies(of: family, in: tree)
+        // Only for a family mapping. On a seeded pair `family` is the pair's grandparent, so
+        // this compared a folder the sheet is not planning and printed its name in a warning
+        // about "planning together" — a pointer at the wrong thing is worse than none.
+        parallelFamilies = isSeededPair
+            ? []
+            : RestructurePlanner.parallelFamilies(of: family, in: tree)
         if let initialRows {
             // The draft's rows, reconciled against the sources as they stand now: a source that
             // appeared since the draft gets a fresh keep row; one that vanished drops off.
@@ -180,6 +185,17 @@ struct RestructurePlanSheet: View {
 
     // MARK: - Header
 
+    /// True when this sheet was opened on a PAIR seeded into one member rather than on a whole
+    /// family. The mapping machinery is the same; three affordances around it are not, because
+    /// they are all about reconciling siblings and there are no siblings here.
+    private var isSeededPair: Bool { members.count == 1 }
+
+    /// What this sheet is planning, in one spelling — the header, the manifest's recorded family,
+    /// the refine request and the merge margins all read it. For a family mapping it is the
+    /// family; for a seeded pair it is the member's own path, because the family is that folder's
+    /// parent and can be the empty string.
+    private var planFamily: String { Self.headerPath(family: family, members: members) }
+
     /// The folder this mapping runs over, as the header names it.
     ///
     /// A family mapping covers many members, so the family path is the subject. A **seeded pair**
@@ -193,12 +209,15 @@ struct RestructurePlanSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(Self.headerPath(family: family, members: members))
+            Text(planFamily)
                 .scaledFont(.system(size: 13, weight: .semibold, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.head)
-            Text("One mapping, edited once, applied to every member — the operations below are "
-                 + "derived from it, never typed.")
+            Text(isSeededPair
+                 ? "One mapping for this folder — the operations below are derived from it, "
+                    + "never typed."
+                 : "One mapping, edited once, applied to every member — the operations below "
+                    + "are derived from it, never typed.")
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
             if !parallelFamilies.isEmpty {
@@ -218,9 +237,13 @@ struct RestructurePlanSheet: View {
 
     // MARK: - 1. The target shape
 
+    @ViewBuilder
     private var shapeSection: some View {
+        // A pair carries no schemes — the detectors never set them — so on that route this
+        // section rendered its label over nothing but the free-text field. The field itself
+        // stays: naming a target the tree has not got is exactly what a rename needs.
         VStack(alignment: .leading, spacing: 6) {
-            sectionLabel("Target shape")
+            sectionLabel(isSeededPair ? "Target name" : "Target shape")
             // Nothing pre-selected: neither recency nor majority is the authority — the 6 Aug
             // fix went both ways at once, for a reason that existed nowhere in the tree.
             ForEach(Array(finding.schemes.enumerated()), id: \.offset) { index, scheme in
@@ -309,7 +332,9 @@ struct RestructurePlanSheet: View {
     private func mappingSection(
         _ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionLabel("Mapping — one row per name found across the family, default keep")
+            sectionLabel(isSeededPair
+                         ? "Mapping — one row per name in this folder, default keep"
+                         : "Mapping — one row per name found across the family, default keep")
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach($rows) { $row in
@@ -539,7 +564,7 @@ struct RestructurePlanSheet: View {
         }
         var vocabularies = finding.schemes.map(\.vocabulary)
         if !vocabulary.isEmpty { vocabularies.append(vocabulary) }
-        return MappingRefineRequest(family: family, members: members, rows: rows,
+        return MappingRefineRequest(family: planFamily, members: members, rows: rows,
                                     candidateVocabularies: vocabularies,
                                     sampleFileNames: samples)
     }
@@ -567,7 +592,11 @@ struct RestructurePlanSheet: View {
         RestructurePlanner.manifest(
             family: family, members: members,
             mapping: RestructureMapping(rows: rows), kind: finding.kind, in: tree,
-            profileId: profileId, manifestId: manifestId, createdAt: createdAt)
+            profileId: profileId, manifestId: manifestId, createdAt: createdAt,
+            // What the landing gets CALLED. For a seeded pair the family is the pair's
+            // grandparent — recording that would head the ledger card "Across the tree" for two
+            // folders inside one named parent.
+            recordedFamily: planFamily)
     }
 
     @ViewBuilder
@@ -711,7 +740,7 @@ struct RestructurePlanSheet: View {
         let memberCount = Set(manifest.actions.compactMap { action -> String? in
             guard action.action == .moveFile || action.action == .moveDir,
                   let src = action.src else { return nil }
-            let prefix = family + "/"
+            let prefix = family.isEmpty ? "" : family + "/"
             guard src.hasPrefix(prefix) else { return nil }
             let rest = src.dropFirst(prefix.count)
             let parts = rest.split(separator: "/", maxSplits: 2)

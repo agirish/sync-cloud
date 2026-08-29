@@ -88,16 +88,6 @@ import Testing
 
     // MARK: The confirm sheet
 
-    @Test func thePairSheetNamesBothFolders() {
-        #expect(RestructurePairMergeSheet.title(source: "Health/TODO/Dental",
-                                                destination: "Health/Dental")
-                    == "Merge Dental into Dental",
-                "matching last components are told apart by the paths under the title")
-        #expect(RestructurePairMergeSheet.title(source: "Work/Badge",
-                                                destination: "Work/MapR/Badge")
-                    == "Merge Badge into Badge")
-    }
-
     /// A refusal is a sentence. An empty operation list with no explanation reads as "nothing to
     /// do", which is a different claim from "this could not be derived".
     @Test func everyRefusalHasWords() {
@@ -108,6 +98,8 @@ import Testing
             .unresolvableOrder(member: "A"),
             .conflictingTargets("Forms", "forms"),
             .targetTakenByCase(target: "Forms", standing: "forms", member: "2013"),
+            .invalidTargetName(target: "Tax/2024"),
+            .targetTakenByFile(target: "Forms", member: "2013"),
         ]
         for refusal in refusals {
             let text = RestructurePairMergeSheet.refusalText(refusal, source: "A")
@@ -115,17 +107,58 @@ import Testing
         }
         #expect(RestructurePairMergeSheet.refusalText(.unknownFiles(source: "A/Inbox"),
                                                       source: "A").contains("A/Inbox"))
+        // The associated value, not the argument — they are the same on today's only route, so
+        // a message naming the wrong folder would otherwise be undetectable.
+        #expect(RestructurePairMergeSheet.refusalText(.unresolvableOrder(member: "Deep/Nested"),
+                                                      source: "A").contains("Deep/Nested"))
     }
 
     /// The operation verbs are the words the cards use, not the schema's wire values — a review
     /// screen reading `move-file` is showing its serialization.
     @Test func theOperationVerbsAreWordsNotRawValues() {
-        for kind in [RestructureManifest.ActionKind.createDir, .renameDir, .moveDir,
-                     .moveFile, .keep, .removeEmptyDir] {
-            let verb = RestructurePairMergeSheet.verb(kind)
-            #expect(!verb.contains("-"), "\(kind.rawValue) leaked its raw value")
+        // Every one pinned: with only a no-hyphen check and one literal, five of the six could be
+        // swapped for each other and nothing went red — a review list calling a create a rename
+        // is worse than one showing the raw value.
+        let expected: [RestructureManifest.ActionKind: String] = [
+            .createDir: "create", .renameDir: "rename", .moveDir: "move folder",
+            .moveFile: "move file", .keep: "keep", .removeEmptyDir: "remove",
+        ]
+        for kind in RestructureManifest.ActionKind.allCases {
+            #expect(RestructurePairMergeSheet.verb(kind) == expected[kind])
+            #expect(!RestructurePairMergeSheet.verb(kind).contains("-"))
         }
-        #expect(RestructurePairMergeSheet.verb(.moveFile) == "move file")
+    }
+
+    /// The card that opens this sheet says "Review 3 operations"; a button reading only "Apply"
+    /// leaves the two disagreeing about what is about to happen.
+    @Test func theApplyButtonCountsWhatItWouldRun() {
+        let manifest = RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: "Work",
+            kind: .looseBesideContainer,
+            actions: [.init(action: .moveDir, src: "Work/Badge", dst: "Work/MapR/Badge")])
+        #expect(RestructurePairMergeSheet.applyTitle(manifest: manifest, applying: false)
+                    == "Apply 1 operation")
+        var three = manifest
+        three.actions += [.init(action: .keep, src: "a"), .init(action: .keep, src: "b")]
+        #expect(RestructurePairMergeSheet.applyTitle(manifest: three, applying: false)
+                    == "Apply 3 operations")
+        #expect(RestructurePairMergeSheet.applyTitle(manifest: three, applying: true)
+                    == "Applying…")
+        #expect(RestructurePairMergeSheet.applyTitle(manifest: nil, applying: false) == "Apply")
+    }
+
+    /// A parent/child echo is four of the five echo hits on the real tree, and both folders wear
+    /// the same word — "Merge IRS into IRS" names neither.
+    @Test func aTitleWhoseTwoNamesMatchStatesTheRelationInstead() {
+        #expect(RestructurePairMergeSheet.title(source: "Finance/TODO/IRS/IRS",
+                                                destination: "Finance/TODO/IRS")
+                    == "Merge IRS into its parent")
+        #expect(RestructurePairMergeSheet.title(source: "Work/Badge",
+                                                destination: "Work/MapR/Badge")
+                    == "Merge Badge into MapR/Badge")
+        #expect(RestructurePairMergeSheet.title(source: "Health/TODO/Dental",
+                                                destination: "Health/Dental")
+                    == "Merge Dental into Health/Dental")
     }
 
     @Test func thePairSheetRendersItsDerivedOperations() {
@@ -172,7 +205,11 @@ import Testing
             encoding: .utf8)
         #expect(host.contains("RestructurePlanRouting.route(for: finding)"),
                 "the host picks its sheet from the same rule the lens gates on")
-        #expect(host.contains("RestructurePairMergeSheet("),
-                "the cross-parent route has to reach a sheet")
+        #expect(host.contains("case .pairMerge(let source, let destination):"),
+                "pin the ARM: a bare type-name grep was satisfied by the unused private helper")
+        #expect(host.contains("case .seededMapping(let family, let member, let source, "
+                              + "let target):"))
+        #expect(host.contains("?? seeded.map { [$0] }"),
+                "the seed is the whole promise of \"already filled in\"")
     }
 }

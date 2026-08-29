@@ -97,6 +97,25 @@ import Foundation
         #expect(RestructureRemoval.commonAncestor(of: []) == ".")
     }
 
+    /// The sentence the PAIR SHEET prints above its operation list, before Apply. This is a
+    /// different type from the apply outcome's summary, and pinning one left the other free — a
+    /// review screen reading "1 folders carried whole" was what rendering caught.
+    @Test func theLedgersOwnSentenceReadsInTheSingular() {
+        let one = RestructureLedger(of: RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: "Work",
+            kind: .looseBesideContainer,
+            actions: [.init(action: .moveDir, src: "Work/Badge", dst: "Work/MapR/Badge",
+                            movesWholeFolder: true)]))
+        #expect(one.summary.contains("1 folder carried whole"))
+        #expect(!one.summary.contains("1 folders"))
+
+        let two = RestructureLedger(of: RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: "W", kind: .shape,
+            actions: [.init(action: .moveDir, src: "W/a/x", dst: "W/b/x"),
+                      .init(action: .moveDir, src: "W/a/y", dst: "W/b/y")]))
+        #expect(two.summary.contains("2 folders carried whole"))
+    }
+
     // MARK: A family that IS the tree
 
     /// Two spellings reach the root — `"."`, which is how a profile keys it, and `""`, which is

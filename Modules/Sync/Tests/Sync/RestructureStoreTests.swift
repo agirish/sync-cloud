@@ -360,6 +360,59 @@ import Foundation
         #expect(json.contains("rename-dir") && json.contains("\"mapping\""))
     }
 
+    /// A root-level family has no name to put in the filename, and TWO unrelated plans can be
+    /// root-level — a top-level pair and a scattered empties removal. Sharing one bucket meant
+    /// the second export silently replaced the first, and the first draft's `exportedTo` then
+    /// named a file holding a different plan.
+    @Test func rootLevelPlansDoNotShareOneExportName() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        func manifest(family: String, kind: FindingKind) -> RestructureManifest {
+            RestructureManifest(profileId: "p", manifestId: "m-\(kind.rawValue)",
+                                createdAt: "2026-08-29T09:00:00", family: family, kind: kind,
+                                actions: [.init(action: .keep, src: "x")])
+        }
+        let pair = try store.exportPlan(manifest(family: "", kind: .echoName))
+        let removal = try store.exportPlan(manifest(family: ".", kind: .deadWeight))
+        #expect(pair != removal, "one bucket meant the second overwrote the first")
+        #expect(!pair.contains("--"), "an empty family left a bare dash in the name")
+        #expect(!removal.contains("-..json"), "a dot family left a stray dot in the name")
+        for name in [pair, removal] {
+            #expect(FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent("p/\(name)").path))
+        }
+        // A named family is untouched by any of this.
+        #expect(try store.exportPlan(manifest(family: "Finance/US", kind: .shape))
+                    == "restructure-2026-08-29-Finance-US.json")
+    }
+
+    /// A landing can rename the finding's own subject — a shadow-axis rename does exactly that —
+    /// and `rekey(renames:)` moves the draft's key before the caller drops it. Dropping the
+    /// pre-landing key alone strands the draft forever behind a "Review N operations" trigger.
+    @Test func aDraftIsDroppedThroughTheLandingsOwnRenames() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        let key = RestructureKey(kind: .shadowAxis, path: "Immigration/H-1B/IRS Docs - 2024")
+        let landing = RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: "Immigration/H-1B",
+            kind: .shadowAxis,
+            actions: [.init(action: .renameDir, src: "Immigration/H-1B/IRS Docs - 2024",
+                            dst: "Immigration/H-1B/2024")])
+        store.saveDraft(.init(manifest: landing, savedAt: "t", exportedTo: nil, vocabulary: []),
+                        for: key)
+        #expect(store.draft(for: key) != nil)
+
+        // Exactly what applyPlan does before the caller's continuation runs.
+        store.rekey(renames: RestructureRederive.renameMap(of: landing))
+        let moved = RestructureKey(kind: .shadowAxis, path: "Immigration/H-1B/2024")
+        #expect(store.draft(for: key) == nil, "the key moved")
+        #expect(store.draft(for: moved) != nil)
+
+        store.removeDraft(for: key, consumedBy: landing)
+        #expect(store.draft(for: moved) == nil, "the landing consumed it — it may not survive")
+        #expect(store.drafts.isEmpty)
+    }
+
     @Test func anUnchangedMutationDoesNotTouchTheDisk() throws {
         let dir = try makeDirectory()
         let key = RestructureKey(kind: .shape, path: "A")

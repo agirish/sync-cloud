@@ -346,6 +346,17 @@ struct RestructureLens: View {
         }
     }
 
+    /// Whether the expanded list ends in a Trash route (ROADMAP_V5 §5.2's decided behaviour).
+    ///
+    /// **Only the empties.** The other two classes are report-only for reasons their own tooltips
+    /// state — a single-file leaf can be a destination waiting for its next file, and hoisting a
+    /// pass-through renames every path beneath it — so offering to trash them would be acting on
+    /// the one judgement the strip deliberately refuses to make.
+    static func offersStandingRemoval(_ weightClass: DeadWeightClass, pathCount: Int,
+                                      hasHandler: Bool) -> Bool {
+        weightClass == .empty && pathCount > 0 && hasHandler
+    }
+
     static func crowdingLabel(_ weightClass: DeadWeightClass, count: Int) -> String {
         switch weightClass {
         case .passThrough: return "\(count) pass-through"
@@ -422,7 +433,9 @@ struct RestructureLens: View {
             // The empties' Trash route (ROADMAP_V5 §5.2, decided). Only on this class — the
             // other two are report-only and say so in their own tooltips — and only under the
             // expanded list, so the paths it would act on are on screen above the button.
-            if weightClass == .empty, !paths.isEmpty, let onRemoveStandingEmpties {
+            if Self.offersStandingRemoval(weightClass, pathCount: paths.count,
+                                          hasHandler: onRemoveStandingEmpties != nil),
+               let onRemoveStandingEmpties {
                 Button("Remove empty folders…") { onRemoveStandingEmpties() }
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .buttonStyle(.plain)
