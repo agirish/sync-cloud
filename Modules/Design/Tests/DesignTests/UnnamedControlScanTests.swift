@@ -131,7 +131,6 @@ import Testing
         let selfNaming: [(component: String, path: String)] = [
             ("FolderJumpMenu", "Modules/Dashboard/Sources/Dashboard/FolderJumpStore.swift"),
             ("ExpandingSearchToggle", "Modules/Design/Sources/Design/ExpandingSearchField.swift"),
-            ("SelectableKeeperRadio", "Modules/FileExplorer/Sources/FileExplorer/DuplicateGroupCard.swift"),
             ("SettingsSearchField", "Modules/Settings/Sources/Settings/SettingsLayout.swift"),
         ]
         for (component, path) in selfNaming {

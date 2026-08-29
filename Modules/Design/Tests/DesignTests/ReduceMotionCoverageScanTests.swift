@@ -242,7 +242,6 @@ import Testing
         "ContentView.swift/pane": .overlayCrossFade,              // the bar edge flip
 
         "DifferencesView.swift/isCountPillHovered": .hoverOrPressLadder,
-        "DuplicateThumbnail.swift/isHovering": .hoverOrPressLadder,
     ]
 
     /// Every `withAnimation(` in the app sources, with the first identifier its closure touches.
