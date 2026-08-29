@@ -138,8 +138,18 @@ import Testing
             actions: [.init(action: .moveDir, src: "Work/Badge", dst: "Work/MapR/Badge")])
         #expect(RestructurePairMergeSheet.applyTitle(manifest: manifest, applying: false)
                     == "Apply 1 operation")
+        // `keep` rows are the signature block. The card beside this button counts with
+        // `operationCount`, so counting them here put "Apply 3 operations" under a card reading
+        // "Review 1 operation" — the disagreement `applyTitle`'s own doc exists to prevent.
+        var withKeeps = manifest
+        withKeeps.actions += [.init(action: .keep, src: "a"), .init(action: .keep, src: "b")]
+        #expect(RestructurePairMergeSheet.applyTitle(manifest: withKeeps, applying: false)
+                    == "Apply 1 operation")
+        #expect(withKeeps.operationCount == 1)
+
         var three = manifest
-        three.actions += [.init(action: .keep, src: "a"), .init(action: .keep, src: "b")]
+        three.actions += [.init(action: .moveFile, src: "x", dst: "y"),
+                          .init(action: .moveFile, src: "p", dst: "q")]
         #expect(RestructurePairMergeSheet.applyTitle(manifest: three, applying: false)
                     == "Apply 3 operations")
         #expect(RestructurePairMergeSheet.applyTitle(manifest: three, applying: true)
@@ -197,7 +207,10 @@ import Testing
                               encoding: .utf8)
         #expect(lens.contains("RestructurePlanRouting.carriesPlanSurface(finding)"),
                 "the trigger's gate is the route, not the kind")
-        #expect(!lens.contains("finding.kind == .shape"),
+        // Scoped to the trigger's own gate rather than the whole 1,300-line file: a legitimate
+        // future `finding.kind == .shape` anywhere else is not this defect.
+        let trigger = try #require(lens.range(of: "if let onPlan,"))
+        #expect(!lens[trigger.lowerBound...].prefix(400).contains("finding.kind == .shape"),
                 "gating on the kind is the shipped narrowing this change removes")
 
         let host = try String(

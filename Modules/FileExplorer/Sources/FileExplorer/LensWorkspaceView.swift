@@ -3122,7 +3122,6 @@ public struct LensWorkspaceView: View {
         }
         .sheet(item: $removalRequest) { request in
             RestructureRemovalSheet(
-                family: request.family,
                 candidates: request.candidates,
                 accent: glassHue.accentColor,
                 isStanding: request.isStanding,
@@ -3337,7 +3336,11 @@ public struct LensWorkspaceView: View {
             // button.
             operations: manifest.operationCount,
             summary: ledger.summary,
-            renames: ledger.foldersRenamed + ledger.foldersMovedWhole,
+            // Each count is the ledger's own, spelled its way — the sentence beneath the chips
+            // is `RestructureLedger.summary`, and a chip that redefines one of its words makes
+            // the two disagree about the same plan one line apart.
+            renames: ledger.foldersRenamed,
+            carried: ledger.foldersMovedWhole,
             merges: ledger.foldersEmptied,
             filesMove: ledger.filesMoved)
     }
@@ -3431,7 +3434,6 @@ public struct LensWorkspaceView: View {
                                                              exists: exists)
                 }
             }.value
-            guard !candidates.isEmpty else { return }
             removalRequest = RemovalRequest(origin: origin, family: family,
                                             candidates: candidates)
         }
@@ -3546,8 +3548,8 @@ public struct LensWorkspaceView: View {
                     if let refusal = outcome.refusal { return .refused(refusal) }
                     // The draft became a ledger record. The store was swapped to the new
                     // profile's during the apply, and the draft rode along — drop it there.
-                    syncManager.restructureStore?.removeDraft(for: key,
-                                                              consumedBy: manifest)
+                    syncManager.restructureStore?.removeDraft(
+                        for: key, consumedBy: outcome.landedManifest ?? manifest)
                     var summary = outcome.summary
                     if let failure = outcome.surveyRefreshFailure {
                         summary += " — " + failure
@@ -3602,7 +3604,8 @@ public struct LensWorkspaceView: View {
             onApply: { manifest in
                 let outcome = await syncManager.applyPlan(manifest)
                 if let refusal = outcome.refusal { return .refused(refusal) }
-                syncManager.restructureStore?.removeDraft(for: key, consumedBy: manifest)
+                syncManager.restructureStore?.removeDraft(
+                    for: key, consumedBy: outcome.landedManifest ?? manifest)
                 var summary = outcome.summary
                 if let failure = outcome.surveyRefreshFailure {
                     summary += " — " + failure

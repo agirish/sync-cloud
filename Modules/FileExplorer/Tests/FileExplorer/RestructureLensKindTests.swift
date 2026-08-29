@@ -32,14 +32,49 @@ import SwiftUI
         }
     }
 
-    /// The tint splits the list the way the badge does: a kind that ends in a plan takes the
-    /// accent, a report-only one stays quiet. The rule is `carriesPlan`, not a second copy of it.
-    @Test func onlyThePlanBearingKindsTakeTheAccent() {
-        #expect(FindingKind.shape.carriesPlan)
-        #expect(FindingKind.echoName.carriesPlan)
-        #expect(!FindingKind.deadWeight.carriesPlan)
-        #expect(!FindingKind.looseAboveSeries.carriesPlan)
-        #expect(!FindingKind.ask.carriesPlan)
+    /// **The tint answers the same question the Plan button does.** `carriesPlan` is the rail
+    /// badge's wider rule and counts `duplicatedTaxonomy`, which has no plan surface at all —
+    /// tinting on it promised a plan the card does not offer.
+    @Test func theGlyphTakesTheAccentExactlyWhenTheCardOffersSomething() {
+        for kind in FindingKind.allCases {
+            let tinted = RestructureLens.glyphTakesAccent(kind)
+            if kind == .backlog {
+                #expect(tinted, "its card ends in the scaffold landing")
+                continue
+            }
+            #expect(tinted == RestructurePlanRouting.carriesPlanSurface(
+                StructureFinding(kind: kind, family: "F", subject: "F/x",
+                                 detail: Self.detail(for: kind))),
+                    "\(kind.rawValue) tints differently from how it acts")
+        }
+        #expect(!RestructureLens.glyphTakesAccent(.duplicatedTaxonomy),
+                "carriesPlan says true; there is no plan surface until §5.9 is measured")
+        #expect(FindingKind.duplicatedTaxonomy.carriesPlan,
+                "and this is the difference the rule exists to hold apart")
+    }
+
+    /// A detail that makes each kind's route resolvable, so the comparison above is real.
+    private static func detail(for kind: FindingKind) -> StructureFinding.Detail? {
+        switch kind {
+        case .shape, .deadWeight, .ask: return nil
+        case .backlog: return .backlog(scaffold: ["a"], looseFiles: 1)
+        case .shadowAxis: return .shadowAxis(target: "2024", targetExists: false)
+        case .echoName: return .echoName(counterpart: "F/y", relation: .sibling)
+        case .mirroredInbox: return .mirroredInbox(destination: "G/x")
+        case .looseAboveSeries: return .looseAboveSeries(looseFiles: 2, seriesFolders: 3)
+        case .looseBesideContainer: return .looseBesideContainer(container: "F/c")
+        case .duplicatedTaxonomy: return .duplicatedTaxonomy(counterpart: "G/x",
+                                                             matchedDocuments: 5)
+        }
+    }
+
+    /// A symbol that is merely distinct is not a symbol that is RIGHT — swapping two survived a
+    /// distinctness check. The two the eye uses most are pinned.
+    @Test func theGlyphsMeanWhatTheyName() {
+        #expect(RestructureLens.kindSymbol(.shape) == "square.on.square.dashed")
+        #expect(RestructureLens.kindSymbol(.backlog) == "calendar.badge.plus")
+        #expect(RestructureLens.kindSymbol(.echoName) == "doc.on.doc")
+        #expect(RestructureLens.kindSymbol(.deadWeight) == "wind")
     }
 
     /// The glyph is tinted; the LABEL is not. Accent on 9.5pt text is the contrast trap the
@@ -51,10 +86,14 @@ import SwiftUI
             .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
         let tag = try #require(text.range(of: "private func kindTag(_ kind: FindingKind)"))
-        let body = String(text[tag.lowerBound...].prefix(1200))
+        // To the end of the function, not a byte count — a comment added inside `kindTag` used
+        // to push the accent line out of a fixed window and fail this for no reason.
+        let rest = text[tag.lowerBound...]
+        let end = rest.range(of: "\n    }\n")?.upperBound ?? rest.endIndex
+        let body = String(rest[..<end])
         let glyph = try #require(body.range(of: "Image(systemName: Self.kindSymbol(kind))"))
         let label = try #require(body.range(of: "Text(Self.kindLabel(kind))"))
-        let accent = try #require(body.range(of: "carriesPlan ? AnyShapeStyle(accent)"))
+        let accent = try #require(body.range(of: "AnyShapeStyle(accent)"))
         #expect(accent.lowerBound > glyph.lowerBound && accent.lowerBound < label.lowerBound,
                 "the accent belongs to the glyph, above the label")
         #expect(body[label.lowerBound...].prefix(200).contains("foregroundStyle(.secondary)"),

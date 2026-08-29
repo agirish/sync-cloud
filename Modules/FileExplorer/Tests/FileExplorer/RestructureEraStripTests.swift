@@ -46,8 +46,9 @@ import Testing
             drift: ["2015"]))
         #expect(segments.map(\.scheme) == [0, nil])
         #expect(segments.last?.label == "2015")
-        #expect(RestructureLens.eraStripLabel(segments)
-                    == "Eras: 2013–2014, shape 1; 2015, drift")
+        #expect(RestructureLens.eraStripLabel(segments,
+                                             schemes: [Self.scheme(["forms"], ["2013", "2014"])])
+                    == "Eras: 2013–2014, forms; 2015, drift")
     }
 
     /// A fiscal span is a year token the profile already accepts, so it takes part and sorts by
@@ -75,6 +76,19 @@ import Testing
     /// The bar is 80%, so one oddly-named member among many years does not suppress the strip —
     /// and a mostly-unnamed family does not get one. Both sides, or the threshold is a constant.
     @Test func theYearBarIsCrossedFromBothSides() {
+        // The VALUE, not just a band: 0.9 and 0.5 alone left anything in (0.5, 0.9] passing, and
+        // a 4-of-7 family would have gained a strip.
+        let sevenWithFour = RestructureLens.eraSegments(
+            schemes: [.init(vocabulary: ["a"],
+                            members: ["2013", "2014", "2015", "2016", "A", "B", "C"])],
+            drift: [])
+        #expect(sevenWithFour == nil, "four of seven is not a family about years")
+        let tenWithEight = RestructureLens.eraSegments(
+            schemes: [.init(vocabulary: ["a"],
+                            members: (2013...2020).map(String.init) + ["A", "B"])],
+            drift: [])
+        #expect(tenWithEight != nil, "eight of ten is")
+
         let nineYearsAndOne = RestructureLens.eraSegments(
             schemes: [Self.scheme(["a"], (2013...2021).map(String.init) + ["Archive"])],
             drift: [])
@@ -92,12 +106,50 @@ import Testing
             schemes: [Self.scheme(["a"], ["2013"])], drift: []) == nil)
     }
 
-    /// The strip is a picture, so it carries the sentence it makes.
+    /// The strip is a picture, so it carries the sentence it makes — and it names each scheme
+    /// by its VOCABULARY, the way the rows below name them. An ordinal ("shape 1") is a number
+    /// nothing else on the card establishes, so a listener has nothing to map it onto.
     @Test func theStripSpeaksItsErasForVoiceOver() {
         let segments = [RestructureLens.EraSegment(scheme: 0, label: "2013–2015", count: 3),
                         RestructureLens.EraSegment(scheme: 1, label: "2016", count: 1)]
-        #expect(RestructureLens.eraStripLabel(segments)
-                    == "Eras: 2013–2015, shape 1; 2016, shape 2")
+        let schemes = [Self.scheme(["forms", "payments"], ["2013"]),
+                       Self.scheme(["federal tax"], ["2016"])]
+        #expect(RestructureLens.eraStripLabel(segments, schemes: schemes)
+                    == "Eras: 2013–2015, forms and payments; 2016, federal tax")
+        #expect(!RestructureLens.eraStripLabel(segments, schemes: schemes).contains("shape 1"),
+                "an ordinal names nothing the card shows")
+    }
+
+    /// Shapeless members are members: leaving them out of the bar's denominator let a family of
+    /// four years and ten unnamed folders draw "the eras across a shape family" over a third
+    /// of itself.
+    @Test func shapelessMembersCountAgainstTheYearBar() {
+        let schemes = [Self.scheme(["a"], ["2013", "2014", "2015", "2016"])]
+        #expect(RestructureLens.eraSegments(schemes: schemes, drift: []) != nil)
+        #expect(RestructureLens.eraSegments(schemes: schemes, drift: [],
+                                            shapeless: (1...10).map { "Folder \($0)" }) == nil,
+                "four of fourteen members is not a family about years")
+    }
+
+    /// Every scheme's fill has to read as filled — the fourth step was faint enough to pass for
+    /// the hollow drift treatment it must be distinguishable from — and no two may match.
+    @Test func everySchemeFillIsDistinctAndVisible() {
+        let opacities = RestructureLens.schemeOpacities
+        #expect(opacities.count == 4)
+        #expect(Set(opacities).count == opacities.count, "two eras would look like one")
+        #expect(opacities.allSatisfy { $0 >= 0.17 },
+                "a fainter fill reads as the hollow drift segment")
+    }
+
+    /// A fiscal member carries an ASCII hyphen and the run label joins with an EN DASH, so
+    /// splitting on the wrong one produced "2014-2015–2016".
+    @Test func aRunLabelDoesNotSwallowAFiscalMembersOwnHyphen() throws {
+        let segments = try #require(RestructureLens.eraSegments(
+            schemes: [Self.scheme(["a"], ["2014-2015", "2016", "2017"])], drift: []))
+        #expect(segments.count == 1)
+        #expect(segments[0].label == "2014-2015–2017")
+        #expect(segments[0].label.hasPrefix("2014-2015"),
+                "the member's own hyphen survives inside the run's label")
     }
 
     /// **Proportional is the strip's whole claim**, and it is the one thing a render comparison
@@ -139,6 +191,11 @@ import Testing
             .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
         #expect(text.contains("widths: Self.eraSegmentWidths(segments, available: geo.size.width)"))
+        // And that they REACH a frame. Pinning only the call left
+        // `.frame(maxWidth: .infinity)` free to ignore them, with `eraSegmentWidths` correct and
+        // unused — which is the same defect in a new disguise.
+        #expect(text.contains(".frame(maxWidth: widths.map { $0[index] } ?? .infinity)"),
+                "the computed width has to be the frame's width")
         #expect(!text.contains(".layoutPriority(Double(segment.count))"),
                 "layoutPriority decides who gets space first, not how much")
     }

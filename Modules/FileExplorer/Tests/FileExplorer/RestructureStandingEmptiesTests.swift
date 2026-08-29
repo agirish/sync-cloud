@@ -84,6 +84,9 @@ import Testing
     /// disclosure to open before anything can be read. Both sides of the boundary are asserted,
     /// because a threshold tested on one side is a constant, not a rule.
     @Test func shortCrowdingListsStayFlat() {
+        // The VALUE, not just the boundary: deriving the fixture from the constant compares the
+        // rule to itself, and 25 or 60 would both have passed.
+        #expect(RestructureLens.crowdingGroupingThreshold == 40)
         let few = (1...RestructureLens.crowdingGroupingThreshold).map { "Finance/\($0)" }
         #expect(RestructureLens.crowdingBranches(few) == nil)
         #expect(RestructureLens.crowdingBranches(few + ["Finance/extra"]) != nil,
@@ -104,7 +107,10 @@ import Testing
         #expect(groups.map(\.paths.count) == [30, 8, 5, 1])
         #expect(groups.flatMap(\.paths).count == paths.count, "no path is dropped")
         #expect(Set(groups.flatMap(\.paths)) == Set(paths))
-        #expect(groups[1].paths == groups[1].paths.sorted())
+        // Pinned as a literal on a group whose INPUT order is not already sorted — comparing a
+        // list to its own `sorted()` is the model against itself, and the Finance group happened
+        // to arrive in order anyway.
+        #expect(groups[0].paths.prefix(3) == ["Work/1", "Work/10", "Work/11"])
         // A top-level folder is its own branch rather than being dropped for having no first
         // component to group under.
         #expect(groups.last?.paths == ["Loose"])
@@ -215,7 +221,6 @@ import Testing
     /// The sheet the button opens, in its standing form.
     @Test func theStandingSheetRendersItsCandidates() {
         let sheet = RestructureRemovalSheet(
-            family: ".",
             candidates: [
                 .init(path: "Travel/2019", isStillEmpty: true),
                 .init(path: "Finance/IN/SBI NRE/Statements", isStillEmpty: true),

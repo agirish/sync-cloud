@@ -97,7 +97,6 @@ import Testing
 
     @Test func theRemovalSheetRendersItsCandidates() {
         let sheet = RestructureRemovalSheet(
-            family: "Finance/US/Income Tax",
             candidates: [
                 .init(path: "Finance/US/Income Tax/2013/State Tax", isStillEmpty: true),
                 .init(path: "Finance/US/Income Tax/2013/2013", isStillEmpty: true),

@@ -339,6 +339,16 @@ public enum RestructurePlanner {
         let targetName = (destination as NSString).lastPathComponent
         var actions: [RestructureManifest.Action] = []
 
+        // `childFolders(destination) == nil` means "not a readable directory", which is true
+        // both when nothing is there AND when a FILE of that name is. Deriving a move-dir onto a
+        // standing file produces a plan that ALWAYS skips at apply as false "appeared since the
+        // plan" drift — the exact class the mapped planner already refuses, and which the pair
+        // route reaches because a profile stores no file names for the detector to see.
+        let destinationParent = (destination as NSString).deletingLastPathComponent
+        if view.childFolders(destination) == nil,
+           view.files(destinationParent)?.contains(targetName) == true {
+            return .failure(.targetTakenByFile(target: targetName, member: destinationParent))
+        }
         if view.childFolders(destination) == nil {
             // Nothing stands at the destination: the whole folder travels, files included.
             let newParent = (destination as NSString).deletingLastPathComponent
@@ -413,10 +423,17 @@ public enum RestructurePlanner {
 
     /// The before and after of one member under a manifest. nil when the view has never heard of
     /// the member — an absent folder has no before to show.
+    ///
+    /// **An ordered simulation, not a set of deltas.** The first version accumulated per-name
+    /// changes and then reconstructed the after column, which cannot survive a rename CHAIN: the
+    /// planner routes a two-way swap through a temporary name, and the reconstruction kept that
+    /// temp as a surviving row — the review section showed a folder called
+    /// `B.restructure-swap` that would never exist. Walking the actions in the order they run is
+    /// the only thing that gets chains, cycles and vacate-before-fill right, and it is what the
+    /// apply does too.
     public static func preview(member: String, in manifest: RestructureManifest,
                                tree view: RestructureTreeView) -> RestructurePreview? {
         guard let children = view.childFolders(member) else { return nil }
-        let childSet = Set(children)
         func path(_ name: String) -> String {
             (member as NSString).appendingPathComponent(name)
         }
@@ -433,22 +450,45 @@ public enum RestructurePlanner {
             guard let p = parts(full), p.count == 1 else { return nil }
             return p[0]
         }
-        /// The child a file sits DIRECTLY inside — `member/Forms/a.pdf` is Forms's file, while
-        /// `member/Forms/Sub/a.pdf` is Sub's and changes nothing about Forms's own count.
-        func fileOwner(_ full: String?) -> String? {
-            guard let p = parts(full), p.count == 2 else { return nil }
+        /// The direct child a deeper path lives under, whatever its depth.
+        func owner(_ full: String?) -> String? {
+            guard let p = parts(full), p.count >= 2 else { return nil }
             return p[0]
         }
+        /// True when the path is an item sitting DIRECTLY in a child — the only depth that
+        /// changes that child's own file or subfolder count.
+        func isDirectlyInAChild(_ full: String?) -> Bool {
+            (parts(full)?.count ?? 0) == 2
+        }
 
-        var renamedFrom: [String: String] = [:]      // new name -> old name
-        var renamedAway: Set<String> = []            // names vacated by a rename
-        var mergedInto: [String: Set<String>] = [:]  // target -> sources drained into it
-        var arrived: Set<String> = []                // carried in from outside the member
-        var created: Set<String> = []
-        var kept: Set<String> = []
-        var removed: Set<String> = []
-        var fileDelta: [String: Int] = [:]
-        var subfoldersOut: [String: Int] = [:]
+        /// One folder as the simulation currently sees it, under the name it currently wears.
+        struct Live {
+            var files: Int
+            var subfolders: Int
+            /// The name this folder started the plan under, when that differs from its current
+            /// one. Chains collapse into it, so a swap reports the ORIGINAL name rather than the
+            /// temporary the planner passed through.
+            var origin: String?
+            var absorbed: Set<String> = []
+            var created = false
+            var kept = false
+        }
+        var live: [String: Live] = [:]
+        for name in children {
+            live[name] = Live(files: view.fileCount(path(name)) ?? 0,
+                              subfolders: view.childFolders(path(name))?.count ?? 0,
+                              origin: nil)
+        }
+        /// Names something was taken OUT of — the candidates for disappearing entirely.
+        var drained: Set<String> = []
+
+        func absorb(from source: String, into target: String) {
+            guard source != target else { return }
+            drained.insert(source)
+            let name = live[source]?.origin ?? source
+            live[target, default: Live(files: 0, subfolders: 0, origin: nil)]
+                .absorbed.insert(name)
+        }
 
         for action in manifest.actions {
             switch action.action {
@@ -456,74 +496,96 @@ public enum RestructurePlanner {
                 let from = directChild(action.src)
                 let to = directChild(action.dst)
                 if let from, let to {
-                    renamedFrom[to] = from
-                    renamedAway.insert(from)
-                    fileDelta[to, default: 0] += view.fileCount(path(from)) ?? 0
+                    // The whole folder changes name inside this member.
+                    var moved = live.removeValue(forKey: from)
+                        ?? Live(files: action.filesCarried ?? 0, subfolders: 0, origin: nil)
+                    moved.origin = moved.origin ?? from
+                    if var standing = live[to] {
+                        // Vacate-before-fill normally frees the name first; if it did not, this
+                        // is a merge and reads as one.
+                        standing.files += moved.files
+                        standing.subfolders += moved.subfolders
+                        standing.absorbed.insert(moved.origin ?? from)
+                        live[to] = standing
+                    } else {
+                        live[to] = moved
+                    }
                 } else if let from {
                     // Left the member entirely.
-                    renamedAway.insert(from)
+                    live.removeValue(forKey: from)
                 } else if let to {
-                    arrived.insert(to)
-                    fileDelta[to, default: 0] += action.filesCarried ?? 0
-                } else if let owner = fileOwner(action.src) {
-                    // A subfolder of a child moved away — the child keeps its own files but
-                    // loses a folder, which is what decides whether it survives at all.
-                    subfoldersOut[owner, default: 0] += 1
+                    // Arrived from outside it, carrying its files with it.
+                    live[to] = Live(files: action.filesCarried ?? 0, subfolders: 0,
+                                    origin: nil, created: true)
+                } else if let source = owner(action.src) {
+                    // A subfolder moved between children — the shape a merge takes when the
+                    // source holds no loose files at all, which a move-file-only rule missed
+                    // entirely and left its drained source standing in the after column.
+                    if isDirectlyInAChild(action.src) { live[source]?.subfolders -= 1 }
+                    if let target = owner(action.dst) {
+                        if isDirectlyInAChild(action.dst) { live[target]?.subfolders += 1 }
+                        absorb(from: source, into: target)
+                    } else {
+                        drained.insert(source)
+                    }
                 }
-            case .moveFile:
-                let from = fileOwner(action.src)
-                let to = fileOwner(action.collidedInto ?? action.dst)
-                if let from { fileDelta[from, default: 0] -= 1 }
-                if let to { fileDelta[to, default: 0] += 1 }
-                if let from, let to, from != to { mergedInto[to, default: []].insert(from) }
-            case .createDir:
-                if let name = directChild(action.dst) { created.insert(name) }
-            case .keep:
-                if let name = directChild(action.src) { kept.insert(name) }
-            case .removeEmptyDir:
-                if let name = directChild(action.src) { removed.insert(name) }
-            }
-        }
 
-        func resultingFiles(_ name: String) -> Int {
-            let base = childSet.contains(name) && !renamedAway.contains(name)
-                ? (view.fileCount(path(name)) ?? 0) : 0
-            return max(0, base + (fileDelta[name] ?? 0))
+            case .moveFile:
+                let landed = action.collidedInto ?? action.dst
+                if let source = owner(action.src) {
+                    if isDirectlyInAChild(action.src) { live[source]?.files -= 1 }
+                    if let target = owner(landed) {
+                        if isDirectlyInAChild(landed) { live[target]?.files += 1 }
+                        absorb(from: source, into: target)
+                    } else {
+                        drained.insert(source)
+                    }
+                } else if let target = owner(landed), isDirectlyInAChild(landed) {
+                    live[target]?.files += 1
+                }
+
+            case .createDir:
+                if let name = directChild(action.dst) {
+                    live[name] = Live(files: 0, subfolders: 0, origin: nil, created: true)
+                }
+
+            case .keep:
+                if let name = directChild(action.src) { live[name]?.kept = true }
+
+            case .removeEmptyDir:
+                if let name = directChild(action.src) { live.removeValue(forKey: name) }
+            }
         }
 
         // A drained source stops existing as itself only when nothing of it is left: every file
         // gone AND every subfolder gone. A folder that gave up one file still stands, and the
         // after column would be lying to drop it.
-        var gone = renamedAway.union(removed)
-        for source in mergedInto.values.flatMap({ $0 }) where !gone.contains(source) {
-            let subfoldersLeft = (view.childFolders(path(source))?.count ?? 0)
-                - (subfoldersOut[source] ?? 0)
-            if resultingFiles(source) == 0 && subfoldersLeft <= 0 { gone.insert(source) }
+        for source in drained {
+            guard let state = live[source], state.files <= 0, state.subfolders <= 0 else {
+                continue
+            }
+            live.removeValue(forKey: source)
         }
 
         let before = children.sorted().map { name in
             RestructurePreview.Row(name: name, files: view.fileCount(path(name)),
                                    fate: .unchanged)
         }
-
-        var afterNames = childSet.subtracting(gone)
-        afterNames.formUnion(renamedFrom.keys)
-        afterNames.formUnion(created)
-        afterNames.formUnion(arrived)
-        let after = afterNames.sorted().map { name -> RestructurePreview.Row in
+        let after = live.keys.sorted().map { name -> RestructurePreview.Row in
+            let state = live[name]!
             let fate: RestructurePreview.Fate
-            if let sources = mergedInto[name], !sources.isEmpty {
-                fate = .mergedFrom(renamedFrom: renamedFrom[name], sources: sources.sorted())
-            } else if let from = renamedFrom[name] {
-                fate = .renamedFrom(from)
-            } else if created.contains(name) || arrived.contains(name) {
+            if !state.absorbed.isEmpty {
+                fate = .mergedFrom(renamedFrom: state.origin, sources: state.absorbed.sorted())
+            } else if let origin = state.origin {
+                fate = .renamedFrom(origin)
+            } else if state.created {
                 fate = .created
-            } else if kept.contains(name) {
+            } else if state.kept {
                 fate = .kept
             } else {
                 fate = .unchanged
             }
-            return RestructurePreview.Row(name: name, files: resultingFiles(name), fate: fate)
+            return RestructurePreview.Row(name: name, files: max(0, state.files), fate: fate)
         }
         return RestructurePreview(before: before, after: after)
     }
@@ -1023,6 +1085,9 @@ public struct RestructureLedger: Equatable, Sendable {
                 }
             case .moveDir:
                 movedWhole += 1
+                // A whole-folder relocation carries its files exactly as a rename does, and the
+                // ledger dropped them — so the plan that moves the MOST files reported none.
+                carried += action.filesCarried ?? 0
             case .createDir: created += 1
             case .keep: kept += 1
             case .removeEmptyDir: break

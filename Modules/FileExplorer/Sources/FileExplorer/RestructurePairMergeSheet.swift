@@ -275,7 +275,9 @@ struct RestructurePairMergeSheet: View {
     static func applyTitle(manifest: RestructureManifest?, applying: Bool) -> String {
         if applying { return "Applying…" }
         guard let manifest else { return "Apply" }
-        let count = manifest.actions.count
+        // `operationCount`, not `actions.count`: keeps are the signature block. Counting them
+        // put "Apply 2 operations" under a card reading "Review 1 operation".
+        let count = manifest.operationCount
         return "Apply \(count) operation\(count == 1 ? "" : "s")"
     }
 

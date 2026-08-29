@@ -564,7 +564,10 @@ struct RestructurePlanSheet: View {
         }
         var vocabularies = finding.schemes.map(\.vocabulary)
         if !vocabulary.isEmpty { vocabularies.append(vocabulary) }
-        return MappingRefineRequest(family: planFamily, members: members, rows: rows,
+        // `family`, NOT `planFamily`: every consumer reads a member as a child of the family,
+        // and `planFamily` is already `family/member` on a seeded pair — the prompt then
+        // described `Docs/Travel/Travel`, a path that does not exist.
+        return MappingRefineRequest(family: family, members: members, rows: rows,
                                     candidateVocabularies: vocabularies,
                                     sampleFileNames: samples)
     }
@@ -610,7 +613,8 @@ struct RestructurePlanSheet: View {
                     .scaledFont(.system(size: 11, weight: .semibold))
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Self.operationLines(of: manifest), id: \.self) { line in
+                        ForEach(Self.operationLines(of: manifest, walkedFamily: family),
+                                id: \.self) { line in
                             Text(line)
                                 .scaledFont(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(.secondary)
@@ -624,7 +628,8 @@ struct RestructurePlanSheet: View {
                 // The operations say what runs; this says what it LEAVES. One member, because
                 // the mapping is applied to all of them identically and one worked example is
                 // what makes the shape legible — the list above is the exhaustive answer.
-                if let exemplar = previewMember(of: manifest),
+                if let exemplar = Self.previewMember(of: manifest, family: family,
+                                                    members: members),
                    let preview = RestructurePlanner.preview(member: exemplar, in: manifest,
                                                             tree: tree) {
                     treePreview(exemplar, preview)
@@ -640,7 +645,12 @@ struct RestructurePlanSheet: View {
     /// Which member the before/after is drawn for: the first one the plan actually touches, in
     /// the manifest's own order. A member the plan leaves alone would draw two identical columns
     /// and teach nothing.
-    private func previewMember(of manifest: RestructureManifest) -> String? {
+    ///
+    /// A rule rather than a method, because a render comparison cannot see it: two sheets whose
+    /// plans differ also differ in their mapping rows and their operation list, so the images
+    /// differ whether or not the columns draw. `if true { return nil }` here passed one.
+    static func previewMember(of manifest: RestructureManifest,
+                              family: String, members: [String]) -> String? {
         for action in manifest.actions where action.action != .keep {
             guard let path = action.src ?? action.dst else { continue }
             for member in members {
@@ -658,10 +668,18 @@ struct RestructurePlanSheet: View {
             Text("\((member as NSString).lastPathComponent) — before and after")
                 .scaledFont(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
-            HStack(alignment: .top, spacing: 10) {
-                previewColumn("NOW", rows: preview.before)
-                previewColumn("AFTER", rows: preview.after)
+            // Capped and scrollable, like the mapping (210) and the operations (150) above it.
+            // A 17-child member draws 17 rows a side plus their notes, and the sheet has no
+            // outer ScrollView — at the largest text size the footer went off the display and
+            // the sheet could only be dismissed with Escape.
+            ScrollView {
+                HStack(alignment: .top, spacing: 10) {
+                    previewColumn("NOW", rows: preview.before)
+                    previewColumn("AFTER", rows: preview.after)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxHeight: 130)
         }
     }
 
@@ -892,8 +910,13 @@ struct RestructurePlanSheet: View {
     /// The review list, grouped the way §5.4 words it: renames one line each, a merge one line
     /// per source-into-target with its file and folder counts, keeps by name — every line
     /// prefixed by the member it happens in.
-    static func operationLines(of manifest: RestructureManifest) -> [String] {
-        let familyPrefix = manifest.family + "/"
+    static func operationLines(of manifest: RestructureManifest,
+                               walkedFamily: String? = nil) -> [String] {
+        // The family the paths were WALKED from, which since `recordedFamily` is not always the
+        // one the manifest records: a seeded pair records the member's own path, so stripping
+        // that prefix yielded the child name where the member's was wanted.
+        let family = walkedFamily ?? manifest.family
+        let familyPrefix = family.isEmpty ? "" : family + "/"
         func member(of path: String?) -> String {
             guard let path, path.hasPrefix(familyPrefix) else { return "" }
             return String(path.dropFirst(familyPrefix.count).split(separator: "/").first ?? "")

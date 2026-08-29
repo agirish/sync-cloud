@@ -12,6 +12,10 @@ struct PlannedPlanInfo: Equatable {
     /// own manifest** by the workspace — never pasted, and never estimated from the finding: the
     /// card's prose sentence is what the finding alone can honestly say.
     let renames: Int
+    /// Folders that travel intact to a new parent. **Its own count, not folded into renames**:
+    /// the ledger sentence one line below prints it as its own clause, and folding it in made a
+    /// card read "1 rename" above "0 renames · 1 folder carried whole".
+    let carried: Int
     let merges: Int
     let filesMove: Int
 
@@ -20,6 +24,9 @@ struct PlannedPlanInfo: Equatable {
     var radiusChips: [(text: String, movesFiles: Bool)] {
         var out: [(String, Bool)] = []
         if renames > 0 { out.append(("\(renames) rename\(renames == 1 ? "" : "s")", false)) }
+        if carried > 0 {
+            out.append(("\(carried) folder\(carried == 1 ? "" : "s") carried", true))
+        }
         if merges > 0 { out.append(("\(merges) merge\(merges == 1 ? "" : "s")", false)) }
         if filesMove > 0 {
             // The VERB agrees, not just the noun: one file moves, many files move.
@@ -396,6 +403,9 @@ struct RestructureLens: View {
         let isSelected = crowdingFilter == weightClass
         return Button {
             crowdingFilter = isSelected ? nil : weightClass
+            // A grouped list that opened already-expanded is the flat list it replaces, and the
+            // branches of one class mean nothing in another.
+            expandedBranches = []
         } label: {
             Text(Self.crowdingLabel(weightClass, count: count))
                 .scaledFont(.system(size: 10.5, weight: isSelected ? .semibold : .medium))
@@ -478,7 +488,9 @@ struct RestructureLens: View {
             }
             // The empties' Trash route (ROADMAP_V5 §5.2, decided). Only on this class — the
             // other two are report-only and say so in their own tooltips — and only under the
-            // expanded list, so the paths it would act on are on screen above the button.
+            // expanded list. Past the grouping threshold that list is branch rows rather than
+            // paths, so the button sits under names rather than folders; the sheet it opens is
+            // the review either way, and every row there is re-probed and ticked one by one.
             if Self.offersStandingRemoval(weightClass, pathCount: paths.count,
                                           hasHandler: onRemoveStandingEmpties != nil),
                let onRemoveStandingEmpties {
@@ -548,8 +560,11 @@ struct RestructureLens: View {
         .padding(.vertical, 2)
         .padding(.horizontal, 8)
         // The chevron is the only visual state, which is invisible to VoiceOver.
+        // A disclosure, not a selection: `.isSelected` reads as "this row is picked", and a
+        // collapsed row carried no state at all.
         .accessibilityLabel("\(branch), \(count) folder\(count == 1 ? "" : "s")")
-        .accessibilityAddTraits(expandedBranches.contains(branch) ? [.isSelected] : [])
+        .accessibilityValue(expandedBranches.contains(branch) ? "expanded" : "collapsed")
+        .accessibilityHint("Shows the folders in this branch")
         .chromeHover()
     }
 
@@ -595,8 +610,9 @@ struct RestructureLens: View {
             // The eras at a glance, when the family is about years — the text rows below stay,
             // and stay authoritative: this is the same information drawn in order, never a
             // replacement for the list of what each era actually contains.
-            if let segments = Self.eraSegments(schemes: finding.schemes, drift: finding.drift) {
-                eraStrip(segments)
+            if let segments = Self.eraSegments(schemes: finding.schemes, drift: finding.drift,
+                                               shapeless: finding.shapeless) {
+                eraStrip(segments, schemes: finding.schemes)
             }
             // The schemes are shown rather than asserted: the eras are visible, and so is the odd
             // year out. A verdict that only said "these disagree" would be asking to be trusted.
@@ -752,8 +768,8 @@ struct RestructureLens: View {
                 // **The glyph, and only the glyph.** The capsule's fill and its text keep the
                 // shipped treatment: accent on 9.5pt text is exactly the contrast trap the
                 // repo's amber-on-body-text rule exists for, and a tag is not a control.
-                .foregroundStyle(kind.carriesPlan ? AnyShapeStyle(accent)
-                                                  : AnyShapeStyle(.secondary))
+                .foregroundStyle(Self.glyphTakesAccent(kind) ? AnyShapeStyle(accent)
+                                                             : AnyShapeStyle(.secondary))
                 // Decorative — the label beside it already says which kind this is, and the
                 // tooltip says what acting on it would do.
                 .accessibilityHidden(true)
@@ -765,6 +781,20 @@ struct RestructureLens: View {
         .padding(.horizontal, 6)
         .background(Capsule().fill(.quaternary.opacity(0.35)))
         .help(Self.kindVerb(kind))
+    }
+
+    /// Whether a kind's glyph takes the accent — **the same question the Plan button asks**.
+    ///
+    /// `FindingKind.carriesPlan` is the rail badge's rule and is deliberately wider: it counts
+    /// `duplicatedTaxonomy`, which has no plan surface at all until §5.9 is measured. Tinting on
+    /// it promised a plan the card does not offer, which is the one thing a glyph this small can
+    /// still get wrong.
+    static func glyphTakesAccent(_ kind: FindingKind) -> Bool {
+        switch kind {
+        case .shape, .shadowAxis, .echoName, .mirroredInbox, .looseBesideContainer: return true
+        case .backlog: return true      // its card ends in the scaffold landing
+        case .deadWeight, .looseAboveSeries, .duplicatedTaxonomy, .ask: return false
+        }
     }
 
     /// One symbol per kind, so a mixed list sorts by eye before it is read (ROADMAP_V5 §5.1's
@@ -926,7 +956,7 @@ struct RestructureLens: View {
     /// already accepts a bare year and a two-part span, and a second parser here would be a
     /// second answer to "is this a year" living one file away from the first.
     static func eraSegments(schemes: [StructureFinding.Scheme],
-                            drift: [String]) -> [EraSegment]? {
+                            drift: [String], shapeless: [String] = []) -> [EraSegment]? {
         var dated: [(sort: Int, name: String, scheme: Int?)] = []
         var total = 0
         for (index, scheme) in schemes.enumerated() {
@@ -937,8 +967,11 @@ struct RestructureLens: View {
                 }
             }
         }
-        for member in drift {
+        for member in drift + shapeless {
             total += 1
+            // Shapeless members are members: leaving them out of `total` let a family of four
+            // years and ten unnamed folders pass the bar at 100% and draw "the eras across a
+            // shape family" over less than a third of it.
             if let year = sortYear(of: member) { dated.append((year, member, nil)) }
         }
         guard total > 0, Double(dated.count) / Double(total) >= 0.8 else { return nil }
@@ -970,9 +1003,14 @@ struct RestructureLens: View {
 
     /// A run's label — `2013` alone, `2013–2015` once it has grown. Built from the run's own
     /// first and last member so a span inside it (`2014-2015`) does not smuggle a second dash in.
+    /// A run's label — `2013` alone, `2013–2015` once it has grown.
+    ///
+    /// The separator is an EN DASH and a fiscal member carries an ASCII hyphen, so splitting on
+    /// the wrong one turned a run opening at `2014-2015` into `2014-2015–2016`. Splitting on the
+    /// en dash alone is what keeps the member's own hyphen intact inside the label.
     private static func spanLabel(from existing: String, to newest: String) -> String {
-        let first = existing.split(separator: "–").first.map(String.init) ?? existing
-        return first == newest ? first : "\(first)–\(newest)"
+        let first = existing.components(separatedBy: "\u{2013}").first ?? existing
+        return first == newest ? first : "\(first)\u{2013}\(newest)"
     }
 
     /// The strip itself: a segment per era, **proportional to how many folders it covers**.
@@ -988,7 +1026,8 @@ struct RestructureLens: View {
     /// `layoutPriority` is NOT the tool for this and was the first attempt: it decides who gets
     /// space FIRST, not who gets how much, so the largest era swallowed the row and the other
     /// two rendered at zero width. Rendering the strip is what showed it.
-    private func eraStrip(_ segments: [EraSegment]) -> some View {
+    private func eraStrip(_ segments: [EraSegment],
+                          schemes: [StructureFinding.Scheme]) -> some View {
         segmentRow(segments, widths: nil)
             .hidden()
             .overlay {
@@ -998,7 +1037,7 @@ struct RestructureLens: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(Self.eraStripLabel(segments))
+            .accessibilityLabel(Self.eraStripLabel(segments, schemes: schemes))
     }
 
     private static let eraSegmentSpacing: CGFloat = 3
@@ -1043,14 +1082,29 @@ struct RestructureLens: View {
     /// Each scheme gets its own depth of the accent so two eras are told apart without a second
     /// hue — the accent-fill convention, not a palette of my own.
     private func schemeOpacity(_ scheme: Int) -> Double {
-        [0.26, 0.17, 0.34, 0.11][scheme % 4]
+        // No step below 0.17: at 0.11 the fourth era read as the hollow drift treatment it has
+        // to be distinguishable FROM, and a filled segment carries no border to tell them apart.
+        Self.schemeOpacities[scheme % Self.schemeOpacities.count]
     }
 
+    /// Four depths of the accent, each far enough from the next to read as a different era and
+    /// all far enough from nothing to read as filled.
+    static let schemeOpacities: [Double] = [0.30, 0.20, 0.42, 0.26]
+
     /// The strip is a picture; this is the sentence it makes.
-    static func eraStripLabel(_ segments: [EraSegment]) -> String {
-        let parts = segments.map { segment in
-            segment.scheme == nil ? "\(segment.label), drift" : "\(segment.label), shape "
-                + "\(segment.scheme! + 1)"
+    /// The strip is a picture; this is the sentence it makes.
+    ///
+    /// Schemes are named by their VOCABULARY, the way the rows below name them. An ordinal
+    /// ("shape 1") is a number nothing else on the card establishes, so a reader hearing it has
+    /// nothing to map it onto.
+    static func eraStripLabel(_ segments: [EraSegment],
+                              schemes: [StructureFinding.Scheme] = []) -> String {
+        let parts = segments.map { segment -> String in
+            guard let index = segment.scheme else { return "\(segment.label), drift" }
+            guard index < schemes.count, !schemes[index].vocabulary.isEmpty else {
+                return "\(segment.label), one shape"
+            }
+            return "\(segment.label), \(schemes[index].vocabulary.joined(separator: " and "))"
         }
         return "Eras: " + parts.joined(separator: "; ")
     }

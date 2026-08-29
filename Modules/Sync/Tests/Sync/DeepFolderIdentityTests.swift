@@ -732,6 +732,8 @@ import Testing
         let manager = makeManager()
         let fm = MockFileManager()
         let root = "/logind-\(UUID().uuidString)"
+        // See the batch test below: opened before the call, so eviction cannot empty it.
+        let log = LogCapture()
         try plantDeepSource(on: fm, under: root)
         fm.unlistableDirectories = ["\(root)/project/src/deep"]
 
@@ -740,10 +742,12 @@ import Testing
                      destination: URL(fileURLWithPath: "\(root)/project"), overwritten: nil)],
             actionName: "Copy 1 Items", fileManager: fm)
         await walk.value
-        // The warning rides the logger's FIFO; awaiting a later marker proves it has landed.
-        await Logger.shared.debug("deep-identity log flush \(root)").value
 
-        let entry = Logger.shared.entries.last {
+        // `LogCapture`, not `Logger.shared.entries`: the buffer keeps the newest 1000 lines
+        // process-wide, so a full-package run whose other suites log enough evicts this warning
+        // and the assertion below reads an empty window (mechanism 12). A capture accumulates at
+        // publish time, so a later trim cannot take it away. It also awaits the FIFO flush.
+        let entry = await log.entries.last {
             $0.message.contains("\(root)/project") && $0.level == .warning
         }
         try #require(entry != nil,
@@ -765,6 +769,11 @@ import Testing
     /// matching lines is a count of THIS batch's lines.
     @MainActor
     @Test func aBatchOfUnreadableRegistrationsLogsOneLineNamingTheFirstAndTheCount() async throws {
+        // Opened BEFORE the call under test — it is a window, not a query. `Logger.shared`'s
+        // buffer keeps the newest 1000 lines process-wide, so in a full-package run another
+        // suite's logging evicts these warnings and the assertions below read an empty window
+        // (mechanism 12). A capture accumulates at publish time; a later trim cannot reach it.
+        let log = LogCapture()
         let manager = makeManager()
         let fm = MockFileManager()
         let root = "/logbatch-\(UUID().uuidString)"
@@ -778,9 +787,11 @@ import Testing
         }
 
         await manager.registerCopyUndo(items: items, actionName: "Copy 6 Items", fileManager: fm).value
-        await Logger.shared.debug("deep-identity batch log flush \(root)").value
 
-        let mine = Logger.shared.entries.filter { $0.level == .warning && $0.message.contains(root) }
+        // See the sibling test: read the capture, not the evictable process-wide buffer.
+        let mine = await log.entries.filter {
+            $0.level == .warning && $0.message.contains(root)
+        }
         #expect(mine.count == 1,
                 "6 unreadable registrations left \(mine.count) warning(s) — one per item crowds the 1000-entry buffer that holds the context explaining WHY they were unreadable: \(mine.map(\.message))")
         let line = mine.first?.message ?? ""

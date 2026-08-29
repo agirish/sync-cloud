@@ -33,7 +33,6 @@ import Testing
         "BulkFailureAggregationTests.swift",
         "CopyMoveBehaviorPinTests.swift",
         "CopyUndoDriftAndTransientTests.swift",
-        "DeepFolderIdentityTests.swift",
         "FileSyncManagerFilingTests.swift",
         "FilingProfileWriteTests.swift",
         "FilingResurveyTests.swift",

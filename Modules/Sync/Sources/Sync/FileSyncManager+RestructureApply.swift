@@ -26,6 +26,10 @@ extension FileSyncManager {
         /// §5.7's third sentence: the landing ran but the survey could not be refreshed.
         public var surveyRefreshFailure: String?
         public var refusal: String?
+        /// The manifest as it actually landed — performed actions only. A caller replaying the
+        /// landing onto its own keys must use THIS: the planned manifest's renames include any
+        /// the apply skipped, and `rekey` moved the store's keys through the performed set.
+        public var landedManifest: RestructureManifest?
 
         public init() {}
 
@@ -174,6 +178,7 @@ extension FileSyncManager {
         // move files back from names they never landed at.
         var landed = manifest
         landed.actions = execution.performed
+        outcome.landedManifest = landed
         store.updateApplied(manifestId: manifest.manifestId) {
             $0.manifest = landed
             $0.inverse = landed.inverse

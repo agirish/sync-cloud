@@ -381,9 +381,38 @@ import Foundation
             #expect(FileManager.default.fileExists(
                 atPath: dir.appendingPathComponent("p/\(name)").path))
         }
-        // A named family is untouched by any of this.
+        // A shape plan's name is untouched by any of this — one shape finding per family, and
+        // this is the spelling that shipped.
         #expect(try store.exportPlan(manifest(family: "Finance/US", kind: .shape))
                     == "restructure-2026-08-29-Finance-US.json")
+    }
+
+    /// **Date plus family stopped being unique when six kinds could export.** One parent carries
+    /// two shadow-axis findings on the real tree, and both wrote one filename: the second
+    /// replaced the first, and the first draft's `exportedTo` then named a different plan.
+    @Test func twoFindingsUnderOneParentExportToTwoFiles() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        func shadowAxis(_ subject: String) -> RestructureManifest {
+            RestructureManifest(
+                profileId: "p", manifestId: "m-\(subject)", createdAt: "2026-08-29T09:00:00",
+                family: "Finance/US/Income Tax", kind: .shadowAxis,
+                actions: [.init(action: .renameDir,
+                                src: "Finance/US/Income Tax/\(subject)",
+                                dst: "Finance/US/Income Tax/2023")])
+        }
+        let first = try store.exportPlan(shadowAxis("IRS Docs - 2023"))
+        let second = try store.exportPlan(shadowAxis("IRS Docs - 2024"))
+        #expect(first != second)
+        #expect(first.contains("IRS Docs - 2023"))
+        #expect(second.contains("IRS Docs - 2024"))
+        for name in [first, second] {
+            #expect(FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent("p/\(name)").path),
+                    "both plans survive — neither overwrote the other")
+        }
+        // Re-exporting one still replaces only itself: the subject is the finding's own folder.
+        #expect(try store.exportPlan(shadowAxis("IRS Docs - 2023")) == first)
     }
 
     /// A landing can rename the finding's own subject — a shadow-axis rename does exactly that —

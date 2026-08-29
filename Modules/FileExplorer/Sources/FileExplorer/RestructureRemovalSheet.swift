@@ -30,7 +30,6 @@ struct RestructureRemovalSheet: View {
         }
     }
 
-    let family: String
     let candidates: [Candidate]
     let accent: Color
     /// True when these are §5.2's **pre-existing** empties from the crowding strip rather than

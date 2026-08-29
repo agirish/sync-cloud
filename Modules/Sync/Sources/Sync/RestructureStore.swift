@@ -240,6 +240,10 @@ public final class RestructureStore: ObservableObject {
     ///
     /// Both keys are dropped because which one is present depends on whether the rekey ran, and
     /// a draft is consumed either way.
+    ///
+    /// **Pass the LANDED manifest** (`RestructureApplyOutcome.landedManifest`), not the planned
+    /// one: `rekey` moved the keys through the renames that actually performed, and a plan whose
+    /// rename was skipped would otherwise compute a key the store never held.
     public func removeDraft(for key: RestructureKey, consumedBy manifest: RestructureManifest) {
         removeDraft(for: key)
         var landedKey = key
@@ -260,18 +264,37 @@ public final class RestructureStore: ObservableObject {
     /// worth keeping, and two same-day files differing only in a suffix would leave a reader
     /// guessing which one was reviewed last. (An older draft's `exportedTo` can therefore name
     /// a file whose content is the newer plan.)
+    /// What distinguishes two plans over one family on one day — empty for a `shape` plan, which
+    /// is unique per family and whose filename shipped without it.
+    ///
+    /// The subject is the first operation's own folder, so two shadow-axis findings under one
+    /// parent (`IRS Docs - 2023`, `IRS Docs - 2024`) land in two files, and re-exporting either
+    /// still replaces only itself.
+    static func exportSubject(of manifest: RestructureManifest) -> String {
+        guard manifest.kind != .shape else { return "" }
+        let subject = manifest.actions
+            .first { $0.action != .keep }
+            .flatMap { $0.src ?? $0.dst }
+            .map { ($0 as NSString).lastPathComponent } ?? ""
+        let cleaned = subject.replacingOccurrences(of: "/", with: "-")
+        return cleaned.isEmpty ? "-\(manifest.kind.rawValue)"
+                               : "-\(manifest.kind.rawValue)-\(cleaned)"
+    }
+
     @discardableResult
     public func exportPlan(_ manifest: RestructureManifest) throws -> String {
         let date = manifest.createdAt.prefix(while: { $0 != "T" })
-        // A root-level family ("" or ".") would leave the name ending in a bare dash or a stray
-        // dot — the label is what a reader sees in the directory listing. Two unrelated plans
-        // can both be root-level (a top-level pair and a scattered empties removal), and
-        // same-day replacement is only sanctioned WITHIN one family, so the kind disambiguates
-        // them rather than letting one silently overwrite the other.
+        // **Date plus family stopped being unique.** Until the pair routes existed only `shape`
+        // could export, and a family has at most one shape finding; now six kinds can, and one
+        // parent can carry two shadow-axis findings — which wrote the same filename and silently
+        // replaced each other, leaving the first draft's `exportedTo` naming a different plan. A
+        // root-level family ("" or ".") has no name at all, and two unrelated plans can both be
+        // root-level. Same-day replacement stays sanctioned WITHIN one plan, because the subject
+        // below is the finding's own folder.
         let family = manifest.family.isEmpty || manifest.family == "."
-            ? "tree-\(manifest.kind.rawValue)"
+            ? "tree"
             : manifest.family.replacingOccurrences(of: "/", with: "-")
-        let name = "restructure-\(date)-\(family).json"
+        let name = "restructure-\(date)-\(family)\(Self.exportSubject(of: manifest)).json"
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let url = directory.appendingPathComponent("\(profileId)/\(name)")

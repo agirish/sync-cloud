@@ -1319,3 +1319,27 @@ as the feature above, checked and not owed: every touched file is v5-only except
 `FileSyncManager+Undo.swift`, whose two new handler guards consult `restructureLandingInProgress`
 — a flag (and a hazard) that exists only where Restructure landings do, so the maintenance lines
 have nothing to guard.
+
+### The Organize proposals O1–O6, O9 — checked, not owed
+
+Seven proposals against the v5.0 Organize build: the Trash route for §5.2's standing empties (O1),
+`Plan…` on the merge kinds (O2), and the visual pass (O3 before/after preview, O4 kind glyphs,
+O5 era strip, O6 blast radius as counts, O9 grouped crowding lists).
+
+**Every one of them extends machinery that exists only on `main`.** `RestructureLens`,
+`RestructurePlanSheet`, `RestructurePlanner`, `RestructureStore` and `FileSyncManager+RestructureApply`
+are all v5-only files — `git ls-tree -r --name-only origin/v4.x -- Modules/Sync/Sources/Sync/RestructurePlanner.swift`
+prints nothing on all three maintenance lines. There is no crowding strip to grow a button on, no
+plan sheet to seed, and no ledger whose counts a chip could restate.
+
+Two touched files exist off `main`, and neither is owed either:
+
+- `MacApp/HelpBook.swift` is on all three lines. It gains one paragraph, and that paragraph
+  describes the two sheets `Plan…` can open — both v5-only, so the sentence would be false on a
+  line that has neither.
+- `Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift` is on **`v4.x` only** (the
+  older two predate the lens workspace entirely). Every hunk here is inside its `.restructure`
+  branch or the Restructure helpers below it, none of which `v4.x` carries.
+
+Checked with `git ls-tree` per file against all three lines — which is also what corrected this
+entry: it first claimed both files were shared by all three, and only `v4.x` has the second.

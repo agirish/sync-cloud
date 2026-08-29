@@ -156,9 +156,11 @@ import Testing
     @Test func theTriggerOffersReviewOnceADraftExists() {
         #expect(RestructureLens.planTriggerTitle(planned: nil) == "Plan…")
         #expect(RestructureLens.planTriggerTitle(
-            planned: PlannedPlanInfo(operations: 9, summary: "s", renames: 0, merges: 0, filesMove: 0)) == "Review 9 operations")
+            planned: PlannedPlanInfo(operations: 9, summary: "s", renames: 0, carried: 0,
+                                    merges: 0, filesMove: 0)) == "Review 9 operations")
         #expect(RestructureLens.planTriggerTitle(
-            planned: PlannedPlanInfo(operations: 1, summary: "s", renames: 0, merges: 0, filesMove: 0)) == "Review 1 operation")
+            planned: PlannedPlanInfo(operations: 1, summary: "s", renames: 0, carried: 0,
+                                    merges: 0, filesMove: 0)) == "Review 1 operation")
     }
 
     // MARK: Render smoke
@@ -241,6 +243,71 @@ import Testing
                 "the columns come from the shared rule, not a second derivation")
         #expect(text.contains("for action in manifest.actions where action.action != .keep"),
                 "the exemplar is a member the plan touches")
+        #expect(text.contains("Self.previewMember(of: manifest, family: family,"),
+                "the sheet asks the rule; a private method could be stubbed to nil unnoticed")
+    }
+
+    /// The exemplar is a member the plan TOUCHES, and nil when it touches none — the case that
+    /// draws two identical columns and teaches nothing.
+    @Test func theExemplarIsAMemberThePlanActuallyTouches() {
+        let family = "Finance/US/Income Tax"
+        let members = ["2013", "2014"]
+        let touching = RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: family, kind: .shape,
+            actions: [.init(action: .keep, src: "\(family)/2013/Transcripts"),
+                      .init(action: .renameDir, src: "\(family)/2014/Federal",
+                            dst: "\(family)/2014/Forms")])
+        #expect(RestructurePlanSheet.previewMember(of: touching, family: family,
+                                                   members: members) == "\(family)/2014",
+                "the first member with a real operation, not the first keep")
+
+        let allKeep = RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: family, kind: .shape,
+            actions: [.init(action: .keep, src: "\(family)/2013/Transcripts")])
+        #expect(RestructurePlanSheet.previewMember(of: allKeep, family: family,
+                                                   members: members) == nil)
+
+        let elsewhere = RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: family, kind: .shape,
+            actions: [.init(action: .renameDir, src: "Other/2013/A", dst: "Other/2013/B")])
+        #expect(RestructurePlanSheet.previewMember(of: elsewhere, family: family,
+                                                   members: members) == nil,
+                "an operation outside every member names no exemplar")
+    }
+
+    /// Renders the sheet over a family, with the mapping either doing something or all-keep.
+    static func renderPlanSheet(mapped: Bool) throws -> Data {
+        let finding = StructureFinding(
+            family: "F",
+            schemes: [.init(vocabulary: ["forms"], members: ["2013"]),
+                      .init(vocabulary: ["federal tax"], members: ["2014"])])
+        let files: [String: [String]] = [
+            "F/2013/Federal Tax": ["a.pdf", "b.pdf"],
+            "F/2013/State Tax": ["c.pdf"],
+            "F/2014/Forms": ["d.pdf"],
+        ]
+        let folders: [String: [String]] = [
+            "F": ["2013", "2014"],
+            "F/2013": ["Federal Tax", "State Tax"],
+            "F/2014": ["Forms"],
+        ]
+        let tree = RestructureTreeView(
+            childFolders: { folders[$0] ?? (files[$0] != nil ? [] : nil) },
+            files: { files[$0] },
+            fileCount: { files[$0]?.count })
+        let sheet = RestructurePlanSheet(
+            finding: finding, family: "F", members: ["2013", "2014"], tree: tree,
+            profileId: "p", accent: .blue,
+            initialRows: mapped ? [.init(source: "Federal Tax", target: "Forms"),
+                                   .init(source: "State Tax", target: "Forms")]
+                                : [.init(source: "Federal Tax"), .init(source: "State Tax")],
+            onExport: { _, _ in .saved(filename: "f.json") }, onClose: {})
+        let host = NSHostingView(rootView: sheet.frame(width: 620, height: 700))
+        host.frame = NSRect(x: 0, y: 0, width: 620, height: 700)
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return try #require(rep.representation(using: .png, properties: [:]))
     }
 
     /// The whole sheet renders with the preview present — a layout crash fails here rather than
