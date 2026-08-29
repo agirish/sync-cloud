@@ -116,6 +116,44 @@ import Foundation
         #expect(two.summary.contains("2 folders carried whole"))
     }
 
+    // MARK: The verifier's verdict, as the card will read it
+
+    /// Step 4's verdict now outlives the log on the Applied card, so the sentence it hands over
+    /// names the count and the FIRST mismatch — a card listing forty would be the log with worse
+    /// formatting, and the log keeps every one of them regardless.
+    @Test func theVerifierNoteNamesTheFirstAndCountsTheRest() {
+        #expect(FileSyncManager.verifierNote([]) == nil,
+                "agreement is the absence of a note, not an empty one")
+        #expect(FileSyncManager.verifierNote(["a is missing"]) == "a is missing",
+                "one mismatch needs no count")
+        #expect(FileSyncManager.verifierNote(["a is missing", "b still exists", "c is missing"])
+                    == "a is missing (and 2 more; each one is in the log)")
+    }
+
+    /// The two new fields are optionals so every store already on disk decodes — absent is not
+    /// a verdict, and a record from before they existed must not start claiming one.
+    @MainActor
+    @Test func aRecordWithoutTheVerifierFieldsStillDecodes() throws {
+        let json = """
+        {"schemaVersion":1,"applied":[{"manifest":{"schemaVersion":2,"profileId":"p",
+        "manifestId":"m","createdAt":"t","family":"F","kind":"shape","actions":[]},
+        "inverse":{"schemaVersion":2,"profileId":"p","manifestId":"m-inverse","createdAt":"t",
+        "family":"F","kind":"shape","actions":[]},"at":"t","created":0,"skipped":0}]}
+        """
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("verdict-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
+                                                withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: dir.appendingPathComponent("p/restructure.json"))
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = RestructureStore(directory: dir, profileId: "p")
+        #expect(!store.isUnreadable)
+        let record = try #require(store.applied.first)
+        #expect(record.verifiedOK == nil)
+        #expect(record.verifierNote == nil)
+    }
+
     // MARK: A family that IS the tree
 
     /// Two spellings reach the root — `"."`, which is how a profile keys it, and `""`, which is

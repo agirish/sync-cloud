@@ -52,6 +52,13 @@ struct ReorganisationDisplay: Equatable, Identifiable {
     let canUndo: Bool
     /// True when the landing drained folders the removal sheet could take (§5.5's opt-in step).
     let hasEmptiedFolders: Bool
+    /// Step 4's verdict, as the card states it — nil when the landing has none to state, which
+    /// is every record written before the field existed and every landing that never reached the
+    /// verifier. Silence, not a claim.
+    var verifierLine: String?
+    /// Why this record cannot be undone yet, when something newer stands in the way. nil on the
+    /// one record that IS undoable and on every record that has been undone.
+    var blockedReason: String?
     var id: String { manifestId }
 }
 
@@ -259,6 +266,23 @@ struct RestructureLens: View {
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            // Step 4's verdict. It has only ever been in the log, which is the one place nobody
+            // reads after the fact — and "did this check out" is the question an Applied card
+            // exists to answer.
+            if let verifierLine = record.verifierLine {
+                Text(verifierLine)
+                    .scaledFont(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // Why the undo is not offered here, said BEFORE the click rather than as a refusal
+            // after it. Derived from the store's own order — never re-derived in the view.
+            if let blocked = record.blockedReason {
+                Text(blocked)
+                    .scaledFont(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if record.undoneAt == nil {
                 HStack(spacing: 14) {
                     if record.canUndo, let onUndoReorganisation {
@@ -288,6 +312,22 @@ struct RestructureLens: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .lensCard()
     }
+
+    /// Step 4's verdict as one line, or nil when the record has none to give. **Absent is not a
+    /// pass**: a record from before the field existed, and a landing that refused before the
+    /// verifier ran, both say nothing rather than claiming agreement.
+    static func verifierLine(verifiedOK: Bool?, note: String?) -> String? {
+        guard let verifiedOK else { return nil }
+        guard verifiedOK else {
+            return "The check found a disagreement — \(note ?? "the log has it")."
+        }
+        return "Verified — the tree matches what the plan said it would do."
+    }
+
+    /// Why a landing that is not the newest cannot be undone yet. The ledger unwinds newest
+    /// first, and saying so on the card is the difference between a greyed row and a mystery.
+    static let blockedByNewerText =
+        "Undo the newer reorganisation first — the ledger unwinds one at a time, newest back."
 
     /// The path a landing's card is headed with. `"."` is the profile's own spelling for the tree
     /// root, and a removal of empties scattered across the tree has no closer family than that —

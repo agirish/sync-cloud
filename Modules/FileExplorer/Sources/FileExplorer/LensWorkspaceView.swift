@@ -3307,7 +3307,15 @@ public struct LensWorkspaceView: View {
                 // landing forever — reopening a sheet of "already removed" rows over a
                 // permanently disabled button.
                 hasEmptiedFolders: record.undoneAt == nil && record.summary != nil
-                    && anyEmptiedFolderStillStands(of: record.manifest))
+                    && anyEmptiedFolderStillStands(of: record.manifest),
+                verifierLine: RestructureLens.verifierLine(verifiedOK: record.verifiedOK,
+                                                           note: record.verifierNote),
+                // **The store's order, never the view's.** `undoableReorganisation` is the one
+                // spelling the engine and the Organize menu also read; a second copy here is how
+                // a card ends up offering an undo the engine refuses.
+                blockedReason: record.undoneAt == nil && undoableId != nil
+                    && record.manifest.manifestId != undoableId
+                    ? RestructureLens.blockedByNewerText : nil)
         }
     }
 

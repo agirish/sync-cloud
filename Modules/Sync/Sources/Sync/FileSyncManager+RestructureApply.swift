@@ -185,6 +185,12 @@ extension FileSyncManager {
             $0.created = execution.created
             $0.skipped = execution.skipped.count
             $0.summary = outcome.summary
+            // Step 4's verdict, recorded where the card can read it. It has only ever lived in
+            // the log, so the one surface that says whether a landing checked out was the one
+            // place nobody looks after the fact.
+            $0.verifiedOK = outcome.verifierMismatches.isEmpty
+            $0.verifierNote = outcome.verifierMismatches.isEmpty ? nil
+                : Self.verifierNote(outcome.verifierMismatches)
         }
 
         // Steps 6 and 7, extracted so the Scaffolded card can run the same re-derive with a
@@ -979,6 +985,15 @@ extension FileSyncManager {
             }
         }
         return out
+    }
+
+    /// The verifier's disagreement in one line, for the Applied card. The log keeps every
+    /// mismatch; the card names the count and the first, because a card that listed forty would
+    /// be the log with worse formatting.
+    nonisolated static func verifierNote(_ mismatches: [String]) -> String? {
+        guard let first = mismatches.first else { return nil }
+        guard mismatches.count > 1 else { return first }
+        return "\(first) (and \(mismatches.count - 1) more; each one is in the log)"
     }
 
     /// Invariant 6's verifier: re-lists the touched paths and checks the disk against what the

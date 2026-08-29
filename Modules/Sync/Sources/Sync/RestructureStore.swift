@@ -120,11 +120,20 @@ public final class RestructureStore: ObservableObject {
         /// untouched: a file that had moved on and was skipped is in this line's skip count and
         /// named in the log (§5.7).
         public var undoSummary: String?
+        /// Step 4's independent verifier: did the tree it re-listed match what the performed
+        /// actions claim? **Optional, and nil is not "no"** — every record written before this
+        /// field existed decodes with it absent, and a landing that never reached the verifier
+        /// has nothing to report either. The card says nothing at all in that case.
+        public var verifiedOK: Bool?
+        /// What the verifier disagreed about, in one sentence — nil when it agreed, or when it
+        /// did not run.
+        public var verifierNote: String?
 
         public init(manifest: RestructureManifest, inverse: RestructureManifest, at: String,
                     created: Int, skipped: Int, appliedUnderProfileId: String? = nil,
                     producedProfileId: String? = nil, summary: String? = nil,
-                    undoneAt: String? = nil, undoSummary: String? = nil) {
+                    undoneAt: String? = nil, undoSummary: String? = nil,
+                    verifiedOK: Bool? = nil, verifierNote: String? = nil) {
             self.manifest = manifest
             self.inverse = inverse
             self.at = at
@@ -135,6 +144,8 @@ public final class RestructureStore: ObservableObject {
             self.summary = summary
             self.undoneAt = undoneAt
             self.undoSummary = undoSummary
+            self.verifiedOK = verifiedOK
+            self.verifierNote = verifierNote
         }
     }
 
