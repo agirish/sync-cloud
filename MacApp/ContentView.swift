@@ -25,6 +25,10 @@ struct ContentView: View {
     /// The topic Help should open on when a surface pointed here rather than the reader opening
     /// it cold. Cleared on close, so the next ⌘? opens the book at its front as before.
     @State private var helpTopic: String?
+    /// §11's folder verbs, written by the menu and carried out by the workspace — see
+    /// ``RestructureVerbRequest`` for why it is a value rather than a call. Not `private`: the
+    /// verbs are built in `ShortcutCommands`' extension of this view.
+    @State var restructureVerbRequest: RestructureVerbRequest?
     /// Whether the once-per-session part of the `onAppear` bootstrap has already run. Owned by
     /// the App (session-scoped, never persisted) because closing and Dock-reopening the single
     /// window recreates ContentView and all its `@State` — a view-owned flag would forget.
@@ -3885,6 +3889,7 @@ struct ContentView: View {
                     helpTopic = topic
                     showHelp = true
                 },
+                restructureVerbRequest: $restructureVerbRequest,
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onApplyRenames: { plans in Task { await syncManager.applyRenamePlans(plans) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },

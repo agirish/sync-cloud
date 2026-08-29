@@ -284,6 +284,13 @@ public struct LensWorkspaceView: View {
     private let onUpdateFolderMemory: (() -> Void)?
     /// Opens the app's Help overlay at a named topic — the one front door, never a second one.
     private let onOpenHelp: ((String) -> Void)?
+    /// A menu verb aimed at a finding, waiting to be carried out here.
+    ///
+    /// **The menu never presents a sheet.** ROADMAP_V5 §11's verbs act on the workspace's own
+    /// state, so the request arrives as a value and this view opens its own surface — a sheet
+    /// presented from the menu would live outside the anchor that keeps it alive across a lens
+    /// switch, which is the bug main's round-4 fixed for the two sheets that already existed.
+    @Binding private var restructureVerbRequest: RestructureVerbRequest?
     /// Opens Settings ▸ Intelligence, where the cloud backend is set up. Optional so the previews and
     /// the tests that mount this view without a host don't have to fake a Settings overlay; nil
     /// simply withholds the "Refine with Claude…" invitation, which is the honest outcome for a
@@ -397,6 +404,7 @@ public struct LensWorkspaceView: View {
         onUpdateFolderMemory: (() -> Void)? = nil,
         onConfigureCloudRefine: (() -> Void)? = nil,
         onOpenHelp: ((String) -> Void)? = nil,
+        restructureVerbRequest: Binding<RestructureVerbRequest?> = .constant(nil),
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onApplyRenames: @escaping ([RenamePlan]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
@@ -434,6 +442,7 @@ public struct LensWorkspaceView: View {
         self.onFindFilingSuggestionsFresh = onFindFilingSuggestionsFresh
         self.onUpdateFolderMemory = onUpdateFolderMemory
         self.onOpenHelp = onOpenHelp
+        self._restructureVerbRequest = restructureVerbRequest
         self.onConfigureCloudRefine = onConfigureCloudRefine
         self.onNormalizeNames = onNormalizeNames
         self.onApplyRenames = onApplyRenames
@@ -3127,6 +3136,14 @@ public struct LensWorkspaceView: View {
         .sheet(item: $planningFinding) { finding in
             planSheet(for: finding)
         }
+        // A menu verb, carried out HERE. Resolved against the findings as they stand now rather
+        // than as they stood when the menu was drawn — a menu item is enabled at draw time and
+        // clicked later, and a landing in between can retire the very finding it named.
+        .onChange(of: restructureVerbRequest) { _, request in
+            guard let request else { return }
+            restructureVerbRequest = nil
+            carryOut(request)
+        }
         .sheet(item: $removalRequest) { request in
             RestructureRemovalSheet(
                 candidates: request.candidates,
@@ -3490,6 +3507,37 @@ public struct LensWorkspaceView: View {
         // button (the landing happened) and print the sentence.
         return .landed(removed: outcome.removedEmpty, skippedCount: outcome.skipped.count,
                        caveat: outcome.surveyRefreshFailure)
+    }
+
+    /// Carries out a menu verb: resolve the folder to a finding, then open the surface the card
+    /// itself would open. A miss is a banner rather than silence — the item was enabled when it
+    /// was drawn, so the honest report is that the answer moved, not nothing at all.
+    private func carryOut(_ request: RestructureVerbRequest) {
+        guard let root = syncManager.filingFolderProfile?.root else { return }
+        guard let finding = RestructureVerbResolver.finding(
+            forFolder: request.folder, root: root,
+            in: syncManager.visibleStructureFindings, verb: request.verb) else {
+            syncManager.banner = .warning(
+                "There is no longer a finding for that folder — the survey may have been "
+                + "updated since the menu was opened.")
+            return
+        }
+        // The deliberate arrival §5.10 established: the user asked about this folder, so the
+        // reveal card would charge one intent twice.
+        syncManager.hasReviewedStructure = true
+        switch request.verb {
+        case .plan:
+            planningFinding = finding
+        case .setUp:
+            Task { @MainActor in
+                let outcome = await syncManager.applyScaffold(for: finding)
+                if let refusal = outcome.refusal {
+                    syncManager.banner = .warning(refusal)
+                } else {
+                    handOffToToFile(finding)
+                }
+            }
+        }
     }
 
     /// §5.4's plan surface, modal over the lens — **which one, by geometry.**

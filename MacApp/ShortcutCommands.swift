@@ -72,6 +72,14 @@ struct OrganizeVerbs {
     /// menu (never Edit) so it cannot sit beside ⌘Z's Undo and be mistaken for it — ROADMAP_V5
     /// §11's one hard constraint on the verb.
     let undoReorganisation: (() -> Void)?
+    /// §11's two deferred verbs, landed (proposal O10). Both act on the finding the selected
+    /// folder resolves to — `nil`, and so greyed, when it resolves to none, when the selection
+    /// is not a single folder, or when there is no survey to resolve against.
+    ///
+    /// They open a surface the workspace owns rather than presenting one themselves: a sheet
+    /// from the menu bar sits outside the anchor that keeps it alive across a lens switch.
+    let planShape: (() -> Void)?
+    let setUpLikeSiblings: (() -> Void)?
 }
 
 /// File ▸ the verbs the row menu has always had, over the pane selection.
@@ -1012,7 +1020,8 @@ extension ContentView {
               selection.count == 1,
               let node = selection.first else {
             return OrganizeVerbs(organizeFolder: nil, findDuplicates: nil, fixName: nil,
-                                 keepName: nil, undoReorganisation: undoReorganisation)
+                                 keepName: nil, undoReorganisation: undoReorganisation,
+                                 planShape: nil, setUpLikeSiblings: nil)
         }
         let delegate = paneActionDelegate(for: paneContext(isLeft: pane == .left))
         let can = OrganizeVerbAvailability.resolve(selectionCount: selection.count,
@@ -1023,7 +1032,32 @@ extension ContentView {
             findDuplicates: can.findDuplicates ? { delegate.handleFindDuplicates(node) } : nil,
             fixName: can.fixName ? { delegate.handleFixName(node) } : nil,
             keepName: can.keepName ? { delegate.handleKeepName(node) } : nil,
-            undoReorganisation: undoReorganisation)
+            undoReorganisation: undoReorganisation,
+            // §11's two deferred verbs. Availability is the RESOLVER's answer, so a greyed item
+            // and an offered one differ by whether the folder actually resolves to a finding
+            // that carries the surface — never by a second opinion about which kinds do.
+            planShape: restructureVerb(.plan, for: node),
+            setUpLikeSiblings: restructureVerb(.setUp, for: node))
+    }
+
+    /// One of §11's two folder verbs as a runnable, or nil when the selected folder resolves to
+    /// no finding that offers it — which greys the item (proposal O10).
+    ///
+    /// **It writes a request rather than presenting anything.** The workspace owns the plan sheet
+    /// and the scaffold, and re-resolves the folder when it runs: a menu item is enabled when the
+    /// menu is drawn and clicked afterwards, and a landing in between can retire the finding it
+    /// named.
+    func restructureVerb(_ verb: RestructureVerbResolver.Verb,
+                         for node: FileNode) -> (() -> Void)? {
+        guard node.isDirectory,
+              let root = syncManager.filingFolderProfile?.root,
+              RestructureVerbResolver.finding(forFolder: node.id, root: root,
+                                              in: syncManager.visibleStructureFindings,
+                                              verb: verb) != nil else { return nil }
+        let folder = node.id
+        return {
+            restructureVerbRequest = RestructureVerbRequest(verb: verb, folder: folder)
+        }
     }
 
     /// The newest un-undone landing in the Restructure ledger, as a runnable — nil when there is
@@ -1541,6 +1575,14 @@ struct OrganizeVerbCommands: View {
             .disabled(verbs?.fixName == nil)
         Button("Always Allow This Name") { verbs?.keepName?() }
             .disabled(verbs?.keepName == nil)
+        Divider()
+        // §11's two deferred verbs, above the Undo divider because they are things to DO with a
+        // folder, and Undo is about a landing that already happened. No chords: this menu's own
+        // rule, and the palette law means a verb reaches ⌘K only after it has a menu item.
+        Button("Plan This Folder’s Shape…") { verbs?.planShape?() }
+            .disabled(verbs?.planShape == nil)
+        Button("Set Up Like Its Siblings") { verbs?.setUpLikeSiblings?() }
+            .disabled(verbs?.setUpLikeSiblings == nil)
         Divider()
         // Worded as its own sentence and kept out of Edit, so it can never sit beside ⌘Z's Undo
         // and be mistaken for it (ROADMAP_V5 §11). Selection-free: the newest ledger landing.

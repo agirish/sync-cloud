@@ -196,12 +196,16 @@ import AppKit
                 "the Organize menu opens with \(organize.prefix(5))")
     }
 
-    @Test func theFourVerbsFollowTheSections() throws {
+    /// Six verbs since §11's two deferred ones landed (proposal O10). The order is the argument:
+    /// the four folder verbs, then the two that open a Restructure surface, then the ledger undo
+    /// — which is about a landing that already happened, not a thing to do with a selection.
+    @Test func theVerbsFollowTheSections() throws {
         let organize = Self.titles(try Self.menu("Organize"))
-        #expect(organize.suffix(5) == ["Organize This Folder…", "Find Duplicates of This",
+        #expect(organize.suffix(7) == ["Organize This Folder…", "Find Duplicates of This",
                                        "Fix Name…", "Always Allow This Name",
+                                       "Plan This Folder’s Shape…", "Set Up Like Its Siblings",
                                        "Undo This Reorganisation"],
-                "the Organize menu ends with \(organize.suffix(5))")
+                "the Organize menu ends with \(organize.suffix(7))")
     }
 
     /// §11's one hard constraint on the new verb: it must never sit beside ⌘Z's Undo. Edit is
