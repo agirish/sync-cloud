@@ -516,6 +516,80 @@ public final class FolderJumpStore: ObservableObject {
         defaults.set(favoriteOrder, forKey: Self.favoriteOrderKey)
     }
 
+    /// **Follows a volume rename**, so the pins and recents on a card that was renamed in Finder
+    /// stay attached to it.
+    ///
+    /// These maps are keyed by provider root, and a renamed card's root changes — so without this
+    /// the pins survive on disk under a key nothing will ever ask for again. `reachable` would not
+    /// even show them as missing: it filters what a root holds, and the root is what moved.
+    /// `SettingsManager.followVolumeRename` moves the source itself; this is the same rename
+    /// applied to the two per-root maps and to the Favorites order, so the card comes back whole.
+    ///
+    /// Called on the `NSWorkspace` notification, which carries both URLs — see that method for why
+    /// a rename is followed silently and an unplugged card is not touched at all.
+    public func followVolumeRename(from oldVolume: String, to newVolume: String) {
+        let pins = Self.rekeyed(pinnedByRoot, whenVolumeMovedFrom: oldVolume, to: newVolume)
+        // Capped after the merge, which is the one place this can grow a list: two roots' recents
+        // meeting under one key is the merge case above, and `init` caps on the way in for the
+        // same reason — a list written longer than the cap would otherwise stay long forever.
+        let visits = Self.rekeyed(recentsByRoot, whenVolumeMovedFrom: oldVolume, to: newVolume)
+            .mapValues { Array($0.prefix(Self.maxRecents)) }
+        let order = Self.rekeyedFavoriteOrder(favoriteOrder, whenVolumeMovedFrom: oldVolume, to: newVolume)
+        let movedPins = pins != pinnedByRoot, movedVisits = visits != recentsByRoot
+        guard movedPins || movedVisits || order != favoriteOrder else { return }
+        if movedPins { pinnedByRoot = pins; persistPinned() }
+        if movedVisits { recentsByRoot = visits; persistRecents() }
+        if order != favoriteOrder {
+            favoriteOrder = order
+            defaults.set(favoriteOrder, forKey: Self.favoriteOrderKey)
+        }
+        Logger.shared.info("Volume renamed to \(newVolume): moved the pinned and recent folders held under \(oldVolume)")
+    }
+
+    /// One per-root map with every key on the renamed volume moved to its new root.
+    ///
+    /// **Merged rather than overwritten where both keys exist**, which is the case that arises when
+    /// the user has already re-added the card under its new name and pinned something there: the
+    /// destination's own entries come first and the arrivals are appended, deduplicated by relative
+    /// path. Dropping either side would lose pins to a rename, which is what this exists to stop.
+    /// Keys are taken in sorted order so the merged sequence is the same every time, the reason
+    /// `init`'s own re-keying gives.
+    nonisolated static func rekeyed(_ map: [String: [JumpLocation]],
+                                    whenVolumeMovedFrom oldVolume: String,
+                                    to newVolume: String) -> [String: [JumpLocation]] {
+        var out: [String: [JumpLocation]] = [:]
+        for rawKey in map.keys.sorted() {
+            let moved = FolderSource.repathed(rawKey, whenVolumeMovedFrom: oldVolume, to: newVolume)
+            let key = Self.key(forRoot: moved ?? rawKey)
+            var list = out[key] ?? []
+            for entry in map[rawKey] ?? []
+            where !list.contains(where: { $0.relativePath == entry.relativePath }) {
+                list.append(entry)
+            }
+            out[key] = list
+        }
+        return out
+    }
+
+    /// The Favorites order with the same rename applied to the root half of each composite key.
+    ///
+    /// Separate from ``rekeyed(_:whenVolumeMovedFrom:to:)`` because these are `root\u{0}relative`
+    /// strings rather than plain roots, and the separator is load-bearing: splitting on the wrong
+    /// byte would make two different folders share one key. A key naming nothing is harmless —
+    /// `orderedFavorites` ignores it — but leaving the old root in place would drop every favorite
+    /// on the renamed card to the unranked tail, which is a silent reordering of the section.
+    nonisolated static func rekeyedFavoriteOrder(_ order: [String],
+                                                 whenVolumeMovedFrom oldVolume: String,
+                                                 to newVolume: String) -> [String] {
+        order.map { entry in
+            guard let separator = entry.firstIndex(of: "\u{0}") else { return entry }
+            let root = String(entry[entry.startIndex..<separator])
+            guard let moved = FolderSource.repathed(root, whenVolumeMovedFrom: oldVolume, to: newVolume)
+            else { return entry }
+            return Self.key(forRoot: moved) + String(entry[separator...])
+        }
+    }
+
     /// Pure move-to-front dedupe + cap (newest first). Extracted so the recents ordering is
     /// testable without the store's persistence.
     ///

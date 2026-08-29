@@ -736,7 +736,7 @@ public struct PaneHeader: View {
         case .collapse:
             if let onCollapse {
                 Button(action: onCollapse) {
-                    Image(systemName: "sidebar.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
+                    Image(systemName: PaneBarItem.collapseSymbol).paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
                 .buttonStyle(navButtonStyle)
                 .help("Collapse the source pane")
@@ -1227,7 +1227,7 @@ public struct PaneHeader: View {
             }
         case .collapse:
             if let onCollapse {
-                Button(action: onCollapse) { Label("Collapse Pane", systemImage: "sidebar.left") }
+                Button(action: onCollapse) { Label("Collapse Pane", systemImage: PaneBarItem.collapseSymbol) }
             }
         case .backForward:
             Button(action: onBack) { Label("Back", systemImage: "chevron.left") }

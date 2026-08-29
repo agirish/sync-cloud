@@ -528,6 +528,19 @@ public struct FolderSidebarView: View {
     /// Point the target pane at the folder a row lives in, rather than at the row.
     private let onShowEnclosingFolder: (FolderSidebarRow) -> Void
     private let onToggleSourceFavorite: (SidebarSourceRow) -> Void
+    /// Take a folder source out of the app — the verb this column had no way to reach.
+    ///
+    /// **The row it exists for is the one that can never come back.** A source rooted on a volume
+    /// that was renamed while SyncCloud was quit names a mount point that will not return; it draws
+    /// dimmed forever, and dimmed is the app's word for "asleep", so nothing about the row says it
+    /// is dead or offers a way out. Until this, the only route was Settings ▸ Sources, which is not
+    /// where the user is when they see the problem.
+    private let onRemoveSource: (SidebarSourceRow) -> Void
+    /// **Which rows Remove is offered on, decided by the caller because it owns the list.**
+    /// Only a folder source can be removed: a discovered account is discovered, so removing it
+    /// would name an act that cannot happen — `SettingsManager.removeFolderSource` ignores the id
+    /// and the row would still be there. Same reason `canRestoreStandardFavorites` is a parameter.
+    private let removableSourceIds: Set<String>
     /// Put `SidebarFavoritePlaces.standard` back. Offered only when one of them is missing.
     private let onRestoreStandardFavorites: () -> Void
     /// Whether Restore has anything to do, decided by the caller because it owns the stored list.
@@ -550,6 +563,15 @@ public struct FolderSidebarView: View {
     /// Which heading the pointer is over, so its chevron can be revealed the way Finder reveals
     /// Show/Hide rather than keeping a glyph on screen at all times.
     @State private var hoveredHeader: Section?
+    /// The source a Remove is waiting on confirmation for.
+    ///
+    /// **Confirmed rather than undone**, which is the opposite of what promoting a shortcut does
+    /// one file over — and the difference is that promotion is exactly reversible while this is
+    /// not. A removed source loses its id, and with it the name the user gave it, the folder it
+    /// opened at, and whether it was switched off; re-adding the same path mints a new source that
+    /// has none of those. An "Undo" that quietly hands back less than it took is worse than a
+    /// question asked first.
+    @State private var pendingSourceRemoval: SidebarSourceRow?
     /// The ambient text scale, so a mark can be sized by the same curve as the label beside it.
     @Environment(\.appFontScale) private var fontScale
 
@@ -619,6 +641,8 @@ public struct FolderSidebarView: View {
                 onNoticeAction: @escaping () -> Void = {},
                 onShowEnclosingFolder: @escaping (FolderSidebarRow) -> Void = { _ in },
                 onToggleSourceFavorite: @escaping (SidebarSourceRow) -> Void = { _ in },
+                onRemoveSource: @escaping (SidebarSourceRow) -> Void = { _ in },
+                removableSourceIds: Set<String> = [],
                 onRestoreStandardFavorites: @escaping () -> Void = {},
                 canRestoreStandardFavorites: Bool = false,
                 onMoveFavorite: @escaping (Int, Int) -> Void = { _, _ in },
@@ -644,6 +668,8 @@ public struct FolderSidebarView: View {
         self.onNoticeAction = onNoticeAction
         self.onShowEnclosingFolder = onShowEnclosingFolder
         self.onToggleSourceFavorite = onToggleSourceFavorite
+        self.onRemoveSource = onRemoveSource
+        self.removableSourceIds = removableSourceIds
         self.onRestoreStandardFavorites = onRestoreStandardFavorites
         self.canRestoreStandardFavorites = canRestoreStandardFavorites
         self.onMoveFavorite = onMoveFavorite
@@ -724,6 +750,24 @@ public struct FolderSidebarView: View {
         }
         .frame(width: width)
         .frame(maxHeight: .infinity, alignment: .top)
+        // **One dialog for the whole column, not one per row.** `sourceRow` is a function rather
+        // than a view of its own, so a per-row presenter would have nowhere to keep its state —
+        // and the alternative, a `@State` on a struct rebuilt for every row, is the classic way to
+        // get a dialog that presents against a stale row.
+        .confirmationDialog("Remove this source?",
+                            isPresented: Binding(get: { pendingSourceRemoval != nil },
+                                                 set: { if !$0 { pendingSourceRemoval = nil } }),
+                            presenting: pendingSourceRemoval) { source in
+            Button("Remove \(source.name)", role: .destructive) {
+                onRemoveSource(source)
+                pendingSourceRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { pendingSourceRemoval = nil }
+        } message: { source in
+            // Says what is lost and what is not. The folder is the thing a person is actually
+            // afraid for, and it is the one thing this cannot touch.
+            Text("\(source.name) is removed from SyncCloud. The folder itself is not deleted, and you can add it again — but the name you gave the source, where it opens, and whether it was switched off are not kept.")
+        }
     }
 
     /// **Which pane a click lands in, said out loud** — pinned above the scroll area so it cannot
@@ -1218,6 +1262,13 @@ public struct FolderSidebarView: View {
             if let verb = SidebarSourceModel.favoriteVerb(for: source) {
                 Divider()
                 Button(verb) { onToggleSourceFavorite(source) }
+            }
+            // **Last, and behind its own rule.** It is the one item here that changes what the app
+            // holds rather than what it is showing, and the row above it is a toggle a user reaches
+            // for often — so it sits where a mis-aimed click is least likely to land on it.
+            if removableSourceIds.contains(source.id) {
+                Divider()
+                Button("Remove Source…") { pendingSourceRemoval = source }
             }
         }
     }

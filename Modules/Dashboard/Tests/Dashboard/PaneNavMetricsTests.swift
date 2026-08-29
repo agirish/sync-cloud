@@ -66,8 +66,11 @@ import Design
         return counted == 0 ? 0 : total / Double(counted)
     }
 
+    /// The glyphs the pane bar actually draws. **Collapse is taken from `PaneBarItem` rather than
+    /// spelled here**, so that changing it re-measures the new mark instead of leaving this suite
+    /// vouching for one the bar no longer uses.
     private static let glyphs = [
-        "sidebar.left", "chevron.left", "chevron.right",
+        PaneBarItem.collapseSymbol, "chevron.left", "chevron.right",
         "arrow.clockwise", "arrow.up.arrow.down", "eye", "eye.slash"
     ]
 

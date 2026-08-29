@@ -112,12 +112,26 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         self == .scan ? [barTitle, ScanRungMode.stopTitle] : [barTitle]
     }
 
+    /// **The pane-collapse glyph, in one place because it was in three and had to stop being
+    /// `sidebar.left`.**
+    ///
+    /// That is the glyph the window's own sidebar toggle wears (`ContentView+Toolbar`'s Sidebar
+    /// item), and once the folder sidebar shipped the two sat about forty points apart down the
+    /// same edge, wearing the same mark for two different acts: one shows the folder column, the
+    /// other folds this pane back into the spine. Reported 2026-08-29 as exactly that confusion.
+    ///
+    /// **Not a plain `chevron.left`**, which is what a "<" would be — the Back button is `chevron.left`
+    /// and it is the pill immediately to the right of this one, so that trade swaps a collision at
+    /// forty points for one at eight. `arrow.left.to.line` keeps the leftward reading, says which
+    /// edge the pane folds into, and shares its silhouette with neither neighbour.
+    public static let collapseSymbol = "arrow.left.to.line"
+
     /// The palette tile's glyph. Paired items (View, Back/Forward) draw the first of their pair here;
     /// the bar itself draws both.
     public var paletteSymbol: String {
         switch self {
         case .viewMode: return "rectangle.split.3x1"
-        case .collapse: return "sidebar.left"
+        case .collapse: return PaneBarItem.collapseSymbol
         case .backForward: return "chevron.left"
         case .scan: return "arrow.clockwise"
         case .newFolder: return "folder.badge.plus"

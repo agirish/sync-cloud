@@ -110,3 +110,94 @@ public struct FolderSource: Codable, Equatable, Sendable, Identifiable {
         return key(lhs) == key(rhs)
     }
 }
+
+extension FolderSource {
+
+    /// **Where a path moves to when the volume under it is renamed**, or nil when it is not on that
+    /// volume.
+    ///
+    /// Renaming a card in Finder moves its mount point — `/Volumes/NO NAME` becomes
+    /// `/Volumes/Camera SD` — and a source rooted there is left naming a path that will never come
+    /// back. It does not merely go dim: dim means "not answering", and this one is not asleep. On
+    /// 2026-08-29 that produced a permanently dead row for a card that was sitting in the reader,
+    /// beside a second source for the same card added by clicking it.
+    ///
+    /// Case-folded on both sides because `/Volumes` lives on the boot volume, which is
+    /// case-insensitive by default — but the SUFFIX is carried over with its own spelling intact,
+    /// since the folders below the mount point may well be on a case-sensitive filesystem.
+    ///
+    /// `/` is refused as an old volume: the startup disk keeps its mount point through a rename, so
+    /// a rewrite there would repoint every source on the machine at the new name.
+    ///
+    /// - Returns: the new path, already ``abbreviated(_:)`` the way a stored path is spelled.
+    public static func repathed(_ path: String,
+                                whenVolumeMovedFrom oldVolume: String,
+                                to newVolume: String) -> String? {
+        let source = expandedAndTrimmed(path)
+        let old = expandedAndTrimmed(oldVolume)
+        let new = expandedAndTrimmed(newVolume)
+        guard !old.isEmpty, old != "/", !new.isEmpty, new.lowercased() != old.lowercased() else { return nil }
+        if source.lowercased() == old.lowercased() { return abbreviated(new) }
+        guard source.lowercased().hasPrefix(old.lowercased() + "/") else { return nil }
+        return abbreviated(new + String(source.dropFirst(old.count)))
+    }
+
+    /// The folder-source list after the volume at `oldVolume` was renamed to `newVolume`.
+    ///
+    /// **One folder still gets one row**, which is the whole reason this is a list operation rather
+    /// than a `map`. If the user has already re-added the volume under its new name — the exact
+    /// sequence that produced the dead row this follows — then moving the stale source onto it
+    /// would mint the second row for one folder that `SettingsManager.addFolderSource` is careful
+    /// never to mint. So a source whose new path is already some other source's folder is *removed*
+    /// instead, and the one the user just added is the one that survives: it is the row they are
+    /// looking at, and it carries whatever they have done to it since.
+    ///
+    /// Only folder sources are considered, because only they can be rooted on a removable volume: a
+    /// discovered account's root is a folder under `~/Library/CloudStorage`, which the rename of an
+    /// external disk cannot touch.
+    ///
+    /// - Returns: the new list, plus the ids that moved and the ids that were absorbed into an
+    ///   existing source — the caller has per-id keys of its own to clean up for the second group.
+    public static func following(volumeRenameFrom oldVolume: String, to newVolume: String,
+                                 in sources: [FolderSource])
+        -> (sources: [FolderSource], moved: [String], absorbed: [String]) {
+        var out: [FolderSource] = []
+        var moved: [String] = []
+        var absorbed: [String] = []
+        for source in sources {
+            guard let newPath = repathed(source.path, whenVolumeMovedFrom: oldVolume, to: newVolume),
+                  newPath != source.path else {
+                out.append(source)
+                continue
+            }
+            // **Checked against the sources that are NOT moving**, which is the only collision
+            // there can be: the rewrite is a prefix substitution and therefore injective, so two
+            // sources on the renamed volume land on two different folders however they are
+            // ordered. A source already sitting at the destination is one the user added under
+            // the new name, and it is not on the old volume — so it is in this set.
+            let stationary = sources.filter {
+                $0.id != source.id
+                    && repathed($0.path, whenVolumeMovedFrom: oldVolume, to: newVolume) == nil
+            }
+            if stationary.contains(where: { sameFolder($0.path, newPath) }) {
+                absorbed.append(source.id)
+                continue
+            }
+            var updated = source
+            updated.path = newPath
+            out.append(updated)
+            moved.append(source.id)
+        }
+        return (out, moved, absorbed)
+    }
+
+    /// A tilde-expanded path with trailing slashes removed, keeping a bare `/` intact — the
+    /// spelling the volume comparisons above are made in. Not `abbreviated`, which resolves
+    /// symlinks: the OLD mount point is gone by the time a rename is followed, and resolving a path
+    /// that no longer exists is a no-op that costs a `stat` per source per rename.
+    private static func expandedAndTrimmed(_ path: String) -> String {
+        var out = (path as NSString).expandingTildeInPath
+        while out.count > 1, out.hasSuffix("/") { out.removeLast() }
+        return out
+    }
+}

@@ -3413,6 +3413,36 @@ struct ContentView: View {
         .onReceive(FolderJumpStore.shared.objectWillChange) { _ in
             DispatchQueue.main.async { refreshFolderSidebarRows() }
         }
+        // **A card renamed in Finder takes its sources with it.** `didRenameVolumeNotification`
+        // carries both URLs, so this is a fact and not an inference — which is what makes acting on
+        // it silently safe. Nothing here treats a source that has merely gone missing as renamed:
+        // an unplugged card is asleep, and the column's whole dimming rule is that asleep is not
+        // gone. See `SettingsManager.followVolumeRename`.
+        .onReceive(NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didRenameVolumeNotification)) { note in
+                followVolumeRename(note)
+        }
+    }
+
+    /// Moves everything keyed to a renamed volume's old mount point onto the new one.
+    ///
+    /// **Both URLs or nothing.** `DidRenameVolumeMessage` is AppKit's own typed reading of the
+    /// notification's `userInfo`, and it answers nil rather than half a pair — a notification that
+    /// says a volume was renamed without saying from what to what has no safe half to act on, so it
+    /// is logged and dropped rather than guessed at from whichever sources have stopped answering.
+    ///
+    /// **A rename can also move nothing.** The notification fires for a name change *and/or* a
+    /// mount-path change, and a volume whose path did not move needs no work — both followers no-op
+    /// on an unchanged path, so that case costs a comparison rather than a special branch here.
+    private func followVolumeRename(_ note: Notification) {
+        guard let renamed = NSWorkspace.DidRenameVolumeMessage.makeMessage(note) else {
+            Logger.shared.warning("A volume was renamed but the notification did not say from what to what — nothing moved")
+            return
+        }
+        let old = renamed.oldVolumeURL.path, new = renamed.volumeURL.path
+        settings.followVolumeRename(from: old, to: new)
+        FolderJumpStore.shared.followVolumeRename(from: old, to: new)
+        refreshFolderSidebarRows()
     }
 
 

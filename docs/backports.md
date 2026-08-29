@@ -1453,3 +1453,60 @@ Checked with `git ls-tree` per file against all three lines, and with `git show 
 for the two owed rows rather than inferring absence from the file list — a file being present says
 nothing about which version of it is present, which is the whole difference between the two
 verdicts in this entry.
+
+### 2026-08-29 — a renamed memory card, and the pane-collapse glyph — SPLIT VERDICT, one row owed
+
+Two things reported off the running app in one message, and they land on the maintenance lines
+very differently — which is the reason this entry exists rather than a one-line "v5 only".
+
+**OWED (`v4.x`, and the model half on `v3.x`) — a source on a volume renamed in Finder is left
+naming a mount point that never comes back.** `~/sync-cloud.log` has the whole sequence six minutes
+apart: `11:52:05 User added folder source /Volumes/NO NAME`, `12:58:09 Error enumerating
+/Volumes/NO NAME … no such file`, `12:58:11 User added folder source /Volumes/Camera SD`. The card
+was renamed while the app was running; its mount point moved; the source did not. What the user
+sees is not a source that is *asleep* — which is all the sidebar's dimming has ever meant — but a
+permanently dead row, beside a second source for the same card.
+
+`Modules/Sync/Sources/Sync/FolderSource.swift` is on `v4.x` and `v3.x` (absent on `v2.x`, which has
+no folder sources at all), and neither line has anything watching for the rename:
+
+```sh
+for l in v4.x v3.x v2.x; do git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/FolderSource.swift; done
+for l in v4.x v3.x v2.x; do git grep -c didRenameVolumeNotification origin/$l -- MacApp Modules; done   # no hits on any line
+```
+
+`main` adds `FolderSource.repathed(_:whenVolumeMovedFrom:to:)` and
+`following(volumeRenameFrom:to:in:)`, `SettingsManager.followVolumeRename`,
+`FolderJumpStore.followVolumeRename`, and one `NSWorkspace.didRenameVolumeNotification`
+subscription in `ContentView`. **The Sync + Settings half applies to both lines unchanged.** The
+`FolderJumpStore` half applies to all three (the file is on every line). The sidebar half does not:
+`FolderSidebar.swift` and `ContentView+FolderSidebar.swift` are **`v4.x`-only**, so on `v3.x` the
+rename-following is the whole fix and the way out of an already-dead row is Settings ▸ Sources,
+which that line already has (`removeFolderSource` is present on `v4.x` and `v3.x`, absent on
+`v2.x`).
+
+**NOT owed — "Remove Source…" in the sidebar's context menu.** Same `v4.x`-only files, and on that
+line it is reachable — but it is an *addition*, not the repair: it exists for the rename that
+happens while SyncCloud is quit, which the notification cannot see. A line taking the rename-follow
+above gets the reported defect fixed without it.
+
+**NOT owed — the pane-collapse glyph, and the reason is that the clash does not exist there.**
+`main` moves the pane's collapse button off `sidebar.left` (to `arrow.left.to.line`, via the new
+`PaneBarItem.collapseSymbol`) because the window's own sidebar toggle wears `sidebar.left` too,
+about forty points up the same edge. All three lines carry `case collapse` and two `sidebar.left`
+hits in `DashboardViews.swift` — so the *glyph* is there — but only `v4.x` has the second one to
+collide with:
+
+```sh
+for l in v4.x v3.x v2.x; do git show origin/$l:MacApp/ContentView+Toolbar.swift \
+  | grep -c 'Label("Sidebar", systemImage: "sidebar.left")'; done    # 1, 0, 0
+```
+
+`v3.x` and `v2.x` have no window sidebar toggle at all (`sidebar.right` for Info is their only
+`sidebar.*` toolbar glyph), so on those lines the mark is unambiguous and changing it would be
+churn. **`v4.x` DOES have the clash and is therefore genuinely owed this one too** — recorded as
+owed, not picked, under the standing direction.
+
+**NOT owed — the Help book bullet and paragraph.** `MacApp/HelpBook.swift` is on all lines, but the
+new copy describes behaviour those lines do not have; documenting it there would be worse than
+silence, the same verdict the v5.0 Help pass got above.

@@ -497,6 +497,46 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    /// **Follows a volume rename**, so a source rooted on a card that was renamed in Finder moves
+    /// with it instead of being left naming a mount point that will never come back.
+    ///
+    /// Renaming a card moves its mount point: `/Volumes/NO NAME` becomes `/Volumes/Camera SD`, and
+    /// the source stays where it was. What that produces is not a source that is asleep — the rule
+    /// the sidebar's dimming means — but a permanently dead row, beside a second source for the
+    /// same card as soon as the user clicks it. Both happened on 2026-08-29.
+    ///
+    /// **Driven by `NSWorkspace.didRenameVolumeNotification`, which carries both URLs**, so the
+    /// move is a fact rather than a guess. That is the whole reason this is safe to do silently:
+    /// nothing here infers a rename from a source having gone missing, and an unplugged card is
+    /// untouched — it is asleep, and "a source that is asleep has not gone" is the rule the whole
+    /// column is built on. A rename that happens while SyncCloud is quit is therefore NOT followed;
+    /// the sidebar's Remove Source is the way out of that one.
+    ///
+    /// - Returns: the ids that moved, for a caller that wants to say so.
+    @discardableResult
+    public func followVolumeRename(from oldVolume: String, to newVolume: String) -> [String] {
+        let plan = FolderSource.following(volumeRenameFrom: oldVolume, to: newVolume,
+                                          in: folderSources)
+        guard !plan.moved.isEmpty || !plan.absorbed.isEmpty else { return [] }
+        for id in plan.absorbed {
+            Logger.shared.info("Volume renamed to \(newVolume): dropped folder source \(id), whose folder is already another source's")
+            // The per-id keys `removeFolderSource` clears, cleared here for the same reason — the
+            // source is gone, and an override left behind would attach itself to nothing.
+            userDefaults.removeObject(forKey: "\(Self.nameOverrideKeyPrefix)\(id)")
+            if disabledProviderIds.remove(id) != nil {
+                userDefaults.set(disabledProviderIds.sorted(), forKey: Self.disabledProviderIdsKey)
+            }
+        }
+        for id in plan.moved {
+            Logger.shared.info("Volume renamed: moved folder source \(id) from \(oldVolume) to \(newVolume)")
+        }
+        folderSources = plan.sources
+        Task {
+            await discoverProviders()
+        }
+        return plan.moved
+    }
+
     /// Adds a normalized ignore pattern; whitespace-only input and duplicates are dropped.
     /// - Returns: True when the pattern was added.
     @discardableResult

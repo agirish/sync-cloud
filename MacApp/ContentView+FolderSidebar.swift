@@ -470,6 +470,12 @@ extension ContentView {
             },
             onShowEnclosingFolder: { row in showFolderSidebarRowEnclosingFolder(row) },
             onToggleSourceFavorite: { source in toggleFolderSidebarPlaceFavorite(source) },
+            onRemoveSource: { source in removeFolderSidebarSource(source) },
+            // **Folder sources only, and taken from the settings list rather than from the row.**
+            // A row's `.configured` state says a source claims that folder, not which KIND of
+            // source — and `removeFolderSource` ignores a discovered account's id, so offering the
+            // item on one would name an act that silently does nothing.
+            removableSourceIds: Set(settings.folderSources.map(\.id)),
             onRestoreStandardFavorites: { restoreStandardFolderSidebarFavorites() },
             canRestoreStandardFavorites: SidebarFavoritePlaces.isMissingStandard(folderSidebarFavoritePlaces),
             onMoveFavorite: { from, to in moveFolderSidebarFavorite(from: from, to: to) },
@@ -757,6 +763,26 @@ extension ContentView {
             folderSidebarNotice = FolderSidebarNotice(
                 message: "Added \(source.name) as a source", sourceId: id)
         }
+        refreshFolderSidebarRows()
+    }
+
+    /// **Takes a folder source out of the app, from the column where the user is looking at it.**
+    ///
+    /// The row this exists for is one that cannot come back: a source rooted on a volume renamed
+    /// while SyncCloud was quit names a mount point that will never return. It draws dimmed, and
+    /// dimmed means "asleep" everywhere else in this column, so the row said nothing about being
+    /// dead and there was no way to act on it short of Settings ▸ Sources.
+    ///
+    /// **Not the same act as the notice's Remove beside it.** That one takes back a promotion this
+    /// session made and is exactly reversible; this one is confirmed first, because the id it drops
+    /// carries the name override, the landing folder and the enabled flag with it. The confirmation
+    /// lives in the view — see `pendingSourceRemoval`.
+    ///
+    /// The notice is cleared when it named the source being removed, so its Remove cannot be left
+    /// on screen offering to remove something that is already gone.
+    func removeFolderSidebarSource(_ source: SidebarSourceRow) {
+        settings.removeFolderSource(id: source.id)
+        if folderSidebarNotice?.sourceId == source.id { folderSidebarNotice = nil }
         refreshFolderSidebarRows()
     }
 
