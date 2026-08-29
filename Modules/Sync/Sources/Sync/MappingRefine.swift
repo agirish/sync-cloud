@@ -185,8 +185,13 @@ public enum MappingRefineProtocol {
             case "keep": verdict = .keep
             case "declined": verdict = .declined
             case "propose":
+                // A model-proposed target is a FOLDER NAME, and the planner's rule is the one
+                // spelling of that — a path-shaped answer ("Tax/2024", "../Shared") accepted
+                // here would flow into a mapping row and aim a rename outside the family. The
+                // derivation's `.invalidTargetName` refusal backstops this, but a proposal the
+                // user can accept should not be one the plan must then refuse.
                 guard let target = entry["target"] as? String,
-                      !target.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+                      RestructurePlanner.isValidTargetName(target) else { continue }
                 // A tool-forced schema makes `target` mandatory, so a model with nothing to
                 // change answers `A → A` instead of keep — normalised here, or the degenerate
                 // self-proposal would even earn a false "swaps places with itself" label.

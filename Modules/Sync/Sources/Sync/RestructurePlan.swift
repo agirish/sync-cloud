@@ -78,6 +78,14 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
     /// Ordered as they run.
     public var actions: [Action]
 
+    /// How many actions actually DO something — `keep` rows are the plan's signature block, not
+    /// operations, so a red "Apply N operations" button (and the card's "Review N operations")
+    /// counting them overstated the destructive scope: one rename plus 13 keeps read as
+    /// "Apply 14 operations" over a landing whose ledger then said "1 rename · 0 moved".
+    public var operationCount: Int {
+        actions.count { $0.action != .keep }
+    }
+
     public static let currentSchema = 2
 
     public init(profileId: String, manifestId: String, createdAt: String, family: String,

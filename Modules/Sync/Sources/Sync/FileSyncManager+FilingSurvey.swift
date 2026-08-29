@@ -70,6 +70,16 @@ extension FileSyncManager {
     public func resurveyFilingMemory(root: URL, taxonomy: [FileNode]? = nil,
                                      now: Date = Date()) async -> FilingSurveyReport {
         guard !filingSurveyLifecycle.isRunning else { return .none }
+        // The landing guard's OTHER direction: a landing refuses to start while this survey
+        // runs, but this survey could start while a landing sat suspended in its re-derive
+        // awaits — walking a tree the inverse was mid-reshape, then writing memory and the
+        // fingerprint over (or racing) the landing's own step-7 writes. One mutator at a time,
+        // in both orders.
+        guard !restructureLandingInProgress else {
+            Logger.shared.info("Folder memory update refused — a reorganisation is landing; "
+                + "run it again once the landing finishes")
+            return .none
+        }
         guard let directory = filingProfilesDirectory else {
             Logger.shared.info("No filing profile directory — nothing to re-survey")
             return .none

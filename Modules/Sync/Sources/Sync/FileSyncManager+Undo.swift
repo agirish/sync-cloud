@@ -1156,6 +1156,7 @@ extension FileSyncManager {
     func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveUndoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
+            guard !target.undoReplayBlockedByLanding(actionName) else { return }
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             let redoParamResolver = AsyncValueResolver<[MoveRedoParam]>()
@@ -1550,6 +1551,7 @@ extension FileSyncManager {
         invalidateUndoableBanner()
         let confirmPermanentDelete = permanentDeleteConfirmer
         undoManager?.registerUndo(withTarget: self) { target in
+            guard !target.undoReplayBlockedByLanding("New Folder") else { return }
             Logger.shared.info("User triggered Undo: New Folder")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             target.registerCreateFolderRedo(url: url, fileManager: fm)

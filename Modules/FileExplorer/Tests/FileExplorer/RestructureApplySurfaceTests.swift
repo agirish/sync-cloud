@@ -103,7 +103,8 @@ import Testing
                 .init(path: "Finance/US/Income Tax/2013/2013", isStillEmpty: true),
                 .init(path: "Finance/US/Income Tax/2016/Payment", isStillEmpty: false),
             ],
-            accent: .blue, onRemove: { _ in .landed(caveat: nil) }, onClose: {})
+            accent: .blue, onRemove: { _ in .landed(removed: 1, skippedCount: 0, caveat: nil) },
+            onClose: {})
         let hosting = NSHostingView(rootView: sheet.frame(width: 480, height: 400))
         hosting.frame = NSRect(x: 0, y: 0, width: 480, height: 400)
         hosting.layoutSubtreeIfNeeded()
@@ -154,5 +155,69 @@ import Testing
         #expect(phrase.hasPrefix("today at "),
                 "a stamp written now must read as words, not as \(stamp)")
         #expect(!phrase.contains("T"), "the raw-stamp fallback leaks the literal T")
+    }
+
+    // MARK: The removal sheet's landing sentence
+
+    /// The three shapes of "landed", from the engine's own counts — a bare "Moved to the
+    /// Trash" was printed over runs in which the engine skipped some or every ticked folder.
+    @Test func theRemovalLandingSentenceFollowsTheCounts() {
+        let clean = RestructureRemovalSheet.landedSentence(removed: 2, skippedCount: 0,
+                                                          caveat: nil)
+        #expect(clean.contains("Moved to the Trash") && clean.contains("Undo"))
+
+        let partial = RestructureRemovalSheet.landedSentence(removed: 2, skippedCount: 1,
+                                                            caveat: nil)
+        #expect(partial.contains("Moved 2 folders") && partial.contains("1 skipped"),
+                "a partial landing names both counts")
+
+        let none = RestructureRemovalSheet.landedSentence(removed: 0, skippedCount: 3,
+                                                         caveat: nil)
+        #expect(none.contains("Nothing was moved"),
+                "an all-skip landing must not claim anything was trashed")
+        #expect(!none.contains("Undo"),
+                "nothing moved, so there is nothing the undo sentence could promise back")
+
+        let caveated = RestructureRemovalSheet.landedSentence(
+            removed: 1, skippedCount: 0, caveat: "the survey could not be refreshed")
+        #expect(caveated.contains("Moved to the Trash")
+                && caveated.contains("the survey could not be refreshed"),
+                "the caveat composes with the landing, never replaces it")
+    }
+
+    // MARK: The badge call site
+
+    /// The rail badge's filter is pinned at its CALL SITE: `carriesPlan` itself is table-pinned
+    /// in the store tests, but reverting the badge to count every finding went red nowhere —
+    /// the classic tested-rule-with-an-untested-caller.
+    @Test func theRailBadgeCountsOnlyPlanBearingKinds() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // FileExplorer (tests)
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // Modules/FileExplorer
+            .appendingPathComponent("Sources/FileExplorer/LensWorkspaceView.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        #expect(text.contains("restructure: structureFindings.count {\n                $0.kind.carriesPlan"),
+                "the badge must filter on carriesPlan before it counts")
+    }
+
+    // MARK: The plan sheet's lockdown seam
+
+    /// One seam for "finished or busy", read by the whole editing surface. Without it, any row
+    /// edit after a successful Apply cleared the outcome, un-retired the sheet, and re-armed
+    /// Export — which minted a "Planned, not applied" draft over a landed reorganisation.
+    @Test func thePlanSheetEditorsLockOnTheOneSeam() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/RestructurePlanSheet.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        #expect(text.contains("private var locked: Bool { applying || isApplied }"),
+                "the seam itself")
+        #expect(text.contains(".disabled(locked)"),
+                "the editing surface must read the seam")
+        #expect(text.contains("guard !isApplied else { return }"),
+                "the outcome-clearing onChange must not un-retire an applied sheet")
     }
 }

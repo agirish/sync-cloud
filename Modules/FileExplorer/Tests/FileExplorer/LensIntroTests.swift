@@ -52,8 +52,12 @@ import Testing
         // Restructure stopped being read-only at §5.5: a reviewed plan's Apply moves files. Its
         // contract is now the same family as Organize's — reviewed, recorded, undoable — and the
         // one claim its card must never make again is the old "nothing is renamed or moved".
+        // The undo claim is SCOPED to a plan's landing: a scaffold is recorded without a chain
+        // anchor (invisible to `undoableReorganisation`, by its own test), so a bare "every
+        // landing is undoable" promised a post-quit undo the scaffold does not have.
         #expect(LensIntros.restructure(providerName: nil).safety.contains("review"))
-        #expect(LensIntros.restructure(providerName: nil).safety.contains("undoable"))
+        #expect(LensIntros.restructure(providerName: nil).safety
+            .contains("a plan's landing can be undone"))
         #expect(!LensIntros.restructure(providerName: nil).safety.contains("Nothing is created"))
         // Rules never moves a file itself — a rule steers a suggestion, and the suggestion is
         // still confirmed. Both halves, because either alone overstates or understates it.

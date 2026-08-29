@@ -149,7 +149,10 @@ extension FileSyncManager {
             // went to the Trash — so the TOP of the ⌘Z stack would still be the previous
             // landing's group, and a ⌘Z right after "remove emptied folders" would replay THAT
             // group into source folders this landing just trashed. Clear the stack instead: the
-            // removal's own ledger card carries the undo that actually reverses it.
+            // removal's own ledger card carries the undo that actually reverses it. The clear
+            // is deliberately blunt — it takes unrelated stacked undos (a New Folder, a filing
+            // move) with it, an accepted cost: a lost undo is redone by hand, a replay into
+            // trashed folders is not.
             undo.removeAllActions()
             Logger.shared.info("Restructure apply \(manifest.manifestId): removal landing — "
                 + "session ⌘Z cleared; Undo This Reorganisation is the way back")
@@ -392,6 +395,21 @@ extension FileSyncManager {
                 + "described the pre-undo tree")
         }
 
+        // The active-profile guard, RE-CHECKED after the suspension: the inverse ran for
+        // minutes on a real tree, and a Setup walk completed meanwhile writes and activates a
+        // fresh profile — the pre-await guard cannot see it, and an unconditional re-point
+        // would silently deactivate the profile the user just finished learning. This is the
+        // undo-side twin of `writeDerivedProfile`'s raced-switch refusal, which protects the
+        // apply's write but has no counterpart inside `repointActiveProfile`.
+        guard (record.producedProfileId ?? previousId) == (filingProfileDirectoryId ?? "") else {
+            outcome.surveyRefreshFailure = "The files were moved back, but the active profile "
+                + "changed while the inverse ran — the survey was left where it now points "
+                + "rather than re-pointed over it. The record stays applied."
+            Logger.shared.warning("Restructure undo \(manifestId): "
+                + outcome.surveyRefreshFailure!)
+            return outcome
+        }
+
         // Re-point back and reload everything from the kept directory — the profile there
         // describes the restored tree, which is why the undo does not re-derive.
         do {
@@ -450,6 +468,7 @@ extension FileSyncManager {
                                        fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
+            guard !target.undoReplayBlockedByLanding(actionName) else { return }
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared
             target.registerRestructureRenameRedo(items: items, actionName: actionName,
@@ -490,6 +509,7 @@ extension FileSyncManager {
                                        fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
+            guard !target.undoReplayBlockedByLanding(actionName) else { return }
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared
             target.registerRestructureRenameUndo(items: items, actionName: actionName,
@@ -544,9 +564,6 @@ extension FileSyncManager {
         var createdURLs: [URL] = []
     }
 
-    /// One directory level's entry names, through the protocol's own enumerator — the listing
-    /// the unlisted-file rule and the empty-check re-run at the moment of the action.
-    /// (`FileManaging` has no `contentsOfDirectory`; adding one strands every test double.)
     /// How many visible FILES sit anywhere beneath `path` — empty directories and dotfiles do
     /// not count as contents. This is the removal step's definition of "still empty": a drained
     /// folder whose only remainders are the (equally drained) folders inside it can go to the
@@ -593,12 +610,23 @@ extension FileSyncManager {
         guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
         var hasher = Insecure.MD5()
-        while let chunk = try? handle.read(upToCount: 4 << 20), !chunk.isEmpty {
-            hasher.update(data: chunk)
+        do {
+            // A read ERROR is not the end of the file: finalising what came before it would
+            // record a truncated prefix's hash as the file's digest — and a wrong digest
+            // misleads the exact audit the field exists for. nil is the honest shape, the same
+            // one cloud-only and over-cap files already wear.
+            while let chunk = try handle.read(upToCount: 4 << 20), !chunk.isEmpty {
+                hasher.update(data: chunk)
+            }
+        } catch {
+            return nil
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    /// One directory level's entry names, through the protocol's own enumerator — the listing
+    /// the unlisted-file rule re-runs at the moment of the action.
+    /// (`FileManaging` has no `contentsOfDirectory`; adding one strands every test double.)
     nonisolated static func directoryNames(at path: String, fm: FileManaging) -> [String] {
         guard let walker = fm.enumerator(at: URL(fileURLWithPath: path),
                                          includingPropertiesForKeys: nil,
@@ -664,6 +692,14 @@ extension FileSyncManager {
                 + (unlisted.count > 3 ? ", …" : "") + ") — left untouched")
             return true
         }
+        // The subtree half of "skipped whole": once a folder is vetoed, nothing moves out of
+        // any folder BENEATH it, and nothing lands INTO it or beneath it. The per-parent key
+        // alone honoured neither — a one-level-down merge drained `S/Sub` right after the skip
+        // sentence promised `S/` was left untouched, and a later group's arrivals merged into
+        // the vetoed folder unreviewed.
+        func vetoedAncestor(of path: String) -> String? {
+            vetoedSources.first { path == $0 || path.hasPrefix($0 + "/") }
+        }
 
         for action in actions {
             switch action.action {
@@ -722,7 +758,16 @@ extension FileSyncManager {
             case .moveFile:
                 guard let src = action.src, let dst = action.dst else { continue }
                 let parent = (src as NSString).deletingLastPathComponent
+                if let covering = vetoedAncestor(of: parent) {
+                    out.skipped.append("\(src) sits under \(covering)/ — left untouched with it")
+                    continue
+                }
                 guard !sourceFolderVeto(parent) else { continue }
+                if let covering = vetoedAncestor(of: (dst as NSString).deletingLastPathComponent) {
+                    out.skipped.append("\(src) was headed into \(covering)/, which holds items "
+                        + "the plan never listed — left where it stands")
+                    continue
+                }
                 let srcPath = absolute(src)
                 guard fm.fileExists(atPath: srcPath) else {
                     out.skipped.append("\(src) was deleted between plan and apply — skipped")
@@ -761,7 +806,16 @@ extension FileSyncManager {
             case .moveDir:
                 guard let src = action.src, let dst = action.dst else { continue }
                 let parent = (src as NSString).deletingLastPathComponent
+                if let covering = vetoedAncestor(of: parent) {
+                    out.skipped.append("\(src)/ sits under \(covering)/ — left untouched with it")
+                    continue
+                }
                 guard !sourceFolderVeto(parent) else { continue }
+                if let covering = vetoedAncestor(of: (dst as NSString).deletingLastPathComponent) {
+                    out.skipped.append("\(src)/ was headed into \(covering)/, which holds items "
+                        + "the plan never listed — left where it stands")
+                    continue
+                }
                 let srcPath = absolute(src), dstPath = absolute(dst)
                 guard fm.fileExists(atPath: srcPath) else {
                     out.skipped.append("\(src)/ is no longer there — skipped")

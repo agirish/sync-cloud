@@ -37,10 +37,36 @@ struct RestructureRemovalSheet: View {
     /// and carrying that sentence through a refusal channel left the button armed over
     /// already-trashed rows, where a second click minted a junk all-skip ledger record.
     enum RemovalResult: Equatable {
-        /// The folders were trashed; `caveat` names a follow-up failure (the survey refresh)
-        /// when there was one.
-        case landed(caveat: String?)
+        /// The landing ran; `removed` and `skippedCount` are the engine's own counts, because
+        /// "landed" alone was announced as "Moved to the Trash" even when the engine skipped
+        /// some — or every — ticked folder (one gained a file since the sheet opened, or the
+        /// parent landing was undone underneath it). `caveat` names a follow-up failure (the
+        /// survey refresh) when there was one.
+        case landed(removed: Int, skippedCount: Int, caveat: String?)
         case refused(String)
+    }
+
+    /// The landing sentence, from the counts — the truthful version of what used to be an
+    /// unconditional "Moved to the Trash". Static so the three shapes are testable without
+    /// the view.
+    static func landedSentence(removed: Int, skippedCount: Int, caveat: String?) -> String {
+        var sentence: String
+        if removed == 0 {
+            sentence = "Nothing was moved — every ticked folder was skipped; each skip is "
+                + "named in the log."
+        } else if skippedCount > 0 {
+            sentence = "Moved \(removed) folder\(removed == 1 ? "" : "s") to the Trash; "
+                + "\(skippedCount) skipped (named in the log). Undo this reorganisation on "
+                + "the removal's own card puts the moved ones back."
+        } else {
+            sentence = "Moved to the Trash — Undo this reorganisation on the removal's own "
+                + "card puts them back, even after a quit."
+        }
+        // A survey-refresh failure after a successful trashing composes with the landing,
+        // never replaces it: a sentence that only named the failure read as "nothing
+        // happened" over a sheet whose button had gone dead.
+        if let caveat { sentence += " But " + caveat }
+        return sentence
     }
 
     /// Trashes the ticked paths as one recorded, undoable landing.
@@ -78,6 +104,10 @@ struct RestructureRemovalSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 220)
+            // Frozen while the landing runs and once it lands: the rows' probe labels were
+            // taken at open, and re-ticking against a tree the landing just changed would arm
+            // a button the retire below exists to kill.
+            .disabled(running || landed)
             HStack(spacing: 10) {
                 if let outcome {
                     Text(outcome)
@@ -148,14 +178,10 @@ struct RestructureRemovalSheet: View {
             let result = await onRemove(paths)
             running = false
             switch result {
-            case .landed(let caveat):
+            case .landed(let removed, let skippedCount, let caveat):
                 landed = true
-                // A survey-refresh failure after a SUCCESSFUL trashing composes with the
-                // landing, never replaces it: a sentence that only named the failure read as
-                // "nothing happened" over a sheet whose button had gone dead.
-                outcome = caveat.map { "Moved to the Trash — but " + $0 }
-                    ?? "Moved to the Trash — Undo this reorganisation on the removal's own "
-                        + "card puts them back, even after a quit."
+                outcome = Self.landedSentence(removed: removed, skippedCount: skippedCount,
+                                              caveat: caveat)
             case .refused(let refusal):
                 outcome = refusal
             }

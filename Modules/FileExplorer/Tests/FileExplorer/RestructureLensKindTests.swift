@@ -89,9 +89,11 @@ import SwiftUI
         #expect(RestructureLens.subtitle(for: parent) == "echoes its parent, ACI")
     }
 
-    /// The crowding strip's words: counts in the chips, reasons in the help — and the two
-    /// report-only classes say WHY there is no button, because a number beside a silent refusal
-    /// is an unanswered question in the header.
+    /// The crowding strip's words: counts in the chips, reasons in the help. All three classes
+    /// are report-only in 5.0, and the empty chip must SAY that its number is not the removal
+    /// sheet's queue — the old help promised "the removal sheet takes these when Apply lands",
+    /// but that sheet only ever offers folders a landing itself emptied; a user counting on
+    /// the promise for STANDING empties waited forever.
     @Test func theCrowdingStripSaysWhyOnlyEmptiesGetAnAction() {
         #expect(RestructureLens.crowdingLabel(.passThrough, count: 86) == "86 pass-through")
         #expect(RestructureLens.crowdingLabel(.singleFileLeaf, count: 503) == "503 single-file")
@@ -99,7 +101,11 @@ import SwiftUI
 
         #expect(RestructureLens.crowdingHelp(.passThrough).contains("Report-only"))
         #expect(RestructureLens.crowdingHelp(.singleFileLeaf).contains("Report-only"))
-        #expect(RestructureLens.crowdingHelp(.empty).contains("Trash"))
+        #expect(RestructureLens.crowdingHelp(.empty)
+            .contains("only offers folders that landing itself emptied"),
+                "the help must scope the removal sheet truthfully")
+        #expect(!RestructureLens.crowdingHelp(.empty).contains("takes these when Apply lands"),
+                "the false promise must not come back")
     }
 
     /// The subtitle counts the family on both drop paths — §5.1's 11 → 17, as a rule rather

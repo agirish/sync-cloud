@@ -30,11 +30,27 @@ extension FileSyncManager {
     ///
     /// The order inside is §5.5's, cut down to what a non-destructive landing needs:
     /// guards → ledger entry with the inverse on disk → the operations, re-probing each
-    /// destination → one grouped ⌘Z → finalised counts → one log line. What it does NOT do yet
-    /// is step 6 (re-derive the profile): that machinery is §5.5's, so until it lands the
-    /// finding stays visible and the card says the survey has not caught up — §5.7's third
+    /// destination → one grouped ⌘Z → finalised counts → one log line. What it deliberately
+    /// does NOT do is step 6 (re-derive the profile): `applyPlan` has that machinery now, but
+    /// a scaffold creates empty folders a fresh walk would not re-shape the finding around, so
+    /// the finding stays visible and the card says the survey has not caught up — §5.7's third
     /// sentence, not a borrowed one.
     /// §5.5 step 1's guard set, shared by every Restructure landing — the scaffold, a plan apply
+    /// The undo handlers' side of the landing flag: a session ⌘Z/⌘⇧Z group stays LIVE on the
+    /// stack while a landing suspends (apply arms its group at step 5, then awaits through the
+    /// re-derive; the ledger inverse runs under groups armed by the landing it reverses), and a
+    /// replay fired into that window races the landing's own moves and walks. The registration
+    /// sites cannot close the window — the group must exist on the early-return paths — so the
+    /// HANDLERS consult this at fire time and give up their turn. The group is consumed either
+    /// way; the ledger's Undo This Reorganisation remains the durable way back, and the refusal
+    /// is logged rather than silent.
+    func undoReplayBlockedByLanding(_ actionName: String) -> Bool {
+        guard restructureLandingInProgress else { return false }
+        Logger.shared.warning("Undo/Redo (\(actionName)) fired while a reorganisation is "
+            + "landing — ignored; the ledger's Undo This Reorganisation is the durable way back")
+        return true
+    }
+
     /// and a ledger undo all move things inside subtrees the scans read, and a refusal is a
     /// sentence while a race is a debugging session. Returns the sentence, or nil to proceed.
     func restructureLandingRefusal() -> String? {

@@ -193,6 +193,29 @@ public enum RestructurePlanner {
         /// volume cannot create `Forms/` beside `forms/`, so the derivation would fail at apply;
         /// refusing here keeps that from becoming a reviewed plan that cannot land.
         case targetTakenByCase(target: String, standing: String, member: String)
+        /// A target name is not one folder name: it carries a path separator or is a dot
+        /// traversal (`Tax/2024`, `../Shared`). Every target lands as a SIBLING inside the
+        /// member — a path-shaped name would aim the rename outside the family, and the apply's
+        /// `absolute()` would follow it there. Reachable from a typed custom name, an imported
+        /// draft, or a refine proposal, so the derivation is where the door is closed.
+        case invalidTargetName(target: String)
+        /// A target name is occupied by a FILE of that name in the member. The planner's
+        /// occupancy model is folder-shaped, but the disk is not: a rename onto a standing file
+        /// would fail at apply in a shape the plan promised away, blamed on drift that never
+        /// happened.
+        case targetTakenByFile(target: String, member: String)
+    }
+
+    /// The ONE spelling of "is this string a folder name and not a path": no separator, no dot
+    /// traversal, not blank. The sheet's custom-name field, the refine proposal filter and the
+    /// derivation all ask this function, so the three doors cannot drift — a name that passes
+    /// one passes all, and `.invalidTargetName` backstops whatever arrives another way.
+    /// (Colons are rejected with separators: Finder displays `:` as `/`, and HFS paths treat it
+    /// as one.)
+    public static func isValidTargetName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && trimmed != "." && trimmed != ".."
+            && !trimmed.contains("/") && !trimmed.contains(":")
     }
 
     /// Every distinct child folder name across the members, disk-cased and sorted — the editor's
@@ -304,6 +327,16 @@ public enum RestructurePlanner {
 
         // The active rows this member can act on.
         let active = mapping.activeRows.filter { childSet.contains($0.source) }
+        // Every target must be ONE folder name — the plan's `dst` paths are built by appending
+        // it under the member, and the apply's `absolute()` is a bare append with no boundary
+        // math, so a separator or a dot traversal in a target aims a rename outside the family
+        // (or outside the profile root entirely). The sheet's own vocabulary is clean by
+        // construction now, but a hand-imported draft or a refine proposal is not.
+        for row in active {
+            guard let target = row.target, Self.isValidTargetName(target) else {
+                return .failure(.invalidTargetName(target: row.target ?? ""))
+            }
+        }
         var groups: [String: [String]] = [:]
         for row in active { groups[row.target!, default: []].append(row.source) }
 
@@ -311,7 +344,10 @@ public enum RestructurePlanner {
         // "is `Forms` vacated?" depends on whether `Forms` is the chosen *rename* of its own
         // target group, which depends on whether THAT target stands. Memoised, with the path
         // stack doubling as the cycle detector.
-        enum Vacancy { case free, vacated(by: String), standing, taken(by: String) }
+        enum Vacancy { case free, vacated(by: String), standing, taken(by: String), fileTaken }
+        // The member's FILES, for the occupancy test below — the disk can wear a target's name
+        // as a file just as surely as a folder, and `childSet` cannot see it.
+        let memberFileSet = Set((view.files(memberPath) ?? []).map { $0.lowercased() })
         var memo: [String: Vacancy] = [:]
         var resolving: [String] = []
         var cycleMembers: Set<String> = []
@@ -338,6 +374,14 @@ public enum RestructurePlanner {
             // A case-only rename occupies its own name: `forms → Forms` is one rename-dir on a
             // case-insensitive volume, so the name never blocks its own group.
             guard childSet.contains(name) else {
+                // A FILE wearing the name (either case) occupies it as surely as a folder would,
+                // and no mapping row can vacate a file — the rename would fail at apply, blamed
+                // on drift that never happened. Checked before the folder-twin path because a
+                // file can never be the case-step that steps through.
+                if memberFileSet.contains(name.lowercased()) {
+                    memo[name] = .fileTaken
+                    return .fileTaken
+                }
                 // The exact name is absent, but on a case-insensitive volume a sibling differing
                 // only by case occupies it just as surely. The one shape that steps through is
                 // the case-step itself — the twin mapped onto this very name, whose single
@@ -371,7 +415,7 @@ public enum RestructurePlanner {
             let targetVacancy = vacancy(of: rowTarget)
             let destExists: Bool
             switch targetVacancy {
-            case .standing, .taken: destExists = true
+            case .standing, .taken, .fileTaken: destExists = true
             case .free, .vacated: destExists = false
             }
             let chosen = renameChoice(target: rowTarget,
@@ -397,6 +441,8 @@ public enum RestructurePlanner {
             case .vacated(let by): group.vacatedBy = by
             case .taken(let by):
                 return .failure(.targetTakenByCase(target: target, standing: by, member: member))
+            case .fileTaken:
+                return .failure(.targetTakenByFile(target: target, member: member))
             }
             resolved.append(group)
         }
@@ -615,7 +661,15 @@ public enum RestructurePlanner {
                 }
                 for deeper in (view.childFolders(subSource) ?? []).sorted() {
                     let deepSource = (subSource as NSString).appendingPathComponent(deeper)
-                    if !sub.subfolders.contains(deeper) {
+                    if sub.files.contains(deeper) {
+                        // A FILE wearing the folder's name on the target side — the carry would
+                        // fail at apply against a destination the occupancy sets cannot see.
+                        actions.append(RestructureManifest.Action(
+                            action: .keep, src: deepSource,
+                            evidence: "A file named \(deeper) stands where this folder would "
+                                + "land — kept and reported rather than guessed at."))
+                        keptDeeper.insert(deeper)
+                    } else if !sub.subfolders.contains(deeper) {
                         actions.append(RestructureManifest.Action(
                             action: .moveDir, src: deepSource,
                             dst: (subTarget as NSString).appendingPathComponent(deeper),
@@ -637,6 +691,15 @@ public enum RestructurePlanner {
                 // skip at apply), holding only the deeper folders the merge kept.
                 residue.subfolderOrigins[subfolder] = subSource
                 residue.merged[subfolder] = LandedSubfolder(files: [], subfolders: keptDeeper)
+            } else if landed.files.contains(subfolder) {
+                // Same rule one level up: a FILE in the target wearing this subfolder's name.
+                // `subfolderOrigins` is folder-shaped and cannot see it; without this check the
+                // plan promised a whole-carry that always skipped at apply as false drift.
+                actions.append(RestructureManifest.Action(
+                    action: .keep, src: subSource,
+                    evidence: "A file named \(subfolder) stands in \(targetName)/ where this "
+                        + "folder would land — kept and reported rather than guessed at."))
+                residue.subfolderOrigins[subfolder] = subSource
             } else {
                 actions.append(RestructureManifest.Action(
                     action: .moveDir, src: subSource, dst: subTarget,
@@ -742,7 +805,7 @@ public struct RestructureLedger: Equatable, Sendable {
     }
 
     /// The one-line reading — counts that are zero stay out of the sentence, except the first
-    /// pair, which is the plan's size.
+    /// three, which are the plan's size.
     public var summary: String {
         var parts = [
             "\(foldersRenamed) rename\(foldersRenamed == 1 ? "" : "s")",

@@ -81,6 +81,7 @@ struct RestructurePlanSheet: View {
     @State private var applying = false
     @State private var includeFileSamples = false
     @State private var refining = false
+    @State private var refineTask: Task<Void, Never>?
     @State private var proposals: [MappingRefineProposal]?
     @State private var refineFailedText: String?
 
@@ -91,9 +92,16 @@ struct RestructurePlanSheet: View {
         let plan = derived
         return VStack(alignment: .leading, spacing: 14) {
             header
-            shapeSection
-            mappingSection(plan)
-            refineSection
+            // The editing surface locks as one piece — scheme radios, custom names, pickers
+            // and the refine section all go quiet while an apply runs and stay quiet once it
+            // lands. The review and footer manage their own states (`refineSection` handles
+            // its in-flight Stop itself; `locked` does not include `refining`).
+            Group {
+                shapeSection
+                mappingSection(plan)
+                refineSection
+            }
+            .disabled(locked)
             reviewSection(plan)
             footer(plan)
         }
@@ -103,10 +111,26 @@ struct RestructurePlanSheet: View {
         .onAppear(perform: seed)
         .onChange(of: rows) {
             // An edit after an export describes a NEW plan; the old outcome sentence would be
-            // claiming this one was exported.
+            // claiming this one was exported. Guarded on applied as a belt to the editor
+            // lockdown's braces: clearing an APPLIED outcome un-retires the whole sheet —
+            // Done reverts to Cancel and Export re-arms over operations that already ran.
+            guard !isApplied else { return }
             outcome = nil
         }
+        .onChange(of: vocabulary) {
+            // A vocabulary edit is part of the draft an export saved (the picker choices ride
+            // in it), so the "Exported as …" sentence stops being true the moment it changes.
+            // An applied outcome stays: vocabulary edits cannot reach a landed plan.
+            if case .exported = outcome { outcome = nil }
+        }
     }
+
+    /// One seam for "this sheet is finished or busy": the whole editing surface reads it, not
+    /// just the footer buttons. Without it, any row edit after a successful Apply cleared the
+    /// outcome, un-retired the sheet, and re-armed Export — which then minted a "Planned, not
+    /// applied" draft over a reorganisation that had already landed; and edits mid-apply left
+    /// the footer's "Applied — …" summary above a derivation re-read from the edited rows.
+    private var locked: Bool { applying || isApplied }
 
     // MARK: - Seeding
 
@@ -197,7 +221,15 @@ struct RestructurePlanSheet: View {
                     .onSubmit(addCustomName)
                 Button("Add") { addCustomName() }
                     .scaledFont(.system(size: 11))
-                    .disabled(customName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(!RestructurePlanner.isValidTargetName(customName))
+            }
+            if !customName.trimmingCharacters(in: .whitespaces).isEmpty,
+               !RestructurePlanner.isValidTargetName(customName) {
+                // Why Add is grey, said where the typing happens: a target is ONE folder name,
+                // and a path-shaped one would aim a rename outside the family.
+                Text("One folder name — no /, no :, no dot traversal.")
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -240,7 +272,14 @@ struct RestructurePlanSheet: View {
 
     private func addCustomName() {
         let name = customName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, !vocabulary.contains(name) else { return }
+        // The planner's own rule (one folder name, no separators or traversal), checked at the
+        // door: without it a typed "Tax/2024" or "../Shared" became a picker target, and the
+        // apply's bare path-append would have moved folders outside the family entirely. The
+        // derivation refuses such a target too — this guard keeps it out of the vocabulary,
+        // where every member's picker would offer it.
+        guard RestructurePlanner.isValidTargetName(name), !vocabulary.contains(name) else {
+            return
+        }
         vocabulary.append(name)
         chosenScheme = nil
         customName = ""
@@ -310,17 +349,20 @@ struct RestructurePlanSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 if refineOffered {
                     HStack(spacing: 10) {
+                        // The one live control while a refine is in flight: without it, Cancel
+                        // (held for the reason on the footer) left the whole sheet dead for the
+                        // transport's full 90 s timeout on a hung request.
                         Button {
-                            runRefine()
+                            refining ? stopRefine() : runRefine()
                         } label: {
-                            Label(refining ? "Asking…"
+                            Label(refining ? "Stop asking"
                                   : "Ask \(refineModelLabel) about \(rows.count) folder "
                                     + "name\(rows.count == 1 ? "" : "s")",
-                                  systemImage: "sparkles")
+                                  systemImage: refining ? "stop.circle" : "sparkles")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(refining || rows.isEmpty)
+                        .disabled(rows.isEmpty)
                         Toggle("Include up to 5 file names per folder", isOn: $includeFileSamples)
                             .toggleStyle(.checkbox)
                             .scaledFont(.system(size: 10.5))
@@ -432,8 +474,11 @@ struct RestructurePlanSheet: View {
         // A failed second run must not leave the FIRST run's proposals rendered under its own
         // failure sentence — nothing would say which run they belong to.
         proposals = nil
-        Task { @MainActor in
+        refineTask = Task { @MainActor in
             let outcome = await onRefineMapping(request)
+            // Stopped by hand: `stopRefine` already wrote the honest sentence, and whatever
+            // the cancelled transport returned (usually `.unavailable`) must not replace it.
+            guard !Task.isCancelled else { return }
             refining = false
             switch outcome {
             case .proposals(let result):
@@ -446,6 +491,16 @@ struct RestructurePlanSheet: View {
                     + "network said no. Settings ▸ Intelligence has the details."
             }
         }
+    }
+
+    private func stopRefine() {
+        refineTask?.cancel()
+        refineTask = nil
+        refining = false
+        // Honest about the money: cancellation stops the WAIT; a request already on the wire
+        // may still complete server-side and bill.
+        refineFailedText = "Stopped — nothing was accepted. If the request had already gone "
+            + "out, it may still bill."
     }
 
     private func refineRequest() -> MappingRefineRequest {
@@ -587,7 +642,9 @@ struct RestructurePlanSheet: View {
 
     private func applyTitle(_ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)
         -> String {
-        let count = (try? plan.get())?.actions.count ?? 0
+        // `operationCount`, not `actions.count`: keeps are the signature block, and counting
+        // them read "Apply 14 operations" in red over one rename plus 13 keeps.
+        let count = (try? plan.get())?.operationCount ?? 0
         return applying ? "Applying…" : "Apply \(count) operation\(count == 1 ? "" : "s")"
     }
 
@@ -774,6 +831,12 @@ struct RestructurePlanSheet: View {
         case .duplicateMappingRows(let source):
             return "The mapping lists \(source) on two rows, and the rows may disagree — one "
                 + "row per name. Remove the duplicate and try again."
+        case .invalidTargetName(let target):
+            return "“\(target)” is not one folder name — a target cannot carry a path "
+                + "separator or dot traversal. Rename it to a single name and try again."
+        case .targetTakenByFile(let target, let member):
+            return "\(member) holds a FILE named \(target), and a folder cannot take a "
+                + "standing file's name. Move or rename the file first."
         }
     }
 

@@ -122,6 +122,32 @@ import Testing
         #expect(rekeyed.salt == corpus.salt)
     }
 
+    /// The moved claim WINS a destination-key collision, deterministically: a stale corpus key
+    /// can already sit at a move's destination (its file was deleted since the last scan, so
+    /// the apply saw no collision and recorded none), and the replay used to leave the winner
+    /// to dictionary iteration order — `carryOver` and `RestructureStore.rekeyedMap` both
+    /// decide this exact race explicitly, and the corpus was the one sibling that did not.
+    @Test func aMovedDocumentWinsOverAStaleKeyAtItsDestination() {
+        let moved = FilingCorpusDocument(size: 10, modified: 1_700_000_000,
+                                         anchors: ["moved"], idHashes: [])
+        let stale = FilingCorpusDocument(size: 99, modified: 1_600_000_000,
+                                         anchors: ["stale"], idHashes: [])
+        let corpus = FilingCorpus(profileId: "p", salt: "s", documents: [
+            "Tax/Old/w2.pdf": moved,
+            "Tax/Forms/w2.pdf": stale,   // the file is gone; the key lingers until re-survey
+        ], surveyedAt: Date(timeIntervalSince1970: 1_755_000_000))
+        let manifest = RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: "Tax", kind: .shape,
+            actions: [.init(action: .moveFile, src: "Tax/Old/w2.pdf",
+                            dst: "Tax/Forms/w2.pdf", evidence: "e")])
+
+        let rekeyed = RestructureRederive.rekeyedCorpus(corpus, through: manifest)
+
+        #expect(rekeyed.documents.count == 1)
+        #expect(rekeyed.documents["Tax/Forms/w2.pdf"]?.anchors == ["moved"],
+                "the moved document's claim wins — whatever the iteration order")
+    }
+
     /// `mapped` applies renames sequentially, so a later rename legitimately acts on the product
     /// of an earlier one — §5.4's vacate-before-fill spelled as key movement.
     @Test func sequentialRenamesComposeInManifestOrder() {

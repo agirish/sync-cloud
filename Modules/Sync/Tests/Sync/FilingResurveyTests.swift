@@ -646,4 +646,27 @@ import Events
         #expect(report == .none)
         #expect(!FileManager.default.fileExists(atPath: profiles.path))
     }
+
+    /// One mutator at a time, in BOTH orders: a Restructure landing refuses while this survey
+    /// runs (its guard set), and this survey refuses while a landing is in flight — the flag
+    /// covers the landing's re-derive awaits, where a survey would walk the tree mid-reshape
+    /// and then write memory and the fingerprint over (or under) the landing's own step-7
+    /// writes. Discriminating fixture: a new document appears first, so an UNGUARDED pass has
+    /// something to read and every reason to write — delete the flag guard and this goes red.
+    @Test func aFolderMemoryUpdateRefusesWhileALandingIsInFlight() async throws {
+        let (manager, docs, profiles, _) = try Self.makeTree()
+        _ = await manager.resurveyFilingMemory(root: docs)
+        let corpusURL = profiles.appendingPathComponent("t/filing-corpus.json")
+        let corpusBefore = try Data(contentsOf: corpusURL)
+
+        try Self.write(docs.appendingPathComponent("Home/PG&E/2024/mar.pdf"),
+                       Self.page("Pacific Gas and Electric"))
+        manager.restructureLandingInProgress = true
+        defer { manager.restructureLandingInProgress = false }
+        let report = await manager.resurveyFilingMemory(root: docs)
+
+        #expect(report == .none, "a landing is in flight — the survey must not run at all")
+        #expect(try Data(contentsOf: corpusURL) == corpusBefore,
+                "the corpus must not be rewritten under a live landing")
+    }
 }

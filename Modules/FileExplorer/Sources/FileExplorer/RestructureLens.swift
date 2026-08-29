@@ -380,8 +380,9 @@ struct RestructureLens: View {
                 + "and be a destination waiting for its next file, and nothing in its own shape "
                 + "separates the two."
         case .empty:
-            return "Folders holding nothing at all. The removal sheet takes these when Apply "
-                + "lands — nothing is deleted; folders go to the Trash."
+            return "Folders holding nothing at all. Nothing here removes standing empties — a "
+                + "landing's removal sheet only offers folders that landing itself emptied — "
+                + "so housing or removing these is a call to make in Finder."
         }
     }
 

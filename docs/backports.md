@@ -1311,3 +1311,11 @@ Storage's three consecutive magnitude-bar bullets became two. Neither is a fix.
 
 Checked against `applyPlan` (no `recordSyncHistory` call site), `refineMapping` (the third route,
 same caps and spend store), and `git log -S'case readability'` for the tab's age.
+
+### The round-4 review fixes — checked, not owed
+
+The round-4 review fixes ("Fix what the round-4 adversarial review found…") are the same family
+as the feature above, checked and not owed: every touched file is v5-only except
+`FileSyncManager+Undo.swift`, whose two new handler guards consult `restructureLandingInProgress`
+— a flag (and a hazard) that exists only where Restructure landings do, so the maintenance lines
+have nothing to guard.

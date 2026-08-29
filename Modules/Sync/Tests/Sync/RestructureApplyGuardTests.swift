@@ -224,6 +224,16 @@ import Testing
         let release = DispatchSemaphore(value: 0)
         private let lock = NSLock()
         private var tripped = false
+        private var armed = true
+
+        /// Arm (or disarm) the park — a test that must land FIRST and park a LATER pass
+        /// disarms for the landing, then re-arms; re-arming resets the once-only trip.
+        func setArmed(_ on: Bool) {
+            lock.lock()
+            armed = on
+            if on { tripped = false }
+            lock.unlock()
+        }
 
         private func gate() {
             // Only an OFF-MAIN probe may park: the landing's executor runs on the operation
@@ -231,10 +241,10 @@ import Testing
             // would never reach `release.signal()`).
             guard !Thread.isMainThread else { return }
             lock.lock()
-            let first = !tripped
-            tripped = true
+            let fire = armed && !tripped
+            if fire { tripped = true }
             lock.unlock()
-            if first { entered.signal(); release.wait() }
+            if fire { entered.signal(); release.wait() }
         }
 
         func fileExists(atPath path: String) -> Bool {
@@ -370,5 +380,181 @@ import Testing
         #expect(outcome.removedEmpty == 1)
         #expect(!undo.canUndo,
                 "⌘Z after a removal must not replay the previous landing's moves into folders the removal just trashed")
+    }
+
+    /// A bounded disk-condition wait — the undo/redo handlers enqueue their moves as Tasks,
+    /// so the test yields main-actor turns until the disk shows the result (or the budget
+    /// runs out and the test names it).
+    @MainActor
+    private static func waitFor(_ what: String, _ condition: () -> Bool) async throws {
+        for _ in 0..<200 {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        Issue.record("wait budget exhausted: \(what)")
+    }
+
+    /// The handlers' side of the landing flag: the session group is LIVE while a landing
+    /// suspends (armed at step 5, then the re-derive awaits), and a ⌘Z fired into that window
+    /// used to replay the inverse concurrently with the landing's own walk — corrupting the
+    /// derived profile and wedging the ledger undo. The handlers now give up their turn while
+    /// the flag is up; delete the `undoReplayBlockedByLanding` guard and this goes red.
+    @Test @MainActor func theSessionUndoHandlersGiveWayWhileALandingIsInFlight() async throws {
+        let world = try await RestructureApplyTests.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        // Default event grouping ON — the redo registration inside undo() needs the event
+        // group; `groupsByEvent = false` crashes there, not at our own begin/end pair.
+        let undo = UndoManager()
+        world.manager.undoManager = undo
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        #expect(undo.canUndo)
+        let fm = FileManager.default
+        let forms = world.root.appendingPathComponent("Tax/2013/Forms")
+        #expect(fm.fileExists(atPath: forms.path))
+
+        world.manager.restructureLandingInProgress = true
+        defer { world.manager.restructureLandingInProgress = false }
+        undo.undo()
+        // The guarded handlers return without enqueuing anything; the sleep gives any stray
+        // task a beat to prove the point on disk rather than on timing luck.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(fm.fileExists(atPath: forms.path),
+                "a ⌘Z fired mid-landing must not move folders back")
+        #expect(!fm.fileExists(
+            atPath: world.root.appendingPathComponent("Tax/2013/Federal Tax").path))
+    }
+
+    /// The redo path EXECUTES — land, ⌘Z back, ⌘⇧Z forward, asserted on the disk. The redo
+    /// closure (occupied guard, item ordering) drives real moves after a destructive landing,
+    /// and every prior test stopped at `canRedo`: reverse the replay order or invert its
+    /// guards and nothing went red.
+    @Test @MainActor func theSessionRedoReplaysTheLandingOnDisk() async throws {
+        let world = try await RestructureApplyTests.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        // Default event grouping ON — see the guard test above for why `false` crashes here.
+        let undo = UndoManager()
+        world.manager.undoManager = undo
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        let fm = FileManager.default
+        let federal = world.root.appendingPathComponent("Tax/2013/Federal Tax")
+        let forms = world.root.appendingPathComponent("Tax/2013/Forms")
+        #expect(fm.fileExists(atPath: forms.path))
+
+        undo.undo()
+        try await Self.waitFor("the era rename is undone") {
+            fm.fileExists(atPath: federal.path) && !fm.fileExists(atPath: forms.path)
+        }
+        #expect(undo.canRedo)
+
+        undo.redo()
+        try await Self.waitFor("the era rename is redone") {
+            fm.fileExists(atPath: forms.path) && !fm.fileExists(atPath: federal.path)
+        }
+        #expect(fm.fileExists(atPath: forms.path), "⌘⇧Z replays the landing forward")
+        #expect(undo.canUndo, "the redo re-arms its own undo")
+    }
+
+    /// The engine-level refusal sentences that had no driver: an unknown manifest, and a
+    /// survey that moved on after the landing (a Setup walk activated another profile).
+    @Test @MainActor func theUndoRefusesAnUnknownManifestAndAMovedSurvey() async throws {
+        let world = try await RestructureApplyTests.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let unknown = await world.manager.undoReorganisation(manifestId: "never-landed")
+        #expect(unknown.refusal?.contains("has no record of") == true)
+
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+        world.manager.filingProfileDirectoryId = "elsewhere"
+        let moved = await world.manager.undoReorganisation(manifestId: world.manifest.manifestId)
+        #expect(moved.refusal?.contains("survey has moved") == true)
+        let record = try #require(world.manager.restructureStore?.applied
+            .first { $0.manifest.manifestId == world.manifest.manifestId })
+        #expect(record.undoneAt == nil, "a refused undo must not mark the record undone")
+    }
+
+    /// Step 7's ledger fallback: when restructure.json does not carry into the new directory
+    /// (here a file already sits at the destination, so the best-effort carry skips it), the
+    /// finalised record — inverse included — must be written into the new store DIRECTLY, or
+    /// it strands in a directory nothing reads and the landing offers no undo after a quit.
+    @Test @MainActor func aFailedArtifactCarryStillWritesTheLedgerRecordDirectly() async throws {
+        let world = try await RestructureApplyTests.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let now = Date(timeIntervalSince1970: 1_756_500_000)
+        // The id the landing will pick — availability is judged by profile.json, so a planted
+        // restructure.json does not shift it.
+        let newId = FileSyncManager.availableReorgProfileId(now: now, in: world.profiles)
+        let dir = world.profiles.appendingPathComponent(newId)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("{\"schemaVersion\": 1}".utf8)
+            .write(to: dir.appendingPathComponent("restructure.json"))
+
+        let outcome = await world.manager.applyPlan(world.manifest, now: now)
+        #expect(outcome.refusal == nil)
+        #expect(outcome.producedProfileId == newId)
+        let newStore = try #require(world.manager.restructureStore)
+        #expect(newStore.applied.contains { $0.manifest.manifestId == world.manifest.manifestId },
+                "the carry could not deliver restructure.json — the record is written directly")
+    }
+
+    /// The undo-side twin of `writeDerivedProfile`'s raced-switch refusal: the active-profile
+    /// guard is RE-CHECKED after the inverse's suspension, so a Setup walk completing while
+    /// the inverse runs is not silently deactivated by the re-point. The gate parks the
+    /// inverse's first probe; the profile moves while it is parked.
+    @Test @MainActor func aProfileSwitchDuringTheInverseStopsTheRepoint() async throws {
+        let gate = GateFileManager()
+        gate.setArmed(false)   // the LANDING runs ungated; only the undo's inverse parks
+        let base = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("Documents")
+        let sourceDir = root.appendingPathComponent("Tax/2013/Federal Tax")
+        try FileManager.default.createDirectory(at: sourceDir,
+                                                withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: sourceDir.appendingPathComponent("f.pdf"))
+        let profiles = base.appendingPathComponent("profiles")
+        try FileManager.default.createDirectory(at: profiles.appendingPathComponent("t"),
+                                                withIntermediateDirectories: true)
+        let manager = FileSyncManager(fileManager: gate)
+        manager.filingFolderProfile = FolderProfile(
+            profileId: "t", root: root.path,
+            folders: ["Tax": FolderProfileEntry(path: "Tax", role: nil, naming: nil,
+                                                anchors: [], acceptsNewFiles: nil,
+                                                fileCount: 0, subfolderCount: 1, axes: [:])],
+            personTokens: [])
+        manager.filingProfilesDirectory = profiles
+        manager.filingProfileDirectoryId = "t"
+        manager.restructureStore = RestructureStore(directory: profiles, profileId: "t")
+        let manifest = RestructureManifest(
+            profileId: "t", manifestId: "race-1", createdAt: "2026-08-28T15:00:00",
+            family: "Tax", kind: .shape,
+            actions: [.init(action: .renameDir, src: "Tax/2013/Federal Tax",
+                            dst: "Tax/2013/Forms", evidence: "e")])
+        let landed = await manager.applyPlan(manifest)
+        #expect(landed.refusal == nil)
+        let activeAfterLanding = manager.filingProfileDirectoryId
+
+        gate.setArmed(true)
+        let undoTask = Task { await manager.undoReorganisation(manifestId: "race-1") }
+        let arrived = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global().async {
+                done.resume(returning: gate.entered.wait(timeout: .now() + 10) == .success)
+            }
+        }
+        #expect(arrived, "the inverse never reached its first disk probe")
+        // The Setup walk completes while the inverse is parked: another profile activates.
+        manager.filingProfileDirectoryId = "walk-fresh"
+        gate.release.signal()
+        let outcome = await undoTask.value
+
+        #expect(outcome.refusal == nil, "the inverse itself ran; the re-point is what stops")
+        #expect(outcome.surveyRefreshFailure?.contains("active profile changed") == true)
+        let record = try #require(manager.restructureStore?.applied
+            .first { $0.manifest.manifestId == "race-1" })
+        #expect(record.undoneAt == nil,
+                "the record stays applied — the survey was not re-pointed")
+        #expect(manager.filingProfileDirectoryId == "walk-fresh",
+                "the freshly activated profile must not be replaced")
+        _ = activeAfterLanding
     }
 }

@@ -87,7 +87,12 @@ enum LensIntros {
             message: "Find families of sibling folders that were set up differently at different times — the same kind of folder, organized four ways.",
             // ONE line — the setup cards share a header budget (two lines of message, one of
             // safety), and `everyLensTriggerLandsAtTheSameHeight` measures it in pixels.
-            safety: "Changes go through a plan you review — every landing is recorded and undoable."
+            // One line, by measurement: the setup cards' triggers share a height, and a safety
+            // sentence that wraps puts this card's a full line below the rail's others
+            // (`everyLensTriggerLandsAtTheSameHeight`). Scoped to a PLAN's landing on purpose —
+            // a scaffold is recorded without a chain anchor, so the ledger undo cannot see it,
+            // and the old "every landing is … undoable" promised a post-quit undo it lacks.
+            safety: "Changes go through a plan you review, and a plan's landing can be undone."
         )
     }
 

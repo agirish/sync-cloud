@@ -110,12 +110,18 @@ import Testing
             RestructurePlanSheet.refusalText(.unknownFiles(source: "F/2016/A")),
             RestructurePlanSheet.refusalText(.unresolvableOrder(member: "2016")),
             RestructurePlanSheet.refusalText(.conflictingTargets("Forms", "forms")),
+            RestructurePlanSheet.refusalText(.invalidTargetName(target: "Tax/2024")),
+            RestructurePlanSheet.refusalText(.targetTakenByFile(target: "Forms",
+                                                               member: "2016")),
         ]
-        #expect(Set(sentences).count == 4)
+        #expect(Set(sentences).count == 6)
         #expect(sentences.allSatisfy { !$0.isEmpty })
         #expect(sentences[1].contains("F/2016/A"), "the refusal names the folder it is about")
         #expect(sentences[3].contains("Forms") && sentences[3].contains("forms"),
                 "the clash names both spellings")
+        #expect(sentences[4].contains("Tax/2024"), "the refusal names the offending target")
+        #expect(sentences[5].contains("FILE"),
+                "a file occupant is named as one — the fix is moving the file")
     }
 
     // MARK: The refine slot's text rules (§5.6)

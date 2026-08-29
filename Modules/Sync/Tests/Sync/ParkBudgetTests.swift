@@ -239,7 +239,7 @@ import Testing
             // gate refuses main, and the executor runs via enqueueFileOperation), and the
             // test-side wait is bounded and runs on DispatchQueue.global(), which overcommits.
             "RestructureApplyGuardTests.swift": [
-                "if first { entered.signal(); release.wait() }",
+                "if fire { entered.signal(); release.wait() }",
                 "done.resume(returning: gate.entered.wait(timeout: .now() + 10) == .success)",
             ],
             "MergeUndoPromiseTests.swift": ["if release.wait(timeout: .now() + 10) == .timedOut {"],

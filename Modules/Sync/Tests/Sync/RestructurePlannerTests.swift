@@ -626,6 +626,122 @@ private struct FakeTree {
         }
     }
 
+    /// A path-shaped target refuses at derivation — targets land as SIBLINGS inside the member,
+    /// and the apply's `absolute()` is a bare append with no boundary math, so `Tax/2024` or
+    /// `../Shared` would aim a rename outside the family (or outside the profile root
+    /// entirely). The sheet's custom-name field and the refine parser share the same rule at
+    /// their own doors; this refusal backstops the ways in that they cannot see (an imported
+    /// draft, a hand-built mapping).
+    @Test(arguments: ["Tax/2024", "../Shared", "..", ".", "   ", "a:b"])
+    func aPathShapedTargetRefusesInsteadOfEscapingTheFamily(bad: String) {
+        let tree = FakeTree(files: ["F": [], "F/2016": [], "F/2016/A": ["a.pdf"]])
+        let result = RestructurePlanner.manifest(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [.init(source: "A", target: bad)]),
+            kind: .shape, in: tree.view,
+            profileId: "p", manifestId: "m1", createdAt: "2026-08-28T00:00:00")
+        #expect(throws: RestructurePlanner.PlanRefusal.invalidTargetName(target: bad)) {
+            try result.get()
+        }
+    }
+
+    /// The one shared spelling of "a folder name, not a path" — the planner, the sheet's Add
+    /// button and the refine parser all call this, so the table is the contract.
+    @Test func targetNameValidityIsOneSharedRule() {
+        #expect(RestructurePlanner.isValidTargetName("Forms"))
+        #expect(RestructurePlanner.isValidTargetName("2016 Taxes"))
+        #expect(RestructurePlanner.isValidTargetName(".config"),
+                "a dotted NAME is odd but not an escape — only traversal is")
+        #expect(!RestructurePlanner.isValidTargetName("Tax/2024"))
+        #expect(!RestructurePlanner.isValidTargetName("../Shared"))
+        #expect(!RestructurePlanner.isValidTargetName(".."))
+        #expect(!RestructurePlanner.isValidTargetName("."))
+        #expect(!RestructurePlanner.isValidTargetName("   "))
+        #expect(!RestructurePlanner.isValidTargetName("a:b"))
+    }
+
+    /// The unresolvable-order refusal, DERIVED rather than hand-built: a vacancy ring through
+    /// a multi-source group (`A → B`, `B → A`, plus `C → B`) cannot be broken by the temp-name
+    /// step — that break is only sound for pure renames — so the derivation refuses. The only
+    /// prior coverage rendered the refusal's SENTENCE from a hand-constructed value; nothing
+    /// proved the planner can produce it.
+    @Test func aRingThroughAMultiSourceGroupRefusesAsUnresolvable() {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/A": ["a.pdf"], "F/2016/B": ["b.pdf"], "F/2016/C": ["c.pdf"],
+        ])
+        let result = RestructurePlanner.manifest(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "A", target: "B"),
+                .init(source: "B", target: "A"),
+                .init(source: "C", target: "B"),
+            ]), kind: .shape, in: tree.view,
+            profileId: "p", manifestId: "m1", createdAt: "2026-08-28T00:00:00")
+        #expect(throws: RestructurePlanner.PlanRefusal.unresolvableOrder(member: "2016")) {
+            try result.get()
+        }
+    }
+
+    /// A target whose name a FILE wears in the member refuses — the occupancy model was
+    /// folder-only, so `Federal Tax → Forms` beside a stray FILE named `Forms` derived a
+    /// rename the apply then skipped as "appeared since the plan": false drift evidence for a
+    /// clash that stood at plan time, and every merge into the group failed behind it.
+    @Test func aTargetWornByAFileRefuses() {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": ["Forms"],
+            "F/2016/Federal Tax": ["a.pdf"],
+        ])
+        let result = RestructurePlanner.manifest(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [.init(source: "Federal Tax", target: "Forms")]),
+            kind: .shape, in: tree.view,
+            profileId: "p", manifestId: "m1", createdAt: "2026-08-28T00:00:00")
+        #expect(throws: RestructurePlanner.PlanRefusal
+            .targetTakenByFile(target: "Forms", member: "2016")) {
+            try result.get()
+        }
+    }
+
+    /// A FILE in the target wearing a source subfolder's name: the merge keeps and reports
+    /// instead of planning a whole-carry that could never land — `subfolderOrigins` is
+    /// folder-shaped and could not see the file.
+    @Test func aFileWearingACarriedSubfoldersNameKeepsInsteadOfCarrying() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/T": ["Receipts"],
+            "F/2016/A": ["a.pdf"],
+            "F/2016/A/Receipts": ["r.pdf"],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [.init(source: "A", target: "T")]),
+            in: tree.view)
+        let kept = manifest.actions.first { $0.src == "F/2016/A/Receipts" }
+        #expect(kept?.action == .keep, "the whole-carry could never land; keep and report")
+        #expect(!manifest.actions.contains { $0.action == .moveDir },
+                "no move-dir may aim at a name a file is wearing")
+    }
+
+    /// `operationCount` is the Apply button's number: keeps are the plan's signature block,
+    /// not operations — one rename plus two keeps must read "1", not "3".
+    @Test func operationCountLeavesTheKeepsOut() throws {
+        let tree = FakeTree(files: [
+            "F": [], "F/2016": [],
+            "F/2016/Old": ["a.pdf"],
+            "F/2016/KeepA": [], "F/2016/KeepB": [],
+        ])
+        let manifest = try Self.derive(
+            family: "F", members: ["2016"],
+            mapping: RestructureMapping(rows: [
+                .init(source: "Old", target: "New"),
+                .init(source: "KeepA"), .init(source: "KeepB"),
+            ]), in: tree.view)
+        #expect(manifest.actions.count { $0.action == .keep } == 2)
+        #expect(manifest.operationCount == 1)
+        #expect(manifest.actions.count == 3)
+    }
+
     /// A standing target that an EARLIER group drains must be read as the drain left it, not
     /// as the plan-time disk: `X → T1` empties `X`, so `A → X` merges into an empty folder —
     /// no false collisions against files that just left, and a subfolder `X` carried whole to

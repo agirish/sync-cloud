@@ -135,12 +135,24 @@ public enum RestructureRederive {
                                uniquingKeysWith: { _, second in second })
         var rekeyed: [String: FilingCorpusDocument] = [:]
         rekeyed.reserveCapacity(corpus.documents.count)
+        // Two passes so a collision between a MOVED document and a stale key already sitting at
+        // its destination (the file there was deleted since the last scan, so the apply saw no
+        // collision) resolves the same way every run: the moved claim wins — `carryOver` and
+        // `RestructureStore.rekeyedMap` both decide this exact race that way, and this replay
+        // was the one sibling leaving it to dictionary iteration order.
+        var movedKeys: Set<String> = []
         for (path, document) in corpus.documents {
             // A file move names the document exactly; the directory renames re-prefix the rest.
             // A moved file's SOURCE path is its pre-apply key, so the exact match runs first —
             // the dir map would otherwise re-prefix a merge source's files to a path the merge
             // never used.
-            let newPath = moves[path] ?? mapped(path, through: renames)
+            guard let newPath = moves[path] else { continue }
+            rekeyed[newPath] = document
+            movedKeys.insert(newPath)
+        }
+        for (path, document) in corpus.documents where moves[path] == nil {
+            let newPath = mapped(path, through: renames)
+            guard !movedKeys.contains(newPath) else { continue }
             rekeyed[newPath] = document
         }
         return FilingCorpus(profileId: corpus.profileId, salt: corpus.salt,

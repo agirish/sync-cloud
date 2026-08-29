@@ -519,5 +519,46 @@ import Testing
             fm: FileManager.default)
         #expect(repo.removedEmpty == 0, "a repository is not an empty folder")
     }
+
+    /// A vetoed folder is skipped WHOLE, in both directions: the invariant-2 sentence says
+    /// "left untouched", and the per-parent veto key alone made it a lie — a one-level-down
+    /// merge drained `S/Sub` right after the sentence promised `S/` was untouched, and a later
+    /// group's arrivals merged INTO the vetoed folder unreviewed. Delete either
+    /// `vetoedAncestor` check and one half of this goes red.
+    @Test func aVetoedFolderIsSkippedWholeInBothDirections() async throws {
+        let base = try makeCanonicalTempRoot(prefix: "RestructureApplyVeto")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("Documents")
+        try Self.write(root.appendingPathComponent("F/S/planned.pdf"), "planned")
+        try Self.write(root.appendingPathComponent("F/S/surprise.pdf"), "unlisted")
+        try Self.write(root.appendingPathComponent("F/S/Sub/g.pdf"), "sub")
+        try Self.write(root.appendingPathComponent("F/X/x.pdf"), "x")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("F/T"), withIntermediateDirectories: true)
+
+        let actions: [RestructureManifest.Action] = [
+            // The first move out of S trips the veto: surprise.pdf is unlisted.
+            .init(action: .moveFile, src: "F/S/planned.pdf", dst: "F/T/planned.pdf"),
+            // OUT of the vetoed subtree, one level down — used to drain anyway.
+            .init(action: .moveFile, src: "F/S/Sub/g.pdf", dst: "F/T/g.pdf"),
+            // INTO the vetoed folder — used to land anyway.
+            .init(action: .moveFile, src: "F/X/x.pdf", dst: "F/S/x.pdf"),
+        ]
+        let execution = FileSyncManager.executeRestructureActions(
+            actions, root: root.path, fm: FileManager.default)
+
+        #expect(execution.filesMoved == 0, "the veto covers all three")
+        #expect(execution.skipped.contains { $0.contains("F/S/") && $0.contains("surprise.pdf") },
+                "the veto itself, named")
+        #expect(execution.skipped.contains { $0.contains("F/S/Sub/g.pdf") },
+                "the subtree half: nothing drains beneath a vetoed folder")
+        #expect(execution.skipped.contains {
+            $0.contains("F/X/x.pdf") && $0.contains("headed into")
+        }, "the into half: nothing lands in a vetoed folder")
+        let fm = FileManager.default
+        #expect(fm.fileExists(atPath: root.appendingPathComponent("F/S/Sub/g.pdf").path))
+        #expect(fm.fileExists(atPath: root.appendingPathComponent("F/X/x.pdf").path))
+        #expect(!fm.fileExists(atPath: root.appendingPathComponent("F/S/x.pdf").path))
+    }
 }
 

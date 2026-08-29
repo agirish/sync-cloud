@@ -3099,6 +3099,25 @@ public struct LensWorkspaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+        // The Restructure sheets anchor HERE, not inside the `.restructure` branch: a sheet
+        // hangs off its anchor view, so anchored in the branch, switching lens (a pill, a
+        // View ▸ Organize menu item — macOS menus stay live over a window-modal sheet) tore
+        // the sheet down MID-APPLY: the landing Task kept running and landed silently, and
+        // returning to Restructure re-presented the sheet fresh over stale state — the plan
+        // sheet reseeded to all-keep with no trace of the landing, the removal sheet re-armed
+        // over folders already in the Trash. On this stable anchor the sheet outlives the
+        // branch switch.
+        .sheet(item: $planningFinding) { finding in
+            planSheet(for: finding)
+        }
+        .sheet(item: $removalRequest) { request in
+            RestructureRemovalSheet(
+                family: request.family,
+                candidates: request.candidates,
+                accent: glassHue.accentColor,
+                onRemove: { paths in await removeEmptied(paths, for: request) },
+                onClose: { removalRequest = nil })
+        }
     }
 
     // MARK: Restructure
@@ -3199,7 +3218,10 @@ public struct LensWorkspaceView: View {
                             (syncManager.restructureStore?.drafts ?? [:]).map { key, draft in
                                 (key.findingId,
                                  PlannedPlanInfo(
-                                     operations: draft.manifest.actions.count,
+                                     // `operationCount`: keeps are the signature block, and
+                                     // counting them overstated the card's "Review N
+                                     // operations" the same way it did the Apply button.
+                                     operations: draft.manifest.operationCount,
                                      summary: RestructureLedger(of: draft.manifest).summary))
                             }),
                         // Landed scaffolds, read off the ledger: the card for one says the
@@ -3236,17 +3258,6 @@ public struct LensWorkspaceView: View {
                             }
                         },
                         onRemoveEmptied: requestRemoval)
-        .sheet(item: $planningFinding) { finding in
-            planSheet(for: finding)
-        }
-        .sheet(item: $removalRequest) { request in
-            RestructureRemovalSheet(
-                family: request.family,
-                candidates: request.candidates,
-                accent: glassHue.accentColor,
-                onRemove: { paths in await removeEmptied(paths, for: request) },
-                onClose: { removalRequest = nil })
-        }
     }
 
     /// The ledger's plan landings as the lens renders them — every record `applyPlan` wrote
@@ -3332,22 +3343,35 @@ public struct LensWorkspaceView: View {
                 .first(where: { $0.manifest.manifestId == manifestId }),
               let root = syncManager.filingFolderProfile?.root else { return }
         let expandedRoot = (root as NSString).expandingTildeInPath
-        let candidates = RestructureLedger.emptiedFolders(of: record.manifest).map { path in
-            let absolute = (expandedRoot as NSString).appendingPathComponent(path)
-            // Recursive on purpose, matching the engine's own remove guard: a drained folder
-            // whose only remainder is an equally drained subfolder is still "empty" here, or the
-            // shallowest-only candidate list strands both forever behind "no longer empty".
-            let exists = FileManager.default.fileExists(atPath: absolute)
-            // nil (the walk could not see everything) reads as NOT empty — the engine's rule.
-            let isEmptyNow = exists
-                && FileSyncManager.visibleFileCount(atPath: absolute,
-                                                    fm: FileManager.default) == 0
-            return RestructureRemovalSheet.Candidate(path: path, isStillEmpty: isEmptyNow,
-                                                     exists: exists)
+        let paths = RestructureLedger.emptiedFolders(of: record.manifest)
+        let family = record.manifest.family
+        // Off the main actor: each probe below is a full recursive walk, and a candidate
+        // folder REFILLED with a large subtree since the landing enumerated it entirely — in
+        // a button handler, on the main thread, once per candidate. The engine runs the same
+        // probe off-main for the same reason.
+        Task { @MainActor in
+            let candidates = await Task.detached(priority: .userInitiated) {
+                paths.map { path -> RestructureRemovalSheet.Candidate in
+                    let absolute = (expandedRoot as NSString).appendingPathComponent(path)
+                    // Recursive on purpose, matching the engine's own remove guard: a drained
+                    // folder whose only remainder is an equally drained subfolder is still
+                    // "empty" here, or the shallowest-only candidate list strands both forever
+                    // behind "no longer empty".
+                    let exists = FileManager.default.fileExists(atPath: absolute)
+                    // nil (the walk could not see everything) reads as NOT empty — the
+                    // engine's rule.
+                    let isEmptyNow = exists
+                        && FileSyncManager.visibleFileCount(atPath: absolute,
+                                                            fm: FileManager.default) == 0
+                    return RestructureRemovalSheet.Candidate(path: path,
+                                                             isStillEmpty: isEmptyNow,
+                                                             exists: exists)
+                }
+            }.value
+            removalRequest = RemovalRequest(manifestId: manifestId,
+                                            family: family,
+                                            candidates: candidates)
         }
-        removalRequest = RemovalRequest(manifestId: manifestId,
-                                        family: record.manifest.family,
-                                        candidates: candidates)
     }
 
     /// The removal landing itself: its own manifest through the same eight-step apply, so it gets
@@ -3373,12 +3397,14 @@ public struct LensWorkspaceView: View {
             })
         let outcome = await syncManager.applyPlan(manifest)
         if let refusal = outcome.refusal { return .refused(refusal) }
-        // Landed — the folders are in the Trash whether or not profiles.json rewrote. A
+        // Landed — whatever WAS trashed is in the Trash whether or not profiles.json rewrote.
+        // The engine's own counts ride along, because the engine can skip ticked folders (one
+        // gained a file since the sheet opened; the parent landing was undone underneath it)
+        // and a bare "landed" was announced as "Moved to the Trash" over an all-skip run. A
         // survey-refresh failure rides as the CAVEAT, typed, so the sheet can both retire its
-        // button (the landing happened) and print the sentence; the old String? contract
-        // carried it through the refusal channel, which left the button armed over
-        // already-trashed rows.
-        return .landed(caveat: outcome.surveyRefreshFailure)
+        // button (the landing happened) and print the sentence.
+        return .landed(removed: outcome.removedEmpty, skippedCount: outcome.skipped.count,
+                       caveat: outcome.surveyRefreshFailure)
     }
 
     /// §5.4's plan sheet, modal over the lens. The tree view is disk-backed — a plan is derived
