@@ -25,9 +25,6 @@ import Testing
                 "only the empties gained an action — the other two say why they did not")
     }
 
-    /// The sheet's opening sentence is its whole claim about where the list came from, so the two
-    /// origins say different things. The rule underneath — date buckets are debt, categories are
-    /// destinations — is shared, and must stay in both.
     /// *Emptied* is a provenance claim: something drained these. True of a landing's folders,
     /// false of the ones that were empty all along.
     @Test func theTitleDoesNotClaimSomethingEmptiedThem() {
@@ -55,6 +52,9 @@ import Testing
                 "the ledger card carries this sentence for both removal origins")
     }
 
+    /// The sheet's opening sentence is its whole claim about where the list came from, so the two
+    /// origins say different things. The rule underneath — date buckets are debt, categories are
+    /// destinations — is shared, and must stay in both.
     @Test func theSheetSaysWhichListItIsLookingAt() {
         let standing = RestructureRemovalSheet.introText(isStanding: true)
         let landing = RestructureRemovalSheet.introText(isStanding: false)
@@ -76,6 +76,53 @@ import Testing
         #expect(RestructureLens.familyHeading("Finance/US/Income Tax")
                     == "Finance/US/Income Tax",
                 "every real family renders as itself — this rule has exactly one special case")
+    }
+
+    // MARK: The crowding lists, grouped (O9)
+
+    /// Below the threshold a flat list is the better answer — grouping a dozen paths adds a
+    /// disclosure to open before anything can be read. Both sides of the boundary are asserted,
+    /// because a threshold tested on one side is a constant, not a rule.
+    @Test func shortCrowdingListsStayFlat() {
+        let few = (1...RestructureLens.crowdingGroupingThreshold).map { "Finance/\($0)" }
+        #expect(RestructureLens.crowdingBranches(few) == nil)
+        #expect(RestructureLens.crowdingBranches(few + ["Finance/extra"]) != nil,
+                "one past the threshold groups")
+        #expect(RestructureLens.crowdingBranches([]) == nil)
+    }
+
+    /// Grouped by top-level folder, biggest branch first — the pile worth opening leads — with
+    /// the paths inside each sorted and every path accounted for.
+    @Test func longCrowdingListsGroupByBranchBiggestFirst() throws {
+        var paths = (1...30).map { "Work/\($0)" }
+        paths += (1...8).map { "Finance/\($0)" }
+        paths += (1...5).map { "Travel/\($0)" }
+        paths.append("Loose")
+        let groups = try #require(RestructureLens.crowdingBranches(paths))
+
+        #expect(groups.map(\.branch) == ["Work", "Finance", "Travel", "Loose"])
+        #expect(groups.map(\.paths.count) == [30, 8, 5, 1])
+        #expect(groups.flatMap(\.paths).count == paths.count, "no path is dropped")
+        #expect(Set(groups.flatMap(\.paths)) == Set(paths))
+        #expect(groups[1].paths == groups[1].paths.sorted())
+        // A top-level folder is its own branch rather than being dropped for having no first
+        // component to group under.
+        #expect(groups.last?.paths == ["Loose"])
+    }
+
+    /// Two branches of equal size order by name, so the list does not reshuffle between renders.
+    @Test func equalBranchesOrderByName() throws {
+        let paths = (1...21).map { "Zulu/\($0)" } + (1...21).map { "Alpha/\($0)" }
+        let groups = try #require(RestructureLens.crowdingBranches(paths))
+        #expect(groups.map(\.branch) == ["Alpha", "Zulu"])
+    }
+
+    /// The real tree's three classes: the two big ones group, and the empties — 20 of them —
+    /// stay flat, which is also what keeps their removal button one click from the chip.
+    @Test func theRealTreesEmptiesStayFlatAndKeepTheirButtonReachable() {
+        #expect(RestructureLens.crowdingBranches((1...503).map { "F/\($0)" }) != nil)
+        #expect(RestructureLens.crowdingBranches((1...86).map { "F/\($0)" }) != nil)
+        #expect(RestructureLens.crowdingBranches((1...20).map { "F/\($0)" }) == nil)
     }
 
     // MARK: The two decisions the button rests on

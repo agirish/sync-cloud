@@ -139,6 +139,9 @@ struct RestructureLens: View {
 
     /// Which crowding class the strip is currently expanded on, if any.
     @State private var crowdingFilter: DeadWeightClass?
+    /// Which top-level branches of a grouped crowding list are open. Empty on open — a grouped
+    /// list that expanded itself would be the flat list it replaces.
+    @State private var expandedBranches: Set<String> = []
 
     var body: some View {
         if !hasProfile {
@@ -408,27 +411,51 @@ struct RestructureLens: View {
         }
     }
 
+    /// Above this many paths a flat list stops being surveyable and the rows are grouped by
+    /// their top-level folder. Below it the flat list is the better answer — grouping twelve
+    /// paths adds a disclosure to open before anything can be read.
+    ///
+    /// The single-file class is ~503 paths on the real tree, the pass-through ~86 and the
+    /// empties 20, so on that tree this groups the first two and leaves the empties flat —
+    /// which is also what keeps their removal button one click away.
+    static let crowdingGroupingThreshold = 40
+
+    /// Paths grouped by first path component, biggest branch first — the rule, so the threshold
+    /// and the ordering can be asserted without a view. nil when the list is short enough to
+    /// read flat.
+    static func crowdingBranches(_ paths: [String]) -> [(branch: String, paths: [String])]? {
+        guard paths.count > crowdingGroupingThreshold else { return nil }
+        var byBranch: [String: [String]] = [:]
+        for path in paths {
+            // A top-level folder is its own branch rather than being dropped: the profile keys
+            // paths relative to the root, so a bare name has no first component to group under.
+            let branch = path.split(separator: "/").first.map(String.init) ?? path
+            byBranch[branch, default: []].append(path)
+        }
+        return byBranch
+            .map { (branch: $0.key, paths: $0.value.sorted()) }
+            // Count descending, then name — the biggest pile is the one worth opening first, and
+            // a stable tiebreak keeps the order from moving between renders.
+            .sorted { ($1.paths.count, $0.branch) < ($0.paths.count, $1.branch) }
+    }
+
     private func crowdingList(_ weightClass: DeadWeightClass) -> some View {
         let paths = crowdingPaths(weightClass)
+        let branches = Self.crowdingBranches(paths)
         return VStack(alignment: .leading, spacing: 2) {
-            ForEach(paths, id: \.self) { path in
-                HStack(spacing: 8) {
-                    Text(path)
-                        .scaledFont(.system(size: 10.5, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                    Spacer(minLength: 8)
-                    Button("Reveal") { onReveal(path) }
-                        .scaledFont(.system(size: 10, weight: .semibold))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(accent)
-                        // Every row in the crowding list says "Reveal" — VoiceOver needs each
-                        // to name where it goes.
-                        .accessibilityLabel("Reveal \(path)")
-                        .chromeHover()
+            if let branches {
+                ForEach(branches, id: \.branch) { group in
+                    branchRow(group.branch, count: group.paths.count)
+                    if expandedBranches.contains(group.branch) {
+                        ForEach(group.paths, id: \.self) { path in
+                            crowdingRow(path).padding(.leading, 14)
+                        }
+                    }
                 }
-                .padding(.vertical, 2)
-                .padding(.horizontal, 8)
+            } else {
+                ForEach(paths, id: \.self) { path in
+                    crowdingRow(path)
+                }
             }
             // The empties' Trash route (ROADMAP_V5 §5.2, decided). Only on this class — the
             // other two are report-only and say so in their own tooltips — and only under the
@@ -450,6 +477,61 @@ struct RestructureLens: View {
         }
         .padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.18)))
+    }
+
+    private func crowdingRow(_ path: String) -> some View {
+        HStack(spacing: 8) {
+            Text(path)
+                .scaledFont(.system(size: 10.5, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.head)
+            Spacer(minLength: 8)
+            Button("Reveal") { onReveal(path) }
+                .scaledFont(.system(size: 10, weight: .semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(accent)
+                // Every row in the crowding list says "Reveal" — VoiceOver needs each to name
+                // where it goes.
+                .accessibilityLabel("Reveal \(path)")
+                .chromeHover()
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 8)
+    }
+
+    /// One branch's disclosure. Collapsed on open, every one of them: the whole point is that
+    /// five hundred paths become a dozen lines you can read before deciding which to expand.
+    private func branchRow(_ branch: String, count: Int) -> some View {
+        Button {
+            if expandedBranches.contains(branch) {
+                expandedBranches.remove(branch)
+            } else {
+                expandedBranches.insert(branch)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: expandedBranches.contains(branch)
+                      ? "chevron.down" : "chevron.right")
+                    .scaledFont(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text(branch)
+                    .scaledFont(.system(size: 10.5, weight: .medium, design: .monospaced))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text("\(count)")
+                    .scaledFont(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 2)
+        .padding(.horizontal, 8)
+        // The chevron is the only visual state, which is invisible to VoiceOver.
+        .accessibilityLabel("\(branch), \(count) folder\(count == 1 ? "" : "s")")
+        .accessibilityAddTraits(expandedBranches.contains(branch) ? [.isSelected] : [])
+        .chromeHover()
     }
 
     // MARK: Finding cards
