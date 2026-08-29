@@ -1320,14 +1320,16 @@ as the feature above, checked and not owed: every touched file is v5-only except
 — a flag (and a hazard) that exists only where Restructure landings do, so the maintenance lines
 have nothing to guard.
 
-### The Organize proposals O1–O14 — checked, not owed
+### The Organize proposals O1–O18 — checked, not owed
 
 Fourteen proposals against the v5.0 Organize build: the Trash route for §5.2's standing empties
 (O1), `Plan…` on the merge kinds (O2), the visual pass (O3 before/after preview, O4 kind glyphs,
 O5 era strip, O6 blast radius as counts, O9 grouped crowding lists), the landing's own progress
 checklist (O7), the mapping editor's filter and similar-name aids (O8), a Finder-menu route into
 both plan verbs (O10), the ledger's history and verifier line (O11), the survey-refresh button and
-its staleness tint (O12, O13), and the Help Book link out of the lens (O14).
+its staleness tint (O12, O13), the Help Book link out of the lens (O14), the yearly backlog
+nudge (O15), the structure trend (O16), the family-group table with batch planning (O17), and
+§5.9's attempted measurement (O18).
 
 **Almost every one of them extends machinery that exists only on `main`.** `RestructureLens`,
 `RestructurePlanSheet`, `RestructurePlanner`, `RestructureStore` and
@@ -1336,10 +1338,21 @@ its staleness tint (O12, O13), and the Help Book link out of the lens (O14).
 prints nothing on all three maintenance lines. There is no crowding strip to grow a button on, no
 plan sheet to seed, and no ledger whose counts a chip could restate. The five new files here
 (`RestructurePaths`, `RestructurePlanRouting`, `RestructureVerbResolver`,
-`RestructureVerbRequest`, `RestructurePairMergeSheet`) are v5-only by construction, and so is
-`OrganizeHelpTopics`.
+`RestructureVerbRequest`, `RestructurePairMergeSheet`) are v5-only by construction, and so are
+`OrganizeHelpTopics`, `RestructureNudge` (O15) and `RestructureTrendChart` (O16).
 
-Five touched files exist off `main`. None is owed, and the reason differs per file:
+M5 adds three more files that exist off `main`, and none of the three is owed either:
+
+- `Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift` — **`v4.x` only.** O15's
+  hunk is one optional input and the row that renders it, and the row's sentence is about
+  backlog findings, which only `main` has a detector for.
+- `Modules/Sync/Sources/Sync/StructureDuplicatedTaxonomy.swift` — **`main` only**; the change is
+  O18's injected `minimumShare`, on a detector no maintenance line carries.
+- `ROADMAP_V5.md` — carried on `v4.x` (it was the v5 plan while v5 was being built there) but
+  not on `v3.x` or `v2.x`. O18's dated §5.9 note describes a measurement of a detector `v4.x`
+  does not have; copying it there would document a feature that line cannot run.
+
+Five other touched files exist off `main`. None is owed, and the reason differs per file:
 
 - `MacApp/HelpBook.swift` — all three lines. It gains one Restructure paragraph and an `openAt:`
   anchor, and that paragraph describes the two sheets `Plan…` opens; both are v5-only, so the

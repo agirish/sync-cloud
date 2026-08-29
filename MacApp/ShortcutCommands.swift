@@ -1058,7 +1058,7 @@ extension ContentView {
                   verb, folder: node.id, root: root,
                   in: syncManager.visibleStructureFindings,
                   storeIsReadable: syncManager.restructureStore?.isUnreadable == false,
-                  alreadyScaffolded: scaffoldedSubjectsForMenu())
+                  alreadyScaffolded: syncManager.scaffoldedSubjects())
         else { return nil }
         let folder = node.id
         let providerRoot = lensProviderRootExpanded
@@ -1073,14 +1073,6 @@ extension ContentView {
         }
     }
 
-    /// Subjects whose scaffold has already landed, for the menu's own availability — the ledger
-    /// half of the card's disk-probed check. Cheap: a filter over the applied records.
-    func scaffoldedSubjectsForMenu() -> Set<String> {
-        Set((syncManager.restructureStore?.applied ?? [])
-            .filter { $0.manifest.kind == .backlog && $0.undoneAt == nil }
-            .compactMap { $0.manifest.actions.compactMap(\.dst).first }
-            .map { ($0 as NSString).deletingLastPathComponent })
-    }
 
     /// The newest un-undone landing in the Restructure ledger, as a runnable — nil when there is
     /// nothing to undo, which greys the menu item.

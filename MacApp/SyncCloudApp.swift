@@ -448,7 +448,9 @@ struct SyncCloudApp: App {
         // file and then derives tokens from what it read; handing the manager the derivation lets
         // the scan read a page once and share it with the router and the classifier.
         manager.filingTokensFromText = { ContentSignalExtractor.tokens(fromText: $0) }
-        FilingArtifacts.attach(to: manager)
+        // `recordingTrend:` only where a person actually launched the app — this same line runs
+        // under the test host, whose writes land in the developer's real profile directory.
+        FilingArtifacts.attach(to: manager, recordingTrend: !isRunningTests)
 
         if OnDeviceFilingClassifier.isAvailable {
             manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }

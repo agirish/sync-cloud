@@ -102,4 +102,33 @@ import Sync
         #expect(!workspace.contains("RestructureVerbResolver.finding("),
                 "and so does the workspace")
     }
+
+    /// **The app's own binary is the test host**, so `SyncCloudApp`'s launch path runs under
+    /// `xcodebuild test` — and O16's trend stamp, added there, wrote a point into the developer's
+    /// real `restructure.json` on every test run. Found by reading the file after an install and
+    /// seeing the test run's mtime on it, not the launch's.
+    ///
+    /// `attach` defaults to not stamping and the launch site passes `!isRunningTests`. This is a
+    /// source scan with a source scan's limits — it cannot run the launch path — but the thing it
+    /// forbids is precise: an unconditional stamp inside a function the test host calls.
+    @Test func attachDoesNotWriteUnlessARealLaunchAsksItTo() throws {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let artifacts = try String(
+            contentsOf: repo.appendingPathComponent("MacApp/FilingArtifacts.swift"),
+            encoding: .utf8)
+        #expect(artifacts.contains("recordingTrend: Bool = false"),
+                "the default must be the safe one — the test host takes the default")
+        #expect(artifacts.contains("if recordingTrend { manager.stampStructureTrend() }"),
+                "the stamp is gated, not unconditional")
+
+        let app = try String(contentsOf: repo.appendingPathComponent("MacApp/SyncCloudApp.swift"),
+                             encoding: .utf8)
+        #expect(app.contains("recordingTrend: !isRunningTests"),
+                "the launch site is the one that opts in, and it excludes the test host")
+
+        // A positive control: `isRunningTests` is a real flag on this type, so the clause above
+        // is not naming something that quietly evaluates to nothing.
+        #expect(app.contains("XCTestConfigurationFilePath"))
+    }
 }

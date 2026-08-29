@@ -434,8 +434,15 @@ public final class RestructureStore: ObservableObject {
     public func repointProduced(from: String, to: String) {
         guard from != to else { return }
         var changed = false
-        for index in applied.indices
-        where applied[index].undoneAt == nil && applied[index].producedProfileId == from {
+        for index in applied.indices where applied[index].undoneAt == nil {
+            // **The fallback, matched exactly as `undoableReorganisation` reads it.** A landing
+            // whose step 6 failed never got a `producedProfileId`, and is offered its undo
+            // through `?? appliedUnderProfileId` — so comparing only the produced id skipped
+            // precisely the records most in need of moving, and left them permanently
+            // un-undoable the first time a survey refresh minted a new directory. That is the
+            // defect this function was written to fix, reintroduced one field over.
+            guard (applied[index].producedProfileId
+                    ?? applied[index].appliedUnderProfileId) == from else { continue }
             applied[index].producedProfileId = to
             changed = true
         }

@@ -3163,6 +3163,21 @@ public struct LensWorkspaceView: View {
     /// what "never suggest this again" meant.
     private var structureFindings: [StructureFinding] { syncManager.visibleStructureFindings }
 
+    /// The findings **inside the current scope** — `inside` only, matching the badge and the
+    /// overview's own Restructure count.
+    ///
+    /// Everything else on the overview is narrowed this way: the section's count, the crowding
+    /// strip, the lens list. The O15 nudge read the unscoped set, so a user scoped to `Legal` was
+    /// told about a gap in `Travel/Trips` and its Set up… created folders outside the subtree they
+    /// had deliberately narrowed to.
+    private var scopedStructureFindings: [StructureFinding] {
+        let profileRoot = syncManager.filingFolderProfile?.root ?? ""
+        guard let scope = appliedScope(for: .restructure) else { return structureFindings }
+        return structureFindings.filter {
+            OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot, scope: scope) == .inside
+        }
+    }
+
     /// The crowding classification, narrowed to Restructure's scope at render — a count of the
     /// profile-keyed cache within the scope prefix, O(scope), exactly as the findings are scoped
     /// one property up. No store, no second cache.
@@ -3336,28 +3351,9 @@ public struct LensWorkspaceView: View {
             stillHasEmptiedFolders: { anyEmptiedFolderStillStands(of: $0) })
     }
 
-    /// Subjects whose scaffold landed AND still stands. A record whose created folders are all
-    /// gone — a ⌘Z, or a hand-tidy — no longer supports the "Scaffolded" claim, and the subject
-    /// drops back to offering the scaffold; one that partially stands keeps the claim, because
-    /// re-offering it would re-create the survivors' siblings around folders that still exist.
-    private func scaffoldedSubjects() -> Set<String> {
-        guard let root = syncManager.filingFolderProfile?.root else { return [] }
-        let expandedRoot = (root as NSString).expandingTildeInPath
-        var subjects: Set<String> = []
-        for record in (syncManager.restructureStore?.applied ?? [])
-        where record.manifest.kind == .backlog {
-            let created = record.manifest.actions.compactMap(\.dst)
-            guard let first = created.first else { continue }
-            let anyStanding = created.contains { relative in
-                FileManager.default.fileExists(
-                    atPath: (expandedRoot as NSString).appendingPathComponent(relative))
-            }
-            if anyStanding {
-                subjects.insert((first as NSString).deletingLastPathComponent)
-            }
-        }
-        return subjects
-    }
+    /// Subjects whose scaffold landed and still stands — `FileSyncManager`'s answer, not a
+    /// second copy. See ``FileSyncManager/scaffoldedSubjects()`` for why it moved there.
+    private func scaffoldedSubjects() -> Set<String> { syncManager.scaffoldedSubjects() }
 
     /// What a card says about a drafted plan — the trigger's count, the ledger's sentence, and
     /// §5.1's blast radius as numbers. **All of it derived from the manifest**, in one place, so
@@ -3511,10 +3507,15 @@ public struct LensWorkspaceView: View {
     /// suppressed finding cannot nudge — suppression is the stronger statement and the one the
     /// user made deliberately.
     private func backlogNudge() -> OrganizeOverview.BacklogNudge? {
-        guard let store = syncManager.restructureStore else { return nil }
-        let due = RestructureNudge.due(in: syncManager.visibleStructureFindings,
+        // **An unreadable store cannot remember the dismissal**, and a ✕ that appears to work and
+        // silently does not is worse than no line: the same nudge would come back every launch
+        // with nothing saying why. Every other Restructure control refuses out loud in this
+        // state — the plan trigger, the landing guard — so this one withholds itself.
+        guard let store = syncManager.restructureStore, !store.isUnreadable else { return nil }
+        let due = RestructureNudge.due(in: scopedStructureFindings,
                                        now: Date(),
-                                       acknowledged: store.nudgesAcknowledged)
+                                       acknowledged: store.nudgesAcknowledged,
+                                       alreadyScaffolded: scaffoldedSubjects())
         guard let sentence = RestructureNudge.sentence(for: due), let first = due.first else {
             return nil
         }

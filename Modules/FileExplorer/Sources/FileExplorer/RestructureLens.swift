@@ -227,7 +227,15 @@ struct RestructureLens: View {
     private var isEmpty: Bool { findings.isEmpty && aboutAncestor.isEmpty }
 
     /// Which crowding class the strip is currently expanded on, if any.
+    /// Which crowding class's list is open, if any — a chip toggles it.
+    ///
+    /// `initialCrowdingFilter` seeds it. The seam exists because the expanded list is where §5.2's
+    /// removal button lives, and with no way in **no test could render that button at all**: a
+    /// render test named after it was comparing two identical closed strips and passing.
     @State private var crowdingFilter: DeadWeightClass?
+    /// Seeds ``crowdingFilter`` at first appearance. nil — every list closed — everywhere but
+    /// the tests that need the expanded state on screen.
+    var initialCrowdingFilter: DeadWeightClass?
     /// Which top-level branches of a grouped crowding list are open. Empty on open — a grouped
     /// list that expanded itself would be the flat list it replaces.
     @State private var expandedBranches: Set<String> = []
@@ -236,9 +244,15 @@ struct RestructureLens: View {
         // The Help pointer rides the whole lens rather than the crowding strip: the strip renders
         // only where the scope has dead-weight folders, so on a clean subtree — and in all three
         // card states — the affordance vanished exactly where a reader is most likely to be lost.
-        lensBody.overlay(alignment: .topTrailing) {
-            helpPointer.padding(.top, 6).padding(.trailing, 10)
-        }
+        lensBody
+            .overlay(alignment: .topTrailing) {
+                helpPointer.padding(.top, 6).padding(.trailing, 10)
+            }
+            .onAppear {
+                if let initialCrowdingFilter, crowdingFilter == nil {
+                    crowdingFilter = initialCrowdingFilter
+                }
+            }
     }
 
     @ViewBuilder
@@ -264,6 +278,7 @@ struct RestructureLens: View {
                         if !deadWeight.isEmpty {
                             crowdingStrip.padding(12)
                         }
+                        trendChart.padding(.horizontal, 12)
                         if !reorganisations.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
                                 ForEach(reorganisations, content: reorganisationCard)
@@ -283,6 +298,7 @@ struct RestructureLens: View {
                     if !deadWeight.isEmpty {
                         crowdingStrip
                     }
+                    trendChart
                     ForEach(reorganisations, content: reorganisationCard)
                     // §5.2's grouping rule, the render half: rows arrive sorted so a folder's
                     // findings are adjacent, and the second card about one folder drops the path
@@ -478,16 +494,18 @@ struct RestructureLens: View {
             if let crowdingFilter {
                 crowdingList(crowdingFilter)
             }
-            trendChart
         }
     }
 
-    /// O16's line, under the crowding chips.
+    /// O16's line, under the crowding chips where there are any and on its own where there are
+    /// not.
     ///
-    /// **Here rather than on a card**, and under the strip rather than over it: the chips answer
-    /// "what is in the tree now" and the line answers "how did that get here", which is context
-    /// for the strip and not a finding of its own. It renders in every state the strip does —
-    /// including the clean one, where "33 → 0" is the most informative it ever gets.
+    /// **It used to be the strip's last child, and that was a defect**: the strip renders only
+    /// under `!deadWeight.isEmpty`, so on a scope with no empty folders, pass-throughs or
+    /// single-file leaves the line vanished — including on the clean tree, which is the state
+    /// where "33 → 0 findings · 4 landings" is the most informative it will ever be, and which
+    /// this doc previously claimed was covered. It is about the lens, not about dead weight, so
+    /// it hangs off the lens.
     @ViewBuilder
     private var trendChart: some View {
         if trend.count >= 2 {

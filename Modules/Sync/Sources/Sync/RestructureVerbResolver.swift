@@ -42,11 +42,17 @@ public enum RestructureVerbResolver {
                                in findings: [StructureFinding],
                                storeIsReadable: Bool,
                                alreadyScaffolded: Set<String> = []) -> Resolution {
-        // A plan's first act is to save a draft. Refusing here rather than after the sheet opens
-        // is what the card does, and the sentence is the same one.
-        if verb == .plan, !storeIsReadable {
-            return .refuse("The plan store cannot be read, so a plan could not be saved — "
-                + "Restructure is read-only until that is fixed.")
+        // **Both verbs need the store, for different reasons, and both refuse without it.** A
+        // plan's first act is to save a draft; a scaffold is a landing, and
+        // `restructureLandingRefusal` refuses one whose ledger record could not be kept — so a
+        // `.setUp` item left enabled here is an enabled item over a handler that warns and does
+        // nothing, which this type's own doc calls the worst of the three behaviours.
+        if !storeIsReadable {
+            return .refuse(verb == .plan
+                ? "The plan store cannot be read, so a plan could not be saved — Restructure is "
+                    + "read-only until that is fixed."
+                : "The plan store cannot be read, so this landing could not be recorded — "
+                    + "Restructure is read-only until that is fixed.")
         }
         guard let finding = finding(forFolder: folder, root: root, in: findings, verb: verb,
                                     alreadyScaffolded: alreadyScaffolded) else {

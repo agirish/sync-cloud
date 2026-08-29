@@ -193,9 +193,12 @@ import Testing
         }
         let findings = StructureDuplicatedTaxonomy.findings(groups: groups, in: profile)
         #expect(findings.count == 1, "recorded as the rule's current behaviour")
-        #expect(findings.first?.subject.contains("TODO") == true
-                || findings.first?.detail
-                    == .duplicatedTaxonomy(counterpart: "Cards/TODO", matchedDocuments: 10))
+        // The subject is the lexicographically first of the pair — a stable identity, pinned
+        // here rather than allowed either way by an `||`, which would have let the counterpart
+        // and the count go unchecked the moment that rule changed.
+        #expect(findings.first?.subject == "Cards/Credit 2809/2024")
+        #expect(findings.first?.detail
+                == .duplicatedTaxonomy(counterpart: "Cards/TODO", matchedDocuments: 10))
     }
 
     /// **3. A petition packet.** Pay statements copied out of `Work/…/Salary Statements` into an
@@ -216,9 +219,17 @@ import Testing
                 == .duplicatedTaxonomy(counterpart: "Work/Compensation/Salary Statements/2026",
                                        matchedDocuments: 4))
         // The smaller folder is wholly shared and the larger barely at all — the asymmetry the
-        // share rule reads, and the reason it uses the SMALLER side.
-        #expect(4.0 / 4.0 >= StructureDuplicatedTaxonomy.Rule.minimumShare)
-        #expect(4.0 / 12.0 < StructureDuplicatedTaxonomy.Rule.minimumShare)
+        // share rule reads. Checked by ASKING THE RULE with the sides swapped rather than by
+        // arithmetic against the constant: had it divided by the larger folder, 4/12 would be
+        // under every threshold and this pair would vanish.
+        let reversed = Self.profile(["Immigration/H-1B/Petition/pay_statements": 12,
+                                     "Work/Compensation/Salary Statements/2026": 4])
+        #expect(StructureDuplicatedTaxonomy.findings(groups: groups, in: reversed).count == 1,
+                "it is the smaller side either way round, not a fixed one of the two")
+        let bothLarge = Self.profile(["Immigration/H-1B/Petition/pay_statements": 40,
+                                      "Work/Compensation/Salary Statements/2026": 40])
+        #expect(StructureDuplicatedTaxonomy.findings(groups: groups, in: bothLarge).isEmpty,
+                "four shared documents out of forty is not a duplicated taxonomy")
     }
 }
 

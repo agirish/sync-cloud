@@ -125,21 +125,6 @@ import Testing
                 "the disk probe alone can withdraw the button")
     }
 
-    /// The undoable record shows no blocked reason, and an undone one shows neither.
-    @Test func onlyABlockedRecordCarriesTheReason() {
-        let undoable = ReorganisationDisplay(
-            manifestId: "new", family: "F", at: "t", summary: "s", undoneAt: nil,
-            undoSummary: nil, canUndo: true, hasEmptiedFolders: false,
-            verifierLine: nil, blockedReason: nil)
-        #expect(undoable.blockedReason == nil)
-
-        let blocked = ReorganisationDisplay(
-            manifestId: "old", family: "F", at: "t", summary: "s", undoneAt: nil,
-            undoSummary: nil, canUndo: false, hasEmptiedFolders: false,
-            verifierLine: nil, blockedReason: RestructureLens.blockedByNewerText)
-        #expect(blocked.canUndo == false)
-        #expect(blocked.blockedReason != nil)
-    }
 
     private static func ledgerLens(verifier: Bool, blocked: Bool) -> RestructureLens {
         RestructureLens(

@@ -203,15 +203,32 @@ import Testing
     }
 
     /// The state that grew the control: a clean tree whose only remaining work is the crowding
-    /// strip, with the empties filter open. A layout crash fails here rather than on a real tree.
+    /// strip, with the empties filter open — **and the button is visibly there**, which an ink
+    /// floor over the whole lens could not say, since the strip inks tens of thousands of pixels
+    /// either way. The handler is the only difference between the two renders.
     @Test func theLensRendersTheEmptiesListWithItsRemovalButton() throws {
-        let lens = RestructureLens(
-            findings: [], hasProfile: true, folderCount: 3013,
-            deadWeight: ["Travel/2019": .empty,
-                         "Finance/IN/SBI NRE/2013-2014": .empty,
-                         "Work/HPE/Offer Letter": .singleFileLeaf],
-            accent: .blue, onReveal: { _ in }, hasReviewed: true,
-            onRemoveStandingEmpties: {})
+        func lens(remover: (() -> Void)?) -> RestructureLens {
+            RestructureLens(
+                findings: [], hasProfile: true, folderCount: 3013,
+                deadWeight: ["Travel/2019": .empty,
+                             "Finance/IN/SBI NRE/2013-2014": .empty,
+                             "Work/HPE/Offer Letter": .singleFileLeaf],
+                accent: .blue, onReveal: { _ in }, hasReviewed: true,
+                onRemoveStandingEmpties: remover,
+                // The button lives under the EXPANDED empty list, and the filter is state a chip
+                // toggles — so without this seed both renders are of a closed strip, which is
+                // what the previous version of this test was silently comparing.
+                initialCrowdingFilter: .empty)
+        }
+        let without = try #require(RestructureRender.raster(lens(remover: nil),
+                                                            width: 640, height: 480))
+        let with = try #require(RestructureRender.raster(lens(remover: {}),
+                                                         width: 640, height: 480))
+        #expect(RestructureRender.inkedPixels(without) > 1000, "the strip drew either way")
+        #expect(RestructureRender.differingPixels(without, with) > 100,
+                "\u{201c}Remove empty folders\u{2026}\u{201d} is on the strip")
+
+        let lens = lens(remover: {})
         // An ink floor, not a width: `fittingSize.width > 0` is true of an empty
         // `VStack`, so it passed with the subject of this test deleted.
         let rep = try #require(RestructureRender.raster(lens, width: 640, height: 480))

@@ -351,11 +351,14 @@ import Testing
         let stamped = try #require(world.manager.restructureStore?.trend.last)
         #expect(stamped.landing, "the point a landing produced carries its cause")
         #expect(stamped.profileId == world.manager.filingProfileDirectoryId)
-        #expect(stamped.total == world.manager.structureFindings.count,
-                "the counts are the survey's own, not a number invented for the chart")
-        // What the counts actually contain is `RestructureTrendStampTests` next door, against a
-        // profile that fires — this fixture's derived tree has nothing left to find, which is
-        // the right outcome for the landing and the wrong one for testing a counter.
+        // **Not `stamped.total == structureFindings.count`.** Both are zero on this fixture —
+        // the landing resolves the only finding, which is the right outcome for the landing and
+        // a vacuous assertion for a counter. What the counts contain is
+        // `RestructureTrendStampTests` next door, against a profile that fires. What only THIS
+        // test can say is that the landing produced a point at all, under the profile it
+        // produced, marked as a landing.
+        #expect(stamped.countsByKind.values.allSatisfy { $0 > 0 },
+                "a kind with none is absent, never a zero")
     }
 
     // MARK: - The two undos

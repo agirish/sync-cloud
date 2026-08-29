@@ -604,7 +604,8 @@ struct OrganizeOverview: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.35)))
+        .background(RoundedRectangle(cornerRadius: Radius.well)
+            .fill(.quaternary.opacity(0.35)))
     }
 
     // MARK: The ledger

@@ -112,7 +112,22 @@ import Testing
                 "the derivation must not consult the filter — Apply does not narrow with the view")
     }
 
-    /// The whole sheet renders with a filter present and with one applied.
+    /// **The filter narrows what the list draws** — checked at the rule, because the sheet's
+    /// `filterText` is `@State` with no way in, so a render test naming two states could only
+    /// ever produce one. The previous version of this did exactly that, and `matches` returning
+    /// `true` unconditionally survived it.
+    @Test func theFilterHidesTheRowsItDoesNotMatch() {
+        let rows = ["Payment", "Payments", "Transcripts", "Form W-2"]
+        #expect(rows.filter { RestructurePlanSheet.matches($0, filter: "pay") }
+                == ["Payment", "Payments"])
+        #expect(rows.filter { RestructurePlanSheet.matches($0, filter: "w2") } == ["Form W-2"],
+                "the key folds punctuation, so W2 finds W-2")
+        #expect(rows.filter { RestructurePlanSheet.matches($0, filter: "") } == rows)
+        #expect(rows.filter { RestructurePlanSheet.matches($0, filter: "zzz") }.isEmpty,
+                "a filter matching nothing hides every row")
+    }
+
+    /// The whole sheet renders with a filter present.
     @Test func theEditorRendersFilteredAndUnfiltered() throws {
         let finding = StructureFinding(
             family: "F",

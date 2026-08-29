@@ -105,19 +105,34 @@ import Testing
 
     // MARK: It is drawn
 
-    /// The line and the dots reach the pixels — and a landing dot is visibly more than the line
-    /// alone, which is the whole of what the dots add.
+    /// The line and the dots reach the pixels — **and the caption is held constant**, because
+    /// `caption(for:)` appends "· N landings" and the first version of this compared two renders
+    /// that differed in their text as well as their dots. Deleting the dot loop outright left it
+    /// green.
+    ///
+    /// Same number of landings in both arms, at different positions: the caption is identical
+    /// word for word, so every differing pixel is a dot that moved.
     @Test func theChartDrawsItsLineAndItsLandingDots() throws {
         func chart(landings: Set<Int>) -> RestructureTrendChart {
             RestructureTrendChart(points: Self.points([33, 27, 19], landings: landings),
                                   accent: .blue)
         }
-        let plain = try #require(RestructureRender.raster(chart(landings: []),
+        let atStart = try #require(RestructureRender.raster(chart(landings: [0]),
+                                                            width: 240, height: 60))
+        let atEnd = try #require(RestructureRender.raster(chart(landings: [2]),
                                                           width: 240, height: 60))
-        #expect(RestructureRender.inkedPixels(plain) > 100, "the line is drawn")
-        let dotted = try #require(RestructureRender.raster(chart(landings: [1, 2]),
-                                                           width: 240, height: 60))
-        #expect(RestructureRender.differingPixels(plain, dotted) > 20,
-                "a landing is marked on the line it caused")
+        #expect(RestructureTrendChart.caption(for: Self.points([33, 27, 19], landings: [0]))
+                == RestructureTrendChart.caption(for: Self.points([33, 27, 19], landings: [2])),
+                "a positive control: the two arms' captions are the same string")
+        #expect(RestructureRender.differingPixels(atStart, atEnd) > 20,
+                "the dot is drawn where the landing is, not just somewhere")
+
+        // And the LINE is drawn, measured inside the canvas band alone — the caption inks well
+        // over a hundred pixels on its own, so an ink floor over the whole view proved nothing.
+        let band = try #require(RestructureRender.raster(
+            RestructureTrendChart(points: Self.points([33, 27, 19]), accent: .blue)
+                .frame(height: RestructureTrendChart.height),
+            width: 240, height: RestructureTrendChart.height))
+        #expect(RestructureRender.inkedPixels(band) > 100, "the line itself is stroked")
     }
 }

@@ -118,6 +118,30 @@ import Foundation
                 "the trend counts what the detectors found, not what is on screen")
     }
 
+    /// **The stamp costs nothing when there is nothing to record.** Reading the findings runs
+    /// the whole detector sweep — 325 ms over the reference profile's 3,013 folders, measured —
+    /// and the launch call site runs before the window appears. A profile already in the trend
+    /// must be answered from the trend alone, without counting anything.
+    ///
+    /// Checked by making the count itself impossible: a manager with no profile cannot produce
+    /// findings, so a stamp that reached the counting stage could not record the total below.
+    @Test func aProfileAlreadyStampedIsAnsweredWithoutCountingAgain() throws {
+        let manager = try makeManager()
+        manager.stampStructureTrend()
+        let first = try #require(manager.restructureStore?.trend.last)
+        #expect(first.total > 0)
+
+        // Same profile id, second call: no new point, and the existing one is untouched.
+        manager.stampStructureTrend()
+        #expect(manager.restructureStore?.trend.count == 1)
+        #expect(manager.restructureStore?.trend.last?.total == first.total)
+
+        // A LANDING is the exemption — it re-stamps to record the cause.
+        manager.stampStructureTrend(landing: true)
+        #expect(manager.restructureStore?.trend.count == 1)
+        #expect(manager.restructureStore?.trend.last?.landing == true)
+    }
+
     /// With no profile there is no survey to count, and a zero point would read as a clean tree.
     @Test func nothingIsStampedWithoutAProfile() throws {
         let manager = try makeManager()

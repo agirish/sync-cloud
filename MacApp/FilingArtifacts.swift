@@ -17,13 +17,20 @@ enum FilingArtifacts {
 
     /// Loads the active profile and everything keyed to it, or leaves the manager untouched.
     ///
+    /// - Parameter recordingTrend: whether to stamp O16's baseline point. **Default false, and
+    ///   the default is the point.** This function is otherwise read-only, and the app's own
+    ///   binary is the test host — so `SyncCloudApp`'s launch path runs under `xcodebuild test`
+    ///   too, and a stamp taken unconditionally here wrote a trend point into the developer's
+    ///   real `restructure.json` on every test run. Caught by reading the file after an install:
+    ///   its mtime was the test run's, not the launch's. Only a real launch passes true.
+    ///
     /// - Returns: whether anything was attached — `false` means this machine has no active profile,
     ///   which is the ordinary state on a Mac that has never been surveyed. **Not** the answer to
     ///   "did the walk I just ran take effect": a walk that lands beside a hand-built profile
     ///   attaches that OTHER profile and returns `true`. `FolderWalkReport.becameActive` is the
     ///   value that answers that, and it is what the setup form reads.
     @discardableResult
-    static func attach(to manager: FileSyncManager) -> Bool {
+    static func attach(to manager: FileSyncManager, recordingTrend: Bool = false) -> Bool {
         guard let profiles = FilingProfileStore.defaultDirectory(),
               let loaded = FilingProfileStore.active(in: profiles) else { return false }
 
@@ -65,6 +72,14 @@ enum FilingArtifacts {
         // documents dictionary. Nil for a corpus that predates the stamp, which the footnote
         // has words for.
         manager.filingSurveyedAt = FilingSurveyStore.surveyedAt(id: loaded.id, in: profiles)
+        // **O16's baseline point.** Here rather than in `structureReport`, which a view body
+        // reads on every render — and the stamp answers from the trend before it counts
+        // anything, so a profile already recorded costs nothing at launch. Without this call
+        // site the trend only ever gains points from landings: a user's first reorganisation
+        // would leave one point and no chart, and a tree improved by hand between two walks
+        // would have that improvement absorbed into the next landing's dot, crediting the
+        // landing with work the user did themselves.
+        if recordingTrend { manager.stampStructureTrend() }
         Logger.shared.info("Filing profile '\(loaded.id)' loaded — "
                            + "\(loaded.profile.folders.count) folder(s), "
                            + "\(loaded.memory?.folders.count ?? 0) with filing memory, "

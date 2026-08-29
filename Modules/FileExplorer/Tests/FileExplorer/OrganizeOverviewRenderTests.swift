@@ -438,10 +438,29 @@ import Design
 
     // MARK: The backlog nudge (proposal O15)
 
-    /// **The line is drawn, and only when one is due.** §5.6's argument is that the gap is worth
-    /// saying the month it happens, and the overview is the surface someone sees without opening
-    /// the Restructure lens — so "nil renders nothing, a value renders something" is the whole
-    /// claim, and it is one a rule test cannot make.
+    /// **The sentence itself is drawn** — not merely a row of the right height.
+    ///
+    /// Comparing "no nudge" against "a nudge" only proves the layout got taller: the row is
+    /// inserted above every section, so any height change shifts the whole column and the diff
+    /// counts the shift. Replacing the row's body with a blank `Color.clear` of the same height
+    /// passed that test. Two nudges of the SAME height carrying DIFFERENT sentences cannot be
+    /// satisfied that way — a blank row renders identically for both.
+    @Test func theNudgesOwnSentenceIsDrawn() throws {
+        func mounted(_ sentence: String) -> Mounted {
+            mount(Self.sections(examples: 1),
+                  nudge: OrganizeOverview.BacklogNudge(sentence: sentence,
+                                                       setUp: {}, dismiss: {}))
+        }
+        // Same length, same wrapping, so the row's height cannot differ between them.
+        let one = try #require(bitmap(mounted("2026 has files but no folders yet in Aaaa/Aaaaaa."),
+                                      Self.fullBand))
+        let other = try #require(bitmap(mounted("2026 has files but no folders yet in Bbbb/Bbbbbb."),
+                                        Self.fullBand))
+        #expect(differingPixels(one, other) > 40,
+                "the sentence reaches the pixels, not just the space it occupies")
+    }
+
+    /// And it renders only when one is due — the row is absent, not blank, with no nudge.
     @Test func theNudgeLineRendersOnlyWhenOneIsDue() throws {
         let without = try #require(bitmap(mount(Self.sections(examples: 1)), Self.fullBand))
         let with = try #require(bitmap(
@@ -451,13 +470,29 @@ import Design
                     setUp: {}, dismiss: {})),
             Self.fullBand))
         #expect(differingPixels(without, with) > 500,
-                "the nudge line, its verb and its dismissal are on the surface")
+                "the nudge line takes its own space on the surface")
     }
 
-    /// **And it stays out of the ledger.** The counted lenses' ratio has a documented
-    /// can't-close invariant; a nudge is not a check, nothing scans to produce it, and nothing
-    /// closes it but the user's own filing. The tiles must read identically either way.
+    /// **And it stays out of the ledger** — checked where the ledger is actually computed, plus
+    /// the render.
+    ///
+    /// The render half alone would not prove it: `mount` passes a `Ledger` the test constructs,
+    /// so the production derivation is never called and a version that counted the nudge would
+    /// still draw identical tiles here. `Ledger.derived` takes only the sections and the runnable
+    /// passes — the nudge is not among its inputs, which is the structural reason it cannot
+    /// disturb the ratio, and the assertion below is on that signature's behaviour.
     @Test func theNudgeDoesNotTouchTheChecksLedger() throws {
+        // The derivation the workspace uses, over the same sections, is the number that must not
+        // move; nothing about a nudge can reach it.
+        let counted = OrganizeOverview.Ledger.derived(
+            from: Self.sections(examples: 1),
+            runnablePasses: Set(OrganizePass.allCases),
+            reclaimable: nil, scopeFolders: nil)
+        #expect(counted.checksTotal
+                == OrganizeOverview.Ledger.countedLenses(
+                    runnablePasses: Set(OrganizePass.allCases)).count,
+                "the denominator is the runnable lenses, and a nudge is not a lens")
+
         // The ledger strip is the top band; the nudge renders beneath it.
         let ledgerBand = CGRect(x: 0, y: 0, width: Self.canvas.width, height: 74)
         let without = try #require(bitmap(mount(Self.sections(examples: 1)), ledgerBand))

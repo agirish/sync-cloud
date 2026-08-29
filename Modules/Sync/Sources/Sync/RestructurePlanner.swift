@@ -315,13 +315,21 @@ public enum RestructurePlanner {
     ///
     /// Manifest ids are `manifestIdPrefix` plus the family's own leaf name, so the ledger's
     /// records and the exported filenames stay one-per-family and a landing can be undone alone.
+    /// - Parameter membersByFamily: the member set to plan a family over, where the caller has
+    ///   one. **The subject family's belongs here**, because the sheet derives its single-family
+    ///   plan over the members the FINDING names — read off the profile — while a bare disk
+    ///   listing is whatever is there now. The two diverge the moment a folder is created after
+    ///   the survey, and the exhaustive operation list the user reads comes from the first: a
+    ///   landing derived over the second renames folders the review never showed them. Families
+    ///   with no entry fall back to the disk, which is the only source there is for a sibling
+    ///   the finding says nothing about.
     public static func groupManifests(
         families: [String], mapping: RestructureMapping, kind: FindingKind,
         in view: RestructureTreeView, profileId: String, manifestIdPrefix: String,
-        createdAt: String)
+        createdAt: String, membersByFamily: [String: [String]] = [:])
         -> [(family: String, result: Result<RestructureManifest, PlanRefusal>)] {
         families.map { family in
-            let members = view.childFolders(family) ?? []
+            let members = membersByFamily[family] ?? view.childFolders(family) ?? []
             // Each family's mapping is the shared one NARROWED to the sources it actually has:
             // a row naming a folder this family does not carry is not an error, it is simply not
             // about this family, and passing it through would refuse the whole plan on a name

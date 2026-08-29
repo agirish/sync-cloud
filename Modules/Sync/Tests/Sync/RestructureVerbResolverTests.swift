@@ -140,13 +140,25 @@ import Testing
         }
         #expect(sentence.contains("read-only"), "the sentence says what the state is")
 
-        // `setUp` creates folders and records a scaffold; it does not save a draft, so an
-        // unreadable plan store is not its problem.
+        // **And the scaffold refuses too, for its own reason.** It was exempt in the first
+        // version of this rule — "it does not save a draft, so the plan store is not its
+        // problem" — which was wrong: a scaffold IS a landing, and `restructureLandingRefusal`
+        // refuses one whose ledger record could not be kept. The menu item was left enabled over
+        // a handler that warned and did nothing.
         let scaffold = RestructureVerbResolver.resolve(
             .setUp, folder: "\(Self.root)/Health/Dental/2026", root: Self.root,
             in: [Self.backlog("Health/Dental/2026")], storeIsReadable: false)
-        #expect(scaffold == .run(Self.backlog("Health/Dental/2026")),
-                "the scaffold does not need the draft store")
+        guard case .refuse(let scaffoldSentence) = scaffold else {
+            Issue.record("a scaffold cannot be recorded without the store either")
+            return
+        }
+        #expect(scaffoldSentence.contains("recorded"),
+                "its sentence is about the landing's record, not about a draft")
+        #expect(RestructureVerbResolver.resolve(
+            .setUp, folder: "\(Self.root)/Health/Dental/2026", root: Self.root,
+            in: [Self.backlog("Health/Dental/2026")], storeIsReadable: true)
+                == .run(Self.backlog("Health/Dental/2026")),
+                "and it runs when the store can be written")
     }
 
     /// **A landed scaffold is no longer on offer.** The card swaps its button for "Scaffolded —

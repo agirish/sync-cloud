@@ -38,9 +38,18 @@ public enum RestructureNudge {
     /// flag, because "I know about 2026" must not silence 2027. Suppression is separate and
     /// stronger: a suppressed finding never reaches `visibleStructureFindings` at all, so it
     /// cannot reach this.
+    ///
+    /// `alreadyScaffolded` is the same set the card and the menu read, and **not passing it was a
+    /// defect**: `applyScaffold` deliberately does not re-derive the profile, so a backlog finding
+    /// stays in `visibleStructureFindings` verbatim after its folders have been created. The card
+    /// handles that by swapping its button for "Scaffolded — the survey hasn't caught up yet"; a
+    /// nudge that did not would keep saying "2026 has files but no folders yet" about folders that
+    /// now exist, and its Set up… would hand off to a resolver that refuses with "there is no
+    /// longer a finding for that folder" — false in both clauses.
     public static func due(in findings: [StructureFinding],
                            now: Date,
                            acknowledged: [RestructureKey: String],
+                           alreadyScaffolded: Set<String> = [],
                            calendar: Calendar = .current) -> [Due] {
         let thisYear = String(calendar.component(.year, from: now))
         return findings.compactMap { finding -> Due? in
@@ -51,6 +60,7 @@ public enum RestructureNudge {
             guard case .backlog(let scaffold, _)? = finding.detail, !scaffold.isEmpty else {
                 return nil
             }
+            guard !alreadyScaffolded.contains(finding.subject) else { return nil }
             guard year(of: finding.subject) == thisYear else { return nil }
             guard acknowledged[RestructureKey(kind: finding.kind, path: finding.subject)]
                     != thisYear else { return nil }

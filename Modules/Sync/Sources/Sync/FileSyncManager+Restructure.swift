@@ -202,6 +202,15 @@ extension FileSyncManager {
         guard let store = restructureStore, filingFolderProfile != nil else { return }
         let id = filingProfileDirectoryId ?? filingFolderProfile?.profileId ?? ""
         guard !id.isEmpty else { return }
+        // **The dedupe check BEFORE the counting, and this is not a micro-optimisation.**
+        // Reading `structureFindings` runs the whole detector sweep — measured at 325 ms over
+        // the reference profile's 3,013 folders, on the main actor. The launch call site sits in
+        // `FilingArtifacts.attach`, before the window appears, and the store already holds a
+        // point for a profile that has not changed since last launch — so counting first paid
+        // a third of a second of launch latency on every launch to discover there was nothing
+        // to record. A landing is the one case that legitimately re-stamps an existing profile,
+        // to upgrade its point's cause, so it is exempt.
+        if !landing, store.trend.contains(where: { $0.profileId == id }) { return }
         var counts: [String: Int] = [:]
         // Every finding the detectors produced, NOT `visibleStructureFindings`: a suppression is
         // a statement about what to show, and a trend that fell when the user hid a card would
@@ -212,5 +221,36 @@ extension FileSyncManager {
         store.recordTrend(RestructureStore.TrendPoint(
             at: FilingProfileStore.stamp(now), profileId: id, countsByKind: counts,
             landing: landing))
+    }
+
+    /// Subjects whose scaffold landed **and still stands** — the one answer every surface reads.
+    ///
+    /// A record whose created folders are all gone (a ⌘Z, or a hand-tidy) no longer supports the
+    /// "Scaffolded" claim, and the subject drops back to offering the scaffold; one that partially
+    /// stands keeps it, because re-offering would re-create the survivors' siblings around folders
+    /// that still exist.
+    ///
+    /// **Here rather than in the workspace, because there were two copies.** The Organize menu had
+    /// its own ledger-only version filtered on `undoneAt` — and a scaffold record's `undoneAt` is
+    /// never set, since `applyScaffold` records no `appliedUnderProfileId` and the ledger undo
+    /// refuses a record without one. So that filter was inert and the two disagreed after a ⌘Z:
+    /// the card correctly re-offered the scaffold while the menu item stayed greyed. The disk is
+    /// the only thing that knows, so the disk is what both ask.
+    public func scaffoldedSubjects() -> Set<String> {
+        guard let root = filingFolderProfile?.root else { return [] }
+        let expandedRoot = (root as NSString).expandingTildeInPath
+        var subjects: Set<String> = []
+        for record in (restructureStore?.applied ?? []) where record.manifest.kind == .backlog {
+            let created = record.manifest.actions.compactMap(\.dst)
+            guard let first = created.first else { continue }
+            let anyStanding = created.contains { relative in
+                fileManager.fileExists(
+                    atPath: (expandedRoot as NSString).appendingPathComponent(relative))
+            }
+            if anyStanding {
+                subjects.insert((first as NSString).deletingLastPathComponent)
+            }
+        }
+        return subjects
     }
 }

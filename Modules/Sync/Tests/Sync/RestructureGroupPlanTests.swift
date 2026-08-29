@@ -12,15 +12,22 @@ import Testing
 
     /// H-1B, H-4 and H-4 EAD under `Immigration`, each with one member year holding the child
     /// names the 6 Aug notes record.
+    ///
+    /// **It clears `parallelFamilies`' own bar, and the first version did not.** That gate needs
+    /// three shared names; the first fixture shared two, so `parallelFamilies` returned `[]` and
+    /// every test below passed a family list the app could never have formed — the rules were
+    /// right and nothing reachable called them. `theGateActuallyFormsThisGroup` is the test that
+    /// keeps the fixture and the gate in step.
     private static func trio() -> RestructureTreeView {
         let children: [String: [String]] = [
             "Immigration": ["H-1B", "H-4", "H-4 EAD"],
             "Immigration/H-1B": ["2023"],
-            "Immigration/H-1B/2023": ["Petition", "Approval", "Correspondence"],
+            "Immigration/H-1B/2023": ["Petition", "Approval", "Correspondence", "Receipts"],
             "Immigration/H-4": ["2023"],
-            "Immigration/H-4/2023": ["Application", "Approval", "Correspondence"],
+            "Immigration/H-4/2023": ["Application", "Approval", "Correspondence", "Receipts"],
             "Immigration/H-4 EAD": ["2023"],
-            "Immigration/H-4 EAD/2023": ["Application", "Approval"],
+            "Immigration/H-4 EAD/2023": ["Application", "Approval", "Correspondence",
+                                         "Receipts"],
         ]
         return RestructureTreeView(childFolders: { children[$0] },
                                    files: { _ in [] },
@@ -28,6 +35,29 @@ import Testing
     }
 
     private static let families = ["Immigration/H-1B", "Immigration/H-4", "Immigration/H-4 EAD"]
+
+    // MARK: The gate that forms the group at all
+
+    /// **`parallelFamilies` is the only producer of a group in the app**, so a fixture it refuses
+    /// makes every test below vacuous — the rules exercised over a set nothing could construct.
+    /// This is the test that ties the two together: the trio really is a group by the app's own
+    /// bar, and the bar is still three.
+    @Test func theGateActuallyFormsThisGroup() {
+        let siblings = RestructurePlanner.parallelFamilies(of: "Immigration/H-1B", in: Self.trio())
+        #expect(siblings.sorted() == ["H-4", "H-4 EAD"],
+                "the trio is a group by the app's own rule, not just by this test's say-so")
+        // And the bar is load-bearing: a family sharing two names is not a parallel. `Receipts`
+        // is what takes the overlap from two to three.
+        let narrower: [String: [String]] = [
+            "P": ["A", "B"],
+            "P/A": ["2023"], "P/A/2023": ["Approval", "Correspondence", "Petition"],
+            "P/B": ["2023"], "P/B/2023": ["Approval", "Correspondence", "Application"],
+        ]
+        let view = RestructureTreeView(childFolders: { narrower[$0] }, files: { _ in [] },
+                                       fileCount: { _ in 1 })
+        #expect(RestructurePlanner.parallelFamilies(of: "P/A", in: view).isEmpty,
+                "two shared names is under the bar — the noise it exists to exclude")
+    }
 
     // MARK: The table
 
@@ -38,8 +68,8 @@ import Testing
         let table = try #require(RestructurePlanner.familyGroupTable(families: Self.families,
                                                                      in: Self.trio()))
         #expect(table.families == Self.families)
-        #expect(table.rows.map(\.name) == ["Approval", "Application", "Correspondence",
-                                           "Petition"],
+        #expect(table.rows.map(\.name) == ["Approval", "Correspondence", "Receipts",
+                                           "Application", "Petition"],
                 "three-family names first, then two, then one — alphabetical inside each")
 
         let approval = try #require(table.rows.first { $0.name == "Approval" })
@@ -59,7 +89,7 @@ import Testing
     @Test func theDisagreementsAreTheNamesNotEveryoneHas() throws {
         let table = try #require(RestructurePlanner.familyGroupTable(families: Self.families,
                                                                      in: Self.trio()))
-        #expect(table.disagreements.map(\.name) == ["Application", "Correspondence", "Petition"])
+        #expect(table.disagreements.map(\.name) == ["Application", "Petition"])
 
         // A group that already agrees has none — the header says so rather than showing an empty
         // grid under a count of zero.
@@ -89,7 +119,7 @@ import Testing
     /// The sources one shared mapping is edited over: every name in the group, once.
     @Test func theGroupsSourcesAreTheUnionOfItsNames() {
         #expect(RestructurePlanner.groupSources(families: Self.families, in: Self.trio())
-                == ["Application", "Approval", "Correspondence", "Petition"])
+                == ["Application", "Approval", "Correspondence", "Petition", "Receipts"])
     }
 
     /// **Each family's manifest is derived against its own folders**, and a row naming a folder
@@ -147,4 +177,5 @@ import Testing
         #expect((try? plans[1].result.get()) != nil)
         #expect((try? plans[2].result.get()) != nil)
     }
+
 }
