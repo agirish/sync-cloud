@@ -1409,11 +1409,40 @@ fraction alone would drop those twins instead of admitting them.
 `Modules/FileExplorer/Sources/FileExplorer/DuplicateThumbnail.swift`, present on **all three**.
 Each line scales the tile to 1.1 on hover with no tap handler anywhere in the file — an affordance
 that reads as a control and is not one, with the only real keeper control a small radio in the row
-beneath. `main` makes the tile (and the whole row) the picker.
+beneath.
+
+**`main`'s answer changed on 2026-08-29 (`066ea5e4`), and the check for this row changed with it.**
+It briefly made the tile itself the picker; it now makes the whole COPY ROW the picker, with the
+tile and the keeper radio as pictures of state. So the fix a maintenance line would take is no
+longer "give the tile a tap handler" — it is the row-as-control shape, and the tile's dead lift is
+then deleted rather than wired up.
+
+**Do not carry the nested-control half of that commit across as a defect: it is `main`-only and was
+born and buried there.** `SelectableKeeperRadio` is a `Button`, and on `main` it briefly sat inside
+a copy row that had also become a `Button`. On `v4.x`, `v3.x` and `v2.x` the COPY row is not a
+button, so that radio is their one legitimate control — the very thing OWED 2 says is too small a
+target, not a second one.
+
+Counting `.row` buttons will not tell you that: each maintenance line has exactly **one**, and it is
+the collapsed HEADER (name, subtitle, reclaim figure, chevron) — the expand/collapse control every
+line has always had. `main` has two, and the second is the copy row. So the count that answers this
+row is 2-vs-1, and the discriminator is `keeperAction` in the command below, which no header uses.
+
+**Two traps for whoever audits this next.** `onTapGesture` is now absent from `DuplicateThumbnail`
+on all four lines — on `main` because the row is the control, on the others because nothing is — so
+that grep reads "no gap" off a real one. And the card holding the fix is named
+`DuplicateGroupCard.swift` on `main` and `v4.x` but **`TidyGroupCard.swift` on `v3.x` and `v2.x`**
+(renamed by `b4ae305b`), so a sweep written against `main`'s path answers 0 for the older two
+because the PATH is missing, not the code. Both checks below survive that:
 
 ```sh
-for l in v4.x v3.x v2.x; do git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DuplicateThumbnail.swift \
-  | grep -c onTapGesture; done            # 0, 0, 0 — while all three carry `.scaleEffect(isHovering …)`
+# The defect — a tile that lifts under the pointer with no control of its own:
+for l in v4.x v3.x v2.x; do echo -n "$l "; git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/DuplicateThumbnail.swift \
+  | grep -c 'scaleEffect(isHovering'; done                     # 1 1 1 — the dead lift, on every line
+# The fix — in the CARD, whose name differs by line:
+for l in main:Duplicate v4.x:Duplicate v3.x:Tidy v2.x:Tidy; do
+  echo -n "${l%%:*} "; git show "origin/${l%%:*}:Modules/FileExplorer/Sources/FileExplorer/${l##*:}GroupCard.swift" \
+    | grep -c 'keeperAction'; done                             # main 2; v4.x 0; v3.x 0; v2.x 0
 ```
 
 **NOT owed — dropping the name-only match kind**, and the three files that only move because it
