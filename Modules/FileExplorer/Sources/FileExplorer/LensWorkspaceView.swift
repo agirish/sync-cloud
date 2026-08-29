@@ -3588,6 +3588,9 @@ public struct LensWorkspaceView: View {
                 refineOffered: syncManager.filingCloudRefineAvailable,
                 refineModelLabel: FilingSpendFormat.model(refineModelName),
                 onConfigureRefine: onConfigureCloudRefine,
+                // Straight from the manager: the checklist can only show stages the engine
+                // actually reached, and it clears itself when the landing ends either way.
+                applyProgress: syncManager.restructureApplyProgress,
                 onClose: { planningFinding = nil })
     }
 

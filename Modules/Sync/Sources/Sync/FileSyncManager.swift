@@ -1015,6 +1015,15 @@ public class FileSyncManager: ObservableObject {
     /// chain behind two honest-but-permanent refusals. Checked by `restructureLandingRefusal`.
     var restructureLandingInProgress = false
 
+    /// Where a landing has got to, while it is running — nil at every other moment.
+    ///
+    /// **One small struct, published from the main actor, coalesced.** An `@Published` element
+    /// write is a full array copy and once froze the main thread for 11.1 seconds; a progress
+    /// value that published per file would be that mistake with a nicer name. `RestructureApply`
+    /// updates this at its own step boundaries and, inside step 3, no more often than
+    /// ``RestructureApplyProgress/operationPublishInterval``.
+    @Published public var restructureApplyProgress: RestructureApplyProgress?
+
     /// ``structureFindings`` minus what the user said never to suggest again — what every surface
     /// renders and counts. One definition, because the lens, the overview and the rail badge all
     /// filtered `structureFindings` independently, and a suppression honoured by two of the three

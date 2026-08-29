@@ -5,6 +5,58 @@ import Foundation
 /// §5.5's Apply: one landing, run in the eight steps the roadmap orders, plus the ledger undo
 /// that survives a quit. Sits beside `+Restructure` (the scaffold) rather than inside it — the
 /// scaffold is the safe subset and reads better unentangled from the destructive engine.
+/// How far a landing has got — §5.5's eight steps, as the sheet can show them (proposal O7).
+///
+/// The engine's own comments already mark the steps; this publishes the boundaries it was
+/// already crossing. Watching the inverse reach disk *before* anything moves is the trust the
+/// design paid for and could not previously be seen.
+public struct RestructureApplyProgress: Equatable, Sendable {
+
+    /// The stages a reader can distinguish. Steps 7 and 8 fold into `artifacts`: the corpus
+    /// replay, the memory rebuild and the log line are one wait with no separable meaning.
+    public enum Stage: Int, Comparable, Sendable, CaseIterable {
+        case guards, inverse, operations, verify, rederive, artifacts
+
+        public static func < (lhs: Stage, rhs: Stage) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    public var stage: Stage
+    /// Operations completed and planned — both zero outside ``Stage/operations``.
+    public var opsDone: Int
+    public var opsTotal: Int
+
+    public init(stage: Stage, opsDone: Int = 0, opsTotal: Int = 0) {
+        self.stage = stage
+        self.opsDone = opsDone
+        self.opsTotal = opsTotal
+    }
+
+    /// How often step 3 may publish. A landing of 500 file moves publishing per file is 500 full
+    /// copies of a published value on the main actor; a tenth of a second is faster than a
+    /// reader can follow anyway.
+    public static let operationPublishInterval: TimeInterval = 0.1
+
+    /// What each stage says while it is the current one. Written as the thing being done, in the
+    /// order the engine does it, because the point is that a reader can see the inverse land
+    /// before anything moves.
+    public static func label(_ stage: Stage) -> String {
+        switch stage {
+        case .guards: return "Checking nothing else is running"
+        case .inverse: return "Writing the inverse to disk, before anything moves"
+        case .operations: return "Running the operations, re-probing each one"
+        case .verify: return "Verifying from a second code path"
+        case .rederive: return "Re-reading the tree to rebuild the survey"
+        case .artifacts: return "Carrying the survey's artifacts across"
+        }
+    }
+
+    /// The operations line, with its count once there is one to give.
+    public func line() -> String {
+        guard stage == .operations, opsTotal > 0 else { return Self.label(stage) }
+        return "\(Self.label(stage)) — \(opsDone) of \(opsTotal)"
+    }
+}
+
 @MainActor
 extension FileSyncManager {
 
@@ -69,7 +121,13 @@ extension FileSyncManager {
             return outcome
         }
         restructureLandingInProgress = true
-        defer { restructureLandingInProgress = false }
+        restructureApplyProgress = RestructureApplyProgress(stage: .guards)
+        // Cleared however this returns — a progress value outliving its landing would leave the
+        // sheet showing a checklist for work that finished or refused.
+        defer {
+            restructureLandingInProgress = false
+            restructureApplyProgress = nil
+        }
         guard let store = restructureStore, let profile = filingFolderProfile,
               let profilesDirectory = filingProfilesDirectory else {
             outcome.refusal = "No folder survey is loaded."
@@ -92,6 +150,7 @@ extension FileSyncManager {
         // Step 2: the record, inverse included, on disk BEFORE the first operation — a crash
         // mid-run leaves a reversible trace (invariant 3). VERIFIED on disk: a swallowed write
         // failure here would run a full reorganisation whose only inverse dies with the session.
+        restructureApplyProgress = RestructureApplyProgress(stage: .inverse)
         guard store.recordApplied(RestructureStore.AppliedRecord(
             manifest: manifest, inverse: manifest.inverse, at: stamp, created: 0, skipped: 0,
             appliedUnderProfileId: oldDirectoryId)) else {
@@ -105,8 +164,22 @@ extension FileSyncManager {
         let expandedRoot = (profile.root as NSString).expandingTildeInPath
         let fm = fileManager
         let actions = manifest.actions
+        restructureApplyProgress = RestructureApplyProgress(
+            stage: .operations, opsDone: 0, opsTotal: manifest.operationCount)
+        // The counter arrives from the executor's own loop, off the main actor, and is coalesced
+        // there — see `operationPublishInterval`. Publishing per file would be an `@Published`
+        // write per file, which is the 11.1-second freeze this project already paid for once.
+        let progressSink: @Sendable (Int) -> Void = { [weak self] done in
+            Task { @MainActor in
+                guard let self, var current = self.restructureApplyProgress,
+                      current.stage == .operations else { return }
+                current.opsDone = done
+                self.restructureApplyProgress = current
+            }
+        }
         let execution: RestructureExecution = await enqueueFileOperation {
-            FileSyncManager.executeRestructureActions(actions, root: expandedRoot, fm: fm)
+            FileSyncManager.executeRestructureActions(actions, root: expandedRoot, fm: fm,
+                                                      onProgress: progressSink)
         }
         outcome.renamed = execution.renamed
         outcome.filesMoved = execution.filesMoved
@@ -118,6 +191,7 @@ extension FileSyncManager {
 
         // Step 4: verify from a different code path — re-list the touched folders and check the
         // tree against what the performed actions claim, sharing none of the mover's arithmetic.
+        restructureApplyProgress = RestructureApplyProgress(stage: .verify)
         outcome.verifierMismatches = FileSyncManager.verifyRestructureLanding(
             execution.performed, root: expandedRoot, fm: fm)
 
@@ -193,6 +267,7 @@ extension FileSyncManager {
                 : Self.verifierNote(outcome.verifierMismatches)
         }
 
+        restructureApplyProgress = RestructureApplyProgress(stage: .rederive)
         // Steps 6 and 7, extracted so the Scaffolded card can run the same re-derive with a
         // manifest that moved nothing (proposal O12).
         switch await rederiveProfile(through: landed, profile: profile,
@@ -270,6 +345,7 @@ extension FileSyncManager {
             return .failure("the survey could not be refreshed — " + String(describing: error))
         }
 
+        restructureApplyProgress = RestructureApplyProgress(stage: .artifacts)
         // Step 7: the per-profile artifacts follow the profile into its new directory — copied
         // as they stand, then the corpus keys replayed and the memory rebuilt from them. No page
         // is re-read for a file that only moved.
@@ -750,9 +826,22 @@ extension FileSyncManager {
     /// destination gets a unique name and a collision fact, never an overwrite.
     nonisolated static func executeRestructureActions(
         _ actions: [RestructureManifest.Action], root: String, fm: FileManaging,
-        vetoUnlistedSourceFolders: Bool = true)
+        vetoUnlistedSourceFolders: Bool = true,
+        onProgress: (@Sendable (Int) -> Void)? = nil)
         -> RestructureExecution {
         var out = RestructureExecution()
+        // Coalesced HERE, where the loop is, so a landing of 500 moves publishes a handful of
+        // times rather than 500. `nil` for every caller that is not watching.
+        var lastReport = Date.distantPast
+        var completed = 0
+        func report(force: Bool = false) {
+            guard let onProgress else { return }
+            let now = Date()
+            guard force || now.timeIntervalSince(lastReport)
+                >= RestructureApplyProgress.operationPublishInterval else { return }
+            lastReport = now
+            onProgress(completed)
+        }
         func absolute(_ relative: String) -> String {
             (root as NSString).appendingPathComponent(relative)
         }
@@ -809,6 +898,14 @@ extension FileSyncManager {
         }
 
         for action in actions {
+            // Counted per action attempted, including the ones that skip: the sheet is showing
+            // how far through the list the landing is, not how much of it succeeded.
+            defer {
+                if action.action != .keep {
+                    completed += 1
+                    report()
+                }
+            }
             switch action.action {
             case .keep:
                 out.performed.append(action)
@@ -984,6 +1081,8 @@ extension FileSyncManager {
                 }
             }
         }
+        // The last window may not have elapsed — the final count is the one that matters.
+        report(force: true)
         return out
     }
 

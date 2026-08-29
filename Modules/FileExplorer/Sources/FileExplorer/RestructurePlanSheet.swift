@@ -58,6 +58,10 @@ struct RestructurePlanSheet: View {
     var refineModelLabel: String = "Claude"
     /// Opens Settings on the key row — the invitation's action.
     var onConfigureRefine: (() -> Void)?
+    /// Where the landing has got to, while it runs — nil at every other moment. Fed straight
+    /// from the manager's published value, so the checklist below can only show stages the
+    /// engine actually reached.
+    var applyProgress: RestructureApplyProgress?
 
     /// What a landing came back with — the summary, or the sentence that refused it.
     enum ApplyResult: Equatable {
@@ -113,6 +117,7 @@ struct RestructurePlanSheet: View {
             }
             .disabled(locked)
             reviewSection(plan)
+            if let applyProgress { progressChecklist(applyProgress) }
             footer(plan)
         }
         .padding(18)
@@ -886,6 +891,42 @@ struct RestructurePlanSheet: View {
                           + "grouped ⌘Z, the inverse in the ledger, and the survey re-derived.")
             }
         }
+    }
+
+    /// §5.5's eight steps as they run. **The point is the order**: the inverse reaches disk
+    /// before anything moves, and the verify is a separate pass afterwards — the trust the
+    /// design paid for, previously invisible behind a button reading "Applying…".
+    private func progressChecklist(_ progress: RestructureApplyProgress) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(RestructureApplyProgress.Stage.allCases, id: \.rawValue) { stage in
+                HStack(spacing: 6) {
+                    Image(systemName: Self.stageSymbol(stage, current: progress.stage))
+                        .scaledFont(.system(size: 9))
+                        .foregroundStyle(stage < progress.stage ? AnyShapeStyle(accent)
+                                                                : AnyShapeStyle(.secondary))
+                        .accessibilityHidden(true)
+                    Text(stage == progress.stage ? progress.line()
+                                                 : RestructureApplyProgress.label(stage))
+                        .scaledFont(.system(size: 10.5,
+                                            weight: stage == progress.stage ? .semibold
+                                                                            : .regular))
+                        .foregroundStyle(stage <= progress.stage ? AnyShapeStyle(.secondary)
+                                                                 : AnyShapeStyle(.tertiary))
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Applying — \(progress.line())")
+    }
+
+    /// Done, doing, still to come. A landing only moves forward, so a stage behind the current
+    /// one is finished and one ahead has not started.
+    static func stageSymbol(_ stage: RestructureApplyProgress.Stage,
+                            current: RestructureApplyProgress.Stage) -> String {
+        if stage < current { return "checkmark.circle.fill" }
+        if stage == current { return "circle.dotted" }
+        return "circle"
     }
 
     private var isApplied: Bool {
