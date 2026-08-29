@@ -87,6 +87,48 @@ public final class RestructureStore: ObservableObject {
         }
     }
 
+    /// One point per survey: how many findings of each kind the detectors produced (proposal
+    /// O16). Append-only, oldest dropped past ``trendCap``.
+    ///
+    /// **Counts the detectors produced, and nothing invented.** The question "is the tree getting
+    /// better?" has no honest answer from a single survey, and every number here is one a lens
+    /// already displayed at the time it was stamped.
+    ///
+    /// Stamped when the profile the findings were derived from CHANGES — first load, a re-derive,
+    /// a landing — never on every memo drop. A survey is not re-run between those, so a point per
+    /// drop would be the same number repeated at whatever rate the memo happened to churn.
+    @Published public private(set) var trend: [TrendPoint] = []
+
+    /// A survey's findings, counted by kind.
+    public struct TrendPoint: Codable, Equatable, Sendable {
+        /// When it was stamped, `FilingProfileStore.stamp` format.
+        public let at: String
+        /// The profile directory the counts were derived from — also the dedupe key, since a
+        /// survey does not change without the profile changing.
+        public let profileId: String
+        /// Findings per kind. Kinds with none are absent rather than zero, the rule every badge
+        /// here follows; the total is the values' sum.
+        public let countsByKind: [String: Int]
+        /// True when this point was stamped by a landing rather than an ordinary survey — the
+        /// dots on the line, and the only way to read cause into the shape.
+        public let landing: Bool
+
+        public init(at: String, profileId: String, countsByKind: [String: Int],
+                    landing: Bool) {
+            self.at = at
+            self.profileId = profileId
+            self.countsByKind = countsByKind
+            self.landing = landing
+        }
+
+        public var total: Int { countsByKind.values.reduce(0, +) }
+    }
+
+    /// How many points are kept. Two hundred surveys is years of them at this rate, and the file
+    /// is read whole at construction — a trend that grew without bound would make every launch
+    /// pay for history nothing reads.
+    public static let trendCap = 200
+
     /// Which backlog nudges have been dismissed, and **for which year** (§5.6; proposal O15).
     ///
     /// A year rather than a flag, because §5.6's whole point is recurrence: dismissing the 2026
@@ -474,6 +516,26 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
+    // MARK: - Trend
+
+    /// Stamp one survey's finding counts (proposal O16).
+    ///
+    /// **Deduped on `profileId`.** The findings are a pure function of the profile, so two stamps
+    /// under one id are the same survey counted twice — which would flatten the line's shape by
+    /// however often the memo happened to drop. A landing stamp replaces an ordinary one for the
+    /// same profile, because "this point is a landing" is the more informative of the two.
+    @discardableResult
+    public func recordTrend(_ point: TrendPoint) -> Bool {
+        if let index = trend.lastIndex(where: { $0.profileId == point.profileId }) {
+            guard point.landing, !trend[index].landing else { return false }
+            trend[index] = point
+        } else {
+            trend.append(point)
+            if trend.count > Self.trendCap { trend.removeFirst(trend.count - Self.trendCap) }
+        }
+        return save()
+    }
+
     // MARK: - Disk
 
     private struct NudgeRecord: Codable {
@@ -501,6 +563,7 @@ public final class RestructureStore: ObservableObject {
         let drafts: [DraftEntry]?
         let applied: [AppliedRecord]?
         let nudgesAcknowledged: [NudgeRecord]?
+        let trend: [TrendPoint]?
     }
 
     private struct FileOut: Encodable {
@@ -510,12 +573,14 @@ public final class RestructureStore: ObservableObject {
         let drafts: [DraftEntry]
         let applied: [AppliedRecord]
         let nudgesAcknowledged: [NudgeRecord]
+        let trend: [TrendPoint]
 
         /// Everything this type writes. Anything else in the file belongs to a section this build
         /// does not model yet and is carried across a save — see `carriedKeys`. Spelled out rather
         /// than derived, for ``PeopleStore``'s stated reason.
         static let modelledKeys: Set<String> = ["schemaVersion", "suppressed", "answers",
-                                                "drafts", "applied", "nudgesAcknowledged"]
+                                                "drafts", "applied", "nudgesAcknowledged",
+                                                "trend"]
     }
 
     /// The schema this build writes. A file carrying a **newer** number is treated as unreadable
@@ -560,6 +625,7 @@ public final class RestructureStore: ObservableObject {
         nudgesAcknowledged = Dictionary((decoded.nudgesAcknowledged ?? []).map {
             (RestructureKey(kind: $0.kind, path: $0.path), $0.year)
         }, uniquingKeysWith: { _, new in new })
+        trend = decoded.trend ?? []
         carriedKeys = object.filter { !FileOut.modelledKeys.contains($0.key) }
     }
 
@@ -588,7 +654,9 @@ public final class RestructureStore: ObservableObject {
                 applied: applied,
                 nudgesAcknowledged: nudgesAcknowledged
                     .map { NudgeRecord(kind: $0.key.kind, path: $0.key.path, year: $0.value) }
-                    .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) })
+                    .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
+                // Stored order, which is stamp order — the line is drawn in it.
+                trend: trend)
             var data = try encoder.encode(out)
             if !carriedKeys.isEmpty,
                var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {

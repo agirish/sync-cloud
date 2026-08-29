@@ -202,6 +202,69 @@ import Foundation
         #expect(reread.isSuppressed(RestructureKey(kind: .shape, path: "Finance")))
     }
 
+    // MARK: The trend (proposal O16)
+
+    /// **One point per profile.** The findings are a pure function of the profile, so two stamps
+    /// under one id are the same survey counted twice — which would flatten the line's shape by
+    /// however often the memo happened to drop, and the memo's churn rate is not a fact about
+    /// the tree.
+    @Test func theTrendRecordsOnePointPerProfile() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        func point(_ id: String, _ total: Int, landing: Bool = false)
+            -> RestructureStore.TrendPoint {
+            .init(at: "2026-08-28T09:00:00", profileId: id, countsByKind: ["shape": total],
+                  landing: landing)
+        }
+        store.recordTrend(point("a", 33))
+        store.recordTrend(point("a", 33))
+        store.recordTrend(point("b", 19))
+        #expect(store.trend.map(\.total) == [33, 19])
+
+        // A landing stamp REPLACES an ordinary one for the same profile: "this survey came from
+        // a landing" is the more informative of the two claims, and a re-derive stamps before
+        // anything downstream knows a manifest caused it.
+        store.recordTrend(point("b", 19, landing: true))
+        #expect(store.trend.count == 2)
+        #expect(store.trend.last?.landing == true)
+        // …and not back again.
+        store.recordTrend(point("b", 19))
+        #expect(store.trend.last?.landing == true)
+    }
+
+    /// It round-trips, and stays inside its cap oldest-first — the file is read whole at
+    /// construction, so unbounded history would make every launch pay for it.
+    @Test func theTrendRoundTripsAndStaysUnderItsCap() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        for index in 0..<(RestructureStore.trendCap + 5) {
+            store.recordTrend(.init(at: "t\(index)", profileId: "p\(index)",
+                                    countsByKind: ["shape": index], landing: index % 50 == 0))
+        }
+        let reread = RestructureStore(directory: dir, profileId: "p")
+        #expect(reread.trend.count == RestructureStore.trendCap)
+        #expect(reread.trend.first?.total == 5, "the oldest five were dropped")
+        #expect(reread.trend.last?.total == RestructureStore.trendCap + 4)
+        #expect(reread.trend.contains { $0.landing }, "landings survive the round trip")
+    }
+
+    /// A store written before the section existed decodes with it absent.
+    @Test func aStoreWithNoTrendSectionDecodesWithoutOne() throws {
+        let dir = try makeDirectory()
+        let before = RestructureStore(directory: dir, profileId: "p")
+        before.suppress(RestructureKey(kind: .shape, path: "Finance"))
+        var object = try #require(try JSONSerialization.jsonObject(with: fileBytes(dir))
+                                    as? [String: Any])
+        #expect(object["trend"] != nil, "a positive control: this build writes it")
+        object["trend"] = nil
+        try JSONSerialization.data(withJSONObject: object)
+            .write(to: dir.appendingPathComponent("p/restructure.json"))
+
+        let reread = RestructureStore(directory: dir, profileId: "p")
+        #expect(!reread.isUnreadable)
+        #expect(reread.trend.isEmpty)
+    }
+
     /// A backlog subject IS a folder path, so a landing that renames it must move this key with
     /// the rest — otherwise the nudge re-fires for a year already dismissed, under the new name.
     @Test func aRenameRekeysANudgeAcknowledgement() throws {

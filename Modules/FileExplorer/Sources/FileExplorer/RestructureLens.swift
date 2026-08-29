@@ -199,6 +199,9 @@ struct RestructureLens: View {
     /// clean state too, deliberately: a successful apply makes the finding vanish, and the clean
     /// state is exactly where *Undo this reorganisation* has to live to be findable.
     var reorganisations: [ReorganisationDisplay] = []
+    /// One point per stamped survey, for O16's line — empty until two exist, which is why the
+    /// chart's own rule returns nil rather than the view checking a count.
+    var trend: [RestructureTrendChart.Point] = []
     /// Runs the ledger's stored inverse for one record. Not ⌘Z — both exist, and the card says
     /// which this is.
     var onUndoReorganisation: ((String) -> Void)?
@@ -475,6 +478,21 @@ struct RestructureLens: View {
             if let crowdingFilter {
                 crowdingList(crowdingFilter)
             }
+            trendChart
+        }
+    }
+
+    /// O16's line, under the crowding chips.
+    ///
+    /// **Here rather than on a card**, and under the strip rather than over it: the chips answer
+    /// "what is in the tree now" and the line answers "how did that get here", which is context
+    /// for the strip and not a finding of its own. It renders in every state the strip does —
+    /// including the clean one, where "33 → 0" is the most informative it ever gets.
+    @ViewBuilder
+    private var trendChart: some View {
+        if trend.count >= 2 {
+            RestructureTrendChart(points: trend, accent: accent)
+                .padding(.top, 2)
         }
     }
 

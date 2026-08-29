@@ -415,6 +415,10 @@ extension FileSyncManager {
         if let ledgerId {
             store.updateApplied(manifestId: ledgerId) { $0.producedProfileId = newId }
         }
+        // O16's point for the survey this re-derive just produced. `landing:` is whether a
+        // manifest caused it — a survey refresh moves no files, so its point is an ordinary one
+        // and gets no dot.
+        stampStructureTrend(landing: ledgerId != nil, now: now)
         return .success(newId)
 
     }

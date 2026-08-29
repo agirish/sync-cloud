@@ -183,4 +183,34 @@ extension FileSyncManager {
             + "\(outcome.created.count) folder(s) created, \(outcome.skipped.count) skipped")
         return outcome
     }
+
+    // MARK: - The trend (proposal O16)
+
+    /// Stamp the current survey's finding counts into the store, if it has not already recorded
+    /// this profile.
+    ///
+    /// **Called at the two moments the survey can actually change** — when a profile is attached
+    /// (launch, a fresh walk) and when a landing produces a derived one — never from a view body.
+    /// `structureReport` is a cached pure function of the profile that Organize's overview reads
+    /// on every render; stamping there would put a disk write behind a scroll, and would record
+    /// the same survey once per memo drop.
+    ///
+    /// The store's own dedupe is the real guard (one point per `profileId`), so calling this
+    /// twice for one profile is harmless — which matters, because "the profile changed" is
+    /// observed in two places that do not know about each other.
+    public func stampStructureTrend(landing: Bool = false, now: Date = Date()) {
+        guard let store = restructureStore, filingFolderProfile != nil else { return }
+        let id = filingProfileDirectoryId ?? filingFolderProfile?.profileId ?? ""
+        guard !id.isEmpty else { return }
+        var counts: [String: Int] = [:]
+        // Every finding the detectors produced, NOT `visibleStructureFindings`: a suppression is
+        // a statement about what to show, and a trend that fell when the user hid a card would
+        // answer "is the tree getting better?" with "did you look away?".
+        for finding in structureFindings {
+            counts[finding.kind.rawValue, default: 0] += 1
+        }
+        store.recordTrend(RestructureStore.TrendPoint(
+            at: FilingProfileStore.stamp(now), profileId: id, countsByKind: counts,
+            landing: landing))
+    }
 }

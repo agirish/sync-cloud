@@ -54,6 +54,79 @@ import Foundation
     }
 }
 
+/// The trend stamp reads the survey's own counts (proposal O16).
+///
+/// The store dedupes and the chart draws; this is the half in between — what goes INTO a point.
+@MainActor
+@Suite struct RestructureTrendStampTests {
+
+    private func makeManager() throws -> FileSyncManager {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("trend-stamp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"),
+                                                withIntermediateDirectories: true)
+        let manager = FileSyncManager()
+        var folders: [String: FolderProfileEntry] = [:]
+        for (path, files, subs): (String, Int, Int) in [
+            ("Dental", 0, 3),
+            ("Dental/2023", 0, 1), ("Dental/2023/Claims", 2, 0),
+            ("Dental/2024", 0, 1), ("Dental/2024/Claims", 2, 0),
+            ("Dental/2025", 2, 0),
+        ] {
+            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
+                                               acceptsNewFiles: nil, fileCount: files,
+                                               subfolderCount: subs, axes: [:])
+        }
+        manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r",
+                                                    folders: folders, personTokens: [])
+        manager.filingProfileDirectoryId = "t"
+        manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
+        return manager
+    }
+
+    /// The point carries the detectors' own per-kind counts, summing to what the lens shows.
+    @Test func aStampCountsTheSurveysFindingsByKind() throws {
+        let manager = try makeManager()
+        let expected = manager.structureFindings.count
+        #expect(expected > 0, "a positive control: this profile fires")
+
+        manager.stampStructureTrend()
+
+        let point = try #require(manager.restructureStore?.trend.last)
+        #expect(point.total == expected)
+        #expect(point.profileId == "t")
+        #expect(!point.landing, "an ordinary survey is not a landing")
+        for (kind, count) in point.countsByKind {
+            #expect(manager.structureFindings.filter { $0.kind.rawValue == kind }.count == count,
+                    "the per-kind counts are the detectors\u{2019}, one for one")
+        }
+    }
+
+    /// **Suppression does not move the line.** A trend that fell when the user hid a card would
+    /// answer "is the tree getting better?" with "did you look away?".
+    @Test func aSuppressedFindingStillCounts() throws {
+        let manager = try makeManager()
+        let finding = try #require(manager.visibleStructureFindings.first)
+        let expected = manager.structureFindings.count
+
+        manager.restructureStore?.suppress(RestructureKey(finding))
+        #expect(manager.visibleStructureFindings.count < expected,
+                "a positive control: the suppression took")
+        manager.stampStructureTrend()
+
+        #expect(manager.restructureStore?.trend.last?.total == expected,
+                "the trend counts what the detectors found, not what is on screen")
+    }
+
+    /// With no profile there is no survey to count, and a zero point would read as a clean tree.
+    @Test func nothingIsStampedWithoutAProfile() throws {
+        let manager = try makeManager()
+        manager.filingFolderProfile = nil
+        manager.stampStructureTrend()
+        #expect(manager.restructureStore?.trend.isEmpty == true)
+    }
+}
+
 /// Scope relation reads the finding's SUBJECT (ROADMAP_V5 §5.0): a backlog finding about
 /// `Health/Dental/2025` under a scope pointed exactly there is work inside the scope, not an
 /// ancestor note about `Health/Dental`.

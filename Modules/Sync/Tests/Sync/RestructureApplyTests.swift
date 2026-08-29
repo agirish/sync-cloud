@@ -336,6 +336,28 @@ import Testing
                 "and nothing is left showing a checklist over a finished landing")
     }
 
+    /// **A landing stamps O16's line, marked as one.** The store's dedupe and the chart's rules
+    /// have their own tests; what neither can see is whether `applyPlan` ever calls the stamp —
+    /// deleting the call left a trend that only ever grew at launch, with every landing invisible
+    /// on a line whose entire point is showing what caused the drops.
+    @Test func aLandingStampsTheTrendAndMarksItself() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let outcome = await world.manager.applyPlan(world.manifest)
+        #expect(outcome.refusal == nil)
+
+        // The store the landing produced — the re-derive replaced it, so read it from the
+        // manager rather than the one the world handed over.
+        let stamped = try #require(world.manager.restructureStore?.trend.last)
+        #expect(stamped.landing, "the point a landing produced carries its cause")
+        #expect(stamped.profileId == world.manager.filingProfileDirectoryId)
+        #expect(stamped.total == world.manager.structureFindings.count,
+                "the counts are the survey's own, not a number invented for the chart")
+        // What the counts actually contain is `RestructureTrendStampTests` next door, against a
+        // profile that fires — this fixture's derived tree has nothing left to find, which is
+        // the right outcome for the landing and the wrong one for testing a counter.
+    }
+
     // MARK: - The two undos
 
     /// ⌘Z restores a byte-identical tree — hash it, do not size it (6 Aug).

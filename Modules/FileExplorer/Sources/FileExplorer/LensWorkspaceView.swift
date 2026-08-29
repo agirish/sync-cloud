@@ -3287,6 +3287,10 @@ public struct LensWorkspaceView: View {
                         // §5.7's Applied/Undone cards — every plan landing in the ledger,
                         // newest first. Scaffolds keep their own card sentence and stay out.
                         reorganisations: reorganisationDisplays,
+            // Nil-when-too-short is the CHART's rule, not the host's — the lens takes what the
+            // rule returns so there is one place that decides a line is worth drawing.
+            trend: RestructureTrendChart.points(
+                from: syncManager.restructureStore?.trend ?? []) ?? [],
                         onUndoReorganisation: { manifestId in
                             Task { @MainActor in
                                 let outcome = await syncManager.undoReorganisation(
