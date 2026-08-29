@@ -1,0 +1,164 @@
+import Foundation
+import SwiftUI
+import Sync
+import Testing
+@testable import FileExplorer
+
+/// §5.1's era strip: the eras of a year-named shape family drawn in order, and — just as
+/// important — nothing at all for a family that is not about years.
+@MainActor
+@Suite struct RestructureEraStripTests {
+
+    private static func scheme(_ vocabulary: [String], _ members: [String])
+        -> StructureFinding.Scheme {
+        .init(vocabulary: vocabulary, members: members)
+    }
+
+    /// The flagship shape: two eras that each hold a contiguous run of years, in year order,
+    /// with the run labelled by its own ends.
+    @Test func contiguousRunsOfOneSchemeBecomeOneSegment() throws {
+        let segments = try #require(RestructureLens.eraSegments(
+            schemes: [Self.scheme(["forms"], ["2013", "2014", "2015"]),
+                      Self.scheme(["federal tax"], ["2016", "2017"])],
+            drift: []))
+        #expect(segments.map(\.label) == ["2013–2015", "2016–2017"])
+        #expect(segments.map(\.count) == [3, 2])
+        #expect(segments.map(\.scheme) == [0, 1])
+    }
+
+    /// Members arrive in profile order, not year order — the strip's whole claim is chronology,
+    /// so it sorts. With the input already sorted this test could not fail.
+    @Test func theStripIsInYearOrderWhateverOrderTheMembersArriveIn() throws {
+        let segments = try #require(RestructureLens.eraSegments(
+            schemes: [Self.scheme(["a"], ["2019", "2013"]),
+                      Self.scheme(["b"], ["2016"])],
+            drift: []))
+        #expect(segments.map(\.label) == ["2013", "2016", "2019"])
+        #expect(segments.map(\.scheme) == [0, 1, 0],
+                "an era that resumes after another gets a second segment, not a merged one")
+    }
+
+    /// Drift is a segment with no scheme — drawn hollow, because "no two agree on one shape" is
+    /// the absence of an era rather than another one.
+    @Test func driftIsItsOwnUnschemedSegment() throws {
+        let segments = try #require(RestructureLens.eraSegments(
+            schemes: [Self.scheme(["a"], ["2013", "2014"])],
+            drift: ["2015"]))
+        #expect(segments.map(\.scheme) == [0, nil])
+        #expect(segments.last?.label == "2015")
+        #expect(RestructureLens.eraStripLabel(segments)
+                    == "Eras: 2013–2014, shape 1; 2015, drift")
+    }
+
+    /// A fiscal span is a year token the profile already accepts, so it takes part and sorts by
+    /// the year it opens. The label must not smuggle its inner dash into the run's own.
+    @Test func aFiscalSpanSortsByTheYearItOpens() throws {
+        let segments = try #require(RestructureLens.eraSegments(
+            schemes: [Self.scheme(["a"], ["2014-2015", "2013", "2016"])],
+            drift: []))
+        #expect(segments.count == 1)
+        #expect(segments[0].label == "2013–2016",
+                "the run is labelled by its own ends, not by the span inside it")
+        #expect(segments[0].count == 3)
+    }
+
+    /// **The common, correct answer for most families.** A family of category names has no order
+    /// to draw, and inventing one would be worse than the text rows the strip sits above.
+    @Test func aFamilyThatIsNotAboutYearsGetsNoStrip() {
+        #expect(RestructureLens.eraSegments(
+            schemes: [Self.scheme(["photos"], ["Naming Ceremony", "Birthday"]),
+                      Self.scheme([], ["Graduation"])],
+            drift: []) == nil)
+        #expect(RestructureLens.eraSegments(schemes: [], drift: []) == nil)
+    }
+
+    /// The bar is 80%, so one oddly-named member among many years does not suppress the strip —
+    /// and a mostly-unnamed family does not get one. Both sides, or the threshold is a constant.
+    @Test func theYearBarIsCrossedFromBothSides() {
+        let nineYearsAndOne = RestructureLens.eraSegments(
+            schemes: [Self.scheme(["a"], (2013...2021).map(String.init) + ["Archive"])],
+            drift: [])
+        #expect(nineYearsAndOne != nil, "9 of 10 are years — the strip still reads")
+
+        let halfAndHalf = RestructureLens.eraSegments(
+            schemes: [Self.scheme(["a"], ["2013", "2014", "Archive", "Reference"])],
+            drift: [])
+        #expect(halfAndHalf == nil)
+    }
+
+    /// One segment is the text row again with extra machinery.
+    @Test func aSingleYearFamilyGetsNoStrip() {
+        #expect(RestructureLens.eraSegments(
+            schemes: [Self.scheme(["a"], ["2013"])], drift: []) == nil)
+    }
+
+    /// The strip is a picture, so it carries the sentence it makes.
+    @Test func theStripSpeaksItsErasForVoiceOver() {
+        let segments = [RestructureLens.EraSegment(scheme: 0, label: "2013–2015", count: 3),
+                        RestructureLens.EraSegment(scheme: 1, label: "2016", count: 1)]
+        #expect(RestructureLens.eraStripLabel(segments)
+                    == "Eras: 2013–2015, shape 1; 2016, shape 2")
+    }
+
+    /// **Proportional is the strip's whole claim**, and it is the one thing a render comparison
+    /// cannot check: two families with different member counts also carry different LABELS, so
+    /// their images differ either way. (That test was written first, and passed with the widths
+    /// mutated back to equal — a fixture whose expected value equals the fallback.) So the share
+    /// is a rule, and the call site is pinned below.
+    @Test func widthsFollowMemberCounts() {
+        let segments = [RestructureLens.EraSegment(scheme: 0, label: "2013–2015", count: 3),
+                        RestructureLens.EraSegment(scheme: 1, label: "2016–2022", count: 7),
+                        RestructureLens.EraSegment(scheme: nil, label: "2023–2024", count: 2)]
+        let widths = RestructureLens.eraSegmentWidths(segments, available: 206)
+        // 206 less two 3pt gaps is 200, shared 3:7:2 across twelve members.
+        #expect(widths.map { ($0 * 100).rounded() / 100 } == [50, 116.67, 33.33])
+        #expect(abs(widths.reduce(0, +) - 200) < 0.001, "the whole row is used")
+        #expect(widths[1] > widths[0], "the era covering more folders draws wider")
+
+        let even = [RestructureLens.EraSegment(scheme: 0, label: "a", count: 2),
+                    RestructureLens.EraSegment(scheme: 1, label: "b", count: 2)]
+        let evenWidths = RestructureLens.eraSegmentWidths(even, available: 103)
+        #expect(evenWidths == [50, 50])
+    }
+
+    /// A strip narrower than its gaps must not produce negative frames.
+    @Test func aStripWithNoRoomProducesNoNegativeWidths() {
+        let segments = [RestructureLens.EraSegment(scheme: 0, label: "a", count: 1),
+                        RestructureLens.EraSegment(scheme: 1, label: "b", count: 1)]
+        #expect(RestructureLens.eraSegmentWidths(segments, available: 0)
+                    .allSatisfy { $0 >= 0 })
+        #expect(RestructureLens.eraSegmentWidths([], available: 100) == [])
+    }
+
+    /// The rule is one revert away from being unused — which is exactly how the strip drew wrong
+    /// in the first place.
+    @Test func theStripActuallyAsksForThoseWidths() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/RestructureLens.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        #expect(text.contains("widths: Self.eraSegmentWidths(segments, available: geo.size.width)"))
+        #expect(!text.contains(".layoutPriority(Double(segment.count))"),
+                "layoutPriority decides who gets space first, not how much")
+    }
+
+    /// The card renders with the strip and without it, and neither crashes offscreen.
+    @Test func shapeCardsRenderWithAndWithoutTheStrip() {
+        for finding in [
+            StructureFinding(family: "Finance/US/Income Tax",
+                             schemes: [Self.scheme(["forms"], ["2013", "2014"]),
+                                       Self.scheme(["federal"], ["2016"])],
+                             drift: ["2015"]),
+            StructureFinding(family: "Family/Events",
+                             schemes: [Self.scheme(["photos"], ["Birthday", "Naming"])]),
+        ] {
+            let lens = RestructureLens(findings: [finding], hasProfile: true, folderCount: 10,
+                                       accent: .blue, onReveal: { _ in }, hasReviewed: true)
+            let hosting = NSHostingView(rootView: lens.frame(width: 640, height: 300))
+            hosting.frame = NSRect(x: 0, y: 0, width: 640, height: 300)
+            hosting.layoutSubtreeIfNeeded()
+            #expect(hosting.fittingSize.width > 0)
+        }
+    }
+}

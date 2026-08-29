@@ -573,6 +573,12 @@ struct RestructureLens: View {
                     .foregroundStyle(hasPlan ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
                     .chromeHover()
             }
+            // The eras at a glance, when the family is about years — the text rows below stay,
+            // and stay authoritative: this is the same information drawn in order, never a
+            // replacement for the list of what each era actually contains.
+            if let segments = Self.eraSegments(schemes: finding.schemes, drift: finding.drift) {
+                eraStrip(segments)
+            }
             // The schemes are shown rather than asserted: the eras are visible, and so is the odd
             // year out. A verdict that only said "these disagree" would be asking to be trusted.
             ForEach(Array(finding.schemes.enumerated()), id: \.offset) { _, scheme in
@@ -854,6 +860,164 @@ struct RestructureLens: View {
         default:
             return nil
         }
+    }
+
+    // MARK: The era strip (§5.1)
+
+    /// One segment of the era strip — a contiguous run of year-named members that share a scheme.
+    struct EraSegment: Equatable {
+        /// The scheme these members belong to, or nil for drift — which is drawn hollow because
+        /// "no two agree on one shape" is the absence of a scheme, not a fourth one.
+        let scheme: Int?
+        /// What the segment is labelled: a single year, or `first–last`.
+        let label: String
+        /// How many members it covers — the strip is proportional, so this is its width.
+        let count: Int
+    }
+
+    /// The eras across a shape family, in year order, or **nil when this family is not about
+    /// years at all**.
+    ///
+    /// Scheme members are mostly years and are shown as comma-joined text, which makes the one
+    /// thing a reader wants — where each era begins and ends — something you assemble in your
+    /// head. Drawn in order it is one glance.
+    ///
+    /// **Nil is the common, correct answer for a non-year family** and the strip simply does not
+    /// render: a family of `Photos, Invitations, Receipts` has no order to draw, and inventing
+    /// one would be worse than the text rows it sits above. The bar is 80% of members parsing as
+    /// year tokens, so one oddly-named member among fifteen years does not suppress it.
+    ///
+    /// The year test is ``FolderProfileEntry/looksLikeYear(_:)`` and **nothing else** — it
+    /// already accepts a bare year and a two-part span, and a second parser here would be a
+    /// second answer to "is this a year" living one file away from the first.
+    static func eraSegments(schemes: [StructureFinding.Scheme],
+                            drift: [String]) -> [EraSegment]? {
+        var dated: [(sort: Int, name: String, scheme: Int?)] = []
+        var total = 0
+        for (index, scheme) in schemes.enumerated() {
+            for member in scheme.members {
+                total += 1
+                if let year = sortYear(of: member) {
+                    dated.append((year, member, index))
+                }
+            }
+        }
+        for member in drift {
+            total += 1
+            if let year = sortYear(of: member) { dated.append((year, member, nil)) }
+        }
+        guard total > 0, Double(dated.count) / Double(total) >= 0.8 else { return nil }
+        // Two segments need two members; one bar labelled with one year is the text row again.
+        guard dated.count > 1 else { return nil }
+
+        dated.sort { ($0.sort, $0.name) < ($1.sort, $1.name) }
+        var segments: [EraSegment] = []
+        for entry in dated {
+            if var last = segments.last, last.scheme == entry.scheme {
+                segments.removeLast()
+                last = EraSegment(scheme: entry.scheme,
+                                  label: Self.spanLabel(from: last.label, to: entry.name),
+                                  count: last.count + 1)
+                segments.append(last)
+            } else {
+                segments.append(EraSegment(scheme: entry.scheme, label: entry.name, count: 1))
+            }
+        }
+        return segments
+    }
+
+    /// The sort key for a year-named member: its first four-digit part, so a fiscal span
+    /// (`2014-2015`) sorts with the year it opens rather than being refused.
+    private static func sortYear(of name: String) -> Int? {
+        guard FolderProfileEntry.looksLikeYear(name) else { return nil }
+        return name.split(separator: "-").first.flatMap { Int($0) }
+    }
+
+    /// A run's label — `2013` alone, `2013–2015` once it has grown. Built from the run's own
+    /// first and last member so a span inside it (`2014-2015`) does not smuggle a second dash in.
+    private static func spanLabel(from existing: String, to newest: String) -> String {
+        let first = existing.split(separator: "–").first.map(String.init) ?? existing
+        return first == newest ? first : "\(first)–\(newest)"
+    }
+
+    /// The strip itself: a segment per era, **proportional to how many folders it covers**.
+    /// Drift is hollow. Deliberately no animation — nothing here moves, and an implicit one
+    /// would ride on any state change above it.
+    ///
+    /// The proportion needs the available width, and a `GeometryReader` is greedy in BOTH axes
+    /// and reports nothing about its own content — dropped into a card it takes all the vertical
+    /// space there is. So the natural row is laid out hidden to establish the strip's height and
+    /// width, and the measured one is overlaid inside those bounds, where the reader can only
+    /// fill what the hidden row already claimed.
+    ///
+    /// `layoutPriority` is NOT the tool for this and was the first attempt: it decides who gets
+    /// space FIRST, not who gets how much, so the largest era swallowed the row and the other
+    /// two rendered at zero width. Rendering the strip is what showed it.
+    private func eraStrip(_ segments: [EraSegment]) -> some View {
+        segmentRow(segments, widths: nil)
+            .hidden()
+            .overlay {
+                GeometryReader { geo in
+                    segmentRow(segments,
+                               widths: Self.eraSegmentWidths(segments, available: geo.size.width))
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Self.eraStripLabel(segments))
+    }
+
+    private static let eraSegmentSpacing: CGFloat = 3
+
+    /// Each segment's width: the row's space, less the gaps, shared out by member count.
+    ///
+    /// A rule rather than an expression inside the reader, because "proportional" is the strip's
+    /// whole claim and nothing else can check it — the first version used `layoutPriority` and
+    /// drew one full-width segment past a green suite. A render comparison could not see it
+    /// either: two families with different counts also have different LABELS, so the images
+    /// differ whether or not the widths do.
+    static func eraSegmentWidths(_ segments: [EraSegment], available: CGFloat) -> [CGFloat] {
+        let total = max(1, segments.reduce(0) { $0 + $1.count })
+        let gaps = eraSegmentSpacing * CGFloat(max(0, segments.count - 1))
+        let usable = max(0, available - gaps)
+        return segments.map { usable * CGFloat($0.count) / CGFloat(total) }
+    }
+
+    private func segmentRow(_ segments: [EraSegment], widths: [CGFloat]?) -> some View {
+        HStack(spacing: Self.eraSegmentSpacing) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                Text(segment.label)
+                    .scaledFont(.system(size: 9.5, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .padding(.vertical, 2.5)
+                    .padding(.horizontal, 2)
+                    .frame(maxWidth: widths.map { $0[index] } ?? .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: Radius.chip)
+                            .fill(segment.scheme == nil
+                                  ? AnyShapeStyle(.clear)
+                                  : AnyShapeStyle(accent.opacity(schemeOpacity(segment.scheme!)))))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.chip)
+                            .strokeBorder(.quaternary, lineWidth: segment.scheme == nil ? 1 : 0))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Each scheme gets its own depth of the accent so two eras are told apart without a second
+    /// hue — the accent-fill convention, not a palette of my own.
+    private func schemeOpacity(_ scheme: Int) -> Double {
+        [0.26, 0.17, 0.34, 0.11][scheme % 4]
+    }
+
+    /// The strip is a picture; this is the sentence it makes.
+    static func eraStripLabel(_ segments: [EraSegment]) -> String {
+        let parts = segments.map { segment in
+            segment.scheme == nil ? "\(segment.label), drift" : "\(segment.label), shape "
+                + "\(segment.scheme! + 1)"
+        }
+        return "Eras: " + parts.joined(separator: "; ")
     }
 
     /// A drift / shapeless / scaffold row — `schemeRow`'s two-column shape with a note instead of
