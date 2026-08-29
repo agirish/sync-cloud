@@ -2,9 +2,9 @@ import SwiftUI
 import Sync
 import Design
 
-/// One duplicate group rendered as an expandable card, matching the Duplicates mockup: a type badge,
-/// the common name, a reclaim figure, and — when expanded — each copy with its location, the
-/// recommended keeper, and the resolve actions.
+/// One duplicate group rendered as an expandable card: the common name, a reclaim figure, and —
+/// when expanded — each copy with its location, the recommended keeper, and the resolve actions.
+/// The match type is named by the SECTION the card sits in, not on the card.
 struct DuplicateGroupCard: View {
     let group: DuplicateGroup
     let isExpanded: Bool
@@ -42,15 +42,19 @@ struct DuplicateGroupCard: View {
     /// For the invisible-column slot widths (`DuplicateGroupColumns`) — measured at the live scale.
     @Environment(\.appFontScale) private var appFontScale
 
-    // `accent` — `DuplicateMatchStyle.color(group.matchType)` — lived here for the type badge alone, and
-    // went with it into `DuplicateTypeBadge`, which asks the match type itself.
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
-    /// The exception treatment's colour — nil on the majority case, which wears no badge, no
-    /// stripe and no wash (ROADMAP.md, the Identical-badge item): on a real scan `identical`
-    /// fires on the overwhelming majority, and rows needing a human decision were wearing
-    /// identical weight and getting lost in the run. A row's visual weight now tracks how much
-    /// attention it deserves.
+    /// The exception treatment's colour — nil on the majority case, which wears no stripe and no
+    /// wash (ROADMAP.md, the Identical-badge item): on a real scan `identical` fires on the
+    /// overwhelming majority, and rows needing a human decision were wearing identical weight and
+    /// getting lost in the run. A row's visual weight now tracks how much attention it deserves.
+    ///
+    /// **It used to also draw a word, and the word is what the sections made redundant.** A badge
+    /// reading "Versions" on every card in a list headed *Versions* states the heading again once
+    /// per tile; the stripe and the wash say the same thing without spending a line of the header
+    /// on it, so those stayed and the badge went. `badgeLabel` survives as the predicate because
+    /// it is still exactly "is this an exception kind" — it is no longer a question about a label
+    /// that gets drawn.
     private var severity: Color? {
         DuplicateMatchStyle.badgeLabel(group.matchType) == nil
             ? nil : DuplicateMatchStyle.color(group.matchType)
@@ -67,7 +71,7 @@ struct DuplicateGroupCard: View {
         .lensCard()
         // The faint wash: over the card rather than under it, because `lensCard`'s own fill is
         // what a background would hide behind. 0.035 is a tint on the whole card, not a colour
-        // on any text — the badge and stripe carry the semantics.
+        // on any text — the stripe carries the semantics, and the section heading the word.
         .overlay {
             if let severity {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -108,17 +112,16 @@ struct DuplicateGroupCard: View {
 
     /// The full-width header: everything on one line, in the invisible columns.
     ///
-    /// Invisible columns (DuplicateGroupColumns): an exception's badge sits in a fixed leading
-    /// slot; the majority row has no badge and spends the space on its own icon and name. The
-    /// subtitle right-aligns against the verb column; verb and digits each hold their own slot so
-    /// "reclaim 157 KB" and "~24.2 MB shared" share one digit column instead of two ragged endings.
+    /// Invisible columns (DuplicateGroupColumns): the subtitle right-aligns against the verb
+    /// column; verb and digits each hold their own slot so "reclaim 157 KB" and "~24.2 MB shared"
+    /// share one digit column instead of two ragged endings.
+    ///
+    /// **The leading badge slot is gone with the badge**, and with it the reason every name used
+    /// to start at one x: names now begin at the icon, which is the same x on every card because
+    /// no card carries anything before it. The alignment the slot bought is still bought, by
+    /// there being nothing left to vary.
     private var rowHeader: some View {
         HStack(spacing: 12) {
-            if severity != nil {
-                typeBadge
-                    .frame(minWidth: DuplicateGroupColumns.badgeSlotWidth(scale: appFontScale),
-                           alignment: .leading)
-            }
             fileIcon
             Text(titleName)
                 .scaledFont(.system(size: 14, weight: .semibold))
@@ -135,23 +138,24 @@ struct DuplicateGroupCard: View {
 
     /// The stacked header: the same six facts on three short lines.
     ///
-    /// **A one-line header needs 364pt** — a badge slot, a name, a 24-character subtitle, a verb
-    /// column, a digits column and a chevron, of which only the name can shed. Measured, and held
-    /// to the measurement by `theRowHeaderOverflowsAGridColumnAndTheStackedOneDoesNot`; it was
-    /// "about 530" in prose for a while, which is the kind of number this file's own rules say to
-    /// treat as a finding. Under it the header draws wider than its card rather than truncating.
+    /// **A one-line header stops overflowing at 264pt and is not worth drawing until 380** — a
+    /// digits column and a chevron, of which only the name can shed. Measured, and held to the
+    /// measurement by `theRowHeaderOverflowsAGridColumnAndTheStackedOneDoesNot`; it was "about
+    /// 530" in prose for a while, which is the kind of number this file's own rules say to treat
+    /// as a finding. Under it the header draws wider than its card rather than truncating.
+    /// (264 is the post-badge bare fit — the badge slot was ~100pt of the old 364. The gap up to
+    /// 380 is `rowHeaderNameBudget`: at the bare fit the name has truncated away to nothing, so
+    /// "it fits" and "it is readable" are different widths and only the second one matters here.)
     ///
-    /// Stacked, the same content reads at 220pt: the badge and the figure take the top line (the
-    /// two things scanned across a list of 88), the name takes the width of the card, and the
-    /// subtitle sits under it with the chevron. The invisible columns are dropped deliberately —
-    /// they align a figure against its neighbours in the row above and below, which is a property
-    /// of a table and not of a grid of tiles.
+    /// Stacked, the same content reads at 220pt: the figure takes the top line, the name takes the
+    /// width of the card, and the subtitle sits under it with the chevron. The invisible columns
+    /// are dropped deliberately — they align a figure against its neighbours in the row above and
+    /// below, which is a property of a table and not of a grid of tiles.
     private var stackedHeader: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
-                if severity != nil { typeBadge }
-                Spacer(minLength: 4)
                 stackedReclaim
+                Spacer(minLength: 4)
             }
             HStack(spacing: 8) {
                 fileIcon
@@ -175,10 +179,6 @@ struct DuplicateGroupCard: View {
         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
             .scaledFont(.system(size: 12, weight: .semibold))
             .hoverInk(rest: .tertiary)
-    }
-
-    private var typeBadge: some View {
-        DuplicateTypeBadge(matchType: group.matchType)
     }
 
     /// **The card is titled with the copy being kept, not with the group's name.**
@@ -213,9 +213,15 @@ struct DuplicateGroupCard: View {
         case .identical:
             return group.isDirectory ? "\(n) \(unit) · identical trees" : "\(n) \(unit) · byte-for-byte"
         case .sameText:
-            // Short enough to survive the header row. "same text, different bytes" measured
-            // truncated to "same text, diffe…" at 640pt — and the badge beside it already says
-            // "Same text", so the half worth the space is the half the badge does not carry.
+            // Short enough to survive the header row: "same text, different bytes" measured
+            // truncated to "same text, diffe…" at 640pt, so only half of it fits.
+            //
+            // **The half kept is the one the section does not already state**, which is also the
+            // correction to what this comment used to say. It claimed the badge beside it read
+            // "Same text" — `DuplicateMatchStyle.badgeLabel` returned "needs review" for every
+            // exception kind, so that was untrue while the badge existed, and the badge is gone
+            // now besides. What genuinely carries "reads the same" is the section's own definition
+            // line, `DuplicateSections.definition(.sameText)`, directly above these cards.
             return "\(n) \(unit) · bytes differ"
         case .overlapping(let f):
             return "\(n) \(unit) · \(Int((f * 100).rounded()))% shared"
@@ -238,8 +244,8 @@ struct DuplicateGroupCard: View {
     }
 
     /// The majority row's green pill lives on the number the row is about, rather than on a leading
-    /// badge naming a category (ROADMAP.md, the Identical-badge item). Exceptions keep plain
-    /// digits: their colour budget is spent on the stripe.
+    /// badge naming a category (ROADMAP.md, the Identical-badge item — the badge it argued against
+    /// is since gone entirely). Exceptions keep plain digits: their colour budget is on the stripe.
     private var reclaimWearsPill: Bool { group.matchType.kind == .identical }
 
     private var reclaimInk: AnyShapeStyle {
@@ -352,17 +358,36 @@ struct DuplicateGroupCard: View {
                                     isKeeper: copy.isRecommendedKeeper) == .selectable
     }
 
+    /// One copy's row — **the only control in it.**
+    ///
+    /// The thumbnail and the radio inside are pictures of state; this is what is clicked. They
+    /// were each a control of their own until the row became one, under `isRowPickable` — the
+    /// same `DuplicateKeeperMarker.style(…) == .selectable` predicate that gated both — so a
+    /// pickable row shipped with two hit targets, two tooltips, two hover treatments and two
+    /// nested `.isButton` elements for a single action.
+    ///
+    /// The pointing hand is here for the same reason, and only here: it used to be pushed by the
+    /// tile and by the radio, so it appeared over two small islands of a row that is clickable
+    /// end to end — which is exactly the complaint that made the row clickable in the first place.
     @ViewBuilder
     private func copyRow(_ copy: DuplicateCopy) -> some View {
         if isRowPickable(copy) {
-            Button { onChooseKeeper(copy.id) } label: {
+            Button(action: keeperAction(for: copy)) {
                 copyRowContent(copy).contentShape(Rectangle())
             }
             .buttonStyle(.hoverAffordance(.row, tint: hueAccent))
-            .help("Keep this copy instead")
+            .pointingHandCursor()
+            // **The row owns the tooltip too, and carries the path in it.** The tile kept a
+            // `.help(path)` of its own, and an inner tooltip wins over its container — so the
+            // largest thing in a clickable row was the one place that did not say what clicking
+            // does. One tooltip per row, and the path rides along because the breadcrumb beneath
+            // truncates and omits the file name.
+            .help("Keep this copy instead — \(copy.path)")
             .accessibilityHint("Keeps this copy instead")
         } else {
-            copyRowContent(copy)
+            // No action to describe, so the tooltip is the path alone — still on the row, so a
+            // reader gets the same answer wherever they rest the pointer.
+            copyRowContent(copy).help(copy.path)
         }
     }
 
@@ -417,10 +442,6 @@ struct DuplicateGroupCard: View {
                                    // file-type icon is chosen from.
                                    name: copy.name,
                                    isKeeper: copy.isRecommendedKeeper,
-                                   // Same two inputs the radio takes, so the tile and the row
-                                   // beside it cannot come to offer different things.
-                                   allowsKeeperChoice: group.allowsKeeperChoice,
-                                   onChoose: keeperAction(for: copy),
                                    modified: copy.modificationDate,
                                    nonKeeperLabel: group.matchType.kind == .sameText
                                        ? "same text" : "duplicate",
@@ -447,11 +468,18 @@ struct DuplicateGroupCard: View {
 
     /// The keeper marker, from ``DuplicateKeeperMarker/style(allowsKeeperChoice:isKeeper:)``.
     ///
-    /// A green filled radio on the kept copy and a clickable hollow one on the others — **but only
-    /// where a keeper can actually be picked**. Where none can, both rows get the plain dot, so the
-    /// row never advertises a pick that isn't there. Which kinds allow one is
+    /// A green filled radio on the kept copy and a hollow one on the others — **but only where a
+    /// keeper can actually be picked**. Where none can, both rows get the plain dot, so the row
+    /// never advertises a pick that isn't there. Which kinds allow one is
     /// `DuplicateGroup.allowsKeeperChoice`, and it is deliberately not restated here: the list has
     /// drifted three times, each time by being spelled out somewhere.
+    ///
+    /// **None of the three is a control.** `selectable` used to be its own `Button` — which, once
+    /// `copyRow` became a `Button` under the very same predicate, put a button inside a button:
+    /// the inner one takes the hit, the outer one never fires there, and VoiceOver reads two
+    /// controls for one action. The radio shows the state and the row does the picking; it takes
+    /// the accent through `hoverTint`, which reads the row button's own hover phase from the
+    /// environment, so hovering ANYWHERE on the row lights the radio rather than only over it.
     @ViewBuilder
     private func radio(_ copy: DuplicateCopy) -> some View {
         switch DuplicateKeeperMarker.style(allowsKeeperChoice: group.allowsKeeperChoice,
@@ -462,7 +490,11 @@ struct DuplicateGroupCard: View {
                 .foregroundStyle(SemanticColor.success)
                 .accessibilityLabel(DuplicateKeeperMarker.keeper.accessibilityLabel ?? "")
         case .selectable:
-            SelectableKeeperRadio(accent: hueAccent) { onChooseKeeper(copy.id) }
+            Image(systemName: "circle")
+                .scaledFont(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .hoverTint(hueAccent)
+                .accessibilityLabel(DuplicateKeeperMarker.selectable.accessibilityLabel ?? "")
         case .inert:
             Circle()
                 .fill(.tertiary)
@@ -535,7 +567,8 @@ struct DuplicateGroupCard: View {
                 parts.append(copy.isFullyRedundant ? "fully redundant"
                                                    : Self.uniqueHere(copy.uniqueItemCount))
             // Deliberately NOT "fully redundant": that phrase is the content hash's promise, and
-            // this group has not proved it. What it proved is on the badge and in the note.
+            // this group has not proved it. What it proved is in the note, and in the section's
+            // definition line above the card.
             case .sameText:
                 break
             default: break
@@ -610,6 +643,7 @@ struct DuplicateGroupCard: View {
             Button(action: onReveal) {
                 Label("Reveal", systemImage: RevealGlyph.inFinder)
             }
+            .chromeHover()
             .controlSize(.small)
             Button(action: onKeepSeparate) {
                 Label("Keep separate", systemImage: "lock")
@@ -635,6 +669,14 @@ struct DuplicateGroupCard: View {
     /// "Compare copies": a direct button when there's a single redundant copy (a 2-copy group), or a
     /// menu to pick which redundant copy to compare against the keeper when there are more than two —
     /// Compare has exactly two panes, so bigger groups are reviewed two at a time (keeper vs each).
+    ///
+    /// **Both arms must LOOK the same**, because which one a group gets is decided by how many
+    /// copies it happens to have — not by anything the reader chose. The menu wore
+    /// `.menuStyle(.borderlessButton)`, which draws its own chrome rather than adopting the row's,
+    /// so the same control was a bordered button on a two-copy group and a borderless label on a
+    /// three-copy one, side by side in the same list. `.menuStyle(.button)` is the fix the pane
+    /// header's sort control already uses for exactly this: a `Menu` does not inherit an ambient
+    /// button style on its own.
     @ViewBuilder
     private var compareControl: some View {
         if group.redundantCopies.count <= 1 {
@@ -643,6 +685,7 @@ struct DuplicateGroupCard: View {
             } label: {
                 Label("Compare copies", systemImage: "rectangle.split.2x1")
             }
+            .chromeHover()
             .controlSize(.small)
         } else {
             Menu {
@@ -652,7 +695,8 @@ struct DuplicateGroupCard: View {
             } label: {
                 Label("Compare with…", systemImage: "rectangle.split.2x1")
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .chromeHover()
             .fixedSize()
             .controlSize(.small)
         }
@@ -693,7 +737,10 @@ struct DuplicateGroupCard: View {
         .scaledFont(.system(size: 11, design: .monospaced))
         .lineLimit(1)
         .truncationMode(.middle)
-        .help(path)
+        // No `.help` here either — `copyRow` carries one tooltip for the whole row, and this is
+        // its only caller. An inner tooltip wins, so leaving one on the widest element in the row
+        // would shadow the row's over most of its area, which is the shape of the bug this pass
+        // removed from the tile.
     }
 
     /// The path as crumbs, relative to the scanned root.
@@ -749,7 +796,7 @@ struct DuplicateGroupCard: View {
 ///
 /// **The row is a table row; the tile is a card.** The row's six facts sit in invisible columns
 /// (``DuplicateGroupColumns``) so that a figure lines up with the figures above and below it — a
-/// property of a list, and one that costs 364pt of width to keep (see
+/// property of a list, and one that costs 380pt of width to keep (see
 /// ``DuplicateCardHeaderLayout/rowHeaderMinimumWidth``). In a grid the neighbours are beside rather
 /// than above, so the alignment buys nothing that a narrow column can afford.
 ///
@@ -762,16 +809,38 @@ enum DuplicateCardHeaderLayout: Equatable {
     case stacked
 
     /// **The narrowest card the one-line header fits in.** Measured, not asserted: below this the
-    /// header draws WIDER than the card it was given rather than truncating — the badge slot, the
-    /// icon, the subtitle, the two figure columns and the chevron are all `.fixedSize()`, and only
-    /// the name can shed. `theRowHeaderNeedsThisMuchWidth` scans for the threshold and holds this
-    /// constant to it, so it cannot drift when the header gains a word.
+    /// header draws WIDER than the card it was given rather than truncating — the icon, the
+    /// subtitle, the two figure columns and the chevron are all `.fixedSize()`, and only the name
+    /// can shed. `theRowHeaderOverflowsAGridColumnAndTheStackedOneDoesNot` scans for the threshold
+    /// and holds this constant to it, so it cannot drift when the header gains a word.
+    ///
+    /// **It did NOT move when the match-type badge went, and the near miss is worth keeping.**
+    /// The scan finds the width at which the header stops drawing WIDER than its card — and the
+    /// name is allowed to truncate, so that width is reached with almost no room left for the
+    /// name. Losing the badge dropped that bare fit from 364 to 264, the scan's old upper bound
+    /// demanded the constant hug it, and following it to 280 put 370pt tiles on the one-line
+    /// header — where `Passport - Shweta - All Pages.pdf` and `Passport - Abhishek - All
+    /// Pages.pdf` both render as `Passpor…ages.pdf`. Not an overflow, and nothing a fit
+    /// measurement can see: two different files reading as one string.
+    ///
+    /// So the constant is founded on the NAME's room instead — ``rowHeaderNameBudget`` past the
+    /// bare fit — and 380 is what that comes to. The badge's departure is spent on the name rather
+    /// than on admitting narrower cards: at this width the name now gets ~116pt where it got ~16.
     ///
     /// It was chosen by COLUMN COUNT before, which was the wrong question: one column simply meant
     /// "the pane is under 534pt", and a pane at the app's 760pt window floor gives a card near
     /// 350 — narrower than the header needs, so the row header was drawn only at widths where it
     /// does not fit and the chevron and reclaim figure were clipped at the pane edge.
     static let rowHeaderMinimumWidth: CGFloat = 380
+
+    /// How much width the NAME must have before the one-line header is worth drawing, past the
+    /// point where the row merely stops overflowing.
+    ///
+    /// A budget rather than a measurement, because what it protects is content-dependent: the row
+    /// stays honest for `Tax 2025` at any width and truncates `Passport - Shweta - All Pages.pdf`
+    /// even at 560. 100pt is where a middle-truncated document name keeps enough of both ends to
+    /// tell two of them apart, which is the whole job of the name in this list.
+    static let rowHeaderNameBudget: CGFloat = 100
 
     /// **A narrow card takes the stacked header, and so does an expanded one** — for opposite
     /// reasons that want the same shape.
@@ -1028,49 +1097,40 @@ enum HoverCursorTransition: Equatable {
     }
 }
 
-/// The clickable "keep this copy instead" radio: hollow circle that gains an accent tint, a soft
-/// glow ring, and a pointing-hand cursor on hover, so pickable radios read differently from the
-/// static keeper indicator.
-private struct SelectableKeeperRadio: View {
-    let accent: Color
-    let action: () -> Void
-    @State private var isHovering = false
+/// A pointing hand over this view while the pointer is inside it, on `HoverCursorTransition`'s
+/// terms — **one implementation, where there were two.**
+///
+/// The tile and the keeper radio each hand-rolled this, so the hand appeared over two small islands
+/// of a copy row that is clickable end to end. Both are pictures of state now and the row is the
+/// control, so the cursor belongs to the row; a modifier is what lets it move there without a
+/// third copy of the push/pop bookkeeping.
+///
+/// **`pushedCursor` tracks what THIS view pushed, not whether it is hovered.** The two come apart:
+/// the pop used to be guarded on the same condition as the push, and a click that changed that
+/// condition — picking a keeper flips the row out of `selectable` — skipped the pop and stranded a
+/// pointing hand on a global stack for the session, one more per pick. Recording the push makes
+/// the pop unconditional on anything that can change underneath it.
+private struct PointingHandCursor: ViewModifier {
+    @State private var pushedCursor = false
 
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "circle")
-                .scaledFont(.system(size: 15))
-                .foregroundStyle(isHovering ? accent : Color.secondary)
-                .background(
-                    Circle()
-                        .fill(accent.opacity(isHovering ? 0.18 : 0))
-                        .frame(width: 26, height: 26)
-                )
-                .padding(.top, 1)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Keep this copy instead")
-        .accessibilityLabel(DuplicateKeeperMarker.selectable.accessibilityLabel ?? "")
-        .onHover { inside in
-            // NSCursor's stack is global and SwiftUI may repeat onHover(true) without an
-            // intervening false (layout thrash), so push/pop only on real transitions:
-            // exactly one push per hovered state, and pop only what we pushed.
-            switch HoverCursorTransition.decide(wasHovering: isHovering, isNowInside: inside) {
-            case .push: NSCursor.pointingHand.push()
-            case .pop: NSCursor.pop()
-            case .none: break
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                switch HoverCursorTransition.decide(wasHovering: pushedCursor, isNowInside: inside) {
+                case .push: NSCursor.pointingHand.push(); pushedCursor = true
+                case .pop: NSCursor.pop(); pushedCursor = false
+                case .none: break
+                }
             }
-            isHovering = inside
-        }
-        .onDisappear {
-            // Choosing a keeper reorders the rows out from under the cursor; don't leave the
-            // pushed pointing hand stranded on the cursor stack.
-            if isHovering {
-                NSCursor.pop()
-                isHovering = false
+            // A row in a LazyVStack is torn down by scrolling, by a section folding, by a filter and
+            // by its own group being resolved — none of which delivers `onHover(false)`.
+            .onDisappear {
+                if pushedCursor { NSCursor.pop(); pushedCursor = false }
             }
-        }
-        .animation(.easeOut(duration: 0.12), value: isHovering)
     }
+}
+
+extension View {
+    /// See ``PointingHandCursor``.
+    func pointingHandCursor() -> some View { modifier(PointingHandCursor()) }
 }

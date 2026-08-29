@@ -5,22 +5,33 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// The invisible columns, asserted in pixels: with the badge in a fixed slot, everything after
-/// it — icon, name — must render at the same x whatever the badge says. Two cards identical in
-/// every respect except their badge are rendered and compared column-by-column across the
-/// icon+name zone; if the slot ever stops absorbing the badge's width difference, those columns
-/// diverge and this fails. Width arithmetic alone cannot see that (width proves room, only
-/// pixels prove paint).
+/// **Every card's name starts at the same x**, asserted in pixels — width arithmetic proves room,
+/// only pixels prove paint.
+///
+/// What guarantees it has changed, and so has this test. It used to be the badge's fixed slot
+/// absorbing the width difference between one badge and another; the badge is gone with the
+/// sectioning, so the icon is now the first thing in the header and `fileIcon`'s explicit
+/// `.frame(width: 17, height: 17)` is the whole of what holds the column. That frame is easy to
+/// drop as redundant — `FileTypeGlyph.view(pointSize: 14)` looks like it sizes itself — and a
+/// glyph vocabulary whose members differ by a point would then shift every name by a different
+/// amount, which is the one thing a stack of cards must not do.
+///
+/// **The previous version of this test could not fail.** It rendered `card(.sameText)` against
+/// `card(.sameText)` — the same card twice — while its own comment described comparing two
+/// different badges, so the zone was identical by construction and the count was always zero.
+/// Two genuinely different file types, whose glyphs really do differ, is what makes the
+/// comparison mean anything.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct DuplicateGroupColumnAlignmentTests {
 
     private static let size = CGSize(width: 900, height: 72)
 
-    private func card(_ matchType: DuplicateMatchType) -> some View {
+    private func card(_ matchType: DuplicateMatchType, name: String = "Wedding Gifts.pdf",
+                      isDirectory: Bool = false) -> some View {
         let group = DuplicateGroup(
             matchType: matchType,
-            name: "Wedding Gifts.pdf",
-            isDirectory: false,
+            name: name,
+            isDirectory: isDirectory,
             copies: [],
             reclaimableBytes: 71_000)
         return DuplicateGroupCard(
@@ -50,32 +61,50 @@ import Design
         return rep
     }
 
-    @Test func nameStartsAtOneXWhateverTheBadgeSays() throws {
-        // Two badge-WEARING types with different badge widths ("needs review" vs "needs a
-        // choice") but the same severity colour, so the wash tints both renders identically and
-        // any zone difference is the slot leaking width. The identical row is deliberately not
-        // in this comparison any more: it wears no badge at all (ROADMAP.md, the Identical-badge
-        // item), so its name starts at the icon — a different x by design, not a leak.
-        let narrow = try #require(render(card(.sameText)))
-        let wide = try #require(render(card(.sameText)))
+    /// Same match type, same name, **different glyph** — a folder against a document. Only the
+    /// icon may differ; the name after it must land on identical pixels.
+    @Test func nameStartsAtOneXWhateverTheIconIs() throws {
+        let asFile = try #require(render(card(.sameText, isDirectory: false)))
+        let asFolder = try #require(render(card(.sameText, isDirectory: true)))
         // Device-pixel space: colorAt indexes the backing store, which is retina-scaled.
-        let device = CGFloat(narrow.pixelsWide) / Self.size.width
-        let slotEndPoints = DuplicateGroupColumns.badgeSlotWidth(scale: 1) + 12 + 14 + 12
-        let slotEnd = Int(ceil(slotEndPoints * device))
-        let zoneWidth = Int(180 * device)   // icon + "Wedding Gifts.pdf" — same in both renders
-        // The two badge SYMBOLS differ in height by a hair, which re-centers the card by one
-        // device pixel and moves its hairline edges — a card-height fact, not a column fact.
-        // The claim under test lives in the inner text band, so the edges stay out of it.
+        let device = CGFloat(asFile.pixelsWide) / Self.size.width
+        // Where the name begins: the card's own 12pt padding, the header's 14pt, the icon's
+        // fixed 17pt frame and the header stack's 12pt spacing. Spelled out rather than measured
+        // because it is precisely the arithmetic under test — if `fileIcon` stops being 17pt wide,
+        // the name no longer starts here, and that is the failure.
+        let nameStart = Int(ceil((12 + 14 + 17 + 12) * device))
+        let zoneWidth = Int(130 * device)   // inside "Wedding Gifts.pdf" at 14pt semibold
+        // The card's hairline edges sit at the top and bottom; the claim lives in the text band.
         let yBand = Int(20 * device)..<Int((Self.size.height - 20) * device)
         var differing = 0
-        for x in slotEnd..<(slotEnd + zoneWidth) {
+        for x in nameStart..<(nameStart + zoneWidth) {
             for y in yBand {
-                let a = narrow.colorAt(x: x, y: y)
-                let b = wide.colorAt(x: x, y: y)
-                if a != b { differing += 1 }
+                if asFile.colorAt(x: x, y: y) != asFolder.colorAt(x: x, y: y) { differing += 1 }
             }
         }
         #expect(differing == 0,
-                "icon+name zone differs in \(differing) pixels — the badge slot is leaking width")
+                "the name zone differs in \(differing) pixels — the icon is not holding a fixed width, so each file type starts its name at a different x")
+    }
+
+    /// **The positive control, and the half that makes the zero above mean something.** A zone
+    /// comparison that returns zero proves nothing unless the two renders differ SOMEWHERE: if
+    /// `isDirectory` had stopped reaching the glyph, both cards would be the same card and the
+    /// test above would pass on a tautology — which is exactly how its predecessor passed, having
+    /// rendered `.sameText` against `.sameText`.
+    @Test func theTwoCardsReallyDoDrawDifferentIcons() throws {
+        let asFile = try #require(render(card(.sameText, isDirectory: false)))
+        let asFolder = try #require(render(card(.sameText, isDirectory: true)))
+        let device = CGFloat(asFile.pixelsWide) / Self.size.width
+        let iconStart = Int(floor((12 + 14) * device))
+        let iconEnd = Int(ceil((12 + 14 + 17) * device))
+        let yBand = Int(20 * device)..<Int((Self.size.height - 20) * device)
+        var differing = 0
+        for x in iconStart..<iconEnd {
+            for y in yBand {
+                if asFile.colorAt(x: x, y: y) != asFolder.colorAt(x: x, y: y) { differing += 1 }
+            }
+        }
+        #expect(differing > 20,
+                "the folder and document glyphs painted \(differing) differing pixels — they are not actually drawing differently, so the alignment test above compares a card with itself")
     }
 }

@@ -4459,10 +4459,24 @@ public struct LensWorkspaceView: View {
                               : "Show \(section.groups.count - fold) more")
                     .scaledFont(.caption)
                     .fontWeight(.medium)
+                    .foregroundStyle(glassHue.accentColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(glassHue.accentColor)
-            .chromeHover()
+            // **`.segment`, not `chromeHover()`.** This draws no chrome of its own, and
+            // `chromeHover` is the treatment for a control that KEEPS system chrome — on a bare
+            // accent label it resolves to two shadows and a 1pt lift, so the text glowed and rose,
+            // while its `hoverTint` did nothing at all because the label was already accent.
+            // `.segment` is what the ten other groundless controls in this app wear.
+            .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor))
+            // **The padding-compensation idiom, and both halves of it.** A bare caption has no room
+            // for a wash, so the 6/2 above pads INSIDE the label to give the capsule something to
+            // fill — and it must be cancelled out here, or the button's resting footprint grows by
+            // 12pt across and 4pt down and shoves the section below it. Seven other sites in the
+            // app pair these two numbers; the rule is to always move them together.
+            .padding(.horizontal, -6)
+            .padding(.vertical, -2)
             .padding(.top, 2)
             .padding(.horizontal, 2)
         }

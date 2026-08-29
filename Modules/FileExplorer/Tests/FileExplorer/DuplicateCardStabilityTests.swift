@@ -205,11 +205,16 @@ import Testing
         #expect(tile == offered,
                 "the stacked header drew \(tile)pt into \(offered)pt — it is insisting like the row does")
 
-        // **And the constant that decides which one is drawn is held to the measurement.** It was
-        // chosen from prose ("a one-line header needs about 530pt") and the prose was wrong — the
-        // scan below puts the threshold at 364. A constant under it would draw the row header at
-        // widths where it overflows and gets clipped at the pane edge; one far over it would send
-        // roomy cards to the stacked header for no reason.
+        // **And the constant that decides which one is drawn is held to the measurement — plus a
+        // budget, which is the half this test used to be missing.** The scan below finds where the
+        // row stops OVERFLOWING (264 now, 364 while the badge held a slot). But the name may
+        // truncate, so at that width the name has essentially nothing: two `Passport - … - All
+        // Pages.pdf` files both draw as `Passpor…ages.pdf`, which is not an overflow and is not
+        // visible to any fit measurement. Hugging the bare fit is therefore the WRONG rule, and it
+        // is what an earlier version of this assertion demanded — it forced the constant to 280
+        // when the badge left, moving 370pt tiles onto a header that cannot tell their names
+        // apart. The constant must clear the fit by `rowHeaderNameBudget`, and not by so much that
+        // roomy cards stack for nothing.
         var fits: CGFloat = 0
         for candidate in stride(from: CGFloat(200), through: 640, by: 4)
         where drawnWidth(.row, offered: candidate) <= candidate {
@@ -217,10 +222,11 @@ import Testing
             break
         }
         #expect(fits > 0, "the row header never fits, even at 640pt")
-        #expect(DuplicateCardHeaderLayout.rowHeaderMinimumWidth >= fits,
-                "the header needs \(fits)pt and the constant is \(DuplicateCardHeaderLayout.rowHeaderMinimumWidth)")
-        #expect(DuplicateCardHeaderLayout.rowHeaderMinimumWidth < fits + 80,
-                "the constant is \(DuplicateCardHeaderLayout.rowHeaderMinimumWidth) against a measured \(fits) — roomy cards lose the dense header for nothing")
+        let budget = DuplicateCardHeaderLayout.rowHeaderNameBudget
+        #expect(DuplicateCardHeaderLayout.rowHeaderMinimumWidth >= fits + budget,
+                "the row stops overflowing at \(fits)pt and the constant is \(DuplicateCardHeaderLayout.rowHeaderMinimumWidth) — that leaves the name under \(budget)pt, where two long names truncate to the same string")
+        #expect(DuplicateCardHeaderLayout.rowHeaderMinimumWidth <= fits + budget + 100,
+                "the constant is \(DuplicateCardHeaderLayout.rowHeaderMinimumWidth) against a measured \(fits) + \(budget) — roomy cards lose the dense header for nothing")
     }
 }
 
