@@ -251,6 +251,9 @@ public struct LensWorkspaceView: View {
         var isStanding: Bool { origin == .standing }
     }
     @State private var removalRequest: RemovalRequest?
+    /// What the last *Update the survey now* refused with — shown on the Scaffolded card that
+    /// asked for it, and cleared when it is pressed again.
+    @State private var refreshSurveyRefusal: String?
     /// A learn-by-example rule offered after the user files a loose file — turned into an editable
     /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
     /// until saved or dismissed; cleared when a new scan starts.
@@ -3262,6 +3265,16 @@ public struct LensWorkspaceView: View {
                             }
                         },
                         onRemoveEmptied: requestRemoval,
+                        // §5.7's Scaffolded card, made resolvable — the re-derive a landing
+                        // already runs, with a manifest that moves nothing.
+                        onRefreshSurvey: {
+                            Task { @MainActor in
+                                refreshSurveyRefusal = nil
+                                refreshSurveyRefusal =
+                                    await syncManager.refreshDerivedProfile()
+                            }
+                        },
+                        refreshSurveyRefusal: refreshSurveyRefusal,
                         // §5.2's decided Trash route for the folders that were already empty.
                         onRemoveStandingEmpties: standingEmptiesRemover)
     }

@@ -156,6 +156,12 @@ struct RestructureLens: View {
     var onUndoReorganisation: ((String) -> Void)?
     /// Opens §5.5's removal sheet, scoped to the folders that record's landing emptied.
     var onRemoveEmptied: ((String) -> Void)?
+    /// Re-derives the survey from the tree as it stands — §5.7's Scaffolded card, whose own
+    /// sentence describes a wait with nothing to end it. nil hides the button.
+    var onRefreshSurvey: (() -> Void)?
+    /// What the last refresh refused with, if it did — a sentence on the card rather than a
+    /// queue, because the guards are the landing's and "wait for the scan" means press it again.
+    var refreshSurveyRefusal: String?
     /// Opens the same sheet on §5.2's **pre-existing** empties — the crowding strip's third
     /// filter, which the roadmap decided gets a Trash route and shipped without one. nil hides
     /// the button rather than promising a sheet that does not open.
@@ -687,9 +693,26 @@ struct RestructureLens: View {
         case .backlog(let scaffold, _):
             HStack(spacing: 14) {
                 if scaffoldedSubjects.contains(finding.subject) {
-                    Text(Self.scaffoldLandedText)
-                        .scaledFont(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(Self.scaffoldLandedText)
+                            .scaledFont(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let onRefreshSurvey {
+                            Button("Update the survey now") { onRefreshSurvey() }
+                                .scaledFont(.system(size: 11, weight: .semibold))
+                                .buttonStyle(.plain)
+                                .foregroundStyle(accent)
+                                .chromeHover()
+                                .help(Self.refreshSurveyHelp)
+                        }
+                        if let refreshSurveyRefusal {
+                            Text(refreshSurveyRefusal)
+                                .scaledFont(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 } else if !scaffold.isEmpty, let onScaffold {
                     Button("Set up like its siblings") { onScaffold(finding) }
                         .scaledFont(.system(size: 11, weight: .semibold))
@@ -726,6 +749,15 @@ struct RestructureLens: View {
 
     /// What a backlog card says once its scaffold has landed but the survey has not been
     /// re-derived — applied is not resolved, and neither word may borrow the other's sentence.
+    /// Why the button is worth pressing, and what it costs — **including the part a reader would
+    /// not guess**: this is the first thing a scaffold causes that replaces the hand-built
+    /// profile with a derived one. A plan's own landing does the same at its step 6; saying so
+    /// here is the difference between a sanctioned change and a surprise.
+    static let refreshSurveyHelp =
+        "Re-reads the tree and rebuilds the folder memory, so the folders this scaffold created "
+        + "are in it and this finding goes. It replaces the survey with a freshly derived one, "
+        + "the same way applying a plan does."
+
     static let scaffoldLandedText =
         "Scaffolded — the survey hasn’t caught up yet, so this stays until it is updated."
 

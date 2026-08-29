@@ -187,6 +187,54 @@ extension FileSyncManager {
             $0.summary = outcome.summary
         }
 
+        // Steps 6 and 7, extracted so the Scaffolded card can run the same re-derive with a
+        // manifest that moved nothing (proposal O12).
+        switch await rederiveProfile(through: landed, profile: profile,
+                                     oldDirectoryId: oldDirectoryId,
+                                     profilesDirectory: profilesDirectory, store: store,
+                                     expandedRoot: expandedRoot,
+                                     ledgerId: manifest.manifestId,
+                                     summaryForLedger: outcome.summary, now: now) {
+        case .success(let newId):
+            outcome.producedProfileId = newId
+        case .failure(let sentence):
+            outcome.surveyRefreshFailure = "Applied; " + sentence
+            return outcome
+        }
+        let newId = outcome.producedProfileId ?? oldDirectoryId
+
+        // Step 8: one greppable line — the truth of an apply gets found later by this id.
+        Logger.shared.info("Restructure apply \(manifest.manifestId): \(manifest.family) — "
+            + "\(outcome.summary); verifier "
+            + (outcome.verifierMismatches.isEmpty ? "OK"
+               : "MISMATCH (\(outcome.verifierMismatches.count))")
+            + "; profile \(oldDirectoryId) → \(newId)")
+        return outcome
+    }
+
+    /// What a re-derive came back with — the new profile directory, or the sentence that says
+    /// why the tree the app reads is still the old one.
+    enum RederiveResult {
+        case success(String)
+        case failure(String)
+    }
+
+    /// **Steps 6 and 7 of a landing, callable on their own.**
+    ///
+    /// Re-derive the profile from a fresh walk, carry the per-profile artifacts into the new
+    /// directory, replay the corpus keys through `landed`, rebuild the memory, and swap every
+    /// store to it. `applyPlan` runs this after its operations; the Scaffolded card runs it with
+    /// a manifest that MOVED nothing, which makes the rename map empty and the replay an
+    /// identity — the walk is still the point, because the folders a scaffold created are only
+    /// in the profile once something reads the disk again.
+    ///
+    /// `ledgerId` is the landing this belongs to, or nil when there is none — a survey refresh
+    /// has no ledger record to finalise, and passing one that does not exist would silently
+    /// no-op the updates below rather than failing.
+    private func rederiveProfile(
+        through landed: RestructureManifest, profile: FolderProfile, oldDirectoryId: String,
+        profilesDirectory: URL, store: RestructureStore, expandedRoot: String,
+        ledgerId: String?, summaryForLedger: String?, now: Date) async -> RederiveResult {
         // Step 6: re-derive the profile from a fresh walk — the finding is gone because the tree
         // was re-read, never because it was marked done. A failure here is §5.7's third sentence,
         // not a rollback: the moves landed and the ledger records them.
@@ -206,22 +254,21 @@ extension FileSyncManager {
             try FilingProfileStore.writeDerivedProfile(derived, replacing: oldDirectoryId,
                                                        in: profilesDirectory, now: now)
         } catch {
-            outcome.surveyRefreshFailure = "Applied; the survey could not be refreshed — "
-                + String(describing: error)
-            store.updateApplied(manifestId: manifest.manifestId) {
-                $0.summary = outcome.summary + " — survey not refreshed"
+            if let ledgerId {
+                store.updateApplied(manifestId: ledgerId) {
+                    $0.summary = (summaryForLedger ?? "") + " — survey not refreshed"
+                }
             }
-            Logger.shared.warning("Restructure apply \(manifest.manifestId): landed, but the "
+            Logger.shared.warning("Restructure re-derive \(ledgerId ?? "(no landing)"): the "
                 + "profile re-derivation failed: \(error)")
-            return outcome
+            return .failure("the survey could not be refreshed — " + String(describing: error))
         }
-        outcome.producedProfileId = newId
 
         // Step 7: the per-profile artifacts follow the profile into its new directory — copied
         // as they stand, then the corpus keys replayed and the memory rebuilt from them. No page
         // is re-read for a file that only moved.
         FileSyncManager.carryProfileArtifacts(from: oldDirectoryId, to: newId,
-                                              in: profilesDirectory, fm: fm)
+                                              in: profilesDirectory, fm: fileManager)
         if let corpus = FilingSurveyStore.corpus(id: oldDirectoryId, in: profilesDirectory) {
             let rekeyed = RestructureRederive.rekeyedCorpus(corpus, through: landed)
             let renamed = FilingCorpus(profileId: newId, salt: rekeyed.salt,
@@ -238,7 +285,7 @@ extension FileSyncManager {
                 filingMemory = memory
                 filingSurveyedAt = now
             } catch {
-                Logger.shared.warning("Restructure apply \(manifest.manifestId): the replayed "
+                Logger.shared.warning("Restructure re-derive \(ledgerId ?? "(no landing)"): the replayed "
                     + "corpus could not be written under \(newId): \(error)")
             }
         }
@@ -250,21 +297,20 @@ extension FileSyncManager {
         filingProfileDirectoryId = newId
         let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)
         newStore.rekey(renames: RestructureRederive.renameMap(of: landed),
-                       context: manifest.manifestId)
+                       context: ledgerId ?? "survey refresh")
         // The artifact carry copies best-effort, one file at a time — if restructure.json was
         // the copy that failed, the fresh store loads empty and the update below would no-op
         // silently, stranding the finalised record (and its inverse) in a directory nothing
         // reads. The ledger record is not best-effort: write it into the new store directly.
-        if !newStore.applied.contains(where: { $0.manifest.manifestId == manifest.manifestId }),
-           let finalised = store.applied.first(where: {
-               $0.manifest.manifestId == manifest.manifestId
-           }) {
+        if let ledgerId,
+           !newStore.applied.contains(where: { $0.manifest.manifestId == ledgerId }),
+           let finalised = store.applied.first(where: { $0.manifest.manifestId == ledgerId }) {
             newStore.recordApplied(finalised)
-            Logger.shared.warning("Restructure apply \(manifest.manifestId): restructure.json "
-                + "did not carry over; the ledger record was written into \(newId) directly")
+            Logger.shared.warning("Restructure re-derive \(ledgerId): restructure.json did not "
+                + "carry over; the ledger record was written into \(newId) directly")
         }
-        newStore.updateApplied(manifestId: manifest.manifestId) {
-            $0.producedProfileId = newId
+        if let ledgerId {
+            newStore.updateApplied(manifestId: ledgerId) { $0.producedProfileId = newId }
         }
         restructureStore = newStore
         filingPeopleStore = PeopleStore(directory: profilesDirectory, profileId: newId,
@@ -274,17 +320,56 @@ extension FileSyncManager {
                                                                    in: profilesDirectory)
         // The OLD store keeps the finalised record too — it is the ledger Undo reads after the
         // re-point puts that directory back in charge.
-        store.updateApplied(manifestId: manifest.manifestId) {
-            $0.producedProfileId = newId
+        if let ledgerId {
+            store.updateApplied(manifestId: ledgerId) { $0.producedProfileId = newId }
         }
+        return .success(newId)
 
-        // Step 8: one greppable line — the truth of an apply gets found later by this id.
-        Logger.shared.info("Restructure apply \(manifest.manifestId): \(manifest.family) — "
-            + "\(outcome.summary); verifier "
-            + (outcome.verifierMismatches.isEmpty ? "OK"
-               : "MISMATCH (\(outcome.verifierMismatches.count))")
-            + "; profile \(oldDirectoryId) → \(newId)")
-        return outcome
+    }
+
+    /// **Make the survey catch up** — §5.7's Scaffolded card, given the button its own sentence
+    /// promised (proposal O12).
+    ///
+    /// A scaffold creates folders and lands, but the profile is an artifact read off disk: until
+    /// something walks the tree again the backlog finding is still there, and the card says so
+    /// rather than offering the same landing twice. This runs the landing's own re-derive with a
+    /// manifest that moves nothing, so the walk is the entire content of the operation.
+    ///
+    /// **It replaces a hand-built profile with a derived one**, exactly as a plan's own step 6
+    /// does — sanctioned by §5.5's decisions block, and said out loud in the button's help
+    /// because this is the first time a scaffold causes it.
+    ///
+    /// Returns nil on success, or the sentence the card should show. A refusal is a sentence,
+    /// never a queue: the guards are the landing's, so "wait for the scan" means wait and press
+    /// it again.
+    public func refreshDerivedProfile(now: Date = Date()) async -> String? {
+        if let refusal = restructureLandingRefusal() { return refusal }
+        restructureLandingInProgress = true
+        defer { restructureLandingInProgress = false }
+        guard let store = restructureStore, let profile = filingFolderProfile,
+              let profilesDirectory = filingProfilesDirectory else {
+            return "No folder survey is loaded."
+        }
+        let oldDirectoryId = filingProfileDirectoryId ?? profile.profileId
+        let expandedRoot = (profile.root as NSString).expandingTildeInPath
+        // Moves nothing: the rename map is empty and the corpus replay is an identity, so what
+        // is left is the fresh walk — which is the whole point.
+        let identity = RestructureManifest(
+            profileId: oldDirectoryId, manifestId: "survey-refresh",
+            createdAt: FilingProfileStore.stamp(now), family: ".", kind: .deadWeight,
+            actions: [])
+        switch await rederiveProfile(through: identity, profile: profile,
+                                     oldDirectoryId: oldDirectoryId,
+                                     profilesDirectory: profilesDirectory, store: store,
+                                     expandedRoot: expandedRoot, ledgerId: nil,
+                                     summaryForLedger: nil, now: now) {
+        case .success(let newId):
+            Logger.shared.info("Restructure: survey re-derived on request — "
+                + "\(oldDirectoryId) → \(newId)")
+            return nil
+        case .failure(let sentence):
+            return "The survey was not refreshed — " + sentence
+        }
     }
 
     /// `Undo this reorganisation` — the ledger's inverse, run through the same guards and
