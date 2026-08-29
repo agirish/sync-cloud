@@ -356,7 +356,7 @@ enum HelpBook {
                     .bullets([
                         "Scan the folder you're standing on from Organize ▸ Duplicates, or right-click a file and choose “Find Duplicates of This”.",
                         "SyncCloud picks a keeper — shortest path, cleanest name — and marks the rest.",
-                        "Filter the groups by how they match: Identical, Same text, Overlapping, Name only, or Versions.",
+                        "Filter the groups by how they match: Needs review, Identical, Same text, Overlapping, or Versions.",
                         "The counts above the list are that filter too, not decoration beside it. Clicking “groups” is the way back to everything, and “need review” shows only the same-name-different-contents groups. The reclaimable figure describes the whole scan rather than a subset of the rows, so it is plain text and deliberately not clickable — a header that answers some clicks and not others is worse than one that never invited them.",
                         "A badge marks the exception, not the rule. Most groups are byte-identical, so they wear none and their line simply reads “byte-for-byte”. “Same text” is the badge worth having: copies whose bytes differ, which no byte-for-byte check could have matched.",
                         "Review the groups, then move the extras to the Trash.",

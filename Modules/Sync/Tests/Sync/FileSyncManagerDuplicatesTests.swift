@@ -157,13 +157,13 @@ import Combine
             grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 100),
             grp(.versions, keeper: "/a/r (1).doc", redundant: ["/a/r.doc"], reclaim: 50),
             grp(.overlapping(sharedFraction: 0.9), keeper: "/a/Inv", redundant: ["/b/Inv"], reclaim: 40),
-            grp(.nameOnly, keeper: "/a/S", redundant: ["/b/S"], reclaim: 0),
+            grp(.sameText, keeper: "/a/S", redundant: ["/b/S"], reclaim: 0),
         ]
         let s = manager.duplicateSummary
         #expect(s.groupCount == 4)
         #expect(s.reclaimableBytes == 100)   // identical only — versions/overlapping don't inflate it
         #expect(s.redundantCopyCount == 1)   // only the identical group's redundant copy
-        #expect(s.needsReviewCount == 1)     // the name-only group
+        #expect(s.needsReviewCount == 1)     // the same-text group
     }
 
     @MainActor
@@ -1649,7 +1649,7 @@ import Combine
     }
 
     @MainActor
-    @Test func nameOnlyGroupHasNoRemovalAndStaysUntilDismissed() async throws {
+    @Test func aGroupWithNoRemovalStaysUntilDismissed() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
 
@@ -1659,7 +1659,7 @@ import Combine
         let b = DuplicateCopy(id: "/root/Work/Screenshots", name: "Screenshots", isDirectory: true,
                               size: 100, itemCount: 2, modificationDate: nil, uniqueItemCount: 2,
                               depth: 1, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .nameOnly, name: "Screenshots", isDirectory: true,
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.3), name: "Screenshots", isDirectory: true,
                                    copies: [a, b], reclaimableBytes: 0)
         manager.duplicateGroups = [group]
 

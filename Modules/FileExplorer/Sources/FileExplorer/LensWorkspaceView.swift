@@ -33,7 +33,7 @@ public enum WorkspaceLensKind: String, CaseIterable, Identifiable {
 
 /// Filter over the match type of duplicate groups.
 enum DuplicateMatchFilter: String, CaseIterable, Identifiable {
-    case all, identical, sameText, overlapping, nameOnly, versions
+    case all, needsReview, identical, sameText, overlapping, versions
     var id: String { rawValue }
 
     var label: String {
@@ -42,7 +42,7 @@ enum DuplicateMatchFilter: String, CaseIterable, Identifiable {
         case .identical: return "Identical"
         case .sameText: return "Same text"
         case .overlapping: return "Overlapping"
-        case .nameOnly: return "Name only"
+        case .needsReview: return "Needs review"
         case .versions: return "Versions"
         }
     }
@@ -53,7 +53,10 @@ enum DuplicateMatchFilter: String, CaseIterable, Identifiable {
         case .identical: return group.matchType.kind == .identical
         case .sameText: return group.matchType.kind == .sameText
         case .overlapping: return group.matchType.kind == .overlapping
-        case .nameOnly: return group.matchType.kind == .nameOnly
+        // **Everything that is not byte-identical**, which is what the pill beside it counts.
+        // It used to select name-only alone; with that kind gone, the useful narrowing is the one
+        // the badges already name — the kinds "Apply recommended" will not touch.
+        case .needsReview: return group.matchType.kind != .identical
         case .versions: return group.matchType.kind == .versions
         }
     }
@@ -69,7 +72,6 @@ enum DuplicateMatchStyle {
         // it. The glyph pair is the vocabulary — nothing here relies on the colour alone.
         case .sameText: return "checkmark.seal"
         case .overlapping: return "square.on.square"
-        case .nameOnly: return "exclamationmark.triangle.fill"
         case .versions: return "clock.arrow.circlepath"
         }
     }
@@ -78,7 +80,6 @@ enum DuplicateMatchStyle {
         case .identical: return SemanticColor.success
         case .sameText: return SemanticColor.caution
         case .overlapping: return SemanticColor.warning
-        case .nameOnly: return SemanticColor.caution
         case .versions: return .purple
         }
     }
@@ -87,7 +88,6 @@ enum DuplicateMatchStyle {
         case .identical: return "Identical"
         case .sameText: return "Same text"
         case .overlapping(let f): return "Overlapping · \(Int((f * 100).rounded()))%"
-        case .nameOnly: return "Name only"
         case .versions: return "Versions"
         }
     }
@@ -102,7 +102,6 @@ enum DuplicateMatchStyle {
         switch type {
         case .identical: return nil
         case .sameText, .overlapping, .versions: return "needs review"
-        case .nameOnly: return "needs a choice"
         }
     }
 }
@@ -193,6 +192,11 @@ public struct LensWorkspaceView: View {
     /// Which lenses currently have the field revealed — per-lens for the same reason.
     @State private var searchExpandedLenses: Set<WorkspaceLensKind> = []
     @State private var expanded: Set<UUID> = []
+    /// Duplicate sections the user has opened past their fold — see `duplicateTileRows`. Stored as
+    /// the UNFOLDED set rather than the folded one, so a section that grows with the next scan
+    /// folds by default instead of inheriting whatever the first render saw (the same argument
+    /// `RenameCategories` used for its toggled set).
+    @State private var unfoldedSections: Set<DuplicateMatchType.Kind> = []
     /// The group a "Find duplicates of this" handoff sent the user to, marked until they look
     /// somewhere else. A landing, not a scroll: without a mark, a reveal into a list of similar
     /// cards leaves the user to work out which one they were sent to.
@@ -2689,17 +2693,17 @@ public struct LensWorkspaceView: View {
     private func duplicatesSummary(_ groups: [DuplicateGroup]) -> some View {
         let reclaimable = groups.filter { $0.isRecommendedForBatch }.reduce(0) { $0 + $1.reclaimableBytes }
         // Scan-level, NOT the filtered rows, exactly as the doc above promises: this pill is
-        // the name-only filter's TOGGLE, and counted over the filtered rows it vanished the
-        // moment a menu filter (Versions, Same text) excluded the name-only groups — taking
-        // the way into the filter with it.
-        let needsReview = syncManager.duplicateGroups.filter { $0.matchType.kind == .nameOnly }
-            .count
+        // the needs-review filter's TOGGLE, and counted over the filtered rows it would vanish
+        // the moment a menu filter excluded the groups it counts, taking the way into the
+        // filter with it.
+        let needsReview = syncManager.duplicateGroups
+            .filter { $0.matchType.kind != .identical }.count
         return Group {
             duplicateScanRootChip
             // §12: the pill reading a count IS the control that narrows to it. `groups` selects
-            // All (its click is the way back), `need review` toggles the name-only filter, and
-            // when any filter is active the unselected pills dim so the selected one reads as
-            // the state it is.
+            // All (its click is the way back), `need review` toggles the needs-review filter,
+            // and when any filter is active the unselected pills dim so the selected one reads
+            // as the state it is.
             filteringPill(selects: .all,
                           help: "Show every group. Click a narrower pill to filter; this one is "
                               + "the way back.") {
@@ -2715,9 +2719,9 @@ public struct LensWorkspaceView: View {
                         reduceMotion: reduceMotion)
                 .opacity(filter == .all ? 1 : 0.55)
             if needsReview > 0 {
-                filteringPill(selects: .nameOnly, ring: SemanticColor.caution,
-                              help: "Same-name folders whose contents differ — the groups that "
-                                  + "need a human choice. Click to show only these.") {
+                filteringPill(selects: .needsReview, ring: SemanticColor.caution,
+                              help: "Everything “Apply recommended” will not touch — the groups "
+                                  + "that need a person. Click to show only these.") {
                     StatPill(count: needsReview, label: "need review", color: SemanticColor.caution, systemImage: "exclamationmark.triangle")
                 }
             }
@@ -3907,7 +3911,7 @@ public struct LensWorkspaceView: View {
         var sections: [OrganizeOverviewSection] = []
         /// Scoped, and **batch-eligible groups only** — mirroring `duplicateSummary` exactly, so
         /// the ledger's figure is the one "Apply recommended" would actually deliver. Overlapping
-        /// and name-only groups never inflate it.
+        /// groups never inflate it.
         var reclaimableBytes = 0
     }
 
@@ -4285,45 +4289,49 @@ public struct LensWorkspaceView: View {
             }
         )
     }
+    /// **Below this a collapsed duplicates tile stops holding its own content.** A tile is a badge
+    /// and a figure on one line, a name on the next, and a ~24-character subtitle with a chevron on
+    /// the third; the subtitle is the widest of the three at about 155pt of 10.5pt monospace, plus
+    /// the chevron and the card's padding, which is where 220 would be the floor — 250 leaves the
+    /// name something to say rather than the bare minimum.
+    ///
+    /// Smaller than the renames lens's minimum (`RenamePassLens.minimumCardWidth`, 340) on purpose:
+    /// that card carries a two-column table of file names and this one carries a caption.
+    ///
+    /// **Not `private`**, so the tests can read the shipped value rather than restate it. They
+    /// restated 220 through a raise to 250 and stayed green while asserting a column count the app
+    /// does not produce.
+    static let duplicateTileMinimumWidth: CGFloat = 250
+
     private func groupList(dupGroups: [DuplicateGroup]) -> some View {
-        ScrollViewReader { proxy in
+        let sections = DuplicateSections.sections(dupGroups)
+        return ScrollViewReader { proxy in
+        GeometryReader { geo in
+        let chrome = densityMetrics.cardListPadding * 2
+        let columns = LensCardGrid.columns(
+            forWidth: geo.size.width,
+            minimumCardWidth: Self.duplicateTileMinimumWidth,
+            // This lens is a `ScrollView` with its own padding, not the renames `List` — see
+            // `LensCardGrid.listHorizontalPadding`.
+            horizontalPadding: chrome)
+        // What one card actually gets, which is what decides its header — see
+        // `DuplicateCardHeaderLayout.forCard(width:isExpanded:)`. A column count cannot answer it:
+        // one column at the window floor is a narrower card than two columns on a wide display.
+        let cardWidth = LensCardGrid.cardWidth(forWidth: geo.size.width, columns: columns,
+                                               horizontalPadding: chrome)
         ScrollView {
-            LazyVStack(spacing: densityMetrics.cardListSpacing) {
-                ForEach(dupGroups) { group in
-                    DuplicateGroupCard(
-                        group: group,
-                        isExpanded: expanded.contains(group.id),
-                        providerName: providerName,
-                        scanRoot: syncManager.duplicateScanRoot,
-                        densityMetrics: densityMetrics,
-                        onToggle: { toggle(group.id) },
-                        onApply: { apply(group) },
-                        onReveal: { reveal(group) },
-                        onKeepSeparate: { syncManager.keepDuplicateGroupSeparate(group) },
-                        onChooseKeeper: { syncManager.setKeeper(for: group.id, to: $0) },
-                        onMerge: { merge(group) },
-                        onCompareCopies: { keep, delete in onCompareCopies(keep, delete) },
-                        isMerging: syncManager.mergingGroupIDs.contains(group.id)
-                    )
-                    // The landing mark, drawn from OUTSIDE the card rather than threaded through
-                    // it: the card renders a duplicate group, and "you were sent here" is a fact
-                    // about this session's navigation, not about the group.
-                    .overlay {
-                        if revealedGroupID == group.id {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(glassHue.accentColor, lineWidth: 2)
-                                .allowsHitTesting(false)
-                                // The card announces the mark (below); the ring is its paint.
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    // The spoken form of the ring. The mark exists because a reveal into a list of
-                    // similar cards leaves the user to work out which one they were sent to — and a
-                    // VoiceOver user has no ring, so without this the one card that answers their
-                    // question sounds identical to its neighbours. `.isSelected` rather than words
-                    // of our own: "selected" is how assistive tech already says "this one".
-                    .accessibilityAddTraits(revealedGroupID == group.id ? .isSelected : [])
-                    .transition(cardRemoval)
+            LazyVStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
+                // **Sectioned by what each finding asks of you** — see `DuplicateSections`, and
+                // `RenameCategories`, which made the same move for the same reason. 88 tiles of
+                // equal weight is a wall: the two findings that need a person were somewhere among
+                // eighty-six that do not.
+                // Sectioned once per group list, not once per frame: this closure re-runs on every
+                // frame of a window drag, and re-bucketing 88 groups there is work the width does
+                // not change the answer to.
+                ForEach(sections, id: \.kind) { section in
+                    duplicateSectionHeader(section, columns: columns)
+                    duplicateTileRows(section, columns: columns, cardWidth: cardWidth,
+                                      fullWidth: geo.size.width - chrome)
                 }
             }
             .padding(densityMetrics.cardListPadding)
@@ -4340,15 +4348,170 @@ public struct LensWorkspaceView: View {
         // after the filter and query the plan cleared have actually taken effect.
         .onChange(of: revealedGroupID) { _, id in
             guard let id else { return }
-            withAnimation { proxy.scrollTo(id, anchor: .top) }
+            unfoldSection(holding: id, in: dupGroups)
+            // **The hop is the fold's.** `unfoldSection` writes `@State`, and until the body
+            // re-evaluates the card is not merely unlaid-out — it is absent from the view tree
+            // (`shown` is a `prefix`). A `scrollTo` issued in the same turn resolves against a list
+            // that does not contain its target and is silently dropped, never retried: the same
+            // mechanism `FileTreeView`'s reveal and `PaneColumnsView`'s both hop for.
+            DispatchQueue.main.async {
+                withAnimation { proxy.scrollTo(id, anchor: .top) }
+            }
         }
         // The reveal that MOUNTS this list (the workspace switch) sets `revealedGroupID` before
         // there is a proxy to scroll with, so `onChange` never sees it move. This is that case.
         .onAppear {
             guard let id = revealedGroupID else { return }
-            proxy.scrollTo(id, anchor: .top)
+            unfoldSection(holding: id, in: dupGroups)
+            DispatchQueue.main.async { proxy.scrollTo(id, anchor: .top) }
         }
         }
+        }
+    }
+
+    /// Opens the fold over a revealed group, so a landing cannot aim at a card the fold is hiding.
+    ///
+    /// **The fold is a fourth way the last step of a landing can fail silently.** The card is
+    /// expanded and marked by the time the scroll runs; a target sitting past "Show 48 more" is
+    /// not in the view tree at all, so `scrollTo` finds nothing and the reveal ends on whatever
+    /// happened to be on screen — with the group correctly expanded, three hundred rows away.
+    private func unfoldSection(holding id: DuplicateGroup.ID, in groups: [DuplicateGroup]) {
+        guard let group = groups.first(where: { $0.id == id }) else { return }
+        unfoldedSections.insert(group.matchType.kind)
+    }
+
+    /// A section's heading: the count, what the section asks for, and its one-line definition.
+    ///
+    /// No bulk button, deliberately. Only `identical` is batchable
+    /// (`DuplicateGroup.isRecommendedForBatch`), and the header's "Apply N recommended" is already
+    /// exactly that section's action — a second control doing the same thing, three rows lower, is
+    /// how a reader comes to wonder which of the two is scoped differently.
+    private func duplicateSectionHeader(_ section: DuplicateSections.Section,
+                                        columns: Int) -> some View {
+        let tint = DuplicateSections.tint(section.kind)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Pill(.standard, tint: tint, count: section.groups.count,
+                     label: DuplicateSections.label(section.kind))
+                if section.reclaimableBytes > 0 {
+                    // **The verb, and the `~` on an overlap.** The card is careful that an overlap
+                    // reports "shared" rather than "reclaim" — the figure must not promise a
+                    // button that isn't there — and approximates it, because the per-copy share is
+                    // an average. A bare byte count in the slot `identical` uses for a real
+                    // reclaim made a merge section look like free space.
+                    let isOverlap = section.kind == .overlapping
+                    Text((isOverlap ? "~" : "")
+                         + FileSyncManager.formatBytes(section.reclaimableBytes)
+                         + (isOverlap ? " shared" : " reclaimable"))
+                        .scaledFont(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+                Spacer(minLength: 8)
+            }
+            Text(DuplicateSections.definition(section.kind))
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 12)
+        .padding(.bottom, 2)
+        .padding(.horizontal, 2)
+    }
+
+    /// A section's tiles, folded after four rows.
+    ///
+    /// **"Show a few tiles and then a see-more view", his words.** A section of sixty is the same
+    /// wall the whole list was; four rows is enough to see what the section holds and short enough
+    /// that the next heading is on screen. Whole rows, so the button never sits under a half-row.
+    @ViewBuilder
+    private func duplicateTileRows(_ section: DuplicateSections.Section,
+                                   columns: Int, cardWidth: CGFloat,
+                                   fullWidth: CGFloat) -> some View {
+        let fold = LensCardGrid.itemsBeforeFold(columns: columns)
+        let showsAll = unfoldedSections.contains(section.kind)
+        let shown = showsAll ? section.groups : Array(section.groups.prefix(fold))
+        ForEach(LensCardGrid.identifiedRows(shown, columns: columns,
+                                            spansFullWidth: { expanded.contains($0.id) })) { gridRow in
+            let row = gridRow.items
+            // One card, expanded, is a full-width row on purpose — it must NOT be padded out to a
+            // third of the pane by the spacers a genuinely short row needs.
+            let isFullWidthRow = row.count == 1 && expanded.contains(row[0].id)
+            HStack(alignment: .top, spacing: LensCardGrid.gutter) {
+                ForEach(row) { group in
+                    duplicateCard(group, cardWidth: isFullWidthRow ? fullWidth : cardWidth)
+                }
+                // A short last row must not stretch its tiles over the width the missing ones
+                // would have held.
+                if !isFullWidthRow && row.count < columns {
+                    ForEach(0..<(columns - row.count), id: \.self) { _ in
+                        Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                    }
+                }
+            }
+        }
+        if section.groups.count > fold {
+            Button {
+                if showsAll { unfoldedSections.remove(section.kind) }
+                else { unfoldedSections.insert(section.kind) }
+            } label: {
+                Text(showsAll ? "Show fewer"
+                              : "Show \(section.groups.count - fold) more")
+                    .scaledFont(.caption)
+                    .fontWeight(.medium)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(glassHue.accentColor)
+            .chromeHover()
+            .padding(.top, 2)
+            .padding(.horizontal, 2)
+        }
+    }
+
+    /// One group's card, with the two things drawn from OUTSIDE it — the landing mark and the
+    /// scroll anchor.
+    ///
+    /// **The `.id` is what `proxy.scrollTo` finds.** In the flat list it came free from
+    /// `ForEach(dupGroups)`; the grid's `ForEach` is over ROWS, so without this the reveal would
+    /// expand and mark the right card and then scroll to nothing — the one step of a landing that
+    /// fails silently.
+    private func duplicateCard(_ group: DuplicateGroup, cardWidth: CGFloat) -> some View {
+        DuplicateGroupCard(
+            group: group,
+            isExpanded: expanded.contains(group.id),
+            providerName: providerName,
+            scanRoot: syncManager.duplicateScanRoot,
+            densityMetrics: densityMetrics,
+            onToggle: { toggle(group.id) },
+            onApply: { apply(group) },
+            onReveal: { reveal(group) },
+            onKeepSeparate: { syncManager.keepDuplicateGroupSeparate(group) },
+            onChooseKeeper: { syncManager.setKeeper(for: group.id, to: $0) },
+            onMerge: { merge(group) },
+            onCompareCopies: { keep, delete in onCompareCopies(keep, delete) },
+            isMerging: syncManager.mergingGroupIDs.contains(group.id),
+            headerLayout: .forCard(width: cardWidth, isExpanded: expanded.contains(group.id))
+        )
+        .id(group.id)
+        // The landing mark, drawn from OUTSIDE the card rather than threaded through it: the card
+        // renders a duplicate group, and "you were sent here" is a fact about this session's
+        // navigation, not about the group.
+        .overlay {
+            if revealedGroupID == group.id {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(glassHue.accentColor, lineWidth: 2)
+                    .allowsHitTesting(false)
+                    // The card announces the mark (below); the ring is its paint.
+                    .accessibilityHidden(true)
+            }
+        }
+        // The spoken form of the ring. The mark exists because a reveal into a list of similar
+        // cards leaves the user to work out which one they were sent to — and a VoiceOver user has
+        // no ring, so without this the one card that answers their question sounds identical to its
+        // neighbours. `.isSelected` rather than words of our own: "selected" is how assistive tech
+        // already says "this one".
+        .accessibilityAddTraits(revealedGroupID == group.id ? .isSelected : [])
+        .transition(cardRemoval)
     }
 
     // MARK: Empty / scanning states
@@ -4384,11 +4547,17 @@ public struct LensWorkspaceView: View {
                 Text("reclaim 26 MB").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
             }
             LensSetupSampleRow {
-                Pill(.mini, tint: SemanticColor.caution, text: "Name only")
-                Text("Events").scaledFont(.caption).lineLimit(1)
-                Text("2 folders").scaledFont(.caption.monospaced()).foregroundStyle(.secondary)
+                // **A finding the scan can actually produce.** This sample used to be a
+                // "Name only" row reading "nothing to reclaim" — the first screen in the lens,
+                // teaching the shape of a kind that was removed. An overlap is the nearest real
+                // one: it needs a person, and its figure is approximate and shared rather than
+                // reclaimed, which is exactly what the section header and the card both say.
+                Pill(.mini, tint: SemanticColor.warning, text: "Needs review")
+                Text("Petition").scaledFont(.caption).lineLimit(1)
+                Text("2 folders · 92% shared").scaledFont(.caption.monospaced())
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 6)
-                Text("nothing to reclaim").scaledFont(.caption.monospaced()).foregroundStyle(.tertiary)
+                Text("~1.1 MB shared").scaledFont(.caption.monospaced()).foregroundStyle(.tertiary)
             }
         }
     }

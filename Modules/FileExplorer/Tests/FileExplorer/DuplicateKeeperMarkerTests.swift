@@ -1,3 +1,4 @@
+import Foundation
 import Sync
 import Testing
 @testable import FileExplorer
@@ -5,14 +6,35 @@ import Testing
 /// Pins the pure marker mapping behind the Duplicates card's keeper column: only rows the user can
 /// actually pick draw a radio; groups without a keeper choice get a plain dot instead.
 @Suite struct DuplicateKeeperMarkerTests {
-    @Test func keeperShowsFilledRadioRegardlessOfChoice() {
+    /// **A radio only where a radio means something.** A filled radio is a promise that an empty
+    /// one exists to click, and this returned one for the keeper of every group — including the
+    /// kinds that allow no choice at all. His report on a merge card: "Why is there a checkbox,
+    /// especially if we can't choose among the rows?"
+    ///
+    /// All four combinations, because the fix is one `guard` and getting it backwards would make
+    /// the pickable groups the inert ones.
+    @Test func aRadioIsDrawnOnlyWhereAKeeperCanBePicked() {
         #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: true) == .keeper)
-        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: true) == .keeper)
+        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: false) == .selectable)
+        // No choice: neither row advertises one, which is what this type's doc always claimed.
+        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: true) == .inert)
+        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: false) == .inert)
     }
 
-    @Test func nonKeeperIsSelectableOnlyWhenGroupAllowsChoice() {
-        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: false) == .selectable)
-        #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: false) == .inert)
+    /// And the group kinds land on the right side of it: an overlapping group cannot re-aim its
+    /// keeper (which copy is "unique" comes from hashes the scan does not retain), so its rows are
+    /// inert — while an identical group's are pickable.
+    @Test func theKindsThatAllowAChoiceAreTheOnesWithRadios() {
+        func marker(_ type: DuplicateMatchType, keeper: Bool) -> DuplicateKeeperMarker {
+            let g = DuplicateGroup(matchType: type, name: "x", isDirectory: true, copies: [],
+                                   reclaimableBytes: 0)
+            return DuplicateKeeperMarker.style(allowsKeeperChoice: g.allowsKeeperChoice,
+                                               isKeeper: keeper)
+        }
+        #expect(marker(.overlapping(sharedFraction: 0.9), keeper: true) == .inert)
+        #expect(marker(.overlapping(sharedFraction: 0.9), keeper: false) == .inert)
+        #expect(marker(.identical, keeper: true) == .keeper)
+        #expect(marker(.identical, keeper: false) == .selectable)
     }
 
     @Test func accessibilityLabelsReadSensibly() {
@@ -32,9 +54,11 @@ import Testing
 
     @Test func singularAndPluralWording() {
         let one = DuplicateUnverifiedNote.text(unverifiedCount: 1)
-        #expect(one?.hasPrefix("1 copy couldn't be content-verified") == true)
+        #expect(one?.hasPrefix("1 not content-verified") == true)
         let three = DuplicateUnverifiedNote.text(unverifiedCount: 3)
-        #expect(three?.hasPrefix("3 copies couldn't be content-verified") == true)
+        #expect(three?.hasPrefix("3 not content-verified") == true)
+        // Both reasons stay: a cloud-only copy and a too-large one are fixed by different things.
+        #expect(one?.contains("too large") == true && one?.contains("not downloaded") == true)
     }
 }
 
@@ -185,8 +209,26 @@ import Testing
         let many = DuplicateRemovalPrompt.batchInformativeText(copyCount: 9, reclaimText: "1.2 GB")
         #expect(many.hasPrefix("Moves 9 redundant copies to the Trash"))
         #expect(many.contains("1.2 GB"))
-        // The two claims that make the batch safe to agree to.
-        #expect(many.contains("Name-only and overlapping groups are left untouched."))
+        // The two claims that make the batch safe to agree to. **The exclusion list used to name
+        // two of the four kinds it excludes**: `isRecommendedForBatch` admits only `.identical`,
+        // so versions and same-text groups are left untouched as well, and a dialog that listed
+        // half of them read as if the other half were included.
+        #expect(many.contains("Only byte-identical groups are included"))
+        // **Every kind the batch excludes, derived rather than listed.** The hand-written list
+        // said four and kept saying "name-only" after that kind was deleted — a stale word in the
+        // last sentence before a destructive batch, held there by this very assertion.
+        let excluded = DuplicateMatchType.Kind.allCases.filter { kind in
+            let g = DuplicateGroup(matchType: DuplicateSections.representative(kind), name: "x",
+                                   isDirectory: false, copies: [], reclaimableBytes: 0)
+            return !g.isRecommendedForBatch
+        }
+        #expect(excluded.count == 3, "identical is the only kind the batch includes")
+        for kind in excluded {
+            let word = ["versions": "versions", "sameText": "same-text",
+                        "overlapping": "overlapping"]["\(kind)"] ?? "\(kind)"
+            #expect(many.contains(word), "\(kind) is excluded and the dialog must say so")
+        }
+        #expect(!many.contains("name-only"), "a kind that no longer exists must not be named")
         #expect(many.hasSuffix("Everything can be undone with ⌘Z."))
     }
 
@@ -201,3 +243,49 @@ import Testing
     }
 }
 
+
+/// The breadcrumb under a copy's name — his report: "the 2 paths aren't correctly listed; rather
+/// it's relative to selected directory to organize, but that should be indicated clearly."
+///
+/// Stripping the scanned root silently made a folder sitting directly in it read as the provider
+/// alone, as though it lived at the top of the cloud, while its neighbour six levels down read as
+/// a full path. The pair looked unrelated when in fact they share a trunk.
+///
+/// **The call site is not pinned** — `crumbs(_:)` is a one-line forward to this, and a bitmap
+/// cannot read text back. What is pinned is the rule.
+@Suite struct DuplicateBreadcrumbTests {
+
+    private func crumbs(_ path: String, root: String?, provider: String? = "iCloud") -> [String] {
+        DuplicateGroupCard.crumbs(of: path, scanRoot: root, providerName: provider)
+    }
+
+    /// His two paths. Before, the first was `iCloud` alone.
+    @Test func theScannedFolderIsACrumb() {
+        let root = "/Users/x/Documents/Immigration"
+        #expect(crumbs("\(root)/Visa", root: root) == ["iCloud", "Immigration", "Visa"])
+        #expect(crumbs("\(root)/Authorization/H-1B/Petition/Visa", root: root)
+                == ["iCloud", "Immigration", "Authorization", "H-1B", "Petition", "Visa"])
+    }
+
+    /// A root whose own name says nothing the reader chose adds no crumb: a whole volume, or the
+    /// home directory, where "Immigration" would have been the point.
+    @Test func aVolumeOrHomeRootAddsNoCrumb() {
+        #expect(crumbs("/Files/a.pdf", root: "/") == ["iCloud", "Files", "a.pdf"])
+        let home = NSHomeDirectory()
+        #expect(crumbs("\(home)/a.pdf", root: home) == ["iCloud", "a.pdf"])
+    }
+
+    /// The boundary rule the root-stripping has always carried: a sibling whose name merely starts
+    /// with the root's is not inside it, and must not be stripped into a false relative path.
+    @Test func aSiblingWithASharedPrefixIsNotInsideTheRoot() {
+        let out = crumbs("/data/DocsBackup/a.pdf", root: "/data/Docs")
+        #expect(!out.contains("Docs"), "stripped as though it were inside: \(out)")
+        #expect(out.contains("DocsBackup"))
+    }
+
+    /// No provider and no root: the plain tilde-abbreviated path, unchanged.
+    @Test func withoutARootItIsJustThePath() {
+        let out = crumbs("\(NSHomeDirectory())/Docs/a.pdf", root: nil, provider: nil)
+        #expect(out == ["~", "Docs", "a.pdf"])
+    }
+}

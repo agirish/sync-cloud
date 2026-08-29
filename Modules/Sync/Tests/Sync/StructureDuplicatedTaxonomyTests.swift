@@ -77,11 +77,14 @@ import Testing
         #expect(StructureDuplicatedTaxonomy.findings(groups: three, in: bigProfile).isEmpty,
                 "three shared files between two forty-file folders is not a taxonomy claim")
 
-        // Same three pairs, but as name-only matches: names are not evidence here.
-        let namesOnly = ["x.pdf", "y.pdf", "z.pdf"].map {
-            Self.sameTextGroup(["A/Forms/\($0)", "C/Forms/\($0)"], matchType: .nameOnly)
+        // A match that is not `.sameText` is not evidence here: the detector's claim is about
+        // documents that READ alike, and an identical-bytes pair is a different finding. Restored
+        // as a negative control — every other fixture in this file uses the default `.sameText`,
+        // so without it the guard's kind test could be deleted with the suite green.
+        let identical = ["x.pdf", "y.pdf", "z.pdf"].map {
+            Self.sameTextGroup(["A/Forms/\($0)", "C/Forms/\($0)"], matchType: .identical)
         }
-        #expect(StructureDuplicatedTaxonomy.findings(groups: namesOnly, in: profile).isEmpty)
+        #expect(StructureDuplicatedTaxonomy.findings(groups: identical, in: profile).isEmpty)
 
         // A folder the profile never recorded — a downloads stash — takes no part.
         let stash = ["x.pdf", "y.pdf", "z.pdf"].map {

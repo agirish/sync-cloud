@@ -29,6 +29,14 @@ struct DuplicateGroupCard: View {
     /// a second click mid-merge would re-plan against the half-merged keeper and mint " 2"
     /// copies. `var` with a default so existing call sites/tests are unaffected.
     var isMerging: Bool = false
+    /// How the header lays itself out — see ``DuplicateCardHeaderLayout``.
+    ///
+    /// **No default, for the reason ``DuplicateThumbnailView/onChoose`` has none.** Defaulted to
+    /// `.row` it was a call site that could forget the feature silently: deleting the `headerLayout:`
+    /// argument in `LensWorkspaceView` compiled, returned every grid tile to the one-line header,
+    /// and left the suite green — while `theRowHeaderOverflowsAGridColumnAndTheStackedOneDoesNot`
+    /// proves that header does not fit a grid column. The compiler holds the wiring instead.
+    let headerLayout: DuplicateCardHeaderLayout
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     /// For the invisible-column slot widths (`DuplicateGroupColumns`) — measured at the live scale.
@@ -85,30 +93,11 @@ struct DuplicateGroupCard: View {
 
     private var header: some View {
         Button(action: onToggle) {
-            // Invisible columns (DuplicateGroupColumns): an exception's badge sits in a fixed
-            // leading slot; the majority row has no badge and spends the space on its own icon
-            // and name. The subtitle right-aligns against the verb column; verb and digits each
-            // hold their own slot so "reclaim 157 KB" and "~24.2 MB shared" share one digit
-            // column instead of two ragged endings.
-            HStack(spacing: 12) {
-                if severity != nil {
-                    typeBadge
-                        .frame(minWidth: DuplicateGroupColumns.badgeSlotWidth(scale: appFontScale),
-                               alignment: .leading)
+            Group {
+                switch headerLayout {
+                case .row: rowHeader
+                case .stacked: stackedHeader
                 }
-                fileIcon
-                Text(group.name)
-                    .scaledFont(.system(size: 14, weight: .semibold))
-                    .lineLimit(1).truncationMode(.middle)
-                Spacer(minLength: 8)
-                Text(subtitle)
-                    .scaledFont(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                reclaimColumns
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .scaledFont(.system(size: 12, weight: .semibold))
-                    .hoverInk(rest: .tertiary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, densityMetrics.cardHeaderVerticalPadding)
@@ -117,8 +106,94 @@ struct DuplicateGroupCard: View {
         .buttonStyle(.hoverAffordance(.row, tint: hueAccent))
     }
 
+    /// The full-width header: everything on one line, in the invisible columns.
+    ///
+    /// Invisible columns (DuplicateGroupColumns): an exception's badge sits in a fixed leading
+    /// slot; the majority row has no badge and spends the space on its own icon and name. The
+    /// subtitle right-aligns against the verb column; verb and digits each hold their own slot so
+    /// "reclaim 157 KB" and "~24.2 MB shared" share one digit column instead of two ragged endings.
+    private var rowHeader: some View {
+        HStack(spacing: 12) {
+            if severity != nil {
+                typeBadge
+                    .frame(minWidth: DuplicateGroupColumns.badgeSlotWidth(scale: appFontScale),
+                           alignment: .leading)
+            }
+            fileIcon
+            Text(titleName)
+                .scaledFont(.system(size: 14, weight: .semibold))
+                .lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 8)
+            Text(subtitle)
+                .scaledFont(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+            reclaimColumns
+            disclosureChevron
+        }
+    }
+
+    /// The stacked header: the same six facts on three short lines.
+    ///
+    /// **A one-line header needs 364pt** — a badge slot, a name, a 24-character subtitle, a verb
+    /// column, a digits column and a chevron, of which only the name can shed. Measured, and held
+    /// to the measurement by `theRowHeaderOverflowsAGridColumnAndTheStackedOneDoesNot`; it was
+    /// "about 530" in prose for a while, which is the kind of number this file's own rules say to
+    /// treat as a finding. Under it the header draws wider than its card rather than truncating.
+    ///
+    /// Stacked, the same content reads at 220pt: the badge and the figure take the top line (the
+    /// two things scanned across a list of 88), the name takes the width of the card, and the
+    /// subtitle sits under it with the chevron. The invisible columns are dropped deliberately —
+    /// they align a figure against its neighbours in the row above and below, which is a property
+    /// of a table and not of a grid of tiles.
+    private var stackedHeader: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                if severity != nil { typeBadge }
+                Spacer(minLength: 4)
+                stackedReclaim
+            }
+            HStack(spacing: 8) {
+                fileIcon
+                Text(titleName)
+                    .scaledFont(.system(size: 13, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            HStack(spacing: 6) {
+                Text(subtitle)
+                    .scaledFont(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                disclosureChevron
+            }
+        }
+    }
+
+    private var disclosureChevron: some View {
+        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+            .scaledFont(.system(size: 12, weight: .semibold))
+            .hoverInk(rest: .tertiary)
+    }
+
     private var typeBadge: some View {
         DuplicateTypeBadge(matchType: group.matchType)
+    }
+
+    /// **The card is titled with the copy being kept, not with the group's name.**
+    ///
+    /// The two are the same string whenever the copies share a name, which is most groups. They
+    /// are not for the ones where the pick is a real decision: a versions group holds differently
+    /// named files by definition, and a same-text group routinely holds `Passport.pdf` beside
+    /// `Passport (Jul 2020).pdf`. Titling those with the group's name meant picking the archived
+    /// copy left the card still headed by the name of the file about to be trashed — the header
+    /// answering a question the rows below it had just answered the other way.
+    ///
+    /// Falls back to the group name rather than reading ``DuplicateGroup/keeper``, which traps on
+    /// a group with no copies; a header is not the place to find that out.
+    private var titleName: String {
+        group.copies.first(where: { $0.isRecommendedKeeper })?.name ?? group.name
     }
 
     private var fileIcon: some View {
@@ -131,54 +206,90 @@ struct DuplicateGroupCard: View {
 
     private var subtitle: String {
         let n = group.copies.count
+        // **"copies" is a file's word.** A folder group's members are folders, and the one kind
+        // that already said so read better for it — so all of them do.
+        let unit = group.isDirectory ? "folder\(n == 1 ? "" : "s")" : "cop\(n == 1 ? "y" : "ies")"
         switch group.matchType {
         case .identical:
-            return group.isDirectory ? "\(n) copies · identical trees" : "\(n) copies · byte-for-byte"
+            return group.isDirectory ? "\(n) \(unit) · identical trees" : "\(n) \(unit) · byte-for-byte"
         case .sameText:
             // Short enough to survive the header row. "same text, different bytes" measured
             // truncated to "same text, diffe…" at 640pt — and the badge beside it already says
             // "Same text", so the half worth the space is the half the badge does not carry.
-            return "\(n) copies · bytes differ"
+            return "\(n) \(unit) · bytes differ"
         case .overlapping(let f):
-            return "\(n) copies · \(Int((f * 100).rounded()))% shared"
-        case .nameOnly:
-            return "\(n) folders · different contents"
+            return "\(n) \(unit) · \(Int((f * 100).rounded()))% shared"
         case .versions:
             return "\(n) versions"
         }
     }
 
-    /// The verb + digits columns. The verb dims after the first row taught it ("reclaim" was
-    /// re-set in green on every row — wallpaper); the number is the fact and keeps the ink.
-    /// Overlap still reports "shared", not "reclaim": the figure must not promise a button that
-    /// isn't there (merge deferred) — the difference lives in the verb slot, so the digit
-    /// column holds for every row.
+    /// An overlap reports "shared", never "reclaim": the figure must not promise a button that
+    /// isn't there (merge is a separate action), and the difference lives in the verb slot so the
+    /// digit column still lines up down the list.
+    private var reclaimIsOverlap: Bool {
+        if case .overlapping = group.matchType { return true }
+        return false
+    }
+
+    /// The figure itself — approximate for an overlap, where the per-copy share is an average.
+    private var reclaimFigure: String {
+        (reclaimIsOverlap ? "~" : "") + FileSyncManager.formatBytes(group.reclaimableBytes)
+    }
+
+    /// The majority row's green pill lives on the number the row is about, rather than on a leading
+    /// badge naming a category (ROADMAP.md, the Identical-badge item). Exceptions keep plain
+    /// digits: their colour budget is spent on the stripe.
+    private var reclaimWearsPill: Bool { group.matchType.kind == .identical }
+
+    private var reclaimInk: AnyShapeStyle {
+        reclaimIsOverlap ? AnyShapeStyle(.secondary) : AnyShapeStyle(SemanticColor.success)
+    }
+
+    /// The figure as the stacked header draws it: no invisible columns, because there is no row beneath it to
+    /// align with — and the verb is dropped, since a tile has no neighbouring digits to be told
+    /// apart from. Every branch is the row's, read off the same four properties, so the two layouts
+    /// cannot come to disagree about what this group reclaims.
+    @ViewBuilder
+    private var stackedReclaim: some View {
+        if group.reclaimableBytes > 0 {
+            if reclaimWearsPill {
+                Text(reclaimFigure)
+                    .scaledFont(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(SemanticColor.success)
+                    .pillSurface(.mini, tint: SemanticColor.success)
+            } else {
+                Text(reclaimFigure)
+                    .scaledFont(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(reclaimInk)
+            }
+        } else {
+            Text("nothing to reclaim")
+                .scaledFont(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+    }
+
     @ViewBuilder
     private var reclaimColumns: some View {
         let verbWidth = DuplicateGroupColumns.verbSlotWidth(scale: appFontScale)
         let digitsWidth = DuplicateGroupColumns.digitsSlotWidth(scale: appFontScale)
         if group.reclaimableBytes > 0 {
-            let isOverlap = { if case .overlapping = group.matchType { return true }
-                              else { return false } }()
-            Text(isOverlap ? "shared" : "reclaim")
+            Text(reclaimIsOverlap ? "shared" : "reclaim")
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .frame(minWidth: verbWidth, alignment: .trailing)
-            // The majority row's green pill lives HERE now — on the number the row is about —
-            // rather than on a leading badge naming a category (ROADMAP.md, the Identical-badge
-            // item). Exceptions keep plain digits: their colour budget is spent on the stripe.
-            if group.matchType.kind == .identical {
-                Text(FileSyncManager.formatBytes(group.reclaimableBytes))
+            if reclaimWearsPill {
+                Text(reclaimFigure)
                     .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(SemanticColor.success)
                     .pillSurface(.mini, tint: SemanticColor.success)
                     .frame(minWidth: digitsWidth, alignment: .trailing)
             } else {
-                Text(isOverlap ? "~\(FileSyncManager.formatBytes(group.reclaimableBytes))"
-                               : FileSyncManager.formatBytes(group.reclaimableBytes))
+                Text(reclaimFigure)
                     .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(isOverlap ? AnyShapeStyle(.secondary)
-                                               : AnyShapeStyle(SemanticColor.success))
+                    .foregroundStyle(reclaimInk)
                     .frame(minWidth: digitsWidth, alignment: .trailing)
             }
         } else {
@@ -193,7 +304,6 @@ struct DuplicateGroupCard: View {
 
     private func body(for group: DuplicateGroup) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            thumbnailStrip
             ForEach(Array(group.copies.enumerated()), id: \.element.id) { idx, copy in
                 copyRow(copy)
                 if idx < group.copies.count - 1 {
@@ -207,87 +317,141 @@ struct DuplicateGroupCard: View {
         .padding(.vertical, 6)
     }
 
-    // MARK: Thumbnail strip
-
-    /// Keeper-first, capped so a pathological group can't run the row off the card.
-    private var thumbnailCopies: [DuplicateCopy] {
-        let keeper = group.copies.filter { $0.isRecommendedKeeper }
-        let rest = group.copies.filter { !$0.isRecommendedKeeper }
-        return Array((keeper + rest).prefix(Self.maxThumbnails))
+    /// One copy: its preview, its name, where it lives, and what will happen to it.
+    ///
+    /// **The previews used to be a band of their own above these rows**, which cost a full tile
+    /// height plus a caption plus a divider, and put the picture of a copy a long way from the row
+    /// describing it — on a four-copy group you matched tile 3 to row 3 by counting. Inline, the
+    /// preview IS the row's picker: the thing you click to keep a copy is a picture of that copy,
+    /// which is the gesture the tiles already looked like they offered.
+    ///
+    /// **The name gets a line of its own.** It used to be the last crumb of the breadcrumb,
+    /// highlighted — so "Passport Old – Shweta – All Pages (Jul 2020) – Compressed.pdf" wrapped
+    /// that cell onto two and three lines and pushed the path off the row. A name and a location
+    /// are two facts; they read as two lines.
+    /// **The whole row is the picker where a choice exists**, not just the preview in it.
+    ///
+    /// His report: "it's not obvious that only the thumbnail needs to be clicked." It was not
+    /// obvious because it is not true of anything else on this screen — the header row toggles from
+    /// anywhere along it, and a row that responds only in its first forty points is a target you
+    /// find by accident. The thumbnail keeps its own tap and its own hover lift (it is still the
+    /// thing that says *which* copy), and both call the same action, so a click that lands on
+    /// either does the same thing.
+    ///
+    /// Gated on the one rule the radio and the thumbnail already read
+    /// (``DuplicateKeeperMarker/style(allowsKeeperChoice:isKeeper:)``): the kept copy's own row and
+    /// every row in a group that allows no choice stay inert, because a row that highlights under
+    /// the pointer and does nothing is the same complaint one size larger.
+    /// Whether clicking this row picks its copy — **a named function so the gate is reachable from
+    /// a test**, which an inline condition inside a `@ViewBuilder` is not.
+    ///
+    /// One expression, read off the shared marker rule, so the row, the radio and the thumbnail
+    /// cannot come to offer three different answers about the same copy.
+    func isRowPickable(_ copy: DuplicateCopy) -> Bool {
+        DuplicateKeeperMarker.style(allowsKeeperChoice: group.allowsKeeperChoice,
+                                    isKeeper: copy.isRecommendedKeeper) == .selectable
     }
-    private static let maxThumbnails = 6
 
-    /// A row of content previews, one per copy — shown only for file groups, where a QuickLook
-    /// thumbnail confirms the copies really match before trashing. Directory groups (identical
-    /// trees, name-only folders, overlapping folders) skip it: a folder icon adds no confidence,
-    /// and the breadcrumbs + note already carry what they need.
     @ViewBuilder
-    private var thumbnailStrip: some View {
-        if !group.isDirectory {
-            // Horizontal scroll so a many-copy group (or a narrow lens pane) never runs the tiles
-            // off the card — the cap bounds how many render, this bounds how wide they reach.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(thumbnailCopies) { copy in
-                        DuplicateThumbnailView(path: copy.path, name: group.name,
-                                               isKeeper: copy.isRecommendedKeeper,
-                                               modified: copy.modificationDate,
-                                               nonKeeperLabel: group.matchType.kind == .sameText
-                                                   ? "same text" : "duplicate")
-                    }
-                    if group.copies.count > Self.maxThumbnails {
-                        overflowTile(group.copies.count - Self.maxThumbnails)
-                    }
-                }
-                // Vertical room so the hover lift isn't clipped by the scroll view; a little
-                // horizontal inset so the first/last tiles aren't flush to the card edge.
-                .padding(.vertical, 6)
-                .padding(.horizontal, 2)
-            }
-            .padding(.top, 4)
-            Divider().overlay(Color.primary.opacity(0.05))
-        }
-    }
-
-    private func overflowTile(_ count: Int) -> some View {
-        VStack(spacing: 5) {
-            RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
-                .frame(width: 54, height: 54 * 1.2)
-                .overlay(
-                    Text("+\(count)")
-                        .scaledFont(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                )
-            Text("more")
-                .scaledFont(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.tertiary)
-        }
-    }
-
     private func copyRow(_ copy: DuplicateCopy) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            radio(copy)
-            VStack(alignment: .leading, spacing: 4) {
-                breadcrumb(for: copy.path)
+        if isRowPickable(copy) {
+            Button { onChooseKeeper(copy.id) } label: {
+                copyRowContent(copy).contentShape(Rectangle())
+            }
+            .buttonStyle(.hoverAffordance(.row, tint: hueAccent))
+            .help("Keep this copy instead")
+            .accessibilityHint("Keeps this copy instead")
+        } else {
+            copyRowContent(copy)
+        }
+    }
+
+    private func copyRowContent(_ copy: DuplicateCopy) -> some View {
+        // Centred, not top-aligned: the picker is one item against a two- or three-line text
+        // block, and hanging it off the first baseline left it visibly high in the row.
+        HStack(alignment: .center, spacing: 11) {
+            picker(copy)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(copy.name)
+                        .scaledFont(.system(size: 12.5, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    fateChip(copy)
+                }
+                folderBreadcrumb(for: copy.path)
                 // The size/date detail line is the secondary text compact hides (H7); the
                 // fate chip and breadcrumb still carry what happens to the copy and where it is.
                 if densityMetrics.showsSecondaryDetail {
                     Text(metaLine(copy))
                         .scaledFont(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
-            Spacer(minLength: 8)
-            fateChip(copy)
         }
         .padding(.vertical, densityMetrics.cardRowVerticalPadding)
     }
 
-    /// The keeper marker. The keeper's green filled radio everywhere (it reads "this one is
-    /// kept"); a clickable hollow radio with a hover glow where the user may pick a different
-    /// keeper (identical & versions); a plain dot where no choice exists, so the row never
-    /// advertises a pick that isn't there.
+    /// What the row is picked with — a content preview for a file, the marker for a folder.
+    ///
+    /// A folder group has nothing to preview (the strip skipped directories for that reason: a
+    /// folder icon adds no confidence), so those rows keep the radio, in a narrower slot so the
+    /// text does not sit in an empty 40pt column.
+    /// How many copies get a real QuickLook preview before the rest fall back to the file-type
+    /// icon. **The cap the deleted thumbnail strip used to carry** — that strip rendered at most
+    /// six tiles; these rows render one per copy, so without a cap a forty-copy group starts forty
+    /// generations the moment it is expanded. Twelve because a group that size is already a
+    /// scroll, and the tile stays the picker either way.
+    static let previewsPerCard = 12
+
+    @ViewBuilder
+    private func picker(_ copy: DuplicateCopy) -> some View {
+        if group.isDirectory {
+            radio(copy).frame(width: 18)
+        } else {
+            DuplicateThumbnailView(path: copy.path,
+                                   // The copy's own name, not the group's: in a versions or
+                                   // same-text group they differ, and this is what the fallback
+                                   // file-type icon is chosen from.
+                                   name: copy.name,
+                                   isKeeper: copy.isRecommendedKeeper,
+                                   // Same two inputs the radio takes, so the tile and the row
+                                   // beside it cannot come to offer different things.
+                                   allowsKeeperChoice: group.allowsKeeperChoice,
+                                   onChoose: keeperAction(for: copy),
+                                   modified: copy.modificationDate,
+                                   nonKeeperLabel: group.matchType.kind == .sameText
+                                       ? "same text" : "duplicate",
+                                   side: 40,
+                                   showsCaption: false,
+                                   loadsPreview: (group.copies.firstIndex { $0.id == copy.id } ?? 0)
+                                       < Self.previewsPerCard)
+        }
+    }
+
+    /// What a thumbnail does when clicked — **a named function so the wiring is reachable from a
+    /// test**, which the inline closure was not.
+    ///
+    /// Passing `onChoose: {}` here compiles and quietly turns the tiles back into the decoration
+    /// they used to be; the compiler catches a *missing* argument but not an empty one.
+    ///
+    /// **`theCardsThumbnailActionReachesItsHandler` calls this function, not the call site**, so it
+    /// does not close that hole — replacing the argument in `picker(_:)` leaves it green. What it
+    /// pins is that the action, once passed, reaches `onChooseKeeper` with the right id. The hole
+    /// is stated in that test rather than implied away.
+    func keeperAction(for copy: DuplicateCopy) -> () -> Void {
+        { onChooseKeeper(copy.id) }
+    }
+
+    /// The keeper marker, from ``DuplicateKeeperMarker/style(allowsKeeperChoice:isKeeper:)``.
+    ///
+    /// A green filled radio on the kept copy and a clickable hollow one on the others — **but only
+    /// where a keeper can actually be picked**. Where none can, both rows get the plain dot, so the
+    /// row never advertises a pick that isn't there. Which kinds allow one is
+    /// `DuplicateGroup.allowsKeeperChoice`, and it is deliberately not restated here: the list has
+    /// drifted three times, each time by being spelled out somewhere.
     @ViewBuilder
     private func radio(_ copy: DuplicateCopy) -> some View {
         switch DuplicateKeeperMarker.style(allowsKeeperChoice: group.allowsKeeperChoice,
@@ -296,7 +460,6 @@ struct DuplicateGroupCard: View {
             Image(systemName: "largecircle.fill.circle")
                 .scaledFont(.system(size: 15))
                 .foregroundStyle(SemanticColor.success)
-                .padding(.top, 1)
                 .accessibilityLabel(DuplicateKeeperMarker.keeper.accessibilityLabel ?? "")
         case .selectable:
             SelectableKeeperRadio(accent: hueAccent) { onChooseKeeper(copy.id) }
@@ -305,11 +468,22 @@ struct DuplicateGroupCard: View {
                 .fill(.tertiary)
                 .frame(width: 5, height: 5)
                 .frame(width: 15)   // keep the text column aligned with the radio rows
-                // 7 centers the dot on the radios: the 15pt-font symbols render 18pt tall with
-                // ink spanning 2–17pt (center 9.5 after their 1pt top pad); 6 + 2.5 sat 1pt high.
-                .padding(.top, 7)
                 .accessibilityHidden(true)
         }
+    }
+
+    /// **True when "merge" would copy nothing.** Every folded copy is already wholly inside the
+    /// keeper (`uniqueItemCount == 0`), so the operation is a removal wearing a merge's name.
+    ///
+    /// His screenshot: a `Visa` folder of one item, 100% shared, under a card offering "Merge into
+    /// keeper" over a note reading "the other copy adds 0 unique items. Merging copies those into
+    /// “Visa”" — copying *those*, where those is nothing. The action is unchanged (it is the same
+    /// code path, and it still trashes the folded copy); what changes is that the card stops
+    /// describing a copy that does not happen.
+    var mergeCopiesNothing: Bool {
+        group.matchType.kind == .overlapping
+            && !group.redundantCopies.isEmpty
+            && group.redundantCopies.allSatisfy { $0.uniqueItemCount == 0 }
     }
 
     private func fateChip(_ copy: DuplicateCopy) -> some View {
@@ -321,9 +495,14 @@ struct DuplicateGroupCard: View {
                 case .identical, .versions, .sameText:
                     chip("Move to Trash", systemImage: "trash", color: SemanticColor.error)
                 case .overlapping:
-                    chip("Fold in", systemImage: "arrow.triangle.merge", color: SemanticColor.warning)
-                case .nameOnly:
-                    chip("Different", systemImage: "circle.slash", color: .secondary)
+                    // A copy with nothing of its own is not folded in, it is thrown away — and
+                    // the row is where a reader decides whether that is what they want.
+                    if copy.isFullyRedundant {
+                        chip("Move to Trash", systemImage: "trash", color: SemanticColor.error)
+                    } else {
+                        chip("Fold in", systemImage: "arrow.triangle.merge",
+                             color: SemanticColor.warning)
+                    }
                 }
             }
         }
@@ -333,9 +512,17 @@ struct DuplicateGroupCard: View {
         Pill(.mini, tint: color, systemImage: systemImage, text: text)
     }
 
+    /// "1 unique here", not "1 unique heres" and not "1 uniques" — the count is interpolated into
+    /// a noun phrase, which is where this app's plural bugs live.
+    nonisolated static func uniqueHere(_ count: Int) -> String {
+        "\(count) unique here"
+    }
+
     private func metaLine(_ copy: DuplicateCopy) -> String {
         var parts: [String] = []
-        if copy.isDirectory { parts.append("\(copy.itemCount) items") }
+        if copy.isDirectory {
+            parts.append("\(copy.itemCount) item\(copy.itemCount == 1 ? "" : "s")")
+        }
         parts.append(FileSyncManager.formatBytes(copy.size))
         if let d = copy.modificationDate {
             parts.append("modified \(Self.dateFormatter.string(from: d))")
@@ -343,9 +530,10 @@ struct DuplicateGroupCard: View {
         if !copy.isRecommendedKeeper {
             switch group.matchType {
             case .overlapping where copy.uniqueItemCount > 0:
-                parts.append("\(copy.uniqueItemCount) unique here")
+                parts.append(Self.uniqueHere(copy.uniqueItemCount))
             case .identical, .versions:
-                parts.append(copy.isFullyRedundant ? "fully redundant" : "\(copy.uniqueItemCount) unique here")
+                parts.append(copy.isFullyRedundant ? "fully redundant"
+                                                   : Self.uniqueHere(copy.uniqueItemCount))
             // Deliberately NOT "fully redundant": that phrase is the content hash's promise, and
             // this group has not proved it. What it proved is on the badge and in the note.
             case .sameText:
@@ -375,28 +563,7 @@ struct DuplicateGroupCard: View {
         }
     }
 
-    private var noteText: String? {
-        let base: String
-        switch group.matchType {
-        case .identical:
-            base = "Every item in the removed \(group.isDirectory ? "copy" : "file") also exists in the copy you're keeping. Nothing is lost — removed copies go to the Trash and can be restored with Undo."
-        case .versions:
-            base = "The newest version is kept; older versions move to the Trash and can be restored with Undo."
-        case .overlapping(let f):
-            let unique = group.redundantCopies.reduce(0) { $0 + $1.uniqueItemCount }
-            let many = group.redundantCopies.count != 1
-            base = "These folders share \(Int((f * 100).rounded()))% of their contents; the other cop\(many ? "ies add" : "y adds") \(unique) unique item\(unique == 1 ? "" : "s"). Merging copies those into “\(group.keeper.name)”, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost — reversible with ⌘Z."
-        case .nameOnly:
-            base = "Same name, different contents — likely two unrelated things. SyncCloud won't remove either; keep them separate, or rename one to disambiguate."
-        case .sameText:
-            base = "These documents read exactly the same but their bytes differ — usually one document downloaded twice, since providers re-stamp each copy. Weaker than a byte-for-byte match: a signed copy, a redacted copy or a purely visual revision would also read the same, so open them before removing anything. Excluded from “Apply recommended” for that reason. Removed copies go to the Trash and can be restored with Undo."
-        }
-        if let caveat = DuplicateUnverifiedNote.text(
-            unverifiedCount: group.copies.filter { $0.contentUnverified }.count) {
-            return base + " " + caveat
-        }
-        return base
-    }
+    private var noteText: String? { DuplicateGroupNote.text(for: group) }
 
     // MARK: Actions
 
@@ -423,7 +590,11 @@ struct DuplicateGroupCard: View {
                                 .controlSize(.mini)
                         }
                     } else {
-                        Label("Merge into keeper", systemImage: "arrow.triangle.merge")
+                        Label(mergeCopiesNothing
+                                  ? (group.redundantCopies.count == 1
+                                     ? "Trash the folded copy" : "Trash the folded copies")
+                                  : "Merge into keeper",
+                              systemImage: mergeCopiesNothing ? "trash" : "arrow.triangle.merge")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -431,8 +602,8 @@ struct DuplicateGroupCard: View {
                 .controlSize(.small)
                 .disabled(isMerging)
             }
-            // Folder groups can be inspected side by side before deciding — identical/overlapping/
-            // name-only are all directories. File "Versions" groups have the thumbnail strip instead.
+            // Folder groups can be inspected side by side before deciding. File groups do not get
+            // this: their copies carry a preview each, which is the same comparison in place.
             if group.isDirectory {
                 compareControl
             }
@@ -495,34 +666,68 @@ struct DuplicateGroupCard: View {
 
     // MARK: Breadcrumb
 
-    private func breadcrumb(for path: String) -> some View {
-        let comps = crumbs(path)
-        return HStack(spacing: 5) {
-            ForEach(Array(comps.enumerated()), id: \.offset) { idx, comp in
-                if idx > 0 {
-                    Text("›").scaledFont(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
-                }
-                if idx == comps.count - 1 {
-                    Text(comp)
-                        .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(hueAccent.opacity(0.14)))
-                } else {
-                    Text(comp)
-                        .scaledFont(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(idx == 0 && providerName != nil ? hueAccent : .secondary)
-                }
+    /// Where the copy lives — the folder path only, on exactly one line.
+    ///
+    /// **This used to be an `HStack` of per-crumb `Text`s ending in the file name, chipped.** An
+    /// HStack cannot truncate: each crumb is its own view, so a long name pushed the row and the
+    /// stack wrapped, which is what put a three-line breadcrumb cell beside a one-line preview. One
+    /// concatenated `Text` truncates as a single string, and the name is not in it at all — the row
+    /// above states it, and stating it twice is what made the cell need the width in the first
+    /// place.
+    ///
+    /// Middle truncation rather than head: the provider crumb is the one that says *which* cloud,
+    /// and it is the first thing a head truncation eats.
+    private func folderBreadcrumb(for path: String) -> some View {
+        // The last crumb is the copy itself, named on the line above.
+        let comps = Array(crumbs(path).dropLast())
+        let tail = comps.dropFirst().joined(separator: " › ")
+        return Group {
+            if let provider = comps.first {
+                Text(provider)
+                    .foregroundColor(providerName != nil ? hueAccent : Color.secondary)
+                    + Text(tail.isEmpty ? "" : " › \(tail)").foregroundColor(.secondary)
+            } else {
+                Text("")
             }
         }
+        .scaledFont(.system(size: 11, design: .monospaced))
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .help(path)
     }
 
+    /// The path as crumbs, relative to the scanned root.
+    ///
+    /// **The root's own name is a crumb.** Stripping it silently made a folder sitting directly in
+    /// the scanned directory read as `iCloud` alone — as though it lived at the top of the
+    /// provider — while its neighbour six levels down read as a full path. His report: "the 2 paths
+    /// aren't correctly listed; rather it's relative to selected directory to organize, but that
+    /// should be indicated clearly." Naming the root turns `iCloud` into `iCloud › Immigration`,
+    /// and the pair into two paths that visibly share a trunk and diverge.
     private func crumbs(_ path: String) -> [String] {
+        Self.crumbs(of: path, scanRoot: scanRoot, providerName: providerName)
+    }
+
+    /// Pure, so the rule can be held to its cases — see ``DuplicateBreadcrumbTests``. The instance
+    /// method above is a one-line forward; nothing pins that it is called, and a render cannot
+    /// read text back.
+    /// `nonisolated` because a `View`'s static members are implicitly main-actor isolated, and a
+    /// pure path rule has no business being: called off the main actor it traps rather than
+    /// returning, which is a crash in a test rather than a failure.
+    nonisolated static func crumbs(of path: String, scanRoot: String?,
+                                   providerName: String?) -> [String] {
         // Boundary-safe on "/" (same rule as FilingSuggestionCard.isPath): a scan root of
         // "/data/Docs" must not claim "/data/DocsBackup/…" and strip it to "Backup/…".
         if let root = scanRoot, path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/") {
             let rel = String(path.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             var comps = rel.isEmpty ? [] : rel.components(separatedBy: "/")
+            // The scanned folder itself, so "relative to" is visible rather than assumed. Skipped
+            // when the root is a whole volume or home directory, whose last component ("/" or the
+            // user name) names nothing the reader chose.
+            let rootName = (root as NSString).lastPathComponent
+            if !rootName.isEmpty, rootName != "/", rootName != NSUserName() {
+                comps.insert(rootName, at: 0)
+            }
             if let providerName { comps.insert(providerName, at: 0) }
             return comps
         }
@@ -538,16 +743,138 @@ struct DuplicateGroupCard: View {
     }()
 }
 
+// MARK: - Header layout
+
+/// Whether a duplicates card draws its collapsed header as a full-width row or as a grid tile.
+///
+/// **The row is a table row; the tile is a card.** The row's six facts sit in invisible columns
+/// (``DuplicateGroupColumns``) so that a figure lines up with the figures above and below it — a
+/// property of a list, and one that costs 364pt of width to keep (see
+/// ``DuplicateCardHeaderLayout/rowHeaderMinimumWidth``). In a grid the neighbours are beside rather
+/// than above, so the alignment buys nothing that a narrow column can afford.
+///
+/// Which one is drawn is the pane's decision, not the card's: `LensCardGrid` decides how many
+/// columns fit, and one column keeps the row that has always been drawn there.
+enum DuplicateCardHeaderLayout: Equatable {
+    /// One line, in the invisible columns — the dense list a single column has always been.
+    case row
+    /// Three short lines, the name on one of its own.
+    case stacked
+
+    /// **The narrowest card the one-line header fits in.** Measured, not asserted: below this the
+    /// header draws WIDER than the card it was given rather than truncating — the badge slot, the
+    /// icon, the subtitle, the two figure columns and the chevron are all `.fixedSize()`, and only
+    /// the name can shed. `theRowHeaderNeedsThisMuchWidth` scans for the threshold and holds this
+    /// constant to it, so it cannot drift when the header gains a word.
+    ///
+    /// It was chosen by COLUMN COUNT before, which was the wrong question: one column simply meant
+    /// "the pane is under 534pt", and a pane at the app's 760pt window floor gives a card near
+    /// 350 — narrower than the header needs, so the row header was drawn only at widths where it
+    /// does not fit and the chevron and reclaim figure were clipped at the pane edge.
+    static let rowHeaderMinimumWidth: CGFloat = 380
+
+    /// **A narrow card takes the stacked header, and so does an expanded one** — for opposite
+    /// reasons that want the same shape.
+    ///
+    /// A narrow card has no room for the one-liner. An expanded card has plenty, and still could
+    /// not show a name: the row header spends the width after the name on a subtitle and two
+    /// figure columns, so "Passport Old - Shweta - All Pages (Jul 2020) - Compressed.pdf" arrived
+    /// as "Passport Old - Sh…) - Compressed.pdf". His report. The facts below the title are the
+    /// same facts; they just stop competing with it for the line.
+    ///
+    /// A COLLAPSED card with room keeps the one-liner, because there the density is the point —
+    /// eighty-odd groups at three lines each is three times the scrolling, and a collapsed card's
+    /// name is a thing you skim rather than read.
+    static func forCard(width: CGFloat, isExpanded: Bool) -> DuplicateCardHeaderLayout {
+        if isExpanded { return .stacked }
+        return width >= rowHeaderMinimumWidth ? .row : .stacked
+    }
+}
+
+// MARK: - The card's explanatory note
+
+/// What the card says under the copies — one short paragraph per match kind.
+///
+/// **Lifted out of the view and cut to about a third of its length.** His report: "too long and
+/// distracting". The same-text note ran four sentences and was the longest thing on a card whose
+/// actual content is two file paths; the identical note spent a clause explaining that a Trash is
+/// not a delete, in a sentence that also had to define redundancy. A note that long is read once
+/// and skipped forever, which costs exactly the warnings it exists to carry.
+///
+/// The same-text note still names the three ways a document can read the same without being the
+/// same, and still promises the undo — said once instead of twice, and without the sentence
+/// explaining how providers re-stamp downloads, which is a cause the reader does not need in order
+/// to decide. **Two claims did leave**, and neither is lost: "never part of Apply recommended"
+/// moved to ``DuplicateRemovalPrompt/batchInformativeText``, which is the last thing read before
+/// that button acts; and the note for the name-only kind went when that kind was removed.
+///
+/// Pure and out of the view for the reason ``DuplicateRemovalPrompt`` is: this is the text a user
+/// reads immediately before a destructive click, and inline in a `body` nothing could hold it to
+/// its claims — or to its length. ``DuplicateGroupNoteTests`` does both.
+enum DuplicateGroupNote {
+
+    /// The longest a base note may be — and it means something only because no note interpolates
+    /// an unbounded string. The overlapping one used to name the keeper's file, which made its
+    /// length a property of the data and the cap a formality.
+    ///
+    /// The longest a base note may be. Not a style preference: at the pane widths this card is read
+    /// in, past this it stops being a caption and becomes a paragraph, which is the state he
+    /// reported. The same-text note it was cut from measured 409 characters, and 534 with the
+    /// unverified caveat appended.
+    static let lengthBudget = 150
+
+    static func text(for group: DuplicateGroup) -> String? {
+        let base: String
+        switch group.matchType {
+        case .identical:
+            base = "Everything in the removed \(group.isDirectory ? "copy" : "file") is in the one you keep. ⌘Z undoes it."
+        case .versions:
+            base = "Keeps the newest; older versions go to the Trash. ⌘Z undoes it."
+        case .overlapping(let fraction):
+            let unique = group.redundantCopies.reduce(0) { $0 + $1.uniqueItemCount }
+            let many = group.redundantCopies.count != 1
+            let pct = Int((fraction * 100).rounded())
+            if unique == 0 {
+                // Nothing to copy: the folded copies are already wholly inside the keeper, so
+                // "merging copies those" would be describing a copy of nothing.
+                base = "\(pct)% shared, and the other cop\(many ? "ies add" : "y adds") nothing the "
+                    + "keeper lacks. Merging only trashes \(many ? "them" : "it"). ⌘Z undoes it."
+            } else {
+                // **The keeper is named on the card, not in here.** Interpolating its file name
+                // made the note's length a property of the data — 164 characters against a 150
+                // budget for the 61-character name this lens was redesigned around — so the cap
+                // measured nothing. The row above says which copy is kept, with a "Keep" chip.
+                base = "\(pct)% shared; the other cop\(many ? "ies add" : "y adds") \(unique) "
+                    + "unique item\(unique == 1 ? "" : "s"), copied into the one you keep before "
+                    + "the rest is trashed. ⌘Z undoes it."
+            }
+        case .sameText:
+            base = "Reads the same, bytes differ — a signed, redacted or re-saved copy looks identical. Open both first; ⌘Z undoes it."
+        }
+        if let caveat = DuplicateUnverifiedNote.text(
+            unverifiedCount: group.copies.filter { $0.contentUnverified }.count) {
+            return base + " " + caveat
+        }
+        return base
+    }
+}
+
 // MARK: - Unverified-content note
 
 /// Pure wording for the card's caveat when some copies in a group could not be content-verified
 /// (hash skipped: too large, cloud-only, unreadable) — the group's content claim rests on less
 /// than full verification, and the note must say so before the user trusts a one-click resolve.
+///
+/// **It is one clause, because it is appended to a note that is already a caveat.** The long form
+/// spelled out both reasons and then repeated "review before removing anything", which the
+/// same-text note it most often follows had already said — and a warning read past is not a
+/// warning. The reasons stay, in parentheses, because a cloud-only copy and a too-large one are
+/// fixed by different things.
 enum DuplicateUnverifiedNote {
     static func text(unverifiedCount count: Int) -> String? {
         guard count > 0 else { return nil }
         let plural = count != 1
-        return "\(count) cop\(plural ? "ies" : "y") couldn't be content-verified (too large to hash, or not downloaded from the cloud) — review before removing anything."
+        return "\(count) not content-verified (too large, or not downloaded)."
     }
 }
 
@@ -603,7 +930,7 @@ enum DuplicateRemovalPrompt {
         case .versions: return plural ? "older versions" : "older version"
         // Proven to READ the same, not proven to BE the same.
         case .sameText: return plural ? "matching copies" : "matching copy"
-        case .identical, .overlapping, .nameOnly: return plural ? "redundant copies" : "redundant copy"
+        case .identical, .overlapping: return plural ? "redundant copies" : "redundant copy"
         }
     }
 
@@ -640,7 +967,8 @@ enum DuplicateRemovalPrompt {
     /// whole thing is undoable.
     static func batchInformativeText(copyCount: Int, reclaimText: String) -> String {
         "Moves \(copyCount) redundant cop\(copyCount == 1 ? "y" : "ies") to the Trash, reclaiming about "
-            + "\(reclaimText). Name-only and overlapping groups are left untouched. "
+            + "\(reclaimText). Only byte-identical groups are included — versions, same-text "
+            + "and overlapping groups are left untouched. "
             + "Everything can be undone with ⌘Z."
     }
 }
@@ -657,9 +985,21 @@ enum DuplicateKeeperMarker: Equatable {
     /// Small tertiary dot — no keeper choice exists in this group.
     case inert
 
+    /// **The keeper only wears a radio where a radio means something.**
+    ///
+    /// This read `if isKeeper { return .keeper }` first, so a group that allows no choice still
+    /// drew a filled radio on its keeper — and a filled radio is a promise that an empty one
+    /// exists to click. His report on a merge card: "Why is there a checkbox, especially if we
+    /// can't choose among the rows?" It is not that the rows failed to respond; it is that nothing
+    /// there was ever selectable, and the marker said otherwise.
+    ///
+    /// An overlapping group cannot re-aim its keeper — which copy is "unique" is computed from
+    /// content hashes the scan does not retain — so both its rows are `.inert` now, and the fate
+    /// chips ("Keep", "Move to Trash") carry what happens. That is what this type's own doc always
+    /// claimed: "so the row never advertises a pick that isn't there."
     static func style(allowsKeeperChoice: Bool, isKeeper: Bool) -> DuplicateKeeperMarker {
-        if isKeeper { return .keeper }
-        return allowsKeeperChoice ? .selectable : .inert
+        guard allowsKeeperChoice else { return .inert }
+        return isKeeper ? .keeper : .selectable
     }
 
     /// VoiceOver label; nil when the marker carries no information beyond the row itself.

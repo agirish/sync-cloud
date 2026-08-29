@@ -310,7 +310,7 @@ import Sync
                 group: group, isExpanded: false, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {})
+                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
                 .padding(12),
             size: CGSize(width: 640, height: 72),
             named: "collapsed-versions")
@@ -336,7 +336,7 @@ import Sync
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {})
+                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
                 .padding(12),
             size: CGSize(width: 640, height: 470),
             named: "expanded-same-text")
@@ -361,7 +361,7 @@ import Sync
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {})
+                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
                 .padding(12),
             size: CGSize(width: 640, height: 330),
             named: "expanded-identical-folders")
@@ -385,7 +385,7 @@ import Sync
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
                 densityMetrics: ListDensity.compact.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-                onChooseKeeper: { _ in }, onMerge: {})
+                onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
                 .padding(12),
             size: CGSize(width: 640, height: 330),
             named: "expanded-identical-folders-compact")

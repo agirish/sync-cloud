@@ -66,8 +66,8 @@ One rail, five lenses:
 - **To File** — scans the loose files in an inbox folder and **suggests which existing folder each
   one belongs in**, filing it there safely (creating folders, never overwriting, always undoable).
 - **Duplicates** — finds byte-for-byte **identical** copies, **overlapping** folders, drifted
-  **versions** (`Report`, `Report (1)`, `Report-final`), **name-only** clashes, and PDFs with the
-  **same text** that a byte hash misses (a provider re-stamps every download). Picks a smart
+  **versions** (`Report`, `Report (1)`, `Report-final`), and PDFs with the **same text** that a
+  byte hash misses (a provider re-stamps every download). Picks a smart
   keeper (never the one buried in `archive/old/backup`), previews each copy with Quick Look
   thumbnails, and reclaims space — always to the Trash, never trashing the last copy.
 - **Renames** — filenames that break on a given provider (OneDrive's forbidden characters and

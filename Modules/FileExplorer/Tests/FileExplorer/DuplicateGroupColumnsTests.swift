@@ -68,7 +68,6 @@ import Design
         case .identical: return .identical
         case .sameText: return .sameText
         case .overlapping: return .overlapping(sharedFraction: 1.0)
-        case .nameOnly: return .nameOnly
         case .versions: return .versions
         }
     }

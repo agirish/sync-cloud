@@ -27,7 +27,7 @@ import Design
             group: group, isExpanded: false, providerName: "iCloud Drive", scanRoot: "/d",
             densityMetrics: ListDensity.comfortable.metrics,
             onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
-            onChooseKeeper: { _ in }, onMerge: {})
+            onChooseKeeper: { _ in }, onMerge: {}, headerLayout: .row)
             .padding(12)
     }
 
@@ -57,7 +57,7 @@ import Design
         // in this comparison any more: it wears no badge at all (ROADMAP.md, the Identical-badge
         // item), so its name starts at the icon — a different x by design, not a leak.
         let narrow = try #require(render(card(.sameText)))
-        let wide = try #require(render(card(.nameOnly)))
+        let wide = try #require(render(card(.sameText)))
         // Device-pixel space: colorAt indexes the backing store, which is retina-scaled.
         let device = CGFloat(narrow.pixelsWide) / Self.size.width
         let slotEndPoints = DuplicateGroupColumns.badgeSlotWidth(scale: 1) + 12 + 14 + 12

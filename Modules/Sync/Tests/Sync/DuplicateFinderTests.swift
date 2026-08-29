@@ -217,7 +217,13 @@ import Testing
 
     // MARK: Name-only folders
 
-    @Test func sameNameDifferentContentsIsNameOnly() {
+    /// **Same name and nothing in common is not a finding.** It used to be the bulk of this case
+    /// and it is the tree's own vocabulary showing through: measured against his hash index, 115
+    /// same-name folder sets across ~/Documents share not one file, and they are names like `2020`
+    /// (36 folders), `2021` (25), `2023` (23), `Archive`, `Approval`, `Payslips` — a year level and
+    /// a category level repeated under every subject. Reporting them put 39 cards at the top of his
+    /// Duplicates lens, every one reading "nothing to reclaim" and offering only "keep separate".
+    @Test func sameNameAloneNeverMakesAFolderGroup() {
         let a = dir("/root/Screenshots", [
             file("/root/Screenshots/game1.png"), file("/root/Screenshots/game2.png"),
         ])
@@ -228,12 +234,7 @@ import Testing
             "/root/Screenshots/game1.png": "G1", "/root/Screenshots/game2.png": "G2",
             "/root/Work/Screenshots/design1.png": "D1", "/root/Work/Screenshots/design2.png": "D2",
         ]
-        let groups = DuplicateFinder.findGroups(tree: [a, b], fileHashes: hashes)
-        #expect(groups.count == 1)
-        #expect(groups[0].matchType == .nameOnly)
-        #expect(groups[0].reclaimableBytes == 0)
-        #expect(groups[0].isFullyResolvableByRemoval == false)
-        #expect(groups[0].recommendedRemovalPaths.isEmpty)
+        #expect(DuplicateFinder.findGroups(tree: [a, b], fileHashes: hashes).isEmpty)
     }
 
     // MARK: Overlapping folders
@@ -268,6 +269,112 @@ import Testing
         let folded = g.redundantCopies.first
         #expect(folded?.path == "/root/Work/Invoices")
         #expect(folded?.uniqueItemCount == 1)               // w1 is unique to the Work copy
+    }
+
+    /// **His case, exactly.** A one-item `Visa` folder buried in an H-1B petition's supporting
+    /// documents, holding a single file that also lives in the 361-item top-level `Visa`. Measured
+    /// one-sidedly that folder is "100% shared" and the card offered to merge it; measured over the
+    /// larger side it is 1/6 here, and it is not a folder finding at all.
+    ///
+    /// It is not a copy of that folder. It is a different subject that happens to contain one of
+    /// the same documents — the same coincidence-of-vocabulary the name-only kind was removed for,
+    /// one level along. His reading: "that explains why it doesn't actually need to be merged in
+    /// the first place."
+    @Test func aTinyFolderWhollyInsideABigOneIsNotAMerge() {
+        let big = dir("/root/Visa", (1...6).map { file("/root/Visa/d\($0).pdf") })
+        let small = dir("/root/Petition/Supporting/Visa", [
+            file("/root/Petition/Supporting/Visa/d1.pdf"),
+        ])
+        var hashes: [String: String] = [:]
+        for i in 1...6 { hashes["/root/Visa/d\(i).pdf"] = "D\(i)" }
+        // The one file it holds is one of the big folder's — 100% of the small side.
+        hashes["/root/Petition/Supporting/Visa/d1.pdf"] = "D1"
+
+        let groups = DuplicateFinder.findGroups(tree: [big, small], fileHashes: hashes)
+        #expect(!groups.contains { $0.isDirectory },
+                "a folder holding one of another folder's six files is not that folder")
+
+        // **And the document itself is still found.** This is what makes the drop safe: the folder
+        // pass marked nothing covered, so the shared file surfaces as the file duplicate it is.
+        let files = groups.filter { !$0.isDirectory }
+        #expect(files.count == 1)
+        #expect(files[0].matchType.kind == .identical)
+        #expect(Set(files[0].copies.map(\.path))
+                == ["/root/Visa/d1.pdf", "/root/Petition/Supporting/Visa/d1.pdf"])
+    }
+
+    /// The positive control for the gate: two folders that really are versions of each other clear
+    /// it comfortably, and the fraction the card shows is the mutual one.
+    @Test func twoFoldersThatAreMostlyEachOtherStillMerge() {
+        let a = dir("/root/Invoices", (1...5).map { file("/root/Invoices/s\($0)") }
+                    + [file("/root/Invoices/u1")])
+        let b = dir("/root/Work/Invoices", (1...5).map { file("/root/Work/Invoices/s\($0)") })
+        var hashes: [String: String] = ["/root/Invoices/u1": "U1"]
+        for i in 1...5 {
+            hashes["/root/Invoices/s\(i)"] = "S\(i)"
+            hashes["/root/Work/Invoices/s\(i)"] = "S\(i)"
+        }
+        let groups = DuplicateFinder.findGroups(tree: [a, b], fileHashes: hashes)
+        let folder = try! #require(groups.first { $0.isDirectory })
+        guard case .overlapping(let fraction) = folder.matchType else {
+            Issue.record("expected an overlapping group, got \(folder.matchType)")
+            return
+        }
+        // Five shared over the larger side's six, not five over the smaller side's five.
+        #expect(abs(fraction - 5.0 / 6.0) < 0.001,
+                "the reported fraction is the mutual one, which is what makes it a claim about BOTH")
+    }
+
+    /// **A real twin must not be lost to the company it keeps.** His `Form W-2` set: a genuine
+    /// six-against-six pair, plus three folders of one or two files that merely share the name.
+    /// Averaging the four gives 37.5% and the whole set falls under the threshold — taking the
+    /// twin with it. The gate is per copy, so the group is the folders that really are versions of
+    /// each other and the subsets simply do not join.
+    @Test func aGenuineTwinSurvivesTheSubsetsThatShareItsName() {
+        let names = (1...6).map { "f\($0).pdf" }
+        // The keeper carries one document the twin does not, so the pair is an OVERLAP rather than
+        // an identical tree — which is the path under test. Six of its seven are shared: 0.857.
+        let keeper = dir("/root/A/Form W-2",
+                         names.map { file("/root/A/Form W-2/\($0)") }
+                         + [file("/root/A/Form W-2/only-here.pdf")])
+        let twin = dir("/root/B/Form W-2", names.map { file("/root/B/Form W-2/\($0)") })
+        // Two folders that share the name and exactly one of the six documents.
+        let sub1 = dir("/root/C/Form W-2", [file("/root/C/Form W-2/f1.pdf")])
+        let sub2 = dir("/root/D/Form W-2", [file("/root/D/Form W-2/f1.pdf")])
+        var hashes: [String: String] = [:]
+        for (i, n) in names.enumerated() {
+            hashes["/root/A/Form W-2/\(n)"] = "H\(i)"
+            hashes["/root/B/Form W-2/\(n)"] = "H\(i)"
+        }
+        hashes["/root/A/Form W-2/only-here.pdf"] = "UNIQUE"
+        hashes["/root/C/Form W-2/f1.pdf"] = "H0"
+        hashes["/root/D/Form W-2/f1.pdf"] = "H0"
+
+        let groups = DuplicateFinder.findGroups(tree: [keeper, twin, sub1, sub2], fileHashes: hashes)
+        let folder = try! #require(groups.first { $0.isDirectory },
+                                   "the six-against-six pair is a real finding and must survive")
+        #expect(folder.matchType.kind == .overlapping)
+        #expect(Set(folder.copies.map(\.path)) == ["/root/A/Form W-2", "/root/B/Form W-2"],
+                "the group is the twin only — the one-file folders never joined")
+        guard case .overlapping(let fraction) = folder.matchType else { return }
+        #expect(abs(fraction - 6.0 / 7.0) < 0.001,
+                "the figure is the twin's own, not an average dragged down by the subsets")
+
+        // **The subsets are not lost, they find each other.** C and D hold the same single
+        // document, so they are byte-identical trees and get a group of their own.
+        let subsetGroup = try! #require(groups.first {
+            $0.copies.contains { $0.path.hasPrefix("/root/C") }
+        })
+        #expect(subsetGroup.matchType.kind == .identical)
+        #expect(Set(subsetGroup.copies.map(\.path)) == ["/root/C/Form W-2", "/root/D/Form W-2"])
+        #expect(groups.count == 2, "and nothing else is reported")
+
+        // **What is NOT reported, stated rather than discovered later:** C's copy of `f1.pdf` is
+        // also in the keeper, and no group says so. `coveredRoots` suppresses the inner files of a
+        // grouped folder pair so they are not double-reported, and that suppression is blind to
+        // copies OUTSIDE the pair. Pre-existing — before the per-copy gate, C was inside the
+        // overlapping group and equally unreported as a file — but the gate makes it visible, and
+        // it is the shape a future "why isn't this listed?" will take.
     }
 
     // MARK: Versions
@@ -917,7 +1024,6 @@ import Testing
         #expect(g(.versions).isFullyResolvableByRemoval && !g(.versions).isRecommendedForBatch)
         #expect(!g(.overlapping(sharedFraction: 0.9)).isFullyResolvableByRemoval)
         #expect(!g(.overlapping(sharedFraction: 0.9)).isRecommendedForBatch)
-        #expect(!g(.nameOnly).isFullyResolvableByRemoval && !g(.nameOnly).isRecommendedForBatch)
     }
 
     private func copy(_ id: String, size: Int, depth: Int, keeper: Bool, unique: Int = 0,

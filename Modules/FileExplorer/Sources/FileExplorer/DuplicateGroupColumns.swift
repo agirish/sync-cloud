@@ -31,7 +31,7 @@ enum DuplicateGroupColumns {
     /// (ROADMAP.md, the Identical-badge item), so the slot is sized for the rows that have one
     /// and the majority row spends the space on its own name.
     static let badgeVocabulary: [DuplicateMatchType] =
-        [.sameText, .overlapping(sharedFraction: 1.0), .nameOnly, .versions]
+        [.sameText, .overlapping(sharedFraction: 1.0), .versions]
 
     /// The badge fonts, matching `DuplicateGroupCard.typeBadge` exactly — a slot measured in any
     /// other font is a slot measured for some other view.

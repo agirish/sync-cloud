@@ -24,7 +24,6 @@ import Testing
         case .identical: return "identical"
         case .versions: return "versions"
         case .sameText: return "sameText"
-        case .nameOnly: return "nameOnly"
         case .overlapping(let f): return "overlapping(\(String(format: "%.2f", f)))"
         }
     }
@@ -77,9 +76,9 @@ import Testing
                 file("/root/2023/IMG_0001.jpg", size: 51_000, modified: Date(timeIntervalSince1970: 2_000_000)),
                 file("/root/2023/IMG_0001 copy.jpg", size: 52_000, modified: Date(timeIntervalSince1970: 1_000_000)),
             ]),
-            // nameOnly FOLDER group: same folder name, fully disjoint contents — shared fraction 0
-            // is below the overlap threshold, so the pair surfaces as a warning (reclaim 0), never
-            // a removable redundancy.
+            // Two folders sharing a NAME and nothing else. They stand up no group at all: a name
+            // match is not evidence of duplication, and this pair is the shape of the 115 sets in
+            // his own tree that were (see the finder's folder pass).
             dir("/root/x/Projects", [file("/root/x/Projects/p1.txt")]),
             dir("/root/y/Projects", [file("/root/y/Projects/p2.txt")]),
             // Keeper heuristic discrimination: identical file where the ARCHIVE copy is BOTH newer
@@ -154,7 +153,9 @@ import Testing
         //  · shared.bin has exactly 2 copies (f1, f2) — the /root/link symlink is excluded, not a 3rd;
         //  · report.pdf's keeper is the docs/sub copy even though the Archive copy is newer AND
         //    shallower — the archive-location penalty dominates depth and mtime;
-        //  · Projects is a nameOnly folder group: same name, disjoint contents, reclaim 0;
+        //  · the two Projects folders are NOT reported: sharing a folder name stands up no group,
+        //    whatever the contents — the folder pass reports only `identical` trees and
+        //    `overlapping` ones;
         //  · deck.pdf / plan.key / memo.txt / img_0001.jpg are the ONLY versions groups
         //    (marker-justified), and img_0001.jpg holds EXACTLY the two /root/2023 files — the
         //    marker on "IMG_0001 copy.jpg" vouches for its own parent only, so the unrelated
@@ -180,7 +181,6 @@ import Testing
         versions "deck.pdf" dir=false reclaim=60000 [/root/vers/deck-final.pdf*, /root/vers/deck.pdf]
         versions "budget.xlsx" dir=false reclaim=55000 [/root/Downloads/budget-v2.xlsx*, /root/Documents/budget copy.xlsx]
         versions "img_0001.jpg" dir=false reclaim=52000 [/root/2023/IMG_0001.jpg*, /root/2023/IMG_0001 copy.jpg]
-        nameOnly "Projects" dir=true reclaim=0 [/root/x/Projects*, /root/y/Projects]
         """
         #expect(snapshot(groups) == expected)
     }

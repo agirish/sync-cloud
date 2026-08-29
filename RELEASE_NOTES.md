@@ -152,7 +152,7 @@ first.
   its category, so a badge repeating it spent the loudest slot in the row on the least useful words —
   and it was loudest on the commonest case. Byte-identical groups now carry no badge at all; their
   certainty reads in the green reclaim figure, and the space goes to the file's icon and name. The
-  rest say "needs review", or "needs a choice" for two folders sharing a name.
+  rest say "needs review".
 
 ### On the command line
 

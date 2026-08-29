@@ -5,16 +5,14 @@ import CryptoKit
 
 /// How the copies in a duplicate group are related. Shape (and the UI glyph derived from it)
 /// encodes the relationship, so the right resolution reads without color: identical copies can
-/// be collapsed to one, overlapping folders want an additive merge, name-only groups are a
-/// warning not a redundancy, versions want "keep the newest".
+/// be collapsed to one, overlapping folders want an additive merge, versions want "keep the
+/// newest".
 public enum DuplicateMatchType: Sendable, Equatable, Hashable {
     /// Byte-for-byte identical content (files) or identical recursive trees (folders).
     case identical
     /// Folders that share most of their content but each holds some unique items.
     /// `sharedFraction` is the average shared-content ratio across the redundant copies (0...1).
     case overlapping(sharedFraction: Double)
-    /// Same name, genuinely different contents — likely two unrelated things. Never auto-removed.
-    case nameOnly
     /// File names that reduce to one stem (`Report`, `Report (1)`, `Report-final`) but drifted.
     case versions
     /// Documents whose *text* is identical although their bytes are not — one document downloaded
@@ -33,14 +31,13 @@ public enum DuplicateMatchType: Sendable, Equatable, Hashable {
         switch self {
         case .identical: return .identical
         case .overlapping: return .overlapping
-        case .nameOnly: return .nameOnly
         case .versions: return .versions
         case .sameText: return .sameText
         }
     }
 
     public enum Kind: String, Sendable, CaseIterable, Hashable {
-        case identical, overlapping, nameOnly, versions, sameText
+        case identical, overlapping, versions, sameText
     }
 }
 
@@ -224,7 +221,13 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     /// The common display name (e.g. "Folder 1"). For versions it's the shared stem.
     public let name: String
     public let isDirectory: Bool
-    /// The copies, keeper first, then by ascending depth and path.
+    /// The copies **as the finder built them** — keeper first, then by ascending depth and path.
+    ///
+    /// **That order is the scan's, and it does not survive a keeper re-pick.** `choosingKeeper`
+    /// deliberately leaves the array where it was (see its doc), so after one the keeper can be at
+    /// any index. Nothing here reads position to find it — `keeper`, `redundantCopies` and
+    /// `recommendedRemovalPaths` all filter on `isRecommendedKeeper` — and a future caller must do
+    /// the same rather than trust `copies[0]`.
     public let copies: [DuplicateCopy]
     /// Bytes recoverable by applying the recommended resolution.
     public let reclaimableBytes: Int
@@ -292,7 +295,7 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     public var isFullyResolvableByRemoval: Bool {
         switch matchType {
         case .identical, .versions, .sameText: return true
-        case .overlapping, .nameOnly: return false
+        case .overlapping: return false
         }
     }
 
@@ -313,38 +316,45 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
             // Protected copies are filtered here, at the ONE place a recommendation becomes a list
             // of paths to trash, so re-aiming the keeper cannot smuggle one back in.
             return redundantCopies.filter { !$0.isProtectedFromRemoval }.map { $0.path }
-        case .overlapping, .nameOnly:
+        case .overlapping:
             return []
         }
     }
 
     /// Whether the user may pick a different keeper — whatever `isFullyResolvableByRemoval` admits,
     /// which is identical, versions **and same-text** (`DuplicateFinderSameTextTests` pins that
-    /// last one deliberately). Overlapping and name-only groups are the exclusions: changing an
-    /// overlapping keeper would re-shuffle which items are "unique", which needs the content hashes
-    /// we don't retain after a scan, and a name-only group is not known to hold one document at all.
-    /// Read off `isFullyResolvableByRemoval` rather than restated — the list was spelled out here
-    /// and stopped matching when same-text arrived, and restating it in the fix reproduced the same
-    /// drift by forgetting name-only.
+    /// last one deliberately). Overlapping is the exclusion: changing its keeper would re-shuffle
+    /// which items are "unique", which needs the content hashes we don't retain after a scan.
+    /// Read off `isFullyResolvableByRemoval` rather than restated — the list was spelled out here,
+    /// stopped matching when same-text arrived, and the fix reproduced the same drift by
+    /// forgetting a kind. It has since drifted twice more, in two other files.
     public var allowsKeeperChoice: Bool { isFullyResolvableByRemoval }
 
     /// Returns this group with a different keeper chosen (no-op unless `allowsKeeperChoice` and the
-    /// id names a non-keeper copy). Reorders keeper-first and recomputes reclaimable bytes; keeps
-    /// the same `id` so list/expansion identity is stable.
+    /// id names a non-keeper copy). Recomputes reclaimable bytes; keeps the same `id` so
+    /// list/expansion identity is stable.
+    ///
+    /// **The copies keep the order they were in.** This used to return `[newKeeper] + rest`, so
+    /// picking a copy moved its row — and its thumbnail — to the top of the card under the click
+    /// that picked it. His report: "the ordering changes and it is very confusing if we selected
+    /// anything", because a list that rearranges itself gives no before/after to compare, and the
+    /// row now under the pointer is not the row that was clicked. Nothing needs keeper-first
+    /// order: ``keeper`` finds the flag, ``redundantCopies`` filters on it, and re-ordering
+    /// `redundantCopies` here would only reorder a removal list whose members are all removed.
     public func choosingKeeper(_ copyID: DuplicateCopy.ID) -> DuplicateGroup {
         guard allowsKeeperChoice,
               copyID != keeper.id,
               copies.contains(where: { $0.id == copyID }) else { return self }
         let relabelled = copies.map { Self.relabel($0, isKeeper: $0.id == copyID) }
-        let newKeeper = relabelled.first { $0.id == copyID }!
-        let rest = relabelled.filter { $0.id != copyID }.sorted { ($0.depth, $0.id) < ($1.depth, $1.id) }
         // Protected copies are excluded, for the same reason `recommendedRemovalPaths` excludes
         // them: re-aiming the keeper is exactly what puts a protected copy on the redundant side,
         // and counting bytes that will never be trashed makes the card promise a reclaim the
         // "Move to Trash" it sits beside cannot deliver.
-        let reclaim = rest.filter { !$0.isProtectedFromRemoval }.reduce(0) { $0 + $1.size }
+        let reclaim = relabelled
+            .filter { !$0.isRecommendedKeeper && !$0.isProtectedFromRemoval }
+            .reduce(0) { $0 + $1.size }
         return DuplicateGroup(id: id, matchType: matchType, name: name, isDirectory: isDirectory,
-                              copies: [newKeeper] + rest, reclaimableBytes: reclaim)
+                              copies: relabelled, reclaimableBytes: reclaim)
     }
 
     /// Returns this group with the copy at `path` removed and its figures recomputed, or nil when
@@ -397,8 +407,6 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
                 .reduce(0) { $0 + $1.size }
         case .overlapping(let fraction):
             return max(0, priorReclaim - Int(Double(removed.size) * fraction))
-        case .nameOnly:
-            return 0
         }
     }
 }
@@ -409,8 +417,9 @@ public struct DuplicateFinderOptions: Sendable {
     /// Files smaller than this are ignored for standalone file grouping (they still count toward
     /// folder signatures). Keeps trivially tiny files out of the results.
     public var minFileSize: Int
-    /// Folder overlap at or above this fraction is reported as "overlapping"; below it, a
-    /// same-name/different-content pair is reported as "name only".
+    /// A folder joins an overlapping group when it shares at least this much with the keeper —
+    /// measured both ways, see `mutualFraction`. Below it a folder simply does not join, and a
+    /// group with no members left is not reported at all.
     public var overlapThreshold: Double
     /// Names skipped entirely (their subtrees don't count toward signatures either).
     public var ignoredNames: Set<String>
@@ -595,7 +604,7 @@ public enum DuplicateFinder {
 
         groups += identicalFolderGroups(dirs, options: options, snapshotForDir: snapshotForDir,
                                         coveredRoots: &coveredRoots, keeperRoots: &folderKeeperRoots)
-        groups += overlappingAndNameOnlyGroups(dirs, options: options, snapshotForDir: snapshotForDir,
+        groups += overlappingFolderGroups(dirs, options: options, snapshotForDir: snapshotForDir,
                                                coveredRoots: &coveredRoots)
         groups += identicalFileGroups(files, options: options, coveredRoots: coveredRoots, keeperRoots: folderKeeperRoots, groupedFilePaths: &groupedFilePaths, keepers: &identicalFileKeepers)
         // BEFORE versions, deliberately. A provider's second download often lands beside the first
@@ -770,9 +779,9 @@ public enum DuplicateFinder {
         return groups
     }
 
-    // MARK: Overlapping / name-only folders
+    // MARK: Overlapping folders
 
-    private static func overlappingAndNameOnlyGroups(
+    private static func overlappingFolderGroups(
         _ dirs: [NodeInfo],
         options: DuplicateFinderOptions,
         snapshotForDir: (String) -> FolderContentSnapshot?,
@@ -802,24 +811,40 @@ public enum DuplicateFinder {
             let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
             let keeper = ordered[0]
 
-            // Average shared-content fraction of the redundant copies against the keeper.
-            let fractions = ordered.dropFirst().map { sharedFraction(of: $0, against: keeper) }
-            let avgShared = fractions.isEmpty ? 0 : fractions.reduce(0, +) / Double(fractions.count)
+            // **Each folder joins on its own merits, and the group is what is left.**
+            //
+            // The gate used to be one average over every same-named folder, admitting or rejecting
+            // them together — which loses a real finding to the company it keeps. His `Form W-2`
+            // set holds a genuine six-against-six twin plus three unrelated subsets of one and two
+            // files; the average of the four is 37.5%, under a threshold the twin clears at 100%.
+            // Filtering first keeps the twin and drops the subsets, which is what a reader does by
+            // eye — and it means a group's members are the folders that really are versions of
+            // each other, rather than everything that shared their name.
+            let folded = ordered.dropFirst().filter {
+                mutualFraction(of: $0, against: keeper) >= options.overlapThreshold
+            }
+            let kept = [keeper] + folded
+            // One-sided, because what a fold-in frees is the folded copy's own redundant bytes.
+            let fractions = folded.map { sharedFraction(of: $0, against: keeper) }
+            let mutual = folded.map { mutualFraction(of: $0, against: keeper) }
+            let avgMutual = mutual.isEmpty ? 0 : mutual.reduce(0, +) / Double(mutual.count)
 
             // Snapshots on these copies too: the Compare review offers its trash gate for EVERY
             // directory group kind, not just identical ones, and its directory verdict comes from
             // the recorded baseline.
-            let copies = ordered.enumerated().map { idx, info in
+            let copies = kept.enumerated().map { idx, info in
                 makeCopy(info, keeper: keeper, isKeeper: idx == 0,
                          contentSnapshot: snapshotForDir(info.path))
             }
 
-            if avgShared >= options.overlapThreshold {
+            // Anything survived the per-copy gate, so there is a group. `avgMutual` is now only
+            // the figure the card reports, not the test for whether to report one.
+            if !folded.isEmpty {
                 // Reclaimable ≈ the shared (redundant) bytes of each folded-in copy.
-                let reclaimable = zip(ordered.dropFirst(), fractions)
+                let reclaimable = zip(folded, fractions)
                     .reduce(0) { $0 + Int(Double($1.0.size) * $1.1) }
                 groups.append(DuplicateGroup(
-                    matchType: .overlapping(sharedFraction: avgShared),
+                    matchType: .overlapping(sharedFraction: avgMutual),
                     name: name,
                     isDirectory: true,
                     copies: copies,
@@ -828,15 +853,19 @@ public enum DuplicateFinder {
                 // Resolve overlaps at the folder level — don't also re-report their shared inner
                 // files as standalone identical-file duplicates.
                 for c in copies { coveredRoots.insert(c.path) }
-            } else {
-                groups.append(DuplicateGroup(
-                    matchType: .nameOnly,
-                    name: name,
-                    isDirectory: true,
-                    copies: copies,
-                    reclaimableBytes: 0
-                ))
             }
+            // With nothing left after the per-copy gate, nothing is reported at all. **Sharing a NAME is not evidence of
+            // duplication in an organised tree**, which is the whole finding here: he reviewed
+            // these and "they are all expected to have those same names". Measured against his
+            // hash index first — across ~/Documents, 115 same-name folder sets share not one file
+            // and are named `2020` (36 folders), `2021` (25), `2023` (23), `Archive`, `Approval`,
+            // `Payslips`; another 150 share 3–60% and are the same story one level down, a year or
+            // a person repeated under every subject.
+            //
+            // Nothing real is lost. This branch never wrote to `coveredRoots` — only the
+            // overlapping branch above does — so the documents genuinely filed in two of these
+            // folders are still reported, as the identical FILE groups they are. What is gone is
+            // the folder-level card that could only ever say "nothing to reclaim".
         }
         return groups
     }
@@ -1261,10 +1290,38 @@ public enum DuplicateFinder {
         return [keeper] + rest
     }
 
+    /// How much of `copy` is already in `keeper` — the basis for the reclaim estimate, because
+    /// what a fold-in frees is this copy's redundant bytes.
+    ///
+    /// **One-sided, and that is why it cannot be the gate.** See ``mutualFraction(of:against:)``.
     private static func sharedFraction(of copy: NodeInfo, against keeper: NodeInfo) -> Double {
         guard !copy.contentHashes.isEmpty else { return 0 }
         let shared = copy.contentHashes.intersection(keeper.contentHashes).count
         return Double(shared) / Double(copy.contentHashes.count)
+    }
+
+    /// How much of the two folders TOGETHER is shared: the intersection over the larger side.
+    ///
+    /// **The one-sided fraction called a folder of one file "100% shared".** The folder pass
+    /// buckets by name, so an overlapping group is a name match that content is supposed to
+    /// justify — and `shared / |copy|` justifies it far too cheaply: a one-item `Visa` folder deep
+    /// inside an H-1B petition's supporting documents, holding a single file that also lives in the
+    /// 361-item top-level `Visa`, scored 1.0 and was offered as a merge. It is not a copy of that
+    /// folder; it is a different subject that happens to contain one of the same documents. His
+    /// report, and his own reading of it: "that explains why it doesn't actually need to be merged
+    /// in the first place."
+    ///
+    /// Over the larger side, the same pair scores 1/361. Two folders that really are versions of
+    /// each other barely move: twenty items against eighteen shared is 0.9 either way.
+    ///
+    /// **What this deliberately drops** is the small-subset case — five items wholly inside a
+    /// ten-item folder now scores 0.5 and is not reported as a folder finding. Those five files are
+    /// still reported, as the identical FILE duplicates they are; what goes is a folder-level
+    /// "merge these" over two folders that are not the same folder.
+    private static func mutualFraction(of copy: NodeInfo, against keeper: NodeInfo) -> Double {
+        let larger = max(copy.contentHashes.count, keeper.contentHashes.count)
+        guard larger > 0 else { return 0 }
+        return Double(copy.contentHashes.intersection(keeper.contentHashes).count) / Double(larger)
     }
 
     private static func isCovered(_ path: String, by roots: Set<String>) -> Bool {

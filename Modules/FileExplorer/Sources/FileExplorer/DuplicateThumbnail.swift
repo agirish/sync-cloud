@@ -95,10 +95,39 @@ enum DuplicateThumbnail {
 
 /// One copy's content thumbnail — a QuickLook preview when available, the file-type icon otherwise —
 /// with the keeper sealed in green and a subtle lift on hover ("enlarge on hover").
+///
+/// **It is the picker, not a picture of one.** Two previews side by side, one sealed "keeper" and
+/// one labelled "duplicate", and both lifting under the pointer, is a control in every respect a
+/// reader can see — and it did nothing: the only way to change the keeper was the small radio in
+/// the row underneath. Clicking the copy you want is the obvious gesture, so it is the gesture.
+///
+/// The rule for whether a click is offered is ``DuplicateKeeperMarker/style(allowsKeeperChoice:isKeeper:)``,
+/// the same one the radio reads — a second copy of "may the user pick here" is how a thumbnail
+/// ends up offering what the row beside it refuses. Where no choice exists the lift goes too,
+/// because a tile that rises under the pointer and does nothing is the whole complaint.
 struct DuplicateThumbnailView: View {
     let path: String
     let name: String
     let isKeeper: Bool
+    /// Whether this group lets the user choose a keeper at all. Straight through to the shared
+    /// marker rule.
+    ///
+    /// **Deliberately not restated here.** `DuplicateGroup.allowsKeeperChoice` is the answer, and
+    /// spelling its members out in a doc is how this drifted twice before — the list in
+    /// `DuplicateFinder` records both times, and the version that stood here was the third: it
+    /// named `versions` and `identical`, forgot `sameText`, and added a claim about folders that
+    /// the predicate does not make (it keys on the match type, not on `isDirectory`).
+    ///
+    /// **No default, and neither has `onChoose`.** Both were defaulted at first, and unwiring the
+    /// action at the card — the one mutation that turns this back into the decoration it used to
+    /// be — left every test green: the marker rule has its own tests, the call site had none, and
+    /// a view's inputs are not reachable from one. A defaulted input is a call site that can
+    /// forget the feature silently, so the compiler holds it instead. Same argument as
+    /// ``RestructureLens/hasReviewed``.
+    let allowsKeeperChoice: Bool
+    /// Make this copy the keeper. Called only where the shared rule says a choice exists, so a
+    /// caller hands over the action unconditionally and this decides whether to offer it.
+    let onChoose: () -> Void
     /// The copy's modification date — part of the cache key, so a re-scan that changed the file's
     /// content refreshes the preview instead of serving the stale one.
     let modified: Date?
@@ -106,9 +135,46 @@ struct DuplicateThumbnailView: View {
     /// word so every existing call site is unchanged.
     var nonKeeperLabel: String = "duplicate"
     var side: CGFloat = 54
+    /// Whether the word under the tile is drawn.
+    ///
+    /// **False in a copy row, where the row already says it.** The tile sits beside a fate chip
+    /// reading "Keep" or "Move to Trash"; a caption reading "keeper" under it is the same fact a
+    /// second time, in the vertical space that made the old thumbnail strip its own band.
+    var showsCaption: Bool = true
+    /// Whether to ask QuickLook for a real preview, or settle for the file-type icon.
+    ///
+    /// **The cap the thumbnail strip used to carry.** That strip rendered at most six tiles; the
+    /// inline rows render one per copy, so a forty-copy group would kick off forty QuickLook
+    /// generations the moment it is expanded. The tile is still the picker either way — only the
+    /// picture is skipped.
+    var loadsPreview: Bool = true
 
     @State private var image: NSImage?
     @State private var isHovering = false
+    /// Whether THIS view currently owns a push on `NSCursor`'s global stack.
+    ///
+    /// **Not `isHovering`, and not `choice != nil` read afresh.** The push was guarded on
+    /// `choice != nil` and so was the pop — and `choice` is derived from `isKeeper`, which this
+    /// view's own click changes. Hover a non-keeper tile (push), click it, move away: by then the
+    /// copy is the keeper, `choice` is nil, the pop is skipped, and the pointing hand is stranded
+    /// on a global stack for the rest of the session. Every further pick stacks another. Since
+    /// `choosingKeeper` stopped reordering the copies the tile no longer even moves out from under
+    /// the pointer, which is what made this the ordinary path rather than a corner.
+    ///
+    /// Recording what we pushed makes the pop unconditional on anything that can change underneath
+    /// it, and lets ``HoverCursorTransition`` — the rule `SelectableKeeperRadio` already uses for
+    /// exactly this — decide push/pop from the two states.
+    @State private var pushedCursor = false
+
+    /// What this tile offers, from the rule the radio uses.
+    private var marker: DuplicateKeeperMarker {
+        DuplicateKeeperMarker.style(allowsKeeperChoice: allowsKeeperChoice, isKeeper: isKeeper)
+    }
+
+    /// Clickable exactly when the row's radio would be — `selectable`, never the keeper (which is
+    /// already kept) and never `inert`.
+    private var choice: (() -> Void)? { marker == .selectable ? onChoose : nil }
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
 
@@ -146,26 +212,62 @@ struct DuplicateThumbnailView: View {
                         .offset(x: 4, y: 4)
                 }
             }
-            .shadow(color: .black.opacity(isHovering ? 0.22 : 0), radius: isHovering ? 7 : 0, y: isHovering ? 3 : 0)
+            // The lift is now an AFFORDANCE, not decoration: it appears only where the tile can
+            // actually be clicked. It used to rise on every thumbnail, including the keeper's own
+            // and the ones in groups that allow no choice — a button's feedback on something that
+            // was not a button anywhere.
+            .shadow(color: .black.opacity(isHovering && choice != nil ? 0.22 : 0),
+                    radius: isHovering && choice != nil ? 7 : 0,
+                    y: isHovering && choice != nil ? 3 : 0)
             // Modest lift — kept small so it doesn't clip against the horizontal scroll container.
-            .scaleEffect(isHovering && !reduceMotion ? 1.1 : 1)
+            .scaleEffect(isHovering && choice != nil && !reduceMotion ? 1.1 : 1)
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                    .strokeBorder(SemanticColor.success.opacity(isHovering && choice != nil
+                                                                ? 0.55 : 0),
+                                  lineWidth: 1.5)
+            )
             .zIndex(isHovering ? 1 : 0)
 
             // "duplicate" is the identical group's word and it overclaims for a same-text one,
             // where all that is proven is that the two READ alike — the caller passes the group's
             // own vocabulary so the thumbnail cannot say more than the badge above it.
-            Text(isKeeper ? "keeper" : nonKeeperLabel)
-                .scaledFont(.system(size: 10, design: .monospaced))
-                .foregroundStyle(isKeeper ? AnyShapeStyle(SemanticColor.success) : AnyShapeStyle(.tertiary))
+            if showsCaption {
+                Text(isKeeper ? "keeper" : nonKeeperLabel)
+                    .scaledFont(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(isKeeper ? AnyShapeStyle(SemanticColor.success)
+                                              : AnyShapeStyle(.tertiary))
+            }
         }
+        .contentShape(Rectangle())
+        .onTapGesture { choice?() }
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.14)) { isHovering = hovering }
+            // The pointer says it too, which is the part that reads before any motion does.
+            // Decided against what we PUSHED, not against the hover state or the current
+            // clickability — see `pushedCursor`.
+            switch HoverCursorTransition.decide(wasHovering: pushedCursor,
+                                                isNowInside: hovering && choice != nil) {
+            case .push: NSCursor.pointingHand.push(); pushedCursor = true
+            case .pop: NSCursor.pop(); pushedCursor = false
+            case .none: break
+            }
         }
-        .task(id: "\(path)|\(modified?.timeIntervalSince1970 ?? 0)") {
+        .onDisappear {
+            // A card in a LazyVStack is torn down by scrolling, by a section folding, by a filter,
+            // and by its own group being resolved — none of which delivers `onHover(false)`.
+            if pushedCursor { NSCursor.pop(); pushedCursor = false }
+        }
+        .task(id: "\(path)|\(modified?.timeIntervalSince1970 ?? 0)|\(loadsPreview)") {
+            guard loadsPreview else { return }
             image = await DuplicateThumbnail.image(path: path, side: side, scale: max(1, displayScale), modified: modified)
         }
-        .help(path)
+        // The path is the tooltip either way; where the tile acts, the tooltip says what it does
+        // first, because "what happens if I click" outranks "where is this" on a control.
+        .help(choice != nil ? "Keep this copy instead — \(path)" : path)
         .accessibilityElement()
         .accessibilityLabel(isKeeper ? "Kept copy preview" : "Duplicate copy preview")
+        .accessibilityAddTraits(choice != nil ? .isButton : [])
+        .accessibilityHint(choice != nil ? "Keeps this copy instead" : "")
     }
 }

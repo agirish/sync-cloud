@@ -68,8 +68,8 @@ extension FileSyncManager {
 
     /// Summary derived from the current ``duplicateGroups``. The headline "reclaimable" and
     /// "redundant" figures count only batch-eligible (identical) groups, so they match exactly
-    /// what "Apply recommended" delivers — overlapping (merge deferred) and name-only (different
-    /// content) groups never inflate them.
+    /// what "Apply recommended" delivers — overlapping, versions and same-text groups never
+    /// inflate them.
     public var duplicateSummary: DuplicateSummary {
         var reclaimable = 0, redundant = 0, review = 0
         for g in duplicateGroups {
@@ -77,10 +77,11 @@ extension FileSyncManager {
                 reclaimable += g.reclaimableBytes
                 redundant += g.copies.count - 1
             }
-            // Both kinds the user must look at before acting: a name-only group because its copies
-            // differ, a same-text group because its copies only provably *read* the same.
+            // The kind the user must look at before acting: a same-text group's copies only
+            // provably *read* the same. (Name-only groups counted here too until the case was
+            // removed — a shared folder name turned out to be evidence of nothing.)
             switch g.matchType {
-            case .nameOnly, .sameText: review += 1
+            case .sameText: review += 1
             case .identical, .overlapping, .versions: break
             }
         }
