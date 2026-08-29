@@ -4,7 +4,7 @@ import Sync
 /// The rename backlog, reorganized category-first (v4.0 polish P10): sections by what the pass
 /// would *do* — naming, reshuffling, padding — because the three operations ask different things
 /// of the user, and 132 visually identical folder rows asked them to discover that by opening
-/// every chevron. Within a section, folders group under their immediate parent directory.
+/// every chevron. Within a section, folders follow path order and are drawn as cards.
 ///
 /// **The plan stays the atomic unit.** A folder's steps are chosen against each other, so half a
 /// plan is not a smaller plan — a section therefore holds whole folders, classified by the most
@@ -47,18 +47,10 @@ enum RenameCategories {
         }
     }
 
-    /// One parent directory's folders inside a section.
-    struct Group: Equatable {
-        /// The immediate parent of the member folders' relative paths — "" at the root.
-        let parent: String
-        let plans: [RenamePlan]
-        var fileCount: Int { plans.reduce(0) { $0 + $1.steps.count } }
-    }
-
     struct Section: Equatable {
         let category: Category
-        let groups: [Group]
-        var plans: [RenamePlan] { groups.flatMap(\.plans) }
+        /// The section's folders, in path order.
+        let plans: [RenamePlan]
         var fileCount: Int { plans.reduce(0) { $0 + $1.steps.count } }
         /// Steps of the section's own kind — the pill's number. A mixed folder contributes its
         /// pads to `fileCount` (the button applies them) but not to this claim.
@@ -78,9 +70,14 @@ enum RenameCategories {
     }
 
     /// The screen: sections in consequence order, present only when they report (the
-    /// sections-vanish-at-zero rule), each grouped by immediate parent directory in path order,
-    /// plans in path order within their group. Every plan with steps lands in exactly one
-    /// section; skip-only plans are `leftAlone`.
+    /// sections-vanish-at-zero rule), folders in path order within each. Every plan with steps
+    /// lands in exactly one section; skip-only plans are `leftAlone`.
+    ///
+    /// **Path order, not a parent grouping.** These used to nest one level deeper: folders were
+    /// bucketed under their immediate parent, and each bucket carried a header and a chevron of
+    /// its own. Sorting on the whole relative path puts the same folders in the same order — a
+    /// parent is a prefix of its children's paths — without a second collapsible layer between
+    /// the section and the thing being read, and each card states its own path anyway.
     static func sections(_ plans: [RenamePlan]) -> [Section] {
         var buckets: [Category: [RenamePlan]] = [:]
         for plan in plans {
@@ -89,12 +86,8 @@ enum RenameCategories {
         }
         return Category.allCases.compactMap { category in
             guard let members = buckets[category], !members.isEmpty else { return nil }
-            let byParent = Dictionary(grouping: members) { parent(of: $0.relativePath) }
-            let groups = byParent.keys.sorted().map { key in
-                Group(parent: key,
-                      plans: byParent[key]!.sorted { $0.relativePath < $1.relativePath })
-            }
-            return Section(category: category, groups: groups)
+            return Section(category: category,
+                           plans: members.sorted { $0.relativePath < $1.relativePath })
         }
     }
 
@@ -103,38 +96,8 @@ enum RenameCategories {
         plans.filter { $0.steps.isEmpty && !$0.skips.isEmpty }
     }
 
-    /// The immediate parent of a relative path — "" at the root.
-    static func parent(of relativePath: String) -> String {
-        let parent = (relativePath as NSString).deletingLastPathComponent
-        return parent == "/" ? "" : parent
-    }
-
-    /// The leaf a group row emphasizes; the group header already states the parent.
+    /// The folder name a card leads with; the path beneath it carries the rest.
     static func leaf(of relativePath: String) -> String {
         (relativePath as NSString).lastPathComponent
-    }
-
-    /// The row's inline proof: one step of the section's own kind (never a ridden-along pad
-    /// standing in for a naming), preferring the first in plan order.
-    static func sampleStep(_ plan: RenamePlan, category: Category) -> RenameStep? {
-        plan.steps.first { $0.kind == category.kind }
-    }
-
-    // MARK: Collapse defaults
-
-    /// Whether a category's groups start collapsed. **Pad does, alone**: it is the mechanical
-    /// bulk this screen exists to accept wholesale — its own definition line says so — and six
-    /// hundred always-open rows are what made review a scroll instead of a read. The judgment
-    /// categories (fix, name, reshuffle) start open, because their rows are the ones that need
-    /// eyes before their buttons. Everything stays one chevron from the other state.
-    static func groupsStartCollapsed(_ category: Category) -> Bool {
-        category == .pad
-    }
-
-    /// Resolves a group's collapsed state from the default and the user's toggles. Stored as a
-    /// TOGGLED set rather than a collapsed set, so the per-category default keeps applying to
-    /// groups that arrive with the next scan instead of freezing whatever the first render saw.
-    static func isCollapsed(category: Category, toggled: Bool) -> Bool {
-        groupsStartCollapsed(category) != toggled
     }
 }
