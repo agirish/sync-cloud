@@ -718,10 +718,14 @@ public enum PaneBarDrop {
 /// Whether the bar draws a word under each pill — the second preference in its right-click menu.
 ///
 /// **A ceiling, not a pin**, exactly as `PaneBarIconSize` is. Choosing `iconAndText` says "start
-/// here": the bar still drops to `iconOnly` when the pane is too narrow for the titled rung, or
-/// when the app's text size makes the titled row taller than the pinned header can hold (see
-/// `PaneBarTitleMetrics.rowFits`). Choosing `iconOnly` pins downward — no width ever produces a
-/// title.
+/// here": the bar still drops to `iconOnly` when the pane is too narrow for the titled rung.
+/// Choosing `iconOnly` pins downward — no width ever produces a title.
+///
+/// Text size sheds them too, at the top of the range — see `PaneBarTitleMetrics.rowBudget`, which
+/// is the *second* budget this gate has had. The first was the retired provider capsule's 34pt,
+/// which put the cliff at 110% text: the first step up from the default, six of the ten
+/// percentages the size slider reaches, and nowhere near the "Large and Larger" its own doc
+/// claimed. Reported as "icon + text mode isn't showing text any more" by someone sitting at 110%.
 ///
 /// Two cases, where Finder has three. Text Only is deliberately absent: with the glyph gone the
 /// word becomes the only carrier of state, which forces Hidden Files' title to swap with its eye
@@ -736,26 +740,58 @@ public enum PaneBarLabelMode: String, CaseIterable, Sendable {
     }
 }
 
-/// The type the bar's titles are drawn in, and the row budget they have to fit.
+/// The type the bar's titles are drawn in, and the height that costs the row.
 public enum PaneBarTitleMetrics {
     /// The title's base point size.
     ///
-    /// 10pt, and the reason is the row rather than legibility: a titled row is the pill (20pt), a
-    /// 2pt gap and one line of title, against the **34pt** the pinned 81pt pane header allows —
-    /// and 10pt is the largest size whose line height (12.0) fits that. 11pt measures 13.0 for a
-    /// 35pt row and 12pt measures 15.0 for 37pt, both of which break the 83.5 line the header
-    /// shares with Organize's `LensHeaderCard`.
+    /// 10pt, so the word reads as a caption under its pill rather than competing with the
+    /// breadcrumb below it — the same relation `WorkspaceBarMetrics` gives its own labels.
     public static let pointSize: CGFloat = 10
     /// Between the pill's bottom edge and the title's line box.
     public static let gap: CGFloat = 2
-    /// What the pinned 81pt pane header leaves the bar's row. It matched the retired provider
-    /// capsule's own 34pt, which used to be what set the row height; with the capsule gone the bar
-    /// sets its own, and this is the ceiling that says how tall it may go.
-    public static let rowBudget: CGFloat = 34
+
+    /// The tallest titled row the pinned 81pt pane header can carry and still keep its content 6pt
+    /// clear of both card edges — the floor `PaneBarLadderTests.theHeaderIsBalancedTopToBottom`
+    /// has always held the header to.
+    ///
+    /// **Calibrated against the rendered header, not derived from it, and the difference is the
+    /// whole history of this number.** It was 34, inherited from the provider capsule that used to
+    /// set the row height, and it was never what the header had left; nobody noticed because the
+    /// arithmetic on the other side of the comparison — `pill + gap +
+    /// NSLayoutManager.defaultLineHeight` — is a type-setting line box that over-reports the drawn
+    /// row by up to 3pt, so two wrong numbers sat either side of a `<=` and produced a plausible
+    /// answer. Deriving it properly is not available: the same over-reporting means no sum of these
+    /// constants reconstructs where the ink actually lands.
+    ///
+    /// So it is calibrated. `rowHeight` can only take five values across the slider's whole range,
+    /// and the tightest clearance measured at each is:
+    ///
+    /// | row | 33pt | 34pt | 35pt | 37pt | 38pt |
+    /// |---|---|---|---|---|---|
+    /// | text size | 90–95% | 100–105% | 110–115% | 120–125% | 130–135% |
+    /// | clearance | 8.5 | 7.5 | 7.0 | **5.0** | **4.0** |
+    ///
+    /// The floor is crossed between the 35pt row and the 37pt one, and 36 is the value between
+    /// them — a point of margin on each side, rather than a boundary resting exactly on a measured
+    /// number. `PaneBarTitleTests.theGateHasBothDirectionsWithMarginOnEach` is what holds that
+    /// margin, so moving this onto 35 or 37 fails rather than quietly narrowing it.
+    ///
+    /// **Two tests hold this number, one per direction, and neither is sufficient alone.** Set too
+    /// high and `PaneBarLadderTests.theTitledHeaderClearsBothEdges` measures the crowding it lets
+    /// through. Set too low — the direction the original defect went — and nothing crowds, because
+    /// the header simply renders untitled; that side is held by
+    /// `PaneBarTitleTests.theTextSizesThatGetWords`, which names the percentages outright.
+    public static let rowBudget: CGFloat = 36
 
     public static let font: ScaledFont = .system(size: pointSize, weight: .regular)
 
     /// The height a titled row occupies at this text size.
+    ///
+    /// **A reservation, and a generous one.** `LabelMetrics.lineHeight` reports the type-setting
+    /// line box, which runs taller than the row the header actually paints. That is the safe
+    /// direction for a reservation — the bar gets a box no smaller than it needs — but it means
+    /// this number is not a prediction of where ink lands, which is why `rowBudget` beside it is
+    /// calibrated against the drawn header rather than computed from the header's geometry.
     @MainActor
     public static func rowHeight(pillHeight: CGFloat, scale: CGFloat) -> CGFloat {
         pillHeight + gap + LabelMetrics.lineHeight(font: font, scale: scale)
@@ -763,12 +799,13 @@ public enum PaneBarTitleMetrics {
 
     /// Whether titles can be drawn at all at this text size.
     ///
-    /// **This is the gate that keeps the feature off Large and Larger.** `pointSize` sits below
-    /// `FontSize.knee` (11pt), so it takes the *full* multiplier, while `PaneNavMetrics.pill` is a
-    /// fixed constant that does not scale: at ×1.25 the row is 37pt and at ×1.35 it is 38pt,
-    /// against a 34pt budget. Clamping the title instead was rejected — someone who chose Larger
-    /// did so because small text is hard to read, and a title that alone refuses to grow serves
-    /// them worst of all. Falling back to `iconOnly` gives them exactly the bar that ships today.
+    /// **The fallback is `iconOnly`, not a smaller word.** Clamping the title so it never grows
+    /// would give the person who chose the largest text — because small text is hard for them to
+    /// read — the one label in the app that refuses to grow with the rest. They get the bar that
+    /// shipped before titles existed instead.
+    ///
+    /// See `rowBudget` for where the line sits and why it is a calibrated number rather than a
+    /// derived one.
     @MainActor
     public static func rowFits(pillHeight: CGFloat, scale: CGFloat) -> Bool {
         rowHeight(pillHeight: pillHeight, scale: scale) <= rowBudget

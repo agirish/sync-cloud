@@ -1600,3 +1600,51 @@ that only `main` has.** Recorded so the next audit does not re-derive it.
   Restructure lens, `FindingKind` and the §5.9 detector arrived in 5.0.
 - **`FindingKind.ask` documented as live while nothing produces one.** Same — the enum does not
   exist below `main`.
+
+### 2026-08-29 — the pane bar's Icon-and-Text mode stopped at 110% text — OWED to `v4.x`
+
+`PaneBarTitleMetrics.rowBudget` was **34**, inherited from the provider capsule that used to set the
+pane header's row height, and it was never what the header has left over. Compared against a row
+priced as `pill + gap + NSLayoutManager.defaultLineHeight` — a type-setting line box that
+over-reports the drawn row — it refused the bar's words from **110%** text upward: the first step
+above the default, and six of the ten percentages the size slider reaches. The doc beside it claimed
+the cliff was at Large and Larger. Reported from a real window at 110%; every test used one of the
+four *named presets* (90/100/125/135), which are the only sizes that existed when the gate was
+written, so nothing asked about the six in between.
+
+Fixed on `main` by calibrating the budget to **36**, which puts the line where the header's own 6pt
+ink-clearance rule actually falls: words through 115%, Icon Only from 120% up. The gate itself, and
+its `iconOnly` fallback, are unchanged and were always right.
+
+**OWED to `v4.x`, and it is the same defect there, not a near-miss.** That line carries both halves —
+the label mode with the identical constant, and the percentage slider that reaches the sizes it
+mis-refuses:
+
+```sh
+for l in v4.x v3.x v2.x; do
+  git show origin/$l:Modules/Dashboard/Sources/Dashboard/PaneBarArrangement.swift |
+    grep -c 'rowBudget: CGFloat = 34'                                    # 1, 0, 0
+  git show origin/$l:Modules/Design/Sources/Design/FontSize.swift |
+    grep -c 'selectablePercents'                                         # 1, 0, 0
+done
+```
+
+**NOT owed to `v3.x` or `v2.x` — neither carries the code.** `PaneBarLabelMode` does not exist below
+`v4.x` (the pane bar has no words to withhold there), and neither does the percentage slider: those
+lines still have the four named presets, so even the shape of the bug is absent.
+
+**Per-file pick notes, if `v4.x` ever takes it.** Four files, and only the first is the fix:
+
+- `Modules/Dashboard/Sources/Dashboard/PaneBarArrangement.swift` — `rowBudget` 34 → 36, plus the
+  doc on it and on `PaneBarLabelMode`. **Re-measure before trusting the 36 there.** It is calibrated
+  against drawn ink on `main`'s header, and `main` retired the provider capsule (`fd068fc4`) while
+  `v4.x` still draws it. The capsule is the taller thing in that row, so the clearances the number
+  was fitted to are not `v4.x`'s clearances; run `theTitledHeaderClearsBothEdges` there and read the
+  table it prints rather than porting the constant on faith.
+- `Modules/Dashboard/Tests/Dashboard/PaneBarTitleTests.swift` — the gate tests, rewritten to sweep
+  `FontSize.selectablePercents` instead of the four presets. This is the half that would have caught
+  it, and it is worth taking even if the constant turns out to differ.
+- `Modules/Dashboard/Tests/Dashboard/PaneBarLadderTests.swift` — `theTitledHeaderClearsBothEdges`,
+  and `theHeaderIsBalancedTopToBottom` reading the shared `headerInkFloor`. Machine-pinned
+  (`.pixelSampling`), so it will not run on CI on that line either.
+- `Modules/Dashboard/Sources/Dashboard/DashboardViews.swift` — comment only.

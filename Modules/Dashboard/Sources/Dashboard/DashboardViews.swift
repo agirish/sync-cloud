@@ -141,8 +141,9 @@ public struct PaneHeader: View {
         PaneBarArrangement.default.encoded
     @AppStorage(PaneBar.iconSizeKey) private var iconSizeRaw: String = PaneBarIconSize.regular.rawValue
     /// Defaults to `iconAndText`: the words are the feature, and a preference that ships off is one
-    /// nobody finds. It costs nothing to turn back off, and at Large or Larger text the ladder
-    /// declines it on its own — see `PaneBarTitleMetrics.rowFits`.
+    /// nobody finds. It costs nothing to turn back off; a pane too narrow for the titled rung sheds
+    /// the words on its own, and so do the largest text sizes — see `PaneBarTitleMetrics.rowFits`,
+    /// and `rowBudget` beside it for where that line sits and why it moved.
     @AppStorage(PaneBar.labelModeKey) private var labelModeRaw: String =
         PaneBarLabelMode.iconAndText.rawValue
     /// Whether this header is showing the customize sheet. Per-header on purpose: the sheet edits

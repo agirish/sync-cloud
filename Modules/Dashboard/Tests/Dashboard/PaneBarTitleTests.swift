@@ -9,7 +9,9 @@ import Design
 /// because it reads painted pixels back out of a live renderer, which means none of it runs on CI.
 /// The decisions below are the ones that must not regress unnoticed — above all the text-size gate,
 /// which is the only thing keeping a title out of a header that cannot hold it — so they are
-/// arithmetic over published constants and run everywhere.
+/// arithmetic over published constants and run everywhere. Where the gate's *line* belongs is a
+/// question about drawn ink and cannot be settled here; `PaneBarLadderTests.theTitledHeaderClearsBothEdges`
+/// settles it, and this suite holds the resulting table.
 ///
 /// Nothing here asserts a point size for its own sake. The claims are behavioural (does the bar
 /// title at this text size, does this word change when that state does), so a font whose metrics
@@ -29,50 +31,99 @@ import Design
 
     // MARK: - The text-size gate
 
-    /// **The decision this whole feature turns on.** A 10pt title sits below `FontSize.knee`, so it
-    /// takes the full multiplier while `PaneNavMetrics.pill` — a fixed constant — does not. At Large
-    /// the row wants 37pt and at Larger 38pt, against the 34pt the pinned 81pt header allows.
+    /// **Which of the ten text sizes the slider offers get words, stated as a table.**
     ///
-    /// Falling back to `iconOnly` is the deliberate answer, and the alternative is worth stating so
-    /// nobody re-derives it: clamping the title so it never grows would give the person who chose
-    /// Larger — because small text is hard for them to read — the one label in the app that refuses
-    /// to. They get the bar that ships today instead.
-    @Test(arguments: [(CGFloat(0.9), true), (CGFloat(1.0), true), (CGFloat(1.25), false), (CGFloat(1.35), false)])
-    func titlesAreDrawnOnlyAtTextSizesWhoseRowFitsTheHeader(scale: CGFloat, expected: Bool) {
+    /// The gate itself is right and always was — a row the header cannot hold falls back to
+    /// `iconOnly` — but its budget was the *retired provider capsule's* 34pt rather than the
+    /// header's own room, which put the cliff at **110%**: the first step up from the default, and
+    /// six of these ten. The doc beside it said Large and Larger. Reported as "icon + text mode
+    /// isn't showing text any more" by someone sitting at 110%.
+    ///
+    /// **This test could not have caught that, and the reason is the arguments it used to take.**
+    /// They were `0.9, 1.0, 1.25, 1.35` — the four *named presets*, which were the only sizes that
+    /// existed when the gate was written. `FontSize` became a 90–135 slider in steps of 5 and the
+    /// six sizes in between were never asked about by anything. So the table below is the whole
+    /// selectable set, spelled percentage by percentage, and it is written out rather than derived
+    /// from `rowBudget` — a table that recomputes the thing it is checking agrees with any budget
+    /// it is given, including the wrong one.
+    ///
+    /// If the slider's range or step ever widens, this fails as unhandled percentages rather than
+    /// passing silently over them, which is the whole point of listing them.
+    @Test(arguments: [(90, true), (95, true), (100, true), (105, true), (110, true), (115, true),
+                      (120, false), (125, false), (130, false), (135, false)])
+    func theTextSizesThatGetWords(percent: Int, expected: Bool) {
+        let scale = FontSize(percent: percent).scale
         let bar = Self.ladder(.iconAndText, scale: scale)
         let row = PaneBarTitleMetrics.rowHeight(pillHeight: PaneNavMetrics.pill(.small).height, scale: scale)
         #expect((bar.titledRungs == 1) == expected,
-                "at scale \(scale) the titled row is \(row)pt against a \(PaneBarTitleMetrics.rowBudget)pt budget")
-        if expected {
-            #expect(bar.height(forRung: 0) <= PaneBarTitleMetrics.rowBudget)
-        }
+                "at \(percent)% the titled row is \(row)pt against a \(PaneBarTitleMetrics.rowBudget)pt budget")
     }
 
-    /// Both scales that *do* title must actually fit, and both that do not must actually overflow —
-    /// the gate is only meaningful if its two sides are real. A gate whose "false" branch never
-    /// triggers is a gate that has never been tested.
-    @Test func theGateHasBothDirections() {
+    /// The table above covers exactly the sizes the app offers, and nothing outside it.
+    ///
+    /// A pair of tables that drift apart is the failure this prevents: the arguments above are
+    /// hand-written, so without this a percentage added to the slider would simply go unasked.
+    @Test func theTableCoversEverySelectableSize() {
+        #expect(Self.gatedPercents == FontSize.selectablePercents)
+    }
+
+    private static let gatedPercents = [90, 95, 100, 105, 110, 115, 120, 125, 130, 135]
+
+    /// Both sides of the gate are real — some sizes title and some do not — and the boundary is not
+    /// sitting on the budget by a hair.
+    ///
+    /// **The margin is the assertion.** `rowBudget` was calibrated to fall *between* two of the five
+    /// row heights the app can produce (35 and 37), so the widest admitted row and the narrowest
+    /// refused one should each be a point clear of it. A budget nudged onto either of those values
+    /// still passes the table above, and fails here — which is what stops the next edit from
+    /// re-creating the original defect by moving the line onto a measured number.
+    @Test func theGateHasBothDirectionsWithMarginOnEach() {
         let pill = PaneNavMetrics.pill(.small).height
-        #expect(PaneBarTitleMetrics.rowFits(pillHeight: pill, scale: 1.0))
-        #expect(!PaneBarTitleMetrics.rowFits(pillHeight: pill, scale: 1.25))
+        let rows = FontSize.selectablePercents.map {
+            (percent: $0, row: PaneBarTitleMetrics.rowHeight(pillHeight: pill,
+                                                             scale: FontSize(percent: $0).scale))
+        }
+        let admitted = rows.filter { $0.row <= PaneBarTitleMetrics.rowBudget }
+        let refused = rows.filter { $0.row > PaneBarTitleMetrics.rowBudget }
+        #expect(!admitted.isEmpty && !refused.isEmpty,
+                "one side of the gate is empty, so it has never been exercised")
+        #expect(admitted.map(\.row).max()! <= PaneBarTitleMetrics.rowBudget - 1,
+                "the widest admitted row is flush against the budget")
+        #expect(refused.map(\.row).min()! >= PaneBarTitleMetrics.rowBudget + 1,
+                "the narrowest refused row is flush against the budget")
     }
 
     /// `iconOnly` is a pin downward: no width and no text size ever produces a title.
-    @Test(arguments: [CGFloat(0.9), 1.0, 1.25, 1.35])
-    func iconOnlyNeverTitles(scale: CGFloat) {
-        #expect(Self.ladder(.iconOnly, scale: scale).titledRungs == 0)
+    @Test(arguments: FontSize.selectablePercents)
+    func iconOnlyNeverTitles(percent: Int) {
+        #expect(Self.ladder(.iconOnly, scale: FontSize(percent: percent).scale).titledRungs == 0)
     }
 
-    /// With titles declined, the ladder is *exactly* the one that shipped before them — same rung
-    /// count, same widths. This is what makes Icon Only and the large text sizes free of regression
+    /// With titles declined — by the preference or by the gate — the ladder is *exactly* the one
+    /// that shipped before them: no rung taller than its own pill, and one rung shorter for having
+    /// no titled head. This is what makes Icon Only and the large text sizes free of regression
     /// risk rather than merely believed to be.
-    @Test func decliningTitlesRestoresTheOriginalLadder() {
-        let titled = Self.ladder(.iconAndText, scale: 1.35)   // gate declines
-        let plain = Self.ladder(.iconOnly, scale: 1.35)
-        #expect(titled.terminal == plain.terminal)
+    ///
+    /// **Asserted against the pill rather than against the titled ladder at one hard-coded scale.**
+    /// It used to compare `iconAndText` at 1.35 with `iconOnly` at 1.35 and expect them equal,
+    /// which says nothing at all about any size the gate admits — and would have gone on passing if
+    /// the gate had started refusing every size there is.
+    @Test(arguments: FontSize.selectablePercents)
+    func decliningTitlesRestoresTheOriginalLadder(percent: Int) {
+        let plain = Self.ladder(.iconOnly, scale: FontSize(percent: percent).scale)
+        #expect(plain.titledRungs == 0)
         for rung in 0...plain.terminal {
-            #expect(titled.width(forRung: rung) == plain.width(forRung: rung), "rung \(rung)")
-            #expect(titled.height(forRung: rung) == plain.height(forRung: rung), "rung \(rung)")
+            #expect(plain.height(forRung: rung)
+                    == PaneNavMetrics.pill(plain.controlSize(forRung: rung)).height,
+                    "rung \(rung) at \(percent)% is taller than its own pill")
+        }
+        // And a size the gate refuses lands on that same ladder by the other route.
+        let gated = Self.ladder(.iconAndText, scale: FontSize(percent: percent).scale)
+        guard gated.titledRungs == 0 else { return }
+        #expect(gated.terminal == plain.terminal)
+        for rung in 0...plain.terminal {
+            #expect(gated.width(forRung: rung) == plain.width(forRung: rung), "rung \(rung)")
+            #expect(gated.height(forRung: rung) == plain.height(forRung: rung), "rung \(rung)")
         }
     }
 

@@ -115,8 +115,10 @@ import Design
             #expect(abs(top - bottom) <= 2.5,
                     "\(name) @\(scale) \(width)pt: \(top)pt of clear card above the content and \(bottom)pt below — a row is overflowing its box, or floating inside a reservation larger than it")
             // And the floor, which the balance above does not imply: two equally crowded edges would
-            // satisfy it. 6pt is under every measured value and well clear of the 9pt padding.
-            #expect(min(top, bottom) >= 6,
+            // satisfy it. 6pt is under every measured value and well clear of the 9pt padding — and
+            // it is what `PaneBarTitleMetrics.rowBudget` is calibrated against, so the two read the
+            // same constant rather than each carrying a copy.
+            #expect(min(top, bottom) >= Self.headerInkFloor,
                     "\(name) @\(scale) \(width)pt: the content reaches \(min(top, bottom))pt from a card edge")
         }
     }
@@ -375,8 +377,8 @@ import Design
     /// ~16pt wider than it used to. The bill lands on the one element that cannot give way at the
     /// 250pt clamp, which is the provider capsule: its name is drawn by an AppKit menu label that
     /// **clips rather than ellipsises**, so `paneHeaderNarrow250WithColumnsControls` went from a
-    /// readable "M" to a glyph sliced down the middle. Icon Only and the Large-text fallback are
-    /// both untitled, so both were affected.
+    /// readable "M" to a glyph sliced down the middle. Icon Only is untitled at every rung, and
+    /// while it existed the large-text fallback was too, so both were affected.
     ///
     /// **What holds the drawn half of this is `theLadderRendersItsGolden`**, whose 250pt rows pinned
     /// the bar's leading edge at x=77 — the 6pt the capsule lost was exactly that edge moving to 71 —
@@ -621,18 +623,91 @@ import Design
     /// padding went — Finder's rule, where every toolbar ground is one height.
     ///
     /// The header still pins its container to these numbers, so a wrong answer moves the breadcrumb.
+    /// **Where the text-size gate's line belongs, measured rather than argued.**
+    ///
+    /// `PaneBarTitleMetrics.rowBudget` decides which text sizes wear words, and it cannot be
+    /// derived: the arithmetic it gates on (`pill + gap + NSLayoutManager.defaultLineHeight`) is a
+    /// type-setting line box that over-reports where ink actually lands, so no sum of the header's
+    /// constants reconstructs the drawn row. It is calibrated against this test instead.
+    ///
+    /// The rule being calibrated to is the header's own, and it is not new: content keeps **6pt**
+    /// clear of both card edges, which is what `theHeaderIsBalancedTopToBottom` has always held the
+    /// header to.
+    ///
+    /// **The calibration run, with the gate lifted so every size drew words** — `top / bottom` in
+    /// points inside an 81pt header. Only the first four columns are what this test measures today;
+    /// the last two are what 120% and above *would* look like titled, which is the observation the
+    /// budget was set from and cannot be re-derived from a passing run:
+    ///
+    /// | 90% | 100% | 110% | 115% | 120% | 135% |
+    /// |---|---|---|---|---|---|
+    /// | 9.0 / 9.5 | 7.5 / 8.0 | 7.0 / 7.5 | 7.0 / 7.5 | **5.5 / 6.0** | **4.0 / 4.5** |
+    ///
+    /// So the words fit through 115% and crowd the card from 120% up, and the budget is set between
+    /// the row heights those two produce. The old budget put the line at 110% — the first step above
+    /// the default — while its own doc claimed Large and Larger; that is the defect this test
+    /// exists to have caught, and it is why the check is ink and not arithmetic.
+    ///
+    /// **What this test guards, and what it does not.** It catches a budget set too *high*: raise it
+    /// and the sizes it newly admits are rendered here, and their ink fails the floor at 120% and
+    /// above. It cannot catch a budget set too *low*, which is the direction the original defect
+    /// went — refuse a size and the header simply renders untitled, which clears the edges easily.
+    /// That direction is held by `PaneBarTitleTests.theTextSizesThatGetWords`, whose table names the
+    /// percentages that must have words. Neither test is sufficient alone.
+    ///
+    /// The titled/untitled check below is what keeps the floor honest: without it a header that had
+    /// silently stopped drawing words would sail through the clearance assertion. The discriminator
+    /// is where ink begins, because words hang below the pills — a titled header's ink starts at
+    /// **9.0pt or less** from the top edge, an untitled one's at **13.0pt or more**, and 11 sits in
+    /// the gap between the two families.
+    @Test(arguments: FontSize.selectablePercents)
+    func theTitledHeaderClearsBothEdges(percent: Int) {
+        let scale = FontSize(percent: percent).scale
+        // Deliberately restating `PaneBarLadder.init`'s gate rather than asking a ladder for it:
+        // `PaneHeader.barLadder` takes its scale from the environment, so a ladder built out here
+        // would answer for the unscaled header and agree with the render by luck. The
+        // `columnsLadder()` term is not part of the gate — it is the check that this test host's
+        // `paneBarLabelMode` default is still `iconAndText`, without which every case below would
+        // take the untitled branch and pass.
+        let titled = Self.columnsLadder().titledRungs == 1 && PaneBarTitleMetrics.rowFits(
+            pillHeight: PaneNavMetrics.pill(PaneBarIconSize.regular.ceiling).height, scale: scale)
+        guard let (top, bottom) = Self.inkGaps(
+            Self.header("iCloud Drive").environment(\.appFontScale, scale), width: 660) else {
+            Issue.record("\(percent)%: the header painted nothing at all")
+            return
+        }
+        #expect(min(top, bottom) >= Self.headerInkFloor,
+                "\(percent)%: content reaches \(min(top, bottom))pt from a card edge, inside \(LiquidGlass.headerHeight)pt")
+        if titled {
+            #expect(top <= Self.titledInkCeiling,
+                    "\(percent)%: ink starts \(top)pt down, where an UNTITLED bar starts — the words are not drawn, so the clearance above proves nothing")
+        } else {
+            #expect(top > Self.titledInkCeiling,
+                    "\(percent)%: the gate refused the words, but ink starts \(top)pt down, which is where a TITLED bar starts")
+        }
+    }
+
+    /// The clearance the header keeps from its own card edges — the same floor
+    /// `theHeaderIsBalancedTopToBottom` applies, named here because `rowBudget` is calibrated to it
+    /// and a second copy of the number would let the two drift.
+    private static let headerInkFloor: CGFloat = 6
+    /// How far down a *titled* header's ink may start: 9.0pt at the smallest text size, less as the
+    /// words grow, against 13.0pt or more for an untitled bar. 11 is the gap between the two.
+    private static let titledInkCeiling: CGFloat = 11
+
     @Test func onlyATitledRungIsTallerThanAPill() {
         let ladder = Self.columnsLadder()
         #expect(ladder.height(forRung: ladder.terminal) == PaneNavMetrics.pill(.mini).height)
         // The untitled rung at the ceiling: a plain pill, with the switch no longer out-topping it.
         let pill = PaneNavMetrics.pill(PaneBarIconSize.regular.ceiling).height
         #expect(ladder.height(forRung: ladder.titledRungs) == pill)
-        // The titled rung is the pill, the gap and one line of title — and must fit the budget the
-        // pinned header allows, which is the gate `PaneBarTitleMetrics.rowFits` applies.
+        // The titled rung is the pill, the gap and one line of title. What that row is allowed to
+        // *cost* is no longer asserted here against a constant — the constant was the retired
+        // provider capsule's and was never the header's room; `theTitledHeaderClearsBothEdges`
+        // measures the drawn thing instead.
         if ladder.titledRungs > 0 {
             #expect(ladder.height(forRung: 0)
                     == PaneBarTitleMetrics.rowHeight(pillHeight: pill, scale: 1))
-            #expect(ladder.height(forRung: 0) <= PaneBarTitleMetrics.rowBudget)
         }
     }
 

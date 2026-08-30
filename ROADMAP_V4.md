@@ -278,6 +278,13 @@ do not live in the code:
   Small only**, and those two sizes fall back to Icon Only. Clamping the title was rejected — it
   would give the person who chose Larger the one label in the app that refuses to grow.
 
+  **This paragraph was wrong when it was written, and is left standing as the record of it.** The
+  gate's budget was 34pt — the retired provider capsule's height, not the header's own room — so the
+  cliff was never at Large. It was at **110%**, the first step above the default, and by the time
+  the font size became a 90–135 slider that was six of the ten sizes it reaches. Fixed on `main` on
+  2026-08-29 by calibrating the budget against drawn ink: words through 115%, Icon Only from 120%.
+  See `PaneBarTitleMetrics.rowBudget`.
+
 The rule underneath the titles is worth keeping: **a title changes when the ACTION changes, not when
 the STATE changes.** Scan → Stop swaps because the rung performs a different act; Hidden Files does
 not, because its eye already carries the state and a word that changed with it would move every item
