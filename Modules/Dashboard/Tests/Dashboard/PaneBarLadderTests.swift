@@ -73,6 +73,18 @@ import Design
         return host.fittingSize.width
     }
 
+    /// The laid-out height of one rung's bar, off the same host `barWidth` reads.
+    ///
+    /// **No scale parameter, deliberately** — see `theEnvironmentDoesNotReachABarBuiltOffTheStruct`.
+    /// A bar reached through `barVariant` draws its words at whatever `appFontScale` the unhosted
+    /// `PaneHeader` struct holds, which is the default, so one taken here would be accepted and
+    /// ignored.
+    private func barHeight(_ view: PaneHeader, rung: Int, ladder: PaneBarLadder) -> CGFloat {
+        let host = NSHostingView(rootView: AnyView(view.barVariant(rung, ladder)))
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.height
+    }
+
     private func fingerprint<V: View>(_ view: V, width: CGFloat) -> String {
         rings(view, width: width)
             .map { "\(Int($0.minX.rounded())),\(Int($0.minY.rounded()))/\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" }
@@ -326,6 +338,82 @@ import Design
             #expect(abs(barWidth(view, rung: rung, ladder: ladder) - ladder.width(forRung: rung)) <= 0.5,
                     "rung \(rung) draws \(barWidth(view, rung: rung, ladder: ladder))pt where the ladder priced \(ladder.width(forRung: rung))pt")
         }
+    }
+
+    /// **The height half of the test above, which did not exist** — and its absence is what let the
+    /// row's reservation run a point short of its own words.
+    ///
+    /// The width half has been swept per rung since the ladder became arithmetic. Nothing ever
+    /// compared `PaneBarLayout.height(of:titled:)` to the bar it prices, and that number is not
+    /// decorative: it is what `PaneHeader.tallestRungHeight` reserves, which is the bar container's
+    /// `minHeight`/`maxHeight`. A short answer is a box the titled rung hangs out of — and a
+    /// SwiftUI child is not clipped by a `maxHeight`, so the only symptom was a word reaching a
+    /// point further into the 10pt rule `theBarAndTheTrailKeepTheirGap` guards. That gap had the
+    /// room, so nothing anywhere went red.
+    ///
+    /// It ran short because `LabelMetrics.lineHeight` returned
+    /// `NSLayoutManager.defaultLineHeight`, 1pt under the box SwiftUI gives a `Text` at 9.5–11.5pt
+    /// — this bar's 10pt title at 95% through 115%. At the default size, which is what this
+    /// measures, the titled rung draws 35pt and the ladder reserved 34.
+    ///
+    /// **This speaks for ONE text size, and the sweep it wants is not available here.** Hosting
+    /// `barVariant` under `.environment(\.appFontScale, scale)` does not work and fails
+    /// *silently*: `appFontScale` is read by the `PaneHeader` struct, which a direct method call
+    /// never puts in a view tree, so the words render at 10pt whatever is passed and every case
+    /// measures the same 35pt. `theEnvironmentDoesNotReachABarBuiltOffTheStruct` below pins that,
+    /// so the next reader to reach for the sweep finds out from a test rather than from ten
+    /// identical passes. The other nine sizes are held by the chain instead:
+    /// `LabelMetricsTests.lineHeightMatchesTheDrawnLineBox` checks `lineHeight` against a drawn
+    /// `Text` at every scale the slider reaches, `rowHeight` is pill + gap + that, and
+    /// `theTitledHeaderClearsBothEdges` renders all ten and measures the result.
+    @Test func everyRungIsReservedAsTallAsTheBarItDraws() {
+        // The test host's own label-mode default, asserted rather than assumed — the same check
+        // `theTitledHeaderClearsBothEdges` makes, and for the same reason: under `iconOnly` there is
+        // no titled rung at all and this would pass on untitled ones alone.
+        let view = Self.header("iCloud Drive")
+        let ladder = view.barLadder
+        #expect(ladder.titledRungs == 1, "the test host is not in `iconAndText`, so no rung here is titled")
+        for rung in 0...ladder.terminal {
+            let drawn = barHeight(view, rung: rung, ladder: ladder)
+            #expect(drawn == ladder.height(forRung: rung),
+                    "rung \(rung)\(ladder.isTitled(forRung: rung) ? " (titled)" : ""): the bar draws \(drawn)pt where the ladder reserved \(drawn == ladder.height(forRung: rung) ? drawn : ladder.height(forRung: rung))pt")
+        }
+    }
+
+    /// Why the test above takes no text size, measured rather than asserted from how `@Environment`
+    /// is meant to work.
+    ///
+    /// `PaneHeader` reads `appFontScale` as an `@Environment` property of the struct. `barVariant`
+    /// is a method on that struct, so a bar reached through it draws whatever `self` holds — the
+    /// default — and an `.environment(_:_:)` hung on the returned view arrives too late to change
+    /// the font `titledItem` already resolved. The failure is a silent one: the ladder is priced
+    /// for the scale it was handed while the bar draws at 100%, so a sweep would report ten
+    /// identical numbers and read as ten passes.
+    @Test func theEnvironmentDoesNotReachABarBuiltOffTheStruct() {
+        let view = Self.header("iCloud Drive")
+        var drawn: [Int: CGFloat] = [:], reserved: [Int: CGFloat] = [:]
+        for percent in FontSize.selectablePercents {
+            let scale = FontSize(percent: percent).scale
+            let ladder = PaneBarLadder(arrangement: .default, available: view.availableItems,
+                                       ceiling: PaneBarIconSize.regular.ceiling,
+                                       labelMode: .iconAndText, scale: scale)
+            // Only the sizes whose rung 0 is TITLED. Above the gate it is a bare pill, which is one
+            // height for a reason that has nothing to do with the environment — and letting those
+            // into the set is what made the first draft of this fail for the wrong reason.
+            guard ladder.isTitled(forRung: 0) else { continue }
+            let host = NSHostingView(rootView: AnyView(
+                view.barVariant(0, ladder).environment(\.appFontScale, scale)))
+            host.layoutSubtreeIfNeeded()
+            drawn[percent] = host.fittingSize.height
+            reserved[percent] = ladder.height(forRung: 0)
+        }
+        #expect(drawn.count >= 4, "too few titled sizes (\(drawn.count)) for this to say anything")
+        // The ladder DOES follow the scale — so the two halves of the comparison a sweep would make
+        // are priced differently, and it is only the drawn half that is stuck.
+        #expect(Set(reserved.values).count > 1,
+                "the reservation stopped following the text size, so the sweep this rules out would have been vacuous for a second reason")
+        #expect(Set(drawn.values).count == 1,
+                "the environment now reaches a bar built off the struct (\(drawn.sorted { $0.key < $1.key })) — `everyRungIsReservedAsTallAsTheBarItDraws` can take its text-size sweep back")
     }
 
     /// Whatever rung is chosen, the bar drawn is *one of the ladder's rungs* — not some width in
@@ -626,22 +714,36 @@ import Design
     /// **Where the text-size gate's line belongs, measured rather than argued.**
     ///
     /// `PaneBarTitleMetrics.rowBudget` decides which text sizes wear words, and it cannot be
-    /// derived: the arithmetic it gates on (`pill + gap + NSLayoutManager.defaultLineHeight`) is a
-    /// type-setting line box that over-reports where ink actually lands, so no sum of the header's
-    /// constants reconstructs the drawn row. It is calibrated against this test instead.
+    /// derived: the arithmetic it gates on is the row's *box*, and the floor below is about where
+    /// its *ink* lands — the words sit inside that box with their own leading around them, so no
+    /// sum of the header's constants reconstructs these numbers. It is calibrated against this test
+    /// instead.
+    ///
+    /// That was the right conclusion off a wrong premise, and the premise is worth correcting here
+    /// because this doc carried it: the sum used to be described as a line box that "over-reports
+    /// where ink actually lands", by up to 3pt. It under-reported the box —
+    /// `NSLayoutManager.defaultLineHeight` is 1pt short of what SwiftUI lays a `Text` out at
+    /// between 9.5 and 11.5pt. `everyRungIsPricedAsTheBarItDraws`'s height counterpart above is
+    /// what now holds the sum to the drawn rung; the calibration below is unaffected either way,
+    /// because it never read the sum.
     ///
     /// The rule being calibrated to is the header's own, and it is not new: content keeps **6pt**
     /// clear of both card edges, which is what `theHeaderIsBalancedTopToBottom` has always held the
     /// header to.
     ///
     /// **The calibration run, with the gate lifted so every size drew words** — `top / bottom` in
-    /// points inside an 81pt header. Only the first four columns are what this test measures today;
-    /// the last two are what 120% and above *would* look like titled, which is the observation the
+    /// points inside an 81pt header. Only the first six columns are what this test measures today;
+    /// the last four are what 120% and above *would* look like titled, which is the observation the
     /// budget was set from and cannot be re-derived from a passing run:
     ///
-    /// | 90% | 100% | 110% | 115% | 120% | 135% |
-    /// |---|---|---|---|---|---|
-    /// | 9.0 / 9.5 | 7.5 / 8.0 | 7.0 / 7.5 | 7.0 / 7.5 | **5.5 / 6.0** | **4.0 / 4.5** |
+    /// | 90% | 95% | 100% | 105% | 110% | 115% | 120% | 125% | 130% | 135% |
+    /// |---|---|---|---|---|---|---|---|---|---|
+    /// | 9.0 / 9.5 | 8.0 / 8.5 | 7.0 / 7.5 | 7.0 / 7.5 | 6.5 / 7.0 | 6.5 / 7.0 | **5.5 / 6.0** | **5.0 / 5.5** | **4.0 / 4.5** | **4.0 / 4.5** |
+    ///
+    /// Re-run in full when `LabelMetrics.lineHeight` was corrected — every titled size sits about a
+    /// half point tighter than the run this replaces, because the row now reserves the point its
+    /// words were already using. 120% and above did not move at all, which is the check that the
+    /// correction only touched the sizes it was supposed to.
     ///
     /// So the words fit through 115% and crowd the card from 120% up, and the budget is set between
     /// the row heights those two produce. The old budget put the line at 110% — the first step above

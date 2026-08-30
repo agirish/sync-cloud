@@ -23,6 +23,31 @@ private let headerTexts = [
 /// The four app font scales. The ladder has to be right at every one of them.
 private let appFontScales: [CGFloat] = FontSize.allCases.map(\.scale)
 
+/// **Every scale the size slider can land on**, not the four named presets `appFontScales` carries.
+///
+/// The height cases below need the whole set and the width cases above do not, which is a fact
+/// about where the answer changes rather than a preference: the line box `lineHeight` returns steps
+/// with the point size, and the 10pt pane-bar title lands on 9.5 and 10.5pt at 95% and 105% — two
+/// of the five sizes where `defaultLineHeight` was short, and neither of them a named preset. A
+/// fixture list of presets could not have seen it. Derived from `selectablePercents` rather than
+/// written out, so widening the slider widens this.
+private let everySelectableScale: [CGFloat] =
+    FontSize.selectablePercents.map { FontSize(percent: $0).scale }
+
+/// The faces whose line box is worth pinning: the pane bar's own title font at the top, then one
+/// of each kind the app draws — a body size, a caption, a heavier face, and the two the `nsFont`
+/// design/digits paths compose, since a face that fell back would report the wrong box as silently
+/// as it once reported the wrong width.
+private let lineHeightFonts: [ScaledFont] = [
+    .system(size: 10, weight: .regular),
+    .system(size: 13),
+    .caption,
+    .system(size: 12, weight: .semibold),
+    .system(size: 11, weight: .bold),
+    .system(.body, design: .rounded),
+    .system(size: 16, weight: .semibold, design: .rounded).monospacedDigit(),
+]
+
 /// One shipping call site that draws a non-default face, and a string it really renders.
 ///
 /// A struct rather than a tuple because `@Test(arguments:)` only destructures pairs, and because
@@ -105,6 +130,18 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
         return host.fittingSize.width
     }
 
+    /// The same hosted view, read the other way. Separate from `hostedWidth` rather than returning
+    /// a size, so the width cases keep reading exactly as they did.
+    private func hostedHeight<V: View>(_ view: V) -> CGFloat {
+        let host = NSHostingView(rootView: AnyView(view))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 4000, height: 200),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.height
+    }
+
     // MARK: - Text
 
     @Test(arguments: headerTexts) func textWidthMatchesTheDrawnRun(text: String) {
@@ -172,6 +209,90 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
         #expect(image.size.width == 18, "fixture stopped straddling — pick another symbol")
         #expect(drawn == 17.5)
         #expect(image.alignmentRect.width == drawn)
+    }
+
+    // MARK: - Height
+
+    /// **The one number in this file that had no test at all**, and the file header's "re-checks
+    /// all of them" is why nobody went looking for one. Same shape as the width cases: a real
+    /// hosted `Text`, at every scale the slider reaches, in the faces the app draws.
+    ///
+    /// The fixture varies the FONT and not the string, which is the one way this differs from the
+    /// widths, and it is a property rather than a convenience — a line box is the same height
+    /// whatever is in it. `aLineBoxDoesNotDependOnWhatIsInIt` below asserts that rather than
+    /// leaving it as the reason this list is short.
+    @Test(arguments: lineHeightFonts) func lineHeightMatchesTheDrawnLineBox(font: ScaledFont) {
+        for scale in everySelectableScale {
+            let computed = LabelMetrics.lineHeight(font: font, scale: scale)
+            let drawn = hostedHeight(Text("Hg").font(font.resolved(scale: scale)))
+            #expect(computed == drawn,
+                    "\(font.pointSize(scale: scale))pt at scale \(scale): computed \(computed)pt, drawn \(drawn)pt")
+        }
+    }
+
+    /// The measurement source, pinned as its own claim — the height half of
+    /// `imageSizeIsNotTheLaidOutWidthButTheAlignmentRectIs`, and the same lesson: the obvious API is
+    /// right often enough to look correct.
+    ///
+    /// `NSLayoutManager.defaultLineHeight(for:)` is what this file called until it was measured. It
+    /// agrees with the drawn box at most sizes and is **1pt short** at the rest, and the ones it is
+    /// short at are not exotic — 10pt and 11pt are the pane bar's title at 100% and 110% text. The
+    /// direction is what makes it worth a case of its own: short, so a caller reserving a row off
+    /// it gets a box its own text hangs out of, which has no loud symptom.
+    ///
+    /// Two assertions per size, because either alone would pass on the wrong thing: the first is
+    /// that the two APIs really do part company here (a size where they agree cannot fail), the
+    /// second that the one this file now calls is the one that matches the drawn view.
+    @Test func defaultLineHeightIsNotTheDrawnLineBoxButTheAttributedSizeIs() {
+        let layoutManager = NSLayoutManager()
+        for pointSize in [CGFloat(9.5), 10, 10.5, 11, 11.5] {
+            let font = NSFont.systemFont(ofSize: pointSize)
+            let drawn = hostedHeight(Text("Hg").font(.system(size: pointSize)))
+            let stated = layoutManager.defaultLineHeight(for: font)
+            #expect(stated == drawn - 1,
+                    "\(pointSize)pt: defaultLineHeight is \(stated)pt against a drawn \(drawn)pt — the fixture no longer straddles, so this case cannot fail")
+            #expect(NSAttributedString(string: "Hg", attributes: [.font: font]).size().height == drawn)
+        }
+        // And a size where the two agree, so the claim above is "sometimes short" rather than
+        // "always short" — which is exactly what makes the wrong API look correct.
+        #expect(layoutManager.defaultLineHeight(for: NSFont.systemFont(ofSize: 12))
+                == hostedHeight(Text("Hg").font(.system(size: 12))))
+    }
+
+    /// A line box is a property of the font, not of the run — which is what lets `lineHeight` take
+    /// no string and cache one entry per font.
+    ///
+    /// **With the one exception that has to be avoided rather than reasoned about**: the EMPTY
+    /// string. An attributed string with no characters carries no font run at all, so `size()`
+    /// ignores the font it was handed and answers for a default face — and `lineHeight` built
+    /// exactly that key before this was measured. It was harmless only while the key was not the
+    /// thing being measured.
+    ///
+    /// **Stated as "the empty string ignores the font", not as "it differs from the box",** because
+    /// the second is not always true and the near miss is the whole trap: the default it falls back
+    /// to measures 14.0, which is 1pt out at 10pt and at 13pt and **exactly right at 11pt**. An
+    /// assertion written the obvious way passes at 11pt on a number that means nothing — measured,
+    /// by writing it that way first.
+    @Test func aLineBoxDoesNotDependOnWhatIsInIt() {
+        let pointSizes: [CGFloat] = [10, 11, 13]
+        func height(_ text: String, _ pointSize: CGFloat) -> CGFloat {
+            NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: pointSize)])
+                .size().height
+        }
+        for pointSize in pointSizes {
+            let box = height("Hg", pointSize)
+            for text in ["Hg", "x", "Scan", "New Folder", "Ág", "日本語", "—"] {
+                #expect(height(text, pointSize) == box,
+                        "\"\(text)\" at \(pointSize)pt is \(height(text, pointSize))pt, not \(box)pt")
+            }
+        }
+        // The boxes really do move with the font — without this the claim below is vacuous.
+        #expect(Set(pointSizes.map { height("Hg", $0) }).count == pointSizes.count,
+                "the three sizes share a line box, so an empty string that ignored the font could not be told apart from one that did not")
+        #expect(Set(pointSizes.map { height("", $0) }).count == 1,
+                "the empty string now tracks the font — the guard `lineHeightSample` exists for is no longer pinned by anything")
+        #expect(height("", 10) != height("Hg", 10),
+                "and at 10pt it lands on the real box too, so nothing here discriminates any more")
     }
 
     // MARK: - Composites

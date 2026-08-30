@@ -72,11 +72,19 @@ import Design
     /// Both sides of the gate are real — some sizes title and some do not — and the boundary is not
     /// sitting on the budget by a hair.
     ///
-    /// **The margin is the assertion.** `rowBudget` was calibrated to fall *between* two of the five
-    /// row heights the app can produce (35 and 37), so the widest admitted row and the narrowest
-    /// refused one should each be a point clear of it. A budget nudged onto either of those values
-    /// still passes the table above, and fails here — which is what stops the next edit from
-    /// re-creating the original defect by moving the line onto a measured number.
+    /// **The margin is the assertion.** `rowBudget` is calibrated to fall *between* two of the row
+    /// heights the app can produce (36 and 37), so the widest admitted row and the narrowest
+    /// refused one should each be clear of it. A budget nudged onto either of those values still
+    /// passes the table above, and fails here — which is what stops the next edit from re-creating
+    /// the original defect by moving the line onto a measured number.
+    ///
+    /// **The margin is half a point, and it used to be a whole one.** That is not a weakening: the
+    /// row heights only *looked* 2pt apart while `LabelMetrics.lineHeight` returned
+    /// `NSLayoutManager.defaultLineHeight`, which steps more coarsely than the type it is
+    /// describing and was a point short at five of the ten sizes. Measured against the drawn line
+    /// box the rows are 33, 34, 35, 36, 37, 38 — six consecutive integers, so no budget anywhere
+    /// has a whole point on both sides and half is the widest margin that exists. Stated as a named
+    /// constant so the number is the claim rather than a `- 1` nobody re-derives.
     @Test func theGateHasBothDirectionsWithMarginOnEach() {
         let pill = PaneNavMetrics.pill(.small).height
         let rows = FontSize.selectablePercents.map {
@@ -87,11 +95,20 @@ import Design
         let refused = rows.filter { $0.row > PaneBarTitleMetrics.rowBudget }
         #expect(!admitted.isEmpty && !refused.isEmpty,
                 "one side of the gate is empty, so it has never been exercised")
-        #expect(admitted.map(\.row).max()! <= PaneBarTitleMetrics.rowBudget - 1,
-                "the widest admitted row is flush against the budget")
-        #expect(refused.map(\.row).min()! >= PaneBarTitleMetrics.rowBudget + 1,
-                "the narrowest refused row is flush against the budget")
+        #expect(admitted.map(\.row).max()! <= PaneBarTitleMetrics.rowBudget - Self.gateMargin,
+                "the widest admitted row (\(admitted.map(\.row).max()!)pt) is flush against the \(PaneBarTitleMetrics.rowBudget)pt budget")
+        #expect(refused.map(\.row).min()! >= PaneBarTitleMetrics.rowBudget + Self.gateMargin,
+                "the narrowest refused row (\(refused.map(\.row).min()!)pt) is flush against the \(PaneBarTitleMetrics.rowBudget)pt budget")
+        // The rows really are a point apart, which is what makes half a point the whole of what is
+        // available. Without this the margin above could be quietly narrowed further and read as
+        // the same story.
+        let distinct = Set(rows.map(\.row)).sorted()
+        #expect(zip(distinct, distinct.dropFirst()).allSatisfy { $1 - $0 == 1 },
+                "the producible rows are \(distinct) — no longer one point apart, so re-derive the margin instead of keeping \(Self.gateMargin)")
     }
+
+    /// How far the budget must sit from the nearest row it decides about, in either direction.
+    private static let gateMargin: CGFloat = 0.5
 
     /// `iconOnly` is a pin downward: no width and no text size ever produces a title.
     @Test(arguments: FontSize.selectablePercents)

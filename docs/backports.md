@@ -1636,11 +1636,22 @@ lines still have the four named presets, so even the shape of the bug is absent.
 **Per-file pick notes, if `v4.x` ever takes it.** Four files, and only the first is the fix:
 
 - `Modules/Dashboard/Sources/Dashboard/PaneBarArrangement.swift` — `rowBudget` 34 → 36, plus the
-  doc on it and on `PaneBarLabelMode`. **Re-measure before trusting the 36 there.** It is calibrated
-  against drawn ink on `main`'s header, and `main` retired the provider capsule (`fd068fc4`) while
-  `v4.x` still draws it. The capsule is the taller thing in that row, so the clearances the number
-  was fitted to are not `v4.x`'s clearances; run `theTitledHeaderClearsBothEdges` there and read the
-  table it prints rather than porting the constant on faith.
+  doc on it and on `PaneBarLabelMode`. **Re-measure before trusting the number there**, and note
+  that `main` has since moved it again, to 36.5 — see the 2026-08-30 row below, which this one must
+  now be picked *with* rather than before.
+
+  **CORRECTED 2026-08-30.** This bullet used to give the reason as "`main` retired the provider
+  capsule (`fd068fc4`) while `v4.x` still draws it — the capsule is the taller thing in that row, so
+  the clearances the number was fitted to are not `v4.x`'s clearances". That is false. `v4.x` was
+  cut from `v4.6` (`d3697df9`) on 2026-08-27, the same day `fd068fc4` landed, so it inherited the
+  retirement — `git branch -r --contains fd068fc4` names `origin/v4.x`, and that line's own
+  `rowBudget` doc reads "with the capsule gone the bar sets its own". The two headers are the same
+  geometry, nine diff lines apart, none of them geometric.
+
+  The advice survives the correction with a different reason: **`v4.x` has no instrument to
+  calibrate against.** `theTitledHeaderClearsBothEdges` and `headerInkFloor` are absent from that
+  line entirely, so the ink-clearance test is a prerequisite of the pick, not an optional check
+  after it.
 - `Modules/Dashboard/Tests/Dashboard/PaneBarTitleTests.swift` — the gate tests, rewritten to sweep
   `FontSize.selectablePercents` instead of the four presets. This is the half that would have caught
   it, and it is worth taking even if the constant turns out to differ.
@@ -1648,6 +1659,106 @@ lines still have the four named presets, so even the shape of the bug is absent.
   and `theHeaderIsBalancedTopToBottom` reading the shared `headerInkFloor`. Machine-pinned
   (`.pixelSampling`), so it will not run on CI on that line either.
 - `Modules/Dashboard/Sources/Dashboard/DashboardViews.swift` — comment only.
+
+### 2026-08-30 — `LabelMetrics.lineHeight` was a point short of the line it measured — RECORDED, not owed (`v4.x` only)
+
+`LabelMetrics.lineHeight` returned `NSLayoutManager.defaultLineHeight(for:)`, which is **1pt short**
+of the box SwiftUI gives a single-line `Text` at 9.5–11.5pt and 15–16pt, and equal elsewhere. Its
+one caller, `PaneBarTitleMetrics.rowHeight`, is a *reservation* — it becomes
+`PaneHeader.tallestRungHeight`, the bar container's `minHeight`/`maxHeight` — so the error ran in
+the unsafe direction: at five of the six text sizes that draw words, the titled rung reserved a box
+its own words hung out of. Nothing clips a SwiftUI child at a `maxHeight`, so the only symptom was a
+word reaching a point further into the 10pt rule between the bar and the breadcrumb, which had the
+room. **No visible defect was found on `main` either** — this was latent, and the reason it was
+invisible is a false claim in `LabelMetrics`' own file header: "`LabelMetricsTests` re-checks all of
+them against the drawn view on every run", written while `lineHeight` had no test anywhere.
+
+Fixed on `main` by measuring `NSAttributedString.size().height` — the same call the widths already
+make. Swept 8–24pt in half-point steps at four weights: the attributed size matched the hosted
+`Text` in all 132 pairs, `defaultLineHeight` missed 60 of them, every miss short by exactly 1pt.
+
+**NOT owed to `v3.x` or `v2.x` — neither carries `lineHeight` at all.** The positive control first,
+since a mis-spelled path answers "absent" on every line at once:
+
+```sh
+git ls-tree -r --name-only origin/main -- Modules/Design/Sources/Design/LabelMetrics.swift  # found
+for l in v4.x v3.x v2.x; do
+  git show origin/$l:Modules/Design/Sources/Design/LabelMetrics.swift | grep -c 'defaultLineHeight'
+done                                                                   # 1, 0, 0
+```
+
+The file is present on all three; the member is not. Those two lines have no pane-bar titles to
+price a row for, which is the same reason they are not owed the `rowBudget` row above.
+
+**`v4.x` carries it, and picking THIS row alone would make that line worse — read this before
+picking either.** `v4.x` is already owed the `rowBudget` row above (it still carries **34**, the
+retired provider capsule's number). The two interact, in the direction that hurts:
+
+| line | rows across 90–135% | budget | words through |
+|---|---|---|---|
+| `v4.x` today | 33 33 34 34 35 35 37 37 38 38 | 34 | 105% |
+| `v4.x` + this row alone | 33 34 35 35 36 36 37 37 38 38 | 34 | **95%** |
+| `v4.x` + both rows | 33 34 35 35 36 36 37 37 38 38 | re-measure | — |
+
+Correcting the line height raises every row at 95–115% by a point, and against an already-too-low
+budget that refuses two more text sizes. **So this row is not independently pickable: it goes after
+the `rowBudget` row or not at all.**
+
+And the budget it goes after cannot be `main`'s **36.5** on faith — but **not for the reason the
+row above gives, which is wrong and is corrected there.** That row says `v4.x` still draws the
+provider capsule; it does not. `fd068fc4` retired it on 2026-08-27 and `v4.x` was cut from `v4.6`
+(`d3697df9`) the same day, so the line inherited the retirement, and its own `rowBudget` doc says so
+in as many words — "with the capsule gone the bar sets its own". The two headers are the same
+geometry: `LiquidGlass.headerHeight` is 81 on both, `tallestRungHeight` is pinned on both, and the
+whole diff between the two `DashboardViews.swift` files is nine lines — one doc comment and the
+collapse glyph.
+
+```sh
+git branch -r --contains fd068fc4                              # names origin/v4.x
+git show origin/v4.x:Modules/Dashboard/Sources/Dashboard/PaneBarArrangement.swift |
+  grep -c 'with the capsule gone'                              # 1
+diff <(git show origin/main:Modules/Dashboard/Sources/Dashboard/DashboardViews.swift) \
+     <(git show origin/v4.x:Modules/Dashboard/Sources/Dashboard/DashboardViews.swift) |
+  grep -c '^[<>]'                                              # 9
+```
+
+So 36.5 may well port unchanged. **The reason to re-measure anyway is that `v4.x` has no instrument
+to check it with**: `theTitledHeaderClearsBothEdges` and `headerInkFloor` do not exist on that line
+at all (`grep -c` → 0), so the calibration test has to come across before the constant means
+anything there. That is a prerequisite, not a caveat.
+
+**Per-file pick notes, if `v4.x` ever takes both.** Five files; the first two are the fix:
+
+- `Modules/Design/Sources/Design/LabelMetrics.swift` — `lineHeight` measures
+  `NSAttributedString(string:attributes:).size().height` instead of
+  `layoutManager.defaultLineHeight`, and the cache key stops carrying the **empty string**. That
+  last part is not cosmetic: an empty attributed string has no font run, so `size()` answers for a
+  default face — 14.0 at both 10pt and 11pt — and the moment the key becomes the thing measured, an
+  empty sample is wrong. `layoutManager` (the shared `NSLayoutManager`) has no other user and goes.
+  The file header's "all of them" claim goes with it.
+- `Modules/Dashboard/Sources/Dashboard/PaneBarArrangement.swift` — `rowBudget` 36 → 36.5, and the
+  docs on it and on `rowHeight`, both of which asserted the *opposite* of the truth ("over-reports
+  the drawn row by up to 3pt"; "a reservation, and a generous one"). **Re-measure the budget on that
+  line**, per the row above.
+- `Modules/Design/Tests/DesignTests/LabelMetricsTests.swift` — three new cases, and this is the half
+  worth taking even if the constants differ: `lineHeightMatchesTheDrawnLineBox` (the check that did
+  not exist), `defaultLineHeightIsNotTheDrawnLineBoxButTheAttributedSizeIs`, and
+  `aLineBoxDoesNotDependOnWhatIsInIt`. They need `everySelectableScale`, derived from
+  `FontSize.selectablePercents` — present on `v4.x`, so it ports; the named presets alone cannot see
+  this, because 95% and 105% are two of the five sizes affected and neither is a preset.
+- `Modules/Dashboard/Tests/Dashboard/PaneBarLadderTests.swift` — `everyRungIsReservedAsTallAsTheBarItDraws`
+  (the height counterpart of `everyRungIsPricedAsTheBarItDraws`, whose absence is what hid this) and
+  `theEnvironmentDoesNotReachABarBuiltOffTheStruct` beside it, which pins why the first takes no
+  text size. Machine-pinned (`.pixelSampling`), so it will not run on CI on that line either. The
+  two calibration tables in the file's docs are `main`'s measurements and must be re-run, not
+  copied.
+- `Modules/Dashboard/Tests/Dashboard/PaneBarTitleTests.swift` — `theGateHasBothDirectionsWithMarginOnEach`,
+  whose margin goes 1pt → 0.5pt with a control asserting the rows really are a point apart. The
+  point that went was never real: the rows only looked 2pt apart because `defaultLineHeight` steps
+  more coarsely than the type does.
+
+Six `DashboardSnapshotTests` PNGs were re-recorded on `main` (12 files, light and dark). They are
+machine-pinned reference images and must be re-recorded on any line that takes this, never copied.
 
 ### 2026-08-29 — the tab strip's corner and its active-tab rule — RECORDED, not owed (`v4.x` only)
 

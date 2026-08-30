@@ -12,8 +12,19 @@ import SwiftUI
 ///
 /// Every number here was calibrated against a hosted `NSHostingView` before it was written down,
 /// and `LabelMetricsTests` re-checks all of them against the drawn view on every run — which is the
-/// only thing that makes this file trustworthy. Three facts it rests on, each measured rather than
-/// assumed, and each the sort of thing an SDK update could change:
+/// only thing that makes this file trustworthy.
+///
+/// **That sentence was false from the day `lineHeight` joined the file (`c7b8aab0`), about the one
+/// member it did not name.** It said "all of them" while meaning the widths: `lineHeight` had no
+/// test anywhere — `grep -rn lineHeight Modules/*/Tests` returned nothing — and it was returning
+/// `NSLayoutManager.defaultLineHeight`, which is **1pt SHORT** of the box SwiftUI gives a `Text` at
+/// 9.5–11.5pt and 15–16pt. Its sole caller reserves a row with it, so the error ran in the unsafe
+/// direction, a reservation the text hangs out of; and a header promising blanket coverage is
+/// exactly why nobody went to look. Both are fixed — the claim above is now the whole file, and the
+/// fourth fact below is what the height rests on.
+///
+/// Four facts, each measured rather than assumed, and each the sort of thing an SDK update could
+/// change:
 ///
 /// - **SwiftUI rounds a text run UP to the next half point.** `NSAttributedString.size()` reports
 ///   76.565pt for "Review 1234" at 13pt and the hosted `Text` measures 77.0. Nearest-half would give
@@ -24,6 +35,12 @@ import SwiftUI
 ///   alignment rect matched the hosted width every single time and `size` did not.
 /// - **A `Label`'s icon and title are separated by 8pt**, constant across icons of different widths
 ///   — so the icon occupies its intrinsic width rather than a fixed slot.
+/// - **A line box is `NSAttributedString.size().height`, and NOT
+///   `NSLayoutManager.defaultLineHeight(for:)`** — the obvious API, and the one this file used to
+///   call. Swept over 8–24pt in half-point steps at four weights: the attributed size matched the
+///   hosted `Text` in all 132 pairs, `defaultLineHeight` missed 60 of them, and every miss was
+///   short by exactly 1pt. Same shape as the symbol fact above — the obvious property is right
+///   often enough to look correct.
 @MainActor
 public enum LabelMetrics {
 
@@ -70,23 +87,37 @@ public enum LabelMetrics {
 
     // MARK: - Height
 
-    /// The height one line of `font` occupies at `scale`.
+    /// The height one line of `font` occupies at `scale` — the box SwiftUI gives a single-line
+    /// `Text`, which is what a caller reserving a row for one has to reserve.
     ///
     /// Here rather than derived from the point size, because the two do not track: the system font
-    /// steps its line height rather than scaling it smoothly. Measured, 10pt gives 12.0 and 11pt
-    /// gives 13.0, but 12pt jumps to 15.0 — the same cliff `FontSize.scale`'s comment describes for
-    /// the 1.35 top step. A caller pricing a fixed-height row against a text label has to ask for
-    /// the real number or it will be wrong by 2pt exactly where the row is tightest.
+    /// steps its line height rather than scaling it smoothly. Measured, 10pt gives 13.0 and 10.5pt
+    /// gives 13.0 too, but 11pt jumps to 14.0 — the same cliff `FontSize.scale`'s comment describes
+    /// for the 1.35 top step. A caller pricing a fixed-height row against a text label has to ask
+    /// for the real number or it will be wrong exactly where the row is tightest.
     ///
-    /// `PaneBarLayout` is the caller that needs it: a titled bar row is a pill, a 2pt gap and one
-    /// line of title, and it has 34pt to fit in before the pinned 81pt pane header breaks.
+    /// **Measured through `NSAttributedString.size()`, the same call the widths above make, and
+    /// NOT through `NSLayoutManager.defaultLineHeight(for:)`** — see
+    /// `defaultLineHeightIsNotTheDrawnLineBoxButTheAttributedSizeIs`, which pins the difference.
+    ///
+    /// `PaneBarTitleMetrics.rowHeight` is the caller that needs it: a titled bar row is a pill, a
+    /// 2pt gap and one line of title, inside a pinned 81pt pane header.
     public static func lineHeight(font: ScaledFont, scale: CGFloat) -> CGFloat {
-        let key = TextKey(text: "", font: font.nsFont(scale: scale))
+        let key = TextKey(text: lineHeightSample, font: font.nsFont(scale: scale))
         if let cached = lineHeightCache[key] { return cached }
-        let measured = layoutManager.defaultLineHeight(for: key.font)
+        let measured = NSAttributedString(string: key.text, attributes: [.font: key.font])
+            .size().height
         lineHeightCache[key] = measured
         return measured
     }
+
+    /// The run `lineHeight` measures. A line box does not depend on what is in it — checked across
+    /// ascenders, descenders, accents and CJK, all one answer per font — so any single-line string
+    /// does, with one exception that has to be avoided rather than reasoned about: it must not be
+    /// **empty**. An attributed string with no characters carries no font run at all, and `size()`
+    /// answers for a default face instead — 14.0 at both 10pt and 11pt, where the real line boxes
+    /// are 13.0 and 14.0. The key this used to build carried exactly that empty string.
+    private static let lineHeightSample = "Hg"
 
     // MARK: - Composites
 
@@ -126,9 +157,6 @@ public enum LabelMetrics {
     /// Bounded like `symbolCache` — one entry per font × scale, and both are fixed sets — so this
     /// only ever needs filling.
     private static var lineHeightCache: [TextKey: CGFloat] = [:]
-    /// One `NSLayoutManager`, reused. Constructing one per call measured the same but allocates a
-    /// text-system object on every layout pass, which is the cost this whole file exists to avoid.
-    private static let layoutManager = NSLayoutManager()
 
     private struct TextKey: Hashable {
         let text: String

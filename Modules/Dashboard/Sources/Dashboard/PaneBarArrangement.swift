@@ -756,42 +756,68 @@ public enum PaneBarTitleMetrics {
     ///
     /// **Calibrated against the rendered header, not derived from it, and the difference is the
     /// whole history of this number.** It was 34, inherited from the provider capsule that used to
-    /// set the row height, and it was never what the header had left; nobody noticed because the
-    /// arithmetic on the other side of the comparison — `pill + gap +
-    /// NSLayoutManager.defaultLineHeight` — is a type-setting line box that over-reports the drawn
-    /// row by up to 3pt, so two wrong numbers sat either side of a `<=` and produced a plausible
-    /// answer. Deriving it properly is not available: the same over-reporting means no sum of these
-    /// constants reconstructs where the ink actually lands.
+    /// set the row height, and it was never what the header had left; nobody noticed because both
+    /// sides of the `<=` were wrong at once. Deriving it properly is still not available, and that
+    /// part of the reasoning survives unchanged: `rowHeight` is the row's *box*, the header's floor
+    /// is about where its *ink* lands, and no sum of these constants gets from one to the other.
     ///
-    /// So it is calibrated. `rowHeight` can only take five values across the slider's whole range,
-    /// and the tightest clearance measured at each is:
+    /// **The other side was wrong too, in the opposite direction to what this doc used to claim.**
+    /// It said `pill + gap + NSLayoutManager.defaultLineHeight` "over-reports the drawn row by up
+    /// to 3pt". It under-reported it: `defaultLineHeight` is 1pt SHORT of the box SwiftUI gives a
+    /// `Text` at 9.5–11.5pt, which is this 10pt title at 95% through 115% text, so the reservation
+    /// was a point smaller than the words it was reserving for at five of the six sizes that draw
+    /// them. `LabelMetrics.lineHeight` measures the drawn box now, and `rowHeight` equals the drawn
+    /// rung at all ten sizes — see
+    /// `PaneBarLadderTests.everyRungIsReservedAsTallAsTheBarItDraws`, which is the check that did
+    /// not exist.
     ///
-    /// | row | 33pt | 34pt | 35pt | 37pt | 38pt |
-    /// |---|---|---|---|---|---|
-    /// | text size | 90–95% | 100–105% | 110–115% | 120–125% | 130–135% |
-    /// | clearance | 8.5 | 7.5 | 7.0 | **5.0** | **4.0** |
+    /// So it is calibrated. `rowHeight` takes six values across the slider's whole range, and the
+    /// tightest clearance measured at each — gate lifted, so every size drew words — is:
     ///
-    /// The floor is crossed between the 35pt row and the 37pt one, and 36 is the value between
-    /// them — a point of margin on each side, rather than a boundary resting exactly on a measured
-    /// number. `PaneBarTitleTests.theGateHasBothDirectionsWithMarginOnEach` is what holds that
-    /// margin, so moving this onto 35 or 37 fails rather than quietly narrowing it.
+    /// | row | 33pt | 34pt | 35pt | 36pt | 37pt | 38pt |
+    /// |---|---|---|---|---|---|---|
+    /// | text size | 90% | 95% | 100–105% | 110–115% | 120–125% | 130–135% |
+    /// | clearance | 9.0 | 8.0 | 7.0 | 6.5 | **5.0** | **4.0** |
+    ///
+    /// Re-run in full when the line height was corrected, rather than carried over: the first four
+    /// columns moved, because those are the sizes `defaultLineHeight` was short at. The last two did
+    /// not move by a hundredth — `defaultLineHeight` and the drawn box agree from 12pt up, so the
+    /// reservation there is the number it always was, and the two columns agreeing with the older
+    /// run is what says so rather than an argument that they should.
+    ///
+    /// The floor is crossed between the 36pt row and the 37pt one, and **36.5** is the value
+    /// between them. Half a point of margin on each side, where this used to have a whole one —
+    /// and the point that went was never real: the rows only looked 2pt apart because
+    /// `defaultLineHeight` stepped more coarsely than the type does. Six true values spanning
+    /// 33–38 leave no integer with a point to spare, so half is the widest margin there is.
+    /// `PaneBarTitleTests.theGateHasBothDirectionsWithMarginOnEach` holds it, so moving this onto
+    /// 36 or 37 fails rather than quietly landing the boundary on a producible row.
     ///
     /// **Two tests hold this number, one per direction, and neither is sufficient alone.** Set too
     /// high and `PaneBarLadderTests.theTitledHeaderClearsBothEdges` measures the crowding it lets
     /// through. Set too low — the direction the original defect went — and nothing crowds, because
     /// the header simply renders untitled; that side is held by
     /// `PaneBarTitleTests.theTextSizesThatGetWords`, which names the percentages outright.
-    public static let rowBudget: CGFloat = 36
+    public static let rowBudget: CGFloat = 36.5
 
     public static let font: ScaledFont = .system(size: pointSize, weight: .regular)
 
-    /// The height a titled row occupies at this text size.
+    /// The height a titled row occupies at this text size — and it is exactly that, at every one of
+    /// the ten sizes, which `PaneBarLadderTests.everyRungIsReservedAsTallAsTheBarItDraws` measures
+    /// against the drawn rung.
     ///
-    /// **A reservation, and a generous one.** `LabelMetrics.lineHeight` reports the type-setting
-    /// line box, which runs taller than the row the header actually paints. That is the safe
-    /// direction for a reservation — the bar gets a box no smaller than it needs — but it means
-    /// this number is not a prediction of where ink lands, which is why `rowBudget` beside it is
-    /// calibrated against the drawn header rather than computed from the header's geometry.
+    /// **It used to claim to be a generous reservation and was a short one.** The doc here said
+    /// `LabelMetrics.lineHeight` "reports the type-setting line box, which runs taller than the row
+    /// the header actually paints", and called that the safe direction. Both halves were wrong:
+    /// `lineHeight` was returning `NSLayoutManager.defaultLineHeight`, which runs 1pt *under* the
+    /// box SwiftUI gives a `Text` at 9.5–11.5pt, so this row was a point smaller than the words it
+    /// reserves for at 95% through 115% text. Nothing showed it — a SwiftUI child is not clipped by
+    /// a `maxHeight`, so the word simply hung a point below its own box into the 10pt rule
+    /// `PaneBarLadderTests.theBarAndTheTrailKeepTheirGap` measures, which had the room.
+    ///
+    /// This is a *box*, not a prediction of where ink lands: the words sit inside it with their own
+    /// leading around them. That is why `rowBudget` beside it is still calibrated against the drawn
+    /// header rather than computed from these constants.
     @MainActor
     public static func rowHeight(pillHeight: CGFloat, scale: CGFloat) -> CGFloat {
         pillHeight + gap + LabelMetrics.lineHeight(font: font, scale: scale)
