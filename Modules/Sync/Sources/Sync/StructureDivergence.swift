@@ -12,7 +12,11 @@ import Foundation
 ///   non-zero on a real tree, and it shows as the strip's filtered counts (§5.2). The kind exists
 ///   anyway because the empties-removal manifest and the suppression key both need the identity.
 /// - ``ask`` carries no plan at all: it is a question, and the answer is a remembered choice, not
-///   an operation (§5.3).
+///   an operation (§5.3). **No detector produces one in 5.0** — the case is reserved, and the
+///   rules below (`carriesPlan`, the lens's glyph, symbol and verb) answer for it so that landing
+///   §5.3's detector is a detector and nothing else. Grep before believing this paragraph in a
+///   later release: `grep -rn "kind: \.ask" Modules/*/Sources` returns nothing today, and that
+///   emptiness is what makes "reserved" true rather than aspirational.
 public enum FindingKind: String, CaseIterable, Codable, Sendable {
     /// Sibling folders shaped differently at different times — the shipped detector.
     case shape
@@ -33,6 +37,7 @@ public enum FindingKind: String, CaseIterable, Codable, Sendable {
     /// Two folders holding the same documents under parallel taxonomies (§5.9, needs a scan).
     case duplicatedTaxonomy
     /// A disagreement no fact in the tree settles — answered, never applied.
+    /// **Reserved: nothing constructs one in 5.0.** See the type's own note above.
     case ask
 
     /// Whether a finding of this kind can end in a plan — the rail badge counts only these,

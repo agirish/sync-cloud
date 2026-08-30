@@ -53,6 +53,41 @@ import SwiftUI
                 "and this is the difference the rule exists to hold apart")
     }
 
+    /// **The tooltip answers the same question the tint does** — and it did not.
+    ///
+    /// `glyphTakesAccent` withholds the accent from `duplicatedTaxonomy` precisely so the glyph
+    /// does not promise a plan the card has no button for. `kindVerb` is hung on that same glyph
+    /// as its `.help`, and it said "Merges two folders holding the same documents" — the promise
+    /// the tint had just been taught not to make, restored in the half a reader actually reads.
+    ///
+    /// Written as a rule over the table, not a pin on the one kind: a verb naming an operation is
+    /// exactly what a reader takes as an offer, so any kind with no plan surface has to say it
+    /// reports. `backlog` is the stated exemption — its card ends in the scaffold landing, so
+    /// "Creates folders" is a promise it keeps.
+    @Test func aKindWithNoPlanSurfaceDoesNotNameAnOperationInItsTooltip() {
+        // The words that read as an offer. Present tense third person, because that is the shape
+        // every acting verb in the table takes ("Renames or merges folders").
+        let operations = ["Renames", "Merges", "Creates", "Moves", "Removes", "Deletes"]
+        for kind in FindingKind.allCases where kind != .backlog {
+            let finding = StructureFinding(kind: kind, family: "F", subject: "F/x",
+                                           detail: Self.detail(for: kind))
+            guard !RestructurePlanRouting.carriesPlanSurface(finding) else { continue }
+            let verb = RestructureLens.kindVerb(kind)
+            for operation in operations {
+                #expect(!verb.hasPrefix(operation),
+                        "\(kind.rawValue) has no plan surface, and its tooltip opens \"\(verb)\" — a reader takes that as an offer the card cannot honour")
+            }
+        }
+        // The one this was found on, pinned by value so a reword cannot quietly re-promise it.
+        #expect(RestructureLens.kindVerb(.duplicatedTaxonomy) == "Reports the pair — no plan in 5.0")
+        // The positive control: the rule above is capable of objecting. A kind that DOES act
+        // still names its operation, so the loop is skipping on the plan surface rather than
+        // finding nothing to test.
+        #expect(RestructureLens.kindVerb(.shape).hasPrefix("Renames"))
+        #expect(RestructurePlanRouting.carriesPlanSurface(
+            StructureFinding(kind: .shape, family: "F", subject: "F")))
+    }
+
     /// A detail that makes each kind's route resolvable, so the comparison above is real.
     private static func detail(for kind: FindingKind) -> StructureFinding.Detail? {
         switch kind {

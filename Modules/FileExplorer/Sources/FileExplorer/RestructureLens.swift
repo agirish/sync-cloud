@@ -1039,7 +1039,12 @@ struct RestructureLens: View {
         case .deadWeight: return "Reports — no plan"
         case .looseAboveSeries: return "Hands the files to To File"
         case .looseBesideContainer: return "Moves the folder into its container"
-        case .duplicatedTaxonomy: return "Merges two folders holding the same documents"
+        // **Reports, in 5.0.** `glyphTakesAccent` already withholds the accent from this kind
+        // precisely so the glyph does not promise a plan the card has no button for — and then
+        // this tooltip, hung on that same glyph, promised the merge in words. The visual half of
+        // the fix landed without the half a reader actually reads. It stays honest here until
+        // §5.9 is measured and a plan surface exists to describe.
+        case .duplicatedTaxonomy: return "Reports the pair — no plan in 5.0"
         case .ask: return "Asks — the answer is remembered, nothing moves"
         }
     }

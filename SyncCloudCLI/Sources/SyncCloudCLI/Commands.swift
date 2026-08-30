@@ -219,15 +219,27 @@ struct Restructure: AsyncParsableCommand {
             completion: .directory)
     var profilesDir: String?
 
+    /// **Wrapped in `flushingLogToDisk` like every other verb**, which is not decoration: that
+    /// wrapper is the only thing that turns a `CLIValidationError` into ArgumentParser's
+    /// `ValidationError`. Without it the sentences `Failure.errorDescription` composes never
+    /// reach the reader — ArgumentParser stringifies the struct instead, so a missing profile
+    /// printed `Error: CLIValidationError(message: "No active profile in …\'s …")`, leaking the
+    /// internal type name and backslash-escaping the apostrophes inside its own advice. It also
+    /// exited 1 rather than the 64 every other usage error here exits, and skipped the log flush
+    /// both other exits perform.
     func run() async throws {
-        let directory = profilesDir.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-        let output: RestructureReporting.Output
-        do {
-            output = try RestructureReporting.report(profilesDirectory: directory)
-        } catch let failure as RestructureReporting.Failure {
-            throw CLIValidationError(message: failure.errorDescription ?? "\(failure)")
+        try await flushingLogToDisk {
+            let directory = profilesDir.map {
+                URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)
+            }
+            let output: RestructureReporting.Output
+            do {
+                output = try RestructureReporting.report(profilesDirectory: directory)
+            } catch let failure as RestructureReporting.Failure {
+                throw CLIValidationError(message: failure.errorDescription ?? "\(failure)")
+            }
+            print(json ? try RestructureReporting.renderJSON(output)
+                       : RestructureReporting.renderText(output))
         }
-        print(json ? try RestructureReporting.renderJSON(output)
-                   : RestructureReporting.renderText(output))
     }
 }

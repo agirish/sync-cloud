@@ -57,6 +57,47 @@ import SyncCloudCLICore
                 "providers says nothing about an unmigrated install, so its listing reads as the whole truth")
     }
 
+    /// **Every command routes its exit through `flushingLogToDisk`, and that is the rule, not a
+    /// habit three of the four happened to share.**
+    ///
+    /// The wrapper is the only thing that turns a `CLIValidationError` into ArgumentParser's
+    /// `ValidationError` (via `CLIExitMapping`), so skipping it is silent in three directions at
+    /// once and none of them is a crash: the message a `Failure` composed is replaced by
+    /// ArgumentParser stringifying the struct — `Error: CLIValidationError(message: "…\'s …")`,
+    /// internal type name included and the apostrophes inside the advice backslash-escaped —
+    /// the exit falls from 64 to 1, so a script telling a usage error from a run failure reads
+    /// the wrong one, and the log never reaches disk on the path most worth having it.
+    ///
+    /// `restructure` shipped that way: the one verb added in 5.0, and the only one unwrapped.
+    /// Written over the call-site table rather than as one assertion about that verb, because the
+    /// next verb is the one this is for.
+    @Test func everyCommandExitsThroughTheLogFlushAndErrorLadder() throws {
+        let source = try Self.commandsSource()
+        for call in ["runScan", "runSync", "runProviders", "RestructureReporting.report"] {
+            let body = try #require(Self.runBody(before: call, in: source),
+                                    "cannot find the run body that calls \(call)")
+            #expect(body.contains("flushingLogToDisk"),
+                    "the command that calls \(call) returns without the flush-and-map ladder: its CLIValidationErrors reach the user as a struct dump, exit 1 instead of 64, and its log never reaches disk")
+        }
+    }
+
+    /// The positive control for the scan above: `runBody` really can come back WITHOUT the
+    /// wrapper, so a green result there is the source agreeing rather than the search missing.
+    /// Without this, deleting `flushingLogToDisk` from every command would still pass — the
+    /// helper would return nil, `#require` would fail... which is the point being pinned: it is
+    /// the *`#expect`* that must be able to fail, and here it is, failing on purpose.
+    @Test func theFlushScanCanActuallyFail() throws {
+        let unwrapped = """
+            func run() async throws {
+                let output = try RestructureReporting.report(profilesDirectory: nil)
+            }
+            """
+        let body = try #require(Self.runBody(before: "RestructureReporting.report",
+                                             in: unwrapped))
+        #expect(!body.contains("flushingLogToDisk"),
+                "the scan cannot distinguish a wrapped body from an unwrapped one")
+    }
+
     /// `Commands.swift` as text. Located from this file rather than a build setting, so it moves
     /// with the package instead of depending on where the tests are run from.
     static func commandsSource() throws -> String {

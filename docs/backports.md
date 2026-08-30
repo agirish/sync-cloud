@@ -1577,3 +1577,26 @@ image, not only an SD card. That is what was asked for and it is deliberate — 
 saying they are done with the volume — but it means a backup drive that is ejected nightly loses its
 source each time, name override and landing folder included. Nothing measures how often that
 happens; it is stated here so a line taking this takes it knowingly.
+
+### 2026-08-29 — the v5.0 pre-release review's three fixes — CHECKED, NOT OWED
+
+The adversarial pass before the v5.0 cut closed three things. **None of the three is owed to any
+maintenance line, and the reason is the same for all three: every one of them is a defect in code
+that only `main` has.** Recorded so the next audit does not re-derive it.
+
+- **The `restructure` CLI verb skipping `flushingLogToDisk`.** The verb is new in 5.0. No other line
+  carries the command at all, so there is nothing there to be unwrapped:
+
+  ```sh
+  for l in v4.x v3.x v2.x; do git grep -c 'commandName: "restructure"' origin/$l -- SyncCloudCLI; done  # no hits
+  ```
+
+  The *wrapper* is older and every line's own commands already use it — the bug was one command
+  added without it, not a fault in the ladder. The new test
+  (`everyCommandExitsThroughTheLogFlushAndErrorLadder`) would pass unchanged on every line today,
+  which makes it an addition worth having rather than a fix; it is not recorded as owed because a
+  test for a rule nothing currently breaks is a judgement call for whoever maintains that line.
+- **`kindVerb(.duplicatedTaxonomy)` promising a merge with no plan surface behind it.** The whole
+  Restructure lens, `FindingKind` and the §5.9 detector arrived in 5.0.
+- **`FindingKind.ask` documented as live while nothing produces one.** Same — the enum does not
+  exist below `main`.

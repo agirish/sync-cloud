@@ -338,4 +338,69 @@ import Foundation
         #expect(subjects(.mirroredInbox).isEmpty)
         #expect(subjects(.echoName).contains("Finance/US/TODO/IRS/IRS"))
     }
+
+    // MARK: The reserved kind
+
+    /// **`FindingKind.ask` is reserved, and this is what makes that word checkable.**
+    ///
+    /// Nothing constructs one: §5.3's detector is not in 5.0. The case exists so that landing it
+    /// later is a detector and nothing else — `carriesPlan`, the lens's glyph, symbol and verb
+    /// all already answer for it. But a case with rules and no producer reads, in every one of
+    /// those switches, exactly like a case that ships; the type's own doc said so in prose until
+    /// this test was written, and prose is the thing that goes stale silently.
+    ///
+    /// Scans every source that could construct one — `Modules/*/Sources`, `MacApp` and the CLI —
+    /// because "no detector produces it" is a claim about the whole app, not about the file the
+    /// enum lives in. **The pathspec is the conclusion's boundary**, so it is asserted, and so is
+    /// the scan's ability to find a construction at all.
+    @Test func nothingConstructsTheReservedAskKind() throws {
+        let sources = try Self.appAndCLISwiftSources()
+        var offenders: [String] = []
+        var controls = 0
+        for url in sources {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            // The two spellings a construction can take: the labelled initialiser argument, and
+            // the manifest/key builders that pass a kind positionally as `kind:`.
+            if text.contains("kind: .ask") { offenders.append(url.lastPathComponent) }
+            if text.contains("kind: .echoName") || text.contains("kind: .backlog") { controls += 1 }
+        }
+        #expect(offenders.isEmpty,
+                "a detector now produces .ask (\(offenders.joined(separator: ", "))) — the case is no longer reserved, so StructureDivergence's note and the lens's verb, glyph and tint rules all need to be about a kind that ships")
+        #expect(controls > 0,
+                "the scan found no `kind: .<case>` construction anywhere, so its empty result about .ask says nothing — the roots or the spelling are wrong")
+    }
+
+    /// `Modules/*/Sources`, `MacApp` and `SyncCloudCLI/Sources`. The CLI is the addition over the
+    /// Design scans' roots: it builds findings of its own to report, so a scan that skipped it
+    /// would answer about the app and be read as answering about the product.
+    private static func appAndCLISwiftSources() throws -> [URL] {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let modules = repo.appendingPathComponent("Modules")
+        var roots = [repo.appendingPathComponent("MacApp"),
+                     repo.appendingPathComponent("SyncCloudCLI/Sources")]
+        roots += try FileManager.default
+            .contentsOfDirectory(at: modules, includingPropertiesForKeys: nil)
+            .map { $0.appendingPathComponent("Sources") }
+
+        var files: [URL] = []
+        for root in roots {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else { continue }
+            files += FileManager.default
+                .enumerator(at: root, includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" } ?? []
+        }
+        #expect(files.count > 100, "found only \(files.count) sources — the roots did not resolve")
+        #expect(files.contains { $0.path.hasSuffix("Sync/StructureDivergence.swift") },
+                "the module the kind lives in is not being scanned")
+        #expect(files.contains { $0.path.contains("SyncCloudCLI/Sources/") },
+                "the CLI is not being scanned")
+        #expect(!files.contains { $0.path.contains("/.build/") }, "a dependency source leaked in")
+        return files
+    }
 }
