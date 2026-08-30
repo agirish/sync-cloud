@@ -1757,3 +1757,38 @@ plus ~468 of actions exceed the 776pt available — so a running survey still co
 pixels off its tail. Renames at 800 and To File at 1000 are clean at 0. No content edit can fix a
 row that is over budget with the content already removed; only a measured row-2 width model can.
 `theReadoutNoLongerCompetesWithTheSurvey` asserts it as a bound rather than as zero, deliberately.
+
+## 2026-08-30 — the light-mode card hairline (`de98d4e7`)
+
+**RECORDED — not owed.** `surfaceCard` and `bottomSectionCard(.cards)` passed
+`lightBorder: explicit` to `DarkBoldCardChrome`, and on macOS 26 `needsExplicitChrome` is false for
+native glass — so in a light appearance a content card drew no hairline and no shadow, leaving its
+only visible bound the material's own darkening (a card reads 210–213 against a window ground of
+237–239). `de98d4e7` passes `true` at both sites.
+
+**All three lines carry it**, and the check is one command per line:
+
+```sh
+for l in v2.x v3.x v4.x; do
+  git show origin/$l:Modules/Design/Sources/Design/LiquidGlassStyle.swift | grep -c 'lightBorder: explicit'
+done      # 2, 2, 2 on 2026-08-30; main is 0 after the fix
+```
+
+The file is present on all three (stage 1 checked, and `main` returns 0 as the positive control, so
+the pattern is real rather than a mis-spelled path).
+
+**Whether a user would notice differs by line, and that is the interesting half.** The defect is
+old, but what made it visible is new: it needs a card large enough and empty enough to read as a
+grey slab, and the one that produced the report — Restructure's `LensSetupCard`, which fills the
+workspace height with content in its top third — is v5-only. `git ls-tree -r --name-only
+origin/v4.x -- Modules/FileExplorer/Sources/FileExplorer/LensSetupCard.swift` prints nothing on all
+three lines. So the lines carry the missing hairline everywhere, and carry no surface on which it
+has so far been worth seeing.
+
+The pick is a two-line change with no dependencies — `lightBorder: explicit` → `lightBorder: true`
+at both call sites — if the direction ever changes. What is NOT worth picking, and is recorded so
+nobody re-derives it: three attempts to lighten the card's fill instead all failed against the
+running app. `Glass.tint(.white.opacity(0.5))` took a card 211 → 198 (a tint densifies the material
+rather than lightening it); a `controlBackgroundColor` ground under `.glassEffect` gave 213 where
+235 was predicted; the same ground stacked over the glass did no better. `.glassEffect` dominates
+its own subtree and nothing in the public API lightens it from outside.
