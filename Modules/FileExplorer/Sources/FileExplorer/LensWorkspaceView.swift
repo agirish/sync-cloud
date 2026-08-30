@@ -1301,8 +1301,9 @@ public struct LensWorkspaceView: View {
                 // away: a "Rescan" with nothing to re-scan is a button describing something that
                 // never happened.
                 //
-                // The folder-memory status used to sit here, immediately before Rescan, and it is
-                // on row 2 now — see ``folderMemoryStatus``. Row 1 is fixed-width controls only,
+                // The folder-memory status used to sit here, immediately before Rescan. Its
+                // in-flight half is on row 2 now (``folderMemoryStatus``) and its finished report
+                // is inside this very menu (``lastFolderSurveyNote``). Row 1 is fixed-width only,
                 // which is what lets ``OrganizeRailMetrics/searchToggleWidth`` be a number at
                 // all.
                 // Two buttons behind one name — see ``showsFilingControl`` for why Rescan's gate is
@@ -1870,31 +1871,47 @@ public struct LensWorkspaceView: View {
         SummaryRun(count: tally.renames, label: tally.renames == 1 ? "rename" : "renames",
                    color: SemanticColor.info, systemImage: "pencil")
             .help("Every file the listed folders would rename — one undoable change per folder.")
-        if !tally.breakdown.isEmpty {
-            Text(tally.breakdown)
+        // ``RenameBacklogTally/headerBreakdown``, not `breakdown` — the header's own shorter form.
+        // `breakdown` is the folder rows' string and stays theirs; this row cannot afford its
+        // 268.5pt beside a readout, a divider and two buttons. Same words, fewer of them.
+        if !tally.headerBreakdown.isEmpty {
+            Text(tally.headerBreakdown)
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .monospacedDigit()
                 .lineLimit(1)
                 .fixedSize()
-                .help("“To pad” only adds a leading zero — “4. Apr 2021.pdf” becomes "
+                // **The tooltip is where the full census went, so it now leads with it.** The
+                // visible run collects "to name" and "to reshuffle" into one clause and drops the
+                // skips entirely, so this is the only place the exact four numbers are reachable
+                // without opening a folder — it stopped being a gloss and became the detail.
+                .help(tally.breakdown + ". "
+                      + "“To pad” only adds a leading zero — “4. Apr 2021.pdf” becomes "
                       + "“04. Apr 2021.pdf”. “To name” gives a raw name a slot it did not have. "
                       + "“To reshuffle” moves an already-correct name to make room for one of them, "
                       + "and is the only kind here that touches a file that was already right. "
                       + "“Left alone” is what the pass declined to rename; open a folder to read why.")
+                // VoiceOver gets the census too: the collected clause is a width compromise, and
+                // a screen reader is not short of width.
+                .accessibilityLabel(tally.breakdown)
         }
     }
 
 
-    /// Row 2's trailing edge: what the last folder-memory survey did, then "N of M" whenever this
-    /// lens's list is narrowed, so a shortened list always reads as a filtered view rather than as
-    /// the whole result.
+    /// Row 2's trailing edge: a folder-memory survey's progress **while one is running**, then
+    /// "N of M" whenever this lens's list is narrowed, so a shortened list always reads as a
+    /// filtered view rather than as the whole result.
     ///
-    /// **The survey status is here rather than on row 1 because it is prose, and row 1 is
+    /// **The survey's progress is here rather than on row 1 because it is prose, and row 1 is
     /// controls.** That is the card's own division — `lensSummary` says it for the readout — and
     /// row 1 broke it: `folderMemoryStatus` sat between the rail and Rescan, so a sentence whose
-    /// length is a property of the last survey was competing with the buttons for the row. See
-    /// ``folderMemoryStatus`` for what that cost.
+    /// length is a property of the last survey was competing with the buttons for the row.
+    ///
+    /// **Its finished report is on neither row now.** It cost this row 223pt permanently once a
+    /// survey had run, it was the only tenant the layout could shorten, and it is the only thing
+    /// that was ever here without being about the list on screen. It reports on a Rescan-menu item
+    /// and now sits above that item — see ``lastFolderSurveyNote``. What is left here is the
+    /// transient half, which costs the row nothing at rest.
     ///
     /// **M is the SCOPED list, not the whole tree.**
     ///
@@ -1944,8 +1961,11 @@ public struct LensWorkspaceView: View {
         // window narrower than that got the glyph-only rail instead — which is most of them.
         //
         // Down here they cost the row nothing that competes with navigation, because what they sit
-        // beside is prose that can shorten (see ``folderMemoryStatus``) rather than six
-        // destinations that cannot. Row 1's reserve collapses to the search toggle alone, and the
+        // beside is a readout about the list rather than six destinations that cannot shorten.
+        // **That was not always true and the difference is worth naming**: this row used to also
+        // carry the survey's finished report, and "prose that can shorten" described a sentence
+        // being shortened to `2713 folders c…` to make room. Prose that yields is not the same as
+        // a row that fits; the report moved to its own menu so this one fits. Row 1's reserve collapses to the search toggle alone, and the
         // shed threshold with it — see ``OrganizeRailMetrics/searchToggleWidth``.
         //
         // The divider is what keeps the old objection answered. Controls were pulled OFF this row
@@ -2322,87 +2342,82 @@ public struct LensWorkspaceView: View {
         scan()
     }
 
-    /// What the folder-memory re-survey is doing, or what it found. **Row 2** — see
-    /// ``lensTrailing(rows:)``.
+    /// What the folder-memory re-survey is doing **while it is doing it**. Row 2 — see
+    /// ``lensTrailing(rows:counts:)``.
     ///
     /// **The commonest outcome is that nothing changed, and that has to be visible.** A menu item
-    /// that reads only a few folder mtimes and writes nothing looks broken otherwise — the user
-    /// clicks it, the tree is already current, and there is no evidence it ran at all.
+    /// that reads a few folder mtimes and writes nothing looks broken otherwise — the user clicks
+    /// it, the tree is already current, and there is no evidence it ran at all. That is why this
+    /// exists, and the argument is entirely about the seconds *after the click*: a spinner that
+    /// appears, names what it is doing, and stops is the evidence. It is not an argument for
+    /// renting the row permanently afterwards.
     ///
-    /// ## Why it is bounded, and why it is not on row 1
+    /// ## Why the FINISHED report is no longer here
     ///
-    /// `FilingSurveyReport.summary` is prose whose length is a property of the last survey rather
-    /// than of the layout — "12 folders changed, 340 documents read, 8 followed a move, 3 left the
-    /// tree, 5 not downloaded yet." is 485pt of caption. Drawn unbounded on row 1 it did two
-    /// things, both measured off the render:
+    /// It used to be this property's second branch, and it was the single most expensive thing on
+    /// row 2 — `FilingSurveyReport.summary` is prose whose length is a property of the last survey
+    /// ("12 folders changed, 340 documents read, 8 followed a move, 3 left the tree, 5 not
+    /// downloaded yet." is 485pt of caption), it stayed for the rest of the session once one
+    /// survey had run, and it was the ONLY tenant of the row the layout was willing to shorten.
+    /// Measured on the Renames lens at the default text size, row 2 wanted **867.2pt** of content
+    /// against **654.1** for row 1 — so the row that has a width model to protect it was never the
+    /// binding one, and the row without a model resolved the overrun the way SwiftUI always does:
+    /// it cut the sentence to `2713 folders c…` and then clipped the readout beside a destructive
+    /// button.
     ///
-    /// - **It took the actions' words.** With a refine offer beside it the trailing set came to
-    ///   **921pt**, against 354 for Duplicates, and SwiftUI resolved the overrun the way it always
-    ///   does — by truncating the flexible side. At a 1200pt card that is `Refine with…` and
-    ///   `File all 24 co…`: two buttons that no longer say what they do, and one of them spends
-    ///   money.
-    /// - **It wrapped the row.** Row 1 is a fixed 27pt inside a fixed 81pt card
-    ///   (``LensHeaderMetrics``), and a `Text` with no `lineLimit` takes a second line rather than
-    ///   clipping. At 1400 it did, and two caption lines only just fit 27pt at the default text
-    ///   size — at Large the card's opening has 0.4pt to give.
-    ///
-    /// No reserve fixes that, which is the point: sizing
-    /// a trailing reserve sized for 921 would have stripped the rail's labels out to
-    /// ~1316pt of card width, which is most real windows. So the prose moved to the row that is
-    /// *for* prose, where there is genuine room beside the readout. Measured after the move, row
-    /// 1's trailing set is 436.5pt with a report and 436.5 without — the report costs the row
-    /// nothing — and the actions keep their words from 800pt of card width up, against a pre-move
-    /// 600–925 and 1050–1225 where they did not.
+    /// The deciding fact is not the width, though. **It is the only thing on this row that is not
+    /// about the list you are looking at** — it is the receipt for *Update folder memory*, an item
+    /// inside the Rescan menu, and on Renames it sits beside a rename backlog it has nothing to
+    /// say about. So it now lives at the control it describes: see ``lastFolderSurveyNote``, which
+    /// puts it above that menu item where it is read in the same gesture that would run it again.
+    /// Row 2 keeps the branch that is genuinely transient, and keeps it at no resting cost.
     ///
     /// ## The two modifiers below are insurance, and today they are inert
     ///
-    /// Both were added as backstops and **both were then mutation-tested and survived**, which is
-    /// worth recording rather than leaving as an implied claim:
+    /// Both were mutation-tested and survived, which is worth recording rather than leaving as an
+    /// implied claim:
     ///
-    /// - **`lineLimit(1)`/`truncationMode(.tail)`** — deleting them changes no pixel. Row 2 is a
-    ///   fixed 22pt (``LensHeaderMetrics/summaryRow``), and a `Text` proposed that height has room
-    ///   for one caption line, so it truncates whatever this says. On row 1 that was *not* true —
-    ///   27pt seats two caption lines at the default text size, which is why the same string wrapped
-    ///   there and only just fitted, with 0.4pt to spare at Large. So this is the modifier that
-    ///   matters if the line ever moves back to a taller row, and it is cheap to keep saying.
-    /// - **`layoutPriority(-1)`** — deleting it changes no pixel either. The row's other tenants are
-    ///   the readout ("16 ready · 8 unsure · 340 reused") and the "N of M" filtered count, and both
-    ///   are `.fixedSize()`, so this is already the only compressible thing on the row. It is the
-    ///   right *statement* regardless — those two describe the list on screen and this describes a
-    ///   menu action, so this is what should give way — and it is what keeps that true if either
-    ///   sibling ever stops being fixed-size.
-    ///
-    /// `theSurveyReportIsWhatGivesWay` asserts the rendered outcome, which holds either way; no
-    /// test pins the modifiers themselves, because the row as it stands cannot express their
-    /// failure.
+    /// - **`lineLimit(1)`** — deleting it changes no pixel. Row 2 is a fixed 22pt
+    ///   (``LensHeaderMetrics/summaryRow``), and a `Text` proposed that height has room for one
+    ///   caption line, so it truncates whatever this says. It is the modifier that matters if the
+    ///   line ever moves to a taller row, and it is cheap to keep saying.
+    /// - **`layoutPriority(-1)`** — deleting it changes no pixel either. The row's other tenants
+    ///   are the readout and the "N of M" count, and both are `.fixedSize()`, so this is already
+    ///   the only compressible thing on the row. It is the right *statement* regardless — those
+    ///   describe the list and this describes a menu action — and it is what keeps that true if
+    ///   either sibling ever stops being fixed-size.
     @ViewBuilder
     private var folderMemoryStatus: some View {
         if let status = syncManager.filingSurveyLifecycle.status,
            syncManager.filingSurveyLifecycle.isRunning {
             HStack(spacing: 5) {
                 InlineSpinner()
+                // **`scaledFont`, not `font`.** Row 2's tenants all scale — `SummaryRun` and
+                // `ofMLabel` both take `scaledFont` — so an unscaled caption beside them reads as a
+                // bug at `.extraLarge`: the numbers grow and the sentence explaining them does not.
                 Text(status).scaledFont(.caption).lineLimit(1)
             }
             .foregroundStyle(.secondary)
             .layoutPriority(-1)
-        } else if let report = syncManager.filingSurveyReport {
-            Text(report.summary)
-                // **`scaledFont`, not `font`, and the move is what made it matter.** This was a
-                // plain `.font(.caption)` on row 1, where it sat among AppKit controls that ignore
-                // the app's text-size setting too, so nothing looked out of place. Row 2's tenants
-                // all scale — `SummaryRun` and `ofMLabel` both take `scaledFont` — so an unscaled
-                // caption beside them reads as a bug at `.extraLarge`: the numbers grow and the
-                // sentence explaining them does not.
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(-1)
-                // The truncated tail has to be recoverable, so the tooltip carries the whole
-                // sentence and not just the gloss it used to carry alone.
-                .help("\(report.summary) \(report.foldersLearned) folders have learned content from the documents already filed in them.")
-                .accessibilityLabel(report.summary)
         }
+    }
+
+    /// The last folder-memory survey's result, as the note above the menu item that produces it.
+    ///
+    /// This is where ``folderMemoryStatus``'s finished branch went, and the placement is the point:
+    /// a receipt belongs at the act it is a receipt for. Reading it takes the same click that would
+    /// run the survey again, so the question it answers — "did that do anything, and should I run
+    /// it?" — is answered exactly where it is asked, instead of on a row shared with a rename
+    /// backlog it says nothing about.
+    ///
+    /// Drawn as a `Section` header over the item rather than as a disabled row, so it reads as the
+    /// state of that control instead of as a second thing you might be able to click.
+    ///
+    /// `foldersLearned` rides along here for the same reason it used to ride in the row's tooltip:
+    /// it is the standing fact the survey maintains, and a menu has the room for both where a 22pt
+    /// row had it for neither.
+    private var lastFolderSurveyNote: String? {
+        syncManager.filingSurveyReport.map(FolderSurveyNote.text(for:))
     }
 
     /// Whether the pane sits somewhere other than what Organize is answering about.
@@ -2481,14 +2496,21 @@ public struct LensWorkspaceView: View {
                 .help("Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
                 if let onUpdateFolderMemory {
                     Divider()
-                    Button {
-                        onUpdateFolderMemory()
-                    } label: {
-                        Label("Update folder memory", systemImage: "brain")
+                    // The last survey's result sits above the item that produced it — see
+                    // ``lastFolderSurveyNote``. Absent before the first survey, when there is no
+                    // result to report and a header saying so would be noise.
+                    Section {
+                        Button {
+                            onUpdateFolderMemory()
+                        } label: {
+                            Label("Update folder memory", systemImage: "brain")
+                        }
+                        .disabled(syncManager.filingSurveyLifecycle.isRunning)
+                        .help("Learn what your folders have been given since the last survey, so folders "
+                              + "you have added recently can be suggested. Reads only the documents that changed.")
+                    } header: {
+                        if let note = lastFolderSurveyNote { Text(note) }
                     }
-                    .disabled(syncManager.filingSurveyLifecycle.isRunning)
-                    .help("Learn what your folders have been given since the last survey, so folders "
-                          + "you have added recently can be suggested. Reads only the documents that changed.")
                 }
             } label: {
                 Label("Rescan", systemImage: "arrow.clockwise")

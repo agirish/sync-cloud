@@ -1208,112 +1208,161 @@ import Design
     private static func statusZone(_ width: CGFloat) -> CGRect {
         CGRect(x: width - 660, y: 48, width: 190, height: 26)
     }
-    /// The width of the **last inked run** on row 2 — the survey sentence, measured rather than
-    /// inferred from how much ink a fixed band happens to contain.
+    /// A rename backlog whose header form and folder-row form differ as much as they can.
     ///
-    /// Ink counts cannot answer "was this truncated": a band that catches part of the readout
-    /// reports more ink on the narrow canvas than on the wide one, which is the opposite of the
-    /// truth. A run's extent is the sentence's own painted width, and a truncated sentence is
-    /// simply shorter. Runs break on 20pt of background — wider than any inter-word gap at caption
-    /// size, narrower than the reach from the readout across to the trailing edge.
-    private func trailingRunOnRowTwo(_ host: NSHostingView<AnyView>, width: CGFloat) -> CGFloat? {
+    /// `named` and `reshuffled` both non-zero so the header collects them; `skips` non-zero so the
+    /// header drops them. Totals chosen to keep the headline the same width in both fixtures below
+    /// — 641 and 628 are both three digits, and the headline is `.monospacedDigit()`, so the
+    /// difference between the two renders is the breakdown and nothing else.
+    private static func renamePlan(named: Int = 0, reshuffled: Int = 0, padded: Int = 0,
+                                   skips: Int = 0) -> RenamePlan {
+        var steps: [RenameStep] = []
+        func step(_ i: Int, _ kind: RenameStep.Kind) -> RenameStep {
+            RenameStep(currentPath: "/T/\(kind.rawValue)\(i).pdf",
+                       currentName: "\(kind.rawValue)\(i).pdf", proposedName: "0\(i). Jan 2021.pdf",
+                       kind: kind, cohort: kind == .renumbered ? 1 : 0, reason: "")
+        }
+        for i in 0..<named { steps.append(step(i, .placed)) }
+        for i in 0..<reshuffled { steps.append(step(i, .renumbered)) }
+        for i in 0..<padded { steps.append(step(i, .tidied)) }
+        return RenamePlan(folderPath: "/T", relativePath: "/T", scheme: .position, steps: steps,
+                          skips: (0..<skips).map {
+                              RenameSkip(path: "/T/s\($0)", fileName: "s\($0)", reason: "")
+                          })
+    }
+
+    /// The right edge of row 2's **leading** run — the headline plus the breakdown after it.
+    ///
+    /// Runs break on 20pt of background, wider than the 8pt gap between the headline and the
+    /// breakdown and narrower than the reach across to the trailing side, so the first run is
+    /// exactly the readout this test is about.
+    private func leadingRunEndOnRowTwo(_ host: NSHostingView<AnyView>, width: CGFloat) -> CGFloat? {
         let origin: CGFloat = 8
         guard let rep = strip(host, CGRect(x: origin, y: 50, width: width - origin - 8, height: 22)),
               let background = rep.colorAt(x: 2, y: 2) else { return nil }
         let scale = CGFloat(rep.pixelsWide) / (width - origin - 8)
-        var inked: [Bool] = []
+        var lastInk = -1, gapRun = 0
+        let gap = Int(20 * scale)
         for x in 0..<rep.pixelsWide {
-            var n = 0
+            var on = false
             for y in 0..<rep.pixelsHigh {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
                 let delta = max(abs(c.redComponent - background.redComponent),
                                 max(abs(c.greenComponent - background.greenComponent),
                                     abs(c.blueComponent - background.blueComponent)))
-                if delta > 0.03 { n += 1 }
+                if delta > 0.03 { on = true; break }
             }
-            inked.append(n >= 1)
-        }
-        var runs: [(Int, Int)] = []
-        var start: Int?
-        var blank = 0
-        let gap = Int(20 * scale)
-        for (i, on) in inked.enumerated() {
-            if on {
-                if start == nil { start = i }
-                blank = 0
-            } else if let s = start {
-                blank += 1
-                if blank >= gap { runs.append((s, i - blank)); start = nil }
+            if on { lastInk = x; gapRun = 0 } else if lastInk >= 0 {
+                gapRun += 1
+                if gapRun >= gap { break }
             }
         }
-        if let s = start { runs.append((s, inked.count - 1)) }
-        guard let last = runs.filter({ CGFloat($0.1 - $0.0) / scale > 3 }).last else { return nil }
-        return CGFloat(last.1 - last.0) / scale
+        return lastInk < 0 ? nil : CGFloat(lastInk) / scale + origin
     }
 
-    @Test("A long survey report leaves the actions untouched", .machinePinned(.pixelSampling))
-    func theSurveyReportDoesNotTakeTheActionsWords() throws {
-        // The reported defect. `FilingSurveyReport.summary` is prose whose length is a property of
-        // the last survey — "12 folders changed, 340 documents read, 8 followed a move, 3 left the
-        // tree, 5 not downloaded yet." — and drawn on row 1 it took the trailing set from 436.5pt
-        // to **921**, so at a 1200pt card the row read `Refine with…` and `File all 24 co…`.
+    @Test("The rename header draws its own short breakdown, not the folder rows' census",
+          .machinePinned(.pixelSampling))
+    func theRenameHeaderDrawsTheShortBreakdown() throws {
+        // **The call site, which the pure tally tests cannot reach.** `headerBreakdown` is asserted
+        // on its own in `RenameBacklogTallyTests`, and every one of those still passed with
+        // `renameBacklogSummary` reverted to `tally.breakdown` — a tested rule with no tested
+        // caller. Mutation-checked: this test is the one that fails when the call site goes back.
         //
-        // Stated as: the report changes nothing about row 1. Same width, same everything else.
-        let withReport = Self.manager(queue: 24, names: 17, survey: Self.longSurvey, refine: true)
-        let without = Self.manager(queue: 24, names: 17, refine: true)
+        // **Differential, so the headline cancels.** Comparing a rendered width against a predicted
+        // one would have to model the glyph, the count, the gaps and the label; instead two
+        // fixtures are rendered whose ONLY difference is the breakdown, and the difference between
+        // the two renders is compared against the difference between the two candidate strings.
+        // The headline is three monospaced digits in both, so it contributes nothing either way.
         let width: CGFloat = 1400
+        let mixed = Self.manager(queue: 24, names: 17)
+        mixed.renamePlans = [Self.renamePlan(named: 7, reshuffled: 6, padded: 628, skips: 2)]
+        let padOnly = Self.manager(queue: 24, names: 17)
+        padOnly.renamePlans = [Self.renamePlan(padded: 628)]
 
-        let reported = mount(withReport, lens: .toFile, width: width)
-        let quiet = mount(without, lens: .toFile, width: width)
+        let a = RenameBacklogTally(mixed.renamePlans), b = RenameBacklogTally(padOnly.renamePlans)
+        #expect(a.headerBreakdown != a.breakdown,
+                "the fixture's two forms are identical, so this test cannot tell which one is drawn")
+        #expect(b.headerBreakdown == b.breakdown,
+                "the control fixture differs between forms too, so it cannot serve as a baseline")
 
-        // **Non-vacuity first, and it is the half that matters here.** The cheapest way to pass
-        // this test is to stop drawing the report at all, which would be a worse bug than the one
-        // being fixed: the menu item that produced it would go back to looking like it did nothing.
-        // So the report has to be ON SCREEN, on row 2, and it has to be the reason that band is
-        // inked — hence the comparison against the same header without it.
-        let reportedRow2 = counts(try #require(strip(reported, Self.statusZone(width)))).ink
-        let quietRow2 = counts(try #require(strip(quiet, Self.statusZone(width)))).ink
-        #expect(reportedRow2 > quietRow2 + 500,
-                "row 2's trailing zone painted \(reportedRow2) inked pixels with a survey report and \(quietRow2) without — the report is not being drawn there, so every claim below is about a sentence nobody can read")
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        func w(_ s: String) -> CGFloat { (s as NSString).size(withAttributes: [.font: font]).width }
+        let ifShort = w(a.headerBreakdown) - w(b.headerBreakdown)
+        let ifCensus = w(a.breakdown) - w(b.breakdown)
+        #expect(ifCensus - ifShort > 50,
+                "the two candidate strings differ by only \(ifCensus - ifShort)pt — too little for the render to distinguish them, so this test would pass either way")
 
-        #expect(differingPixels(try #require(strip(reported, Self.trailingZone(width))),
-                                try #require(strip(quiet, Self.trailingZone(width)))) == 0,
-                "the actions render differently with a folder-memory report present — the caption is taking the buttons' words to make room for itself, which is the defect that moved it off row 1 in the first place")
+        let endMixed = try #require(leadingRunEndOnRowTwo(mount(mixed, lens: .renames, width: width),
+                                                          width: width))
+        let endPadOnly = try #require(leadingRunEndOnRowTwo(mount(padOnly, lens: .renames, width: width),
+                                                            width: width))
+        let drawn = endMixed - endPadOnly
+        #expect(abs(drawn - ifShort) < abs(drawn - ifCensus),
+                "row 2's readout grew by \(drawn)pt between the two backlogs — \(ifShort) is what the header's own short form predicts and \(ifCensus) is what the folder rows' census predicts, so the header is drawing the census")
     }
 
-    @Test("The report still says what the survey found, and is not a stub", .machinePinned(.pixelSampling))
-    func theSurveyReportSaysItsNumbers() throws {
-        // **The move has to carry the meaning, not just the pixels.** The whole reason this line
-        // exists is that "Update folder memory" usually changes nothing and would otherwise look
-        // like a menu item that does nothing, so a report reduced to an unreadable stub on row 2
-        // would be the original complaint back again by a different route — and this suite's
-        // founding failure is exactly that: two different labels clipped to identical images while
-        // four tests compared them and passed.
+    @Test("A finished survey report leaves row 2 alone entirely", .machinePinned(.pixelSampling))
+    func theFinishedSurveyReportIsNotOnRowTwo() throws {
+        // **The claim R1 exists to make, and the strongest form of it.** The report used to be
+        // row 2's widest tenant and its only compressible one, so a long survey shortened itself
+        // to `2713 folders c…` and then the readout beside a destructive button clipped. It is now
+        // above the menu item it reports on (``FolderSurveyNote``), and the statement here is not
+        // "it shortens gracefully" but "row 2 does not know it exists": every pixel of the row is
+        // identical with and without one.
         //
-        // At 1000, where the sentence is under pressure and truncating: two surveys that differ in
-        // their FIRST clause must still render differently.
-        //
-        // **1000 rather than 800, because the controls moved onto this row.** At 800 the trailing
-        // half is the heaviest readout (out to x≈324) and this lens's own controls (455pt back from
-        // the edge), which between them leave the sentence nothing — it is squeezed out entirely
-        // rather than truncated, and a test asking whether a truncated sentence stays legible has
-        // no sentence to ask about. At 1000 it gets ~209pt of the 485 it wants: compressed, drawn,
-        // and still carrying its first clause, which is the state this is about.
-        let width: CGFloat = 1000
+        // 800pt with a heavy readout — the width where the old arrangement was demonstrably tight,
+        // so this is asserted where it used to fail rather than somewhere roomy.
+        let width: CGFloat = 800
+        let reported = Self.manager(queue: 24, names: 17, survey: Self.longSurvey,
+                                    refine: true, heavyReadout: true)
+        let quiet = Self.manager(queue: 24, names: 17, refine: true, heavyReadout: true)
+        let wholeRow = CGRect(x: 8, y: 48, width: width - 16, height: 26)
+
+        #expect(reported.filingSurveyReport?.summary.isEmpty == false,
+                "the fixture is not carrying a survey report at all, so the comparison below would pass on an empty premise")
+        #expect(differingPixels(try #require(strip(mount(reported, lens: .toFile, width: width), wholeRow)),
+                                try #require(strip(mount(quiet, lens: .toFile, width: width), wholeRow))) == 0,
+                "row 2 renders differently once a finished survey report exists — the report is still being drawn there, so it is still renting the row and still the thing that gets truncated")
+
+        // **The positive control the assertion above needs.** "No difference" is also what a band
+        // pointed at the wrong place reports, and what a row that draws nothing at all reports. A
+        // survey that is RUNNING must still change this exact band — that branch stayed on row 2 —
+        // so the same comparison run against it has to come back non-zero.
+        let running = Self.manager(queue: 24, names: 17, refine: true, heavyReadout: true)
+        _ = running.beginScan(\.filingSurveyLifecycle, status: "Looking for new folders…")
+        #expect(differingPixels(try #require(strip(mount(running, lens: .toFile, width: width), wholeRow)),
+                                try #require(strip(mount(quiet, lens: .toFile, width: width), wholeRow))) > 0,
+                "a running survey changes nothing on row 2 either — the band is not looking at the row, so the zero above proves nothing about the finished report")
+    }
+
+    @Test("The survey note says what the survey found")
+    func theSurveyNoteSaysItsNumbers() {
+        // **The meaning had to move with the pixels.** The whole reason this sentence exists is
+        // that "Update folder memory" usually changes nothing and would otherwise look like a menu
+        // item that does nothing — so a move that dropped its numbers would be the original
+        // complaint back by a different route. Pure, because a `Menu`'s content is not rendered
+        // until it is opened: a mounted-header test can only reach this by reading source text,
+        // which is how a string comes to be asserted without anyone checking it says anything.
+        let note = FolderSurveyNote.text(for: Self.longSurvey)
+        #expect(note.contains("12 folders changed"))
+        #expect(note.contains("340 documents read"))
+        // The standing fact that used to be hidden in a tooltip behind a truncated sentence.
+        #expect(note.contains("96 folders have learned content"))
+
+        // Two surveys differing only in their first clause must read differently — the stub check,
+        // stated on the string itself rather than on pixels.
         let other = FileSyncManager.FilingSurveyReport(
             foldersChanged: 7, documentsRead: 91, documentsRelocated: 8, documentsDropped: 3,
             documentsUnavailable: 5, foldersLearned: 96, changed: true)
+        #expect(FolderSurveyNote.text(for: other) != note)
 
-        let a = try #require(strip(mount(Self.manager(queue: 24, names: 17, survey: Self.longSurvey,
-                                                      refine: true, heavyReadout: true),
-                                         lens: .toFile, width: width), Self.statusZone(width)))
-        let b = try #require(strip(mount(Self.manager(queue: 24, names: 17, survey: other,
-                                                      refine: true, heavyReadout: true),
-                                         lens: .toFile, width: width), Self.statusZone(width)))
-        #expect(counts(a).ink > 500,
-                "row 2's status zone painted \(counts(a).ink) inked pixels — the report is not being drawn there at all")
-        #expect(differingPixels(a, b) > 0,
-                "12 folders changed and 7 folders changed rendered identically — the report is a stub, so moving it here bought nothing")
+        // The quiet outcome is the common one and the reason the line exists at all.
+        #expect(FolderSurveyNote.text(for: .none).contains("Folder memory is up to date."))
+        // Singular, because a note that says "1 folders" is a note nobody proof-read.
+        let one = FileSyncManager.FilingSurveyReport(
+            foldersChanged: 1, documentsRead: 1, documentsRelocated: 0, documentsDropped: 0,
+            documentsUnavailable: 0, foldersLearned: 1, changed: true)
+        #expect(FolderSurveyNote.text(for: one).contains("1 folder has learned content"))
     }
 
     @Test("The survey says it is working, on the same row it reports from", .machinePinned(.pixelSampling))
@@ -1344,18 +1393,23 @@ import Design
                 "the actions render differently while the folder-memory survey is running — the progress line is taking their words")
     }
 
-    @Test("The report stays inside the filing apparatus it describes", .machinePinned(.pixelSampling))
-    func theSurveyReportDoesNotFollowYouToTheOtherLenses() throws {
-        // **The gate is the whole of what the move had to preserve, and nothing else pinned it.**
-        // On row 1 the status inherited its visibility from `lensActions`' `.rename, .filing` arm;
-        // on row 2 that condition had to be written out by hand, and a hand-written copy of an
-        // inherited condition is exactly the kind that gets "simplified" later. Folder memory
-        // belongs to Filing — a sentence about documents read has nothing to say on Duplicates, and
-        // it would be sitting where that lens's own "N of M" goes.
+    @Test("The survey's progress stays inside the filing apparatus", .machinePinned(.pixelSampling))
+    func theRunningSurveyDoesNotFollowYouToTheOtherLenses() throws {
+        // **The gate is the whole of what the moves had to preserve, and nothing else pins it.**
+        // On row 1 this inherited its visibility from `lensActions`' `.filing` arm; on row 2 the
+        // condition is written out by hand, and a hand-written copy of an inherited condition is
+        // exactly the kind that gets "simplified" later. Folder memory belongs to Filing — a line
+        // about documents read has nothing to say on Duplicates, and it would be sitting where that
+        // lens's own "N of M" goes.
+        //
+        // Restated for the running branch, because that is what row 2 carries now. The finished
+        // report cannot escape to another lens for the stronger reason that it is not on any lens's
+        // row any more — `theFinishedSurveyReportIsNotOnRowTwo` holds that end.
         //
         // Duplicates rather than the overview, deliberately: the overview reaches `lensTrailing`
-        // with `effectiveLens == .filing` and SHOULD show it, exactly as it did from row 1.
-        let manager = Self.manager(queue: 24, names: 17, survey: Self.longSurvey, refine: true)
+        // with `effectiveLens == .filing` and SHOULD show it.
+        let manager = Self.manager(queue: 24, names: 17, refine: true)
+        _ = manager.beginScan(\.filingSurveyLifecycle, status: "Looking for new folders…")
         manager.duplicateGroups = Self.duplicatesManager(groups: 3, names: 17).duplicateGroups
         manager.hasFoundDuplicates = true
         let width: CGFloat = 1400
@@ -1364,69 +1418,116 @@ import Design
                                                      Self.statusZone(width)))).ink
         let onToFile = counts(try #require(strip(mount(manager, lens: .toFile, width: width),
                                                  Self.statusZone(width)))).ink
-        #expect(onToFile > 500,
-                "the report painted \(onToFile) inked pixels on To File — the fixture is not producing it, so the comparison below proves nothing")
+        #expect(onToFile > 200,
+                "the progress line painted \(onToFile) inked pixels on To File — the fixture is not producing it, so the comparison below proves nothing")
         #expect(onDuplicates < 20,
-                "the folder-memory report painted \(onDuplicates) inked pixels on Duplicates — it has escaped the filing apparatus and is describing a scan this lens never ran")
+                "the folder-memory progress painted \(onDuplicates) inked pixels on Duplicates — it has escaped the filing apparatus and is describing a survey this lens never ran")
     }
 
-    @Test("The report grows with the app's text size, like everything beside it", .machinePinned(.pixelSampling))
-    func theSurveyReportTakesTheAppsTextSize() throws {
-        // **Pins `scaledFont`, which a mutation showed nothing else did.** Reverting the report to a
-        // plain `.font(.caption)` changed no pixel any other test in this suite looks at, because
+    @Test("The survey's progress grows with the app's text size", .machinePinned(.pixelSampling))
+    func theRunningSurveyProgressTakesTheAppsTextSize() throws {
+        // **Pins `scaledFont`, which a mutation showed nothing else did.** Reverting the line to a
+        // plain `.font(.caption)` changes no pixel any other test in this suite looks at, because
         // every one of them renders at 1.0 where the two are identical. It only shows at the top of
-        // the range — and it shows as the readout and the "N of M" beside it growing while the
-        // sentence explaining them stays put, which is the sort of thing that reads as a rendering
-        // bug rather than as a missing modifier.
+        // the range — as the readout and the "N of M" beside it growing while the sentence
+        // explaining them stays put, which reads as a rendering bug rather than a missing modifier.
         //
-        // 1400pt so neither render is truncated: a compressed sentence would be measuring the
-        // canvas, not the font. Measured 490pt at 1.0 against 630 at 1.3.
-        let manager = Self.manager(queue: 24, names: 17, survey: Self.longSurvey, refine: true)
-        let plain = try #require(trailingRunOnRowTwo(mount(manager, lens: .toFile, width: 1400),
-                                                     width: 1400))
-        let large = try #require(trailingRunOnRowTwo(mount(manager, lens: .toFile, width: 1400,
-                                                           scale: FontSize.extraLarge.scale),
-                                                     width: 1400))
-        // A tenth of the 30% the scale asks for — enough that only a genuinely scaling font clears
-        // it, loose enough not to pin the exact metrics of a caption.
-        #expect(large > plain * 1.03,
-                "the survey report painted \(plain)pt wide at 1.0× and \(large)pt at 1.3× — it is not taking the app's text size, so it will sit at 11pt beside a readout that grew")
+        // Moved onto the running branch with R1: that branch now carries the only `scaledFont` on
+        // this line, and it inherited the modifier without inheriting a test, which is precisely
+        // how the mutation above would have gone unnoticed a second time.
+        let manager = Self.manager(queue: 24, names: 17, refine: true)
+        _ = manager.beginScan(\.filingSurveyLifecycle, status: "Looking for new folders in Documents…")
+        let width: CGFloat = 1400
+        let plain = counts(try #require(strip(mount(manager, lens: .toFile, width: width),
+                                              Self.statusZone(width)))).ink
+        let large = counts(try #require(strip(mount(manager, lens: .toFile, width: width,
+                                                    scale: FontSize.extraLarge.scale),
+                                              Self.statusZone(width)))).ink
+        #expect(plain > 200,
+                "the progress line painted \(plain) inked pixels at 1.0× — it is not drawing, so the comparison below is between two blanks")
+        #expect(large > plain,
+                "the progress line painted \(plain) inked pixels at 1.0× and \(large) at 1.3× — it is not taking the app's text size, so it will sit at 11pt beside a readout that grew")
     }
 
-    @Test("The report is the thing that shortens when row 2 runs out of room", .machinePinned(.pixelSampling))
-    func theSurveyReportIsWhatGivesWay() throws {
-        // Row 2's leading readout says what the scan found and its trailing "N of M" says how much
-        // of it is showing; both describe the list on screen, while this describes a menu action.
-        // So when the row is over-subscribed — 309pt of pills against a 490pt sentence at 800 —
-        // the sentence is what shortens.
+    @Test("The readout stops giving way to the survey", .machinePinned(.pixelSampling))
+    func theReadoutNoLongerCompetesWithTheSurvey() throws {
+        // **This test used to assert the opposite, and the change is the point.** It said "the
+        // report is the thing that shortens when row 2 runs out of room" — 309pt of pills against a
+        // 490pt sentence at 800 — and it was true, and it was the design being defended: the
+        // sentence yielded so the numbers beside it did not have to. What it could never assert is
+        // that the yielding was *enough*, and it was not. The report shortened to an unreadable
+        // stub and then the readout clipped anyway.
         //
-        // **Over-determined, and worth saying so rather than claiming more than it pins.** Deleting
-        // `folderMemoryStatus`'s `layoutPriority(-1)` does not break this: `SummaryRun` is
-        // `.fixedSize()` and so is `ofMLabel`, which leaves the sentence the only compressible
-        // thing on the row whatever the priorities say. This asserts the rendered outcome, which is
-        // what the user gets; the modifier is insurance against either sibling ever becoming
-        // flexible, and no test here can hold it while they are not.
+        // R1 removes the competition rather than ranking it. The finished report is gone from the
+        // row entirely (`theFinishedSurveyReportIsNotOnRowTwo`), so what is left to ask is whether
+        // the one branch still here — a survey actually running — pushes the numbers beside it.
         let width: CGFloat = 800
-        let heavy = Self.manager(queue: 24, names: 17, survey: Self.longSurvey,
-                                 refine: true, heavyReadout: true)
-        let heavyQuiet = Self.manager(queue: 24, names: 17, refine: true, heavyReadout: true)
-
-        // The readout occupies x 15–324 either way. A band over it must be pixel-identical with
-        // and without a sentence competing for the row.
+        let busy = Self.manager(queue: 24, names: 17, refine: true, heavyReadout: true)
+        _ = busy.beginScan(\.filingSurveyLifecycle, status: "Looking for new folders…")
+        let quiet = Self.manager(queue: 24, names: 17, refine: true, heavyReadout: true)
+        // The readout occupies x 15–324 either way.
         let readout = CGRect(x: 8, y: 50, width: 330, height: 22)
-        #expect(differingPixels(try #require(strip(mount(heavy, lens: .toFile, width: width), readout)),
-                                try #require(strip(mount(heavyQuiet, lens: .toFile, width: width), readout))) == 0,
-                "row 2's readout renders differently once a survey report shares the row — the report is outranking the numbers it sits beside, which is backwards")
 
-        // …and it really was tight: the sentence is painted narrower here than where it has room,
-        // so the assertion above is about a row that had to give something up rather than a roomy
-        // one. Measured 447pt against 490, and the render shows the ellipsis.
-        let tight = try #require(trailingRunOnRowTwo(mount(heavy, lens: .toFile, width: width),
-                                                     width: width))
-        let roomy = try #require(trailingRunOnRowTwo(mount(heavy, lens: .toFile, width: 1400),
-                                                     width: 1400))
-        #expect(tight < roomy - 20,
-                "the report painted \(tight)pt wide at 800 and \(roomy)pt at 1400 — it is not being compressed at all, so nothing here is under pressure and the claim above is untested")
+        // **Renames — the lens this work was reported against — is settled at 800.**
+        #expect(differingPixels(try #require(strip(mount(busy, lens: .renames, width: width), readout)),
+                                try #require(strip(mount(quiet, lens: .renames, width: width), readout))) == 0,
+                "the Renames readout still moves when a survey runs — R1 did not settle the lens it was reported against")
+
+        // **To File is settled too, from 1000 up.** Its own actions are the widest set Organize has
+        // (the refine offer measured 436.5–468 against Renames' 240), so it is the lens with the
+        // least room left over on this row.
+        #expect(differingPixels(try #require(strip(mount(busy, lens: .toFile, width: 1000), readout)),
+                                try #require(strip(mount(quiet, lens: .toFile, width: 1000), readout))) == 0,
+                "To File's readout moves when a survey runs even at 1000pt, where the row has room")
+
+        // **And the one case R1 does NOT settle, recorded rather than hidden.** To File at 800 with
+        // both the refine offer and a heavy readout is over-subscribed on row 2 *before* the survey
+        // is counted: 309pt of pills plus ~468 of actions plus the gaps already exceed the 776pt of
+        // content the card has there. A running survey adds the ~19pt the spinner cannot yield
+        // below, and `ShrinkableRun` takes it off the readout's tail — measured at 66 pixels.
+        //
+        // Transient (it lasts a survey) and confined to the widest lens at a narrow width, so it is
+        // not what this change set out to fix; it is the residue that only a measured row-2 width
+        // model can remove, because no content edit can make a row fit that is over budget with the
+        // content already gone. Asserted as a BOUND, not as zero: pinning the current number would
+        // freeze a defect in place, and asserting nothing would let it grow back to a clipped
+        // sentence beside a destructive button.
+        let residue = differingPixels(
+            try #require(strip(mount(busy, lens: .toFile, width: width), readout)),
+            try #require(strip(mount(quiet, lens: .toFile, width: width), readout)))
+        #expect(residue < 150,
+                "To File's readout gave up \(residue) pixels to a running survey at 800pt, against 66 when this was measured — row 2 is over-subscribed by more than the spinner now, so something has been added to it without a width model to seat it")
+
+        // The half that must hold at every width: a destructive button keeps its words. This is
+        // the failure the whole arrangement exists to prevent.
+        //
+        // **Two bands, because one does not fit both lenses.** ``trailingZone`` is 170pt wide,
+        // which is the actions on To File (refine + file-all) but is wider than Renames' single
+        // Rescan — there it also catches the tail of the status text sitting the other side of the
+        // divider, and reports 522 changed pixels for a layout that is behaving exactly as
+        // intended. A band has to be sized to what it claims to measure; the original test asserted
+        // this on To File alone, and widening it to a second lens without resizing it is how a
+        // correct render comes to look like a regression.
+        #expect(differingPixels(try #require(strip(mount(busy, lens: .toFile, width: width),
+                                                   Self.trailingZone(width))),
+                                try #require(strip(mount(quiet, lens: .toFile, width: width),
+                                                   Self.trailingZone(width)))) == 0,
+                "To File renders its actions differently while a survey is running — the progress line is taking their words")
+        // Renames' actions are Rescan alone: 109pt against the card's trailing edge, so the band
+        // is 108 at x = width − 118. **Measured, not guessed** — a first cut at width − 130 began
+        // 2pt inside the status text and failed on a layout that was behaving correctly. What a
+        // survey changes on this lens spans x 534…672 (the status), and Rescan sits entirely
+        // beyond it: the button does not move, which is the claim.
+        let renamesActions = CGRect(x: width - 118, y: 48, width: 108, height: 26)
+        #expect(differingPixels(try #require(strip(mount(busy, lens: .renames, width: width),
+                                                   renamesActions)),
+                                try #require(strip(mount(quiet, lens: .renames, width: width),
+                                                   renamesActions))) == 0,
+                "Renames renders its actions differently while a survey is running — the progress line is taking their words")
+        // The band has to be over something, or the zero above is a zero about blank card.
+        #expect(counts(try #require(strip(mount(quiet, lens: .renames, width: width),
+                                          renamesActions))).ink > 100,
+                "the Renames actions band painted almost nothing — it is not over the Rescan button, so the comparison above proves nothing")
     }
 
     @Test("The shed rung is narrower than the rail it replaces, by enough to be worth having")

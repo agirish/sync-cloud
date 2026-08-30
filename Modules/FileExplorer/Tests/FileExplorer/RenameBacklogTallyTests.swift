@@ -100,4 +100,56 @@ import Testing
         // "126 folders" invites the reader to compare two numbers written in different systems.
         #expect(RenameBacklogTally([plan(padded: 1_134)]).breakdown.contains("1,134"))
     }
+
+    // MARK: headerBreakdown — the header's shorter form of the same words
+
+    @Test("The header collects the two rare kinds and drops the skips")
+    func theHeaderBreakdownIsShorterInTheSameWords() {
+        let p = plan(named: 7, reshuffled: 6, padded: 628, skips: 2)
+        let tally = RenameBacklogTally([p])
+        // The folder rows are untouched — that string is pinned equal to `RenamePassLens.summary`
+        // and this must not have moved it.
+        #expect(tally.breakdown == "7 to name · 6 to reshuffle · 628 to pad · 2 left alone")
+        #expect(tally.headerBreakdown == "13 to name or reshuffle · 628 to pad")
+        // Rare and consequential FIRST, bulk last — `stepParts`' order, kept deliberately. Leading
+        // with 628 would bury the thirteen that are worth a second look behind the ones that are
+        // not, which is the thing that ordering exists to prevent.
+        #expect(tally.headerBreakdown.hasPrefix("13 to name or reshuffle"))
+        // The point of the exercise: narrower. Measured 190.5pt against 268.5 at the header's own
+        // 11pt monospaced-digit face.
+        #expect(tally.headerBreakdown.count < tally.breakdown.count)
+    }
+
+    @Test("With one rare kind the header names it exactly")
+    func theHeaderBreakdownDoesNotOfferAKindWithNoMembers() {
+        // A disjunction is only honest when both sides have members. "7 to name or reshuffle" over
+        // a backlog with no reshuffles sends you looking for a kind that is not there — and is
+        // wider than saying the true thing.
+        #expect(RenameBacklogTally([plan(named: 7, padded: 628)]).headerBreakdown
+                == "7 to name · 628 to pad")
+        #expect(RenameBacklogTally([plan(reshuffled: 6, padded: 628)]).headerBreakdown
+                == "6 to reshuffle · 628 to pad")
+        #expect(RenameBacklogTally([plan(padded: 9)]).headerBreakdown == "9 to pad")
+    }
+
+    @Test("Skips are dropped only while there are renames to itemise")
+    func theHeaderBreakdownKeepsSkipsWhenTheyAreTheWholeStory() {
+        // Dropping them is right beside a rename total they are not part of: `641 renames · … ·
+        // 2 left alone` breaks a total down into parts, one of which is not among it.
+        #expect(RenameBacklogTally([plan(padded: 9, skips: 3)]).headerBreakdown == "9 to pad")
+        // But with no renames at all the header reads "0 renames", and the skips are the only
+        // thing that explains the zero. Withholding them there answers the question with silence.
+        let onlySkips = RenameBacklogTally([plan(skips: 2)])
+        #expect(onlySkips.renames == 0)
+        #expect(onlySkips.headerBreakdown == "2 left alone")
+        // Nothing at all still says nothing, so the caller draws no dangling separator.
+        #expect(RenameBacklogTally([plan()]).headerBreakdown.isEmpty)
+    }
+
+    @Test("The header's numbers are grouped like the rows'")
+    func theHeaderBreakdownGroupsItsThousands() {
+        #expect(RenameBacklogTally([plan(padded: 1_134)]).headerBreakdown.contains("1,134"))
+        #expect(RenameBacklogTally([plan(named: 1_200, reshuffled: 300)]).headerBreakdown
+                .contains("1,500 to name or reshuffle"))
+    }
 }

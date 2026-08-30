@@ -75,6 +75,55 @@ struct RenameBacklogTally: Equatable {
             .joined(separator: " · ")
     }
 
+    /// The header's shorter form of ``breakdown``: the same words, fewer of them.
+    ///
+    /// ## Why the header needs its own string at all
+    ///
+    /// ``breakdown`` is pinned equal to `RenamePassLens.summary` — the header and the folder rows
+    /// say the same thing in the same vocabulary, deliberately, and that is not a constraint to
+    /// work around. But the two have very different room. A folder row owns a full line; the header
+    /// shares a 22pt row with a readout, a divider and two buttons, and measured on the Renames
+    /// lens `7 to name · 6 to reshuffle · 628 to pad · 2 left alone` is **268.5pt** — the single
+    /// widest tenant of that row, and rigid (`.fixedSize()`) despite being subordinate to the
+    /// headline it explains. This is 190.5pt for the same backlog.
+    ///
+    /// ## What it drops, and why each is safe
+    ///
+    /// - **The skips.** `breakdown` appends "N left alone" to a run that the header prefixes with
+    ///   the *rename* total — and a skipped file is not among those renames. `641 renames · … ·
+    ///   2 left alone` breaks its own total down into parts, one of which is not part of it. The
+    ///   folder rows keep it (``claim``), where it sits under a folder's own name and is not
+    ///   itemising anything.
+    /// - **The separate spelling of the two rare kinds.** `to name` and `to reshuffle` collapse to
+    ///   one clause when both are present, because at header scale the useful distinction is
+    ///   routine-versus-not, and the split is one row below. **Only when both are present** — with
+    ///   one of them the header names it exactly, which is both narrower and more precise than a
+    ///   disjunction offering a kind that has no members.
+    ///
+    /// It does **not** invent vocabulary. Every word here is a word the folder rows use, which is
+    /// the rule ``breakdown``'s doc states and the reason this is not "N to review".
+    ///
+    /// Rare and consequential first, bulk last — ``stepParts``' order, for ``stepParts``' reason.
+    var headerBreakdown: String {
+        var parts: [String] = []
+        let consequential = named + reshuffled
+        if named > 0 && reshuffled > 0 {
+            parts.append("\(consequential.formatted()) to name or reshuffle")
+        } else if named > 0 {
+            parts.append("\(named.formatted()) to name")
+        } else if reshuffled > 0 {
+            parts.append("\(reshuffled.formatted()) to reshuffle")
+        }
+        if padded > 0 { parts.append("\(padded.formatted()) to pad") }
+        // **The one case where the skips ARE the breakdown.** Dropping them is right while there
+        // are renames to itemise — they are not among that total. With no renames at all the
+        // header reads "0 renames" and the skips are the only thing that explains the zero, so
+        // withholding them here would answer a question with silence. `breakdown` never had to
+        // make this distinction because it never dropped them.
+        if parts.isEmpty && skipped > 0 { parts.append("\(skipped.formatted()) left alone") }
+        return parts.joined(separator: " · ")
+    }
+
     /// One folder's own claim, under its name in the backlog list.
     ///
     /// ``breakdown``, except that it always says something: a plan of nothing but skips reads as a

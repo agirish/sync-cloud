@@ -1708,3 +1708,52 @@ four edits and a test-helper change, not a one-liner:
 `DestinationPicker`'s rows, none of which sit inside a 14pt card; the strip needs its own radius,
 and moving the token to suit the strip would be the wrong fix on any line.
 
+### 2026-08-29 — Organize's header row 2: the survey receipt moves, the breakdown shortens
+
+Row 2 of `LensHeaderCard` on the Organize lenses was the card's binding width constraint. Measured
+on `main` at the default text size with a real backlog (641 renames, a 2,713-folder survey): row 2
+wanted **867.2pt** of content against **654.1** for row 1 — and row 1 is the half with a measured
+shedding model (`OrganizeRailMetrics`), row 2 has none. Five of its six tenants are `.fixedSize()`,
+so the whole squeeze fell on the one that could yield, and the result was
+`2713 folders c…` beside a button reading **Rename 641 files**, then a silent clip of the readout.
+
+Two changes, both content rather than mechanism:
+
+- **R1** — the *finished* folder-memory report leaves row 2 and becomes a `Section` header above the
+  **Update folder memory** item in the Rescan menu (`FolderSurveyNote`). It was the widest tenant,
+  the only compressible one, and the only one not about the list on screen. The *running* branch
+  stays on row 2, which is where the "it looks like it did nothing" argument actually applies.
+- **R2** — `RenameBacklogTally.headerBreakdown`, a header-only short form in the same vocabulary
+  (`13 to name or reshuffle · 628 to pad`, 190.5pt against 268.5). `breakdown` is untouched, so the
+  folder rows and the `RenamePassLens.summary` equality are unaffected.
+
+**OWED to `v4.x`, both of them.** That line carries the defect verbatim — its `LensWorkspaceView`
+has the same `else if let report = syncManager.filingSurveyReport` branch on row 2 and the same
+`Text(tally.breakdown)` in the header, and it has `RenameBacklogTally`, `folderMemoryStatus` and the
+**Update folder memory** menu item:
+
+```sh
+git show origin/v4.x:Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift |
+  grep -c 'else if let report = syncManager.filingSurveyReport'   # 1
+```
+
+Per-file pick notes for whoever takes it: `FolderSurveyNote.swift` is new and drops in whole;
+`RenameBacklogTally.swift` is an additive property; `LensWorkspaceView.swift` is the real work
+(three prose blocks were rewritten alongside the two behaviour edits, and the prose is what stops
+the next reader re-deriving why the report is not on the row). The `OrganizeRailTests` changes
+rewrite five existing survey tests rather than adding to them — their premise is removed by R1 —
+so a pick that takes the source without the tests leaves five tests asserting the old arrangement.
+
+**NOT owed to `v3.x` or `v2.x`.** Neither line has either type, so there is nothing to change:
+
+```sh
+for l in v3.x v2.x; do git grep -c 'struct RenameBacklogTally' origin/$l -- Modules; done   # no hits
+for l in v3.x v2.x; do git grep -c 'folderMemoryStatus' origin/$l -- Modules; done          # no hits
+```
+
+**One thing R1 and R2 do NOT fix, on any line.** To File at an 800pt column with both the refine
+offer and a heavy readout is over-subscribed on row 2 *before* a survey is counted — 309pt of pills
+plus ~468 of actions exceed the 776pt available — so a running survey still costs the readout 66
+pixels off its tail. Renames at 800 and To File at 1000 are clean at 0. No content edit can fix a
+row that is over budget with the content already removed; only a measured row-2 width model can.
+`theReadoutNoLongerCompetesWithTheSurvey` asserts it as a bound rather than as zero, deliberately.
