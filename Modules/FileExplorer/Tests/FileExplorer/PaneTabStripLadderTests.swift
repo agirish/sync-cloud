@@ -330,6 +330,40 @@ import Design
         let live = try #require(oneClosable.first { $0.0 == "Close Other Tabs" })
         #expect(live.1, "Close Other Tabs is disabled even though an unpinned other exists")
     }
+
+    /// **The chip nests concentrically inside the strip card**, on every corner and by arithmetic.
+    ///
+    /// A corner sits inside another without the two curves fighting when the inner radius is the
+    /// outer radius less the gap between them. The strip shipped unable to satisfy that on any
+    /// corner: the card is `Radius.card` (14), the horizontal gutter was `LiquidGlass.cardGutter`
+    /// (5) and the vertical inset `(34 - 26) / 2` (4), so the chip needed radius 9 across and 10
+    /// down — and carried `Radius.chip`, 6, which is neither.
+    ///
+    /// Matching the gutter to the vertical inset is what collapses those two answers into one. This
+    /// pins the whole relationship rather than the three numbers separately, because the numbers are
+    /// only correct together: any one of them moved on its own re-opens the mismatch, and the point
+    /// of putting them side by side on the ladder was that nothing should be able to.
+    @Test func theChipNestsConcentricallyInsideTheCard() {
+        let verticalInset = (PaneTabStripLadder.stripHeight - PaneTabStripLadder.tabHeight) / 2
+        #expect(PaneTabStripLadder.stripGutter == verticalInset, """
+                the strip insets its chips by \(PaneTabStripLadder.stripGutter)pt across and \
+                \(verticalInset)pt down — a single chip radius cannot be concentric on both
+                """)
+        #expect(PaneTabStripLadder.chipRadius == LiquidGlass.cardCornerRadius - verticalInset, """
+                the chip's \(PaneTabStripLadder.chipRadius)pt corner sits \(verticalInset)pt inside \
+                a \(LiquidGlass.cardCornerRadius)pt one — concentricity wants \
+                \(LiquidGlass.cardCornerRadius - verticalInset)
+                """)
+        // And the radius is a stop on the scale rather than a number invented for the strip.
+        #expect(Radius.all.contains(PaneTabStripLadder.chipRadius),
+                "\(PaneTabStripLadder.chipRadius) is not on the radius scale")
+        // The rule then has to clear that corner — see `ruleInset`, and
+        // `theRuleEndsInsideTheChipItMarks` for the pixels.
+        #expect(PaneTabStripLadder.ruleInset > PaneTabStripLadder.chipRadius, """
+                the rule is inset \(PaneTabStripLadder.ruleInset)pt inside a \
+                \(PaneTabStripLadder.chipRadius)pt corner, so its ends hang off the chip
+                """)
+    }
 }
 
 

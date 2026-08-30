@@ -188,11 +188,41 @@ import Sync
                 "the chosen row's corner (\(row.corner)pt) is nearer a capsule's \(capsule)pt than its own outline's \(chip)pt — the row is back on the capsule default")
     }
 
-    /// The two surfaces that draw a non-capsule ground name their outline once, and it is a rounded
-    /// rect. A capsule here would mean the ground itself had changed, not just the affordance.
-    @Test func bothSurfacesNameTheirOutlineOnceAndAgree() {
+    /// The two surfaces that draw a non-capsule ground name their outline once, and neither has
+    /// gone back to a capsule. A capsule here would mean the ground itself had changed, not just
+    /// the affordance.
+    ///
+    /// **They no longer share a radius, and that is deliberate — do not "fix" this by making them
+    /// agree again.** This test used to assert both were `.roundedRect(Radius.chip)`, which read as
+    /// an invariant and was a coincidence: the two surfaces are unrelated. A picker row sits at 10pt
+    /// of horizontal padding inside a card of its own, while a tab chip is inset 4pt inside the
+    /// strip card's 14pt corner and takes `PaneTabStripLadder.chipRadius` (10) so the two corners are
+    /// concentric — see `theChipNestsConcentricallyInsideTheCard`. Tying the picker's radius to the
+    /// strip's would mean the next concentricity change silently dragged the picker along with it.
+    ///
+    /// What IS invariant is the pair below: each surface derives its drawable outline from the value
+    /// it hands the style, rather than restating it. That is what makes a drift unrepresentable
+    /// rather than merely untested, and it is what this file exists for.
+    @Test func eachSurfaceNamesItsOutlineOnceAndNeitherIsACapsule() {
+        // The picker's radius IS the shared token, so naming it here is a claim rather than an echo.
         #expect(DestinationRowShape.kind == .roundedRect(Radius.chip))
-        #expect(PaneTabStrip.chipShape == .roundedRect(Radius.chip))
+        // The strip's is not: `chipShape` is *defined* as `.roundedRect(chipRadius)`, so writing
+        // that equality here would compare a constant to itself and pass whatever either becomes.
+        // The claim this file can honestly make about the strip is the SHAPE — a rounded rect, of
+        // some radius, and specifically not the capsule it shipped as before `153b5ae7`. Which
+        // radius is the ladder's question, and `theChipNestsConcentricallyInsideTheCard` answers it.
+        for (name, shape) in [("the picker row", DestinationRowShape.kind),
+                              ("the tab chip", PaneTabStrip.chipShape)] {
+            switch shape {
+            case .roundedRect(let r):
+                #expect(r > 0, "\(name)'s outline is a rounded rect of radius \(r) — that is a rectangle")
+            case .capsule, .circle:
+                Issue.record("""
+                             \(name) draws a ground but hands the style \(shape) — the wash will \
+                             round past its corners, which is the defect this file exists for
+                             """)
+            }
+        }
         // Derived, not restated — the whole reason a drift is unrepresentable rather than untested.
         #expect(DestinationRowShape.outline.kind == DestinationRowShape.kind)
         #expect(PaneTabStrip.chipOutline.kind == PaneTabStrip.chipShape)

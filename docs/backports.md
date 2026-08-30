@@ -1648,3 +1648,63 @@ lines still have the four named presets, so even the shape of the bug is absent.
   and `theHeaderIsBalancedTopToBottom` reading the shared `headerInkFloor`. Machine-pinned
   (`.pixelSampling`), so it will not run on CI on that line either.
 - `Modules/Dashboard/Sources/Dashboard/DashboardViews.swift` — comment only.
+
+### 2026-08-29 — the tab strip's corner and its active-tab rule — RECORDED, not owed (`v4.x` only)
+
+Two geometry defects in `PaneTabStrip`, fixed together on `main`. **`v4.x` carries both, unchanged.
+`v3.x` and `v2.x` carry neither, because neither line has the tab strip at all** — it arrived in the
+v4 line, so there is nothing there to be wrong.
+
+The positive control first, since a mis-spelled path answers "absent" on every line at once:
+
+```sh
+git ls-tree -r --name-only origin/main -- Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift  # found
+for l in v4.x v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift
+done                                     # v4.x only
+```
+
+And the shape, on the line that has the file. Read the COUNT — `grep -c` exits 1 on zero, so the
+`|| echo 0` idiom this file warns about would print two lines here:
+
+```sh
+git show origin/v4.x:Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift \
+  | grep -c 'padding(.horizontal, 3)'                                    # 1 — the rule's inset
+git show origin/v4.x:Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift \
+  | grep -c 'HoverAffordanceShape.roundedRect(Radius.chip)'              # 1 — the chip's radius
+git show origin/v4.x:Modules/FileExplorer/Sources/FileExplorer/PaneTabStrip.swift \
+  | grep -c 'LiquidGlass.cardGutter'                                     # 3 — the gutter, at both sites
+```
+
+**What is wrong there, so a maintainer can price it without re-deriving it.**
+
+- **The chip cannot nest in the strip card on any corner.** The card is `Radius.card` (14), the
+  horizontal gutter is `LiquidGlass.cardGutter` (5) and the vertical inset is `(34 - 26) / 2` (4).
+  Concentricity wants the inner radius to be the outer less the gap, so the chip needs 9 across and
+  10 down; it carries `Radius.chip`, 6, which is neither. Close enough to read as an attempt,
+  far enough off to read as a miss.
+- **The active tab's rule paints outside the chip it marks.** It is inset 3pt from the chip's frame,
+  but a 6pt `.continuous` corner has already pulled the chip's paint in by 6.00pt at the bottom
+  scanline (rendered at 8× and read back). So its last 3pt at each end lie over the card behind it.
+  Nothing clips them: `chipGround` is a plain `ZStack` behind the chip with no `clipShape`.
+
+**The pick, if the direction ever changes.** It is one commit and it is self-contained, but it is
+four edits and a test-helper change, not a one-liner:
+
+1. `PaneTabStripLadder` gains `stripGutter` (4), `chipRadius` (`Radius.well`) and `ruleInset`
+   (`chipRadius + 2`), with the reasoning kept — the `+ 2` is measured, not chosen: `+ 1` clears the
+   corner's paint by exactly 0.0pt, which is a test passing on its tolerance.
+2. `PaneTabStrip.chipShape` reads `chipRadius`; the rule's `.padding(.horizontal, 3)` reads
+   `ruleInset` and becomes a `Capsule`.
+3. **Both** `LiquidGlass.cardGutter` sites move to `stripGutter` — the row's leading/trailing padding
+   AND the width handed to `layout(available:)`. Moving one alone overstates the room the ladder has
+   and squeezes the parked-tab count at the rail's 220pt.
+4. `PaneTabStripRenderTests` reads pixels at x offsets computed from the gutter, so those follow; and
+   `glyphPixels` needs its `rowInset` parameter, because a rounder corner reaches further into the
+   rows near a chip's ends — at radius 10 it put 22 corner pixels into a band that asserts
+   bareness, which is a red that looks like a chevron bug.
+
+`Radius.chip` stays at 6 on every line. It is shared with pills, inline badges and
+`DestinationPicker`'s rows, none of which sit inside a 14pt card; the strip needs its own radius,
+and moving the token to suit the strip would be the wrong fix on any line.
+

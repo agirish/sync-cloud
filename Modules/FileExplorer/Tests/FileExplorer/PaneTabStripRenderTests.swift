@@ -322,7 +322,7 @@ import Design
                              width: 900, scheme: scheme)
             let width = PaneTabStripLadder.layout(available: 890, titles: ["Finance", "Photos"],
                                                   scale: 1).tabWidth
-            let ground = groundColor(rep, at: LiquidGlass.cardGutter + width
+            let ground = groundColor(rep, at: PaneTabStripLadder.stripGutter + width
                                      + PaneTabStripLadder.tabGap + 3)
             guard let backdrop = rep.colorAt(x: 1, y: 1) else {
                 Issue.record("no backdrop pixel"); return
@@ -405,9 +405,9 @@ import Design
     /// the strip and call it a title.
     func titleBox(of rep: NSBitmapImageRep, tabWidth: CGFloat) -> NSRect {
         let pixelsPerPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
-        let start = LiquidGlass.cardGutter + PaneTabStripLadder.tabPadding
+        let start = PaneTabStripLadder.stripGutter + PaneTabStripLadder.tabPadding
             + PaneTabStripLadder.markSide + PaneTabStripLadder.contentGap
-        let end = LiquidGlass.cardGutter + tabWidth
+        let end = PaneTabStripLadder.stripGutter + tabWidth
             - PaneTabStripLadder.tabPadding - PaneTabStripLadder.closeSide
         return NSRect(x: start * pixelsPerPoint, y: 0,
                       width: (end - start) * pixelsPerPoint, height: CGFloat(rep.pixelsHigh))
@@ -505,7 +505,7 @@ import Design
 
         let perPoint = alone.size.width > 0 ? CGFloat(alone.pixelsWide) / alone.size.width : 1
         let closeBox = NSRect(
-            x: (LiquidGlass.cardGutter + width - PaneTabStripLadder.tabPadding
+            x: (PaneTabStripLadder.stripGutter + width - PaneTabStripLadder.tabPadding
                 - PaneTabStripLadder.closeSide) * perPoint,
             y: 0,
             width: PaneTabStripLadder.closeSide * perPoint,
@@ -543,7 +543,7 @@ import Design
         let perPoint = plain.size.width > 0 ? CGFloat(plain.pixelsWide) / plain.size.width : 1
         // The SECOND chip's close slot: past the first chip and the gap, at the trailing end of the
         // second, inset by its padding.
-        let chipStart = LiquidGlass.cardGutter + width + PaneTabStripLadder.tabGap
+        let chipStart = PaneTabStripLadder.stripGutter + width + PaneTabStripLadder.tabGap
         let slotStart = chipStart + width - PaneTabStripLadder.tabPadding - PaneTabStripLadder.closeSide
         let slotEnd = chipStart + width - PaneTabStripLadder.tabPadding
         let slot = NSRect(x: slotStart * perPoint, y: 0,
@@ -615,13 +615,13 @@ import Design
         let chip = activeChipBounds(rep, parked: parkedRep)
         let chipStart = chip.minX / perPoint
         let chipEnd = chip.maxX / perPoint
-        let titleStart = LiquidGlass.cardGutter + PaneTabStripLadder.tabPadding
+        let titleStart = PaneTabStripLadder.stripGutter + PaneTabStripLadder.tabPadding
             + PaneTabStripLadder.markSide + PaneTabStripLadder.contentGap
         let titleEnd = titleStart + LabelMetrics.width(of: "Immigration",
                                                        font: PaneTabStripLadder.titleFont, scale: 1)
         // Half a point of slack: the rule's edge is measured in whole pixels, and this only has to
         // establish that the chip is where the boxes below assume it is.
-        #expect(abs(chipStart - LiquidGlass.cardGutter) < 0.6,
+        #expect(abs(chipStart - PaneTabStripLadder.stripGutter) < 0.6,
                 "the chip starts at \(chipStart)pt, not the strip's gutter — every box below is off")
 
         // **The room the indicator takes.** The chip is wider than mark + gap + title + its two
@@ -656,9 +656,118 @@ import Design
         #expect(glyphPixels(rep, from: titleStart, to: titleEnd, ground: ground) > 300,
                 "the chip's own title does not register — the measurement is blind")
         // And the chevron is INSIDE the chip, not spilling past it: the trailing padding is bare.
+        // `rowInset` clears the corner arc, which reaches into this band and is not a glyph.
+        let cornerSafe = PaneTabStripLadder.chipRadius
         #expect(glyphPixels(rep, from: chipEnd - PaneTabStripLadder.tabPadding + 1, to: chipEnd - 1,
-                            ground: ground) == 0,
+                            ground: ground, rowInset: cornerSafe) == 0,
                 "something is drawn in the chip's trailing padding")
+        // The positive control FOR THAT NARROWER BAND. It is six points of chip height rather than
+        // twenty, and a band that cannot see anything would report the zero above just as happily —
+        // so the same rows are run over the title, which they must find.
+        #expect(glyphPixels(rep, from: titleStart, to: titleEnd,
+                            ground: ground, rowInset: cornerSafe) > 40,
+                "the corner-safe band cannot see the chip's own title — the zero above proves nothing")
+    }
+
+    /// **The active tab's rule ends inside the chip it marks**, on the chip's own bottom scanline.
+    ///
+    /// The shipped strip failed this and nothing caught it. The rule was inset 3pt from the chip's
+    /// FRAME, but a rounded corner has already pulled the chip's paint in by more than that by the
+    /// time it reaches the bottom — 6.00pt at the old `Radius.chip` of 6 — so the rule's last 3pt at
+    /// each end lay over the card behind it rather than over the chip. Nothing clips them:
+    /// `chipGround` is a plain `ZStack` behind the chip with no `clipShape`, so the rule is free to
+    /// paint outside the silhouette it is supposed to belong to.
+    ///
+    /// **The chip's silhouette is measured from a PARKED render, and that is the whole method.**
+    /// The obvious version of this test — "find the chip, find the rule, compare" on one render —
+    /// is tautological, and was written that way first: the rule is part of what makes those pixels
+    /// differ from the backdrop, so the chip's measured span always contains it and the assertion
+    /// cannot fail. Re-rendering the same strip with that tab parked removes the rule and nothing
+    /// else, so the first run of paint on the bottom scanline is the chip's outline alone.
+    ///
+    /// **This asserts containment, not the inset.** `PaneTabStripLadder.ruleInset` is a measured
+    /// number (10.75pt of paint inset at radius 10, rounded up to 11) and measured numbers go stale:
+    /// the relationship between a `.continuous` corner's nominal radius and where its paint actually
+    /// starts is not `radius`, and is not ours to fix. Asserting the property means this stays true
+    /// if the corner style, the radius or the platform's curve changes underneath it — and it fails
+    /// immediately if someone re-types the inset smaller than the corner. Verified by mutation: at
+    /// the shipped inset of 3 it reports the leading end hanging 7.75pt out over the card.
+    @Test(.machinePinned(.pixelSampling)) func theRuleEndsInsideTheChipItMarks() {
+        // A saturated accent, so the rule is separable from the chip's own wash — which is this
+        // same colour at 0.22 over grey, and nowhere near saturated.
+        let accent = Color(red: 1, green: 0, blue: 0)
+        let lit = render(items: [item("Immigration", active: true), item("iCloud")],
+                         width: 420, accent: accent)
+        // The same strip with the FIRST tab parked: identical geometry, no rule under it.
+        let parked = render(items: [item("Immigration"), item("iCloud", active: true)],
+                            width: 420, accent: accent)
+
+        // The chip's bottom scanline: half a point above its bottom edge, which is where the corner
+        // has pulled the paint in the furthest and where the rule sits.
+        let inset = (PaneTabStripLadder.stripHeight - PaneTabStripLadder.tabHeight) / 2
+        let y = PaneTabStripLadder.stripHeight - inset - 0.5
+
+        // **Sampled, not assumed.** The harness fills its backdrop with `Color(red: 0.95, …)`, but
+        // that reaches the bitmap as 0.959/0.960/0.969 after SwiftUI's colour conversion. Writing
+        // the nominal value here put a parked chip's grey 0.054 away from it — under the 0.06
+        // threshold — so the first chip went undetected and the run found was the SECOND one.
+        let backdrop = parked.colorAt(x: 1, y: 1)!.usingColorSpace(.deviceRGB)!
+        let chip = firstRun(parked, atY: y) { p in
+            max(abs(p.redComponent - backdrop.redComponent),
+                max(abs(p.greenComponent - backdrop.greenComponent),
+                    abs(p.blueComponent - backdrop.blueComponent))) > 0.06
+        }
+        let rule = firstRun(lit, atY: y) { p in
+            p.redComponent > 0.8 && p.greenComponent < 0.3 && p.blueComponent < 0.3
+        }
+
+        // Positive controls first: an empty run would satisfy every containment claim below.
+        #expect(rule != nil, """
+                no saturated accent on the chip's bottom scanline — either the rule is not drawn, \
+                or this measurement cannot see it
+                """)
+        #expect(chip != nil, "no chip found on its own bottom scanline — the measurement is blind")
+        guard let rule = rule, let chip = chip else { return }
+        #expect(rule.hi - rule.lo > 20,
+                "the rule spans only \(rule.hi - rule.lo)pt — too little to be the marker")
+        // And the parked run really is a whole chip rather than a sliver of one.
+        #expect(chip.hi - chip.lo > 60,
+                "the parked chip measures \(chip.hi - chip.lo)pt — that is not a chip")
+
+        // The claim. Half a point of tolerance for the corner's antialiased edge, which is the one
+        // place a hard pixel comparison would read a gradient as an overhang.
+        #expect(rule.lo >= chip.lo - 0.5, """
+                the rule starts at \(rule.lo)pt but the chip's paint only starts at \(chip.lo)pt — \
+                its leading end hangs \(chip.lo - rule.lo)pt out over the card behind it
+                """)
+        #expect(rule.hi <= chip.hi + 0.5, """
+                the rule ends at \(rule.hi)pt but the chip's paint ends at \(chip.hi)pt — \
+                its trailing end hangs \(rule.hi - chip.hi)pt out over the card behind it
+                """)
+    }
+
+    /// The FIRST contiguous run where `matches` holds on the scanline at `y` points from the top,
+    /// as (lo, hi) in points. `nil` when nothing on that row matches.
+    ///
+    /// A run and not a min/max: the strip holds several chips on one row, and the leading-edge
+    /// claims above are about the first chip only. A bounding span would reach across the gap to
+    /// the next chip and quietly widen every window it is asked about.
+    func firstRun(_ rep: NSBitmapImageRep, atY y: CGFloat,
+                  matches: (NSColor) -> Bool) -> (lo: CGFloat, hi: CGFloat)? {
+        let perPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
+        let row = min(rep.pixelsHigh - 1, max(0, Int(y * perPoint)))
+        var lo = -1, hi = -1
+        for x in 0..<rep.pixelsWide {
+            guard let p = rep.colorAt(x: x, y: row)?.usingColorSpace(.deviceRGB) else { continue }
+            if matches(p) {
+                if lo < 0 { lo = x }
+                hi = x
+            } else if lo >= 0 {
+                break
+            }
+        }
+        guard lo >= 0 else { return nil }
+        return (CGFloat(lo) / perPoint, CGFloat(hi + 1) / perPoint)
     }
 
     /// **Where the active chip is, measured rather than assumed** — the bounding box of everything
@@ -708,13 +817,22 @@ import Design
     /// removed on 2026-08-24; the rule came back the same day, the render-derived anchor did not.
     /// `stripHeight` and `tabHeight` are the same two numbers the strip lays itself out from, and
     /// the chip is centred between them, so this needs no render to find.
+    ///
+    /// **`rowInset` is how far in from the chip's top and bottom to start, and 3 is only safe for a
+    /// band away from the chip's ENDS.** The chip's corner arc eats into the rows near each edge,
+    /// and it now eats further: at the shipped `Radius.chip` of 6 the arc intruded 0.8pt at three
+    /// points from the edge, but at `PaneTabStripLadder.chipRadius` (10) it intrudes 2.9pt — enough
+    /// that a six-point band at the chip's trailing edge counted 22 corner pixels and read them as
+    /// a chevron spilling out of the chip. A caller measuring within `chipRadius` of either end
+    /// passes `rowInset: PaneTabStripLadder.chipRadius`, which is the only band the arc cannot
+    /// reach.
     func glyphPixels(_ rep: NSBitmapImageRep, from x0: CGFloat, to x1: CGFloat,
-                     ground: NSColor) -> Int {
+                     ground: NSColor, rowInset: CGFloat = 3) -> Int {
         guard x1 > x0 else { return -1 }
         let perPoint = rep.size.width > 0 ? CGFloat(rep.pixelsWide) / rep.size.width : 1
         let inset = (PaneTabStripLadder.stripHeight - PaneTabStripLadder.tabHeight) / 2
-        let bottom = Int((PaneTabStripLadder.stripHeight - inset - 3) * perPoint)
-        let top = max(0, bottom - Int((PaneTabStripLadder.tabHeight - 6) * perPoint))
+        let bottom = Int((PaneTabStripLadder.stripHeight - inset - rowInset) * perPoint)
+        let top = max(0, bottom - Int((PaneTabStripLadder.tabHeight - 2 * rowInset) * perPoint))
         var count = 0
         for y in top..<min(rep.pixelsHigh, bottom) {
             for x in Int(x0 * perPoint)..<min(rep.pixelsWide, Int(x1 * perPoint)) {
@@ -852,7 +970,7 @@ import Design
         let width = PaneTabStripLadder.layout(available: 890, titles: ["Finance", "Finance"],
                                               scale: 1).tabWidth
         let perPoint = pinned.size.width > 0 ? CGFloat(pinned.pixelsWide) / pinned.size.width : 1
-        let slot = NSRect(x: (LiquidGlass.cardGutter + width - PaneTabStripLadder.tabPadding
+        let slot = NSRect(x: (PaneTabStripLadder.stripGutter + width - PaneTabStripLadder.tabPadding
                              - PaneTabStripLadder.closeSide) * perPoint,
                           y: 0,
                           width: PaneTabStripLadder.closeSide * perPoint,

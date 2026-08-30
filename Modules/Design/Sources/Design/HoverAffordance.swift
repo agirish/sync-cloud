@@ -70,7 +70,7 @@ public enum HoverAffordanceShape: Equatable, Sendable {
     /// Override `shape:` when either is true of the control:
     ///
     /// - **It draws a non-capsule ground.** The wash lands *on* that ground, so a capsule over a
-    ///   6pt rounded rect pulls its ends in past the corners and leaves the fill showing round the
+    ///   rounded rect pulls its ends in past the corners and leaves the fill showing round the
     ///   outside of the wash. Invisible while the control has no resting ground — which is exactly
     ///   how it hid in the tab strip until `153b5ae7` gave every chip a slab — and visible the
     ///   moment one arrives. `PaneTabStrip` and all three of `DestinationPicker`'s row surfaces are

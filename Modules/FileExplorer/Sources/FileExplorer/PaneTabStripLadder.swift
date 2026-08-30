@@ -56,6 +56,57 @@ public enum PaneTabStripLadder {
     public static let closeSide: CGFloat = 16
     public static let contentGap: CGFloat = 5
     public static let tabPadding: CGFloat = 7
+
+    // MARK: - The strip's own corner geometry
+    //
+    // These three are one relationship, not three numbers, and they are here rather than at the
+    // three sites that used to spell them out so that the relationship can be stated once and
+    // tested. See `theChipNestsConcentricallyInsideTheCard`.
+
+    /// The track the strip keeps clear at its leading and trailing edges, INSIDE the card.
+    ///
+    /// **4, not `LiquidGlass.cardGutter`'s 5, and the difference is the whole point.** The strip
+    /// card is drawn at `Radius.card` (14) and the chip is centred in a 34pt row at 26pt tall, so
+    /// the vertical inset is already 4. At a horizontal gutter of 5 the chip could not be
+    /// concentric on all four corners at once — it needed radius 9 across and 10 down, and had 6.
+    /// Matching the horizontal gutter to the vertical one makes the inset uniform, and
+    /// `14 - 4 = 10` then holds everywhere.
+    ///
+    /// **Read by two sites that must agree**: the row's leading/trailing padding, and the width
+    /// `PaneTabStrip` offers `layout(available:)`. They were `LiquidGlass.cardGutter` in both, and
+    /// two copies of a number only ever agree by luck — a change to one alone silently overstates
+    /// the room the ladder has to spend and squeezes the parked-tab count at the rail's 220pt.
+    public static let stripGutter: CGFloat = 4
+
+    /// The chip's corner, and it is `Radius.well` for a reason rather than by coincidence.
+    ///
+    /// Concentricity wants `Radius.card - stripGutter` = `14 - 4` = 10, and 10 is already a stop on
+    /// the scale. So the strip introduces no new number: the first chip's corner traces the card's
+    /// corner exactly, and so does the last chip's against the trailing edge.
+    ///
+    /// **Not `Radius.chip`, which stays at 6.** That token is shared with pills, inline badges and
+    /// `DestinationPicker`'s rows, none of which sit inside a 14pt card at a 4pt inset. This is the
+    /// strip's own radius; moving the token to suit the strip would have been the wrong fix.
+    public static let chipRadius: CGFloat = Radius.well
+
+    /// How far the active tab's rule is inset from the chip's frame, each side.
+    ///
+    /// **It is a measurement, not `chipRadius` re-typed.** A `.continuous` corner pulls its paint
+    /// in past the nominal radius as the radius grows: rendering the chip's shape and reading the
+    /// bottom-most scanline back gives 6.00pt in from each edge at r=6, but **10.75pt at r=10**
+    /// (at 8×; the strip's own render reads 11.0pt over its bottom half-point at 2×). So an inset
+    /// of exactly the radius leaves the ends hanging over the card, and `radius + 1` clears the
+    /// paint by nothing at all — measured equal to its edge, which is a test passing on its
+    /// tolerance rather than on a margin.
+    ///
+    /// **`+ 2` is that margin**: a full point of chip either side of the rule's ends, bought for one
+    /// point of rule on a chip that is never narrower than `minTabWidth`.
+    ///
+    /// This was the shipped defect: the rule sat at 3 against a 6pt corner, so its last 3pt at each
+    /// end lay over the card, not over the chip — nothing clips it, `chipGround` being a plain
+    /// `ZStack` behind the chip. `theRuleEndsInsideTheChipItMarks` asserts CONTAINMENT rather than
+    /// this number, so it stays honest if the corner style ever changes under it.
+    public static let ruleInset: CGFloat = chipRadius + 2
     /// The chip's title font, and the one every measurement here is taken in.
     public static let titleFont: ScaledFont = .system(size: 11, weight: .medium)
     /// The ＋ and the overflow chevron's glyph font.

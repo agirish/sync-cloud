@@ -95,7 +95,11 @@ public struct PaneTabStrip: View {
     /// been absent, taking `.segment`'s capsule default and rounding the wash's ends 8pt past the
     /// slab. `DestinationPicker.rowOutline` is the same idiom for the same reason — see
     /// `HoverAffordanceOutline`.
-    static let chipShape = HoverAffordanceShape.roundedRect(Radius.chip)
+    ///
+    /// The radius itself lives on the ladder, next to the gutter it has to agree with — see
+    /// `PaneTabStripLadder.chipRadius`. It reads `Radius.well`, not `Radius.chip`: the chip is
+    /// concentric inside the strip card, and `14 - 4` is 10.
+    static let chipShape = HoverAffordanceShape.roundedRect(PaneTabStripLadder.chipRadius)
     /// `chipShape`, drawable — the slab under every tab and the accent wash under the live one.
     static let chipOutline = chipShape.outline
 
@@ -160,7 +164,7 @@ public struct PaneTabStrip: View {
             // squeezed to nothing. The wider rungs hid it, because their slack sits in a flexible
             // spacer that simply absorbed the error.
             let layout = PaneTabStripLadder.layout(
-                available: geo.size.width - 2 * LiquidGlass.cardGutter - leadingInset - trailingInset,
+                available: geo.size.width - 2 * PaneTabStripLadder.stripGutter - leadingInset - trailingInset,
                 titles: items.map(\.title),
                 scale: fontScale)
             strip(layout)
@@ -209,8 +213,8 @@ public struct PaneTabStrip: View {
                 .onTapGesture(count: 2) { onNew() }
             newTabButton
         }
-        .padding(.leading, LiquidGlass.cardGutter + leadingInset)
-        .padding(.trailing, LiquidGlass.cardGutter + trailingInset)
+        .padding(.leading, PaneTabStripLadder.stripGutter + leadingInset)
+        .padding(.trailing, PaneTabStripLadder.stripGutter + trailingInset)
     }
 
     private func visible(_ layout: PaneTabStripLadder.Layout) -> [Item] {
@@ -388,7 +392,7 @@ public struct PaneTabStrip: View {
         }
         // **The hue, and the chip's own outline.** `.segment`'s default hit shape is a CAPSULE,
         // which went unnoticed while a parked chip had no ground of its own — the wash floated on
-        // the backdrop with nothing under it to disagree with. Now every chip is a 6pt rounded
+        // the backdrop with nothing under it to disagree with. Now every chip is a 10pt rounded
         // rect, so a capsule wash would round its ends past the slab underneath and bleed onto the
         // backdrop at the corners. `chipOutline` is the same value the slab and the active wash are
         // drawn from, so the three cannot answer differently.
@@ -501,10 +505,12 @@ public struct PaneTabStrip: View {
         ZStack(alignment: .bottom) {
             Self.chipOutline
                 .fill(accent.opacity(PaneSelectionWash.opacity(isActivePane: isActivePane)))
-            RoundedRectangle(cornerRadius: 1, style: .continuous)
+            // `Capsule`, not `RoundedRectangle(cornerRadius: 1)`: at 2pt tall the two draw the same
+            // pixels, but only one of them stays a capsule if the height is ever tuned.
+            Capsule(style: .continuous)
                 .fill(accent)
                 .frame(height: 2)
-                .padding(.horizontal, 3)
+                .padding(.horizontal, PaneTabStripLadder.ruleInset)
         }
         .matchedGeometryEffect(id: Self.activeMarkerID, in: activeMarker)
     }
