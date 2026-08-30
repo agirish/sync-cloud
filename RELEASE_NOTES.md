@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v5.0 — DRAFT, not released
-
-> **This section is a draft.** v5.0 has not been tagged. Every claim gets audited against `v4.6`
-> at the cut.
+## v5.0
 
 **Restructure stops being a report.** It could recognise one thing — a family of folders organised
 more than one way — and all it could do was say so. It now recognises eight kinds of structural

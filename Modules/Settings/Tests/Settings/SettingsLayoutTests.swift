@@ -133,7 +133,7 @@ import Testing
     /// the app ship "1.0" for twenty-odd releases with a green suite. A literal that a human
     /// must change is the point: it is what gives `theVersionLineFitsTheRailOnOneLine` something
     /// real to measure.
-    private static let versionMarker = "5.0-dev"
+    private static let versionMarker = "5.0"
 
     /// The margin Appearance has left at one text size against a chosen accent hue, measured
     /// through the tab's own `@AppStorage` via `.defaultAppStorage` — `UserDefaults.standard` is

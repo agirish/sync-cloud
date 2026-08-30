@@ -135,9 +135,9 @@
 
 <div class="timeline">
 
-  <!-- v5.0 — draft -->
-  <article class="rel draft">
-    <div class="rel-head"><span class="v">v5.0</span><span class="tag draft">In development</span></div>
+  <!-- v5.0 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v5.0</span><span class="tag latest">Latest</span></div>
     <p class="lede"><b>Restructure stops being a report.</b> It could recognise one thing &#8212; a family of folders organised more than one way &#8212; and all it could do was say so. It now recognises eight kinds of structural drift, turns most of them into a plan you review name by name, applies that plan, and writes the way back to disk before it starts. Requires <b>macOS 26</b>, unchanged from the 4.x line &#8212; coming from 3.x or 2.x, read the v4.0 entry first.</p>
     <div class="grp">
       <h3>What Restructure finds</h3>
@@ -202,13 +202,13 @@
         <li><span class="ic">&#128187;</span><span><b><code>synccloud restructure</code> reports the whole detector set</b> over a surveyed tree, with <code>--json</code> for the full report and <code>--profiles-dir</code> to read a survey from elsewhere. It never touches the disk it describes.</span></li>
       </ul>
     </div>
-    <p class="known"><b>Still to come in v5.0.</b> The <b>document survey</b> is not in this release: the folder half &#8212; the tree walk Restructure reads &#8212; ships in setup&#8217;s Folders step, but reading page one of every document is an hours-long background pass and is deliberately not here. The <b>command line stops at report</b>: there is no <code>--apply</code> and no <code>--plan</code>, because Apply&#8217;s guarantees are about a person reading a plan before anything moves. <b>Two branches under parallel names</b> are reported, not planned. And the <b>structure trend starts empty</b> &#8212; it draws the finding counts the survey has recorded, so it has nothing to show until this release has been running for a while.</p>
-    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v4.6...main">v4.6...main</a></p>
+    <p class="known"><b>Not in v5.0.</b> The <b>document survey</b> is not in this release: the folder half &#8212; the tree walk Restructure reads &#8212; ships in setup&#8217;s Folders step, but reading page one of every document is an hours-long background pass and is deliberately not here. The <b>command line stops at report</b>: there is no <code>--apply</code> and no <code>--plan</code>, because Apply&#8217;s guarantees are about a person reading a plan before anything moves. <b>Two branches under parallel names</b> are reported, not planned. And the <b>structure trend starts empty</b> &#8212; it draws the finding counts the survey has recorded, so it has nothing to show until this release has been running for a while.</p>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v4.6...v5.0">v4.6...v5.0</a></p>
   </article>
 
   <!-- v4.6 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v4.6</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v4.6</span><span class="tag">Account roots</span></div>
     <p class="lede"><b>A source is the whole account now, not its Documents folder.</b> Every cloud source was discovered one level below where its content actually begins, so anything sitting beside Documents &#8212; Teams Recordings, a shared team folder, whatever you keep at the top of the account &#8212; was not reachable in the app at all, and every source&#8217;s breadcrumb started on the same word. The account folder is the root, where a pane <i>opens</i> is a separate setting you can change, and the pane header was rebuilt around the crumb that now names the source. On the v4 line, so it <b>requires macOS 26</b> &#8212; coming from 3.x or 2.x, read the v4.0 entry first.</p>
     <div class="grp">
       <h3>Sources</h3>
