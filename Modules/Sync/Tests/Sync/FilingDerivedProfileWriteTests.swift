@@ -145,4 +145,63 @@ import Testing
             try FilingProfileStore.repointActiveProfile(to: "ghost", in: dir)
         }
     }
+
+    // MARK: - What the index row says about a derived profile
+
+    /// **A re-derivation inherits the identity of the profile it replaces.**
+    ///
+    /// `amendedIndex` wrote five fields and no more, on the stated ground that "a folder walk does
+    /// not know the person's name, and an absent field reads as unknown while a guessed one reads
+    /// as a fact". That is right about a FIRST profile and wrong about a re-derivation: the tree
+    /// has already been identified, and the answer is sitting in the row being superseded. Written
+    /// as it was, one press of "Update the survey" turned `Abhishek / iCloud Drive (Desktop &
+    /// Documents sync) / 12280 files` into a nameless row — and every later press inherited the
+    /// nothing, so his live index ended up with four anonymous profiles.
+    @Test func aDerivedProfileInheritsTheNameAndProviderItWasDerivedFrom() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.handBuiltActive(in: dir)
+
+        // Give the active row the two fields the offline generator writes.
+        let indexURL = dir.appendingPathComponent("profiles.json")
+        var object = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: indexURL)) as? [String: Any])
+        var rows = try #require(object["profiles"] as? [[String: Any]])
+        rows[0]["displayName"] = "Abhishek"
+        rows[0]["provider"] = "iCloud Drive (Desktop & Documents sync)"
+        object["profiles"] = rows
+        try JSONSerialization.data(withJSONObject: object).write(to: indexURL)
+
+        _ = try FilingProfileStore.writeDerivedProfile(
+            Self.profile(id: "reorg-1", derivedFrom: "abhishek"), replacing: "abhishek", in: dir)
+
+        let after = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: indexURL)) as? [String: Any])
+        let listed = try #require(after["profiles"] as? [[String: Any]])
+        let derived = try #require(listed.first { $0["profileId"] as? String == "reorg-1" })
+        #expect(derived["displayName"] as? String == "Abhishek",
+                "the re-derived profile lost the name of the tree it describes")
+        #expect(derived["provider"] as? String == "iCloud Drive (Desktop & Documents sync)",
+                "the re-derived profile lost its provider")
+        // The counts are the NEW survey's own, never inherited — they are what changed.
+        #expect(derived["surveyedFolders"] as? Int == 2)
+        #expect(derived["surveyedFiles"] as? Int == 3, "the file total is summed from the walk")
+        // And the parent row is untouched, so the chain Undo reads still reads.
+        let parent = try #require(listed.first { $0["profileId"] as? String == "abhishek" })
+        #expect(parent["displayName"] as? String == "Abhishek")
+    }
+
+    /// A first profile still gets no invented name. The rule above inherits from a row that
+    /// exists; with nothing to inherit from, absent stays absent rather than becoming a guess.
+    @Test func aFirstProfileStillCarriesNoInventedName() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FilingProfileStore.writeProfile(Self.profile(id: "p1"), in: dir)
+
+        let object = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: dir.appendingPathComponent("profiles.json"))) as? [String: Any])
+        let rows = try #require(object["profiles"] as? [[String: Any]])
+        let row = try #require(rows.first { $0["profileId"] as? String == "p1" })
+        #expect(row["displayName"] == nil, "a walk that knows no name must not write one")
+    }
 }

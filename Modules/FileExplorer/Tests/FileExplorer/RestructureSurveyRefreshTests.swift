@@ -107,4 +107,70 @@ import Testing
         #expect(host.contains("refreshSurveyRefusal = nil"),
                 "a stale refusal must not survive the next press")
     }
+
+    /// **Every call site reports the SUCCESS path, not only the refusal.**
+    ///
+    /// This is the bug he hit an hour after v5.0 shipped: "nothing happens when I click Update
+    /// the Survey". It had happened — four times, because he pressed it four times — and the
+    /// survey really did go from 3013 folders to 5021. The refresh returned `nil` on success and
+    /// both call sites read `if let refusal = … { banner }`, so the working path had no branch at
+    /// all. A five-second tree walk finished in silence.
+    ///
+    /// Asserted at the call sites rather than on `SurveyRefreshOutcome`, because the type cannot
+    /// make anyone render it — the previous type could not either, and that was the whole defect.
+    @Test func everyRefreshCallSiteSaysSomethingWhenItWorked() throws {
+        let host = try Self.hostSource()
+        // Both closures destructure the outcome and both mention the success branch.
+        let calls = host.components(separatedBy: "await syncManager.refreshDerivedProfile()")
+        #expect(calls.count == 3, "expected exactly two call sites, found \(calls.count - 1)")
+        for (index, tail) in calls.dropFirst().enumerated() {
+            let window = String(tail.prefix(600))
+            #expect(window.contains(".success(outcome.sentence)"),
+                    "call site \(index + 1) never reports a successful refresh — the path that works is the one that says nothing")
+        }
+    }
+
+    /// The control that starts the walk is disabled while it runs, and says so. Without this the
+    /// only response to a button that looks dead is to press it again — which is what produced
+    /// eight `Another reorganisation is landing right now` refusals in one millisecond.
+    @Test func theRefreshControlsShowTheyAreBusy() throws {
+        let lens = try Self.lensSource()
+        #expect(lens.contains("var isRefreshing: Bool"),
+                "the lens cannot show a busy state it is never told about")
+        #expect(lens.contains("Button(isRefreshing ? \"Rescanning…\" : \"Rescan\")"),
+                "Rescan must say when it is already rescanning")
+        #expect(lens.contains(".disabled(isRefreshing)"),
+                "Rescan must refuse the second press rather than collecting a refusal for it")
+        #expect(lens.contains("isBusy: isRefreshing"),
+                "the setup card's secondary action must carry the same busy state")
+
+        // And the host must actually pass the engine's own flag, not a local that can drift.
+        let host = try Self.hostSource()
+        #expect(host.contains("isRefreshing: syncManager.restructureLandingInProgress"),
+                "the button's enabled state must be the engine's guard, or the two disagree")
+    }
+
+    /// The positive control for the two source scans above: they read real files with real
+    /// content, so an empty result means absence rather than a path that resolved nowhere.
+    @Test func theSourceScansAreReadingRealFiles() throws {
+        #expect(try Self.hostSource().contains("struct LensWorkspaceView"))
+        #expect(try Self.lensSource().contains("struct RestructureLens"))
+    }
+
+    static func hostSource() throws -> String {
+        try String(contentsOf: sourcesDirectory.appendingPathComponent("LensWorkspaceView.swift"),
+                   encoding: .utf8)
+    }
+
+    static func lensSource() throws -> String {
+        try String(contentsOf: sourcesDirectory.appendingPathComponent("RestructureLens.swift"),
+                   encoding: .utf8)
+    }
+
+    static var sourcesDirectory: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer")
+    }
 }

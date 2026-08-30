@@ -60,6 +60,48 @@ public struct RestructureApplyProgress: Equatable, Sendable {
     }
 }
 
+/// **What a survey refresh did** — or the sentence saying why it would not run.
+///
+/// It replaces a bare `String?` whose `nil` meant success, which is what let the one surface that
+/// calls it say nothing at all on the path that worked: the call site banner-ed the refusal and
+/// had no branch for the other case. A result that has to be *destructured* cannot be silently
+/// dropped the same way, and the success case carries the two numbers a reader wants — a walk
+/// that changed nothing and a walk that found two thousand folders are not the same event.
+public enum SurveyRefreshOutcome: Equatable, Sendable {
+    /// The walk landed and the survey was replaced. `folders` is what the new one holds,
+    /// `previousFolders` what the old one did.
+    case updated(folders: Int, previousFolders: Int)
+    /// A guard closed, or the re-derive failed. The sentence is the whole of what to show.
+    case refused(String)
+
+    /// The refusal sentence, or nil when it worked — for a caller that renders the two
+    /// differently (the Scaffolded card puts its refusal on the card that asked).
+    public var refusal: String? {
+        if case .refused(let sentence) = self { return sentence }
+        return nil
+    }
+
+    /// **The one spelling of what to tell the user**, success or refusal, so two call sites
+    /// cannot drift into describing the same event differently.
+    ///
+    /// The success sentence names the delta rather than only the total, because the total alone
+    /// cannot distinguish "it ran" from "it ran and the tree had not moved" — and on a settled
+    /// tree the second is the ordinary outcome, which a reader has to be able to tell from a
+    /// button that did nothing.
+    public var sentence: String {
+        switch self {
+        case .refused(let sentence):
+            return sentence
+        case .updated(let folders, let previousFolders):
+            let delta = folders - previousFolders
+            let total = "Survey updated — \(folders) folder\(folders == 1 ? "" : "s")"
+            if delta > 0 { return total + ", \(delta) more than before." }
+            if delta < 0 { return total + ", \(-delta) fewer than before." }
+            return total + ", unchanged since the last survey."
+        }
+    }
+}
+
 @MainActor
 extension FileSyncManager {
 
@@ -438,8 +480,8 @@ extension FileSyncManager {
     /// Returns nil on success, or the sentence the card should show. A refusal is a sentence,
     /// never a queue: the guards are the landing's, so "wait for the scan" means wait and press
     /// it again.
-    public func refreshDerivedProfile(now: Date = Date()) async -> String? {
-        if let refusal = restructureLandingRefusal() { return refusal }
+    public func refreshDerivedProfile(now: Date = Date()) async -> SurveyRefreshOutcome {
+        if let refusal = restructureLandingRefusal() { return .refused(refusal) }
         restructureLandingInProgress = true
         // The progress value belongs to the operation that publishes it. `rederiveProfile` is
         // shared with `applyPlan`, whose own defer clears it — without this one a refresh left
@@ -451,9 +493,12 @@ extension FileSyncManager {
         }
         guard let store = restructureStore, let profile = filingFolderProfile,
               let profilesDirectory = filingProfilesDirectory else {
-            return "No folder survey is loaded."
+            return .refused("No folder survey is loaded.")
         }
         let oldDirectoryId = filingProfileDirectoryId ?? profile.profileId
+        // Read BEFORE the walk replaces it — the whole point of the number is the comparison,
+        // and after `rederiveProfile` succeeds `filingFolderProfile` is already the new one.
+        let previousFolders = profile.folders.count
         let expandedRoot = (profile.root as NSString).expandingTildeInPath
         // Moves nothing: the rename map is empty and the corpus replay is an identity, so what
         // is left is the fresh walk — which is the whole point.
@@ -476,11 +521,12 @@ extension FileSyncManager {
             // the caution even on a profile with no corpus to rewrite (`rederiveProfile` only
             // stamps inside the corpus branch).
             filingSurveyedAt = now
+            let folders = filingFolderProfile?.folders.count ?? previousFolders
             Logger.shared.info("Restructure: survey re-derived on request — "
-                + "\(oldDirectoryId) → \(newId)")
-            return nil
+                + "\(oldDirectoryId) → \(newId); \(previousFolders) → \(folders) folder(s)")
+            return .updated(folders: folders, previousFolders: previousFolders)
         case .failure(let sentence):
-            return "The survey was not refreshed — " + sentence
+            return .refused("The survey was not refreshed — " + sentence)
         }
     }
 

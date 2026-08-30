@@ -1013,7 +1013,14 @@ public class FileSyncManager: ObservableObject {
     /// profile through long awaits, and a second landing entering through that window would
     /// record itself under a profile id the first landing is about to replace, wedging the undo
     /// chain behind two honest-but-permanent refusals. Checked by `restructureLandingRefusal`.
-    var restructureLandingInProgress = false
+    ///
+    /// **Published and readable outside this module, because a surface has to be able to say a
+    /// landing is running.** It was neither, so the Restructure lens could not see it: "Update
+    /// the survey" walked the tree for about five seconds with no busy state, no progress and no
+    /// completion message, which reads as a dead button. He clicked it repeatedly on 2026-08-29
+    /// and got four full re-derivations plus eight "another reorganisation is landing right now"
+    /// refusals, all from a control that looked like it had done nothing.
+    @Published public internal(set) var restructureLandingInProgress = false
 
     /// Where a landing has got to, while it is running — nil at every other moment.
     ///

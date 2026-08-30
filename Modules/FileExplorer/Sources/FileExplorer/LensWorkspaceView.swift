@@ -3295,14 +3295,21 @@ public struct LensWorkspaceView: View {
                         // cleared its own staleness warning while every finding stayed
                         // byte-identical. A warning the user can dismiss without fixing anything
                         // is worse than no warning.
+                        // **Both outcomes are reported.** The success path used to return nil
+                        // and this closure had no branch for it, so a five-second tree walk
+                        // finished in silence and the button read as dead.
                         onUpdateSurvey: {
                             Task { @MainActor in
                                 refreshSurveyRefusal = nil
-                                if let refusal = await syncManager.refreshDerivedProfile() {
-                                    syncManager.banner = .warning(refusal)
-                                }
+                                let outcome = await syncManager.refreshDerivedProfile()
+                                syncManager.banner = outcome.refusal == nil
+                                    ? .success(outcome.sentence)
+                                    : .warning(outcome.sentence)
                             }
                         },
+                        // The engine's own guard, as the button's enabled state — so a landing
+                        // already running disables the control instead of refusing the press.
+                        isRefreshing: syncManager.restructureLandingInProgress,
                         // §5.7's Applied/Undone cards — every plan landing in the ledger,
                         // newest first. Scaffolds keep their own card sentence and stay out.
                         reorganisations: reorganisationDisplays,
@@ -3330,8 +3337,14 @@ public struct LensWorkspaceView: View {
                         onRefreshSurvey: { subject in
                             Task { @MainActor in
                                 refreshSurveyRefusal = nil
-                                if let refusal = await syncManager.refreshDerivedProfile() {
+                                let outcome = await syncManager.refreshDerivedProfile()
+                                // A refusal stays on the card that asked; a success is a
+                                // window-level event and belongs in the banner, like the
+                                // setup card's own.
+                                if let refusal = outcome.refusal {
                                     refreshSurveyRefusal = (subject: subject, sentence: refusal)
+                                } else {
+                                    syncManager.banner = .success(outcome.sentence)
                                 }
                             }
                         },

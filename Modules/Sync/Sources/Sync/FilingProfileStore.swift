@@ -759,11 +759,28 @@ extension FilingProfileStore {
             profiles = listed
         }
         if !profiles.contains(where: { $0["profileId"] as? String == profile.profileId }) {
-            // No `displayName`: the offline generator writes the person's name, and a folder walk
-            // does not know it. An absent field reads as "unknown"; a guessed one reads as a fact.
-            profiles.append(["profileId": profile.profileId, "root": profile.root,
-                             "portable": false, "generatedAt": stamp(now),
-                             "surveyedFolders": profile.folders.count])
+            var row: [String: Any] = ["profileId": profile.profileId, "root": profile.root,
+                                      "portable": false, "generatedAt": stamp(now),
+                                      "surveyedFolders": profile.folders.count,
+                                      "surveyedFiles": profile.folders.values
+                                          .reduce(0) { $0 + $1.fileCount }]
+            // **`displayName` and `provider` are inherited from the profile being replaced, not
+            // guessed.** The rule this replaces — "a folder walk does not know the person's
+            // name, and an absent field reads as unknown while a guessed one reads as a fact" —
+            // is right about a FIRST profile and wrong about a re-derivation, which is a new
+            // survey of a tree that has already been identified. Written as it was, one press of
+            // "Update the survey" turned a row reading `Abhishek / iCloud Drive (Desktop &
+            // Documents sync) / 12280 files` into a nameless one, and every press after that
+            // inherited the nothing. Copying from the row being superseded keeps a fact a fact:
+            // the source is the previous active profile's own entry, never a construction.
+            if let parent = profiles.first(where: {
+                $0["profileId"] as? String == reading.activeProfileId
+            }) {
+                for field in ["displayName", "provider"] where row[field] == nil {
+                    if let carried = parent[field] { row[field] = carried }
+                }
+            }
+            profiles.append(row)
         }
         object["profiles"] = profiles
         object["activeProfileId"] = profile.profileId

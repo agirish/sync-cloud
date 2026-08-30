@@ -195,6 +195,11 @@ struct RestructureLens: View {
     /// action: the primary only reveals what is already computed, so this is the one that makes
     /// the answer more current. nil on a machine with nothing to re-survey.
     var onUpdateSurvey: (() -> Void)?
+    /// **True while a landing is running** — the re-derive included. The refresh walks the whole
+    /// tree (about five seconds on a real one) and every control that starts one is disabled and
+    /// says so meanwhile, because the alternative is what shipped: a button that looks idle for
+    /// the entire operation, and a user who presses it again and collects refusals.
+    var isRefreshing: Bool = false
     /// §5.7's Applied and Undone cards — the ledger's records, newest first. Rendered in the
     /// clean state too, deliberately: a successful apply makes the finding vanish, and the clean
     /// state is exactly where *Undo this reorganisation* has to live to be findable.
@@ -1479,11 +1484,14 @@ struct RestructureLens: View {
             onStart: onReview,
             secondary: onUpdateSurvey.map {
                 LensSetupCard.SecondaryAction(
-                    title: "Update the survey",
+                    title: isRefreshing ? "Updating the survey…" : "Update the survey",
                     symbol: "arrow.clockwise",
-                    help: "Re-read the tree and rebuild the folder memory these findings come "
+                    help: isRefreshing
+                        ? "Re-reading the tree now — this takes a few seconds."
+                        : "Re-read the tree and rebuild the folder memory these findings come "
                         + "from. Slower, and the only thing here that makes the answer current.",
-                    action: $0)
+                    action: $0,
+                    isBusy: isRefreshing)
             },
             footnote: AnyView(surveyNote),
             samples: { samples }
@@ -1538,12 +1546,18 @@ struct RestructureLens: View {
                 // The remedy beside the warning: a caution with nothing to do about it is a
                 // caution people learn to scroll past.
                 if stale, let onUpdateSurvey {
-                    Button("Rescan") { onUpdateSurvey() }
+                    Button(isRefreshing ? "Rescanning…" : "Rescan") { onUpdateSurvey() }
                         .scaledFont(.system(size: 11, weight: .semibold))
                         .buttonStyle(.plain)
-                        .foregroundStyle(accent)
+                        // Not the accent while it is running: an accented control reads as
+                        // "press me", and this one is the thing already in progress.
+                        .foregroundStyle(isRefreshing ? AnyShapeStyle(.secondary)
+                                                      : AnyShapeStyle(accent))
                         .chromeHover()
-                        .help("Re-reads the tree and rebuilds the folder memory these findings "
+                        .disabled(isRefreshing)
+                        .help(isRefreshing
+                              ? "Re-reading the tree now — this takes a few seconds."
+                              : "Re-reads the tree and rebuilds the folder memory these findings "
                               + "come from. Slower, and the only thing here that makes the "
                               + "answer current.")
                 }

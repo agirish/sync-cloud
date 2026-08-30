@@ -158,4 +158,32 @@ import Testing
         #expect(RestructureRederive.mapped("Tax/Federal/b.pdf", through: renames)
                 == "Tax/Forms/b.pdf")
     }
+
+    // MARK: - What a refresh reports
+
+    /// **The success sentence names the delta, not only the total.** A total alone cannot tell
+    /// "it ran" from "it ran and the tree had not moved" — and on a settled tree the second is
+    /// the ordinary outcome, which is exactly the case a reader has to be able to distinguish
+    /// from a button that did nothing.
+    @Test func theRefreshSentenceSaysHowMuchTheTreeMoved() {
+        #expect(SurveyRefreshOutcome.updated(folders: 5021, previousFolders: 3013).sentence
+            == "Survey updated — 5021 folders, 2008 more than before.")
+        #expect(SurveyRefreshOutcome.updated(folders: 3013, previousFolders: 5021).sentence
+            == "Survey updated — 3013 folders, 2008 fewer than before.")
+        #expect(SurveyRefreshOutcome.updated(folders: 3013, previousFolders: 3013).sentence
+            == "Survey updated — 3013 folders, unchanged since the last survey.")
+        // The singular, because a one-folder tree is a real (if odd) thing and "1 folders" is the
+        // tell that nobody read the sentence back.
+        #expect(SurveyRefreshOutcome.updated(folders: 1, previousFolders: 0).sentence
+            == "Survey updated — 1 folder, 1 more than before.")
+    }
+
+    /// A refusal is carried verbatim and is the only case with a `refusal` — the two call sites
+    /// branch on exactly that, one putting it on a card and the other in the banner.
+    @Test func aRefusalIsTheOnlyOutcomeThatReadsAsOne() {
+        let refused = SurveyRefreshOutcome.refused("No folder survey is loaded.")
+        #expect(refused.refusal == "No folder survey is loaded.")
+        #expect(refused.sentence == "No folder survey is loaded.")
+        #expect(SurveyRefreshOutcome.updated(folders: 2, previousFolders: 1).refusal == nil)
+    }
 }

@@ -48,6 +48,11 @@ struct LensSetupCard<Samples: View>: View {
         let symbol: String
         let help: String
         let action: () -> Void
+        /// **The action is already running.** Defaulted so every existing call site is
+        /// untouched; the one lens that has a slow secondary (Restructure's survey re-derive)
+        /// passes it, and the button below goes disabled with a spinner rather than accepting
+        /// presses that the engine will only refuse.
+        var isBusy: Bool = false
     }
     /// A lens-specific note that belongs on this screen but **must not sit above the header.**
     ///
@@ -119,11 +124,21 @@ struct LensSetupCard<Samples: View>: View {
                 }
                 if let secondary {
                     Button(action: secondary.action) {
-                        Label(secondary.title, systemImage: secondary.symbol)
+                        // The spinner takes the symbol's place rather than sitting beside it,
+                        // so the button keeps its width and the row does not reflow mid-press.
+                        if secondary.isBusy {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text(secondary.title)
+                            }
+                        } else {
+                            Label(secondary.title, systemImage: secondary.symbol)
+                        }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     .chromeHover()
+                    .disabled(secondary.isBusy)
                     .help(secondary.help)
                 }
             }
