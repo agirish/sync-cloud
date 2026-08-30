@@ -554,6 +554,102 @@ extension FilingProfileStore {
         return url
     }
 
+    /// **Retires derived profiles nothing can reach any more** — the directory and its index row.
+    ///
+    /// Every re-derivation writes a NEW profile directory and appends a row; `replacing:` above
+    /// only asserts which id was active, and never retired anything. So the store grew by one
+    /// full profile per survey refresh, forever. On 2026-08-29 that was eight profiles and 90 MB
+    /// after a single evening — because the refresh button gave no feedback, so it was pressed
+    /// repeatedly, but the leak was there at one-per-press regardless.
+    ///
+    /// **Three things are never retired, and the first two are this function's own rules rather
+    /// than the caller's:**
+    ///
+    /// - **The active profile.** Read from the index here, not passed in, so a caller that has
+    ///   drifted cannot talk this into deleting the tree the app is currently reading.
+    /// - **Anything not provably derived.** `provenance` answers `handBuilt` for a profile the
+    ///   out-of-repo builder wrote AND for one whose `builtBy` header is absent or unreadable —
+    ///   the safe default by construction. A profile whose file will not decode at all is kept
+    ///   too: unreadable is not the same as disposable, and this is the one operation where that
+    ///   distinction is unrecoverable.
+    /// - **Whatever the caller protects.** That is where domain knowledge lives: the ledger can
+    ///   re-point Undo at `appliedUnderProfileId`, and `repointActiveProfile` requires the target
+    ///   to still be on disk, so a landing that can still be taken back pins the profile it was
+    ///   applied under. The store has no business knowing that, which is why it is a parameter.
+    ///
+    /// Candidates come from the index, and a row whose directory is already gone is pruned rather
+    /// than skipped — otherwise a sweep interrupted between the two halves would leave that row
+    /// naming nothing, forever, since `profile(id:)` returns nil for it and the "is it derived?"
+    /// test could never pass again. Directories are removed first and the index written once at
+    /// the end, so an interruption leaves rows that the NEXT sweep finishes off.
+    ///
+    /// A directory with no index row at all is not swept here. `writeDerivedProfile` cannot leave
+    /// one — `land` removes the profile it just wrote if the index write fails — so the state is
+    /// unreachable short of a hand edit, and inventing a rule for it would mean deleting a
+    /// directory on no recorded authority, which is precisely the wrong side to err on.
+    ///
+    /// - Returns: the ids retired, for the caller's log line.
+    @discardableResult
+    public static func retireSupersededProfiles(protecting protected: Set<String>,
+                                                in directory: URL,
+                                                fileManager: FileManaging = FileManager.default)
+        throws -> [String] {
+        let reading = try indexForAmending(in: directory)
+        guard let active = reading.activeProfileId else {
+            // No active profile named: this index is not in a state to reason about supersession,
+            // and retiring on a guess is the one mistake with no way back.
+            return []
+        }
+        var listed: [[String: Any]] = []
+        if let raw = reading.object?["profiles"], !(raw is NSNull) {
+            guard let rows = raw as? [[String: Any]] else {
+                throw WriteRefusal.indexUnreadable("profiles is not a list of objects")
+            }
+            listed = rows
+        }
+        let candidates = listed.compactMap { $0["profileId"] as? String }
+            .filter { $0 != active && !protected.contains($0) }
+        var retired: [String] = []
+        for id in candidates.sorted() {
+            let url = directory.appendingPathComponent(id)
+            guard fileExistsAsDirectory(url, fileManager: fileManager) else {
+                // Already gone — the row is the only thing left of it.
+                retired.append(id)
+                continue
+            }
+            // Unreadable counts as hand-built (see `provenance`), so it is kept: unreadable is
+            // not disposable, and this is the one operation where the difference cannot be undone.
+            guard profile(id: id, in: directory)?.provenance == .derived else { continue }
+            do {
+                try fileManager.removeItem(at: url)
+                retired.append(id)
+            } catch {
+                // Reported, never silent: a directory that would not go keeps its row, so the
+                // next sweep sees it again rather than losing track of it.
+                Logger.shared.warning("Filing profiles: could not retire \(id): \(error)")
+            }
+        }
+        guard !retired.isEmpty else { return [] }
+
+        var object = reading.object ?? [:]
+        object["schemaVersion"] = currentSchema
+        object["profiles"] = listed.filter {
+            guard let id = $0["profileId"] as? String else { return true }
+            return !retired.contains(id)
+        }
+        object["activeProfileId"] = active
+        let bytes = try JSONSerialization.data(withJSONObject: object,
+                                               options: [.sortedKeys, .prettyPrinted])
+        try bytes.write(to: indexURL(in: directory), options: .atomic)
+        return retired
+    }
+
+    private static func fileExistsAsDirectory(_ url: URL, fileManager: FileManaging) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
     /// Re-points `profiles.json` at an id that already has a profile on disk — the Undo half of
     /// ``writeDerivedProfile(_:replacing:in:builtBy:now:)``: the inverse ran, and the profile
     /// recorded as `derivedFrom` (kept for exactly this) becomes active again.

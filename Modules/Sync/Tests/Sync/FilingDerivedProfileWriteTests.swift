@@ -204,4 +204,123 @@ import Testing
         let row = try #require(rows.first { $0["profileId"] as? String == "p1" })
         #expect(row["displayName"] == nil, "a walk that knows no name must not write one")
     }
+
+    // MARK: - Retiring what a re-derivation superseded
+
+    /// Writes a derived profile over the active one, the way a re-derivation does.
+    @discardableResult
+    private static func derive(_ id: String, from parent: String, in dir: URL) throws -> URL {
+        try FilingProfileStore.writeDerivedProfile(
+            Self.profile(id: id, derivedFrom: parent,
+                         builtBy: FolderProfile.derivedBuiltByPrefix + " test"),
+            replacing: parent, in: dir)
+    }
+
+    private static func ids(in dir: URL) throws -> [String] {
+        let o = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: dir.appendingPathComponent("profiles.json"))) as? [String: Any])
+        let rows = try #require(o["profiles"] as? [[String: Any]])
+        return rows.compactMap { $0["profileId"] as? String }.sorted()
+    }
+
+    /// **The whole point: a chain of re-derivations collapses to the active one.** Eight profiles
+    /// and 90 MB accumulated in one evening because `writeDerivedProfile(replacing:)`'s
+    /// "replacing" only ever asserted which id was active — it retired nothing.
+    @Test func retiringLeavesOnlyTheActiveProfileAndTheHandBuiltRoot() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.handBuiltActive(in: dir)
+        try Self.derive("d1", from: "abhishek", in: dir)
+        try Self.derive("d2", from: "d1", in: dir)
+        try Self.derive("d3", from: "d2", in: dir)
+        #expect(try Self.ids(in: dir) == ["abhishek", "d1", "d2", "d3"])
+
+        let retired = try FilingProfileStore.retireSupersededProfiles(protecting: [], in: dir)
+        #expect(retired == ["d1", "d2"])
+        #expect(try Self.ids(in: dir) == ["abhishek", "d3"])
+        // The directories are gone, not merely unlisted.
+        for gone in ["d1", "d2"] {
+            #expect(!FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent(gone).path), "\(gone) survived on disk")
+        }
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "d3")
+        #expect(FilingProfileStore.profile(id: "d3", in: dir) != nil)
+    }
+
+    /// **A hand-built profile is never retired**, even unprotected and inactive. It is the one
+    /// artifact the app cannot rebuild, and `provenance` answers `handBuilt` for an absent or
+    /// unrecognised `builtBy` — the safe default by construction.
+    @Test func aHandBuiltProfileIsNeverRetired() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.handBuiltActive(in: dir)
+        try Self.derive("d1", from: "abhishek", in: dir)
+
+        let retired = try FilingProfileStore.retireSupersededProfiles(protecting: [], in: dir)
+        #expect(retired.isEmpty, "nothing was superseded but the hand-built root")
+        #expect(try Self.ids(in: dir) == ["abhishek", "d1"])
+        #expect(FilingProfileStore.profile(id: "abhishek", in: dir)?.provenance == .handBuilt)
+    }
+
+    /// **What the caller protects survives** — the ledger pins the profile a landing was applied
+    /// under, because Undo re-points at it and `repointActiveProfile` needs it on disk.
+    @Test func aProtectedProfileSurvivesEvenThoughItIsSuperseded() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.handBuiltActive(in: dir)
+        try Self.derive("d1", from: "abhishek", in: dir)
+        try Self.derive("d2", from: "d1", in: dir)
+        try Self.derive("d3", from: "d2", in: dir)
+
+        let retired = try FilingProfileStore.retireSupersededProfiles(protecting: ["d1"], in: dir)
+        #expect(retired == ["d2"])
+        #expect(try Self.ids(in: dir) == ["abhishek", "d1", "d3"])
+        // And the protected one is still re-pointable, which is the whole reason it was pinned.
+        try FilingProfileStore.repointActiveProfile(to: "d1", in: dir)
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "d1")
+    }
+
+    /// The active profile is read from the INDEX, not taken from the caller — so a caller that
+    /// has drifted cannot talk this into deleting the tree the app is currently reading.
+    @Test func theActiveProfileIsNeverRetiredEvenIfTheCallerForgetsIt() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.handBuiltActive(in: dir)
+        try Self.derive("d1", from: "abhishek", in: dir)
+
+        // `protecting: []` names nothing at all, d1 is derived, and it still survives.
+        _ = try FilingProfileStore.retireSupersededProfiles(protecting: [], in: dir)
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "d1")
+        #expect(FilingProfileStore.profile(id: "d1", in: dir) != nil)
+    }
+
+    /// A row whose directory has already gone is pruned rather than skipped. Without this an
+    /// interrupted sweep would strand that row for good: `profile(id:)` returns nil for it, so
+    /// the "is it derived?" test could never pass again.
+    @Test func aRowWhoseDirectoryIsAlreadyGoneIsPruned() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.handBuiltActive(in: dir)
+        try Self.derive("d1", from: "abhishek", in: dir)
+        try Self.derive("d2", from: "d1", in: dir)
+        try FileManager.default.removeItem(at: dir.appendingPathComponent("d1"))
+
+        let retired = try FilingProfileStore.retireSupersededProfiles(protecting: [], in: dir)
+        #expect(retired == ["d1"])
+        #expect(try Self.ids(in: dir) == ["abhishek", "d2"])
+    }
+
+    /// Retiring is idempotent — a second sweep with nothing left to do reports nothing and
+    /// rewrites nothing it should not.
+    @Test func asecondSweepIsANoOp() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.handBuiltActive(in: dir)
+        try Self.derive("d1", from: "abhishek", in: dir)
+        try Self.derive("d2", from: "d1", in: dir)
+
+        #expect(try FilingProfileStore.retireSupersededProfiles(protecting: [], in: dir) == ["d1"])
+        #expect(try FilingProfileStore.retireSupersededProfiles(protecting: [], in: dir).isEmpty)
+        #expect(try Self.ids(in: dir) == ["abhishek", "d2"])
+    }
 }

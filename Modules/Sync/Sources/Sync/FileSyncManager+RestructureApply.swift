@@ -374,7 +374,18 @@ extension FileSyncManager {
         let rootURL = URL(fileURLWithPath: expandedRoot)
         let tree = await Self.buildTree(url: rootURL, sortOption: .name)
         let newId = FileSyncManager.availableReorgProfileId(now: now, in: profilesDirectory)
-        let registry = PersonRegistry.seeded(from: profile)
+        // **The curated registry, not the one reconstructed from the profile's own tokens.**
+        // `PersonRegistry.seeded(from:)` is `personRegistry`'s FALLBACK — what to do when there is
+        // no `people.json` — and calling it directly here skipped the household file that was
+        // sitting right beside the profile. His has 7 people carrying 10 aliases (`Abhi`,
+        // `Father`, `Shwe`, …); the profile axis had kept 2. So every re-derivation recomputed
+        // the person axis against a registry missing eight of the ten names, and `carryOver`
+        // takes `fresh.personAliases`, so each pass wrote the impoverished set back and the next
+        // pass started from that — it compounds. Measured on the live tree after one evening's
+        // refreshes: person-axis agreement 0.998 → 0.905, which is what
+        // `thePersonAndLifecycleAxesAgree` is asserting when it fails.
+        let registry = FilingProfileStore.personRegistry(id: oldDirectoryId, profile: profile,
+                                                         in: profilesDirectory)
         let jurisdictions = RestructureRederive.entryJurisdictions(of: profile)
         let recordedRoot = profile.root
         let fresh = await Task.detached(priority: .userInitiated) {
@@ -456,6 +467,42 @@ extension FileSyncManager {
         // re-point puts that directory back in charge.
         if let ledgerId {
             store.updateApplied(manifestId: ledgerId) { $0.producedProfileId = newId }
+        }
+        // **Retire what this re-derivation just superseded.** Every re-derive mints a new profile
+        // directory, and until now nothing ever removed one — eight had accumulated in an evening.
+        //
+        // The protected set is the domain knowledge the store deliberately does not have: Undo
+        // re-points at `appliedUnderProfileId` through `repointActiveProfile`, which requires the
+        // target to still be on disk, so **every id any ledger record names is pinned** — the
+        // profile a landing was applied under and the one it produced, and for records already
+        // undone too, because an id that cheap to keep is not worth a rule about when it stops
+        // mattering. The store adds the active profile and anything not provably derived.
+        //
+        // A failure here is logged and swallowed on purpose: the survey WAS refreshed, the moves
+        // (if any) landed, and reporting a successful re-derivation as a failure because its
+        // housekeeping tripped would be the worse lie of the two.
+        //
+        // **The immediate predecessor is deliberately NOT seeded in.** Keeping "just the last
+        // one" would leave a stale profile standing after every refresh, which is the thing being
+        // fixed — and it is not needed: after a plan apply the predecessor IS the record's
+        // `appliedUnderProfileId` and the loop below pins it, while after a bare survey refresh
+        // with no ledger records nothing can reach it at all. The rule is what the data says,
+        // not a spare copy kept out of nerves.
+        var protected: Set<String> = []
+        for record in newStore.applied {
+            if let applied = record.appliedUnderProfileId { protected.insert(applied) }
+            if let produced = record.producedProfileId { protected.insert(produced) }
+        }
+        do {
+            let retired = try FilingProfileStore.retireSupersededProfiles(
+                protecting: protected, in: profilesDirectory, fileManager: fileManager)
+            if !retired.isEmpty {
+                Logger.shared.info("Filing profiles: retired \(retired.count) superseded "
+                    + "profile(s) — \(retired.joined(separator: ", "))")
+            }
+        } catch {
+            Logger.shared.warning("Filing profiles: the superseded profiles could not be "
+                + "retired: \(error)")
         }
         // O16's point for the survey this re-derive just produced. `landing:` is whether a
         // manifest caused it — a survey refresh moves no files, so its point is an ordinary one

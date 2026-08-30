@@ -657,5 +657,118 @@ import Testing
         #expect(fm.fileExists(atPath: root.appendingPathComponent("F/X/x.pdf").path))
         #expect(!fm.fileExists(atPath: root.appendingPathComponent("F/S/x.pdf").path))
     }
-}
 
+    // MARK: - Retiring superseded profiles, end to end
+
+    private static func profileIds(in profiles: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: profiles.path)) ?? [])
+            .filter { name in
+                var isDir: ObjCBool = false
+                return FileManager.default.fileExists(
+                    atPath: profiles.appendingPathComponent(name).path, isDirectory: &isDir)
+                    && isDir.boolValue
+            }.sorted()
+    }
+
+    /// **Repeated refreshes stop piling up.** Each one mints a profile directory and, until the
+    /// retire step, nothing removed the last — eight profiles and 90 MB accumulated in a single
+    /// evening on the real machine. Two refreshes here leave the hand-built fixture and the newest
+    /// derived profile, and nothing in between.
+    @Test func repeatedRefreshesLeaveOneDerivedProfileBehind() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        #expect(Self.profileIds(in: world.profiles) == ["t"])
+
+        let first = await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_000))
+        #expect(first.refusal == nil)
+        let afterFirst = Self.profileIds(in: world.profiles)
+        #expect(afterFirst.count == 2, "the hand-built fixture plus one derived: \(afterFirst)")
+
+        let second = await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_100))
+        #expect(second.refusal == nil)
+        let afterSecond = Self.profileIds(in: world.profiles)
+        #expect(afterSecond.count == 2,
+                "the first refresh's profile should have been retired: \(afterSecond)")
+        #expect(afterSecond.contains("t"), "the hand-built fixture must never be retired")
+        // The one that survives is the one the app is now reading.
+        let active = try #require(FilingProfileStore.activeProfileId(in: world.profiles))
+        #expect(afterSecond.contains(active))
+        #expect(world.manager.filingProfileDirectoryId == active)
+        // And the index agrees with the disk — no rows naming profiles that are gone.
+        let object = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: world.profiles.appendingPathComponent("profiles.json")))
+            as? [String: Any])
+        let rows = try #require(object["profiles"] as? [[String: Any]])
+        #expect(rows.compactMap { $0["profileId"] as? String }.sorted() == afterSecond)
+    }
+
+    /// **A landing that can still be undone pins the profile it was applied under.** Undo
+    /// re-points at `appliedUnderProfileId` and `repointActiveProfile` requires that profile to
+    /// be on disk, so retiring it would turn a reversible reorganisation into a permanent one —
+    /// which is the failure this whole area exists to prevent.
+    ///
+    /// **It refreshes BEFORE it applies, and that ordering is the entire test.** Applied straight
+    /// to the fixture, the undo target is `t` — hand-built, which the store protects on its own
+    /// provenance rule — so the ledger's contribution is never exercised and the test passes with
+    /// the whole `appliedUnderProfileId` loop deleted. Verified by doing exactly that. One refresh
+    /// first makes the undo target a DERIVED profile, superseded by the refresh that follows,
+    /// with the ledger the only thing standing between it and retirement.
+    @Test func aRefreshAfterALandingKeepsWhatUndoNeeds() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+
+        // t → d1. The landing below is applied under d1, which is derived and retirable.
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_499_000)).refusal == nil)
+        let undoTarget = try #require(world.manager.filingProfileDirectoryId)
+        #expect(undoTarget != "t", "the undo target must be a derived profile for this to test anything")
+
+        let applied = await world.manager.applyPlan(
+            world.manifest, now: Date(timeIntervalSince1970: 1_756_500_000))
+        #expect(applied.refusal == nil)
+        let record = try #require(world.manager.restructureStore?.applied.first)
+        #expect(record.appliedUnderProfileId == undoTarget)
+
+        // A refresh on top of the landing — the sequence that would strand the undo.
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_500_200)).refusal == nil)
+
+        #expect(Self.profileIds(in: world.profiles).contains(undoTarget),
+                "the profile the landing was applied under was retired — its undo is now dead")
+        #expect(FilingProfileStore.profile(id: undoTarget, in: world.profiles) != nil,
+                "repointActiveProfile would refuse: the target is not readable on disk")
+    }
+
+    /// **A re-derivation reads the household file, not the profile's leftovers.**
+    ///
+    /// `PersonRegistry.seeded(from:)` is `FilingProfileStore.personRegistry`'s FALLBACK for a
+    /// machine with no `people.json`. `rederiveProfile` called it directly, so every refresh
+    /// recomputed the person axis from whatever aliases the last profile happened to retain
+    /// rather than from the curated list beside it — and `carryOver` writes the fresh axis back,
+    /// so the loss compounds with each pass. On the real tree that took person-axis agreement
+    /// from 0.998 to 0.905 in one evening of refreshes.
+    ///
+    /// The alias here is deliberately one the profile axis does NOT carry: it can only reach the
+    /// re-derived profile by way of `people.json`.
+    @Test func aReDerivationSeedsPeopleFromTheHouseholdFile() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        let active = try #require(world.manager.filingProfileDirectoryId)
+        #expect(world.manager.filingFolderProfile?.personAliases.isEmpty == true,
+                "the fixture's profile axis must carry no aliases, or this proves nothing")
+
+        try Data(#"{"people": [{"id": "girish", "displayName": "Girish", "aliases": ["Dad"]}]}"#.utf8)
+            .write(to: world.profiles.appendingPathComponent("\(active)/people.json"))
+
+        #expect(await world.manager.refreshDerivedProfile(
+            now: Date(timeIntervalSince1970: 1_756_501_000)).refusal == nil)
+
+        let derived = try #require(world.manager.filingFolderProfile)
+        #expect(derived.personTokens.contains("girish"),
+                "the household's person never reached the re-derived profile")
+        #expect(derived.personAliases["dad"] == "girish",
+                "the alias only people.json knows was dropped — the fallback registry was used")
+    }
+}
