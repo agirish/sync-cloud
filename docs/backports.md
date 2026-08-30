@@ -1903,3 +1903,31 @@ running app. `Glass.tint(.white.opacity(0.5))` took a card 211 → 198 (a tint d
 rather than lightening it); a `controlBackgroundColor` ground under `.glassEffect` gave 213 where
 235 was predicted; the same ground stacked over the glass did no better. `.glassEffect` dominates
 its own subtree and nothing in the public API lightens it from outside.
+
+### The light-appearance material switch (`a52c1c56`) — same status
+
+The follow-up to the hairline row above, and the actual fix. `glassSurface` now takes the
+`Material` family in a light appearance and keeps native `.glassEffect` only in dark, because
+native Liquid Glass renders a card 28/255 BELOW the window ground it floats on and no public API
+lightens it from outside. **RECORDED — not owed**, same standing direction.
+
+The maintenance lines are in a different position from `main` here, and it is worth being precise
+about why. All three predate the macOS 26 SDK's `.glassEffect` being reachable at all — their
+`glassSurface` has the same `if #available(macOS 26.0, *)` fork, so a maintenance build compiled
+against a Tahoe SDK takes the darkening branch exactly as `main` did:
+
+```sh
+for l in v2.x v3.x v4.x; do
+  git show origin/$l:Modules/Design/Sources/Design/LiquidGlassStyle.swift | grep -c 'glassEffect'
+done
+```
+
+So the defect applies, and the pick is small — hoist the `else` branch to cover light. What makes
+it low-value rather than merely unsent is the same asymmetry as the hairline: the surface that made
+it visible is `LensSetupCard`, which is v5-only.
+
+**Do not re-derive the three failed approaches.** `Glass.tint(.white.opacity(0.5))` moves a card
+211 → 198; a `controlBackgroundColor` ground under `.glassEffect` gives 213 where 235 is predicted;
+the same ground stacked over the glass does no better. They are recorded in `GlassSurface`'s own
+doc comment on `main` as well, because the next person to look at this will otherwise try the tint
+first, as this session did.
