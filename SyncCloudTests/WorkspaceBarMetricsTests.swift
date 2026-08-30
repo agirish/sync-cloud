@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import CoreGraphics
+import SwiftUI
 import AppKit
 import Design
 import FileExplorer
@@ -58,14 +59,15 @@ import FileExplorer
     /// The history is the point of the number. Three labelled segments fit the window's old 600pt
     /// `minWidth` — the win of folding five workspaces down to three. The ⌘K pill then took part
     /// of that row and left a 17pt band above the floor where the bar is glyphs. Browse takes its
-    /// label, its `segmentChrome` and one more `segmentGap`, and the band grew to ~108pt: below
-    /// roughly 708pt the segments are icons.
+    /// label, its `segmentChrome` and one more `segmentGap`, and the band grew: below roughly
+    /// 720pt the segments are icons. (720 and not the 708 this said until 2026-08-30 —
+    /// `segmentChrome` had assumed a 14pt glyph where the four symbols draw at 14, 15, 16 and 17.)
     ///
     /// **That band is what raised the window rather than being shaved away.** Shortening a label
     /// people navigate by was the alternative, and under-measuring the row is exactly what folds
     /// the toolbar behind the overflow chevron — the failure this whole type exists to prevent.
     /// So the arithmetic stayed and the floor moved to 760: the labels now survive the narrowest
-    /// window by ~52pt at the default text size, and the band lives entirely below a width no
+    /// window by ~40pt at the default text size, and the band lives entirely below a width no
     /// window can be dragged to. What is pinned here is that it stays that way — a fifth segment
     /// or another toolbar control would push the threshold back up through the floor, and this
     /// fails naming the number rather than letting a glyph-only floor return unannounced.
@@ -106,26 +108,44 @@ import FileExplorer
     /// **What the floor lands on, per text size** — the assertion the raise from 600 to 760 was
     /// made to change, and the one that would notice it being reverted.
     ///
-    /// At 600 this was a single answer: `iconOnly` at every size, because the four labels need
-    /// 708pt beside even a compact pill. At 760 it splits, and the split is the point — the
-    /// labelled bar is what a user sees at the narrowest window they can make, unless they have
-    /// also asked for the largest text, where the row genuinely does not fit (773pt needed).
+    /// At 600 this was a single answer: `iconOnly` at every size. At 760 it splits, and the split
+    /// is the point — the labelled bar is what a user sees at the narrowest window they can make,
+    /// until the text is large enough that the row genuinely does not fit.
+    ///
+    /// **Where that line falls moved on 2026-08-30, and mostly because the arithmetic stopped being
+    /// wrong rather than because the bar grew.** `segmentChrome` had assumed a 14pt glyph while the
+    /// four symbols draw at 16, 14, 16 and 15, so every width here was 5pt optimistic across the
+    /// four segments. Framing the glyph to `WorkspaceBarMetrics.glyphSide` made the constant exact
+    /// and padded the three narrower glyphs out to 17 as well, which is why the computed width moved
+    /// by 12 rather than by 5. Two answers at the floor changed with it: **Large sheds its labels**
+    /// where it used to keep them, and **Small's pill drops its word** where the row used to spell
+    /// everything out.
+    ///
+    /// Both moved toward shedding, which is the safe direction — an over-optimistic row does not
+    /// truncate, it folds behind the overflow chevron. Neither is a free win, though: a Large-text
+    /// user at the narrowest window now navigates by glyphs. Reclaiming that would mean buying back
+    /// ~12pt from `reservedChrome` (deliberately generous, and unmeasured) or from the segments' own
+    /// padding, and that is a design call rather than an arithmetic one.
     @Test func testTheFloorKeepsItsLabelsAtEveryTextSizeButTheLargest() {
         for size in FontSize.allCases {
             let resolved = styles(contentWidth: Self.windowFloor,
                                   labelWidths: labelWidths(scale: size.scale), scale: size.scale)
-            let expected: WorkspaceBarStyle = size == .extraLarge ? .iconOnly : .full
+            // Small and Default keep their words at the floor; Large and Larger do not.
+            let expected: WorkspaceBarStyle =
+                (size == .large || size == .extraLarge) ? .iconOnly : .full
             #expect(resolved.workspace == expected,
                     "at the \(Self.windowFloor)pt floor the bar is \(resolved.workspace) at \(size.displayName), expected \(expected)")
-            // What the pill is doing there, which is not one answer either: at Small the whole row
-            // fits spelled out (752pt needed against the 760pt floor), and from Default up the
-            // pill pays first — it is the cheaper word to lose, and it pays before the bar does at
-            // every size including the one where the bar sheds too. Written out per size rather
-            // than asserted as "compact", which is what the first draft of this test claimed and
-            // what the Small case refuted.
-            let expectedPill: CommandPaletteBarStyle = size == .small ? .full : .compact
-            #expect(resolved.search == expectedPill,
-                    "at the floor the ⌘K pill is \(resolved.search) at \(size.displayName), expected \(expectedPill)")
+            // The pill pays first at every size — it is the cheaper word to lose, and it pays
+            // before the bar does even at the sizes where the bar sheds too.
+            //
+            // **This used to be `.full` at Small and is now `.compact` there as well.** Not a
+            // change of policy: at Small the whole row *did* fit spelled out, by about 8pt, and the
+            // 12pt of glyph the arithmetic was not counting is more than that. The first draft of
+            // this test asserted a flat "compact" and the Small case refuted it; the corrected
+            // widths have now made the flat answer the true one, which is worth stating rather than
+            // letting it read as the original mistake reinstated.
+            #expect(resolved.search == .compact,
+                    "at the floor the ⌘K pill is \(resolved.search) at \(size.displayName), expected .compact")
         }
     }
 
@@ -164,7 +184,7 @@ import FileExplorer
         // **What raising the floor to 760 changed is WHERE it is live, not WHETHER.** It is no
         // longer the state of the narrowest window at every text size — that was the defect the
         // raise fixed — but the largest text size still needs 773pt, so a floor-sized window at
-        // Larger sheds, and so does any window between 760 and the 708pt threshold at the sizes
+        // Larger sheds, and so does any window between 760 and the 720pt threshold at the sizes
         // below it. This asserts the rung on a real bar rather than a hypothetical one, at the
         // width where the shipping app still reaches it.
         //
@@ -251,6 +271,80 @@ import FileExplorer
                 "the largest text size fits the same width as the smallest — the widths are not tracking the app's own type scale")
         // ...and specifically: it is the pill's word that goes first, at this width.
         #expect(atLarge.search == .compact)
+    }
+
+    /// **Every segment is one height, and `segmentChrome` is exact rather than approximate.**
+    ///
+    /// Neither claim had a test, and both were false. The four workspace symbols render at four
+    /// different sizes at the same font size — `folder` 16×13, `arrow.left.arrow.right` 14×17,
+    /// `folder.badge.gearshape` 16×14, `chart.pie` 15×15 — so Compare's segment was 25pt and the
+    /// rest 23pt (icon-only: 21, 25, 22, 23). Three things followed, and none of them was visible
+    /// from the padding literals or from any assertion in this file:
+    ///
+    /// - the selected pill is a `Capsule` sized to its own segment inside a `matchedGeometryEffect`,
+    ///   so it grew or shrank *while sliding* between Compare and anything else;
+    /// - a capsule nests concentrically in a capsule only at a uniform inset, and the vertical inset
+    ///   was 4pt for three segments against the horizontal 3pt;
+    /// - `segmentChrome` assumed 14pt of glyph, under-measuring the drawn bar by 5pt across four
+    ///   — the direction that folds the toolbar behind the overflow chevron.
+    ///
+    /// **This test carries its own control.** Measuring the framed segments alone would pass just as
+    /// well if `fittingSize` were blind to the difference, or if every symbol happened to agree
+    /// today. So it measures both: unframed must produce MORE than one height (the defect, still
+    /// reproducible), framed must produce exactly one. If the first line ever stops finding a
+    /// spread, this test has stopped proving anything and says so rather than passing quietly.
+    @MainActor
+    @Test func theBarDrawsEverySegmentAtOneHeight() {
+        func segment(_ workspace: Workspace, framed: Bool, full: Bool) -> CGSize {
+            let glyph = Image(systemName: workspace.symbol).font(.system(size: 12, weight: .medium))
+            let row = HStack(spacing: 6) {
+                if framed {
+                    glyph.frame(width: WorkspaceBarMetrics.glyphSide,
+                                height: WorkspaceBarMetrics.glyphSide)
+                } else {
+                    glyph
+                }
+                if full { Text(workspace.title).font(.system(size: 12, weight: .semibold)) }
+            }
+            .padding(.horizontal, full ? 12 : 10)
+            .padding(.vertical, 4)
+            return NSHostingView(rootView: AnyView(row)).fittingSize
+        }
+
+        for full in [true, false] {
+            let rung = full ? "labelled" : "icon-only"
+            // The control: without the frame the heights disagree. This is the defect, and it has
+            // to still be reproducible or the assertion below is measuring nothing.
+            let unframed = Set(Workspace.allCases.map { segment($0, framed: false, full: full).height })
+            #expect(unframed.count > 1, """
+                    the \(rung) segments are already one height unframed \(unframed.sorted()) — \
+                    either the symbols now agree or this measurement cannot see a difference, and \
+                    the claim below proves nothing either way
+                    """)
+            // The claim.
+            let framed = Set(Workspace.allCases.map { segment($0, framed: true, full: full).height })
+            #expect(framed.count == 1, """
+                    the \(rung) segments come out at \(framed.sorted())pt — the selected pill is \
+                    sized to its own segment, so it changes height as it slides between them
+                    """)
+        }
+
+        // And the width constant is now true of every symbol rather than of the narrowest one.
+        for workspace in Workspace.allCases {
+            let drawn = segment(workspace, framed: true, full: true).width
+            let label = NSHostingView(rootView: AnyView(
+                Text(workspace.title).font(.system(size: 12, weight: .semibold)))).fittingSize.width
+            #expect(abs(drawn - label - WorkspaceBarMetrics.segmentChrome) < 0.51, """
+                    \(workspace.title) draws \(drawn)pt around a \(label)pt label, which is \
+                    \(drawn - label)pt of chrome against segmentChrome's \
+                    \(WorkspaceBarMetrics.segmentChrome) — the bar is measuring a width it does not draw
+                    """)
+            let icon = segment(workspace, framed: true, full: false).width
+            #expect(abs(icon - WorkspaceBarMetrics.iconOnlySegmentWidth) < 0.51, """
+                    \(workspace.title) draws \(icon)pt icon-only against \
+                    \(WorkspaceBarMetrics.iconOnlySegmentWidth)
+                    """)
+        }
     }
 
     @Test func testWidthGrowsWithTheSegmentsItActuallyDraws() {

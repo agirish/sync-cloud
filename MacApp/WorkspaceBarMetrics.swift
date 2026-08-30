@@ -7,8 +7,8 @@ import FileExplorer
 /// Six labelled segments are about 500pt — the bar carries four now, and gained one when Browse
 /// shipped, which moved the icon-only rung to a wider window than before rather than changing any
 /// of this arithmetic. The toolbar also has to seat the traffic lights and the trailing utility
-/// pill. Measured through `styles`, the four labels need 708pt of content width beside a compact
-/// ⌘K pill at the default text size (Small 689, Large 755, Larger 773) — which is why the
+/// pill. Measured through `styles`, the four labels need 720pt of content width beside a compact
+/// ⌘K pill at the default text size (Small 701, Large 767, Largest 785) — which is why the
 /// window's floor was raised from 600 to 760 rather than this rung being loosened: at 600 the bar
 /// was icon-only at every text size the moment the window sat at its minimum. A
 /// toolbar that does not fit does not wrap or truncate — macOS silently folds the overflow behind
@@ -33,12 +33,59 @@ enum WorkspaceBarStyle: Equatable {
 /// only version that actually responds.
 enum WorkspaceBarMetrics {
 
-    /// What a segment adds around its label: the 14pt glyph, the 6pt gap after it, and 2×12pt of
+    /// The square every workspace glyph is drawn into, and the reason the two constants below are
+    /// true rather than approximately true.
+    ///
+    /// **The four symbols are four different sizes, which is not visible from any padding literal.**
+    /// Measured at `.system(size: 12, weight: .medium)`, laid out exactly as `workspaceSegment`
+    /// composes them:
+    ///
+    /// | symbol | | glyph |
+    /// |---|---|---|
+    /// | `folder` | Browse | 16 × 13 |
+    /// | `arrow.left.arrow.right` | Compare | 14 × 17 |
+    /// | `folder.badge.gearshape` | Organize | 16 × 14 |
+    /// | `chart.pie` | Storage | 15 × 15 |
+    ///
+    /// Three things followed from that, and all three go away by framing:
+    ///
+    /// - **The selected pill changed height as it travelled.** The marker is a `Capsule` sized to
+    ///   its own segment inside a `matchedGeometryEffect`, so a selection moving between Compare
+    ///   (25pt) and anything else (23pt) interpolated between two frames and the pill grew or shrank
+    ///   mid-slide. Icon-only was worse — the four came out 21, 25, 22 and 23.
+    /// - **It nested concentrically for exactly one workspace.** A capsule in a capsule is
+    ///   concentric only at a uniform inset; the horizontal one is `containerPadding / 2` = 3, while
+    ///   the vertical one was whatever the segment's height left — 4pt for three of the four.
+    /// - **The width arithmetic under-measured the drawn bar by 5pt**, both rungs, by assuming 14
+    ///   everywhere against real widths of 16, 14, 16 and 15. That is the dangerous direction: it
+    ///   claims the labels fit when they do not, and an overflowing toolbar folds behind a chevron
+    ///   rather than truncating — see this file's header for why that is the failure worth being
+    ///   generous about.
+    ///
+    /// **17 is the tallest glyph, and one point clear of the widest.** `arrow.left.arrow.right`
+    /// sets the height at 17; the widest are `folder` and `folder.badge.gearshape` at 16. So a
+    /// square 17 clips nothing and over-reserves width by a point per segment — the safe direction
+    /// by this file's own rule, and a point of room for a fifth workspace's glyph. A 16×17 frame
+    /// would be the exact maxima and save 4pt across the bar; it was not taken because it spends
+    /// the headroom to buy 4pt that changes no threshold.
+    ///
+    /// It leaves the bar's height exactly where it was — Compare had already forced 25pt segments
+    /// and a 31pt bar — so this changes no other row in the toolbar.
+    ///
+    /// **The drawn bar grows 5pt and the computed width grows 12.** Both are real and they are not
+    /// the same number: correcting the constant recovers the 5pt the sum was missing, and framing
+    /// pads the three narrower glyphs out to 17 on top of that. The thresholds in this file's
+    /// header moved by the 12.
+    ///
+    /// `theBarDrawsEverySegmentAtOneHeight` is what keeps the frame and this constant together.
+    static let glyphSide: CGFloat = 17
+
+    /// What a segment adds around its label: the glyph, the 6pt gap after it, and 2×12pt of
     /// horizontal padding.
-    static let segmentChrome: CGFloat = 14 + 6 + 24
+    static let segmentChrome: CGFloat = glyphSide + 6 + 24
     /// A segment with no label — glyph plus 2×10pt padding, which is tighter than the labelled
     /// form because there is nothing for the padding to separate the glyph from.
-    static let iconOnlySegmentWidth: CGFloat = 14 + 20
+    static let iconOnlySegmentWidth: CGFloat = glyphSide + 20
     /// Between segments, inside the container capsule.
     static let segmentGap: CGFloat = 4
     /// The container capsule's own inset, both edges.

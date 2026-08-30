@@ -234,6 +234,14 @@ extension ContentView {
             HStack(spacing: 6) {
                 Image(systemName: workspace.symbol)
                     .font(.system(size: 12, weight: .medium))
+                    // **Framed, so a segment's size stops depending on which symbol is in it.**
+                    // The four glyphs render at four different sizes — see
+                    // `WorkspaceBarMetrics.glyphSide` for the measurements and for the three
+                    // separate defects that followed from not doing this. Same idiom as
+                    // `PaneTabStripLadder.markSide`, which frames a chip's provider mark for the
+                    // same reason.
+                    .frame(width: WorkspaceBarMetrics.glyphSide,
+                           height: WorkspaceBarMetrics.glyphSide)
                 if style == .full {
                     Text(workspace.title)
                         .scaledFont(.system(size: 12, weight: isSelected ? .semibold : .medium))

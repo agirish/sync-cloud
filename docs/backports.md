@@ -1931,3 +1931,59 @@ it visible is `LensSetupCard`, which is v5-only.
 the same ground stacked over the glass does no better. They are recorded in `GlassSurface`'s own
 doc comment on `main` as well, because the next person to look at this will otherwise try the tint
 first, as this session did.
+
+### 2026-08-30 — the workspace bar's glyph sizes — RECORDED, not owed (`v4.x` and `v3.x`)
+
+`WorkspaceBarMetrics.segmentChrome` assumed a 14pt glyph. The four workspace symbols do not draw at
+14, and the difference is not visible from any padding literal — it takes laying each one out.
+**`v4.x` and `v3.x` both carry the file and the assumption. `v2.x` does not have the file at all.**
+
+The positive control first, since a mis-spelled path answers "absent" everywhere at once:
+
+```sh
+git ls-tree -r --name-only origin/main -- MacApp/WorkspaceBarMetrics.swift   # found
+for l in v4.x v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- MacApp/WorkspaceBarMetrics.swift
+done                                     # v4.x and v3.x; v2.x absent
+for l in v4.x v3.x; do
+  git show origin/$l:MacApp/WorkspaceBarMetrics.swift | grep -c '14 + 6 + 24'   # 1 on both
+done
+```
+
+**The glyphs are not the same set on every line, so the numbers below are `main`'s and do not
+transfer.** `main` and `v4.x` carry Browse/Compare/Organize/Storage; `v3.x` predates the flat bar's
+current membership and carries Compare/Filing/Duplicates/Automations/Storage, with
+`doc.on.doc` and `wand.and.stars` where `main` has `folder` and `folder.badge.gearshape`. A
+maintainer picking this must re-measure their own line's symbols rather than copying these:
+
+| symbol (`main`) | | glyph |
+|---|---|---|
+| `folder` | Browse | 16 × 13 |
+| `arrow.left.arrow.right` | Compare | 14 × 17 |
+| `folder.badge.gearshape` | Organize | 16 × 14 |
+| `chart.pie` | Storage | 15 × 15 |
+
+**What is wrong there.** Three things, one cause:
+
+- **The selected pill changes height as it travels.** The marker is a `Capsule` sized to its own
+  segment inside a `matchedGeometryEffect`, so a selection moving between Compare (25pt) and
+  anything else (23pt) interpolates between two frames and the pill grows or shrinks mid-slide.
+- **It nests concentrically for exactly one workspace.** A capsule inside a capsule is concentric
+  only at a uniform inset; the horizontal one is 3pt and the vertical was 4pt for three of the four.
+- **The width arithmetic under-measures the drawn bar by 5pt**, both rungs. That is the direction
+  that folds the toolbar behind the overflow chevron, which is the failure the type exists to stop.
+
+**The pick.** One line of view code and one constant: give the `Image` in `workspaceSegment` a
+`.frame(width:height:)` of a named `glyphSide`, and derive `segmentChrome` and
+`iconOnlySegmentWidth` from it. On `main` that is 17 — the tallest glyph, one point clear of the
+widest, so nothing clips and the spare point is reserved rather than spent.
+
+**And the part that is not mechanical, which is why this is worth a paragraph rather than a line.**
+Correcting the constant moves the *computed* bar width by 12pt even though the *drawn* bar grows
+only 5 — framing pads the three narrower glyphs out as well as fixing the assumption. On `main` that
+moved the shedding thresholds from 708/689/755/773 to 720/701/767/785, and two things changed at the
+760pt window floor: **Large sheds its labels**, and **Small's ⌘K pill drops its word**. Both are the
+safe direction, but the first is a real loss, and any line taking this pick inherits that decision
+along with its own numbers. Reclaiming it means finding ~12pt in `reservedChrome` (deliberately
+generous, and unmeasured) or in the segments' 12pt horizontal padding — a design call, not an
+arithmetic one, and deliberately not made here.
