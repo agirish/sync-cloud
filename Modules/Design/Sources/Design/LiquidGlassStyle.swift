@@ -709,9 +709,11 @@ public extension View {
         let explicit = level.needsExplicitChrome
         return self.clipShape(shape)
             .glassSurface(level, cornerRadius: cornerRadius)
+            // `lightBorder: true`, not `explicit` — see `CardHairline`. Native glass was trusted
+            // to draw its own light edge, and the edge it draws is not one you can see.
             .modifier(DarkBoldCardChrome(
                 cornerRadius: cornerRadius,
-                lightBorder: explicit, lightShadow: explicit, darkShadow: true))
+                lightBorder: true, lightShadow: explicit, darkShadow: true))
             // `strokeBorder`, never `stroke`: it draws INSIDE the shape, so the accent replaces the
             // card's hairline in place. A centred `stroke` would spill half its width into the
             // gutter and read as a gap that shrank. Above the chrome so it wins over the hairline
@@ -794,9 +796,10 @@ public extension View {
         case .cards:
             let explicit = level.needsExplicitChrome
             filled.glassSurface(level, cornerRadius: radius)
+                // `lightBorder: true`, as in `surfaceCard` and for the same reason.
                 .modifier(DarkBoldCardChrome(
                     cornerRadius: radius,
-                    lightBorder: explicit, lightShadow: explicit, darkShadow: true))
+                    lightBorder: true, lightShadow: explicit, darkShadow: true))
                 .padding(LiquidGlass.cardInset)
         case .unified:
             // Unified blends into the window glass, so only `.solid` contributes a fill here.
@@ -1039,8 +1042,24 @@ private struct GlassBarStyle: ViewModifier {
 /// The appearance-aware hairline every content card wears: a top-lit white specular gradient in dark
 /// (so the card reads as lit glass on the deep ground) and the faint `.quaternary` rule in light. One
 /// definition, so lens cards, pane/section cards and the bottom-workspace sections all edge
-/// identically — a card added later can't drift its own edge. `lightVisible` is false only on
-/// native-glass content cards, which draw no light border of their own (the glass draws its edge).
+/// identically — a card added later can't drift its own edge.
+///
+/// **`lightVisible` is true at every content-card call site.** It used to be false on the
+/// native-glass path, on the reasoning that the glass draws its own edge. Native glass does draw
+/// one; it is just not an edge you can see in a light appearance. Measured across a card boundary
+/// in the `.cards` shape (light, Frosted, macOS 26) before and after:
+///
+///     before   211 211 | 244  227 228 228 228 219 218 218  244 | 211 211
+///     after    213 213 | 192  233 233 233 233 233 233 232  192 | 213 213
+///
+/// The boundary was a 13px ramp between two specular highlights with no rule anywhere in it, which
+/// left a card's only visible bound the material's own darkening — about 28/255 below the window
+/// ground it floats on. On a card the size of a lens workspace that reads as a grey rectangle laid
+/// over the window rather than as a card, which is how it was reported. It is now a `.quaternary`
+/// hairline at 192 with a flat gutter between cards.
+///
+/// Nothing passes false today; the parameter stays because dark ignores it either way, and a
+/// future surface may genuinely want no light rule.
 struct CardHairline: ViewModifier {
     var cornerRadius: CGFloat = LiquidGlass.cardCornerRadius
     var lightVisible: Bool = true
