@@ -229,6 +229,7 @@
       <a href="#compare">Compare</a>
       <a href="#browsing">Browse</a>
       <a href="#organize">Organize</a>
+      <a href="#restructure">Restructure</a>
       <a href="#storage">Storage</a>
       <a href="#ai">AI Filing</a>
       <a href="#safety">Safety</a>
@@ -243,7 +244,7 @@
 <div class="hero wrap">
   <div class="eyebrow"><span class="dot"></span> Native macOS · iCloud · OneDrive · Dropbox · Google Drive</div>
   <h1>Keep your cloud folders<br><span class="g">in sync, and in order.</span></h1>
-  <p class="sub">SyncCloud compares two folders side by side and shows exactly what differs — then helps you organize a single one: find duplicates, fix broken filenames, see where space goes, and auto-file loose documents. Everything is undoable.</p>
+  <p class="sub">SyncCloud compares two folders side by side and shows exactly what differs — then helps you organize a single one: find duplicates, fix broken filenames, straighten a tree that has drifted out of shape, see where space goes, and auto-file loose documents. Everything is undoable.</p>
   <div class="cta">
     <a class="btn primary" href="https://github.com/agirish/sync-cloud">View on GitHub</a>
     <a class="btn" href="#organize">See what it does</a>
@@ -374,7 +375,7 @@
       <div class="card">
         <div class="ico">🧭</div>
         <h4>Restructure</h4>
-        <p>Reports where the tree disagrees with its own habits — one recurring series whose folders have ended up in two or more different internal schemes. Report-only for now: it names the disagreement rather than moving anything.</p>
+        <p>Finds where the tree disagrees with its own habits — siblings shaped differently, a year with files and no folders yet, two names for one thing — and turns most of it into a plan you review operation by operation. Apply writes the way back to disk before the first folder moves.</p>
       </div>
       <div class="card">
         <div class="ico">⚙️</div>
@@ -404,6 +405,23 @@
       </div>
     </div>
 
+  </div>
+</section>
+
+<!-- ---------------- RESTRUCTURE ---------------- -->
+<section id="restructure">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Restructure</div>
+      <h2>Straighten a tree that drifted out of shape</h2>
+      <p>Folders filed sensibly at the time end up disagreeing with each other a decade later. Restructure names eight kinds of that drift, turns most of them into a plan you review operation by operation, and applies it — with the way back written to disk before the first folder moves.</p>
+    </div>
+    <div class="safe-grid">
+      <div class="safe"><div class="ico">🔍</div><h4>Eight kinds of drift</h4><p>Siblings shaped differently, a year with files and no folders yet, a year hiding inside a name, two spellings of one name, an inbox mirroring a real destination, files above a year run, a leaf beside its container, and two branches under parallel names.</p></div>
+      <div class="safe"><div class="ico">📝</div><h4>One mapping, reviewed</h4><p>Every distinct folder name the family uses, listed once. Every operation is derived rather than typed, and the review names each one, its member, and the files it carries.</p></div>
+      <div class="safe"><div class="ico">🔒</div><h4>Nothing is dropped</h4><p>A folder the target has no slot for stays where it is and is listed as kept; a file whose name is taken arrives under a new one. Never an overwrite, and no file is ever deleted.</p></div>
+      <div class="safe"><div class="ico">↩︎</div><h4>Two ways back</h4><p><code>⌘Z</code> takes the whole landing back as one step. "Undo this reorganisation" replays a reversal kept on disk, so it still works after you quit.</p></div>
+    </div>
   </div>
 </section>
 
@@ -494,7 +512,11 @@
 <span class="p">$</span> <span class="cmd">synccloud scan</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--json</span>     <span class="c"># machine-readable</span>
 
 <span class="c"># sync one direction, keeping both on collision (prompts unless --yes)</span>
-<span class="p">$</span> <span class="cmd">synccloud sync</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--direction</span> <span class="o">to-right</span> <span class="fl">--strategy</span> <span class="o">keep-both</span> <span class="fl">--yes</span></pre>
+<span class="p">$</span> <span class="cmd">synccloud sync</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--direction</span> <span class="o">to-right</span> <span class="fl">--strategy</span> <span class="o">keep-both</span> <span class="fl">--yes</span>
+
+<span class="c"># report where a surveyed tree disagrees with its own habits (read-only)</span>
+<span class="p">$</span> <span class="cmd">synccloud restructure</span>
+<span class="p">$</span> <span class="cmd">synccloud restructure</span> <span class="fl">--json</span>            <span class="c"># full report, stable format</span></pre>
     </div>
   </div>
 </section>

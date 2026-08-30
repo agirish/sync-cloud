@@ -19,8 +19,8 @@ only *looks* the same — and lets you copy, move, or reconcile items with one c
 points a single provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**,
 **Restructure**, and **Rules** — that file loose documents into the right folders (optionally
 with on-device Apple Intelligence or Claude), find duplicates, fix cloud-hostile filenames, and
-straighten a tree that disagrees with its own habits. **Storage** is a read-only view of where
-your space actually goes.
+straighten a tree that disagrees with its own habits — reviewing and applying the change, with
+the way back written to disk first. **Storage** is a read-only view of where your space actually goes.
 
 Deletes go to the Trash, overwrites are staged and swapped in atomically, and each run in the app is
 a single grouped **⌘Z** for as long as that session lasts. Permanent delete exists only as a
@@ -76,9 +76,16 @@ One rail, five lenses:
   folders whose numbering has drifted. Each row names the problem in words and shows the name it
   would become; **Fix all** applies the provider-hostile set in one undo, and the convention and
   numbering passes are applied from their own controls.
-- **Restructure** — reports where the tree disagrees with its own habits: one recurring series whose
-  folders were each filed sensibly at the time and have ended up in two or more different internal
-  schemes. Report-only for now: naming the disagreement is the half that cannot do any harm.
+- **Restructure** — finds where the tree disagrees with its own habits and **straightens it**.
+  Eight kinds of drift: siblings shaped differently, a year with files and no folders yet, a year
+  hiding inside a name (`IRS Docs - 2023`), two names for one thing (`Form W-2` beside `Form W2`),
+  an inbox folder mirroring a real destination, files parked above a run of year folders, a leaf
+  beside the folder that owns its concept, and two branches holding the same documents under
+  parallel names. Most turn into a **plan you review operation by operation** before anything
+  moves: one mapping applied across the whole family, every operation derived rather than typed,
+  collisions kept rather than overwritten. **Apply writes the reversal to disk before the first
+  folder moves**, re-probes every claim at the moment it acts, checks the result from a second
+  code path, and leaves two undos — ⌘Z for the session, and one on disk that survives a quit.
 - **Rules** — deterministic, on-device rules ("when a file matches …, file it into
   `Taxes/{year}` …") with a dry-run preview. SyncCloud can also *learn* a rule after you file
   something by hand.
@@ -176,6 +183,10 @@ swift run synccloud scan  -L ~/A -R ~/B --verify        # checksum same-size pai
 
 # Sync (prompts unless --yes)
 swift run synccloud sync  -L ~/A -R ~/B --direction to-right --strategy keep-both --yes
+
+# Report where a surveyed tree disagrees with its own habits (read-only)
+swift run synccloud restructure
+swift run synccloud restructure --json                  # full report, stable format
 ```
 
 Key flags: `--direction auto|to-right|to-left`, `--strategy replace|skip|keep-both`, `--verify`,
