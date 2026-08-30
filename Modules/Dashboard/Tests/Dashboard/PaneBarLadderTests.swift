@@ -655,11 +655,22 @@ import Design
     /// That direction is held by `PaneBarTitleTests.theTextSizesThatGetWords`, whose table names the
     /// percentages that must have words. Neither test is sufficient alone.
     ///
-    /// The titled/untitled check below is what keeps the floor honest: without it a header that had
-    /// silently stopped drawing words would sail through the clearance assertion. The discriminator
-    /// is where ink begins, because words hang below the pills — a titled header's ink starts at
-    /// **9.0pt or less** from the top edge, an untitled one's at **13.0pt or more**, and 11 sits in
-    /// the gap between the two families.
+    /// The titled/untitled check below is what keeps the floor honest: an untitled header clears the
+    /// edges easily, so without it a gate that had started refusing *every* size would pass here
+    /// rather than fail. A titled header's ink starts at **9.0pt or less** from the top edge, an
+    /// untitled one's at **13.0pt or more**, and 11 sits in the gap between the two families.
+    ///
+    /// **What that discriminates is the gate's verdict, not the presence of words**, and the
+    /// difference is worth stating because the two look identical from here. What moves the ink is
+    /// the row's *reservation*: `PaneHeader.tallestRungHeight` reserves the titled row's height and
+    /// the bar sits `.topLeading` inside it, so when the gate says no the reservation shrinks to a
+    /// pill and everything drops. Mutating `PaneHeader.barVariant` to pass `titled: false` — words
+    /// gone, reservation untouched — moves these numbers **not at all** (7.5 / 8.0 at 100%, same as
+    /// green) and passes here; `everyRungIsPricedAsTheBarItDraws`,
+    /// `aRungOccupiesTheWidthTheLadderComputes` and `theLadderRendersItsGolden` catch that one.
+    /// Mutating `PaneHeader.barLadder` to ignore `appFontScale` — the gate silenced, which is the
+    /// shape of the original defect — is caught here and by `theLadderRendersItsGolden`, and by
+    /// nothing in `PaneBarTitleTests` at all. Both mutations were run rather than reasoned about.
     @Test(arguments: FontSize.selectablePercents)
     func theTitledHeaderClearsBothEdges(percent: Int) {
         let scale = FontSize(percent: percent).scale
