@@ -586,19 +586,11 @@ public extension View {
     /// decision is made: panes, the bottom workspace, bars and overlay chrome all route through
     /// it, so they can't drift apart the way they did when each call site mapped a raw intensity
     /// itself (the panes ignored it, the bottom workspace and the modals didn't).
-    @ViewBuilder
+    ///
+    /// A `ViewModifier` rather than a plain composition because the choice of material now depends
+    /// on the appearance — see `GlassSurface`.
     func glassSurface(_ level: GlassLevel, cornerRadius: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        switch level {
-        case .solid:
-            self.background(Color(nsColor: .controlBackgroundColor), in: shape)
-        case .clear, .frosted:
-            if #available(macOS 26.0, *) {
-                self.glassEffect(level == .frosted ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
-            } else {
-                self.background(level == .frosted ? Material.thinMaterial : Material.ultraThinMaterial, in: shape)
-            }
-        }
+        modifier(GlassSurface(level: level, cornerRadius: cornerRadius))
     }
 
     /// Frosted glass card style for floating overlay chrome (Settings, Help, the first-run card,
@@ -811,6 +803,65 @@ public extension View {
                     cornerRadius: radius,
                     lightBorder: true, lightShadow: false, darkShadow: false))
                 .padding(LiquidGlass.cardInset)
+        }
+    }
+}
+
+/// Backs `glassSurface`: native Liquid Glass in dark, and the `Material` family in light.
+///
+/// **Native Liquid Glass is a darkening material in a light appearance, and that inverts the card
+/// metaphor.** Measured off a real window (light, Cards, Frosted, purple hue, tint 0, macOS 26),
+/// against the window ground the cards float on:
+///
+/// | surface | luminance |
+/// |---|---|
+/// | window ground — margins, toolbar band | 237-239 |
+/// | gutters between cards | 216-220 |
+/// | a section or pane card | 210-213 |
+/// | a `lensCard` nested inside one | 206-208 |
+///
+/// A card sat 28/255 **below** the surface it was supposed to float on, and nesting drove it lower
+/// still. Small cards carry that; the Restructure setup card is a single near-empty expanse the
+/// height of the workspace, and it read as a grey rectangle laid over the window rather than as a
+/// card. `de98d4e7` gave those cards their hairline back, which was necessary and not sufficient —
+/// the fill itself is what reads wrong, and it is what changes here.
+///
+/// **Three ways to lighten the native material were tried against the running app, and all three
+/// failed**, which is why this takes a different material rather than tinting that one:
+///
+/// | attempt | card, against a ~234 ground |
+/// |---|---|
+/// | `Glass.tint(.white.opacity(0.5))` | 211 → 198 — a tint densifies, it does not lighten |
+/// | `controlBackgroundColor` ground UNDER `.glassEffect` | 211 → 213, where 235 was predicted |
+/// | the same ground stacked OVER the glass in the background layer | no better |
+///
+/// `.glassEffect` dominates its own subtree: a fill behind it is swallowed, and a fill stacked on
+/// it in the same background layer is too. Nothing in the public API lightens it from outside.
+///
+/// So light takes the `Material` branch — the rendering this palette was tuned against before
+/// macOS 26, one line from what the pre-Tahoe fallback already did, and confirmed in the running
+/// app as the one that reads right. Dark keeps native glass deliberately: there the same material
+/// renders LIGHTER than the deep ground, so a card already reads as lifted, and `DarkBoldCardChrome`
+/// adds a specular hairline and a deep shadow on top of that. Nothing about dark was wrong.
+private struct GlassSurface: ViewModifier {
+    let level: GlassLevel
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var scheme
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        switch level {
+        case .solid:
+            content.background(Color(nsColor: .controlBackgroundColor), in: shape)
+        case .clear, .frosted:
+            if #available(macOS 26.0, *), scheme == .dark {
+                content.glassEffect(level == .frosted ? .regular : .clear,
+                                    in: .rect(cornerRadius: cornerRadius))
+            } else {
+                content.background(level == .frosted ? Material.thinMaterial : Material.ultraThinMaterial,
+                                   in: shape)
+            }
         }
     }
 }
