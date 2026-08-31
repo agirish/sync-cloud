@@ -2394,3 +2394,54 @@ Three things a porter needs that the diff alone does not say:
 
 **Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). This row is the record a
 future audit needs, not a to-do.
+
+---
+
+## 2026-08-31 — The Edit workspace (`d33aeb31`, `8a60bb0c`, `7d48d95e`, `9dc4c0a9`)
+
+A fifth workspace, and the first surface in this app that rewrites the CONTENTS of a file rather
+than moving whole files. **RECORDED — not owed**, per the standing direction (`e2b35dad`), and the
+easiest row in this file to be confident about: none of it exists on `v4.x`, `v3.x` or `v2.x`, and
+none of it is a fix to something they carry.
+
+```sh
+# Positive control first — the path must be found somewhere, or absence proves nothing.
+git ls-tree -r --name-only origin/main -- Modules/FileExplorer/Sources/FileExplorer/EditorFileStore.swift
+for l in v4.x v3.x v2.x; do
+  echo "$l: $(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorFileStore.swift | wc -l) file(s)"
+done   # expect main 1, every maintenance line 0
+```
+
+**Why this one is not a candidate even if the direction changed.** It is not a defect fix with a
+narrow diff; it is ten new source files, a new external dependency the app *links*
+(`swift-markdown` plus three pins), a fifth `Workspace` case — which is a persistence format and a
+positional ⌘-digit — and a window floor raised 760 → 810. A maintenance line taking it would be
+taking a feature, and the lines exist to carry fixes.
+
+**Three pieces inside it are separable, and none of them applies either.** Worth naming so a future
+audit does not have to re-derive that:
+
+| Piece | Applies to a maintenance line? |
+|---|---|
+| `BoundedTextRead.TextEncoding` gains `CaseIterable` | No — the enum itself arrived on `main` after `v4.x` was cut |
+| `PaneLogic.relativePath(of:under:)` | No — new member, no existing caller on any line |
+| The window floor 760 → 810 | No — it pays for a fifth bar segment those lines do not have. `v4.x` is at 760 and `v3.x`/`v2.x` are still at **600**, which is its own gap and an older one — see the workspace-bar row above; this change does not close it |
+
+**What the maintenance lines therefore cannot do**, stated the way item 1 states the `DeleteOutcome`
+gap: they have no way to edit a file's contents at all. There is no Edit workspace, no ⌘S, no
+in-app text surface — a user on `v4.x` who wants to change a line in a note leaves the app for it.
+That is the shape of the gap, and it is a feature gap rather than a correctness one.
+
+**Two corrections landed alongside it that DO touch shared code**, and both are recorded here
+because a reader scanning for "did anything in this batch reach existing surfaces" would otherwise
+have to read the whole diff:
+
+- **`FileActionDelegate` gains `handleOpenInEditor` as a REQUIREMENT**, not a defaulted extension
+  member. Every conformer on `main` answers it. A line taking any later change to that protocol
+  needs to know the shape differs.
+- **Nine source files and several suites had their window-floor prose corrected** 760 → 810, two of
+  them (`SettingsLayout`, `SettingsView`) where the CONCLUSION flips: 810 less `hostMargin` is 762,
+  which is two points MORE than the settings sheet wants, so the width clamp no longer bites at the
+  floor. On a maintenance line the old sentences are still true, because the old floor is still
+  theirs. **Do not port that prose** — it would make their comments describe a window they do not
+  have.
