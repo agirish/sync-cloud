@@ -23,6 +23,10 @@ User-facing changes, newest first. For the full commit history see the
   re-check every other removal does: if either copy changed since the scan — or a rescan landed
   while the surface was open — it refuses and says which one and why, rather than trashing on a
   verdict that has expired.
+- **Two copies the group is not keeping get no verdict at all.** Open the second and third copies
+  of a three-copy group against each other and neither of them is the keeper — so neither is
+  marked as one, the trash button is withheld, and a line names the copy that IS being kept. The
+  facts on screen are current, so it does not send you off to rescan.
 - **⏎ and esc both mean Done.** Trashing a copy is always a deliberate click.
 - **A byte-identical pair can be re-checked on the spot.** "Verify now" hashes both files as they
   are on disk right now, and reports three outcomes rather than two: they match, they no longer
@@ -38,8 +42,10 @@ User-facing changes, newest first. For the full commit history see the
 ### Two PDFs, or two images, move together
 
 - **Synchronised panes for PDFs and images.** Scroll or zoom one side and the other follows, and
-  ⌥ held breaks the sync while you move one alone. Quick Look has no scroll or zoom to synchronise
-  at all, which is why this arrives with per-type viewers rather than earlier.
+  ⌥ held breaks the sync while you move one alone. Zoom survives a trip out to an overlay mode and
+  back, so reading a table closely, checking the pixel difference and returning does not drop you
+  at fit-to-page. Quick Look has no scroll or zoom to synchronise at all, which is why this arrives
+  with per-type viewers rather than earlier.
 - **Paging is the PDF half — two images have no pages to turn.** ⇞/⇟ move both sides at once, and
   scrolling onto another page walks the page strip along with you, so `1`–`4` open on the page you
   were actually reading rather than on the one you started at; ⌥ breaks that too. A
@@ -49,7 +55,8 @@ User-facing changes, newest first. For the full commit history see the
   actually run, so nothing on the strip stands for a page that has not been looked at. Where one
   document is longer, the strip runs to the longer one and the shorter side stops at its last page
   rather than hiding the pages only one file has.
-- **Three ways to overlay the two sides,** picked with `1`–`4` or the segments: swipe a divider
+- **Three ways to overlay the two sides,** picked with `2`–`4` or the segments — `1` is the plain
+  side-by-side you start on: swipe a divider
   across them, blend one into the other, or see the pixel difference on black — where identical is
   black and anything that changed glows. The difference view says outright that it compares pixels
   with no alignment, so two scans of one sheet of paper glowing all over reads as scanner noise
@@ -68,14 +75,31 @@ User-facing changes, newest first. For the full commit history see the
   common would take minutes to line up, and a single line long enough to be a whole minified file
   would take as long again to compare word by word. Both are now refused up front and said out
   loud — the other modes still work, and a line marked whole says it was marked whole — rather
-  than leaving a spinner over a pane that was never going to answer.
-- **CRLF against LF is reported as a line-ending difference, not as a thousand changed lines.**
+  than spinning over a pane that is never going to answer.
+- **CRLF against LF is reported as a line-ending difference, not as a thousand changed lines,** and
+  two files holding the same words in different encodings show no changed rows at all — the
+  comparison is over decoded text, not raw bytes, and a note above the diff is what tells you the
+  bytes differ.
 
 ### The same surface in Compare
 
 - **"Compare…" on a changed row in the Differences list** opens the identical viewer — facts,
   previews, modes, the text diff — with a Done-only bar. Differences already owns copying, moving
   and ignoring a row, so the viewer adds no second way to do them.
+
+### Deleting
+
+- **A move between volumes spends a retry before it destroys anything.** Such a move copies to the
+  destination and then clears the source to the Trash — and if that step failed, the cleanup fell
+  straight through to a permanent delete. The refusal macOS raises on files you own, in folders you
+  own, is exactly such a failure, so under it a move could quietly become a deletion of the
+  original. That refusal is now retried first, which is what rescues it. The unrecoverable fallback
+  is still there for a volume with no Trash at all, and the log names it when it is taken.
+- **A Trash refusal is retried before it is reported.** The app asks the system's own Trash
+  service, and failing that re-registers the item with a move in place and tries again. Whether
+  that clears any particular refusal is not promised — the failure comes and goes on its own — but
+  one that survives both attempts now says what was tried and what was observed, rather than
+  naming a cause it cannot know.
 
 ### Elsewhere
 
