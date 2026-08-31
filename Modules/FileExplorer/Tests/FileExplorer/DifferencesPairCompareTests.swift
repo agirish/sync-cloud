@@ -130,7 +130,7 @@ import Testing
             notice: nil, scanRoot: nil, providerName: nil, hue: .blue,
             availableSize: CGSize(width: 1200, height: 800),
             onClose: {},
-            verdict: { Text("Done") })
+            verdict: { _ in Text("Done") })
         let host = NSHostingView(rootView: AnyView(view))
         host.frame = CGRect(x: 0, y: 0, width: 1200, height: 800)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
@@ -195,7 +195,7 @@ import Testing
             onChooseKeeper: { recorder.keeperPicks.append($0) },
             onClose: {},
             probe: { _ in .missing }, hash: { _ in .hashed("a") },
-            verdict: { Text("Done") })
+            verdict: { _ in Text("Done") })
         let host = NSHostingView(rootView: AnyView(view.frame(width: 900, height: 600)))
         host.frame = CGRect(x: 0, y: 0, width: 900, height: 600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],

@@ -232,7 +232,9 @@ public struct DifferencesPairCompareOverlay: View {
                 scanRoot: nil, providerName: nil, hue: hue,
                 availableSize: available,
                 onClose: onClose,
-                verdict: { verdictBar })
+                // The Done-only bar names nothing that differs, so the facts it is handed go
+                // unread here.
+                verdict: { _ in verdictBar })
         } else {
             waitingPlaceholder(size: size)
         }

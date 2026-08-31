@@ -50,10 +50,24 @@ struct ComparePairFacts: Equatable {
     /// reads this rather than re-deriving it.
     var differingFields: [Field] { rows.filter { $0.differs && !$0.isPending }.map(\.field) }
 
-    /// Whether every resolved row agrees. Deliberately excludes pending rows, so a page count that
-    /// has not arrived cannot make a pair look identical.
-    var everyResolvedRowAgrees: Bool {
-        rows.allSatisfy { $0.isPending || !$0.differs }
+    /// The bar's one line about this pair — ``summary(differing:)``, hedged while a row has not
+    /// answered.
+    ///
+    /// **A pending row is what this exists for.** `differingFields` excludes pending rows, by
+    /// design: a page count still being read is neither an agreement nor a disagreement. But that
+    /// leaves nothing to list, and the absolute sentence would then tell a reader that two
+    /// documents of different lengths match — the claim made loudest at the moment least is known.
+    /// So the claim waits for the row instead of being made without it.
+    ///
+    /// (This replaced an `everyResolvedRowAgrees` that no caller ever asked. It was exactly
+    /// `differingFields.isEmpty` — the same question spelled twice — and stating the intent as a
+    /// second predicate is what let the interface go on contradicting it.)
+    var summary: String {
+        let unnamed = differingFields.filter { $0 != .name }
+        guard unnamed.isEmpty, rows.contains(where: \.isPending) else {
+            return Self.summary(differing: differingFields)
+        }
+        return "Every fact the scan recorded matches — one is still being read."
     }
 
     /// Builds the strip for one pair.
@@ -101,6 +115,20 @@ struct ComparePairFacts: Equatable {
                             isPending: pending))
         }
         return ComparePairFacts(rows: rows)
+    }
+
+    /// The `pages:` argument for one pair, from its kind and whatever the page lane has answered.
+    ///
+    /// Three states, and the middle one is why this is a tuple of optionals inside an optional: a
+    /// pair with no pages omits the row entirely, a PDF whose counts are still in flight leaves it
+    /// PENDING, and a PDF that has answered states them. A locked or unopenable PDF answers 0,
+    /// which is a real count and reads as one — the pane beside it says it could not be opened, so
+    /// the row does not have to.
+    static func pages(for kind: PairContentKind,
+                      pairing: PagePairing?) -> (left: Int?, right: Int?)? {
+        guard kind == .pdf else { return nil }
+        guard let pairing else { return (left: nil, right: nil) }
+        return (left: pairing.leftPages, right: pairing.rightPages)
     }
 
     /// "12 pages", "1 page", "…" while the lane has not answered. A static func rather than an

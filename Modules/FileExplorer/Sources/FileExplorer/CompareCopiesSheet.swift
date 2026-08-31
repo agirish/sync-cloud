@@ -173,7 +173,11 @@ struct FilePairCompareView<Verdict: View>: View {
     /// the facts, the panes, the modes, the strip. Only the bottom bar knows WHY you are looking —
     /// Duplicates offers a keeper and a trash, Differences offers Done. Which is exactly what
     /// ROADMAP §11 asked for and why it is one build rather than two.
-    @ViewBuilder var verdict: () -> Verdict
+    /// **Given the facts the viewer built, rather than deriving them again.** The bar's line
+    /// names what differs, and the strip above it draws the same rows — two `ComparePairFacts.make`
+    /// calls would agree only for as long as their arguments matched, and the page counts (which
+    /// only this view has) are where they stopped matching.
+    @ViewBuilder var verdict: (ComparePairFacts) -> Verdict
 
     @State private var sources: [String: ColumnPreviewSource] = [:]
     @State private var verify: ComparePairVerify = .idle
@@ -276,7 +280,17 @@ struct FilePairCompareView<Verdict: View>: View {
 
     private var facts: ComparePairFacts {
         ComparePairFacts.make(left: left, right: right,
-                              scanRoot: scanRoot, providerName: providerName)
+                              scanRoot: scanRoot, providerName: providerName,
+                              pages: pageFacts)
+    }
+
+    /// The two page counts this pair's facts strip states — see ``ComparePairFacts/pages(for:pairing:)``.
+    ///
+    /// Internal rather than private, as a seam: a SwiftUI `Text` cannot be read back off a mounted
+    /// view, so this is where a test asserts that the strip is fed the pair's real kind and the
+    /// lane's real answer rather than a constant.
+    var pageFacts: (left: Int?, right: Int?)? {
+        ComparePairFacts.pages(for: kind, pairing: pairing)
     }
 
     /// The pair's viewer kind. **Both sides must agree, or the pair is `.other`** — a versions
@@ -318,7 +332,7 @@ struct FilePairCompareView<Verdict: View>: View {
                     .padding(.horizontal, 16).padding(.vertical, 8)
             }
             Divider()
-            verdict()
+            verdict(facts)
         }
         .frame(width: size.width, height: size.height)
         // **`.focusable()` is what makes the keys below work, and `.focusEffectDisabled()` is what
@@ -1449,7 +1463,7 @@ struct CompareCopiesSheet: View {
             onChooseKeeper: onChooseKeeper,
             onClose: onClose,
             probe: probe, hash: hash, initialMode: initialMode,
-            verdict: { verdictBar })
+            verdict: { verdictBar($0) })
     }
 
     /// The line above the facts: what is wrong with this pair's verdict, or nothing.
@@ -1483,27 +1497,22 @@ struct CompareCopiesSheet: View {
         }
     }
 
-    private var facts: ComparePairFacts {
-        ComparePairFacts.make(left: pair.left, right: pair.right,
-                              scanRoot: scanRoot, providerName: providerName)
-    }
-
     private var otherCopy: DuplicateCopy? { standing.keeperPath.flatMap { pair.other(than: $0) } }
 
     /// What the bar says beside the buttons. The facts summary where the verdict stands; a
     /// one-line reason where it does not, so the bar is never a row of disabled buttons with
     /// nothing saying why.
-    var verdictSummary: String {
+    func verdictSummary(_ facts: ComparePairFacts) -> String {
         switch standing {
-        case .inPair: return ComparePairFacts.summary(differing: facts.differingFields)
+        case .inPair: return facts.summary
         case .noLiveGroup: return "Rescan to act on this pair."
         case .outsidePair: return "The copy this group is keeping is not one of these two."
         }
     }
 
-    private var verdictBar: some View {
+    private func verdictBar(_ facts: ComparePairFacts) -> some View {
         HStack(spacing: 10) {
-            Text(verdictSummary)
+            Text(verdictSummary(facts))
                 .scaledFont(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)

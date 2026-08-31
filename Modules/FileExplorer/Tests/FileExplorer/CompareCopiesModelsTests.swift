@@ -43,7 +43,7 @@ import Sync
         #expect(try row(f, .size).differs == false)
         #expect(try row(f, .modified).differs == false)
         #expect(f.differingFields == [.location])
-        #expect(f.everyResolvedRowAgrees == false)
+        #expect(f.summary == "Differs by location.")
     }
 
     /// **The trap the whole `differs` rule exists for.** A byte count renders to three significant
@@ -98,16 +98,26 @@ import Sync
         #expect(f.differingFields.contains(.pages) == false)
     }
 
-    /// …and a pending row must not let a pair read as identical either. `everyResolvedRowAgrees`
-    /// is what the identical-pair variant leans on, so a page count that never arrives cannot be
-    /// the thing that makes two documents look the same.
+    /// …and a pending row must not let a pair read as identical either.
+    ///
+    /// **This is the sentence the bar actually says**, which is why it is asserted through
+    /// ``ComparePairFacts/summary`` rather than through a predicate nothing reads. A page count
+    /// still in flight leaves `differingFields` empty, and the absolute claim would then be made
+    /// at the one moment least is known about the pair.
     @Test func aPendingPageRowDoesNotMakeAPairLookIdentical() {
-        let f = facts(copy("/Users/x/Docs/A/r.pdf"), copy("/Users/x/Docs/A/r.pdf"),
-                      pages: (left: nil, right: nil))
-        #expect(f.everyResolvedRowAgrees == true, "a pending row is not a disagreement")
-        let resolved = facts(copy("/Users/x/Docs/A/r.pdf"), copy("/Users/x/Docs/A/r.pdf"),
-                             pages: (left: 12, right: 9))
-        #expect(resolved.everyResolvedRowAgrees == false)
+        let pending = facts(copy("/Users/x/Docs/A/r.pdf"), copy("/Users/x/Docs/A/r.pdf"),
+                            pages: (left: nil, right: nil))
+        #expect(pending.summary == "Every fact the scan recorded matches — one is still being read.",
+                "a pair whose page count had not arrived claimed every fact matched")
+
+        let differing = facts(copy("/Users/x/Docs/A/r.pdf"), copy("/Users/x/Docs/A/r.pdf"),
+                              pages: (left: 12, right: 9))
+        #expect(differing.summary == "Differs by page count.")
+
+        // The positive control: the absolute claim is still reachable, once every row has answered.
+        let agreed = facts(copy("/Users/x/Docs/A/r.pdf"), copy("/Users/x/Docs/A/r.pdf"),
+                           pages: (left: 12, right: 12))
+        #expect(agreed.summary == "Every fact the scan recorded matches.")
     }
 
     @Test func pageTextPluralizes() {

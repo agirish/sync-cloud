@@ -226,6 +226,10 @@ import Testing
                 availableSize: CGSize(width: 900, height: 700),
                 onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {})
         }
+        // The facts the viewer would hand the bar. Two copies at different paths, so the summary
+        // this feeds has something real to name.
+        let facts = ComparePairFacts.make(left: pair.left, right: pair.right,
+                                          scanRoot: "/root", providerName: "Projects")
         let outside = sheet(.outsidePair(name: "kept.md"))
         #expect(!outside.standing.offersVerdict, "the destructive verdict stayed offered with no keeper")
         let notice = try #require(outside.notice)
@@ -233,7 +237,7 @@ import Testing
                 "the notice did not name the copy the group is actually keeping")
         #expect(!notice.contains("moved on"),
                 "current facts were reported as a stale scan, sending the reader to rescan")
-        #expect(outside.verdictSummary.contains("not one of these two"))
+        #expect(outside.verdictSummary(facts).contains("not one of these two"))
         #expect(outside.trashTitle == "Trash the other copy",
                 "the button named a target it has no keeper to choose against")
 
@@ -241,14 +245,14 @@ import Testing
         let stale = sheet(.noLiveGroup)
         #expect(!stale.standing.offersVerdict)
         #expect(try #require(stale.notice).contains("moved on"))
-        #expect(stale.verdictSummary.contains("Rescan"))
+        #expect(stale.verdictSummary(facts).contains("Rescan"))
 
         // The positive control, same pair: with the keeper on screen the verdict comes back and
         // the notice goes away.
         let inPair = sheet(.inPair("/root/b/x.md"))
         #expect(inPair.standing.offersVerdict)
         #expect(inPair.notice == nil)
-        #expect(!inPair.verdictSummary.contains("not one of these two"))
+        #expect(!inPair.verdictSummary(facts).contains("not one of these two"))
     }
 
     // MARK: The branch
