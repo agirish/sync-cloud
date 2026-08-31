@@ -2432,6 +2432,25 @@ gap: they have no way to edit a file's contents at all. There is no Edit workspa
 in-app text surface — a user on `v4.x` who wants to change a line in a note leaves the app for it.
 That is the shape of the gap, and it is a feature gap rather than a correctness one.
 
+**A follow-up on the same workspace, `fadb6a03` — equally not owed, for the same reason.** The Edit
+rail's rows were built with the `.inline` hover variant, which is documented for a dismiss glyph
+inside a field and defaults to a CIRCLE — so hovering a file drew a grey disc in the middle of the
+row instead of a wash across it, and the selected arm traced a capsule ring around a rounded
+rectangle. The file it changes does not exist on any maintenance line.
+
+**But the CLASS of defect is portable, and that is the part worth writing down.** Which
+`HoverAffordanceVariant` a control should wear is decided per call site by hand — `HoverAffordanceTests`
+pins each variant's own metrics and nothing checks the pairing — so a row wearing `.inline`, or any
+`.segment`/`.filled` arm left on its default capsule over a non-capsule ground, is invisible to the
+suite on every line. The twenty other `.inline` call sites **on `main`** were censused at the same
+time and are all genuine dismiss or clear glyphs. **That census was not run against `v4.x`, `v3.x`
+or `v2.x`** — those lines carry older call sites this one never saw, and a maintainer auditing hover
+treatment there should run it rather than inherit this row's answer:
+
+```sh
+git grep -n 'hoverAffordance(' origin/v4.x -- '*.swift' | grep '\.inline'   # then read each one
+```
+
 **Two corrections landed alongside it that DO touch shared code**, and both are recorded here
 because a reader scanning for "did anything in this batch reach existing surfaces" would otherwise
 have to read the whole diff:
