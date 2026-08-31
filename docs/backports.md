@@ -2336,3 +2336,61 @@ outright, which is strictly worse for exactly the item the refusal exists to pro
 the probe is a property on the manager (`isMidCloudTransfer`) read by `deleteItems`, and not a
 parameter on `trashAfterReregistering`: a `nonisolated static` cannot reach an instance property,
 so the move path cannot inherit it by accident. `TrashPermissionRefusalTests` pins both halves.
+
+---
+
+## 2026-08-31 — The CC13 nits (N1, N3, N4, N6, N9)
+
+**One is owed and four are not, and the split is the useful part of this row.** Four of the five
+repair claims made about the Compare Copies surface, which is `main`-only; the fifth repairs the
+**Activity Log**, which every line has carried since long before any of them were cut.
+
+**The positive control first.** `CompareCopiesSheet.swift` is absent as a file from all three
+maintenance lines, so a scan for anything inside it answers "absent" whether or not the symbol is
+spelled right. `LogViewer.swift` is the control that proves the run is measuring content:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s log-strict:%s  compare-surface:%s\n' "$l" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/LogViewer.swift 2>/dev/null |
+        grep -c 'String(contentsOf: fileURL, encoding: .utf8)')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/CompareCopiesSheet.swift \
+        >/dev/null 2>&1 && echo present || echo absent)"
+done
+```
+
+Checked 2026-08-31: every maintenance line prints `log-strict:1  compare-surface:absent`. `main`
+prints `log-strict:0` — the strict read is the thing this batch removed.
+
+| Piece | Depends on | Status |
+|---|---|---|
+| N1 — page counts reach the facts strip; the summary hedges while a row is pending | `CompareCopiesSheet` | RECORDED — not owed |
+| N1 — `everyResolvedRowAgrees` deleted, the host's duplicate `ComparePairFacts.make` collapsed | `ComparePairFacts` | RECORDED — not owed |
+| N3 — `LogHistoryLoader.repairingUTF8`, and `.unreadable` narrowed to read failures | `LogHistoryLoader` | **RECORDED — genuinely owed, see below** |
+| N4 — `releases.html` "Still to come in v5.1" → "Not in v5.1." | the v5.1 article | RECORDED — not owed |
+| N6 — paging scoped to PDFs in Help, notes and the page | the pair viewer | RECORDED — not owed |
+| N9 — the ContentView comment about what surviving Settings restores | `compareFilePair` | RECORDED — not owed |
+
+**The one that is owed, stated so a maintenance line can act on it without reading `main`.**
+`LogHistoryLoader.loadOlderThan` reads the log with `String(contentsOf:encoding:.utf8)`, which
+throws on the first byte that is not valid UTF-8 — and the loader maps a throw that is not
+`NSFileReadNoSuchFileError` to `.unreadable`. So **one torn byte replaces the entire
+previous-session history with an error note**, on every line, today. The fix is two lines: read
+`Data`, and decode with `String(decoding:as: UTF8.self)` — the standard library's repairing
+initializer, one U+FFFD per malformed sequence and everything either side kept.
+
+Three things a porter needs that the diff alone does not say:
+
+- **Foundation's `String(data:encoding:)` is not a substitute.** Measured on this fixture: for
+  UTF-8 it returns `nil` for a character cut short — the same refusal, one layer down. For UTF-16
+  it is quieter and worse, returning a clean string with the cut-short tail silently missing.
+- **Rotation is not the source, so do not "fix" the writer.** `trimTailIfOversized` cuts at a
+  newline, and a newline is always a character boundary. The reachable causes are an append cut
+  short by a crash and the CLI writing the same file; the log carries file PATHS, so non-ASCII
+  bytes are routinely in flight.
+- **`.unreadable` must not become dead code.** After the change it means only "could not be read",
+  and its own doc said "read or decoded". Keep an IO-failure test as the positive control — a
+  directory at the log's path stages it with no permission games.
+
+**Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). This row is the record a
+future audit needs, not a to-do.
