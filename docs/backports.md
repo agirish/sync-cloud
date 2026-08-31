@@ -1988,6 +1988,32 @@ along with its own numbers. Reclaiming it means finding ~12pt in `reservedChrome
 generous, and unmeasured) or in the segments' 12pt horizontal padding — a design call, not an
 arithmetic one, and deliberately not made here.
 
+## 2026-08-31 — The compared PDFs keep their zoom across a mode switch (`09e485e6`)
+
+**CLOSED — does not apply**, on the same evidence as the row below and worth one line rather than a
+repeat of it: the commit touches `PairViewers.swift` and `CompareCopiesSheet.swift`, and neither file
+exists on any maintenance line. The positive control is the same one — `FileTreeView.swift` is
+present on all four, so an "absent" answer here is absence and not a mistyped path.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- \
+    Modules/FileExplorer/Sources/FileExplorer/PairViewers.swift \
+    Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift
+done   # main prints both; v4.x, v3.x and v2.x print only FileTreeView
+```
+
+**The measurement is the part worth keeping**, because it closes a question rather than opening one.
+The mode switch unmounts the PDF pair and re-opens both documents through the process-wide serial
+lane, which was reported as a cost. It is not: eleven real PDFs — including a 310-page one and a
+4.45 MB scanned board pack — open in **0.04–0.36 ms**, since PDFKit reads the trailer and the xref
+rather than the content. The per-page re-open inside `PagePairRaster.render` is ~11 ms against
+~190 ms of rendering. No document cache is owed to any line, here or anywhere else that opens a
+`PDFDocument`.
+
+What the remount really discards is the reader's zoom, which is now held by the surface the way the
+page already was — and that surface is `main`-only.
+
 ## 2026-08-31 — Adversarial review of the Compare Copies fixes (`8fdb68d7`…`8701b644`)
 
 **Six commits, and only one line of them applies to any maintenance line.** A second adversarial
