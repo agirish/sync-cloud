@@ -131,8 +131,8 @@ import Testing
                                         groupName: "Notes.md")
         func sheet(keeping path: String) -> CompareCopiesSheet {
             CompareCopiesSheet(
-                pair: pair, keeperPath: path, allowsKeeperChoice: true,
-                protectedPaths: [], isStale: false, scanRoot: "/root",
+                pair: pair, standing: .inPair(path), allowsKeeperChoice: true,
+                protectedPaths: [], scanRoot: "/root",
                 providerName: "Projects", hue: .blue,
                 availableSize: CGSize(width: 900, height: 700),
                 onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {})
@@ -149,8 +149,8 @@ import Testing
                                         other: copy("/root/b/x.md"),
                                         matchType: .versions, groupName: "x.md")
         let sheet = CompareCopiesSheet(
-            pair: pair, keeperPath: "/root/c/x.md", allowsKeeperChoice: true,
-            protectedPaths: [], isStale: true, scanRoot: "/root", providerName: "Projects",
+            pair: pair, standing: .noLiveGroup, allowsKeeperChoice: true,
+            protectedPaths: [], scanRoot: "/root", providerName: "Projects",
             hue: .blue, availableSize: CGSize(width: 900, height: 700),
             onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {})
         #expect(sheet.trashTitle == "Trash the other copy")
@@ -163,6 +163,92 @@ import Testing
                                         other: copy("/root/b/x.txt"),
                                         matchType: .identical, groupName: "x.txt")
         #expect(pair.other(than: "/root/c/x.txt") == nil)
+    }
+
+    // MARK: A keeper the pair cannot see
+
+    /// **A group may hold more copies than the two on screen, and the keeper can be one of the
+    /// others.** Open a three-copy group's second and third copies against each other and the live
+    /// group's keeper is neither of them — the host used to fall back to the LEFT pane, so the
+    /// surface drew a keeper marker on a copy nothing was keeping and left "Trash the other copy"
+    /// enabled beside it. Nothing was stale, so no notice contradicted it.
+    ///
+    /// The seam is a pure function of a pair and a group, which is what makes the rule assertable
+    /// at all: `sheet(available:)` is private and a `some View` cannot be interrogated.
+    @Test func theKeeperStandingTellsAThirdCopyApartFromAStaleScan() {
+        let a = copy("/root/a/x.md", keeper: true)
+        let b = copy("/root/b/x.md")
+        let c = copy("/root/c/x.md")
+        let pair = DuplicateComparePair(keeper: b, other: c, matchType: .identical,
+                                        groupName: "x.md")
+
+        #expect(CompareCopiesOverlay.keeperStanding(of: pair, in: group([a, b, c]))
+                    == .outsidePair(name: "x.md"),
+                "a keeper outside the pair was reported as one of the two on screen")
+        #expect(CompareCopiesOverlay.keeperStanding(of: pair, in: group([a, b, c])).keeperPath == nil,
+                "a keeper the pair does not hold was handed out as a path to mark")
+        // The positive control: move the keeper INTO the pair and the same call answers with it.
+        let bKept = copy("/root/b/x.md", keeper: true)
+        #expect(CompareCopiesOverlay.keeperStanding(of: pair, in: group([bKept, c]))
+                    == .inPair("/root/b/x.md"))
+        #expect(CompareCopiesOverlay.keeperStanding(of: pair, in: nil) == .noLiveGroup)
+    }
+
+    /// **Only one of the three answers marks a keeper, and only one is staleness.** The standing
+    /// replaced a keeper path, an outside-keeper name and an `isStale` flag — three fields whose
+    /// eight combinations included a surface that withheld its verdict while saying nothing about
+    /// why, and one that claimed a keeper while reporting itself stale. Read straight off the
+    /// value, so those states cannot be constructed at all.
+    @Test func onlyAKeeperInThePairIsMarkedAndOnlyAMissingGroupIsStale() {
+        let standings: [PairKeeperStanding] = [.inPair("/root/b/x.md"),
+                                               .outsidePair(name: "kept.md"),
+                                               .noLiveGroup]
+        #expect(standings.map(\.keeperPath) == ["/root/b/x.md", nil, nil],
+                "a standing that does not know the keeper handed one out anyway")
+        #expect(standings.map(\.offersVerdict) == [true, false, false],
+                "the destructive verdict was offered where there is no keeper to act against")
+        #expect(standings.map { $0 == .noLiveGroup } == [false, false, true],
+                "the three answers stopped being three distinct answers")
+    }
+
+    /// The surface built from that standing: no keeper, no verdict, and a notice that says which
+    /// copy is being kept rather than telling the reader to rescan — the facts here are current,
+    /// and a rescan would change nothing. All three answers are driven, because the two that
+    /// withhold the verdict have to withhold it for reasons the reader can tell apart.
+    @Test func eachStandingSaysWhyTheVerdictIsOrIsNotThere() throws {
+        let pair = DuplicateComparePair(keeper: copy("/root/b/x.md"), other: copy("/root/c/x.md"),
+                                        matchType: .identical, groupName: "x.md")
+        func sheet(_ standing: PairKeeperStanding) -> CompareCopiesSheet {
+            CompareCopiesSheet(
+                pair: pair, standing: standing,
+                allowsKeeperChoice: true, protectedPaths: [], scanRoot: "/root",
+                providerName: "Projects", hue: .blue,
+                availableSize: CGSize(width: 900, height: 700),
+                onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {})
+        }
+        let outside = sheet(.outsidePair(name: "kept.md"))
+        #expect(!outside.standing.offersVerdict, "the destructive verdict stayed offered with no keeper")
+        let notice = try #require(outside.notice)
+        #expect(notice.contains("kept.md"),
+                "the notice did not name the copy the group is actually keeping")
+        #expect(!notice.contains("moved on"),
+                "current facts were reported as a stale scan, sending the reader to rescan")
+        #expect(outside.verdictSummary.contains("not one of these two"))
+        #expect(outside.trashTitle == "Trash the other copy",
+                "the button named a target it has no keeper to choose against")
+
+        // Stale: also no verdict, but for the other reason — and it must SAY the other reason.
+        let stale = sheet(.noLiveGroup)
+        #expect(!stale.standing.offersVerdict)
+        #expect(try #require(stale.notice).contains("moved on"))
+        #expect(stale.verdictSummary.contains("Rescan"))
+
+        // The positive control, same pair: with the keeper on screen the verdict comes back and
+        // the notice goes away.
+        let inPair = sheet(.inPair("/root/b/x.md"))
+        #expect(inPair.standing.offersVerdict)
+        #expect(inPair.notice == nil)
+        #expect(!inPair.verdictSummary.contains("not one of these two"))
     }
 
     // MARK: The branch
@@ -330,8 +416,8 @@ import Testing
 
         var body: some View {
             CompareCopiesSheet(
-                pair: pair, keeperPath: keeperPath, allowsKeeperChoice: true,
-                protectedPaths: [], isStale: isStale, scanRoot: "/root",
+                pair: pair, standing: isStale ? .noLiveGroup : .inPair(keeperPath),
+                allowsKeeperChoice: true, protectedPaths: [], scanRoot: "/root",
                 providerName: "Projects", hue: .blue, availableSize: available,
                 onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {},
                 probe: { [source, probeCount] path in probeCount?.record(path); return source },
@@ -608,8 +694,8 @@ import Testing
 
         var body: some View {
             CompareCopiesSheet(
-                pair: box.pair, keeperPath: box.pair.left.path, allowsKeeperChoice: true,
-                protectedPaths: [], isStale: false, scanRoot: "/root",
+                pair: box.pair, standing: .inPair(box.pair.left.path), allowsKeeperChoice: true,
+                protectedPaths: [], scanRoot: "/root",
                 providerName: "Projects", hue: .blue, availableSize: available,
                 onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {},
                 probe: { [probeCount] path in probeCount.record(path); return .quickLook },

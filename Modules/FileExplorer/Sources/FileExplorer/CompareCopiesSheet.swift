@@ -116,8 +116,8 @@ enum CompareOverlayMetrics {
 /// **The view holds no manager reference.** Every act leaves through a closure, and every fact
 /// about the live grouping (who the keeper is, whether a choice is allowed, whether the scan has
 /// moved on) arrives as a value the host re-derives at render time by PATH. That is what lets the
-/// surface stay honest across a rescan: the host stops finding a live group, passes `isStale`, and
-/// the previews stay readable while the verdict goes away.
+/// surface stay honest across a rescan: the host stops finding a live group, hands down a keeper
+/// of nil and a notice saying so, and the previews stay readable while the verdict goes away.
 struct FilePairCompareView<Verdict: View>: View {
 
     let left: DuplicateCopy
@@ -1319,6 +1319,47 @@ struct FilePairCompareView<Verdict: View>: View {
 
 // MARK: - The Duplicates host's sheet
 
+/// Which copy a live duplicate group is keeping, **as one compared PAIR can see it** — three
+/// answers, because a group may hold more copies than the two on screen.
+///
+/// The whole reason this is a type: the Compare surface used to be handed a keeper path that fell
+/// back to the left pane whenever the group's keeper was neither side, so a three-copy group
+/// compared pairwise drew a keeper marker on a copy nothing was keeping and left the trash enabled
+/// beside it. Nothing was stale, so no notice contradicted it, and the destructive act would have
+/// run against a keeper that existed only on that surface.
+///
+/// Produced by ``CompareCopiesOverlay/keeperStanding(of:in:)``, which is a pure function of a pair
+/// and a group and is asserted as one — `sheet(available:)` is private and a `some View` cannot be
+/// interrogated.
+enum PairKeeperStanding: Equatable {
+    /// The group keeps one of these two, at this path.
+    case inPair(String)
+    /// The group keeps a copy that is neither of these two. The facts on screen are current; the
+    /// verdict has no subject.
+    case outsidePair(name: String)
+    /// No live group holds both paths any more — the scan moved on under an open surface.
+    case noLiveGroup
+
+    /// The keeper path to draw a marker for, or nil for no marker at all.
+    ///
+    /// **Nil in BOTH of the other two cases, and for one reason: neither knows.** With the keeper
+    /// outside the pair, marking either side would be the original false claim. With no live
+    /// group, there is no grouping left to be keeping anything — the payload's own left side is
+    /// what the scan said before it moved on, and the notice already says the facts are old. So
+    /// the header row collapses rather than asserting a keeper, exactly as it does on the
+    /// Differences host, where nothing is being kept either.
+    var keeperPath: String? {
+        if case .inPair(let path) = self { return path }
+        return nil
+    }
+
+    /// Whether the destructive verdict may be offered at all.
+    var offersVerdict: Bool {
+        if case .inPair = self { return true }
+        return false
+    }
+}
+
 /// ``FilePairCompareView`` with the Duplicates verdict bar under it: a keeper, a single-copy
 /// trash, and Done.
 ///
@@ -1328,13 +1369,18 @@ struct FilePairCompareView<Verdict: View>: View {
 struct CompareCopiesSheet: View {
 
     let pair: DuplicateComparePair
-    /// The path of the copy currently being kept, read from the LIVE group by the host.
-    let keeperPath: String
+    /// Which copy the live group is keeping, as this pair can see it — the ONE value the keeper
+    /// markers, the picker, the notice and the destructive verdict are all read off.
+    ///
+    /// **One value rather than three, because only three of eight combinations were legal.** This
+    /// was a `keeperPath`, a `keeperOutsidePair` name and an `isStale` flag, which a call site
+    /// could pair into a surface that withheld its verdict and said nothing about why, or claimed
+    /// a keeper while reporting itself stale. There is one question here — what is this group
+    /// keeping — and it has exactly three answers.
+    let standing: PairKeeperStanding
     let allowsKeeperChoice: Bool
     /// Copies that may never be removed — inside a folder another group is keeping.
     let protectedPaths: Set<String>
-    /// True when no live group holds both paths any more.
-    let isStale: Bool
     let scanRoot: String?
     let providerName: String?
     let hue: LiquidGlassHue
@@ -1363,20 +1409,40 @@ struct CompareCopiesSheet: View {
                 kind: pair.matchType.kind,
                 contentUnverified: pair.copies.contains(where: \.contentUnverified)),
             offersVerify: ComparePairClaim.offersVerify(kind: pair.matchType.kind),
-            keeperPath: keeperPath,
+            keeperPath: standing.keeperPath,
             // A stale surface still shows everything; only the ACTS stop. Folding staleness into
             // the keeper rule here rather than inside the viewer keeps the viewer free of a
             // concept only one host has.
-            allowsKeeperChoice: allowsKeeperChoice && !isStale,
-            notice: isStale
-                ? "The scan moved on — the facts below are from the last scan, so the verdict is unavailable. Close and compare again."
-                : nil,
+            allowsKeeperChoice: allowsKeeperChoice && standing.offersVerdict,
+            notice: notice,
             scanRoot: scanRoot, providerName: providerName, hue: hue,
             availableSize: availableSize,
             onChooseKeeper: onChooseKeeper,
             onClose: onClose,
             probe: probe, hash: hash, initialMode: initialMode,
             verdict: { verdictBar })
+    }
+
+    /// The line above the facts: what is wrong with this pair's verdict, or nothing.
+    ///
+    /// **Internal rather than private, as a seam** — the same reason ``trashTitle`` is. A SwiftUI
+    /// button's enablement and a `Text`'s string cannot be read back off a mounted view, so this
+    /// and ``verdictSummary`` are the only way to assert that a surface whose group keeps a third
+    /// copy actually withdraws its destructive verdict and says why.
+    ///
+    /// Two states, and they are not the same thing. A STALE surface is showing last scan's facts
+    /// and the fix is to look again. A surface whose group keeps a third copy is showing facts
+    /// that are perfectly current — there is simply no keeper here to trash the other side
+    /// against, and saying "rescan" would send the reader to do something that changes nothing.
+    var notice: String? {
+        switch standing {
+        case .inPair:
+            return nil
+        case .noLiveGroup:
+            return "The scan moved on — the facts below are from the last scan, so the verdict is unavailable. Close and compare again."
+        case .outsidePair(let name):
+            return "This group is keeping “\(name)”, which is neither of these two — so neither copy here can be trashed against it. Compare either one against the copy being kept, or resolve the whole group."
+        }
     }
 
     private var kindPill: String {
@@ -1393,12 +1459,22 @@ struct CompareCopiesSheet: View {
                               scanRoot: scanRoot, providerName: providerName)
     }
 
-    private var otherCopy: DuplicateCopy? { pair.other(than: keeperPath) }
+    private var otherCopy: DuplicateCopy? { standing.keeperPath.flatMap { pair.other(than: $0) } }
+
+    /// What the bar says beside the buttons. The facts summary where the verdict stands; a
+    /// one-line reason where it does not, so the bar is never a row of disabled buttons with
+    /// nothing saying why.
+    var verdictSummary: String {
+        switch standing {
+        case .inPair: return ComparePairFacts.summary(differing: facts.differingFields)
+        case .noLiveGroup: return "Rescan to act on this pair."
+        case .outsidePair: return "The copy this group is keeping is not one of these two."
+        }
+    }
 
     private var verdictBar: some View {
         HStack(spacing: 10) {
-            Text(isStale ? "Rescan to act on this pair."
-                         : ComparePairFacts.summary(differing: facts.differingFields))
+            Text(verdictSummary)
                 .scaledFont(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -1432,13 +1508,15 @@ struct CompareCopiesSheet: View {
                                                   copyName: $0.name)
         }
         Button(role: .destructive) {
-            if let other, let keeper = pair.copy(atPath: keeperPath) { onTrash(other, keeper) }
+            if let other, let keeper = standing.keeperPath.flatMap({ pair.copy(atPath: $0) }) {
+                onTrash(other, keeper)
+            }
         } label: {
             Label(trashTitle, systemImage: "trash")
         }
         .buttonStyle(.bordered)
         .controlSize(.regular)
-        .disabled(isStale || other == nil || reason != nil)
+        .disabled(!standing.offersVerdict || other == nil || reason != nil)
         .help(reason ?? "Move the other copy to the Trash")
     }
 
@@ -1453,7 +1531,7 @@ struct CompareCopiesSheet: View {
     /// CALL SITE be asserted at all. `SettingsRail.versionText` exists for the same reason.
     var trashTitle: String {
         DuplicateComparePrompt.trashTitle(kind: pair.matchType.kind,
-                                          keeper: pair.copy(atPath: keeperPath),
+                                          keeper: standing.keeperPath.flatMap { pair.copy(atPath: $0) },
                                           target: otherCopy)
     }
 }
@@ -1527,6 +1605,20 @@ public struct CompareCopiesOverlay: View {
         syncManager.liveGroup(holding: pair.right.path, and: pair.left.path)
     }
 
+    /// Which copy the live group is keeping, as this pair can see it — see ``PairKeeperStanding``.
+    ///
+    /// `sheet(available:)` is private and a `some View` cannot be interrogated, so this is the
+    /// seam: the rule that decides whether the destructive verdict is offered at all is a pure
+    /// function of a pair and a group, and it is asserted as one.
+    static func keeperStanding(of pair: DuplicateComparePair,
+                               in group: DuplicateGroup?) -> PairKeeperStanding {
+        guard let group else { return .noLiveGroup }
+        guard pair.copies.contains(where: { $0.path == group.keeper.path }) else {
+            return .outsidePair(name: group.keeper.name)
+        }
+        return .inPair(group.keeper.path)
+    }
+
     public var body: some View {
         GeometryReader { proxy in
             ZStack {
@@ -1548,17 +1640,11 @@ public struct CompareCopiesOverlay: View {
 
     private func sheet(available: CGSize) -> some View {
         let group = liveGroup
-        // The keeper as the LIVE group names it. Falling back to the payload's left side is what
-        // keeps a stale surface readable rather than blank — the verdict is disabled anyway.
-        let keeperPath = group.flatMap { g in
-            pair.copies.first { $0.path == g.keeper.path }?.path
-        } ?? pair.left.path
         return CompareCopiesSheet(
             pair: pair,
-            keeperPath: keeperPath,
+            standing: Self.keeperStanding(of: pair, in: group),
             allowsKeeperChoice: group?.allowsKeeperChoice ?? false,
             protectedPaths: Set((group?.copies ?? []).filter(\.isProtectedFromRemoval).map(\.path)),
-            isStale: group == nil,
             scanRoot: scanRoot,
             providerName: providerName,
             hue: glassHue,

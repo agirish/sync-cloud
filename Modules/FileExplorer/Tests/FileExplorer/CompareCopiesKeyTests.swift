@@ -37,10 +37,9 @@ import Testing
         return CompareCopiesSheet(
             pair: DuplicateComparePair(keeper: keeper, other: other,
                                        matchType: .identical, groupName: "x.txt"),
-            keeperPath: keeper.path,
+            standing: isStale ? .noLiveGroup : .inPair(keeper.path),
             allowsKeeperChoice: true,
             protectedPaths: [],
-            isStale: isStale,
             scanRoot: "/root",
             providerName: "Projects",
             hue: .blue,
