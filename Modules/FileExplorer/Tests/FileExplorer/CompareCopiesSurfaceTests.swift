@@ -306,13 +306,18 @@ import Testing
         view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 
-    private func pump(_ mounted: Mounted, seconds: Double) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            mounted.window.layoutIfNeeded()
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-        mounted.window.layoutIfNeeded()
+    /// **Through `LayoutPumpWait`, never a hand-rolled deadline.** What these waits wait for
+    /// arrives on main-actor TURNS, and under full-package congestion seconds buy very few of
+    /// them — measured in this repo at 5–7 seconds per pass on a saturated actor. A wall-clock
+    /// loop passes in isolation and fails in the suite, which is `docs/flaky-tests.md`'s
+    /// mechanism 2 and is exactly how these two tests first failed.
+    @discardableResult
+    private func pump(_ mounted: Mounted, upTo seconds: Double,
+                      until condition: @escaping () -> Bool) async -> Bool {
+        let (held, pumps) = await LayoutPumpWait.pump(mounted.window, upTo: seconds,
+                                                      until: condition)
+        if !held { Issue.record("the condition never held (\(pumps) pumps)") }
+        return held
     }
 
     /// **Two Quick Look panes, both of them, at the window floor.** The failure this catches is
@@ -321,7 +326,9 @@ import Testing
     @Test func atTheFloorBothPanesMountAndAreWorkablyWide() async throws {
         let fixture = try Fixture()
         let mounted = mount(fixture, available: CGSize(width: 760, height: 560))
-        await pump(mounted, seconds: 1.2)
+        guard await pump(mounted, upTo: 3, until: {
+            descendants(of: mounted.host).compactMap { $0 as? QLPreviewView }.count == 2
+        }) else { return }
         let previews = descendants(of: mounted.host).compactMap { $0 as? QLPreviewView }
         #expect(previews.count == 2, "expected two preview panes, found \(previews.count)")
         for preview in previews {
@@ -337,8 +344,10 @@ import Testing
         let fixture = try Fixture()
         let available = CGSize(width: 760, height: 560)
         let mounted = mount(fixture, available: available)
-        await pump(mounted, seconds: 0.4)
         let expected = CompareOverlayMetrics.size(available: available)
+        await pump(mounted, upTo: 3, until: {
+            abs(mounted.host.fittingSize.width - expected.width) < 1
+        })
         let drawn = mounted.host.fittingSize
         #expect(abs(drawn.width - expected.width) < 1, "drew \(drawn.width), clamped to \(expected.width)")
         #expect(abs(drawn.height - expected.height) < 1, "drew \(drawn.height), clamped to \(expected.height)")
@@ -348,9 +357,22 @@ import Testing
     /// download the whole file, which is exactly what the placeholder exists to avoid.
     @Test func aCloudOnlySideMountsNoPreviewAtAll() async throws {
         let fixture = try Fixture()
-        let mounted = mount(fixture, available: CGSize(width: 1200, height: 800), source: .cloudOnly)
-        await pump(mounted, seconds: 1.0)
-        let previews = descendants(of: mounted.host).compactMap { $0 as? QLPreviewView }
+        let available = CGSize(width: 1200, height: 800)
+        // **The positive control comes first, and it is what makes the negative one mean
+        // anything.** "No preview mounted" is also what an unrendered pane looks like, so the same
+        // fixture is mounted with the same pump budget and only the classification changed: if the
+        // materialized mount reaches two panes, the budget is sufficient, and zero on the
+        // cloud-only mount is a fact about the classification rather than about the clock.
+        let materialized = mount(fixture, available: available, source: .quickLook)
+        guard await pump(materialized, upTo: 3, until: {
+            descendants(of: materialized.host).compactMap { $0 as? QLPreviewView }.count == 2
+        }) else { return }
+
+        let cloudOnly = mount(fixture, available: available, source: .cloudOnly)
+        // A settle measured in main-actor TURNS, not seconds: `upTo: 0` still runs
+        // `LayoutPumpWait.pumpFloor` passes, which is the same floor the positive mount cleared.
+        _ = await LayoutPumpWait.pump(cloudOnly.window, upTo: 0) { false }
+        let previews = descendants(of: cloudOnly.host).compactMap { $0 as? QLPreviewView }
         #expect(previews.isEmpty, "a cloud-only placeholder started a download by previewing it")
     }
 }

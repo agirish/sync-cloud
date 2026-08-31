@@ -96,19 +96,28 @@ enum CompareOverlayMetrics {
 /// moved on) arrives as a value the host re-derives at render time by PATH. That is what lets the
 /// surface stay honest across a rescan: the host stops finding a live group, passes `isStale`, and
 /// the previews stay readable while the verdict goes away.
-struct CompareCopiesSheet: View {
+struct FilePairCompareView<Verdict: View>: View {
 
-    let pair: DuplicateComparePair
-    /// The path of the copy currently being kept, read from the LIVE group by the host.
-    let keeperPath: String
-    /// Whether this group admits a keeper choice at all. Always true for the kinds a FILE group can
-    /// be (identical, versions, same-text — overlapping is folders-only), but read off the group
-    /// rather than assumed, so the surface and the card cannot drift.
+    let left: DuplicateCopy
+    let right: DuplicateCopy
+    /// What the surface is comparing — a duplicate group's name, or a relative path.
+    let title: String
+    /// The line under it: a match kind, or which two roots the pair came from.
+    let subtitle: String
+    /// The claim the pair's origin makes about its content, or nil where it makes none. The
+    /// Differences host makes none: two files at one relative path on two roots are not asserted
+    /// to be anything.
+    let claimHeadline: String?
+    /// Whether "Verify now" is offered — only where a byte-identical claim exists to re-check.
+    let offersVerify: Bool
+    /// The path of the copy currently being kept, or nil where there is no keeper concept at all.
+    /// The Differences host passes nil and its pane headers are labels rather than pickers.
+    let keeperPath: String?
+    /// Whether the keeper may be changed. Read off the live group rather than assumed, so the
+    /// surface and the card cannot drift.
     let allowsKeeperChoice: Bool
-    /// Copies that may never be removed — inside a folder another group is keeping.
-    let protectedPaths: Set<String>
-    /// True when no live group holds both paths any more.
-    let isStale: Bool
+    /// A line the host wants above the facts — the duplicates host's "the scan moved on" notice.
+    let notice: String?
     let scanRoot: String?
     let providerName: String?
     /// The window's hue, not a resolved `Color`. The segmented mode picker needs the hue itself —
@@ -118,9 +127,7 @@ struct CompareCopiesSheet: View {
     let hue: LiquidGlassHue
     let availableSize: CGSize
 
-    var onChooseKeeper: (String) -> Void
-    /// `(copy to trash, keeper)`.
-    var onTrash: (DuplicateCopy, DuplicateCopy) -> Void
+    var onChooseKeeper: (String) -> Void = { _ in }
     var onClose: () -> Void
 
     /// How a side is classified. A seam for the same reason `ColumnPreviewColumn`'s is: `.cloudOnly`
@@ -133,6 +140,12 @@ struct CompareCopiesSheet: View {
     var hash: @Sendable (String) async -> FileContentVerifier.HashOutcome = {
         await FileContentVerifier.hashOutcome(filePath: $0, cache: ContentHashCache.shared)
     }
+
+    /// **The only thing the two hosts do not share.** Everything above this bar is one component:
+    /// the facts, the panes, the modes, the strip. Only the bottom bar knows WHY you are looking —
+    /// Duplicates offers a keeper and a trash, Differences offers Done. Which is exactly what
+    /// ROADMAP §11 asked for and why it is one build rather than two.
+    @ViewBuilder var verdict: () -> Verdict
 
     @State private var sources: [String: ColumnPreviewSource] = [:]
     @State private var verify: ComparePairVerify = .idle
@@ -149,6 +162,9 @@ struct CompareCopiesSheet: View {
     /// Guards a raster that arrives after the user has paged on — the same token shape the verify
     /// uses, for the same reason.
     @State private var rasterToken = UUID()
+    @State private var textDiff: TextPairDiff?
+    @State private var textNotes: [String] = []
+    @State private var focusedRegion = 0
     /// Guards a completion from a verify the user has already superseded — the same token shape
     /// `ReviewCardView.performVerify` uses.
     @State private var verifyToken = UUID()
@@ -157,21 +173,23 @@ struct CompareCopiesSheet: View {
 
     private var accent: Color { hue.accentColor }
 
+    /// What every `.task(id:)` here is keyed on. The two paths, sorted — so opening the same pair
+    /// from either side re-uses the work rather than redoing it.
+    private var pairKey: String { [left.path, right.path].sorted().joined(separator: "\n") }
+
     private var size: CGSize { CompareOverlayMetrics.size(available: availableSize) }
 
     private var facts: ComparePairFacts {
-        ComparePairFacts.make(left: pair.left, right: pair.right,
+        ComparePairFacts.make(left: left, right: right,
                               scanRoot: scanRoot, providerName: providerName)
     }
-
-    private var otherCopy: DuplicateCopy? { pair.other(than: keeperPath) }
 
     /// The pair's viewer kind. **Both sides must agree, or the pair is `.other`** — a versions
     /// group can hold `Report.pdf` beside `Report.docx`, and a PDF viewer given a Word document
     /// shows a blank pane rather than saying it cannot page it.
     private var kind: PairContentKind {
-        let left = PairContentKind.classify(path: pair.left.path)
-        return left == PairContentKind.classify(path: pair.right.path) ? left : .other
+        let leftKind = PairContentKind.classify(path: left.path)
+        return leftKind == PairContentKind.classify(path: right.path) ? leftKind : .other
     }
 
     private var modes: [ComparePairMode] { ComparePairMode.available(for: kind) }
@@ -180,10 +198,10 @@ struct CompareCopiesSheet: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if isStale { staleNotice }
+            if let notice { noticeBar(notice) }
             claimAndFacts
             Divider()
-            if kind.hasPixelModes { modeBar }
+            if modes.count > 1 { modeBar }
             panes
             if kind == .pdf, pairing.stripLength > 1 {
                 Divider()
@@ -193,7 +211,7 @@ struct CompareCopiesSheet: View {
                 .padding(.horizontal, 12).padding(.vertical, 6)
             }
             Divider()
-            verdictBar
+            verdict()
         }
         .frame(width: size.width, height: size.height)
         .focusable()
@@ -207,7 +225,7 @@ struct CompareCopiesSheet: View {
         // kill both keys.
         .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
             guard press.isPlainKeystroke else { return .ignored }
-            return chooseKeeper(press.key == .leftArrow ? pair.left : pair.right)
+            return chooseKeeper(press.key == .leftArrow ? left : right)
         }
         // **⏎ and esc are `.onKeyPress`, NOT key equivalents — and that is a correction to the
         // design this surface was built from.** The plan said to use
@@ -241,8 +259,7 @@ struct CompareCopiesSheet: View {
         .onKeyPress(keys: ["1", "2", "3", "4"], phases: .down) { press in
             guard press.isPlainKeystroke,
                   let digit = Int(String(press.key.character)),
-                  let picked = ComparePairMode.forDigit(digit),
-                  modes.contains(picked) else { return .ignored }
+                  let picked = ComparePairMode.forDigit(digit, in: modes) else { return .ignored }
             mode = picked
             return .handled
         }
@@ -263,35 +280,47 @@ struct CompareCopiesSheet: View {
         // The page count each side actually has, which is what the strip and the pairing are
         // built from. Off the main actor and behind the serial lane, so a scan already parsing
         // simply makes it arrive late.
-        .task(id: pair.id) {
+        .task(id: pairKey) {
             guard kind == .pdf else {
                 pairing = PagePairing(leftPages: 0, rightPages: 0)
                 return
             }
-            async let left = PagePairRaster.pageCount(path: pair.left.path)
-            async let right = PagePairRaster.pageCount(path: pair.right.path)
-            pairing = PagePairing(leftPages: await left ?? 0, rightPages: await right ?? 0)
+            async let leftCount = PagePairRaster.pageCount(path: left.path)
+            async let rightCount = PagePairRaster.pageCount(path: right.path)
+            pairing = PagePairing(leftPages: await leftCount ?? 0, rightPages: await rightCount ?? 0)
         }
         // One in-flight render per side, re-keyed on the page and the mode's need for a raster.
         // Cancelled by `.task(id:)` when the page changes, which is what stops a 300-page document
         // from queueing 300 renders behind a scan.
         .task(id: rasterKey) { await refreshRasters() }
+        // Re-read only when the pair changes or the diff is actually being looked at — a text
+        // pair the user never switches to Diff costs nothing.
+        .task(id: "\(pairKey)|\(mode.rawValue)") { await refreshTextDiff() }
+        // ↑/↓ step between CHANGES, not lines: a twelve-line replacement is one thing that
+        // happened, and twelve presses to get past it is twelve too many.
+        .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
+            guard press.isPlainKeystroke, mode == .textDiff,
+                  let diff = textDiff, !diff.regions.isEmpty else { return .ignored }
+            let step = press.key == .upArrow ? -1 : 1
+            focusedRegion = (focusedRegion + step + diff.regions.count) % diff.regions.count
+            return .handled
+        }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Compare copies of \(pair.groupName)")
+        .accessibilityLabel("Compare \(title)")
     }
 
     // MARK: Header
 
     private var header: some View {
         HStack(spacing: 10) {
-            FileTypeGlyph.view(name: pair.groupName, isDirectory: false, pointSize: 15)
+            FileTypeGlyph.view(name: title, isDirectory: false, pointSize: 15)
                 .frame(width: 18, height: 18)
             VStack(alignment: .leading, spacing: 1) {
-                Text(pair.groupName)
+                Text(title)
                     .scaledFont(.system(size: 14, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(kindPill)
+                Text(subtitle)
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -309,25 +338,16 @@ struct CompareCopiesSheet: View {
         .padding(.vertical, 12)
     }
 
-    private var kindPill: String {
-        switch pair.matchType {
-        case .identical: return "byte-for-byte"
-        case .sameText: return "bytes differ"
-        case .versions: return "versions"
-        case .overlapping(let f): return "\(Int((f * 100).rounded()))% shared"
-        }
-    }
+    // MARK: The host's notice
 
-    // MARK: Stale notice
-
-    /// A rescan landed under the open surface. The facts on screen are still the ones the previous
-    /// scan measured, and saying so is cheaper than tearing the surface down under the user — the
-    /// previews are still worth reading, and the verdict is the only thing that must stop.
-    private var staleNotice: some View {
+    /// A line the host wants above the facts. Today that is the duplicates host saying a rescan
+    /// landed under the open surface — the previews are still worth reading and only the verdict
+    /// has to stop, so the surface says so rather than being torn down under the user.
+    private func noticeBar(_ text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "clock.arrow.circlepath")
                 .foregroundStyle(.secondary)
-            Text("The scan moved on — the facts below are from the last scan, so the verdict is unavailable. Close and compare again.")
+            Text(text)
                 .scaledFont(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -342,18 +362,14 @@ struct CompareCopiesSheet: View {
     @ViewBuilder
     private var claimAndFacts: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let headline = ComparePairClaim.headline(
-                kind: pair.matchType.kind,
-                contentUnverified: pair.copies.contains(where: \.contentUnverified)) {
+            if claimHeadline != nil || offersVerify {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(headline)
+                    Text(claimHeadline ?? "")
                         .scaledFont(.system(size: 11.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
-                    if ComparePairClaim.offersVerify(kind: pair.matchType.kind) {
-                        verifyControl
-                    }
+                    if offersVerify { verifyControl }
                 }
             }
             if verify != .idle {
@@ -458,6 +474,8 @@ struct CompareCopiesSheet: View {
             switch mode {
             case .sideBySide:
                 sideBySidePanes
+            case .textDiff:
+                textDiffPane
             case .swipe, .onion, .difference:
                 VisualPairModeView(mode: mode, left: rasters.left, right: rasters.right,
                                    difference: difference,
@@ -473,6 +491,73 @@ struct CompareCopiesSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The line diff, or the reason there is none. **A refusal names WHICH side and why** —
+    /// too large, not downloaded, not text — rather than an empty pane the reader has to guess at.
+    @ViewBuilder
+    private var textDiffPane: some View {
+        Group {
+            if let textDiff {
+                TextPairDiffView(diff: textDiff, notes: textNotes, accent: accent,
+                                 focusedRegion: $focusedRegion)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                            .strokeBorder(Color.secondary.opacity(0.18), lineWidth: 1)
+                    }
+            } else {
+                VStack(spacing: 8) {
+                    if textNotes.isEmpty {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        ForEach(textNotes, id: \.self) { note in
+                            Text(note)
+                                .scaledFont(.system(size: 11.5))
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(10)
+    }
+
+    /// Reads both sides and diffs them, off the main actor.
+    ///
+    /// Bounded and encoding-tolerant — see ``BoundedTextRead``. The diff itself is a Myers pass
+    /// over two line arrays, which for a 4 MB file is real work and has no business on the actor
+    /// that draws the window.
+    private func refreshTextDiff() async {
+        guard kind == .text, mode == .textDiff else { return }
+        let leftPath = left.path, rightPath = right.path
+        let result = await Task.detached(priority: .userInitiated) {
+            () -> (TextPairDiff?, [String]) in
+            let left = BoundedTextRead.read(path: leftPath)
+            let right = BoundedTextRead.read(path: rightPath)
+            var notes: [String] = []
+            guard let leftText = left.string, let rightText = right.string else {
+                if let caption = left.caption { notes.append("Left: \(caption)") }
+                if let caption = right.caption { notes.append("Right: \(caption)") }
+                return (nil, notes)
+            }
+            if case .text(_, lossy: true) = left {
+                notes.append("The left file is not valid UTF-8 — unreadable bytes are shown as “\u{FFFD}”.")
+            }
+            if case .text(_, lossy: true) = right {
+                notes.append("The right file is not valid UTF-8 — unreadable bytes are shown as “\u{FFFD}”.")
+            }
+            if let note = BoundedTextRead.lineEndingNote(left: leftText, right: rightText) {
+                notes.append(note)
+            }
+            return (TextPairDiff.make(left: BoundedTextRead.lines(leftText),
+                                      right: BoundedTextRead.lines(rightText)), notes)
+        }.value
+        textDiff = result.0
+        textNotes = result.1
+        focusedRegion = 0
+    }
+
     /// Side by side, in whichever viewer the pair's kind earns.
     ///
     /// **A typed viewer replaces the Quick Look panes only where it is genuinely better.** For a
@@ -482,7 +567,7 @@ struct CompareCopiesSheet: View {
     private var sideBySidePanes: some View {
         if kind == .pdf, bothSidesReadable, pairing.stripLength > 0 {
             typedPanes {
-                PDFPairView(leftPath: pair.left.path, rightPath: pair.right.path,
+                PDFPairView(leftPath: left.path, rightPath: right.path,
                             page: page, pairing: pairing, syncSuspended: optionHeld)
             }
         } else if kind == .image, bothSidesReadable {
@@ -492,8 +577,8 @@ struct CompareCopiesSheet: View {
         } else {
             VStack(spacing: 6) {
                 HStack(spacing: 10) {
-                    pane(pair.left)
-                    pane(pair.right)
+                    pane(left)
+                    pane(right)
                 }
                 if let caption = kind.unsyncedCaption, bothSidesReadable {
                     Text(caption)
@@ -510,8 +595,8 @@ struct CompareCopiesSheet: View {
     private func typedPanes(@ViewBuilder _ content: () -> some View) -> some View {
         VStack(spacing: 6) {
             HStack(spacing: 10) {
-                paneHeader(pair.left)
-                paneHeader(pair.right)
+                paneHeader(left)
+                paneHeader(right)
             }
             content()
                 .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
@@ -527,7 +612,7 @@ struct CompareCopiesSheet: View {
     /// Both sides have content on disk. A typed viewer has no way to say "this one is a cloud
     /// placeholder"; the per-side Quick Look panes do, and that is what they fall back to.
     private var bothSidesReadable: Bool {
-        sources[pair.left.path] == .quickLook && sources[pair.right.path] == .quickLook
+        sources[left.path] == .quickLook && sources[right.path] == .quickLook
     }
 
     // MARK: Rasters
@@ -536,7 +621,7 @@ struct CompareCopiesSheet: View {
     /// at all — the two `PDFView`s draw themselves — so switching INTO a pixel mode is what starts
     /// the work, and switching out stops re-doing it.
     private var rasterKey: String {
-        "\(pair.id)|\(page)|\(kind.rawValue)|\(needsRasters)|\(pairing.stripLength)"
+        "\(pairKey)|\(page)|\(kind.rawValue)|\(needsRasters)|\(pairing.stripLength)"
     }
 
     private var needsRasters: Bool {
@@ -559,10 +644,10 @@ struct CompareCopiesSheet: View {
         let leftPage = pairing.leftIndex(at: page)
         let rightPage = pairing.rightIndex(at: page)
         let kind = self.kind
-        async let leftImage = PagePairRaster.render(path: pair.left.path, kind: kind,
+        async let leftImage = PagePairRaster.render(path: left.path, kind: kind,
                                                     page: leftPage,
                                                     longEdge: PagePairRaster.compareLongEdge)
-        async let rightImage = PagePairRaster.render(path: pair.right.path, kind: kind,
+        async let rightImage = PagePairRaster.render(path: right.path, kind: kind,
                                                      page: rightPage,
                                                      longEdge: PagePairRaster.compareLongEdge)
         let (l, r) = (await leftImage, await rightImage)
@@ -602,7 +687,7 @@ struct CompareCopiesSheet: View {
 
     private func paneHeader(_ copy: DuplicateCopy) -> some View {
         let isKeeper = copy.path == keeperPath
-        let marker = DuplicateKeeperMarker.style(allowsKeeperChoice: allowsKeeperChoice && !isStale,
+        let marker = DuplicateKeeperMarker.style(allowsKeeperChoice: allowsKeeperChoice,
                                                  isKeeper: isKeeper)
         return HStack(spacing: 6) {
             Button { chooseKeeper(copy) } label: {
@@ -699,30 +784,146 @@ struct CompareCopiesSheet: View {
         .padding(16)
     }
 
-    // MARK: Verdict
+    // MARK: Actions
+
+    /// The one keeper flip, for the pane button and for ←/→ alike. Returns `.ignored` when there
+    /// is nothing to flip, so an arrow key over a stale surface falls through to whatever else
+    /// might want it rather than being swallowed.
+    @discardableResult
+    private func chooseKeeper(_ copy: DuplicateCopy) -> KeyPress.Result {
+        guard allowsKeeperChoice, keeperPath != nil, copy.path != keeperPath else { return .ignored }
+        onChooseKeeper(copy.path)
+        return .handled
+    }
+
+    private func requestDownload(_ copy: DuplicateCopy) {
+        do {
+            try MaterializationStatus.download(atPath: copy.path)
+            // This surface owns its own watch, so no pane latches a download it did not start —
+            // the double-watch the pane-scoped token exists to prevent, reached from a new door.
+            downloads.begin(CloudDownloadRequest(path: copy.path, paneToken: .compareCopies))
+        } catch {
+            // Only iCloud exposes a consumer download API; for every other File Provider this
+            // throws, and the honest fallback is Finder, which can reach the provider's extension.
+            Logger.shared.warning("[compare] no download API for \(copy.path): \(error.localizedDescription) — revealing in Finder")
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: copy.path)])
+        }
+    }
+
+    private func runVerify() {
+        guard verify != .running else { return }
+        verify = .running
+        let token = UUID()
+        verifyToken = token
+        let leftPath = left.path
+        let rightPath = right.path
+        let hash = self.hash
+        Task { @MainActor in
+            async let l = hash(leftPath)
+            async let r = hash(rightPath)
+            let outcome = ComparePairVerify.outcome(left: await l, right: await r)
+            // A completion from a verify the user has already superseded describes a question
+            // nobody is asking any more.
+            guard verifyToken == token else { return }
+            verify = outcome
+        }
+    }
+}
+
+// MARK: - The Duplicates host's sheet
+
+/// ``FilePairCompareView`` with the Duplicates verdict bar under it: a keeper, a single-copy
+/// trash, and Done.
+///
+/// **Everything above that bar is the shared component**, and this wrapper is what the seam is
+/// worth: it maps a duplicate group's vocabulary — match kind, keeper, protected copies, a stale
+/// scan — onto a viewer that knows none of it.
+struct CompareCopiesSheet: View {
+
+    let pair: DuplicateComparePair
+    /// The path of the copy currently being kept, read from the LIVE group by the host.
+    let keeperPath: String
+    let allowsKeeperChoice: Bool
+    /// Copies that may never be removed — inside a folder another group is keeping.
+    let protectedPaths: Set<String>
+    /// True when no live group holds both paths any more.
+    let isStale: Bool
+    let scanRoot: String?
+    let providerName: String?
+    let hue: LiquidGlassHue
+    let availableSize: CGSize
+
+    var onChooseKeeper: (String) -> Void
+    /// `(copy to trash, keeper)`.
+    var onTrash: (DuplicateCopy, DuplicateCopy) -> Void
+    var onClose: () -> Void
+
+    var probe: @Sendable (String) async -> ColumnPreviewSource = {
+        await ColumnPreviewProbe.read(path: $0).source
+    }
+    var hash: @Sendable (String) async -> FileContentVerifier.HashOutcome = {
+        await FileContentVerifier.hashOutcome(filePath: $0, cache: ContentHashCache.shared)
+    }
+
+    var body: some View {
+        FilePairCompareView(
+            left: pair.left, right: pair.right,
+            title: pair.groupName,
+            subtitle: kindPill,
+            claimHeadline: ComparePairClaim.headline(
+                kind: pair.matchType.kind,
+                contentUnverified: pair.copies.contains(where: \.contentUnverified)),
+            offersVerify: ComparePairClaim.offersVerify(kind: pair.matchType.kind),
+            keeperPath: keeperPath,
+            // A stale surface still shows everything; only the ACTS stop. Folding staleness into
+            // the keeper rule here rather than inside the viewer keeps the viewer free of a
+            // concept only one host has.
+            allowsKeeperChoice: allowsKeeperChoice && !isStale,
+            notice: isStale
+                ? "The scan moved on — the facts below are from the last scan, so the verdict is unavailable. Close and compare again."
+                : nil,
+            scanRoot: scanRoot, providerName: providerName, hue: hue,
+            availableSize: availableSize,
+            onChooseKeeper: onChooseKeeper,
+            onClose: onClose,
+            probe: probe, hash: hash,
+            verdict: { verdictBar })
+    }
+
+    private var kindPill: String {
+        switch pair.matchType {
+        case .identical: return "byte-for-byte"
+        case .sameText: return "bytes differ"
+        case .versions: return "versions"
+        case .overlapping(let f): return "\(Int((f * 100).rounded()))% shared"
+        }
+    }
+
+    private var facts: ComparePairFacts {
+        ComparePairFacts.make(left: pair.left, right: pair.right,
+                              scanRoot: scanRoot, providerName: providerName)
+    }
+
+    private var otherCopy: DuplicateCopy? { pair.other(than: keeperPath) }
 
     private var verdictBar: some View {
         HStack(spacing: 10) {
-            Text(verdictSummary)
+            Text(isStale ? "Rescan to act on this pair."
+                         : ComparePairFacts.summary(differing: facts.differingFields))
                 .scaledFont(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 12)
             trashButton
-            // **⏎ AND esc both mean Done** — see the `.onKeyPress` handlers on the root, which is
-            // where both keys live. An earlier draft of this surface put ⌘⏎ on the trash button.
+            // **⏎ AND esc both mean Done** — the handlers live on the viewer's focused root. An
+            // earlier draft of this surface put ⌘⏎ on the trash button.
             Button("Done", action: onClose)
                 .controlSize(.regular)
                 .shortcutKeycap("⏎")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-    }
-
-    private var verdictSummary: String {
-        if isStale { return "Rescan to act on this pair." }
-        return ComparePairFacts.summary(differing: facts.differingFields)
     }
 
     @ViewBuilder
@@ -747,51 +948,6 @@ struct CompareCopiesSheet: View {
         switch pair.matchType {
         case .versions: return "Trash the older copy"
         default: return "Trash the other copy"
-        }
-    }
-
-    // MARK: Actions
-
-    /// The one keeper flip, for the pane button and for ←/→ alike. Returns `.ignored` when there
-    /// is nothing to flip, so an arrow key over a stale surface falls through to whatever else
-    /// might want it rather than being swallowed.
-    @discardableResult
-    private func chooseKeeper(_ copy: DuplicateCopy) -> KeyPress.Result {
-        guard !isStale, allowsKeeperChoice, copy.path != keeperPath else { return .ignored }
-        onChooseKeeper(copy.path)
-        return .handled
-    }
-
-    private func requestDownload(_ copy: DuplicateCopy) {
-        do {
-            try MaterializationStatus.download(atPath: copy.path)
-            // This surface owns its own watch, so no pane latches a download it did not start —
-            // the double-watch the pane-scoped token exists to prevent, reached from a new door.
-            downloads.begin(CloudDownloadRequest(path: copy.path, paneToken: .compareCopies))
-        } catch {
-            // Only iCloud exposes a consumer download API; for every other File Provider this
-            // throws, and the honest fallback is Finder, which can reach the provider's extension.
-            Logger.shared.warning("[compare] no download API for \(copy.path): \(error.localizedDescription) — revealing in Finder")
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: copy.path)])
-        }
-    }
-
-    private func runVerify() {
-        guard verify != .running else { return }
-        verify = .running
-        let token = UUID()
-        verifyToken = token
-        let leftPath = pair.left.path
-        let rightPath = pair.right.path
-        let hash = self.hash
-        Task { @MainActor in
-            async let l = hash(leftPath)
-            async let r = hash(rightPath)
-            let outcome = ComparePairVerify.outcome(left: await l, right: await r)
-            // A completion from a verify the user has already superseded describes a question
-            // nobody is asking any more.
-            guard verifyToken == token else { return }
-            verify = outcome
         }
     }
 }

@@ -14,21 +14,39 @@ import Testing
 
     /// The digit and the declaration order are ONE fact. Writing the mapping twice is how a
     /// keyboard hint and the key it advertises start disagreeing.
-    @Test func everyModesDigitRoundTrips() {
-        for mode in ComparePairMode.allCases {
-            #expect(ComparePairMode.forDigit(mode.digit) == mode)
+    @Test func everyModesDigitRoundTripsWithinWhatIsOffered() {
+        for kind in PairContentKind.allCases {
+            let offered = ComparePairMode.available(for: kind)
+            for mode in offered {
+                let digit = try? #require(mode.digit(in: offered))
+                #expect(ComparePairMode.forDigit(digit ?? 0, in: offered) == mode, "\(kind)")
+            }
+            #expect(ComparePairMode.forDigit(0, in: offered) == nil)
+            #expect(ComparePairMode.forDigit(offered.count + 1, in: offered) == nil)
         }
-        #expect(ComparePairMode.forDigit(0) == nil)
-        #expect(ComparePairMode.forDigit(5) == nil)
     }
 
-    /// A kind with no raster gets exactly one mode, and the surface then draws no segmented
-    /// control at all — a one-segment picker is a control that cannot be used.
-    @Test func onlyRasterKindsGetTheFullModeSet() {
+    /// **The digit is a position in what is OFFERED, not in the declaration.** A text pair offers
+    /// two modes, so `2` there must reach its Diff segment — which is the fourth case declared. A
+    /// digit derived from `allCases` would reach a segment that is not on screen.
+    @Test func aTextPairsSecondDigitReachesItsSecondSegment() {
+        let offered = ComparePairMode.available(for: .text)
+        #expect(ComparePairMode.forDigit(2, in: offered) == .textDiff)
+        #expect(ComparePairMode.forDigit(2, in: ComparePairMode.available(for: .pdf)) == .swipe)
+        #expect(ComparePairMode.forDigit(2, in: ComparePairMode.available(for: .other)) == nil)
+    }
+
+    /// A kind with neither a raster nor lines gets exactly one mode, and the surface then draws no
+    /// segmented control at all — a one-segment picker is a control that cannot be used.
+    @Test func eachKindOffersTheModesItCanActuallyDraw() {
         #expect(ComparePairMode.available(for: .pdf).count == 4)
         #expect(ComparePairMode.available(for: .image).count == 4)
-        #expect(ComparePairMode.available(for: .text) == [.sideBySide])
+        #expect(ComparePairMode.available(for: .text) == [.sideBySide, .textDiff])
         #expect(ComparePairMode.available(for: .other) == [.sideBySide])
+        // The pixel modes are never offered where there is no raster to compare.
+        for kind in [PairContentKind.text, .other] {
+            #expect(!ComparePairMode.available(for: kind).contains(.difference), "\(kind)")
+        }
     }
 
     /// **Difference always carries its caveat.** Two scans of the same sheet of paper glow
@@ -237,16 +255,19 @@ import Testing
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        let deadline = Date().addingTimeInterval(3)
         func views(_ v: NSView) -> [PDFView] {
             v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + views($0) }
         }
-        while Date() < deadline {
-            window.layoutIfNeeded()
-            if views(host).allSatisfy({ $0.document != nil }), views(host).count == 2 { break }
-            try? await Task.sleep(nanoseconds: 20_000_000)
+        // **`LayoutPumpWait`, not a wall-clock deadline.** The documents arrive on main-actor
+        // turns, and under full-package congestion seconds buy very few of them — this test first
+        // failed exactly that way, passing in isolation and giving up after 51 seconds in the
+        // suite. `docs/flaky-tests.md`, mechanism 2.
+        let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            let found = views(host)
+            return found.count == 2 && found.allSatisfy { $0.document != nil }
         }
         let pdfs = views(host)
+        #expect(held, "the pair never finished loading (\(pumps) pumps, \(pdfs.count) panes)")
         #expect(pdfs.count == 2, "expected two PDF panes, found \(pdfs.count)")
         #expect(pdfs.allSatisfy { $0.document?.pageCount == 2 },
                 "a document did not open: \(pdfs.map { $0.document?.pageCount ?? -1 })")

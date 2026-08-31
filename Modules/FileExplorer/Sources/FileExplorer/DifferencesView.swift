@@ -64,6 +64,10 @@ public struct DifferencesView: View {
     @State private var reviewSelection = Set<FileDifference.ID>()
     /// Bumped on every review-table click so the card re-claims key focus (see `focusNudge`).
     @State private var reviewFocusNudge = 0
+    /// The row currently open in the shared file-pair viewer, if any — ROADMAP §11's diff pane.
+    /// Held here rather than inside the table so it survives the table's own re-renders, and so
+    /// the overlay is anchored on the whole view rather than inside a scrolling subtree.
+    @State private var comparingPair: DifferencePair?
     private let paneNames: PaneProviderNames
     /// Both panes' name rulesets — see `PaneProviderRules` for why a differences row asks BOTH.
     private let paneRules: PaneProviderRules
@@ -411,6 +415,19 @@ public struct DifferencesView: View {
         } message: {
             Text("\(verifiedIdenticalCount) files verified identical. One permission — copies all from \(paneNames.left) to \(paneNames.right) to match dates. No per-file confirmation.")
         }
+        // ROADMAP §11's diff pane, and it is the Duplicates compare surface unchanged above its
+        // verdict bar — see `DifferencesPairCompare`. Anchored on the whole view, not inside the
+        // table: the table scrolls and re-renders per published file during a bulk sync, and an
+        // overlay inside it would be torn down and re-presented under the user.
+        .overlay {
+            if let pair = comparingPair {
+                DifferencesPairCompareOverlay(pair: pair, hue: glassHue,
+                                              onClose: { comparingPair = nil })
+            }
+        }
+        // `designAnimation`, not `.animation`: the scrim fade is motion and Reduce Motion has to
+        // reach it.
+        .designAnimation(.easeOut(duration: 0.15), value: comparingPair)
     }
 
     // MARK: Header — scan freshness
@@ -1993,6 +2010,18 @@ public struct DifferencesView: View {
     @ViewBuilder
     private func inspectionMenuItems(for difference: FileDifference) -> some View {
         let sides = DifferenceRowMenu.existingSides(for: difference, paneNames: paneNames)
+        // Offered only where there are two files to compare — `pair(for:paneNames:)` returns nil
+        // for a row missing on a side and for a folder, so the item is absent rather than present
+        // and inert. An inspection action, which is why it sits with the other read-only ones and
+        // reaches the review table's menu too.
+        if let pair = DifferencesPairCompare.pair(for: difference, paneNames: paneNames) {
+            Button {
+                comparingPair = pair
+            } label: {
+                Label("Compare…", systemImage: "rectangle.split.2x1")
+            }
+            Divider()
+        }
         ForEach(sides, id: \.paneName) { side in
             Button {
                 onGetInfo(side.path)

@@ -24,8 +24,10 @@ struct VisualPairModeView: View {
             ZStack {
                 Color(nsColor: .textBackgroundColor)
                 switch mode {
-                case .sideBySide:
-                    EmptyView()   // drawn by the typed pair viewer, not here
+                case .sideBySide, .textDiff:
+                    // Drawn by the typed pair viewer and the text pane respectively — this view
+                    // owns only the three modes that composite two rasters.
+                    EmptyView()
                 case .swipe:
                     swipe(in: proxy.size)
                 case .onion:

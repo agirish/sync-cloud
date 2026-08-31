@@ -5,8 +5,9 @@ import Foundation
 
 /// How the two sides are shown against each other.
 ///
-/// `1`–`4` select them from the keyboard, in the order they are declared — the order is the
-/// keyboard mapping, so the two cannot drift.
+/// `1`–`4` select them from the keyboard, by position in the list the surface is OFFERING — see
+/// `digit(in:)`. The offered list is derived from the pair's kind, so a digit can never reach a
+/// segment that is not on screen.
 enum ComparePairMode: String, CaseIterable, Identifiable, Equatable {
     /// Both pages, side by side. The only mode a kind with no raster gets.
     case sideBySide
@@ -16,6 +17,8 @@ enum ComparePairMode: String, CaseIterable, Identifiable, Equatable {
     case onion
     /// The per-channel distance, light on black: identical is black, and any glow is a change.
     case difference
+    /// The line diff, side by side — text pairs only, where the pixel modes have no meaning.
+    case textDiff
 
     var id: String { rawValue }
 
@@ -25,6 +28,7 @@ enum ComparePairMode: String, CaseIterable, Identifiable, Equatable {
         case .swipe: return "Swipe"
         case .onion: return "Onion"
         case .difference: return "Difference"
+        case .textDiff: return "Diff"
         }
     }
 
@@ -34,22 +38,32 @@ enum ComparePairMode: String, CaseIterable, Identifiable, Equatable {
         case .swipe: return "square.righthalf.filled"
         case .onion: return "circle.lefthalf.filled"
         case .difference: return "square.on.square.dashed"
+        case .textDiff: return "text.alignleft"
         }
     }
 
-    /// The digit that selects this mode, 1-based.
-    var digit: Int { (Self.allCases.firstIndex(of: self) ?? 0) + 1 }
-
-    /// The mode a digit selects, or nil for a digit outside the set.
-    static func forDigit(_ digit: Int) -> ComparePairMode? {
-        guard digit >= 1, digit <= allCases.count else { return nil }
-        return allCases[digit - 1]
+    /// **The digit is the mode's position in the list the surface is OFFERING, not its position in
+    /// the declaration.** A text pair offers two modes; `2` there has to mean the second of those
+    /// two, not the second of the four a PDF gets — otherwise the keyboard reaches a segment that
+    /// is not on screen, or skips one that is.
+    func digit(in available: [ComparePairMode]) -> Int? {
+        available.firstIndex(of: self).map { $0 + 1 }
     }
 
-    /// The modes available for a pair kind. A kind with no raster gets exactly one, and the
-    /// segmented control is then not drawn at all rather than drawn with one segment.
+    /// The mode a digit selects out of what is offered, or nil for a digit past the end.
+    static func forDigit(_ digit: Int, in available: [ComparePairMode]) -> ComparePairMode? {
+        guard digit >= 1, digit <= available.count else { return nil }
+        return available[digit - 1]
+    }
+
+    /// The modes available for a pair kind. A kind with neither a raster nor lines gets exactly
+    /// one, and the segmented control is then not drawn at all rather than drawn with one segment.
     static func available(for kind: PairContentKind) -> [ComparePairMode] {
-        kind.hasPixelModes ? allCases : [.sideBySide]
+        switch kind {
+        case .pdf, .image: return [.sideBySide, .swipe, .onion, .difference]
+        case .text: return [.sideBySide, .textDiff]
+        case .other: return [.sideBySide]
+        }
     }
 
     /// The caveat a mode owes the reader. **`.difference` always carries one**: two scans of the
@@ -59,7 +73,7 @@ enum ComparePairMode: String, CaseIterable, Identifiable, Equatable {
         switch self {
         case .difference:
             return "Compared at pixel level, with no alignment — two scans of the same page will glow all over."
-        case .sideBySide, .swipe, .onion:
+        case .sideBySide, .swipe, .onion, .textDiff:
             return nil
         }
     }
