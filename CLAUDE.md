@@ -18,60 +18,47 @@ oldest-line-first rule; do not re-derive that rule from the shape of the table, 
 the question per batch.
 
 **Record the gap anyway, in [`docs/backports.md`](docs/backports.md).** Those rows are now a
-*record* of what `main` carries that `v3.x` and `v2.x` do not — what a future audit needs if the
-direction ever changes — not a to-do list. Write down both directions: "checked and not owed" saves
-the next audit as much time as "owed", and the per-file pick notes are the expensive half to
+*record* of what `main` carries that `v4.x`, `v3.x` and `v2.x` do not — what a future audit needs if
+the direction ever changes — not a to-do list. Write down both directions: "checked and not owed"
+saves the next audit as much time as "owed", and the per-file pick notes are the expensive half to
 reconstruct. The file is carried on all four lines, so a maintainer on a maintenance line can read
 it without going through `main`. Largest known gap: **`v3.x` has none of the `DeleteOutcome`
 family**, so it cannot tell a trashed item from a permanently deleted one and offers ⌘Z for removals
 it cannot take back.
 
-Two commands answer "does this line even carry the code?", if an audit ever needs it:
-
-```sh
-for l in v2.x v3.x v4.x; do git ls-tree -r --name-only origin/$l -- <path>; done
-diff <(git show origin/main:<f>) <(git show origin/v3.x:<f>)
-```
-
 **If a maintenance line is ever cut again, add its row here and to `branches:` in
-`.github/workflows/tests.yml` in the same commit that pushes the branch.** `v3.x` sat undocumented
-for eleven days: this file said "two lines", so every session backported to `v2.x` and `main` only,
-52 commits landed on `v2.x` unexamined for 3.x, CI never ran on `v3.x` at all, and its tip sat on the
-plain number `3.1` — exactly what "re-bump immediately" exists to prevent.
+`.github/workflows/tests.yml` in the same commit that pushes the branch** — and re-bump its tip
+marker in that same commit (see **Cutting a release**, step 5).
 
 **Never merge one line into another.** All four stay linear; move commits with `git cherry-pick`.
+If a pick is ever authorised again, **verify it landed by CONTENT, not by `git branch -r --contains`**
+— a cherry-pick has a new SHA, so `--contains` answers about the wrong commit.
 
 **`origin` carries the four lines and nothing else — and that is a thing to CHECK, not assume.**
-A `roots` branch sat on `origin` from the roots work until 2026-08-27, unnoticed because nothing
-here or in the install skill ever looked. `git branch -d roots` refusing — *"not yet merged to
-`refs/remotes/origin/roots`"* — was the only thing that revealed it, which is luck rather than a
-process. One command, and it prints exactly four lines when the remote is clean:
+A stray `roots` branch sat there unnoticed until 2026-08-27 because nothing here ever looked. One
+command, and it prints exactly four lines when the remote is clean:
 
 ```sh
 git ls-remote --heads origin | awk '{print $2}'   # expect refs/heads/{main,v2.x,v3.x,v4.x}, nothing else
 ```
 
-A fourth is scaffolding by the rule below and can go — but **deleting a remote branch is
-outward-facing, so establish that nothing unique dies first and ask before pushing the delete.**
-Two checks settle it: `git diff --name-status main <branch> | grep '^A'` must print nothing (it
-adds no file `main` lacks), and a local branch at the same SHA means the commits outlive the
-remote ref. `roots` passed both — its tip was `backup-roots-preReviewSquash2` — and its two
-commits were a superseded two-round version of a review `main` carries at three rounds.
+A fifth is scaffolding and can go — but **deleting a remote branch is outward-facing, so establish
+that nothing unique dies first and ask before pushing the delete.** Two checks settle it:
+`git diff --name-status main <branch> | grep '^A'` must print nothing (it adds no file `main`
+lacks), and a local branch at the same SHA means the commits outlive the remote ref.
 
-Releases are cut as **tags on the line that owns them** — `v2.9` from `v2.x`, `v4.0` from `main`.
+Releases are cut as **tags on the line that owns them** — `v2.9` from `v2.x`, `v5.0` from `main`.
 Tags mark history and are never branched from, except once when a new maintenance line is cut from a
 major's last tag; these four branches are the only ones that persist.
 
-**One branch is a deliberate exception, and it is written here so nobody tidies it away:
-`candidate-tap-deferral` (`dba29645`).** It carries a single unlanded 2026-08-04 commit — the tap
-gesture's drill deferred out of `NSTableView`'s tracking loop — that was built, installed, clicked,
-and **falsified**: roughly four times worse (13,882 passes against 3,615; a 20.8 s click against
-4.7 s) plus six dead clicks. [`docs/columns-layout-loop.md`](docs/columns-layout-loop.md) cites the
-branch by name and SHA precisely so that result stays reproducible instead of becoming folklore, and
-`main` still drills synchronously on purpose. A tag would be the tidier home for it, but the tag
-namespace is release-only (`git tag | grep -v '^v[0-9]*\.[0-9]*$'` must stay empty), so the branch
-is where it lives. **Delete it and the doc cites a SHA that git will eventually collect.** Any other
-branch you find is scaffolding and can go.
+**One branch is a deliberate exception, written here so nobody tidies it away:
+`candidate-tap-deferral` (`dba29645`).** It parks a single unlanded 2026-08-04 commit — a tap-gesture
+deferral that was built, installed, clicked and **falsified** — which
+[`docs/columns-layout-loop.md`](docs/columns-layout-loop.md) cites by name and SHA, with the numbers,
+so the result stays reproducible instead of becoming folklore. **Delete the branch and the doc cites
+a SHA git will eventually collect.** A tag would be tidier, but the tag namespace is release-only
+(`git tag | grep -v '^v[0-9]*\.[0-9]*$'` must stay empty). Any other branch you find is scaffolding
+and can go.
 
 ## Session isolation: work in a worktree, land only when he says so
 
@@ -143,7 +130,8 @@ read before step 4 names a commit that no longer exists.
 **The version bump is part of the release, not a follow-up.** Between `v0.10` and `v2.8` the version
 in `project.yml` never moved, so all twenty-odd tagged releases installed an app reporting itself as
 **1.0 (build 1)** — in the Settings rail, in `~/sync-cloud.log`, and in Finder's Version column.
-Nothing failed, because nothing reads the version; it was simply wrong for two years.
+Nothing failed, because nothing *depends* on the version — the two things that read it only display
+it; it was simply wrong for two years.
 
 ### Where the version lives
 
