@@ -226,8 +226,29 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             // Simple mock of move (copy + delete)
             try copyItem(at: srcURL, to: dstURL)
             try removeItem(at: srcURL)
+            // Models the real refusal `trashAfterReregistering` exists for: an item becomes
+            // trashable only once it has been moved INTO the path being trashed. Without this the
+            // retry would pass on `trashErrorOnce` alone — i.e. whether or not the move happened.
+            movedInto.insert(dstURL.path)
         }
     }
+
+    /// When set, EVERY `trashItem` throws this error — unlike `trashErrorOnce`, which clears on
+    /// the first throw. This is the "nothing can trash this" case, where all three attempts are
+    /// denied, as distinct from `trashRefusedUntilMovedIn`, which is the measured case that
+    /// re-registering the item fixes. A once-only error cannot express it: the retries would
+    /// succeed simply because the injected failure ran out.
+    public var trashErrorAlways: Error? = nil
+
+    /// When set, `trashItem` refuses with a permission error for any path that has not been
+    /// moved into place since. This is the shape of the refusal measured on the real files
+    /// (2026-08-30): both Trash APIs deny a long-registered item, and moving it re-registers it.
+    /// It is what keeps the re-registration test honest — remove the production retry and it
+    /// fails, because `trashErrorOnce` alone would clear on the first throw and let ANY second
+    /// attempt through.
+    public var trashRefusedUntilMovedIn: Bool = false
+    /// Paths that have been the DESTINATION of a `moveItem` on this mock.
+    public var movedInto: Set<String> = []
 
     public var shouldFailTrash: Bool = false
     /// When set, the next `trashItem` throws this specific error (then clears), letting tests pin
@@ -255,6 +276,13 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             if let err = trashErrorOnce {
                 trashErrorOnce = nil
                 throw err
+            }
+            if let err = trashErrorAlways {
+                throw err
+            }
+            if trashRefusedUntilMovedIn, !movedInto.contains(url.path) {
+                throw NSError(domain: NSCocoaErrorDomain,
+                              code: NSFileWriteNoPermissionError, userInfo: nil)
             }
             if shouldFailTrash {
                 // Simulate network drive without trash bin

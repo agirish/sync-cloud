@@ -101,9 +101,10 @@ import Testing
     // MARK: What the user is told
 
     /// **What the refusal is allowed to claim.** An earlier version told the reader to grant Full
-    /// Disk Access as though that were the fix; it was granted and the refusal stood. The message
-    /// may name it as worth checking, but must not present it as a remedy — and must say what IS
-    /// known: the file is untouched, both routes were tried, and the codes are in the log.
+    /// Disk Access as though that were the fix; it was granted and the refusal stood, and an
+    /// ad-hoc app bundle holding no grants at all was later measured trashing files in the same
+    /// folder. So the message may not send anyone to System Settings at all — it must say what IS
+    /// known: the file is untouched, every route was tried, and the codes are in the log.
     @Test func theRefusalSaysWhatIsKnownAndPromisesNoRemedy() {
         let error = SyncError.trashNotPermitted(path: "/Users/x/Documents/a.pdf",
                                                 reason: "no permission")
@@ -112,11 +113,13 @@ import Testing
         #expect(error.message.contains("Nothing was removed"),
                 "a refusal must say the file is still there")
         #expect(error.message.contains("system's own Trash service"),
-                "the reader must know the fallback was tried too")
+                "the reader must know the out-of-process fallback was tried too")
+        #expect(error.message.contains("re-register"),
+                "the reader must know the third attempt was tried too")
         #expect(error.message.contains("sync-cloud.log"),
                 "the one place the codes are is not named")
-        #expect(error.message.contains("has not been enough on its own"),
-                "Full Disk Access is presented as a fix, which it measurably is not")
+        #expect(!error.message.contains("Full Disk Access"),
+                "Full Disk Access is named again, and it is measurably not the cause")
         #expect(error.reason == "no permission")
     }
 
@@ -173,6 +176,122 @@ import Testing
         #expect(manager.currentError == nil, "a recovered trash still reported a failure")
     }
 
+    // MARK: The third attempt — re-registering the item with a move in place
+
+    /// **An item both Trash APIs refuse still reaches the Trash.** Measured on the reported tree,
+    /// 2026-08-30: twelve of twelve long-standing files under `~/Documents` were refused by
+    /// `trashItem` AND by `NSWorkspace.recycle`, while a plain `rename(2)` into the same Trash
+    /// directory succeeded — so the refusal is the Trash layer's, over a stale file-provider
+    /// record, and moving the item re-registers it.
+    ///
+    /// The mock refuses until the path has been moved into, which is what makes this test able to
+    /// fail: delete `trashAfterReregistering`'s move and no second attempt can ever succeed.
+    @MainActor
+    @Test func anItemBothTrashApisRefuseIsTrashedAfterBeingReregistered() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        fm.trashRefusedUntilMovedIn = true
+        manager.trashViaWorkspace = { _ in [:] }        // the system service refuses too
+        manager.permanentDeleteConfirmer = { _ in
+            Issue.record("a refusal reached the permanent-delete prompt")
+            return false
+        }
+
+        let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
+
+        #expect(outcome.trashed == 1, "the re-registered item was not counted as trashed")
+        #expect(outcome.isUndoable, "a re-registered trash must still offer ⌘Z")
+        #expect(manager.currentError == nil, "a recovered trash still reported a failure")
+        #expect(fm.virtualDisk["/docs/a.pdf"] == nil, "the item is still on disk")
+    }
+
+    /// **It leaves nothing behind.** The item is parked under a hidden sibling name only for as
+    /// long as it takes to move it back, so no `.synccloud-trash-retry-…` may outlive the delete —
+    /// in the folder or in the Trash. A litter file here would be one the user never named, in a
+    /// folder they are actively tidying.
+    @MainActor
+    @Test func theReregistrationLeavesNoParkedNameBehind() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        fm.trashRefusedUntilMovedIn = true
+        manager.trashViaWorkspace = { _ in [:] }
+
+        _ = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
+
+        let parked = fm.virtualDisk.keys.filter { $0.contains("synccloud-trash-retry") }
+        #expect(parked.isEmpty, "a parked name survived the delete: \(parked)")
+        #expect(fm.trashedPaths.allSatisfy { !$0.contains("synccloud-trash-retry") },
+                "an item reached the Trash under the parked name rather than its own")
+    }
+
+    /// **A refusal it cannot fix leaves the item exactly where it was.** When the move itself is
+    /// denied there is nothing to re-register, so the original refusal must stand — with its own
+    /// message and its path — and the file must still be on disk under its own name.
+    @MainActor
+    @Test func aReregistrationThatCannotMoveLeavesTheItemUntouched() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/b.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        fm.trashRefusedUntilMovedIn = true
+        fm.shouldFailMove = true                        // the park cannot happen
+        manager.trashViaWorkspace = { _ in [:] }
+        manager.permanentDeleteConfirmer = { _ in
+            Issue.record("a refusal reached the permanent-delete prompt")
+            return false
+        }
+
+        let outcome = await manager.deleteItems(at: ["/docs/b.pdf"], fileManager: fm)
+
+        #expect(outcome.removed == 0)
+        #expect(fm.virtualDisk["/docs/b.pdf"] != nil, "the item was lost by a failed retry")
+        let error = try #require(manager.currentError)
+        #expect(error.title == "Not Allowed to Move to the Trash")
+    }
+
+    /// **Still last, and still only for permission.** A busy item must not be moved about — the
+    /// retry the caller already gets is the right answer — so the re-registration may not fire for
+    /// it, and the item must not be renamed even momentarily.
+    @MainActor
+    @Test func aBusyItemIsNeverReregistered() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/c.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        fm.trashErrorOnce = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+        manager.trashViaWorkspace = { _ in [:] }
+
+        _ = await manager.deleteItems(at: ["/docs/c.pdf"], fileManager: fm)
+
+        #expect(fm.virtualDisk["/docs/c.pdf"] != nil)
+        #expect(fm.movedInto.isEmpty, "a busy item was moved in an attempt to re-register it")
+    }
+
+    /// **An ordinary trash never moves the item first.** The re-registration is a last resort with
+    /// a side effect the other two attempts do not have, so a delete that succeeds normally must
+    /// not touch it.
+    @MainActor
+    @Test func anOrdinaryTrashIsNeverReregistered() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/d.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+
+        let outcome = await manager.deleteItems(at: ["/docs/d.pdf"], fileManager: fm)
+
+        #expect(outcome.trashed == 1)
+        #expect(fm.movedInto.isEmpty, "a trash that succeeded still moved the item")
+    }
+
     /// **The fallback is a fallback.** An ordinary trash must not go anywhere near it — the
     /// in-process path reports per-item errors the service cannot, and it is the path every
     /// successful delete in this app has always taken.
@@ -212,8 +331,12 @@ import Testing
         #expect(fm.virtualDisk["/docs/a.pdf"] != nil)
     }
 
-    /// When the service cannot move it either, the refusal stands — with its own message, its
-    /// path, and its log line, exactly as before the fallback existed.
+    /// When NOTHING can move it — the in-process trash, the system service and the retry after
+    /// re-registering it are all refused — the refusal stands, with its own message, its path and
+    /// its log line, exactly as before any fallback existed.
+    ///
+    /// The mock refuses every `trashItem` rather than only the first, which is what makes this
+    /// about "all three denied" and not about running out of injected errors.
     @MainActor
     @Test func aServiceThatAlsoRefusesLeavesTheOriginalRefusalStanding() async throws {
         let fm = MockFileManager()
@@ -221,8 +344,8 @@ import Testing
         manager.undoManager = UndoManager()
         fm.virtualDisk["/docs/b.pdf"] = MockFileManager.FileStub(
             isDirectory: false, attributes: [.size: 100], contents: nil)
-        fm.trashErrorOnce = NSError(domain: NSCocoaErrorDomain,
-                                    code: NSFileWriteNoPermissionError, userInfo: nil)
+        fm.trashErrorAlways = NSError(domain: NSCocoaErrorDomain,
+                                      code: NSFileWriteNoPermissionError, userInfo: nil)
         manager.trashViaWorkspace = { _ in [:] }
         manager.permanentDeleteConfirmer = { _ in
             Issue.record("a refusal reached the permanent-delete prompt")
@@ -232,7 +355,10 @@ import Testing
         let outcome = await manager.deleteItems(at: ["/docs/b.pdf"], fileManager: fm)
 
         #expect(outcome.removed == 0)
-        #expect(fm.virtualDisk["/docs/b.pdf"] != nil)
+        #expect(fm.virtualDisk["/docs/b.pdf"] != nil,
+                "the item was lost by the re-registration it could not benefit from")
+        let parked = fm.virtualDisk.keys.filter { $0.contains("synccloud-trash-retry") }
+        #expect(parked.isEmpty, "a parked name survived a delete that failed: \(parked)")
         let error = try #require(manager.currentError)
         #expect(error.title == "Not Allowed to Move to the Trash")
     }
@@ -256,10 +382,13 @@ import Testing
         manager.undoManager = UndoManager()
         fm.virtualDisk["/docs/Lease Agreement.pdf"] = MockFileManager.FileStub(
             isDirectory: false, attributes: [.size: 100], contents: nil)
-        fm.trashErrorOnce = NSError(domain: NSCocoaErrorDomain,
-                                    code: NSFileWriteNoPermissionError,
-                                    userInfo: [NSUnderlyingErrorKey:
-                                                NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))])
+        // Refuses EVERY attempt, not just the first: the in-process trash, the system service
+        // and the retry after re-registering must all be denied for this to be about what the
+        // user is told when nothing can move the file.
+        fm.trashErrorAlways = NSError(domain: NSCocoaErrorDomain,
+                                      code: NSFileWriteNoPermissionError,
+                                      userInfo: [NSUnderlyingErrorKey:
+                                                  NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))])
         // If the refusal were escalated instead, this would be asked — and answering false would
         // make the assertions below pass for the wrong reason. It must never be called.
         var askedToDestroy = false

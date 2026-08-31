@@ -165,20 +165,26 @@ extension SyncError {
     /// Not retryable: pressing the same button again cannot change a permission.
     ///
     /// **What this message may NOT say.** An earlier version told the reader to grant Full Disk
-    /// Access, as though that were the fix. It was measured and it is not: the grant was made and
-    /// the refusal stood. So the message names what is known — the system refused, both ways, and
-    /// nothing was removed — offers the one check that costs nothing, and points at the log rather
-    /// than promising a remedy nobody has confirmed. A dialog that sends someone to change a
-    /// setting that will not help is worse than one that admits the limit.
+    /// Access, as though that were the fix. It was measured and it is not — and the measurement
+    /// since went further: an ad-hoc-signed app bundle holding NO privacy grants at all creates
+    /// and trashes files in the very folder that refuses these items, and `access(2)` grants
+    /// every permission the move needs. The refusal is not a missing grant, so this no longer
+    /// sends anyone to System Settings to change a setting that will not help.
+    ///
+    /// By the time a reader sees this, all three attempts have been refused: in-process, the
+    /// system's Trash service, and the retry after re-registering the item with a move in place
+    /// (see `trashAfterReregistering`). That is worth saying plainly, because the remaining
+    /// honest advice is to move the item in Finder — measured to work on exactly these files.
     public static func trashNotPermitted(path: String, reason: String) -> SyncError {
         SyncError(
             title: "Not Allowed to Move to the Trash",
-            message: "macOS refused to move this item to the Trash, both directly and through the "
-                + "system's own Trash service. Nothing was removed and the file is untouched.\n\n"
-                + "Worth checking that SyncCloud has Full Disk Access in System Settings ▸ Privacy "
-                + "& Security — though that has not been enough on its own. Moving the file in "
-                + "Finder still works. The exact refusal, with its error codes, is in "
-                + "~/sync-cloud.log.",
+            message: "macOS refused to move this item to the Trash every way SyncCloud can ask "
+                + "— directly, through the system's own Trash service, and again after moving the "
+                + "item in place to re-register it. Nothing was removed and the file is "
+                + "untouched.\n\n"
+                + "This is not a missing privacy grant: the same folder accepts other items, and "
+                + "the file's own permissions allow the move. Moving it to the Trash in Finder "
+                + "still works. The exact refusal, with its error codes, is in ~/sync-cloud.log.",
             path: path,
             reason: reason,
             isRetryable: false
