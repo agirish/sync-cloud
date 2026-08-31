@@ -48,17 +48,23 @@ enum LogEntryFilter {
 /// The outcome of one history read, which is NOT just "the entries".
 ///
 /// A read failure and "there is nothing older" are opposite facts and used to be the same empty
-/// array. The log file is appended to by a second process as well as this one, so a crash mid-write
-/// can leave bytes that aren't valid UTF-8 — and `String(contentsOf:)` then throws. Swallowing that
-/// left the window saying "No earlier activity in the log", forever and falsely, with nothing
-/// recorded anywhere: this loader runs off the main actor with no error channel, so it is the one
-/// path in the app that cannot present its failure through `FileSyncManager.present(_:)`.
+/// array. Swallowing a failure left the window saying "No earlier activity in the log", forever and
+/// falsely, with nothing recorded anywhere: this loader runs off the main actor with no error
+/// channel, so it is the one path in the app that cannot present its failure through
+/// `FileSyncManager.present(_:)`.
+///
+/// **Torn BYTES are no longer one of the ways to fail.** The log file is appended to by a second
+/// process as well as this one, so a crash mid-write can leave a sequence that isn't valid UTF-8,
+/// and `String(contentsOf:)` threw on it — one bad byte cost the entire history. Those bytes are
+/// now repaired by ``LogHistoryLoader/repairingUTF8(_:)`` and everything around them loads, which
+/// leaves this case to mean what its name says: the file could not be READ.
 enum LogHistoryRead: Sendable {
     /// The file was read and parsed. The array may legitimately be EMPTY — the log genuinely holds
     /// nothing older than this session.
     case loaded([LogEntry])
-    /// The file could not be read or decoded. `reason` is the underlying error's description, for
-    /// the log line the caller writes.
+    /// The file could not be read — no permission, the volume gone, the path not a file. `reason`
+    /// is the underlying error's description, for the log line the caller writes. **Not** a
+    /// decoding failure: bytes that are not valid UTF-8 are repaired, not refused.
     case unreadable(reason: String)
 
     /// The parsed entries, or nil when the read FAILED. The optional is the point: nil is not an
@@ -84,8 +90,8 @@ enum LogHistoryLoader {
     /// scary note under a first launch that has simply never written the file.
     static func loadOlderThan(_ sessionStart: Date, fileURL: URL) -> LogHistoryRead {
         do {
-            let text = try String(contentsOf: fileURL, encoding: .utf8)
-            return .loaded(parseOlderThan(sessionStart, text: text))
+            let data = try Data(contentsOf: fileURL)
+            return .loaded(parseOlderThan(sessionStart, text: repairingUTF8(data)))
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileReadNoSuchFileError {
@@ -93,6 +99,28 @@ enum LogHistoryLoader {
             }
             return .unreadable(reason: nsError.localizedDescription)
         }
+    }
+
+    /// The log's bytes as text, with every byte sequence that is not valid UTF-8 replaced by
+    /// U+FFFD rather than the file being refused.
+    ///
+    /// **One torn byte used to cost the whole history.** A crash partway through an append — or
+    /// the CLI writing this same file — can leave a multi-byte character cut in half, and the log
+    /// carries file PATHS, so non-ASCII bytes are routinely in flight. `String(contentsOf:)` threw
+    /// on that and the window showed an error note instead of the thousands of lines either side
+    /// of it. Rotation is not a source: `trimTailIfOversized` cuts at a newline, which is always a
+    /// character boundary.
+    ///
+    /// `String(decoding:as:)` is the standard library's REPAIRING initializer, and it is the whole
+    /// implementation: one U+FFFD per malformed sequence, everything on both sides kept.
+    /// Foundation's `String(data:encoding:)` is not a substitute — measured on this fixture, it
+    /// answers `nil` for a UTF-8 character cut short, which is the refusal this function exists to
+    /// stop. (On UTF-16 it does something worse and quieter: a partial code unit comes back as a
+    /// clean string with the tail silently gone. Neither behaviour is a repair.)
+    ///
+    /// Internal rather than private so the repair can be asserted on bytes, without a file.
+    static func repairingUTF8(_ data: Data) -> String {
+        String(decoding: data, as: UTF8.self)
     }
 
     /// ``loadOlderThan(_:fileURL:)`` ordered behind the log writer's pending disk work.

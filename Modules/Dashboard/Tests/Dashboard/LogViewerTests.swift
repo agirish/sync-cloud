@@ -211,14 +211,60 @@ import Events
             .appendingPathComponent("log-read-outcome-\(UUID().uuidString).log")
     }
 
-    @Test func testAnUnreadableLogFileIsReportedAsUnreadableNotAsEmptyHistory() throws {
-        // The log is appended to by a second process as well as this one, so a crash mid-write can
-        // leave bytes that aren't valid UTF-8 (0xFF is not a legal lead byte anywhere in UTF-8).
-        // Collapsing that into `[]` told the user "No earlier activity in the log" permanently and
-        // falsely, with nothing recorded anywhere.
+    /// **A torn byte costs that byte, not the history around it.**
+    ///
+    /// The log is appended to by a second process as well as this one, so a crash mid-write can
+    /// leave bytes that aren't valid UTF-8 (0xFF is not a legal lead byte anywhere in UTF-8). That
+    /// used to throw out of `String(contentsOf:)` and take every good line with it — thousands of
+    /// them, for one byte. The lines either side must survive.
+    @Test func testATornByteDoesNotCostTheHistoryAroundIt() throws {
         let url = scratchLogURL()
         defer { try? FileManager.default.removeItem(at: url) }
-        try Data([0xFF, 0xFE, 0xFF, 0x0A]).write(to: url)
+        let base = Date(timeIntervalSince1970: 1_780_000_000)
+        let before = LogEntry(timestamp: base, level: .warning, message: "before the tear")
+        let after = LogEntry(timestamp: base.addingTimeInterval(1), level: .info, message: "after the tear")
+
+        var bytes = Data((before.formattedString + "\n").utf8)
+        bytes.append(contentsOf: [0xFF, 0xFE, 0xFF, 0x0A])   // the torn write, on its own line
+        bytes.append(Data((after.formattedString + "\n").utf8))
+        try bytes.write(to: url)
+
+        let outcome = LogHistoryLoader.loadOlderThan(base.addingTimeInterval(60), fileURL: url)
+        // Newest-first, which is this loader's documented order — the window shows it that way.
+        #expect(outcome.loadedEntries?.map(\.message) == ["after the tear", "before the tear"],
+                """
+                the good lines did not survive a torn one: \(String(describing: outcome)) — one \
+                unreadable byte is again costing the whole history
+                """)
+    }
+
+    /// The seam, asserted on BYTES: a code unit merely cut short must come back MARKED, not
+    /// silently gone.
+    ///
+    /// This is the distinction the implementation is written around. `String(decoding:as:)`
+    /// repairs; Foundation's `String(data:encoding:)` answers a clean string with the tail
+    /// dropped, which no assertion on the surrounding text could ever catch.
+    @Test func testTheRepairMarksACutShortCharacterRatherThanDroppingIt() {
+        let whole = "page 3 — café"
+        let cut = Data(whole.utf8).dropLast()            // the final "é" loses its second byte
+
+        let repaired = LogHistoryLoader.repairingUTF8(cut)
+        #expect(repaired == "page 3 — caf\u{FFFD}",
+                """
+                a cut-short character came back as \(repaired.debugDescription) — if that is the \
+                text minus its tail, the truncation is invisible
+                """)
+        #expect(LogHistoryLoader.repairingUTF8(Data(whole.utf8)) == whole,
+                "the control: intact bytes must pass through untouched")
+    }
+
+    /// The positive control for the case above, and the reason `.unreadable` is not now dead code:
+    /// a file that genuinely cannot be READ still reports itself as such. A directory at the path
+    /// is the failure that needs no permission games to stage.
+    @Test func testAFileThatCannotBeReadAtAllIsStillUnreadable() throws {
+        let url = scratchLogURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
 
         let outcome = LogHistoryLoader.loadOlderThan(Date(), fileURL: url)
         guard case .unreadable(let reason) = outcome else {
