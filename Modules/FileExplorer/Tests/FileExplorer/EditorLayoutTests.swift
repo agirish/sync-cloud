@@ -101,6 +101,68 @@ import Design
                 "the workspace floor does not cover the chrome the two cards actually draw")
     }
 
+    /// **The rail row wears the row variant, and both of its arms wear the same shape.**
+    ///
+    /// It shipped as `isSelected ? .filled : .inline`. `.inline` is documented for "a small dismiss
+    /// glyph riding inside a field or chip", and its default shape is a **circle** — which in a
+    /// full-width row collapses to the row's height and centres itself, so hovering a file drew a
+    /// grey disc in the middle of the row rather than a wash across it. The selected arm was wrong
+    /// in the same breath: `.filled` defaults to a capsule, so the ring traced a pill around a
+    /// rounded rectangle.
+    ///
+    /// **Nothing in the repo could have caught it.** `HoverAffordanceTests` pins each variant's own
+    /// metrics; which variant a given control should wear is decided per call site, by hand — the
+    /// `.segment` census in `HoverAffordanceShape` is a doc comment, not an assertion. So this is
+    /// the check for this row, in the shape the duplicate card's own scan uses.
+    ///
+    /// A source scan because hover state does not render offscreen (`HoverTintRenderTests` drives
+    /// the phase directly rather than through a pointer). The value assertions below are the half
+    /// that is not string matching: the shape this row names must be exactly what `.row` would have
+    /// chosen for itself, which is what makes passing it explicitly a fix for the `.filled` arm
+    /// rather than a second opinion about the unselected one.
+    @Test func theRailRowWearsTheRowHoverVariantInOneShape() throws {
+        #expect(EditorFileRailView.rowShape == HoverAffordanceShape.default(for: .row),
+                "the row names a shape .row would not have chosen — one of the two is wrong")
+        #expect(EditorFileRailView.rowShape != HoverAffordanceShape.default(for: .filled),
+                "the shape is passed explicitly BECAUSE .filled defaults to something else; if the two now agree the argument is redundant and the comment above is stale")
+        #expect(EditorFileRailView.rowShape != HoverAffordanceShape.default(for: .inline),
+                "the shape .inline would have chosen is the defect this test exists for")
+
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/EditorFileRailView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read EditorFileRailView.swift — this scan would be vacuous")
+        try #require(source.count > 500, "the file is implausibly short — the scan would be near-vacuous")
+        // Scoped to the row builder, so a `.glyph` elsewhere in the file — the ＋ button and the
+        // naming row legitimately have their own — cannot satisfy or break this. `row(_:)` is the
+        // last member of the type, so "to the end" IS its body; asserted rather than assumed,
+        // because a member added after it would silently widen this scan.
+        let start = try #require(source.range(of: "private func row(_ entry: EditorRailEntry)"),
+                                 "the row builder is gone or renamed — this scan is not reading it")
+        let whole = String(source[start.upperBound...])
+        #expect(!whole.contains("\n    private func ") && !whole.contains("\n    var "),
+                "row(_:) is no longer the last member, so this scan now covers more than the row")
+        // **Comment lines dropped before anything is asserted**, and this is not tidiness. The
+        // paragraph above the button style explains the defect by naming `.inline`, so a scan of the
+        // raw text finds the very spelling it is asserting the absence of — it failed on its own
+        // explanation the first time it ran. A scan that reads prose is a scan that can be satisfied
+        // or broken by prose.
+        let code = whole.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        try #require(code.contains("buttonStyle"), "the comment filter ate the code as well")
+        let body = code
+        #expect(body.contains(".hoverAffordance(isSelected ? .filled : .row,"),
+                "the rail row no longer wears the .row variant")
+        #expect(body.contains("shape: Self.rowShape"),
+                "the row's shape is left to the variant defaults again — the selected arm will wear a capsule")
+        #expect(body.contains(".contentShape(Self.rowOutline)"),
+                "the hit shape has drifted from the wash's shape; they are meant to be one value")
+        #expect(!body.contains(".inline"),
+                "the row is back on the dismiss-glyph variant, which washes in ink and draws a circle")
+    }
+
     // MARK: The split divider
 
     /// **The clamp both the divider and the drag now ask.**

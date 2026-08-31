@@ -43,6 +43,12 @@ struct EditorFileRailView: View {
     /// name still in it rather than vanishing with the work.
     let onCreate: (String) -> Bool
 
+    /// The rail row's one outline, stated once and used by both the hit shape and the hover wash.
+    /// `roundedRect(7)` is what the `.row` variant defaults to; naming it here is what lets the
+    /// `.filled` arm — which would otherwise default to a capsule — wear the same shape.
+    static let rowShape = HoverAffordanceShape.roundedRect(7)
+    static var rowOutline: HoverAffordanceOutline { HoverAffordanceOutline(kind: rowShape) }
+
     /// The rail's width. See ``EditorLayoutMetrics/railWidth``.
     static var width: CGFloat { EditorLayoutMetrics.railWidth }
 
@@ -201,9 +207,25 @@ struct EditorFileRailView: View {
             .opacity(entry.isDimmed && !isSelected ? 0.5 : 1)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .contentShape(Self.rowOutline)
         }
-        .buttonStyle(.hoverAffordance(isSelected ? .filled : .inline, tint: accent))
+        // **`.row`, and the shape passed explicitly to BOTH arms.**
+        //
+        // This shipped as `isSelected ? .filled : .inline`, and `.inline` is the wrong variant
+        // twice over. It is documented for "a small dismiss glyph riding inside a field or chip",
+        // so it washes in ink rather than the accent — and its default shape is a CIRCLE. A circle
+        // in a full-width row collapses to the row's height and centres itself, which is what put a
+        // grey disc in the middle of the row under the pointer instead of a wash across it. `.row`
+        // is the variant written for this exact control: a full-width list row whose whole area is
+        // the target, with a quieter wash because it covers so many more pixels than a glyph.
+        //
+        // The shape is passed rather than left to default because BOTH arms need it: `.filled`
+        // defaults to a capsule, so the selected row's hairline ring traced a pill around a rounded
+        // rectangle — the mis-shaped-when-selected half of the same defect, which `HoverAffordanceShape`
+        // warns about in so many words. One value, used by the style and by `contentShape` above,
+        // which is what `HoverAffordanceOutline` exists for.
+        .buttonStyle(.hoverAffordance(isSelected ? .filled : .row,
+                                      tint: accent, shape: Self.rowShape))
         .help(entry.dimmedReason ?? entry.name)
     }
 }
