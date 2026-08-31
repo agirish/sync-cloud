@@ -152,6 +152,54 @@ import Testing
         }
     }
 
+    // MARK: Nothing to draw — waiting, or never
+
+    /// **A spinner means "wait", and it was shown for pages that were never going to arrive.** A
+    /// raster that cannot be built — a corrupt JPEG, an encrypted PDF — left the pixel modes
+    /// spinning for the life of the surface while the page strip a few points below had already
+    /// resolved the same page to `.unrenderable`.
+    @Test func aFailedSideIsToldAboutRatherThanWaitedFor() {
+        let outcome = PairRenderOutcome.failed(left: true, right: false)
+        #expect(outcome.fallback(for: .left, name: "scan.jpg")
+                == .message("“scan.jpg” could not be rendered."))
+        #expect(outcome.fallback(for: .right, name: "scan copy.jpg") == .spinner,
+                "the side that rendered fine must not be captioned as broken")
+    }
+
+    /// While a render is genuinely in flight, the spinner is right — that is the state it was built
+    /// for, and removing it would replace one wrong answer with another.
+    @Test func aRenderInFlightStillWaits() {
+        for outcome in [PairRenderOutcome.rendering, .ready] {
+            #expect(outcome.fallback(for: .left, name: "a.png") == .spinner, "\(outcome)")
+            #expect(outcome.fallback(for: .right, name: "b.png") == .spinner, "\(outcome)")
+            #expect(outcome.differenceMessage(leftName: "a.png", rightName: "b.png") == nil,
+                    "\(outcome)")
+            #expect(!outcome.didFail, "\(outcome)")
+        }
+    }
+
+    /// A comparison needs both sides, so one unrenderable side ends it — and the difference view
+    /// says which one, rather than leaving an empty black field to be read as "no differences".
+    @Test func theDifferenceViewNamesTheSideThatEndedTheComparison() {
+        #expect(PairRenderOutcome.failed(left: true, right: false)
+                    .differenceMessage(leftName: "a.png", rightName: "b.png")
+                == "“a.png” could not be rendered, so there is nothing to compare.")
+        #expect(PairRenderOutcome.failed(left: false, right: true)
+                    .differenceMessage(leftName: "a.png", rightName: "b.png")
+                == "“b.png” could not be rendered, so there is nothing to compare.")
+        #expect(PairRenderOutcome.failed(left: true, right: true)
+                    .differenceMessage(leftName: "a.png", rightName: "b.png")
+                == "Neither copy could be rendered, so there is nothing to compare.")
+    }
+
+    @Test func onlyAFailedOutcomeReportsAFailedSide() {
+        #expect(PairRenderOutcome.failed(left: true, right: false).failed(.left))
+        #expect(!PairRenderOutcome.failed(left: true, right: false).failed(.right))
+        #expect(!PairRenderOutcome.ready.failed(.left))
+        #expect(!PairRenderOutcome.rendering.failed(.right))
+        #expect(PairRenderOutcome.failed(left: false, right: true).didFail)
+    }
+
     // MARK: The renderer, on real documents
 
     private final class PDFFixture {

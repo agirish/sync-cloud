@@ -12,6 +12,12 @@ struct VisualPairModeView: View {
     let mode: ComparePairMode
     let left: CGImage?
     let right: CGImage?
+    /// Whether the rasters are still coming or are never going to. Without it a pane with no image
+    /// spins for ever on a file that cannot be rendered — see ``PairRenderOutcome``.
+    let outcome: PairRenderOutcome
+    /// The two file names, for a message that says which copy could not be read.
+    let leftName: String
+    let rightName: String
     /// The precomputed per-channel distance, for `.difference`. Passed in rather than computed
     /// here: it is the same arithmetic the page strip's verdict comes from, and computing it twice
     /// is how two numbers about one page start disagreeing.
@@ -48,8 +54,8 @@ struct VisualPairModeView: View {
     @ViewBuilder
     private func swipe(in size: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
-            page(left)
-            page(right)
+            page(left, side: .left)
+            page(right, side: .right)
                 .mask(alignment: .leading) {
                     Rectangle().frame(width: max(0, size.width * swipeFraction))
                 }
@@ -82,8 +88,8 @@ struct VisualPairModeView: View {
 
     private var onion: some View {
         ZStack {
-            page(left)
-            page(right).opacity(onionOpacity)
+            page(left, side: .left)
+            page(right, side: .right).opacity(onionOpacity)
         }
     }
 
@@ -102,14 +108,23 @@ struct VisualPairModeView: View {
                                                     height: difference.height)))
                     .resizable()
                     .aspectRatio(contentMode: .fit)
+            } else if let message = differenceMessage {
+                // Light on black, like the mode itself — a message here is read against the same
+                // ground the picture would have been.
+                unrenderable(message, onDark: true)
             } else {
                 ProgressView().controlSize(.small)
             }
         }
     }
 
+    /// The line the difference view draws instead of a picture, or nil while it should wait.
+    private var differenceMessage: String? {
+        outcome.differenceMessage(leftName: leftName, rightName: rightName)
+    }
+
     @ViewBuilder
-    private func page(_ image: CGImage?) -> some View {
+    private func page(_ image: CGImage?, side: PairSide) -> some View {
         if let image {
             Image(nsImage: NSImage(cgImage: image,
                                    size: CGSize(width: image.width, height: image.height)))
@@ -117,8 +132,32 @@ struct VisualPairModeView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ProgressView().controlSize(.small)
+            switch outcome.fallback(for: side, name: side == .left ? leftName : rightName) {
+            case .spinner:
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .message(let text):
+                unrenderable(text, onDark: mode == .difference)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+    }
+
+    /// The one shape a "this cannot be drawn" message takes here.
+    private func unrenderable(_ text: String, onDark: Bool) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .imageScale(.large)
+            Text(text)
+                .scaledFont(.system(size: 11.5))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(onDark ? AnyShapeStyle(Color.white.opacity(0.75))
+                                : AnyShapeStyle(HierarchicalShapeStyle.secondary))
+        .padding(16)
+        .accessibilityElement(children: .combine)
     }
 }
 

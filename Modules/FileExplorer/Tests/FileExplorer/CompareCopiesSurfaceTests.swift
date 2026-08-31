@@ -537,6 +537,40 @@ import Testing
         }
     }
 
+    /// Two files that ARE images by every metadata answer and cannot be decoded by any of them:
+    /// a `.png` extension over bytes that are not a PNG. This is what a truncated download or a
+    /// half-synced file looks like, and it is the case classifying SVG out of the image viewer
+    /// deliberately did not cover — every decodable format still has corrupt files in it.
+    private final class CorruptImageFixture {
+        let dir: URL
+        let left: String
+        let right: String
+        init() throws {
+            dir = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("CompareCorruptFixture-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            left = try Self.write(dir.appendingPathComponent("scan.png"))
+            right = try Self.write(dir.appendingPathComponent("scan copy.png"))
+        }
+        deinit { try? FileManager.default.removeItem(at: dir) }
+
+        private static func write(_ url: URL) throws -> String {
+            try Data("not a png, whatever the extension says".utf8).write(to: url)
+            return url.path
+        }
+    }
+
+    private static func pair(_ fixture: CorruptImageFixture) -> DuplicateComparePair {
+        func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
+            DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
+                          size: 1000, itemCount: 1, modificationDate: scanned,
+                          uniqueItemCount: 0, depth: 1, isRecommendedKeeper: keeper)
+        }
+        return DuplicateComparePair(keeper: copy(fixture.left, keeper: true),
+                                    other: copy(fixture.right, keeper: false),
+                                    matchType: .identical, groupName: "scan.png")
+    }
+
     private static func pair(_ fixture: ImageFixture) -> DuplicateComparePair {
         func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
             DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
@@ -589,6 +623,55 @@ import Testing
         private var seen: Set<String> = []
         func record(_ path: String) { lock.lock(); seen.insert(path); lock.unlock() }
         var paths: Set<String> { lock.lock(); defer { lock.unlock() }; return seen }
+    }
+
+    /// **The spinner has to stop.** A corrupt file of a decodable type renders no raster, and the
+    /// pixel modes drew a `ProgressView` for exactly as long as the surface was open — while the
+    /// page strip below had already marked the page `.unrenderable`. Two parts of one surface knew
+    /// different things about the same failure, and the louder one said "wait".
+    ///
+    /// **Asserted as a transition, not as a state.** "No spinner" is also what an empty pane and a
+    /// view that never mounted look like, so the test waits for the spinner to APPEAR first — the
+    /// honest state while the render is in flight — and only then for it to go. A SwiftUI `Text`
+    /// cannot be read back out of a hosting view (there is no `NSTextField`; it is drawn), so the
+    /// message's wording is held by `ComparePairViewingTests` instead, and what this pins is the
+    /// half that no unit test can see: the waiting ends.
+    @MainActor
+    @Test func aPairThatCannotBeRenderedStopsSpinningAndSaysWhy() async throws {
+        let fixture = try CorruptImageFixture()
+        let available = CGSize(width: 1000, height: 700)
+        let host = NSHostingView(rootView: AnyView(
+            SwappableHarness(box: PairBox(pair: Self.pair(fixture)), available: available,
+                             probeCount: ProbeCount())))
+        host.frame = CGRect(origin: .zero, size: available)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+
+        func spinners(_ view: NSView) -> [NSProgressIndicator] {
+            view.subviews.flatMap {
+                [$0].compactMap { $0 as? NSProgressIndicator } + spinners($0)
+            }
+        }
+        // The positive control: while the render is genuinely in flight, waiting is the right
+        // answer and the spinner is there. If this never happens the test below proves nothing.
+        let (spun, spinPumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            !spinners(host).isEmpty
+        }
+        try #require(spun, """
+                     no spinner ever appeared (\(spinPumps) pumps) — the surface is not in the \
+                     state this test is about, so its verdict would be meaningless
+                     """)
+
+        let (stopped, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            spinners(host).isEmpty
+        }
+        #expect(stopped, """
+                \(spinners(host).count) spinner(s) still turning after \(pumps) pumps, for a page \
+                that will never render — the strip has already called it unrenderable
+                """)
     }
 
     /// A cloud-only side mounts NO Quick Look view — rendering one would force the provider to

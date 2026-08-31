@@ -196,6 +196,9 @@ struct FilePairCompareView<Verdict: View>: View {
     /// Guards a raster that arrives after the user has paged on — the same token shape the verify
     /// uses, for the same reason.
     @State private var rasterToken = UUID()
+    /// Whether the current page's rasters are still coming or are never going to. A pane with no
+    /// image and no answer here spins for the life of the surface — see ``PairRenderOutcome``.
+    @State private var renderOutcome: PairRenderOutcome = .rendering
     @State private var textDiff: TextPairDiff?
     @State private var textNotes: [String] = []
     /// Guards a diff that lands after the pair moved on — the raster path's token, for a race the
@@ -410,6 +413,7 @@ struct FilePairCompareView<Verdict: View>: View {
             verify = .idle
             rasters = (nil, nil)
             difference = nil
+            renderOutcome = .rendering
             if !modes.contains(mode) { mode = .sideBySide }
             guard kind == .pdf else {
                 pairing = PagePairing(leftPages: 0, rightPages: 0)
@@ -659,6 +663,8 @@ struct FilePairCompareView<Verdict: View>: View {
                 textDiffPane
             case .swipe, .onion, .difference:
                 VisualPairModeView(mode: activeMode, left: rasters.left, right: rasters.right,
+                                   outcome: renderOutcome,
+                                   leftName: left.name, rightName: right.name,
                                    difference: difference,
                                    swipeFraction: $swipeFraction, onionOpacity: $onionOpacity)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
@@ -756,6 +762,39 @@ struct FilePairCompareView<Verdict: View>: View {
         focusedRegion = nil
     }
 
+    /// Whether both documents actually opened. **A page count of zero is a document that would not
+    /// open** — encrypted, truncated, or not really a PDF — and the pairing's `stripLength` cannot
+    /// say so, because it is the longer of the two: one side at 0 against a healthy 6 still reads
+    /// as 6, and the typed viewer then mounted a pane that could only ever be grey.
+    private var bothSidesOpened: Bool {
+        resolvedPairing.leftPages > 0 && resolvedPairing.rightPages > 0
+    }
+
+    /// The line explaining why a pair that should have earned a typed viewer is showing plain
+    /// previews instead, or nil when nothing is wrong. Named per side, because the reader is
+    /// looking at two similarly named files and needs to know which one is the problem.
+    private var unopenableCaption: String? {
+        guard bothSidesReadable else { return nil }
+        switch kind {
+        case .pdf:
+            // Reached only once the page counts have landed: while they are in flight the surface
+            // is showing a spinner from `stillResolvingTypedViewer` and never renders this branch.
+            guard !bothSidesOpened else { return nil }
+            let leftClosed = resolvedPairing.leftPages == 0
+            let rightClosed = resolvedPairing.rightPages == 0
+            if leftClosed && rightClosed { return "Neither copy could be opened." }
+            let name: String = leftClosed ? left.name : right.name
+            return "“\(name)” could not be opened, so these previews scroll on their own."
+        case .image:
+            guard case .failed(let leftFailed, let rightFailed) = renderOutcome else { return nil }
+            if leftFailed && rightFailed { return "Neither copy could be rendered." }
+            let name: String = leftFailed ? left.name : right.name
+            return "“\(name)” could not be rendered, so these previews scroll on their own."
+        case .text, .other:
+            return nil
+        }
+    }
+
     /// Side by side, in whichever viewer the pair's kind earns.
     ///
     /// **A typed viewer replaces the Quick Look panes only where it is genuinely better.** For a
@@ -772,12 +811,12 @@ struct FilePairCompareView<Verdict: View>: View {
             ProgressView()
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if kind == .pdf, bothSidesReadable, resolvedPairing.stripLength > 0 {
+        } else if kind == .pdf, bothSidesReadable, bothSidesOpened {
             typedPanes {
                 PDFPairView(leftPath: left.path, rightPath: right.path,
                             page: page, pairing: resolvedPairing, syncSuspended: optionHeld)
             }
-        } else if kind == .image, bothSidesReadable {
+        } else if kind == .image, bothSidesReadable, !renderOutcome.didFail {
             typedPanes {
                 ImagePairView(left: rasters.left, right: rasters.right, syncSuspended: optionHeld)
             }
@@ -787,7 +826,16 @@ struct FilePairCompareView<Verdict: View>: View {
                     pane(left)
                     pane(right)
                 }
-                if let caption = kind.unsyncedCaption, bothSidesReadable {
+                // **Why these are plain previews and not the typed viewer.** Falling back without
+                // saying so leaves the reader with a surface that is quietly less than it was for
+                // the pair beside it, and no idea which copy is the reason.
+                if let caption = unopenableCaption {
+                    Text(caption)
+                        .scaledFont(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let caption = kind.unsyncedCaption, bothSidesReadable {
                     Text(caption)
                         .scaledFont(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
@@ -863,10 +911,15 @@ struct FilePairCompareView<Verdict: View>: View {
         guard needsRasters, bothSidesReadable else {
             rasters = (nil, nil)
             difference = nil
+            // No answer rather than a verdict: nothing was asked of the renderer here, and a
+            // `.failed` left standing from a previous page would caption a pane that is merely
+            // waiting for its first render.
+            renderOutcome = .rendering
             return
         }
         let token = UUID()
         rasterToken = token
+        renderOutcome = .rendering
         let leftPage = resolvedPairing.leftIndex(at: page)
         let rightPage = resolvedPairing.rightIndex(at: page)
         let kind = self.kind
@@ -883,8 +936,12 @@ struct FilePairCompareView<Verdict: View>: View {
         guard let l, let r else {
             difference = nil
             pageStates[page] = .unrenderable
+            // **The same finding the strip just recorded, told to the panes.** They knew only that
+            // they had no image, which is what a render still in flight looks like too.
+            renderOutcome = .failed(left: l == nil, right: r == nil)
             return
         }
+        renderOutcome = .ready
         guard showsOverlayModes else {
             // The rasters are up (the image viewer draws them); nothing here is being compared.
             difference = nil

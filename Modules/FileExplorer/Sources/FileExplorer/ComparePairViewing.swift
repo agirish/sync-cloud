@@ -128,6 +128,76 @@ struct PagePairing: Equatable {
     }
 }
 
+// MARK: - Whether there is anything to draw
+
+/// Which side of the pair a message is about.
+enum PairSide: Equatable {
+    case left, right
+}
+
+/// Whether the current page's two rasters could be built at all.
+///
+/// **"Not yet" and "not ever" were one state, and the interface showed a spinner for both.** A
+/// raster that cannot be built — a corrupt JPEG, an encrypted PDF, a page that will not draw — left
+/// the pixel modes spinning for the life of the surface, while the page strip a few points below
+/// had already resolved the same page to `.unrenderable`. Two parts of one surface knew different
+/// things about the same failure, and the louder one was wrong: a spinner is the interface saying
+/// "wait" about something that is never going to arrive.
+///
+/// Classifying SVG out of the image viewer removed the case that made this easy to hit, and not the
+/// failure itself — every decodable format still has corrupt files in it.
+enum PairRenderOutcome: Equatable {
+    /// No answer yet — a render is in flight, or none has been asked for.
+    case rendering
+    /// Both sides produced a raster.
+    case ready
+    /// At least one side could not be rendered. Both flags false is not representable in practice
+    /// and would read as `.ready`; ``failed(left:right:)`` is only built where one of them is true.
+    case failed(left: Bool, right: Bool)
+
+    var didFail: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+
+    /// Whether this particular side is the one that could not be rendered.
+    func failed(_ side: PairSide) -> Bool {
+        guard case .failed(let left, let right) = self else { return false }
+        return side == .left ? left : right
+    }
+
+    /// What a pane with no image should draw: keep waiting, or say why the wait is over.
+    ///
+    /// The message names the file rather than the side. "The left copy" is a fact about the layout
+    /// and the reader is looking at two similarly named files — the name is what tells them which
+    /// one their reader cannot open.
+    func fallback(for side: PairSide, name: String) -> PairPaneFallback {
+        failed(side) ? .message("“\(name)” could not be rendered.") : .spinner
+    }
+
+    /// The line the difference view draws instead of a picture, or nil while it should still wait.
+    ///
+    /// A comparison needs both sides, so one unrenderable side ends it — and the sentence says
+    /// that, rather than leaving the reader to infer it from an empty black field.
+    func differenceMessage(leftName: String, rightName: String) -> String? {
+        guard case .failed(let left, let right) = self else { return nil }
+        switch (left, right) {
+        case (true, true):
+            return "Neither copy could be rendered, so there is nothing to compare."
+        case (true, false):
+            return "“\(leftName)” could not be rendered, so there is nothing to compare."
+        default:
+            return "“\(rightName)” could not be rendered, so there is nothing to compare."
+        }
+    }
+}
+
+/// What a pane draws when it has no image.
+enum PairPaneFallback: Equatable {
+    case spinner
+    case message(String)
+}
+
 // MARK: - One strip entry's verdict
 
 /// What the page strip knows about one position.
