@@ -100,18 +100,23 @@ import Testing
 
     // MARK: What the user is told
 
-    /// The remedy, and the reason a reader would otherwise not guess it: an app can read every
-    /// file in a granted folder and still be refused the move, because a file kept in iCloud Drive
-    /// is trashed into iCloud's own Trash, outside those per-folder grants.
-    @Test func theRefusalNamesTheFileAndTheRemedy() {
+    /// **What the refusal is allowed to claim.** An earlier version told the reader to grant Full
+    /// Disk Access as though that were the fix; it was granted and the refusal stood. The message
+    /// may name it as worth checking, but must not present it as a remedy — and must say what IS
+    /// known: the file is untouched, both routes were tried, and the codes are in the log.
+    @Test func theRefusalSaysWhatIsKnownAndPromisesNoRemedy() {
         let error = SyncError.trashNotPermitted(path: "/Users/x/Documents/a.pdf",
                                                 reason: "no permission")
         #expect(error.path == "/Users/x/Documents/a.pdf",
                 "without a path the alert cannot even offer Reveal in Finder")
-        #expect(error.message.contains("Full Disk Access"))
-        #expect(error.message.contains("iCloud"))
-        #expect(error.message.contains("Nothing was removed."),
+        #expect(error.message.contains("Nothing was removed"),
                 "a refusal must say the file is still there")
+        #expect(error.message.contains("system's own Trash service"),
+                "the reader must know the fallback was tried too")
+        #expect(error.message.contains("sync-cloud.log"),
+                "the one place the codes are is not named")
+        #expect(error.message.contains("has not been enough on its own"),
+                "Full Disk Access is presented as a fix, which it measurably is not")
         #expect(error.reason == "no permission")
     }
 

@@ -163,14 +163,22 @@ extension SyncError {
     /// read every one of those files can still be refused the move.
     ///
     /// Not retryable: pressing the same button again cannot change a permission.
+    ///
+    /// **What this message may NOT say.** An earlier version told the reader to grant Full Disk
+    /// Access, as though that were the fix. It was measured and it is not: the grant was made and
+    /// the refusal stood. So the message names what is known — the system refused, both ways, and
+    /// nothing was removed — offers the one check that costs nothing, and points at the log rather
+    /// than promising a remedy nobody has confirmed. A dialog that sends someone to change a
+    /// setting that will not help is worse than one that admits the limit.
     public static func trashNotPermitted(path: String, reason: String) -> SyncError {
         SyncError(
             title: "Not Allowed to Move to the Trash",
-            message: "macOS won't let SyncCloud move this item to the Trash. Nothing was removed.\n\n"
-                + "Grant SyncCloud Full Disk Access in System Settings ▸ Privacy & Security, then "
-                + "quit and reopen it. A file kept in iCloud Drive is trashed into iCloud's own "
-                + "Trash, which the per-folder permissions don't cover — so reading the file can "
-                + "work while moving it is refused.",
+            message: "macOS refused to move this item to the Trash, both directly and through the "
+                + "system's own Trash service. Nothing was removed and the file is untouched.\n\n"
+                + "Worth checking that SyncCloud has Full Disk Access in System Settings ▸ Privacy "
+                + "& Security — though that has not been enough on its own. Moving the file in "
+                + "Finder still works. The exact refusal, with its error codes, is in "
+                + "~/sync-cloud.log.",
             path: path,
             reason: reason,
             isRetryable: false

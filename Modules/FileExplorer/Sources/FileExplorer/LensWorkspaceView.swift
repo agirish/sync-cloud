@@ -4542,6 +4542,11 @@ public struct LensWorkspaceView: View {
         if group.isDirectory {
             onCompareCopies(keep, other)
         } else {
+            // The folder hand-off logs its pair; this one did not, so the log he audits recorded
+            // every folder comparison and no file one — and the trash that may follow names two
+            // paths that appear from nowhere.
+            Logger.shared.info(
+                "Comparing duplicate copies — keep \(keep.path) · other \(other.path)")
             onCompareFilePair(DuplicateComparePair(keeper: keep, other: other,
                                                    matchType: group.matchType,
                                                    groupName: group.name))

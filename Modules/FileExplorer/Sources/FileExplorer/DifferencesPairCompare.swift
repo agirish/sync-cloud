@@ -104,6 +104,11 @@ public struct DifferencesPairCompareOverlay: View {
 
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
+    /// The remembered card size, read here only so the "still statting" placeholder is the size
+    /// the card is about to be. Sized from the default instead, the whole overlay visibly jumped
+    /// the moment the two stats landed.
+    @AppStorage(CompareOverlayMetrics.widthDefaultsKey) private var storedWidth: Double = 0
+    @AppStorage(CompareOverlayMetrics.heightDefaultsKey) private var storedHeight: Double = 0
 
     @State private var copies: (left: DuplicateCopy, right: DuplicateCopy)?
 
@@ -130,7 +135,8 @@ public struct DifferencesPairCompareOverlay: View {
 
     @ViewBuilder
     private func card(available: CGSize) -> some View {
-        let size = CompareOverlayMetrics.size(available: available)
+        let size = CompareOverlayMetrics.size(
+            available: available, stored: CGSize(width: storedWidth, height: storedHeight))
         if let copies {
             FilePairCompareView(
                 left: copies.left, right: copies.right,

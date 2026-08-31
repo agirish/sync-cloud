@@ -31,6 +31,9 @@ User-facing changes, newest first. For the full commit history see the
 - **A copy that has not been downloaded says so** and offers to fetch it, instead of showing an
   empty pane. Previewing it would pull the whole file down, which on a cloud folder is the normal
   case rather than the exception.
+- **The surface resizes and remembers it.** Drag any edge or corner; it opens at that size next
+  time, held to what the window can actually show — so moving to a smaller display cannot leave
+  its verdict bar off screen.
 
 ### Two PDFs, or two images, move together
 

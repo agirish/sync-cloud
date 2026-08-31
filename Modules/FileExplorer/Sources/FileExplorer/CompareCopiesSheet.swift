@@ -162,6 +162,12 @@ struct FilePairCompareView<Verdict: View>: View {
     var hash: @Sendable (String) async -> FileContentVerifier.HashOutcome = {
         await FileContentVerifier.hashOutcome(filePath: $0, cache: ContentHashCache.shared)
     }
+    /// The mode to open in. nil — every production caller — means side by side.
+    ///
+    /// A seam for one property: a pixel mode entered BEFORE the sides have been classified must
+    /// still get them classified. Pressing `4` on a freshly-opened surface is exactly that, and
+    /// there is no way to post a key into a `@State` mode from a test.
+    var initialMode: ComparePairMode?
 
     /// **The only thing the two hosts do not share.** Everything above this bar is one component:
     /// the facts, the panes, the modes, the strip. Only the bottom bar knows WHY you are looking —
@@ -173,7 +179,13 @@ struct FilePairCompareView<Verdict: View>: View {
     @State private var verify: ComparePairVerify = .idle
     @State private var mode: ComparePairMode = .sideBySide
     @State private var page = 0
-    @State private var pairing = PagePairing(leftPages: 0, rightPages: 0)
+    /// nil until the page counts have been asked for.
+    ///
+    /// **"Not asked yet" and "opens to nothing" are different**, and a plain `PagePairing(0, 0)`
+    /// said both. A PDF pair fell through to the Quick Look panes while the count was in flight
+    /// and swapped to the typed viewer when it landed — a visible flicker, and a Quick Look
+    /// extension process spun up for a preview that was about to be replaced.
+    @State private var pairing: PagePairing?
     @State private var rasters: (left: CGImage?, right: CGImage?) = (nil, nil)
     @State private var difference: CGImage?
     @State private var pageStates: [Int: PageDiffState] = [:]
@@ -216,12 +228,8 @@ struct FilePairCompareView<Verdict: View>: View {
                                    stored: CGSize(width: storedWidth, height: storedHeight))
     }
 
-    /// The size the card draws at — a live drag, else the remembered size, else the default.
-    private var size: CGSize {
-        dragging ?? CompareOverlayMetrics.size(
-            available: availableSize,
-            stored: CGSize(width: storedWidth, height: storedHeight))
-    }
+    /// The size the card draws at — a live drag, else the committed one.
+    private var size: CGSize { dragging ?? committedSize }
 
     private var facts: ComparePairFacts {
         ComparePairFacts.make(left: left, right: right,
@@ -238,6 +246,19 @@ struct FilePairCompareView<Verdict: View>: View {
 
     private var modes: [ComparePairMode] { ComparePairMode.available(for: kind) }
 
+    /// The mode to DRAW in — the chosen one, unless this pair does not offer it.
+    ///
+    /// **A kind change can strand the mode.** `mode` is `@State` and the offered set comes from
+    /// the pair's kind, so a surface handed a PDF pair while sitting in `.textDiff` would render
+    /// the previous pair's line diff under a segmented control with nothing selected. Clamped
+    /// here rather than only reset on the pair task, so the render can never disagree with the
+    /// picker even for the frame between the two.
+    private var activeMode: ComparePairMode { modes.contains(mode) ? mode : .sideBySide }
+
+    /// The page pairing, or an empty one while the counts are still being asked for. Callers that
+    /// need to know the difference read `pairing` itself.
+    private var resolvedPairing: PagePairing { pairing ?? PagePairing(leftPages: 0, rightPages: 0) }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -247,12 +268,11 @@ struct FilePairCompareView<Verdict: View>: View {
             Divider()
             if modes.count > 1 { modeBar }
             panes
-            if kind == .pdf, pairing.stripLength > 1 {
+            if kind == .pdf, resolvedPairing.stripLength > 1 {
                 Divider()
-                PageStrip(pairing: pairing, states: pageStates, current: page, accent: accent) {
-                    page = $0
-                }
-                .padding(.horizontal, 16).padding(.vertical, 8)
+                PageStrip(pairing: resolvedPairing, states: pageStates, current: page,
+                          accent: accent) { page = $0 }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
             }
             Divider()
             verdict()
@@ -266,7 +286,20 @@ struct FilePairCompareView<Verdict: View>: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            if let initialMode { mode = initialMode }
+        }
+        // **Both sides are classified at the ROOT, not inside a pane.** The probe used to live in
+        // the per-side preview, which only the side-by-side fallback mounts — so opening the
+        // surface and pressing `4` straight away left `sources` empty for ever: the raster refresh
+        // bailed on "not both readable" and nothing could re-trigger it, because the thing that
+        // would have was in a branch that mode never renders. A permanent spinner.
+        //
+        // Keyed on the path AND the download latch, so a cloud-only side that lands re-probes —
+        // which is what turns its placeholder into a preview without a second poller.
+        .task(id: probeKey(left)) { sources[left.path] = await probe(left.path) }
+        .task(id: probeKey(right)) { sources[right.path] = await probe(right.path) }
         // Drag any edge or corner to resize, and the size is remembered. `ResizableCardGrips` is
         // the Help card's own apparatus, moved to `Design` when this became the second resizable
         // overlay rather than copied.
@@ -318,12 +351,17 @@ struct FilePairCompareView<Verdict: View>: View {
             onClose()
             return .handled
         }
-        .onKeyPress(.escape) {
+        // `keys:` rather than the single-key overload, because that one does NOT filter modifiers
+        // either — the same measured fact the ⏎ handler above is written around. This file's rule
+        // is `isPlainKeystroke` on every handler, and esc was the one that did not follow it.
+        .onKeyPress(keys: [.escape], phases: .down) { press in
+            guard press.isPlainKeystroke else { return .ignored }
             onClose()
             return .handled
         }
-        // 1–4 pick a mode, in the order `ComparePairMode.allCases` declares them — the digit is
-        // derived from that order rather than written twice.
+        // 1–4 pick a mode by its position in what this pair OFFERS — see
+        // `ComparePairMode.forDigit(_:in:)`. A text pair offers two segments, so `2` there is its
+        // Diff; a digit past the end is `.ignored` rather than reaching a segment not on screen.
         .onKeyPress(keys: ["1", "2", "3", "4"], phases: .down) { press in
             guard press.isPlainKeystroke,
                   let digit = Int(String(press.key.character)),
@@ -334,9 +372,9 @@ struct FilePairCompareView<Verdict: View>: View {
         // ⇞/⇟ page BOTH sides — the surface owns the page, so there is one number and the
         // pairing clamps each side to its own last page.
         .onKeyPress(keys: [.pageUp, .pageDown], phases: .down) { press in
-            guard press.isPlainKeystroke, pairing.stripLength > 1 else { return .ignored }
+            guard press.isPlainKeystroke, resolvedPairing.stripLength > 1 else { return .ignored }
             let next = press.key == .pageUp ? page - 1 : page + 1
-            page = min(max(0, next), pairing.stripLength - 1)
+            page = min(max(0, next), resolvedPairing.stripLength - 1)
             return .handled
         }
         // ⌥ as a HELD modifier, not a chord: chords with ⌥ are banned app-wide (they fire from
@@ -349,15 +387,24 @@ struct FilePairCompareView<Verdict: View>: View {
         // built from. Off the main actor and behind the serial lane, so a scan already parsing
         // simply makes it arrive late.
         .task(id: pairKey) {
+            // **A fresh pair inherits nothing.** Every one of these is `@State` on a view the host
+            // can hand a new pair without unmounting, and each carries an answer about the
+            // PREVIOUS pair: a strip of dots, a line diff, a verify verdict, a page number, and a
+            // mode this pair may not even offer. The reset used to cover only the first of them,
+            // and only for PDFs — it sat below the `kind` guard.
+            pageStates = [:]
+            page = 0
+            textDiff = nil
+            textNotes = []
+            verify = .idle
+            rasters = (nil, nil)
+            difference = nil
+            if !modes.contains(mode) { mode = .sideBySide }
             guard kind == .pdf else {
                 pairing = PagePairing(leftPages: 0, rightPages: 0)
                 return
             }
-            // A fresh pair inherits none of the previous one's verdicts. Reachable: the host can
-            // swap the pair under a view SwiftUI has kept alive, and a strip showing the last
-            // document's dots would be describing a file nobody is looking at.
-            pageStates = [:]
-            page = 0
+            pairing = nil
             async let leftCount = PagePairRaster.pageCount(path: left.path)
             async let rightCount = PagePairRaster.pageCount(path: right.path)
             pairing = PagePairing(leftPages: await leftCount ?? 0, rightPages: await rightCount ?? 0)
@@ -368,11 +415,11 @@ struct FilePairCompareView<Verdict: View>: View {
         .task(id: rasterKey) { await refreshRasters() }
         // Re-read only when the pair changes or the diff is actually being looked at — a text
         // pair the user never switches to Diff costs nothing.
-        .task(id: "\(pairKey)|\(mode.rawValue)") { await refreshTextDiff() }
+        .task(id: "\(pairKey)|\(activeMode.rawValue)") { await refreshTextDiff() }
         // ↑/↓ step between CHANGES, not lines: a twelve-line replacement is one thing that
         // happened, and twelve presses to get past it is twelve too many.
         .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
-            guard press.isPlainKeystroke, mode == .textDiff,
+            guard press.isPlainKeystroke, activeMode == .textDiff,
                   let diff = textDiff, !diff.regions.isEmpty else { return .ignored }
             let step = press.key == .upArrow ? -1 : 1
             focusedRegion = (focusedRegion + step + diff.regions.count) % diff.regions.count
@@ -556,12 +603,12 @@ struct FilePairCompareView<Verdict: View>: View {
             .labelsHidden()
             .fixedSize()
             .accessibilityLabel("Compare mode")
-            if mode == .onion {
+            if activeMode == .onion {
                 Slider(value: $onionOpacity, in: 0...1)
                     .frame(maxWidth: 160)
                     .accessibilityLabel("Onion blend")
             }
-            if let caveat = mode.caveat {
+            if let caveat = activeMode.caveat {
                 Text(caveat)
                     .scaledFont(.system(size: 10.5))
                     .foregroundStyle(.secondary)
@@ -593,13 +640,13 @@ struct FilePairCompareView<Verdict: View>: View {
     @ViewBuilder
     private var panes: some View {
         Group {
-            switch mode {
+            switch activeMode {
             case .sideBySide:
                 sideBySidePanes
             case .textDiff:
                 textDiffPane
             case .swipe, .onion, .difference:
-                VisualPairModeView(mode: mode, left: rasters.left, right: rasters.right,
+                VisualPairModeView(mode: activeMode, left: rasters.left, right: rasters.right,
                                    difference: difference,
                                    swipeFraction: $swipeFraction, onionOpacity: $onionOpacity)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
@@ -651,7 +698,13 @@ struct FilePairCompareView<Verdict: View>: View {
     /// over two line arrays, which for a 4 MB file is real work and has no business on the actor
     /// that draws the window.
     private func refreshTextDiff() async {
-        guard kind == .text, mode == .textDiff else { return }
+        guard kind == .text, activeMode == .textDiff else {
+            // Cleared, not merely skipped: a diff left standing here is the PREVIOUS pair's, and
+            // `textDiffPane` renders whatever is in it the moment the mode comes back.
+            textDiff = nil
+            textNotes = []
+            return
+        }
         let leftPath = left.path, rightPath = right.path
         let result = await Task.detached(priority: .userInitiated) {
             () -> (TextPairDiff?, [String]) in
@@ -687,10 +740,19 @@ struct FilePairCompareView<Verdict: View>: View {
     /// panes that can say why — a `PDFView` given a placeholder path shows an empty grey box.
     @ViewBuilder
     private var sideBySidePanes: some View {
-        if kind == .pdf, bothSidesReadable, pairing.stripLength > 0 {
+        if kind.hasSyncedViewer && stillResolvingTypedViewer {
+            // **Neither panes nor a decision yet.** A kind that is about to get a typed viewer
+            // must not flash the Quick Look fallback first: that swaps the whole pane a moment
+            // later, and spins up a Quick Look extension process for a preview already on its way
+            // out. `pairing == nil` is what distinguishes "the count is in flight" from "this PDF
+            // opens to nothing", which is why it is optional.
+            ProgressView()
+                .controlSize(.small)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if kind == .pdf, bothSidesReadable, resolvedPairing.stripLength > 0 {
             typedPanes {
                 PDFPairView(leftPath: left.path, rightPath: right.path,
-                            page: page, pairing: pairing, syncSuspended: optionHeld)
+                            page: page, pairing: resolvedPairing, syncSuspended: optionHeld)
             }
         } else if kind == .image, bothSidesReadable {
             typedPanes {
@@ -737,13 +799,24 @@ struct FilePairCompareView<Verdict: View>: View {
         sources[left.path] == .quickLook && sources[right.path] == .quickLook
     }
 
+    /// Whether a kind that earns a typed viewer is still waiting on the facts that decide it —
+    /// either side unclassified, or (for a PDF) the page counts not yet asked for.
+    private var stillResolvingTypedViewer: Bool {
+        if sources[left.path] == nil || sources[right.path] == nil { return true }
+        return kind == .pdf && pairing == nil
+    }
+
     // MARK: Rasters
 
     /// What a render is keyed on. The mode is in it because side-by-side on a PDF needs no raster
     /// at all — the two `PDFView`s draw themselves — so switching INTO a pixel mode is what starts
     /// the work, and switching out stops re-doing it.
+    /// **`bothSidesReadable` is in the key, and that is the other half of the probe fix.** The
+    /// refresh bails when the sides are not yet classified; without that term nothing re-keys the
+    /// task when they are, so the bail was permanent.
     private var rasterKey: String {
-        "\(pairKey)|\(page)|\(kind.rawValue)|\(needsRasters)|\(showsOverlayModes)|\(pairing.stripLength)"
+        "\(pairKey)|\(page)|\(kind.rawValue)|\(needsRasters)|\(showsOverlayModes)"
+            + "|\(bothSidesReadable)|\(resolvedPairing.stripLength)"
     }
 
     /// Whether the DIFF is being looked at, as opposed to the rasters merely being needed.
@@ -752,10 +825,10 @@ struct FilePairCompareView<Verdict: View>: View {
     /// difference image is a third full-size raster and the comparison a pass over two more, and
     /// side by side shows neither. Computing them anyway would spend that on every image pair
     /// opened, for a number nobody is reading.
-    private var showsOverlayModes: Bool { mode != .sideBySide }
+    private var showsOverlayModes: Bool { activeMode != .sideBySide }
 
     private var needsRasters: Bool {
-        kind.hasPixelModes && (mode != .sideBySide || kind == .image)
+        kind.hasPixelModes && (activeMode != .sideBySide || kind == .image)
     }
 
     /// Renders both sides of the current page and diffs them.
@@ -771,8 +844,8 @@ struct FilePairCompareView<Verdict: View>: View {
         }
         let token = UUID()
         rasterToken = token
-        let leftPage = pairing.leftIndex(at: page)
-        let rightPage = pairing.rightIndex(at: page)
+        let leftPage = resolvedPairing.leftIndex(at: page)
+        let rightPage = resolvedPairing.rightIndex(at: page)
         let kind = self.kind
         async let leftImage = PagePairRaster.render(path: left.path, kind: kind,
                                                     page: leftPage,
@@ -802,7 +875,7 @@ struct FilePairCompareView<Verdict: View>: View {
         }.value
         guard rasterToken == token else { return }
         difference = comparison.0?.cgImage
-        pageStates[page] = pairing.isComparable(at: page)
+        pageStates[page] = resolvedPairing.isComparable(at: page)
             ? PageDiffState.from(comparison.1)
             : .oneSided
     }
@@ -883,9 +956,6 @@ struct FilePairCompareView<Verdict: View>: View {
             case nil:
                 ProgressView().controlSize(.small)
             }
-        }
-        .task(id: probeKey(copy)) {
-            sources[copy.path] = await probe(copy.path)
         }
     }
 
@@ -1015,6 +1085,8 @@ struct CompareCopiesSheet: View {
     var hash: @Sendable (String) async -> FileContentVerifier.HashOutcome = {
         await FileContentVerifier.hashOutcome(filePath: $0, cache: ContentHashCache.shared)
     }
+    /// Forwarded to ``FilePairCompareView/initialMode`` — tests only; see there.
+    var initialMode: ComparePairMode?
 
     var body: some View {
         FilePairCompareView(
@@ -1037,7 +1109,7 @@ struct CompareCopiesSheet: View {
             availableSize: availableSize,
             onChooseKeeper: onChooseKeeper,
             onClose: onClose,
-            probe: probe, hash: hash,
+            probe: probe, hash: hash, initialMode: initialMode,
             verdict: { verdictBar })
     }
 

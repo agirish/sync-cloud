@@ -68,6 +68,9 @@ struct PDFPairView: NSViewRepresentable {
         /// Whether the SCROLL observers are registered. They cannot be registered at construction
         /// (see `wireScroll`), and registering them twice would mirror every scroll twice.
         var scrollWired = false
+        /// Just the scroll observers, so a re-wire after a path change can drop the previous
+        /// pair's without disturbing the zoom ones, which are registered once for the view's life.
+        var scrollObservers: [NSObjectProtocol] = []
 
         deinit {
             for observer in observers { NotificationCenter.default.removeObserver(observer) }
@@ -188,6 +191,14 @@ struct PDFPairView: NSViewRepresentable {
               let left = coordinator.left, let right = coordinator.right,
               let leftClip = left.documentView?.enclosingScrollView?.contentView,
               let rightClip = right.documentView?.enclosingScrollView?.contentView else { return }
+        // **Drop the previous pair's observers before adding this pair's.** The `PDFView`s are
+        // reused across a path change, so their clip views can be the very same objects — and a
+        // second registration on one clip mirrors every scroll twice. Harmless in effect (the
+        // latch collapses the duplicate) and a leak in fact, growing by two per pair opened.
+        for observer in coordinator.scrollObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        coordinator.scrollObservers.removeAll()
         coordinator.scrollWired = true
         for (sourceClip, target) in [(leftClip, right), (rightClip, left)] {
             sourceClip.postsBoundsChangedNotifications = true
@@ -203,6 +214,7 @@ struct PDFPairView: NSViewRepresentable {
                 }
             }
             coordinator.observers.append(observer)
+            coordinator.scrollObservers.append(observer)
         }
     }
 }

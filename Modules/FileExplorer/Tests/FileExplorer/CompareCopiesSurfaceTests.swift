@@ -283,6 +283,8 @@ import Testing
         let isStale: Bool
         let available: CGSize
         let source: ColumnPreviewSource
+        var startingMode: ComparePairMode?
+        var probeCount: ProbeCount?
 
         var body: some View {
             CompareCopiesSheet(
@@ -290,8 +292,9 @@ import Testing
                 protectedPaths: [], isStale: isStale, scanRoot: "/root",
                 providerName: "Projects", hue: .blue, availableSize: available,
                 onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {},
-                probe: { [source] _ in source },
-                hash: { _ in .hashed("a") })
+                probe: { [source, probeCount] path in probeCount?.record(path); return source },
+                hash: { _ in .hashed("a") },
+                initialMode: startingMode)
         }
     }
 
@@ -323,13 +326,16 @@ import Testing
     }
 
     private func mount(_ fixture: Fixture, available: CGSize, isStale: Bool = false,
-                       source: ColumnPreviewSource = .quickLook) -> Mounted {
+                       source: ColumnPreviewSource = .quickLook,
+                       startingMode: ComparePairMode? = nil,
+                       probeCount: ProbeCount? = nil) -> Mounted {
         let keeper = copy(fixture.left, keeper: true)
         let other = copy(fixture.right)
         let host = NSHostingView(rootView: Harness(
             pair: DuplicateComparePair(keeper: keeper, other: other,
                                        matchType: .identical, groupName: "note.txt"),
-            keeperPath: fixture.left, isStale: isStale, available: available, source: source))
+            keeperPath: fixture.left, isStale: isStale, available: available, source: source,
+            startingMode: startingMode, probeCount: probeCount))
         host.frame = CGRect(origin: .zero, size: available)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -420,6 +426,127 @@ import Testing
         }
         #expect(held, "the card drew at \(host.fittingSize.width)pt, not the remembered 880 (\(pumps) pumps)")
         #expect(abs(host.fittingSize.height - 600) < 1, "height \(host.fittingSize.height)")
+    }
+
+    /// **A pair swapped under a live surface must classify its NEW sides.**
+    ///
+    /// The probe that classifies each side used to live inside the per-side preview, which only
+    /// the side-by-side fallback mounts. In any other mode nothing ran it — so a surface handed a
+    /// second pair while sitting in a pixel mode never learned whether the new sides were even
+    /// readable, the raster refresh bailed on "not both readable", and nothing could re-trigger
+    /// it, because the thing that would have was in a branch that mode never renders.
+    ///
+    /// **The first draft of this test was vacuous and said so when mutated**: seeding the mode in
+    /// `onAppear` still lets one side-by-side frame render first, which mounts the panes and runs
+    /// the probe anyway. Swapping the pair is what reaches the state with no such frame.
+    @Test func aSwappedPairClassifiesItsNewSidesInAPixelMode() async throws {
+        let first = try ImageFixture()
+        let second = try ImageFixture()
+        let probed = ProbeCount()
+        let box = PairBox(pair: Self.pair(first))
+        let available = CGSize(width: 1200, height: 800)
+        let host = NSHostingView(rootView: AnyView(
+            SwappableHarness(box: box, available: available, probeCount: probed)))
+        host.frame = CGRect(origin: .zero, size: available)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+
+        let (firstDone, _) = await LayoutPumpWait.pump(window, upTo: 3) {
+            probed.paths.isSuperset(of: [first.left, first.right])
+        }
+        try #require(firstDone, "the first pair was never classified — the swap proves nothing")
+
+        box.pair = Self.pair(second)
+        let (secondDone, pumps) = await LayoutPumpWait.pump(window, upTo: 3) {
+            probed.paths.isSuperset(of: [second.left, second.right])
+        }
+        #expect(secondDone, """
+                the swapped-in pair's sides were never classified (\(pumps) pumps) — the raster                 refresh can never start for it
+                """)
+    }
+
+    /// Two real PNGs. **The kind matters**: `.difference` is only OFFERED for a pair with pixel
+    /// modes, and a `.txt` pair clamps straight back to side by side — which is how the first two
+    /// drafts of this test managed to pass with the bug in place.
+    private final class ImageFixture {
+        let dir: URL
+        let left: String
+        let right: String
+        init() throws {
+            dir = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("CompareImageFixture-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            left = try Self.write(dir.appendingPathComponent("a.png"))
+            right = try Self.write(dir.appendingPathComponent("b.png"))
+        }
+        deinit { try? FileManager.default.removeItem(at: dir) }
+
+        private static func write(_ url: URL) throws -> String {
+            let rep = try #require(NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: 8, pixelsHigh: 8, bitsPerSample: 8,
+                samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            let data = try #require(rep.representation(using: .png, properties: [:]))
+            try data.write(to: url)
+            return url.path
+        }
+    }
+
+    private static func pair(_ fixture: ImageFixture) -> DuplicateComparePair {
+        func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
+            DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
+                          size: 1000, itemCount: 1, modificationDate: scanned,
+                          uniqueItemCount: 0, depth: 1, isRecommendedKeeper: keeper)
+        }
+        return DuplicateComparePair(keeper: copy(fixture.left, keeper: true),
+                                    other: copy(fixture.right, keeper: false),
+                                    matchType: .identical, groupName: "a.png")
+    }
+
+    private static func pair(_ fixture: Fixture) -> DuplicateComparePair {
+        func copy(_ path: String, keeper: Bool) -> DuplicateCopy {
+            DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
+                          size: 1000, itemCount: 1, modificationDate: scanned,
+                          uniqueItemCount: 0, depth: 1, isRecommendedKeeper: keeper)
+        }
+        return DuplicateComparePair(keeper: copy(fixture.left, keeper: true),
+                                    other: copy(fixture.right, keeper: false),
+                                    matchType: .identical, groupName: "note.txt")
+    }
+
+    final class PairBox: ObservableObject {
+        @Published var pair: DuplicateComparePair
+        init(pair: DuplicateComparePair) { self.pair = pair }
+    }
+
+    /// Mounts the surface in a PIXEL mode and lets the test swap the pair underneath it, without
+    /// the view being torn down — which is the state the whole pair-change reset exists for and
+    /// had no test at all.
+    private struct SwappableHarness: View {
+        @ObservedObject var box: PairBox
+        let available: CGSize
+        let probeCount: ProbeCount
+
+        var body: some View {
+            CompareCopiesSheet(
+                pair: box.pair, keeperPath: box.pair.left.path, allowsKeeperChoice: true,
+                protectedPaths: [], isStale: false, scanRoot: "/root",
+                providerName: "Projects", hue: .blue, availableSize: available,
+                onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {},
+                probe: { [probeCount] path in probeCount.record(path); return .quickLook },
+                hash: { _ in .hashed("a") },
+                initialMode: .difference)
+        }
+    }
+
+    final class ProbeCount: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: Set<String> = []
+        func record(_ path: String) { lock.lock(); seen.insert(path); lock.unlock() }
+        var paths: Set<String> { lock.lock(); defer { lock.unlock() }; return seen }
     }
 
     /// A cloud-only side mounts NO Quick Look view — rendering one would force the provider to
