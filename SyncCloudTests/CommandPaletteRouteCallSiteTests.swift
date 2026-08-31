@@ -250,7 +250,8 @@ import Sync
     /// public enum in another module — compile here and silently do nothing.
     @Test func everyRouteCaseIsHandledWithoutADefaultArm() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        for arm in ["case .compare:", "case .storage:", "case .organize(let lens, let scope):",
+        for arm in ["case .compare:", "case .storage:", "case .editor:",
+                    "case .organize(let lens, let scope):",
                     "case .person(let id):", "case .provider(let id):", "case .folder(let path):",
                     "case .action(let action):", "case .settings(let raw):"] {
             #expect(host.contains(arm), "runPaletteRoute no longer handles `\(arm)`")

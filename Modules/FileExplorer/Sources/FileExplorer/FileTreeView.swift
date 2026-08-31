@@ -1088,6 +1088,29 @@ enum SharedFileMenuItems {
         }
     }
 
+    /// **"Open in Edit" — the hand-off to the one writable text surface.**
+    ///
+    /// Offered only for a file `PairContentKind` already calls text, which is the same table the
+    /// editor's rail filters on: a menu item that opened a JPEG into a text editor would be
+    /// offering something the editor would then refuse.
+    ///
+    /// One member rather than an item written at each menu site, for the reason `SharedFileMenuItems`
+    /// exists at all: the pane tree and the columns view each build their own menu, and a verb
+    /// re-typed once per surface is a verb that comes to mean something slightly different on each
+    /// of them. This one currently has a single call site, inside `FileContextMenu` — which is what
+    /// carries it to Browse, to both Compare panes, to the single-source rail and to the columns
+    /// view at once, and is exactly why it is written here rather than there.
+    @ViewBuilder
+    static func openInEditor(_ path: String, delegate: FileActionDelegate) -> some View {
+        if PairContentKind.classify(path: path) == .text {
+            Button(action: { delegate.handleOpenInEditor(path) }) {
+                // "Open in Edit", not "Open in Editor" — the same shape as the reverse hand-off's
+                // "Reveal in Browse", and both name a workspace by the word on its bar segment.
+                Label("Open in Edit", systemImage: "square.and.pencil")
+            }
+        }
+    }
+
     static func newFolder(at path: String, delegate: FileActionDelegate) -> some View {
         Button(action: { delegate.handleCreateFolder(at: path) }) {
             Label("New Folder", systemImage: "folder.badge.plus")
@@ -1248,6 +1271,9 @@ struct FileContextMenu: View {
                 // **Ahead of Quick Look, deliberately** (roadmap Fig. 11). With no ＋ on screen
                 // until a second tab exists, this item is the whole discovery story for tabs — it
                 // earns a place people's eyes actually reach rather than the bottom of the menu.
+                if !singleNode.isDirectory {
+                    SharedFileMenuItems.openInEditor(singleNode.id, delegate: delegate)
+                }
                 if singleNode.isDirectory, delegate.canOpenInNewTab {
                     Button(action: { delegate.handleOpenInNewTab(singleNode) }) {
                         Label("Open in New Tab", systemImage: "plus.rectangle.on.rectangle")

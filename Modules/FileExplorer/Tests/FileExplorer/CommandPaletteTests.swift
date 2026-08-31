@@ -302,7 +302,8 @@ import Foundation
 
     @Test func theEmptyQueryWithNoHistoryStillOffersEveryPlace() {
         let rows = PaletteRouter.rows(query: "   ", index: Self.index())
-        for place in [PaletteRoute.browse, .compare, .storage, .organize(lens: nil, scope: nil)]
+        for place in [PaletteRoute.browse, .compare, .storage, .editor,
+                      .organize(lens: nil, scope: nil)]
             + OrganizeLens.railItems.map({ PaletteRoute.organize(lens: $0, scope: nil) }) {
             #expect(rows.contains { $0.route == place }, "\(place) is unreachable from an empty query")
         }
@@ -330,7 +331,7 @@ import Foundation
     /// has to appear in the list the router walks.
     @Test func everyPlaceIsOfferedByTheHandWrittenAllCases() {
         let offered = Set(PalettePlace.allCases.map(\.id))
-        let expected = Set(([PalettePlace.browse, .compare, .storage, .organizeOverview]
+        let expected = Set(([PalettePlace.browse, .compare, .storage, .editor, .organizeOverview]
                             + OrganizeLens.railItems.map(PalettePlace.lens)).map(\.id))
         #expect(offered == expected)
         // And the list is what the ROWS come from, so an entry that exists but scores nothing is

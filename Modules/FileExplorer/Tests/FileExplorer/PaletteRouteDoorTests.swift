@@ -37,6 +37,7 @@ import Design
         case .browse: return "browse"
         case .compare: return "compare"
         case .storage: return "storage"
+        case .editor: return "editor"
         case .organize: return "organize"
         case .person: return "person"
         case .provider: return "provider"
@@ -65,7 +66,8 @@ import Design
         switch route {
         case .folder(let path): return path
         case .organize(_, let scope): return scope
-        case .browse, .compare, .storage, .person, .provider, .action, .settings: return nil
+        case .browse, .compare, .storage, .editor, .person, .provider, .action, .settings:
+            return nil
         }
     }
 

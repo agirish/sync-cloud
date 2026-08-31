@@ -252,6 +252,8 @@ extension ContentView {
             workspaceSelection.wrappedValue = .compare
         case .storage:
             workspaceSelection.wrappedValue = .storage
+        case .editor:
+            workspaceSelection.wrappedValue = .editor
         case .organize(let lens, let scope):
             aimOrganize(lens: lens, scope: scope)
         case .person(let id):
