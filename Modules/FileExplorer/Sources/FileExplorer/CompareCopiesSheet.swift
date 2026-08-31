@@ -436,8 +436,7 @@ struct FilePairCompareView<Verdict: View>: View {
             // previous pair's two files — under the new pair's name, on the surface whose whole
             // claim is that it is telling you about these two.
             verifyToken = UUID()
-            rasters = (nil, nil)
-            pageComparison = PageComparison()
+            clearRasters()
             renderOutcome = .rendering
             pageSearchToken = UUID()
             pageSearching = false
@@ -1073,6 +1072,27 @@ struct FilePairCompareView<Verdict: View>: View {
         return PageDiffState.from(result)
     }
 
+    /// Drops the rasters AND orphans whatever is still rendering them.
+    ///
+    /// **One helper because there are two clearers and both have to rotate.** `.task(id:)` cancels
+    /// the render in flight, and Swift cancellation is cooperative: the two `PagePairRaster` awaits
+    /// resume anyway and nothing below them asks `Task.isCancelled`. So the only thing between a
+    /// superseded render and the state it is about to overwrite is `guard rasterToken == token` —
+    /// and a clear that leaves the token alone leaves that guard satisfied. The run then re-fills
+    /// `rasters` and `pageComparison` a moment after they were cleared: two full-page CGImages and
+    /// a difference image retained by a mode that draws none of them, ready to be shown as this
+    /// page's answer the moment an overlay mode comes back.
+    ///
+    /// The pair reset clears these too, and rotating there matters for a second reason — the pair
+    /// has CHANGED, so a landing render describes two files that are no longer on screen.
+    ///
+    /// **Rotate first, then clear**, or the clear is what the stale render overwrites.
+    private func clearRasters() {
+        rasterToken = UUID()
+        rasters = (nil, nil)
+        pageComparison = PageComparison()
+    }
+
     /// Renders both sides of the current page and diffs them.
     ///
     /// **The lane is held for open and draw only.** `PagePairRaster` releases it before returning,
@@ -1080,8 +1100,7 @@ struct FilePairCompareView<Verdict: View>: View {
     /// lane across the pixel work would stall a running scan's extractions behind a compare.
     private func refreshRasters() async {
         guard needsRasters, bothSidesReadable else {
-            rasters = (nil, nil)
-            pageComparison = PageComparison()
+            clearRasters()
             // No answer rather than a verdict: nothing was asked of the renderer here, and a
             // `.failed` left standing from a previous page would caption a pane that is merely
             // waiting for its first render.

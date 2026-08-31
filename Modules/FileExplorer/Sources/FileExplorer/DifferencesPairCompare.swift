@@ -162,6 +162,19 @@ public struct DifferencesPairCompareOverlay: View {
     @AppStorage(CompareOverlayMetrics.heightDefaultsKey) private var storedHeight: Double = 0
 
     @State private var copies: (left: DuplicateCopy, right: DuplicateCopy)?
+    /// Which pair the outstanding stat is about.
+    ///
+    /// **The same guard the Compare surface's three other awaits carry**, and here for the same
+    /// reason: `.task(id:)` cancels, Swift cancellation is cooperative, and the stat runs in a
+    /// `Task.detached` that neither observes it nor finishes in the order it was started. Without
+    /// this, a pair swapped under an open overlay would draw the PREVIOUS pair's name, size and
+    /// dates under the new pair's title the moment the old stat landed.
+    ///
+    /// Not reachable from the shipped UI today — the scrim covers the rows this is opened from, so
+    /// nothing can hand it a second pair while it is up. It is here on the standard `resolveCopy`
+    /// and the two token'd tasks beside it are held to: the host owns `compareDifferencePair` as
+    /// `@State` and can set it, and "no caller does that yet" is not a property of this view.
+    @State private var statToken = UUID()
     /// Focus for the placeholder, which is the only thing mounted while the two stats are in
     /// flight — see ``waitingPlaceholder``.
     @FocusState private var waitingFocused: Bool
@@ -184,7 +197,17 @@ public struct DifferencesPairCompareOverlay: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .transition(.opacity)
-        .task(id: pair.id) { copies = await copiesForPair(pair) }
+        .task(id: pair.id) {
+            let token = UUID()
+            statToken = token
+            // **A fresh pair inherits nothing**, the rule the Compare surface's own pair reset
+            // states: the card's facts are about the pair its title names, so the placeholder is
+            // what belongs here until this pair's own stat lands.
+            copies = nil
+            let stat = await copiesForPair(pair)
+            guard statToken == token else { return }
+            copies = stat
+        }
     }
 
     @ViewBuilder
