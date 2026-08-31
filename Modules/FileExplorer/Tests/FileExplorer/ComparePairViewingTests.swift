@@ -418,6 +418,161 @@ import Testing
         #expect(!latch.isMirroring)
     }
 
+    // MARK: Scrolling, at the size the reader actually gets
+
+    /// A page-sized document at the pane size the overlay really opens, so the fixture cannot be
+    /// the reason the answer comes out favourable: US Letter, the geometry of the pair that
+    /// prompted this.
+    private final class LetterFixture {
+        let dir: URL
+        let left: String
+        let right: String
+        init() throws {
+            dir = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("LetterPair-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            left = try Self.write(dir.appendingPathComponent("a.pdf"))
+            right = try Self.write(dir.appendingPathComponent("b.pdf"))
+        }
+        deinit { try? FileManager.default.removeItem(at: dir) }
+
+        private static func write(_ url: URL) throws -> String {
+            let document = PDFDocument()
+            for index in 0..<3 {
+                let size = CGSize(width: 612, height: 792)
+                let image = NSImage(size: size)
+                image.lockFocus()
+                NSColor.white.setFill(); NSRect(origin: .zero, size: size).fill()
+                ("page \(index + 1)" as NSString).draw(
+                    at: NSPoint(x: 40, y: 700),
+                    withAttributes: [.font: NSFont.systemFont(ofSize: 48)])
+                image.unlockFocus()
+                document.insert(try #require(PDFPage(image: image)), at: index)
+            }
+            #expect(document.write(to: url))
+            return url.path
+        }
+    }
+
+    @MainActor
+    private func mountLetterPair(_ fixture: LetterFixture, pageReports: PageReports? = nil)
+        -> (NSHostingView<AnyView>, NSWindow) {
+        let view = PDFPairView(leftPath: fixture.left, rightPath: fixture.right, page: 0,
+                               pairing: PagePairing(leftPages: 3, rightPages: 3),
+                               syncSuspended: false,
+                               onPageChange: { [pageReports] in pageReports?.record($0) })
+        let host = NSHostingView(rootView: AnyView(view.frame(width: 1000, height: 430)))
+        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 430)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        return (host, window)
+    }
+
+    final class PageReports: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [Int] = []
+        func record(_ page: Int) { lock.lock(); seen.append(page); lock.unlock() }
+        var pages: [Int] { lock.lock(); defer { lock.unlock() }; return seen }
+    }
+
+    private func pdfViews(_ view: NSView) -> [PDFView] {
+        view.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + pdfViews($0) }
+    }
+
+    /// **The measurement that named the defect, kept as the test for it.**
+    ///
+    /// `autoScales` fits the page to the pane, so under `.singlePage` a US Letter page laid out at
+    /// 792.0pt inside a 792.0pt clip view: the content fit to the pixel and every scroll gesture
+    /// was clamped to nothing. The panes were not failing to scroll TOGETHER — neither of them
+    /// could scroll at all, which is what "the PDFs still don't scroll in unison" turned out to
+    /// mean. Continuous display is what gives a scroll somewhere to go.
+    @MainActor
+    @Test func atTheRealPaneSizeThereIsSomethingToScroll() async throws {
+        let fixture = try LetterFixture()
+        let (host, window) = mountLetterPair(fixture)
+        let (loaded, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
+        }
+        try #require(loaded, "the pair never loaded (\(pumps) pumps)")
+        for pane in pdfViews(host) {
+            let documentHeight = try #require(pane.documentView?.frame.height)
+            let clipHeight = try #require(pane.documentView?.enclosingScrollView?.contentView.bounds.height)
+            #expect(documentHeight > clipHeight + 1, """
+                    a pane laid out \(documentHeight)pt of document inside a \(clipHeight)pt clip \
+                    view — the content fits, so a scroll gesture has nowhere to go
+                    """)
+        }
+    }
+
+    /// A page the reader lands on is reported to the surface, so the strip and the pixel modes
+    /// follow the panes instead of describing the page they left behind.
+    ///
+    /// **The move is made with `go(to:)` rather than a wheel event, and that is a real limit worth
+    /// stating.** Setting a clip view's bounds directly does not make `PDFView` recompute which
+    /// page is current — that tracking is PDFKit's, driven by its own scroll handling — so a test
+    /// scrolling the clip proves nothing about the reporting path. What this pins is everything
+    /// after the view changes page: the notification reaching the observer, the value guard letting
+    /// a genuine move through, and the surface hearing it. That PDFKit updates `currentPage` while
+    /// a reader scrolls a continuous document is its documented behaviour, and the one link here
+    /// that no test in this package can drive.
+    @MainActor
+    @Test func aPageTheReaderLandsOnIsReportedToTheSurface() async throws {
+        let fixture = try LetterFixture()
+        let reports = PageReports()
+        let (host, window) = mountLetterPair(fixture, pageReports: reports)
+        let (loaded, _) = await LayoutPumpWait.pump(window, upTo: 5) {
+            pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
+        }
+        try #require(loaded, "the pair never loaded")
+        try #require(reports.pages.isEmpty,
+                     "a page was reported before anything moved: \(reports.pages)")
+
+        let pane = pdfViews(host)[0]
+        let document = try #require(pane.document)
+        pane.go(to: try #require(document.page(at: 1)))
+
+        let (reported, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            reports.pages.contains(1)
+        }
+        #expect(reported, """
+                landing on page 2 reported \(reports.pages) (\(pumps) pumps) — the strip would \
+                still be pointing at page 1
+                """)
+    }
+
+    /// **The echo has to stop.** Both views post when the page changes, and the surface moving the
+    /// page moves both — so a report that merely repeats what the surface asked for must not come
+    /// back, or the strip and the panes push each other in a loop.
+    @MainActor
+    @Test func aPageTheSurfaceAskedForIsNotReportedBack() async throws {
+        let fixture = try LetterFixture()
+        let reports = PageReports()
+        let view = PDFPairView(leftPath: fixture.left, rightPath: fixture.right, page: 1,
+                               pairing: PagePairing(leftPages: 3, rightPages: 3),
+                               syncSuspended: false,
+                               onPageChange: { reports.record($0) })
+        let host = NSHostingView(rootView: AnyView(view.frame(width: 1000, height: 430)))
+        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 430)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let (loaded, _) = await LayoutPumpWait.pump(window, upTo: 5) {
+            pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
+        }
+        try #require(loaded, "the pair never loaded")
+        // Give every notification the surface's own move produces time to arrive.
+        _ = await LayoutPumpWait.pump(window, upTo: 3) { false }
+        #expect(reports.pages.filter { $0 == 1 }.isEmpty, """
+                the surface's own page came back as a report (\(reports.pages)) — that is the echo \
+                the value guard exists to stop
+                """)
+    }
+
     // MARK: A page turned while the documents are still opening
 
     /// Holds the page the way the surface does, so the test can turn it under a mounted pair.

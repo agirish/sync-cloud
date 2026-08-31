@@ -55,6 +55,9 @@ struct PDFPairView: NSViewRepresentable {
     let pairing: PagePairing
     /// Suspends mirroring while held — ⌥ lets one pane be scrolled on its own.
     let syncSuspended: Bool
+    /// The page the reader has scrolled onto, reported back so the strip and the pixel modes
+    /// follow. Only ever called with a page the surface is not already on.
+    var onPageChange: (Int) -> Void = { _ in }
 
     final class Coordinator: NSObject {
         let latch = SyncLatch()
@@ -79,6 +82,22 @@ struct PDFPairView: NSViewRepresentable {
         /// at page 12 and the panes sat on page 1 until the next turn — most likely exactly when
         /// the lane is busy behind a scan, which is when the open is slow enough to click through.
         var requestedPages: (left: Int, right: Int) = (0, 0)
+        /// The surface's page as of the last update, so a report can be suppressed when it merely
+        /// echoes a page the surface itself just asked for.
+        var surfacePage = 0
+        /// True while THIS view is driving its own page — setting a document, or going to the page
+        /// the surface asked for.
+        ///
+        /// **A value check alone did not hold, and the reason is the document assignment.** Setting
+        /// `document` puts the view on page 1 and posts, which is a page the surface never asked
+        /// for: the handler took it as a reader's move, reported it, and recorded it — so the `go`
+        /// that followed a moment later no longer matched what was recorded and was reported too.
+        /// A surface opened on page 2 was told twice that the reader had gone somewhere.
+        var drivingPage = false
+        /// Re-read on every update rather than captured once: a SwiftUI view is a fresh value on
+        /// every render, and an observer holding the FIRST one would be calling into a closure
+        /// whose captured state stopped moving.
+        var onPageChange: (Int) -> Void = { _ in }
 
         deinit {
             for observer in observers { NotificationCenter.default.removeObserver(observer) }
@@ -96,18 +115,33 @@ struct PDFPairView: NSViewRepresentable {
         context.coordinator.right = right
         split.addArrangedSubview(left)
         split.addArrangedSubview(right)
-        // Only the zoom half can be wired now — see `wireScroll`.
+        // Only the zoom half can be wired now — see `wireScroll`. The page observers go here too:
+        // like the scale notification, `PDFViewPageChanged` is posted BY the view, which exists.
         wireZoom(context.coordinator)
+        wirePageReporting(context.coordinator)
         return split
     }
 
     private func makePDFView() -> PDFView {
         let view = PDFView()
         view.autoScales = true
-        // One page at a time: the surface's page strip and ⇞/⇟ are the navigation, and a
+        // **Continuous, so that scrolling is a thing this surface can do at all.**
+        //
+        // This was `.singlePage`, on the reasoning that the strip and ⇞/⇟ are the navigation and a
         // continuous scroll would put the two sides on different pages with nothing saying so.
-        view.displayMode = .singlePage
-        view.displaysPageBreaks = false
+        // Measured, that reasoning cost more than it bought: `autoScales` fits the page to the
+        // pane, so at the size the overlay actually opens a US Letter page lays out at 792.0pt
+        // inside a 792.0pt clip view — the content fits to the pixel and a scroll gesture is
+        // clamped to nothing. Both panes sat dead under the reader's fingers, which reads as
+        // "these do not scroll together" and is really "neither one scrolls".
+        //
+        // The objection it was built on no longer holds either: the two sides are mirrored now
+        // (`wireScroll`, fixed after it was found registering nothing), so a scroll moves both, and
+        // `onPageChange` walks the strip along with them rather than leaving it pointing elsewhere.
+        view.displayMode = .singlePageContinuous
+        // Page breaks earn their space once pages flow past each other: without them a two-page
+        // document scrolls as one unbroken column and the reader cannot see where one page ends.
+        view.displaysPageBreaks = true
         view.backgroundColor = .textBackgroundColor
         return view
     }
@@ -115,6 +149,8 @@ struct PDFPairView: NSViewRepresentable {
     func updateNSView(_ split: NSSplitView, context: Context) {
         let coordinator = context.coordinator
         coordinator.syncSuspended = syncSuspended
+        coordinator.onPageChange = onPageChange
+        coordinator.surfacePage = page
         // Recorded FIRST, and on every update: a turn arriving while the documents are still
         // opening reaches the panes only through this, since the `go` below has nothing to act on
         // yet. See `Coordinator.requestedPages`.
@@ -125,8 +161,10 @@ struct PDFPairView: NSViewRepresentable {
             load(leftPath, into: coordinator.left, side: \.left, coordinator: coordinator)
             load(rightPath, into: coordinator.right, side: \.right, coordinator: coordinator)
         } else {
+            coordinator.drivingPage = true
             go(coordinator.left, to: coordinator.requestedPages.left)
             go(coordinator.right, to: coordinator.requestedPages.right)
+            coordinator.drivingPage = false
         }
     }
 
@@ -138,10 +176,12 @@ struct PDFPairView: NSViewRepresentable {
             let document = await PDFKitSerialAccess.perform {
                 PDFDocument(url: URL(fileURLWithPath: path)).map(SendableDocument.init)
             }
+            coordinator.drivingPage = true
             view.document = document?.document
             // The page as it stands NOW, not as it stood when this open was queued — a turn during
             // the open reaches the view only here.
             go(view, to: coordinator.requestedPages[keyPath: side])
+            coordinator.drivingPage = false
             // **HERE, not in `makeNSView`.** A `PDFView` with no document has no `documentView`,
             // so it has no scroll view and no clip view to observe — the observers registered at
             // construction found nil and silently registered nothing, and the panes then scrolled
@@ -188,6 +228,36 @@ struct PDFPairView: NSViewRepresentable {
                 }
             }
             coordinator.observers.append(zoom)
+        }
+    }
+
+    /// Reports the page the reader has scrolled onto, so the strip follows the panes.
+    ///
+    /// **The page is still owned by the surface — this reports, it does not decide.** Continuous
+    /// scrolling means the reader can move the document without ever touching the strip or ⇞/⇟,
+    /// and a strip left pointing at page 1 while page 4 is on screen would be describing a
+    /// different document than the one being read; worse, the pixel modes would be diffing a page
+    /// nobody is looking at. So each view says which page it landed on and the surface decides.
+    ///
+    /// **Both sides report, and the echo is suppressed by value, not by a latch.** The surface
+    /// setting a page moves both views, each of which posts — so the guard is that a report equal
+    /// to what the surface already asked for is not a report at all. That also collapses the second
+    /// side's notification when a mirrored scroll carries it onto the same page.
+    private func wirePageReporting(_ coordinator: Coordinator) {
+        for view in [coordinator.left, coordinator.right].compactMap({ $0 }) {
+            let observer = NotificationCenter.default.addObserver(
+                forName: .PDFViewPageChanged, object: view, queue: .main
+            ) { [weak coordinator, weak view] _ in
+                guard let coordinator, let view, !coordinator.drivingPage,
+                      let document = view.document, let current = view.currentPage else { return }
+                let index = document.index(for: current)
+                guard index >= 0, index != coordinator.surfacePage else { return }
+                // Recorded before the call, so a synchronous re-entry from the surface's own
+                // update cannot read the stale value and report the same page twice.
+                coordinator.surfacePage = index
+                coordinator.onPageChange(index)
+            }
+            coordinator.observers.append(observer)
         }
     }
 

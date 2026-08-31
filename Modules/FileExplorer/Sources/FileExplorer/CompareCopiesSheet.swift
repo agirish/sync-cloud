@@ -814,7 +814,16 @@ struct FilePairCompareView<Verdict: View>: View {
         } else if kind == .pdf, bothSidesReadable, bothSidesOpened {
             typedPanes {
                 PDFPairView(leftPath: left.path, rightPath: right.path,
-                            page: page, pairing: resolvedPairing, syncSuspended: optionHeld)
+                            page: page, pairing: resolvedPairing, syncSuspended: optionHeld,
+                            // Scrolling is now a way to change page, so the strip and the pixel
+                            // modes follow the panes rather than only leading them. Clamped to the
+                            // strip, which runs to the LONGER document: a report past its end
+                            // would select a chip that is not drawn.
+                            onPageChange: { reported in
+                                let last = max(0, resolvedPairing.stripLength - 1)
+                                let clamped = min(max(0, reported), last)
+                                if clamped != page { page = clamped }
+                            })
             }
         } else if kind == .image, bothSidesReadable, !renderOutcome.didFail {
             typedPanes {
