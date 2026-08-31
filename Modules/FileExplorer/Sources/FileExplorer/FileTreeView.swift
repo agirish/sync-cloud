@@ -1169,6 +1169,49 @@ struct FileContextMenu: View {
     /// only a test isolating itself from the other suites passes anything else.
     var downloadChannel: NotificationCenter = .default
 
+    /// The two doors onto the file-pair viewer, both reached from a row.
+    ///
+    /// **A right-click, because the literal ask — "when both panes have a file selected" — is a
+    /// state the app forbids on purpose.** `PaneLogic.applySelectionWrite` clears the other pane on
+    /// every non-empty selection write, so at most one side is ever populated; relaxing that for
+    /// one affordance would reopen everything it exists to prevent. A right-click writes no
+    /// selection, which is exactly why the app's one existing cross-pane affordance — "Copy '…'
+    /// from ⟨pane⟩", directly above — is a context menu too. The empty-write carve-out in
+    /// `applySelectionWrite` names that menu as the reason it exists.
+    ///
+    /// So: select a file in one pane, right-click a file in the other. And the sibling case IS
+    /// reachable without any of that, because a pane's selection is a `Set` — two files picked in
+    /// ONE tree.
+    ///
+    /// Every precondition lives in ``PaneComparePairMenu`` rather than here: a Compare item that is
+    /// merely absent looks identical to one correctly withheld, so the rules belong somewhere a
+    /// test can reach without rendering a menu.
+    @ViewBuilder
+    private func compareItems(node: FileNode, selectedNodes: [FileNode]) -> some View {
+        if delegate.canCompareFilePair {
+            if let counterpart = PaneComparePairMenu.crossPaneCounterpart(
+                clicked: node, otherTree: otherTree, otherSelection: otherSelection,
+                isSingleSource: isSingleSource) {
+                Button {
+                    delegate.handleCompareFilePair(node, with: counterpart,
+                                                   secondIsInOtherPane: true)
+                } label: {
+                    Label("Compare with '\(counterpart.name)' from \(otherPaneName)",
+                          systemImage: "rectangle.split.2x1")
+                }
+            }
+            if let counterpart = PaneComparePairMenu.samePaneCounterpart(
+                clicked: node, selectedNodes: selectedNodes) {
+                Button {
+                    delegate.handleCompareFilePair(node, with: counterpart,
+                                                   secondIsInOtherPane: false)
+                } label: {
+                    Label("Compare these two files", systemImage: "rectangle.split.2x1")
+                }
+            }
+        }
+    }
+
     static func resolvedSelection(node: FileNode, selection: Set<String>, tree: [FileNode]) -> [FileNode] {
         let effectiveSelection: Set<String>
         if selection.isEmpty {
@@ -1438,7 +1481,9 @@ struct FileContextMenu: View {
                     }
                 }
             }
-            
+
+            compareItems(node: node, selectedNodes: selectedNodes)
+
             Divider()
             
             Button(role: .destructive, action: { delegate.handleDelete(selectedNodes) }) {

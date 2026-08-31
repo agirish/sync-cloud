@@ -136,6 +136,27 @@ public protocol FileActionDelegate: Sendable {
     /// `canOrganizeFolder` like its sibling above (same workspace behind both doors).
     func handleCheckFolderShape(_ node: FileNode)
 
+    /// Whether this host can open the shared file-pair viewer. Gates both Compare items in the row
+    /// menu for the reason `canFindDuplicates` gates its own: a conformer with no window behind it
+    /// draws nothing rather than a door onto a no-op.
+    var canCompareFilePair: Bool { get }
+
+    /// Opens the file-pair viewer — the Compare Copies surface, with the Differences host's
+    /// Done-only bar — on two files the reader picked in the panes.
+    ///
+    /// **Files only, both sides.** A folder pair has nothing this viewer can render, which is the
+    /// rule `DifferencesPairCompare.pair(for:paneNames:)` already applies to its own rows; Compare
+    /// has a whole workspace for two folders.
+    ///
+    /// `first` is always the row that was right-clicked; `second` comes either from the OTHER
+    /// pane's selection or from this one's, and `secondIsInOtherPane` says which. The host needs
+    /// that flag for two reasons: a same-pane pair's subtitle cannot read "iCloud vs iCloud", and
+    /// a cross-pane pair is re-ordered so the viewer's two columns match the two panes ON SCREEN
+    /// rather than which row happened to be clicked — the subtitle names them left-to-right, and
+    /// columns that disagreed with it would be a puzzle. A same-pane pair has no such constraint,
+    /// so there `first` does take the left column.
+    func handleCompareFilePair(_ first: FileNode, with second: FileNode, secondIsInOtherPane: Bool)
+
     /// Whether this host can open a folder in a new tab. Gated for the same reason the two above
     /// are: a conformer with no pane strip behind it draws nothing rather than a door onto a no-op.
     var canOpenInNewTab: Bool { get }
@@ -234,6 +255,13 @@ extension FileActionDelegate {
     public var canOrganizeFolder: Bool { false }
     public func handleOrganizeFolder(_ node: FileNode) {}
     public func handleCheckFolderShape(_ node: FileNode) {}
+
+    /// Same default, same reason, and declared as requirements above for the same one — an
+    /// extension-only member would dispatch statically through the existential and the conformer's
+    /// answer would never be reached, which is how "Fix name…" shipped unreachable.
+    public var canCompareFilePair: Bool { false }
+    public func handleCompareFilePair(_ first: FileNode, with second: FileNode,
+                                      secondIsInOtherPane: Bool) {}
 
     /// Same default, same reason, and declared as requirements above for the same one.
     public var canOpenInNewTab: Bool { false }

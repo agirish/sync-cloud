@@ -3641,6 +3641,23 @@ struct ContentView: View {
         }
     }
 
+    /// Opens the shared file-pair viewer on two files picked in the panes.
+    ///
+    /// **The same `@State` and the same overlay the Differences list already uses** — this is a
+    /// second door onto one surface, not a second surface. Nothing joins the mutually exclusive
+    /// overlay chain, and nothing new is animated.
+    ///
+    /// The ordering rule is ``PaneComparePairMenu/pair(clicked:counterpart:counterpartIsInOtherPane:clickedPaneIsLeft:leftPaneName:rightPaneName:)``,
+    /// which is where it can be tested.
+    func compareFilePairAction(_ first: FileNode, _ second: FileNode,
+                               secondIsInOtherPane: Bool, clickedPaneIsLeft: Bool) {
+        compareDifferencePair = PaneComparePairMenu.pair(
+            clicked: first, counterpart: second,
+            counterpartIsInOtherPane: secondIsInOtherPane,
+            clickedPaneIsLeft: clickedPaneIsLeft,
+            leftPaneName: paneNames.left, rightPaneName: paneNames.right)
+    }
+
     /// The row menu's and the file list's delegate for one pane.
     ///
     /// Lifted out of the file list's call site, where it used to sit as one 870-character argument.
@@ -3682,7 +3699,10 @@ struct ContentView: View {
             // and the active tab can have moved under it.
             onCloseTab: { closeTab(id: syncManager.paneTabs(isLeft: pane.isLeft).active.id,
                                    isLeft: pane.isLeft) },
-            onToggleFolderFavorite: { node in toggleFavorite(forPaneFolder: node, isLeft: pane.isLeft) })
+            onToggleFolderFavorite: { node in toggleFavorite(forPaneFolder: node, isLeft: pane.isLeft) },
+            onCompareFilePair: { first, second, secondIsInOtherPane in
+                compareFilePairAction(first, second, secondIsInOtherPane: secondIsInOtherPane,
+                                      clickedPaneIsLeft: pane.isLeft) })
     }
 
     @ViewBuilder

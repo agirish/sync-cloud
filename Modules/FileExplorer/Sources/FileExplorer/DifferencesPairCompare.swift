@@ -14,18 +14,52 @@ import Sync
 /// only: a viewer that grew a second way to resolve a row would be a second rule table to keep in
 /// step with the first.
 public struct DifferencePair: Identifiable, Equatable, Sendable {
-    let relativePath: String
     let leftPath: String
     let rightPath: String
-    /// The panes' display names, already disambiguated by `PaneProviderNames` when both show the
-    /// same provider — this is the subtitle, and "iCloud vs iCloud" would name nothing.
-    let leftPaneName: String
-    let rightPaneName: String
+    /// What the header names the pair.
+    ///
+    /// **Stored, not derived from a shared relative path, and that is what lets a second host
+    /// exist.** It used to read the last component of the difference's `relativePath` — correct
+    /// for the Differences list, where the two files are the same file on two roots and share a
+    /// name by construction. The panes hand over two files a person picked, which share nothing:
+    /// no common root to be relative to, and often not even a name.
+    ///
+    /// **A file NAME rather than a description of the pair, because the header GLYPH is derived
+    /// from it** — `FileTypeGlyph.view(name: title, …)` reads its extension. A title in the shape
+    /// "Lease.pdf ↔ scan.png" would draw one of the two types over both, which is a claim about
+    /// content rather than a label. Where the two names differ the factories use the left one and
+    /// leave the facts strip's Name row to state the difference, which it does with a ≠ spine.
+    let title: String
+    /// The line under the title: which panes these two came from.
+    let subtitle: String
 
     public var id: String { [leftPath, rightPath].sorted().joined(separator: "\n") }
 
-    var title: String { (relativePath as NSString).lastPathComponent }
-    var subtitle: String { "\(leftPaneName) vs \(rightPaneName)" }
+    /// Two files in DIFFERENT panes, ordered left pane first.
+    ///
+    /// Public because `MacApp` builds it: the panes' entry point is a row context menu there,
+    /// while the memberwise initialiser is internal to this module. A named factory rather than a
+    /// public initialiser so the title rule above is enforced in one place instead of trusted to
+    /// each caller.
+    public static func acrossPanes(leftPath: String, rightPath: String,
+                                   leftPaneName: String, rightPaneName: String) -> DifferencePair {
+        DifferencePair(leftPath: leftPath, rightPath: rightPath,
+                       title: (leftPath as NSString).lastPathComponent,
+                       subtitle: "\(leftPaneName) vs \(rightPaneName)")
+    }
+
+    /// Two files in the SAME pane — multi-selected in one tree, which the panes allow and the
+    /// one-pane-selected invariant has nothing to say about.
+    ///
+    /// **"iCloud vs iCloud" would name nothing**, which is the note the pane-name fields already
+    /// carried; so the subtitle names the one pane once. `first` is the row that was right-clicked
+    /// and takes the left column, so the surface matches where the reader's pointer was.
+    public static func withinPane(firstPath: String, secondPath: String,
+                                  paneName: String) -> DifferencePair {
+        DifferencePair(leftPath: firstPath, rightPath: secondPath,
+                       title: (firstPath as NSString).lastPathComponent,
+                       subtitle: "Both in \(paneName)")
+    }
 }
 
 /// Which rows can be compared, and what the pair is.
@@ -48,11 +82,12 @@ enum DifferencesPairCompare {
             return nil
         }
         guard difference.enclosedItemCount == nil else { return nil }
-        return DifferencePair(relativePath: difference.relativePath,
-                              leftPath: difference.leftItemPath,
+        // Unchanged output: the two files are the same file on two roots, so the relative path's
+        // last component IS both their names, and the subtitle is the two panes.
+        return DifferencePair(leftPath: difference.leftItemPath,
                               rightPath: difference.rightItemPath,
-                              leftPaneName: paneNames.left,
-                              rightPaneName: paneNames.right)
+                              title: (difference.relativePath as NSString).lastPathComponent,
+                              subtitle: "\(paneNames.left) vs \(paneNames.right)")
     }
 
     /// The facts the viewer's strip needs, from a fresh stat of both sides.

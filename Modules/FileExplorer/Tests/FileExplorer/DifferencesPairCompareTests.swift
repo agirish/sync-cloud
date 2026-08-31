@@ -59,10 +59,10 @@ import Testing
 
     /// Opening the same row twice is the same surface, not a second one sliding in over the first.
     @Test func thePairIdIsTheTwoPathsWhicheverOrderTheyArrive() {
-        let a = DifferencePair(relativePath: "x", leftPath: "/L/x", rightPath: "/R/x",
-                               leftPaneName: "A", rightPaneName: "B")
-        let b = DifferencePair(relativePath: "x", leftPath: "/R/x", rightPath: "/L/x",
-                               leftPaneName: "B", rightPaneName: "A")
+        let a = DifferencePair.acrossPanes(leftPath: "/L/x", rightPath: "/R/x",
+                                           leftPaneName: "A", rightPaneName: "B")
+        let b = DifferencePair.acrossPanes(leftPath: "/R/x", rightPath: "/L/x",
+                                           leftPaneName: "B", rightPaneName: "A")
         #expect(a.id == b.id)
     }
 
@@ -92,9 +92,8 @@ import Testing
     /// not look, at the top of a viewer whose job is to say what is true now.
     @Test func theFactsComeFromAFreshStatOfBothSides() async throws {
         let fixture = try Fixture()
-        let pair = DifferencePair(relativePath: "note.txt", leftPath: fixture.left,
-                                  rightPath: fixture.right, leftPaneName: "iCloud",
-                                  rightPaneName: "Dropbox")
+        let pair = DifferencePair.acrossPanes(leftPath: fixture.left, rightPath: fixture.right,
+                                              leftPaneName: "iCloud", rightPaneName: "Dropbox")
         let copies = await DifferencesPairCompare.copies(for: pair)
         #expect(copies.left.size == 5)
         #expect(copies.right.size == 11)
@@ -107,8 +106,9 @@ import Testing
     /// menu being drawn and the item being clicked, which is the same window every other menu here
     /// resolves against live rows for.
     @Test func aVanishedSideStatsToZeroRatherThanFailing() async {
-        let pair = DifferencePair(relativePath: "gone.txt", leftPath: "/nope/gone.txt",
-                                  rightPath: "/nope/also.txt", leftPaneName: "A", rightPaneName: "B")
+        let pair = DifferencePair.acrossPanes(leftPath: "/nope/gone.txt",
+                                              rightPath: "/nope/also.txt",
+                                              leftPaneName: "A", rightPaneName: "B")
         let copies = await DifferencesPairCompare.copies(for: pair)
         #expect(copies.left.size == 0)
         #expect(copies.left.modificationDate == nil)
@@ -121,9 +121,8 @@ import Testing
     /// message.
     @Test func theSharedViewerMountsWithTwoPanesAndNoKeeper() async throws {
         let fixture = try Fixture()
-        let pair = DifferencePair(relativePath: "note.txt", leftPath: fixture.left,
-                                  rightPath: fixture.right, leftPaneName: "iCloud",
-                                  rightPaneName: "Dropbox")
+        let pair = DifferencePair.acrossPanes(leftPath: fixture.left, rightPath: fixture.right,
+                                              leftPaneName: "iCloud", rightPaneName: "Dropbox")
         let copies = await DifferencesPairCompare.copies(for: pair)
         let view = FilePairCompareView(
             left: copies.left, right: copies.right, title: pair.title, subtitle: pair.subtitle,

@@ -109,6 +109,11 @@ struct PaneActionDelegate: FileActionDelegate {
     /// Defaulted so the delegate's own tests need not name a route they are not testing.
     var onToggleFolderFavorite: (FileNode) -> Void = { _ in }
 
+    /// Opens the file-pair viewer on two files — see ``handleCompareFilePair(_:with:secondIsInOtherPane:)``.
+    /// Defaulted for the same reason the line above is: the delegate's own tests do not exercise
+    /// this route and should not have to name it.
+    var onCompareFilePair: (FileNode, FileNode, Bool) -> Void = { _, _, _ in }
+
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
     /// thing that moved was some unrelated corner of the manager.
@@ -245,6 +250,23 @@ struct PaneActionDelegate: FileActionDelegate {
         // with the handler rather than only with the one caller that happens to respect it.
         guard !node.isDirectory else { return }
         onFindDuplicatesOf(node)
+    }
+
+    /// A real window is behind this delegate, so the row menu may offer the door.
+    var canCompareFilePair: Bool { true }
+
+    func handleCompareFilePair(_ first: FileNode, with second: FileNode,
+                               secondIsInOtherPane: Bool) {
+        // Files only, both sides. The menu gates on this too; asserting it here as well keeps the
+        // guarantee with the handler rather than only with the caller that happens to respect it —
+        // the shape `handleFindDuplicates` and `handleToggleFolderFavorite` both use.
+        guard !first.isDirectory, !second.isDirectory else { return }
+        // And never a file against itself: the two rows are distinct in the menu's own
+        // preconditions, but a cross-pane pick can name the same path twice when the two panes are
+        // pointed at one folder, and a viewer comparing a file with itself is a surface reporting
+        // "identical" about nothing.
+        guard first.id != second.id else { return }
+        onCompareFilePair(first, second, secondIsInOtherPane)
     }
 
     /// A real window is behind this delegate, so the row menu may offer the door.
