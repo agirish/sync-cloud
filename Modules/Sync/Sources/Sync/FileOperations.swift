@@ -576,6 +576,50 @@ extension FileSyncManager {
     /// silently upgrading it to a permanent delete could destroy a file a retry would have trashed.
     /// Unknown/unsupported errors are treated as non-transient so a real Trash-less volume still
     /// escalates (the pre-existing behavior).
+    /// Whether a trash failure is macOS refusing this app permission, as opposed to the item
+    /// being momentarily busy.
+    ///
+    /// **A subset of ``isTransientTrashFailure``, deliberately, and it does not change what that
+    /// decides.** Both stay out of the permanent-delete escalation — offering to destroy a file
+    /// outright because the app was denied the Trash would be answering a permission problem with
+    /// an unrecoverable act. What this changes is only what the user is TOLD: a busy file is worth
+    /// retrying, a denied one is not, and the two used to arrive as the same sentence.
+    nonisolated static func isPermissionRefusal(_ error: Error) -> Bool {
+        var current = error as NSError
+        for _ in 0...4 {
+            if current.domain == NSPOSIXErrorDomain,
+               [EACCES, EPERM].map(Int.init).contains(current.code) {
+                return true
+            }
+            if current.domain == NSCocoaErrorDomain,
+               current.code == NSFileWriteNoPermissionError {
+                return true
+            }
+            guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else {
+                return false
+            }
+            current = underlying
+        }
+        return false
+    }
+
+    /// The domain and code of an error and everything under it, for the log.
+    ///
+    /// **The codes, not the sentence.** "you don't have permission to access it" is the same
+    /// string for a TCC denial, a deny-delete ACL and a read-only mount; `NSCocoaErrorDomain 513`
+    /// wrapping `NSPOSIXErrorDomain 1` tells the next reader which. Bounded, like the walks above,
+    /// so a cyclic chain cannot spin.
+    nonisolated static func trashFailureDiagnosis(_ error: Error) -> String {
+        var parts: [String] = []
+        var current = error as NSError
+        for _ in 0...4 {
+            parts.append("\(current.domain) \(current.code)")
+            guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
+            current = underlying
+        }
+        return parts.joined(separator: " ← ") + ": \(error.localizedDescription)"
+    }
+
     nonisolated static func isTransientTrashFailure(_ error: Error) -> Bool {
         // Walk the NSUnderlyingError chain, not just the outermost error: FileManager routinely
         // reports a Cocoa-domain error that WRAPS the POSIX cause, so a merely-busy item could
@@ -816,7 +860,19 @@ extension FileSyncManager {
                             // prompt: a retry may well move it to the Trash recoverably. A genuinely
                             // Trash-less volume throws an unsupported/unknown error, which still falls
                             // through to `trashFailures` and the confirmation prompt below.
-                            taskErrors.append(error)
+                            //
+                            // **Logged with the path AND the underlying code**, which it was not.
+                            // A refusal reached the user as Foundation's sentence and left nothing
+                            // in the log he audits — so diagnosing one meant reproducing it. The
+                            // chain is walked because Foundation wraps the POSIX cause.
+                            Logger.shared.warning(
+                                "Delete: the system refused to move \(path) to the Trash — "
+                                + "\(Self.trashFailureDiagnosis(error))")
+                            taskErrors.append(
+                                Self.isPermissionRefusal(error)
+                                    ? SyncError.trashNotPermitted(
+                                        path: path, reason: error.localizedDescription)
+                                    : error)
                         } else {
                             trashFailures.append(url)
                         }
@@ -926,7 +982,10 @@ extension FileSyncManager {
         // Surface any failure (e.g. a transiently-busy item), after the success banner so a mixed
         // batch reports both what worked and what didn't.
         if let firstError = result.errors.first {
-            present(.deleteFailed(reason: firstError.localizedDescription))
+            // A `SyncError` built above already carries its own title, path and remedy — flattening
+            // it back through `.deleteFailed(reason:)` would throw all three away and re-present it
+            // as the generic sentence it exists to replace.
+            present(firstError as? SyncError ?? .deleteFailed(reason: firstError.localizedDescription))
         } else if items.isEmpty, result.declined > 0 {
             // Checked BEFORE the "already gone" branch: these items are the opposite of gone, and
             // that branch would otherwise claim they were.

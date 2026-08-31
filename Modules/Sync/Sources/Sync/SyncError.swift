@@ -151,6 +151,31 @@ extension SyncError {
             reason: reason
         )
     }
+
+    /// macOS refused to move an item to the Trash because this app is not permitted to.
+    ///
+    /// **Its own case, because "couldn't be moved to the trash because you don't have permission"
+    /// is not a fault in the file and not something a retry fixes.** Foundation's string names the
+    /// symptom and stops; a reader is left with a file they own, in a folder they own, that the app
+    /// says it may not touch. What is actually missing is a macOS privacy grant — and for a file
+    /// inside iCloud Drive the Trash is `~/Library/Mobile Documents/.Trash`, which sits OUTSIDE the
+    /// folder grants (Documents, Desktop, Downloads) an app is usually given, so an app that can
+    /// read every one of those files can still be refused the move.
+    ///
+    /// Not retryable: pressing the same button again cannot change a permission.
+    public static func trashNotPermitted(path: String, reason: String) -> SyncError {
+        SyncError(
+            title: "Not Allowed to Move to the Trash",
+            message: "macOS won't let SyncCloud move this item to the Trash. Nothing was removed.\n\n"
+                + "Grant SyncCloud Full Disk Access in System Settings ▸ Privacy & Security, then "
+                + "quit and reopen it. A file kept in iCloud Drive is trashed into iCloud's own "
+                + "Trash, which the per-folder permissions don't cover — so reading the file can "
+                + "work while moving it is refused.",
+            path: path,
+            reason: reason,
+            isRetryable: false
+        )
+    }
 }
 
 // MARK: - Which alert actions apply (pure decision, UI renders it)

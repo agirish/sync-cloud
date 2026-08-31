@@ -151,7 +151,8 @@ import Sync
     /// the last sentence before a delete must not say it has.
     @Test func aSameTextPairIsNeverCalledRedundant() {
         let text = DuplicateComparePrompt.informativeText(
-            kind: .sameText, keeperName: "Report.pdf", keeperLocation: "iCloud › Docs",
+            kind: .sameText, copyName: "Report (1).pdf", copyLocation: "iCloud › Docs › Old",
+            keeperName: "Report.pdf", keeperLocation: "iCloud › Docs",
             reclaimText: "2.1 MB")
         #expect(!text.lowercased().contains("redundant"))
         #expect(text.contains("bytes differ"))
@@ -159,7 +160,8 @@ import Sync
 
     @Test func anIdenticalPairGetsNoWeakeningClause() {
         let text = DuplicateComparePrompt.informativeText(
-            kind: .identical, keeperName: "Report.pdf", keeperLocation: "iCloud › Docs",
+            kind: .identical, copyName: "Report (1).pdf", copyLocation: "iCloud › Docs › Old",
+            keeperName: "Report.pdf", keeperLocation: "iCloud › Docs",
             reclaimText: "2.1 MB")
         #expect(!text.contains("bytes differ"))
         #expect(text.contains("Reclaims 2.1 MB"))
@@ -170,7 +172,8 @@ import Sync
     /// dedup and a deletion.
     @Test func aVersionsPairSaysTheOtherCopyIsNotACopy() {
         let text = DuplicateComparePrompt.informativeText(
-            kind: .versions, keeperName: "Report.pdf", keeperLocation: "iCloud › Docs",
+            kind: .versions, copyName: "Report (1).pdf", copyLocation: "iCloud › Docs › Old",
+            keeperName: "Report.pdf", keeperLocation: "iCloud › Docs",
             reclaimText: "2.1 MB")
         #expect(text.contains("not copies"))
     }
@@ -181,7 +184,9 @@ import Sync
         let longName = String(repeating: "supercalifragilistic", count: 6) + ".pdf"
         for kind in DuplicateMatchType.Kind.allCases {
             let text = DuplicateComparePrompt.informativeText(
-                kind: kind, keeperName: longName,
+                kind: kind, copyName: longName,
+                copyLocation: String(repeating: "Folder › ", count: 20),
+                keeperName: longName,
                 keeperLocation: "iCloud › Docs › Legal › Immigration",
                 reclaimText: "2.1 MB")
             #expect(text.count <= DuplicateComparePrompt.lengthBudget,
@@ -212,12 +217,48 @@ import Sync
     /// produce "Keeps “x” at . Reclaims…".
     @Test func anEmptyLocationDropsItsClauseRatherThanLeavingAStrandedAt() {
         let text = DuplicateComparePrompt.informativeText(
-            kind: .identical, keeperName: "Report.pdf", keeperLocation: "", reclaimText: "2.1 MB")
+            kind: .identical, copyName: "Report (1).pdf", copyLocation: "",
+            keeperName: "Report.pdf", keeperLocation: "", reclaimText: "2.1 MB")
         #expect(!text.contains(" at ."))
-        #expect(text.hasPrefix("Keeps “Report.pdf”. Reclaims"))
+        #expect(text.contains("Trashing “Report (1).pdf”\n\nKeeping “Report.pdf”"),
+                "an absent location left a stranded line: \(text)")
     }
 
-    // MARK: The disabled reason
+    /// **The doomed copy's location leads.** The dialog used to name only the survivor's path, so
+    /// a reader about to destroy one of two similarly-named copies could not see which folder was
+    /// losing it — the one fact the confirmation exists to establish.
+    @Test func theConfirmationNamesTheTrashedCopyAndItsFolderFirst() {
+        let text = DuplicateComparePrompt.informativeText(
+            kind: .identical,
+            copyName: "Lease Agreement.pdf",
+            copyLocation: "iCloud › Documents › Vehicles › Honda › Accord › Car Papers › Pilot",
+            keeperName: "Car Lease.pdf",
+            keeperLocation: "iCloud › Documents › Vehicles › Honda › Pilot › Papers",
+            reclaimText: "11.8 MB")
+        let trashing = try? #require(text.range(of: "Trashing “Lease Agreement.pdf”"))
+        let keeping = try? #require(text.range(of: "Keeping “Car Lease.pdf”"))
+        #expect(trashing != nil && keeping != nil)
+        if let t = trashing, let k = keeping {
+            #expect(t.lowerBound < k.lowerBound, "the survivor was named before the victim")
+        }
+        #expect(text.contains("Accord › Car Papers › Pilot"),
+                "the folder losing the file is not named: \(text)")
+        #expect(text.contains("11.8 MB"))
+    }
+
+    /// A location too long to print is shortened from the FRONT, so the trailing folders — the
+    /// part that differs between two copies — survive.
+    @Test func aLongLocationKeepsItsTail() {
+        let long = "iCloud › " + (1...20).map { "Folder \($0)" }.joined(separator: " › ")
+            + " › The Last One"
+        let shortened = DuplicateComparePrompt.location(long)
+        #expect(shortened.count <= DuplicateComparePrompt.locationBudget)
+        #expect(shortened.hasSuffix("The Last One"), "the distinguishing tail was cut: \(shortened)")
+        #expect(shortened.hasPrefix("…"))
+        #expect(DuplicateComparePrompt.location("iCloud › Docs") == "iCloud › Docs")
+    }
+
+    // MARK: The disabled reason    // MARK: The disabled reason
 
     /// A greyed button with no reason reads as the app being broken — his report about the merge
     /// card's inert radios, in a different control.

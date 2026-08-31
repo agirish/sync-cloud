@@ -171,9 +171,10 @@ struct ComparePairFacts: Equatable {
 /// of the same words: one file group's copy is called the same thing whichever door trashes it.
 enum DuplicateComparePrompt {
 
-    /// The longest the informative line may be. It means something because nothing here
-    /// interpolates an unbounded string except the two names, which are budgeted for below.
-    static let lengthBudget = 260
+    /// The longest the informative BLOCK may be. It means something because nothing in it is
+    /// unbounded: the two names are held to ``nameBudget`` and the two locations to
+    /// ``locationBudget``.
+    static let lengthBudget = 420
 
     /// The longest a name may be before it is middle-truncated into the prompt. A dialog whose
     /// question wraps to four lines is one the reader skims, and file names in this tree run past
@@ -184,30 +185,57 @@ enum DuplicateComparePrompt {
         "Move “\(truncated(copyName))” to the Trash?"
     }
 
-    /// What is kept, where it lives, what this reclaims — and, for a claim weaker than
-    /// byte-identity, what the user is actually agreeing to.
+    /// What is being destroyed and where it lives, then what survives and where — and, for a claim
+    /// weaker than byte-identity, what the user is actually agreeing to.
+    ///
+    /// **The doomed copy's LOCATION leads, and that is a correction.** This used to open "Keeps
+    /// “Car Lease.pdf” at …" — naming the survivor's path and never the victim's. His report: it
+    /// should say which file is being deleted, with its path. The title names the file; a reader
+    /// about to destroy one of two identically-sized copies with similar names needs to see WHICH
+    /// FOLDER is losing it, and that was the one fact the dialog withheld.
+    ///
+    /// Line-per-fact rather than a paragraph: an `NSAlert`'s informative text wraps, and three
+    /// facts run together are three facts nobody separates at the point of no return.
     ///
     /// The `⌘Z` promise is unconditional here for the same reason the card's is: the engine posts
     /// the banner that carries the *real* undoability (`DeleteOutcome.isUndoable` is false on a
     /// Trash-less volume), and this sentence is read BEFORE the volume is known. It says what the
     /// ordinary case does; the banner afterwards is what promises the shortcut.
     static func informativeText(kind: DuplicateMatchType.Kind,
+                                copyName: String,
+                                copyLocation: String,
                                 keeperName: String,
                                 keeperLocation: String,
                                 reclaimText: String) -> String {
-        var text = "Keeps “\(truncated(keeperName))”"
-        if !keeperLocation.isEmpty { text += " at \(keeperLocation)" }
-        text += ". Reclaims \(reclaimText)."
+        var lines: [String] = []
+        lines.append("Trashing “\(truncated(copyName))”"
+                     + (copyLocation.isEmpty ? "" : "\n\(location(copyLocation))"))
+        lines.append("Keeping “\(truncated(keeperName))”"
+                     + (keeperLocation.isEmpty ? "" : "\n\(location(keeperLocation))"))
+        var closing = "Reclaims \(reclaimText)."
         switch kind {
         case .sameText:
-            text += " These read the same but their bytes differ — a signed or edited copy would "
+            closing += " These read the same but their bytes differ — a signed or edited copy would "
                 + "read the same too."
         case .versions:
-            text += " Versions are genuinely different content, not copies — keep the one you want."
+            closing += " Versions are genuinely different content, not copies — keep the one you want."
         case .identical, .overlapping:
             break
         }
-        return text + " This can be undone with ⌘Z."
+        lines.append(closing + " This can be undone with ⌘Z.")
+        return lines.joined(separator: "\n\n")
+    }
+
+    /// The most a location may spend before it is shortened from the FRONT.
+    ///
+    /// Head-truncated, like the surface's own location row and for the same reason: the two copies
+    /// share their leading crumbs and differ in the trailing ones, so the tail is the part that
+    /// answers "which folder is losing this file".
+    static let locationBudget = 68
+
+    static func location(_ crumbs: String) -> String {
+        guard crumbs.count > locationBudget else { return crumbs }
+        return "…" + String(crumbs.suffix(locationBudget - 1))
     }
 
     /// The confirm button's verb. Never "Delete": the ordinary path is a Trash, and the one volume

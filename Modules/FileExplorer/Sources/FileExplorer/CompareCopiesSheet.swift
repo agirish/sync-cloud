@@ -1157,11 +1157,17 @@ public struct CompareCopiesOverlay: View {
         self.providerName = providerName
         self.onClose = onClose
         let kind = pair.matchType.kind
+        let crumbs: (String) -> String = { path in
+            DuplicateGroupCard.crumbs(of: path, scanRoot: scanRoot, providerName: providerName)
+                .dropLast().joined(separator: " › ")
+        }
         self.confirmTrash = confirmTrash ?? { copy, keeper, keeperLocation in
             NativeAlerts.confirmDestructive(
                 messageText: DuplicateComparePrompt.messageText(copyName: copy.name),
                 informativeText: DuplicateComparePrompt.informativeText(
-                    kind: kind, keeperName: keeper.name, keeperLocation: keeperLocation,
+                    kind: kind,
+                    copyName: copy.name, copyLocation: crumbs(copy.path),
+                    keeperName: keeper.name, keeperLocation: keeperLocation,
                     reclaimText: FileSyncManager.formatBytes(copy.size)),
                 confirmTitle: DuplicateComparePrompt.confirmTitle)
         }
