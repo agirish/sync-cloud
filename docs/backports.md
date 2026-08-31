@@ -2250,3 +2250,63 @@ line that ever adds a page strip will meet the same question; the answer is in
 panes have a file selected" is unreachable by construction — and its empty-write carve-out names the
 cross-pane "Copy '…' from ⟨pane⟩" menu as the reason it exists. Any line adding a cross-pane
 affordance should reach for a context menu for that reason rather than relaxing the invariant.
+
+---
+
+## 2026-08-31 — The CC13 review's remaining risks (R2 and the R7 bundle)
+
+**RECORDED — not owed, and this row is unusually easy to check**: two of the five files touched
+(`FileOperations.swift`, `FileSyncManager+Duplicates.swift`) are on all four lines, so the shape of
+the tree says nothing here — but none of the machinery each fix repairs exists off `main`.
+
+**The positive control first**, because a mis-spelled symbol answers "absent" everywhere at once.
+`isPermissionRefusal` is the newest of the five and `FileOperations.swift` is on every line, so a
+run that prints nothing but `main` is measuring the symbol, not the path:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s ' "$l"
+  for f in FileOperations FileSyncManager+Duplicates; do
+    git show origin/$l:Modules/Sync/Sources/Sync/$f.swift 2>/dev/null |
+      grep -c 'trashAfterReregistering\|assessDuplicatePair\|isPermissionRefusal' | tr '\n' ' '
+  done; echo
+done   # main prints non-zero; every maintenance line prints 0 0
+```
+
+Checked 2026-08-31: `trashAfterReregistering`, `trashViaWorkspace`, `isPermissionRefusal` and
+`assessDuplicatePair` are absent from `v4.x`, `v3.x` and `v2.x` — the whole three-attempt Trash
+fallback and the whole single-copy pair verdict are `main`-only. `BoundedTextRead.swift`,
+`CompareCopiesSheet.swift` and `PDFKitSerialAccess.swift` are absent as files (`PDFKitSerialAccess`
+is on `v4.x` alone).
+
+| Piece | Depends on | Status |
+|---|---|---|
+| R2 — `PairKeeperStanding`, keeper withdrawn when the group keeps a third copy | `CompareCopiesSheet` | RECORDED — not owed |
+| R2 in the engine — `DuplicatePairVerdict.keeperNotKept` | the pair verdict | RECORDED — not owed |
+| `recycled(_:in:)` / `recycledSingle(_:using:)` — the answer read past a re-spelt key | `trashViaWorkspace` | RECORDED — not owed |
+| `isMidCloudTransfer`, and the delete path declining the park under it | `trashAfterReregistering` | RECORDED — not owed, but see below |
+| `assessDuplicatePair` reordered — vanished copy first, keeper walked last | the pair verdict | RECORDED — not owed, but see below |
+| `BoundedTextRead` BOM decoding, `readingNotes`, the truncated-unit fix | `BoundedTextRead` | RECORDED — not owed |
+| `clearRasters` and the `PDFView` lane-doc exception | `CompareCopiesSheet` / `PDFPairView` | RECORDED — not owed |
+
+**One of these is a rule the maintenance lines already follow elsewhere, and that is worth saying.**
+The keeper-last ordering is not new — `driftedFolderInGroup` states it, with the measurement
+(~0.7 s per 40k-node walk, and a verdict that ages from the moment it is formed), and the GROUP
+resolve has followed it since long before any of these lines were cut. What was wrong was only the
+PAIR verdict, which is `main`-only. So a maintenance line reading this owes nothing — but if one
+ever grows a second walked verdict, the rule to copy is `driftedFolderInGroup`'s, not this commit's.
+
+**And one is a narrowing rather than a fix, recorded so it is not read as one.** Declining the park
+while iCloud reports the item uploading or downloading covers iCloud alone: `ubiquitousItemIsUploading`
+and `ubiquitousItemIsDownloading` are iCloud's own signals, and a Dropbox or Drive item mid-sync
+answers false and is not covered. Nothing is claimed beyond what those two keys measure.
+
+**That narrowing also has a shape any line copying it must copy whole**, and it is the one thing in
+this row that could do harm if half-ported. The refusal belongs to the DELETE path only. The move
+primitives' cross-volume source cleanup reaches the same re-registration retry through
+`retriedSourceCleanupTrash`, and there a refusal returns `false` and sends the caller to
+`removeItem` — so declining to park would trade a source that reaches the Trash for one destroyed
+outright, which is strictly worse for exactly the item the refusal exists to protect. That is why
+the probe is a property on the manager (`isMidCloudTransfer`) read by `deleteItems`, and not a
+parameter on `trashAfterReregistering`: a `nonisolated static` cannot reach an instance property,
+so the move path cannot inherit it by accident. `TrashPermissionRefusalTests` pins both halves.

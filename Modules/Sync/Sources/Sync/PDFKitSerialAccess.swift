@@ -15,6 +15,16 @@ import Foundation
 ///
 /// This covers PDFKit only. Vision recognition and plain-text reads are not PDFKit, are far slower
 /// per file, and stay on their callers' concurrent queues — see `ContentSignalExtractor.workQueue`.
+///
+/// **One exception, and it is by construction rather than by oversight: `PDFPairView`.** The
+/// Compare surface's two `PDFView`s open their documents through this lane — `load` awaits
+/// ``perform`` — but a `PDFView` then LAYS OUT AND DRAWS those documents on the main thread, on
+/// its own schedule, and there is no seam to route that through. It is AppKit drawing its own
+/// view; handing it a document is the only moment the app controls. So the sentence above is true
+/// of every parse the app itself performs, and not of the redraws a mounted `PDFView` performs
+/// afterwards. Recorded here rather than left for the next reader to discover, because "everything
+/// takes its turn here" is what makes the 4.5–6.3% disagreement above impossible, and a claim that
+/// broad has to name the one place it stops holding.
 public enum PDFKitSerialAccess {
 
     private static let queue = DispatchQueue(label: "com.synccloud.pdfkit", qos: .utility)
