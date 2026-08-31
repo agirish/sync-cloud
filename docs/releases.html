@@ -135,9 +135,9 @@
 
 <div class="timeline">
 
-  <!-- v5.1 (in development) -->
-  <article class="rel draft">
-    <div class="rel-head"><span class="v">v5.1</span><span class="tag draft">In development</span></div>
+  <!-- v5.1 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v5.1</span><span class="tag latest">Latest</span></div>
     <p class="lede"><b>Compare copies works on files.</b> A duplicate file group gave each copy a 40pt thumbnail and called that the comparison, while folder groups got a side-by-side review. Any two copies now open in one surface &#8212; the facts both sides carry with whatever differs picked out, two live previews that scroll together for PDFs and images, pixel and text diff modes &#8212; and the verdict acts on the one copy you were looking at rather than the whole group. The same viewer opens on a changed row in the Differences list. Away from duplicates, a move between volumes now spends a retry before clearing its source, so the refusal macOS raises on files you own can no longer turn a move into a deletion.</p>
     <div class="grp">
       <h3>Duplicates</h3>
@@ -187,12 +187,12 @@
       </ul>
     </div>
     <p class="known"><b>Not in v5.1.</b> Folder groups keep the existing Compare-workspace review; this surface is for pairs of files. The pixel modes align pages by their frames only &#8212; two scans of the same page will not line up, and there is no de-skew or registration pass. Formats with no typed viewer (Word documents, presentations, video) get two independent Quick Look panes and a caption saying they do not scroll together.</p>
-    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v5.0...main">v5.0...main</a></p>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v5.0...v5.1">v5.0...v5.1</a></p>
   </article>
 
   <!-- v5.0 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v5.0</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v5.0</span><span class="tag">Restructure</span></div>
     <p class="lede"><b>Restructure stops being a report.</b> It could recognise one thing &#8212; a family of folders organised more than one way &#8212; and all it could do was say so. It now recognises eight kinds of structural drift, turns most of them into a plan you review name by name, applies that plan, and writes the way back to disk before it starts. Requires <b>macOS 26</b>, unchanged from the 4.x line &#8212; coming from 3.x or 2.x, read the v4.0 entry first.</p>
     <div class="grp">
       <h3>What Restructure finds</h3>

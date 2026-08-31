@@ -5,11 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v5.1 — DRAFT, not released
-
-> Being written as `main` moves. Nothing here has been tagged, and nothing here can be installed
-> yet. The badge on the [releases page](https://agirish.github.io/sync-cloud/releases.html) stays
-> on v5.0 until this is cut.
+## v5.1
 
 ### Duplicates
 
