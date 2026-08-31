@@ -1988,6 +1988,54 @@ along with its own numbers. Reclaiming it means finding ~12pt in `reservedChrome
 generous, and unmeasured) or in the segments' 12pt horizontal padding — a design call, not an
 arithmetic one, and deliberately not made here.
 
+## 2026-08-31 — Adversarial review of the Compare Copies fixes (`8fdb68d7`…`8701b644`)
+
+**Six commits, and only one line of them applies to any maintenance line.** A second adversarial
+pass over the previous night's fixes found ten issues — ⌥ being routed around by the page-reporting
+observer, scroll observers stranded in the lifetime list, an image pair mounting its viewer over nil
+rasters, a decodability guard no test could fail, two double-paid computations, a test scoped to the
+whole file instead of the block it names, two silent failures with no log line, and prose behind the
+behaviour. Every one of them is inside the Compare Copies surface, which exists on `main` alone.
+
+**Checked, with the positive control first** — a mis-spelled path answers "absent" on every line at
+once, and here the two answers genuinely differ, which is what makes the control worth running:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- \
+    Modules/FileExplorer/Sources/FileExplorer/PairViewers.swift \
+    Modules/FileExplorer/Tests/FileExplorer/PaneRowHeightStabilityTests.swift
+done   # main prints both; v4.x, v3.x and v2.x print only the second
+```
+
+| Line | Compare Copies files | `PaneRowHeightStabilityTests.swift` | Status |
+|---|---|---|---|
+| `v4.x` | **none** | present, same defect | RECORDED — not owed (one line) |
+| `v3.x` | **none** | present, same defect | RECORDED — not owed (one line) |
+| `v2.x` | **none** | present, same defect | RECORDED — not owed (one line) |
+
+The Compare Copies half is **CLOSED — does not apply**, for the reason the row below already
+establishes: `v4.x` has the duplicates card but no compare surface, and `v3.x`/`v2.x` have neither.
+There is nothing on those lines for `PairViewers`, `TypedViewerReadiness`, `PairContentKind`'s
+decodable listing or `TextPairDiff` to be a fix *to*.
+
+**The one thing that does apply is a diagnostic, not a defect.** `PaneRowHeightStabilityTests`
+measures which pane width took the most layout rounds and then leaves it out of the failure message,
+so the compiler's "written to, but never read" is the only thing reading it. All three lines carry
+it identically:
+
+```sh
+for l in v4.x v3.x v2.x; do
+  git show origin/$l:Modules/FileExplorer/Tests/FileExplorer/PaneRowHeightStabilityTests.swift |
+    grep -c 'worstWidth'                      # 2 on each — declared and assigned, never read
+done
+```
+
+The pick is one line — put `\(worstWidth)pt` into the `#expect` message beside `\(worst)`. Nothing
+fails without it and nothing changes with it except what a maintainer reads when that test goes red,
+which on a width-dependent row height is the first question they will have. Recorded rather than
+sent, per the standing direction.
+
 ## 2026-08-30 — Compare Copies for file pairs (`90e0ac67`, `e2082929`, `51c37256`, `e5508bc6`)
 
 > **The SHAs above are the second set.** This row first cited `bb27a528`, `8296889a` and
