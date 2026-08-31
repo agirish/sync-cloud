@@ -16,8 +16,10 @@ struct TextPairDiffView: View {
     let notes: [String]
     let accent: Color
 
-    /// The region ↑/↓ last stepped to, so the host can drive it from the keyboard.
-    @Binding var focusedRegion: Int
+    /// The region ↑/↓ last stepped to, or nil while nothing has been stepped to yet — the pane is
+    /// then showing the top of the file rather than any change. See
+    /// ``TextPairDiff/steppedRegion(from:direction:count:)``.
+    @Binding var focusedRegion: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,7 +41,7 @@ struct TextPairDiffView: View {
                 // one. Stepping to a change should land instantly: a reader pressing ↓ four times
                 // must not wait out four scrolls.
                 .onChange(of: focusedRegion) { _, index in
-                    guard diff.regions.indices.contains(index) else { return }
+                    guard let index, diff.regions.indices.contains(index) else { return }
                     proxy.scrollTo(diff.regions[index].lowerBound, anchor: .center)
                 }
             }
@@ -54,9 +56,16 @@ struct TextPairDiffView: View {
                     .foregroundStyle(diff.isIdentical ? Color.secondary : Color.primary)
                 Spacer(minLength: 8)
                 if !diff.regions.isEmpty {
-                    Text("\(min(focusedRegion + 1, diff.regions.count)) of \(diff.regions.count)")
+                    // **Drawn at rest, invisibly.** The counter says nothing until a change has
+                    // been stepped to — "1 of 5" would name a change the pane has not scrolled to,
+                    // and the summary beside it already carries the count. Hiding it with
+                    // `opacity` rather than an `if` keeps its width in the bar, so the stepper
+                    // does not jump sideways under the reader's cursor on the first press.
+                    Text("\(min((focusedRegion ?? 0) + 1, diff.regions.count)) of \(diff.regions.count)")
                         .scaledFont(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
+                        .opacity(focusedRegion == nil ? 0 : 1)
+                        .accessibilityHidden(focusedRegion == nil)
                     stepper
                 }
             }
@@ -84,10 +93,11 @@ struct TextPairDiffView: View {
 
     /// Wraps around, both ways. A stepper that stops at the last change leaves the reader to
     /// scroll back to the first by hand — and the count beside it already says where they are, so
-    /// wrapping cannot be mistaken for "nothing happened".
+    /// wrapping cannot be mistaken for "nothing happened". The rule itself is
+    /// ``TextPairDiff/steppedRegion(from:direction:count:)``, shared with the ↑/↓ keys.
     private func step(_ direction: Int) {
-        guard !diff.regions.isEmpty else { return }
-        focusedRegion = (focusedRegion + direction + diff.regions.count) % diff.regions.count
+        focusedRegion = TextPairDiff.steppedRegion(from: focusedRegion, direction: direction,
+                                                   count: diff.regions.count)
     }
 
     // MARK: One row

@@ -62,6 +62,24 @@ struct TextPairDiff: Equatable {
         return "\(regions.count) \(regionWord), \(changedLineCount) \(lineWord)."
     }
 
+    // MARK: Stepping
+
+    /// Where a ↑/↓ press lands, given where the reader is now.
+    ///
+    /// **From nowhere, a step goes to an END rather than past one.** `nil` means nothing has been
+    /// stepped to yet — the pane is showing the top of the file, not a change — so ↓ lands on the
+    /// FIRST change and ↑ on the last. It used to start at region 0 and add one, which skipped the
+    /// first change on the way in: with the pane freshly opened, the first ↓ scrolled to the
+    /// second change, and the first was reachable only by wrapping the whole way round or by ↑.
+    ///
+    /// A value, and shared by the key handler and the on-screen stepper, so the two cannot come to
+    /// disagree about where "next" is.
+    static func steppedRegion(from current: Int?, direction: Int, count: Int) -> Int? {
+        guard count > 0 else { return nil }
+        guard let current else { return direction > 0 ? 0 : count - 1 }
+        return (current + direction + count) % count
+    }
+
     // MARK: Building
 
     static func make(left: [String], right: [String]) -> TextPairDiff {

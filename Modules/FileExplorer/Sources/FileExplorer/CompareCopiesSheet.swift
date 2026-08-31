@@ -198,7 +198,17 @@ struct FilePairCompareView<Verdict: View>: View {
     @State private var rasterToken = UUID()
     @State private var textDiff: TextPairDiff?
     @State private var textNotes: [String] = []
-    @State private var focusedRegion = 0
+    /// Guards a diff that lands after the pair moved on — the raster path's token, for a race the
+    /// text path is MORE exposed to: two detached Myers passes have no ordering between them, so a
+    /// slow pair's diff can resume after a fast pair's has already been drawn.
+    @State private var textDiffToken = UUID()
+    /// Which change ↑/↓ last stepped to, or nil while nothing has been stepped to yet.
+    ///
+    /// **Optional rather than 0, because "the first change" and "no change chosen" are different
+    /// states.** Starting at 0 made the first ↓ compute 0+1 and skip to the second change — the
+    /// first was then reachable only by wrapping all the way round — and the counter read "1 of N"
+    /// about a region nothing had scrolled to.
+    @State private var focusedRegion: Int?
     /// Guards a completion from a verify the user has already superseded — the same token shape
     /// `ReviewCardView.performVerify` uses.
     @State private var verifyToken = UUID()
@@ -396,6 +406,7 @@ struct FilePairCompareView<Verdict: View>: View {
             page = 0
             textDiff = nil
             textNotes = []
+            focusedRegion = nil
             verify = .idle
             rasters = (nil, nil)
             difference = nil
@@ -421,8 +432,9 @@ struct FilePairCompareView<Verdict: View>: View {
         .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
             guard press.isPlainKeystroke, activeMode == .textDiff,
                   let diff = textDiff, !diff.regions.isEmpty else { return .ignored }
-            let step = press.key == .upArrow ? -1 : 1
-            focusedRegion = (focusedRegion + step + diff.regions.count) % diff.regions.count
+            focusedRegion = TextPairDiff.steppedRegion(from: focusedRegion,
+                                                       direction: press.key == .upArrow ? -1 : 1,
+                                                       count: diff.regions.count)
             return .handled
         }
         .accessibilityElement(children: .contain)
@@ -697,12 +709,22 @@ struct FilePairCompareView<Verdict: View>: View {
     /// Bounded and encoding-tolerant — see ``BoundedTextRead``. The diff itself is a Myers pass
     /// over two line arrays, which for a 4 MB file is real work and has no business on the actor
     /// that draws the window.
+    ///
+    /// **Token-guarded, like the raster path.** `.task(id:)` cancels the task that awaits, but a
+    /// `Task.detached` neither observes that cancellation nor finishes in the order it was
+    /// started: a large pair's diff can resume after a small pair's has been drawn and overwrite
+    /// it, leaving one pair's changes under another pair's name until the mode is left and
+    /// re-entered. The token is taken before the hop and re-read after it.
     private func refreshTextDiff() async {
+        let token = UUID()
+        textDiffToken = token
         guard kind == .text, activeMode == .textDiff else {
             // Cleared, not merely skipped: a diff left standing here is the PREVIOUS pair's, and
-            // `textDiffPane` renders whatever is in it the moment the mode comes back.
+            // `textDiffPane` renders whatever is in it the moment the mode comes back. The focus
+            // goes with it — a position into regions that no longer exist.
             textDiff = nil
             textNotes = []
+            focusedRegion = nil
             return
         }
         let leftPath = left.path, rightPath = right.path
@@ -728,9 +750,10 @@ struct FilePairCompareView<Verdict: View>: View {
             return (TextPairDiff.make(left: BoundedTextRead.lines(leftText),
                                       right: BoundedTextRead.lines(rightText)), notes)
         }.value
+        guard textDiffToken == token else { return }
         textDiff = result.0
         textNotes = result.1
-        focusedRegion = 0
+        focusedRegion = nil
     }
 
     /// Side by side, in whichever viewer the pair's kind earns.

@@ -212,4 +212,40 @@ import Testing
         #expect(left.allSatisfy { !$0.changed })
         #expect(right.allSatisfy { !$0.changed })
     }
+
+    // MARK: Stepping between changes
+
+    /// **The first ↓ goes to the FIRST change.** It used to start the count at region 0 and add
+    /// one, so the opening press skipped straight to the second change and the first was reachable
+    /// only by wrapping the whole way round — on the one press every reader makes first.
+    @Test func theFirstStepDownLandsOnTheFirstChange() {
+        #expect(TextPairDiff.steppedRegion(from: nil, direction: 1, count: 5) == 0)
+    }
+
+    /// The mirror: stepping up from nowhere is the last change, not the second-to-first.
+    @Test func theFirstStepUpLandsOnTheLastChange() {
+        #expect(TextPairDiff.steppedRegion(from: nil, direction: -1, count: 5) == 4)
+    }
+
+    /// Every position steps to its neighbour, and both ends wrap — the stepper's stated contract.
+    @Test func steppingWalksEveryRegionAndWrapsAtBothEnds() {
+        #expect(TextPairDiff.steppedRegion(from: 0, direction: 1, count: 3) == 1)
+        #expect(TextPairDiff.steppedRegion(from: 1, direction: 1, count: 3) == 2)
+        #expect(TextPairDiff.steppedRegion(from: 2, direction: 1, count: 3) == 0)
+        #expect(TextPairDiff.steppedRegion(from: 0, direction: -1, count: 3) == 2)
+    }
+
+    /// A diff with nothing in it has nowhere to step, and says so rather than returning a position
+    /// the pane would then try to scroll to.
+    @Test func anIdenticalPairHasNoRegionToStepTo() {
+        #expect(TextPairDiff.steppedRegion(from: nil, direction: 1, count: 0) == nil)
+        #expect(TextPairDiff.steppedRegion(from: 0, direction: 1, count: 0) == nil)
+    }
+
+    /// One change: both directions stay on it rather than stepping off the end.
+    @Test func aSingleChangeIsItsOwnNeighbourInBothDirections() {
+        #expect(TextPairDiff.steppedRegion(from: nil, direction: 1, count: 1) == 0)
+        #expect(TextPairDiff.steppedRegion(from: 0, direction: 1, count: 1) == 0)
+        #expect(TextPairDiff.steppedRegion(from: 0, direction: -1, count: 1) == 0)
+    }
 }
