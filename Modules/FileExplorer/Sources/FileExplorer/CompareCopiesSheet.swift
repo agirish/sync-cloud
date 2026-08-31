@@ -800,15 +800,7 @@ struct FilePairCompareView<Verdict: View>: View {
                 if let caption = right.caption { notes.append("Right: \(caption)") }
                 return (nil, notes)
             }
-            if case .text(_, lossy: true) = left {
-                notes.append("The left file is not valid UTF-8 — unreadable bytes are shown as “\u{FFFD}”.")
-            }
-            if case .text(_, lossy: true) = right {
-                notes.append("The right file is not valid UTF-8 — unreadable bytes are shown as “\u{FFFD}”.")
-            }
-            if let note = BoundedTextRead.lineEndingNote(left: leftText, right: rightText) {
-                notes.append(note)
-            }
+            notes += BoundedTextRead.readingNotes(left: left, right: right)
             let leftLines = BoundedTextRead.lines(leftText)
             let rightLines = BoundedTextRead.lines(rightText)
             // **Refused before it starts, because it cannot be stopped once it has.** The pass
