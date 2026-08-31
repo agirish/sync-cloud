@@ -242,6 +242,38 @@ enum DuplicateComparePrompt {
     /// where it is not raises its own permanent-delete confirmation afterwards.
     static let confirmTitle = "Move to Trash"
 
+    /// The trash button's own title.
+    ///
+    /// **Derived from the TARGET, not from the kind — and that is a correction.** This switched on
+    /// the match kind alone, so a versions pair always read "Trash the older copy". The keeper is
+    /// the reader's to flip, and flipping it to the older revision makes the target the newer one:
+    /// the button then named the copy it was keeping. The dialog behind it was right throughout,
+    /// which is exactly why the label could stay wrong without anything failing.
+    ///
+    /// `targetIsOlder` is nil when the two dates cannot order the pair — one is missing, or they
+    /// are equal — and the title then says only "the other copy", which is true of every pair.
+    static func trashTitle(kind: DuplicateMatchType.Kind, targetIsOlder: Bool?) -> String {
+        guard kind == .versions, let targetIsOlder else { return "Trash the other copy" }
+        return targetIsOlder ? "Trash the older copy" : "Trash the newer copy"
+    }
+
+    /// The same title, from the two copies themselves — what the surface calls, so the ordering
+    /// that decides the word is a value a test can drive rather than a comparison written inside a
+    /// `body`. `target` is the copy the button would trash; `keeper` is the one it would keep.
+    static func trashTitle(kind: DuplicateMatchType.Kind,
+                           keeper: DuplicateCopy?, target: DuplicateCopy?) -> String {
+        trashTitle(kind: kind, targetIsOlder: targetIsOlder(keeper: keeper, target: target))
+    }
+
+    /// Whether the doomed copy is the older of the two, or nil when the dates cannot order them —
+    /// one is missing, or both carry the same stamp.
+    static func targetIsOlder(keeper: DuplicateCopy?, target: DuplicateCopy?) -> Bool? {
+        guard let keeperDate = keeper?.modificationDate,
+              let targetDate = target?.modificationDate,
+              keeperDate != targetDate else { return nil }
+        return targetDate < keeperDate
+    }
+
     /// Why the Trash button is unavailable, spelled out rather than left to a greyed control. A
     /// copy inside a folder another group is KEEPING may never be offered for removal — the
     /// recommendation excludes it for the same reason — and a disabled button with no reason reads

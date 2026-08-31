@@ -1176,11 +1176,19 @@ struct CompareCopiesSheet: View {
         .help(reason ?? "Move the other copy to the Trash")
     }
 
-    private var trashTitle: String {
-        switch pair.matchType {
-        case .versions: return "Trash the older copy"
-        default: return "Trash the other copy"
-        }
+    /// Named for the copy it destroys, which follows the keeper flip — see
+    /// ``DuplicateComparePrompt/trashTitle(kind:keeper:target:)``.
+    ///
+    /// **Internal rather than private, as a seam.** The wording rule is unit-tested where it lives,
+    /// but the rule is only half the defect: handing it `keeper:` and `target:` the wrong way round
+    /// would invert the label on every versions pair and satisfy every test of the rule itself. A
+    /// SwiftUI button's title cannot be read back off a mounted view — these styles bridge to
+    /// `_NSGraphicsView`, with no `NSButton` and no title to walk to — so the seam is what lets the
+    /// CALL SITE be asserted at all. `SettingsRail.versionText` exists for the same reason.
+    var trashTitle: String {
+        DuplicateComparePrompt.trashTitle(kind: pair.matchType.kind,
+                                          keeper: pair.copy(atPath: keeperPath),
+                                          target: otherCopy)
     }
 }
 

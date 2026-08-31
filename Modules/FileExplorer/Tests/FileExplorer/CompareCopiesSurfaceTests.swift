@@ -114,6 +114,48 @@ import Testing
                 "flipping the keeper flips which copy the verdict acts on, without moving a pane")
     }
 
+    /// **The label the surface actually draws, at the call site that draws it.**
+    ///
+    /// `DuplicateComparePrompt` is unit-tested where it lives, and that is not enough here: passing
+    /// it `keeper:` and `target:` the wrong way round would name the surviving copy on every
+    /// versions pair and satisfy every test of the rule. This builds the sheet the host builds and
+    /// reads its title, on both sides of a keeper flip — the two calls differ only in which copy is
+    /// being kept, which is exactly the argument an inverted call site would get wrong.
+    @Test func theTrashButtonNamesTheCopyItDestroysOnEitherSideOfAFlip() {
+        let older = copy("/root/a/Notes.md")
+        let newer = DuplicateCopy(id: "/root/b/Notes.md", name: "Notes.md", isDirectory: false,
+                                  size: 1000, itemCount: 1,
+                                  modificationDate: Self.scanned.addingTimeInterval(86_400),
+                                  uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let pair = DuplicateComparePair(keeper: newer, other: older, matchType: .versions,
+                                        groupName: "Notes.md")
+        func sheet(keeping path: String) -> CompareCopiesSheet {
+            CompareCopiesSheet(
+                pair: pair, keeperPath: path, allowsKeeperChoice: true,
+                protectedPaths: [], isStale: false, scanRoot: "/root",
+                providerName: "Projects", hue: .blue,
+                availableSize: CGSize(width: 900, height: 700),
+                onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {})
+        }
+        #expect(sheet(keeping: newer.path).trashTitle == "Trash the older copy")
+        #expect(sheet(keeping: older.path).trashTitle == "Trash the newer copy",
+                "the button named the copy it was keeping after the keeper was flipped")
+    }
+
+    /// A stale payload — a keeper path naming neither side — has no target, and the title must not
+    /// guess an age for a copy it cannot find. (The verdict is disabled in this state anyway.)
+    @Test func aTitleWithNoTargetClaimsNoAge() {
+        let pair = DuplicateComparePair(keeper: copy("/root/a/x.md", keeper: true),
+                                        other: copy("/root/b/x.md"),
+                                        matchType: .versions, groupName: "x.md")
+        let sheet = CompareCopiesSheet(
+            pair: pair, keeperPath: "/root/c/x.md", allowsKeeperChoice: true,
+            protectedPaths: [], isStale: true, scanRoot: "/root", providerName: "Projects",
+            hue: .blue, availableSize: CGSize(width: 900, height: 700),
+            onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {})
+        #expect(sheet.trashTitle == "Trash the other copy")
+    }
+
     /// A keeper path naming neither side is what a stale payload looks like — there is no "other
     /// copy" to trash, and the surface must not invent one.
     @Test func aKeeperPathFromOutsideThePairHasNoOtherCopy() {
