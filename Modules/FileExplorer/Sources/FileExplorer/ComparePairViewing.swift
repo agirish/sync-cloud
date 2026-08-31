@@ -198,6 +198,55 @@ enum PairPaneFallback: Equatable {
     case message(String)
 }
 
+// MARK: - Whether the typed viewer can be mounted yet
+
+/// Whether a pair that earns a typed viewer is still waiting on the facts that decide it.
+///
+/// **A rule rather than a `body` expression, because getting it wrong shows as a permanent
+/// spinner.** Each kind waits on something different and each has a state that looks like waiting
+/// and is not: a PDF waits on its page counts, an image on its first raster, and a side that is not
+/// downloaded is not waiting at all — it has a placeholder pane with a Download button, and
+/// spinning over it hides the only control that would fix it. Four cases with two traps in them
+/// belongs where a table can be run against it.
+enum TypedViewerReadiness {
+
+    /// - Parameters:
+    ///   - sidesClassified: both sides have been probed (cloud-only, missing, or readable).
+    ///   - pageCountsResolved: the PDF page counts have landed. Meaningless for other kinds.
+    ///   - bothSidesReadable: both sides have content on disk to render.
+    ///   - outcome: whether the current page's rasters are in flight, up, or never coming.
+    ///   - hasRasters: both sides already have an image to draw, whatever the outcome says now.
+    static func isStillResolving(kind: PairContentKind,
+                                 sidesClassified: Bool,
+                                 pageCountsResolved: Bool,
+                                 bothSidesReadable: Bool,
+                                 outcome: PairRenderOutcome,
+                                 hasRasters: Bool) -> Bool {
+        guard sidesClassified else { return true }
+        switch kind {
+        case .pdf:
+            return !pageCountsResolved
+        case .image:
+            // Waiting AND with nothing to show — two conditions, because the second is what stops
+            // this flashing. Leaving a pixel mode re-keys the raster task (the difference image is
+            // computed there and side by side does not want it), so the outcome drops back to
+            // `.rendering` for a decode of the very same file: on `hasRasters` alone the pane would
+            // blank to a spinner on every `1`–`4` press and come back with the picture it already
+            // had.
+            //
+            // `bothSidesReadable` because the raster refresh BAILS without it, leaving the outcome
+            // at `.rendering` for ever — a cloud-only side would spin here instead of falling
+            // through to the pane offering to download it.
+            return bothSidesReadable && outcome == .rendering && !hasRasters
+        case .text, .other:
+            // No typed viewer to wait for. Never asked in production — the caller gates on
+            // `hasSyncedViewer` — and answered rather than trapped, because a kind gaining a viewer
+            // later should not make this the crash site.
+            return false
+        }
+    }
+}
+
 // MARK: - One strip entry's verdict
 
 /// What the page strip knows about one position.

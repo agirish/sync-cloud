@@ -826,6 +826,16 @@ struct FilePairCompareView<Verdict: View>: View {
             return (diff, notes)
         }.value
         guard textDiffToken == token else { return }
+        // Logged where the result LANDS, so a superseded pass says nothing: the note the reader is
+        // given is the one written down. A refusal is the whole answer, which is why it is a
+        // warning; a coarse row is a diff that arrived with less in it than usual.
+        if result.0 == nil, !result.1.isEmpty {
+            Logger.shared.warning(
+                "[compare] no line diff for \(left.path) vs \(right.path): \(result.1.joined(separator: " "))")
+        } else if let diff = result.0, diff.coarseRows > 0 {
+            Logger.shared.info(
+                "[compare] \(diff.coarseRows) row(s) too long for the word pass in \(left.path) vs \(right.path)")
+        }
         textDiff = result.0
         textNotes = result.1
         focusedRegion = nil
@@ -877,9 +887,17 @@ struct FilePairCompareView<Verdict: View>: View {
             // later, and spins up a Quick Look extension process for a preview already on its way
             // out. `pairing == nil` is what distinguishes "the count is in flight" from "this PDF
             // opens to nothing", which is why it is optional.
-            ProgressView()
-                .controlSize(.small)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            //
+            // **In the same frame the viewer will occupy, headers and all.** A bare spinner filling
+            // the area meant the keeper control popped in when the wait ended and everything below
+            // it shifted down — and the keeper is precisely what a reader might want to click while
+            // the document opens. Both other branches draw the headers too, so this is the one
+            // shape all three share and nothing moves as the surface makes up its mind.
+            typedPanes {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } else if kind == .pdf, bothSidesReadable, bothSidesOpened {
             typedPanes {
                 PDFPairView(leftPath: left.path, rightPath: right.path,
@@ -949,10 +967,27 @@ struct FilePairCompareView<Verdict: View>: View {
     }
 
     /// Whether a kind that earns a typed viewer is still waiting on the facts that decide it —
-    /// either side unclassified, or (for a PDF) the page counts not yet asked for.
+    /// either side unclassified, the page counts not yet asked for, or the first raster not yet
+    /// decoded.
+    ///
+    /// **An image pair waits for its raster, and that was the gap.** `ImagePairView` draws the two
+    /// `CGImage`s, which are decoded off the main actor — so mounting it before the first render
+    /// lands puts two empty scroll views on screen. Blank rather than spinning, but the same defect
+    /// ``PairRenderOutcome`` exists to fix: the interface saying nothing about something that has
+    /// not arrived. On a 100-megapixel raw that is seconds of it.
+    ///
+    /// `bothSidesReadable` is in the image term because `refreshRasters` bails without it, leaving
+    /// `renderOutcome` at `.rendering` for ever — a cloud-only side would then spin here instead of
+    /// falling through to the placeholder pane that offers to download it. `.failed` is not waiting
+    /// either: it falls through to the Quick Look panes and the caption naming the copy.
     private var stillResolvingTypedViewer: Bool {
-        if sources[left.path] == nil || sources[right.path] == nil { return true }
-        return kind == .pdf && pairing == nil
+        TypedViewerReadiness.isStillResolving(
+            kind: kind,
+            sidesClassified: sources[left.path] != nil && sources[right.path] != nil,
+            pageCountsResolved: pairing != nil,
+            bothSidesReadable: bothSidesReadable,
+            outcome: renderOutcome,
+            hasRasters: rasters.left != nil && rasters.right != nil)
     }
 
     // MARK: Rasters
@@ -1083,6 +1118,12 @@ struct FilePairCompareView<Verdict: View>: View {
             // **The same finding the strip just recorded, told to the panes.** They knew only that
             // they had no image, which is what a render still in flight looks like too.
             renderOutcome = .failed(left: l == nil, right: r == nil)
+            // On the visible page only — the page search renders many and would turn a broken
+            // document into a hundred lines. "It said my file could not be rendered" is the
+            // report this surface will actually generate, and the log held nothing about it.
+            let unread = [l == nil ? left.path : nil, r == nil ? right.path : nil].compactMap { $0 }
+            Logger.shared.warning(
+                "[compare] page \(page + 1) would not render: \(unread.joined(separator: ", "))")
             return
         }
         renderOutcome = .ready
