@@ -189,7 +189,9 @@ import Testing
         // 6 since Appearance's Text size stopped being a segmented picker: it is a preset row
         // over a slider now, and a `Button`'s tint is not the segmented-selection problem this
         // scan exists for. Row spacing, one control below it, is still segmented and still here.
-        #expect(sites == 6, "expected 6 segmented pickers in the app, found \(sites)")
+        // 7 since the Compare Copies surface gained its side-by-side / swipe / onion / difference
+        // mode picker.
+        #expect(sites == 7, "expected 7 segmented pickers in the app, found \(sites)")
     }
 
     /// Every Swift file the SHIPPING app is built from: each module's `Sources`, plus `MacApp`.

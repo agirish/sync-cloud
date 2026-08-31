@@ -251,7 +251,7 @@ import Testing
             CompareCopiesSheet(
                 pair: pair, keeperPath: keeperPath, allowsKeeperChoice: true,
                 protectedPaths: [], isStale: isStale, scanRoot: "/root",
-                providerName: "Projects", accent: .blue, availableSize: available,
+                providerName: "Projects", hue: .blue, availableSize: available,
                 onChooseKeeper: { _ in }, onTrash: { _, _ in }, onClose: {},
                 probe: { [source] _ in source },
                 hash: { _ in .hashed("a") })

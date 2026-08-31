@@ -43,7 +43,7 @@ import Testing
             isStale: isStale,
             scanRoot: "/root",
             providerName: "Projects",
-            accent: .blue,
+            hue: .blue,
             availableSize: CGSize(width: 1200, height: 800),
             onChooseKeeper: { recorder.keeperPicks.append($0) },
             onTrash: { c, _ in recorder.trashes.append(c.path) },

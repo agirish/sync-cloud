@@ -18,7 +18,7 @@ import Sync
 /// the keeper is flipped. That is the card's rule too (`choosingKeeper` deliberately leaves the
 /// copies where they were): a list that rearranges itself under the click that changed it gives
 /// the reader no before and after to compare.
-public struct DuplicateComparePair: Identifiable, Equatable {
+public struct DuplicateComparePair: Identifiable, Equatable, Sendable {
     let left: DuplicateCopy
     let right: DuplicateCopy
     let matchType: DuplicateMatchType
@@ -111,7 +111,11 @@ struct CompareCopiesSheet: View {
     let isStale: Bool
     let scanRoot: String?
     let providerName: String?
-    let accent: Color
+    /// The window's hue, not a resolved `Color`. The segmented mode picker needs the hue itself —
+    /// `.accentedSegments` takes one, and handing it a literal is the bug that modifier exists to
+    /// prevent — so the surface carries the hue and resolves the accent from it, rather than
+    /// carrying both and letting them disagree.
+    let hue: LiquidGlassHue
     let availableSize: CGSize
 
     var onChooseKeeper: (String) -> Void
@@ -132,11 +136,26 @@ struct CompareCopiesSheet: View {
 
     @State private var sources: [String: ColumnPreviewSource] = [:]
     @State private var verify: ComparePairVerify = .idle
+    @State private var mode: ComparePairMode = .sideBySide
+    @State private var page = 0
+    @State private var pairing = PagePairing(leftPages: 0, rightPages: 0)
+    @State private var rasters: (left: CGImage?, right: CGImage?) = (nil, nil)
+    @State private var difference: CGImage?
+    @State private var pageStates: [Int: PageDiffState] = [:]
+    @State private var swipeFraction: Double = 0.5
+    @State private var onionOpacity: Double = 0.5
+    /// ⌥ held: the two viewers stop mirroring each other so one pane can be moved on its own.
+    @State private var optionHeld = false
+    /// Guards a raster that arrives after the user has paged on — the same token shape the verify
+    /// uses, for the same reason.
+    @State private var rasterToken = UUID()
     /// Guards a completion from a verify the user has already superseded — the same token shape
     /// `ReviewCardView.performVerify` uses.
     @State private var verifyToken = UUID()
     @StateObject private var downloads = PaneDownloadWatch()
     @FocusState private var focused: Bool
+
+    private var accent: Color { hue.accentColor }
 
     private var size: CGSize { CompareOverlayMetrics.size(available: availableSize) }
 
@@ -147,6 +166,16 @@ struct CompareCopiesSheet: View {
 
     private var otherCopy: DuplicateCopy? { pair.other(than: keeperPath) }
 
+    /// The pair's viewer kind. **Both sides must agree, or the pair is `.other`** — a versions
+    /// group can hold `Report.pdf` beside `Report.docx`, and a PDF viewer given a Word document
+    /// shows a blank pane rather than saying it cannot page it.
+    private var kind: PairContentKind {
+        let left = PairContentKind.classify(path: pair.left.path)
+        return left == PairContentKind.classify(path: pair.right.path) ? left : .other
+    }
+
+    private var modes: [ComparePairMode] { ComparePairMode.available(for: kind) }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -154,7 +183,15 @@ struct CompareCopiesSheet: View {
             if isStale { staleNotice }
             claimAndFacts
             Divider()
+            if kind.hasPixelModes { modeBar }
             panes
+            if kind == .pdf, pairing.stripLength > 1 {
+                Divider()
+                PageStrip(pairing: pairing, states: pageStates, current: page, accent: accent) {
+                    page = $0
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+            }
             Divider()
             verdictBar
         }
@@ -199,6 +236,46 @@ struct CompareCopiesSheet: View {
             onClose()
             return .handled
         }
+        // 1–4 pick a mode, in the order `ComparePairMode.allCases` declares them — the digit is
+        // derived from that order rather than written twice.
+        .onKeyPress(keys: ["1", "2", "3", "4"], phases: .down) { press in
+            guard press.isPlainKeystroke,
+                  let digit = Int(String(press.key.character)),
+                  let picked = ComparePairMode.forDigit(digit),
+                  modes.contains(picked) else { return .ignored }
+            mode = picked
+            return .handled
+        }
+        // ⇞/⇟ page BOTH sides — the surface owns the page, so there is one number and the
+        // pairing clamps each side to its own last page.
+        .onKeyPress(keys: [.pageUp, .pageDown], phases: .down) { press in
+            guard press.isPlainKeystroke, pairing.stripLength > 1 else { return .ignored }
+            let next = press.key == .pageUp ? page - 1 : page + 1
+            page = min(max(0, next), pairing.stripLength - 1)
+            return .handled
+        }
+        // ⌥ as a HELD modifier, not a chord: chords with ⌥ are banned app-wide (they fire from
+        // inside the ⌥-hold keycap reveal), and this is the modifier's other meaning — while it is
+        // down the two viewers stop mirroring, so one pane can be moved on its own.
+        .onModifierKeysChanged(mask: .option) { _, new in
+            optionHeld = new.contains(.option)
+        }
+        // The page count each side actually has, which is what the strip and the pairing are
+        // built from. Off the main actor and behind the serial lane, so a scan already parsing
+        // simply makes it arrive late.
+        .task(id: pair.id) {
+            guard kind == .pdf else {
+                pairing = PagePairing(leftPages: 0, rightPages: 0)
+                return
+            }
+            async let left = PagePairRaster.pageCount(path: pair.left.path)
+            async let right = PagePairRaster.pageCount(path: pair.right.path)
+            pairing = PagePairing(leftPages: await left ?? 0, rightPages: await right ?? 0)
+        }
+        // One in-flight render per side, re-keyed on the page and the mode's need for a raster.
+        // Cancelled by `.task(id:)` when the page changes, which is what stops a 300-page document
+        // from queueing 300 renders behind a scan.
+        .task(id: rasterKey) { await refreshRasters() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Compare copies of \(pair.groupName)")
     }
@@ -329,13 +406,185 @@ struct CompareCopiesSheet: View {
 
     // MARK: Panes
 
-    private var panes: some View {
+    /// The mode segments, plus whatever the current mode owes the reader.
+    private var modeBar: some View {
         HStack(spacing: 10) {
-            pane(pair.left)
-            pane(pair.right)
+            Picker("", selection: $mode) {
+                ForEach(modes) { option in
+                    Label(option.title, systemImage: option.symbol).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accentedSegments(hue)
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityLabel("Compare mode")
+            if mode == .onion {
+                Slider(value: $onionOpacity, in: 0...1)
+                    .frame(maxWidth: 160)
+                    .accessibilityLabel("Onion blend")
+            }
+            if let caveat = mode.caveat {
+                Text(caveat)
+                    .scaledFont(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            if rasters.left != nil, let result = pageStates[page], case .changed = result {
+                // Only where a raster answered: a figure printed while the render is pending would
+                // be describing the previous page.
+                Text(sizeCaveat)
+                    .scaledFont(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    /// Disclosed rather than hidden: a rescaled comparison resamples, so its figure is a weaker
+    /// claim than a matched pair's.
+    private var sizeCaveat: String {
+        guard let left = rasters.left, let right = rasters.right,
+              left.width != right.width || left.height != right.height else { return "" }
+        return "Different page sizes — rescaled to compare."
+    }
+
+    @ViewBuilder
+    private var panes: some View {
+        Group {
+            switch mode {
+            case .sideBySide:
+                sideBySidePanes
+            case .swipe, .onion, .difference:
+                VisualPairModeView(mode: mode, left: rasters.left, right: rasters.right,
+                                   difference: difference,
+                                   swipeFraction: $swipeFraction, onionOpacity: $onionOpacity)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                            .strokeBorder(Color.secondary.opacity(0.18), lineWidth: 1)
+                    }
+                    .padding(10)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Side by side, in whichever viewer the pair's kind earns.
+    ///
+    /// **A typed viewer replaces the Quick Look panes only where it is genuinely better.** For a
+    /// cloud-only or missing side there is nothing to open, so the pair falls back to the per-side
+    /// panes that can say why — a `PDFView` given a placeholder path shows an empty grey box.
+    @ViewBuilder
+    private var sideBySidePanes: some View {
+        if kind == .pdf, bothSidesReadable, pairing.stripLength > 0 {
+            typedPanes {
+                PDFPairView(leftPath: pair.left.path, rightPath: pair.right.path,
+                            page: page, pairing: pairing, syncSuspended: optionHeld)
+            }
+        } else if kind == .image, bothSidesReadable {
+            typedPanes {
+                ImagePairView(left: rasters.left, right: rasters.right, syncSuspended: optionHeld)
+            }
+        } else {
+            VStack(spacing: 6) {
+                HStack(spacing: 10) {
+                    pane(pair.left)
+                    pane(pair.right)
+                }
+                if let caption = kind.unsyncedCaption, bothSidesReadable {
+                    Text(caption)
+                        .scaledFont(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private func typedPanes(@ViewBuilder _ content: () -> some View) -> some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
+                paneHeader(pair.left)
+                paneHeader(pair.right)
+            }
+            content()
+                .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                        .strokeBorder(Color.secondary.opacity(0.18), lineWidth: 1)
+                }
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Both sides have content on disk. A typed viewer has no way to say "this one is a cloud
+    /// placeholder"; the per-side Quick Look panes do, and that is what they fall back to.
+    private var bothSidesReadable: Bool {
+        sources[pair.left.path] == .quickLook && sources[pair.right.path] == .quickLook
+    }
+
+    // MARK: Rasters
+
+    /// What a render is keyed on. The mode is in it because side-by-side on a PDF needs no raster
+    /// at all — the two `PDFView`s draw themselves — so switching INTO a pixel mode is what starts
+    /// the work, and switching out stops re-doing it.
+    private var rasterKey: String {
+        "\(pair.id)|\(page)|\(kind.rawValue)|\(needsRasters)|\(pairing.stripLength)"
+    }
+
+    private var needsRasters: Bool {
+        kind.hasPixelModes && (mode != .sideBySide || kind == .image)
+    }
+
+    /// Renders both sides of the current page and diffs them.
+    ///
+    /// **The lane is held for open and draw only.** `PagePairRaster` releases it before returning,
+    /// and the diff — plain arithmetic over two buffers, not PDFKit — runs off it. Holding the
+    /// lane across the pixel work would stall a running scan's extractions behind a compare.
+    private func refreshRasters() async {
+        guard needsRasters, bothSidesReadable else {
+            rasters = (nil, nil)
+            difference = nil
+            return
+        }
+        let token = UUID()
+        rasterToken = token
+        let leftPage = pairing.leftIndex(at: page)
+        let rightPage = pairing.rightIndex(at: page)
+        let kind = self.kind
+        async let leftImage = PagePairRaster.render(path: pair.left.path, kind: kind,
+                                                    page: leftPage,
+                                                    longEdge: PagePairRaster.compareLongEdge)
+        async let rightImage = PagePairRaster.render(path: pair.right.path, kind: kind,
+                                                     page: rightPage,
+                                                     longEdge: PagePairRaster.compareLongEdge)
+        let (l, r) = (await leftImage, await rightImage)
+        // A raster that lands after the user has paged on describes a page nobody is looking at.
+        guard rasterToken == token else { return }
+        rasters = (l?.cgImage, r?.cgImage)
+        guard let l, let r else {
+            difference = nil
+            pageStates[page] = .unrenderable
+            return
+        }
+        // Off the main actor: this is the buffer loop, and on a 1600px page it is milliseconds of
+        // arithmetic that has no business on the actor that draws the window.
+        let comparison = await Task.detached(priority: .utility) { () -> (SendableImage?, BitmapDiffResult?) in
+            (BitmapDiff.differenceImage(l.cgImage, r.cgImage).map(SendableImage.init),
+             BitmapDiff.compare(l.cgImage, r.cgImage))
+        }.value
+        guard rasterToken == token else { return }
+        difference = comparison.0?.cgImage
+        pageStates[page] = pairing.isComparable(at: page)
+            ? PageDiffState.from(comparison.1)
+            : .oneSided
     }
 
     private func pane(_ copy: DuplicateCopy) -> some View {
@@ -625,7 +874,7 @@ public struct CompareCopiesOverlay: View {
             isStale: group == nil,
             scanRoot: scanRoot,
             providerName: providerName,
-            accent: glassHue.accentColor,
+            hue: glassHue,
             availableSize: available,
             onChooseKeeper: { path in
                 // Re-looked-up at CLICK time, not captured: `setKeeper` takes a group id, and the
