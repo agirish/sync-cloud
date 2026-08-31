@@ -96,6 +96,29 @@ public class FileSyncManager: ObservableObject {
         return false
     }
 
+    /// Moves items to the Trash through the SYSTEM's file-operation service, for the case
+    /// `FileManager.trashItem` is refused permission. Returns original → trashed for whatever it
+    /// moved; an empty result means it could not either.
+    ///
+    /// **Why a second way to trash exists at all.** `FileManager.trashItem` performs the move in
+    /// THIS process, so it needs this process to be allowed to write wherever the Trash for that
+    /// item is — and for a file kept in iCloud Drive that is `~/Library/Mobile Documents/.Trash`,
+    /// not `~/.Trash`. Measured on the reported file: the item, its parent and its attributes are
+    /// all fine (a byte-identical copy in the same folder, made with `ditto` so the xattrs came
+    /// too, trashes without complaint from another process), and granting the app Full Disk Access
+    /// did not change the answer. `NSWorkspace.recycle` asks the system to perform the move
+    /// instead, which is how Finder does it.
+    ///
+    /// **Defaults to doing nothing, and the app wires the real service at construction** — the
+    /// same shape as `permanentDeleteConfirmer` above, and for two reasons. `NSWorkspace` is
+    /// AppKit, which this engine may not import (`LayeringPinTests` enforces that, and caught the
+    /// first version of this); and an unwired manager then behaves exactly as it did before this
+    /// fallback existed, which is what makes adding it to the delete path safe.
+    ///
+    /// It is a FALLBACK, never the first attempt. `trashItem` reports per-item errors this cannot,
+    /// and it is the path every successful delete in this app has always taken.
+    public var trashViaWorkspace: @Sendable ([URL]) async -> [URL: URL] = { _ in [:] }
+
     /// Confirms a cloud (Claude) Filing classify before it commits, given a pre-flight cost estimate
     /// and this month's spend-vs-cap. Consulted once per **refine pass** — never by a scan, which
     /// classifies at ``FilingClassifierTier/free`` and cannot spend — and only when cloud Filing is

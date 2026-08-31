@@ -277,6 +277,23 @@ struct SyncCloudApp: App {
         manager.permanentDeleteConfirmer = { itemPaths in
             SyncOperationAlerts.confirmPermanentDelete(itemPaths: itemPaths)
         }
+        // The out-of-process Trash, for the case `FileManager.trashItem` is refused permission —
+        // see `FileSyncManager.trashViaWorkspace`. Wired HERE because `NSWorkspace` is AppKit and
+        // the engine may not import it (`LayeringPinTests`), which is the same reason the two
+        // confirmers above are wired here rather than defaulted in Sync.
+        //
+        // `@MainActor` inside: `NSWorkspace` is AppKit and the delete loop that reaches this runs
+        // off the main actor. The completion returns on an arbitrary thread; the continuation
+        // absorbs that.
+        manager.trashViaWorkspace = { urls in
+            await withCheckedContinuation { continuation in
+                Task { @MainActor in
+                    NSWorkspace.shared.recycle(urls) { moved, _ in
+                        continuation.resume(returning: moved ?? [:])
+                    }
+                }
+            }
+        }
         // Cloud (Claude) Filing spend guardrail: before a cloud classify commits, show the pre-flight
         // cost estimate and this month's budget, and let the user (or the monthly cap) decline. A
         // decline falls back to the free on-device suggestions. Only consulted when cloud Filing is

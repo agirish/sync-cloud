@@ -131,6 +131,113 @@ import Testing
         #expect(error.message == "Some items couldn't be deleted.")
     }
 
+    // MARK: The out-of-process fallback
+
+    /// **A refusal gets a second attempt through the system service before it becomes a failure.**
+    /// `trashItem` moves the item from the app's own process; `NSWorkspace.recycle` asks the system
+    /// to do it. On the reported file the item, its parent and its attributes were all fine — a
+    /// byte-identical `ditto` copy in the same folder trashed without complaint from another
+    /// process — and Full Disk Access did not change the answer, so which process performs the move
+    /// is the remaining difference.
+    @MainActor
+    @Test func aRefusedTrashIsRetriedThroughTheSystemService() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        fm.trashErrorOnce = NSError(domain: NSCocoaErrorDomain,
+                                    code: NSFileWriteNoPermissionError, userInfo: nil)
+        let asked = Recorder()
+        manager.trashViaWorkspace = { urls in
+            asked.urls = urls.map(\.path)
+            return Dictionary(uniqueKeysWithValues: urls.map {
+                ($0, URL(fileURLWithPath: "/Trash/\($0.lastPathComponent)"))
+            })
+        }
+        manager.permanentDeleteConfirmer = { _ in
+            Issue.record("a refusal reached the permanent-delete prompt")
+            return false
+        }
+
+        let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
+
+        #expect(asked.urls == ["/docs/a.pdf"], "the fallback was never asked")
+        #expect(outcome.trashed == 1, "the recovered item was not counted as trashed")
+        #expect(outcome.isUndoable, "a recovered trash must still offer ⌘Z")
+        #expect(manager.currentError == nil, "a recovered trash still reported a failure")
+    }
+
+    /// **The fallback is a fallback.** An ordinary trash must not go anywhere near it — the
+    /// in-process path reports per-item errors the service cannot, and it is the path every
+    /// successful delete in this app has always taken.
+    @MainActor
+    @Test func anOrdinaryTrashNeverReachesTheSystemService() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let asked = Recorder()
+        manager.trashViaWorkspace = { urls in asked.urls = urls.map(\.path); return [:] }
+
+        let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
+
+        #expect(outcome.trashed == 1)
+        #expect(asked.urls.isEmpty, "the system service was used for a trash that succeeded")
+    }
+
+    /// **A busy item is not sent to the service either.** It is better served by the retry the
+    /// caller already gets, and routing it out of process would trade a retryable error for a
+    /// silent one.
+    @MainActor
+    @Test func aBusyItemIsNotSentToTheSystemService() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        fm.trashErrorOnce = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+        let asked = Recorder()
+        manager.trashViaWorkspace = { urls in asked.urls = urls.map(\.path); return [:] }
+
+        _ = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
+
+        #expect(asked.urls.isEmpty, "a busy item was routed to the system service")
+        #expect(fm.virtualDisk["/docs/a.pdf"] != nil)
+    }
+
+    /// When the service cannot move it either, the refusal stands — with its own message, its
+    /// path, and its log line, exactly as before the fallback existed.
+    @MainActor
+    @Test func aServiceThatAlsoRefusesLeavesTheOriginalRefusalStanding() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/b.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        fm.trashErrorOnce = NSError(domain: NSCocoaErrorDomain,
+                                    code: NSFileWriteNoPermissionError, userInfo: nil)
+        manager.trashViaWorkspace = { _ in [:] }
+        manager.permanentDeleteConfirmer = { _ in
+            Issue.record("a refusal reached the permanent-delete prompt")
+            return false
+        }
+
+        let outcome = await manager.deleteItems(at: ["/docs/b.pdf"], fileManager: fm)
+
+        #expect(outcome.removed == 0)
+        #expect(fm.virtualDisk["/docs/b.pdf"] != nil)
+        let error = try #require(manager.currentError)
+        #expect(error.title == "Not Allowed to Move to the Trash")
+    }
+
+    /// The seam exists so a test can never reach the real service. If the default were ever swapped
+    /// for something a test could drive, this is what would notice.
+    private final class Recorder: @unchecked Sendable {
+        var urls: [String] = []
+    }
+
     // MARK: End to end
 
     /// **The whole path, from a denied `trashItem` to what the user reads.** The unit cases above
@@ -152,6 +259,10 @@ import Testing
         // make the assertions below pass for the wrong reason. It must never be called.
         var askedToDestroy = false
         manager.permanentDeleteConfirmer = { _ in askedToDestroy = true; return false }
+        // Stubbed to refuse, so this case is about what the user is TOLD when nothing can move the
+        // file — and so the test cannot reach the real system service, which is the whole reason
+        // `trashViaWorkspace` is a seam.
+        manager.trashViaWorkspace = { _ in [:] }
 
         let outcome = await manager.deleteItems(at: ["/docs/Lease Agreement.pdf"], fileManager: fm)
 

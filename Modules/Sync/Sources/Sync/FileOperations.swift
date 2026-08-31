@@ -736,6 +736,7 @@ extension FileSyncManager {
             return DeleteOutcome()
         }
         let confirmPermanentDelete = permanentDeleteConfirmer
+        let recycle = trashViaWorkspace
 
         // Prune nested paths to avoid redundant operations on children if parent is trashed.
         //
@@ -853,7 +854,22 @@ extension FileSyncManager {
                         try fm.trashItem(at: url, resultingItemURL: &trashedURL)
                         trashedItems.append((original: url, trashed: trashedURL as? URL))
                     } catch {
-                        if Self.isTransientTrashFailure(error) {
+                        // **The refusal gets a second, out-of-process attempt before it becomes a
+                        // failure.** `trashItem` moves the item from THIS process, so it needs this
+                        // process to be allowed to write wherever that item's Trash is — for a file
+                        // kept in iCloud Drive, `~/Library/Mobile Documents/.Trash`. Measured on the
+                        // reported file: the item and its attributes are fine, and Full Disk Access
+                        // did not change the answer, so asking the system to perform the move is
+                        // the remaining difference. Only on a PERMISSION refusal: a busy item is
+                        // better served by the retry the caller already gets, and the Trash-less
+                        // volume keeps its permanent-delete confirmation untouched below.
+                        if Self.isPermissionRefusal(error),
+                           let moved = await recycle([url])[url] {
+                            Logger.shared.info(
+                                "Delete: \(path) was refused in-process and moved to the Trash by "
+                                + "the system service instead")
+                            trashedItems.append((original: url, trashed: moved))
+                        } else if Self.isTransientTrashFailure(error) {
                             // Busy / locked / permission-blocked right now — common for a cloud file
                             // a provider daemon is mid-write, or an evicted placeholder. Report it as
                             // a retryable failure rather than escalating to the permanent-delete
