@@ -878,10 +878,14 @@ struct ContentView: View {
                 // **Last in the chain, deliberately.** The four above are either a direct answer to
                 // something the user just did to a file (the picker) or an ambient panel with its
                 // own entry points this window cannot gate (⌘, and ⌘? live in the App scene). A
-                // compare that yields to them loses nothing: the pair is `@State` here, so closing
-                // Settings brings the surface back exactly as it was — where refusing those panels
-                // would need the whole latch-refusal apparatus the picker has, to protect a surface
-                // that survives being covered.
+                // compare that yields to them loses one line of state and no work: the pair is
+                // `@State` HERE, so closing Settings brings the same two copies straight back.
+                // Not the reading position, though — page, mode, keeper, rendered pages and the
+                // verify result all live on the covered view and go with it, so the surface
+                // returns at its opening state rather than where it was left. That is the price,
+                // and it is the small half: refusing those panels instead would need the whole
+                // latch-refusal apparatus the picker has, to protect a surface one line of state
+                // reopens.
                 CompareCopiesOverlay(
                     syncManager: syncManager, pair: pair,
                     scanRoot: syncManager.duplicateScanRoot,
