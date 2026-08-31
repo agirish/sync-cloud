@@ -149,3 +149,110 @@ import Testing
         #expect(held, "expected two preview panes, found \(previews().count) (\(pumps) pumps)")
     }
 }
+
+/// The two review findings that had no test until they were found: a keeper picker offered where
+/// there is no keeper, and a destructive confirmation composed inline where nothing could drive it.
+@MainActor
+@Suite struct FilePairCompareSeamTests {
+
+    private final class Recorder: @unchecked Sendable {
+        var keeperPicks: [String] = []
+        var confirmations: [(copy: String, keeper: String, location: String)] = []
+        var answer = false
+    }
+
+    private func copy(_ path: String, keeper: Bool = false) -> DuplicateCopy {
+        DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
+                      size: 100, itemCount: 1, modificationDate: Date(timeIntervalSince1970: 1),
+                      uniqueItemCount: 0, depth: 1, isRecommendedKeeper: keeper)
+    }
+
+    private func send(_ window: NSWindow, keyCode: UInt16, characters: String,
+                      modifiers: NSEvent.ModifierFlags = []) {
+        window.sendEvent(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil,
+            characters: characters, charactersIgnoringModifiers: characters,
+            isARepeat: false, keyCode: keyCode)!)
+    }
+
+    /// **A surface with no keeper must not answer ←/→.** The Differences host has no group and
+    /// nothing being kept; a viewer that still took the arrows would be swallowing keys nobody
+    /// else can then have, for an act that does not exist.
+    @Test(arguments: [false, true])
+    func aHostWithNoKeeperIgnoresTheKeeperArrows(allowsChoice: Bool) async throws {
+        // Both arguments matter, and the SECOND is the one that pins the fix. With
+        // `allowsKeeperChoice: false` — the Differences host's real configuration — that flag
+        // alone would refuse the key even if the nil check were deleted. With it true, the
+        // `keeperPath != nil` guard is the only thing between → and a keeper pick on a surface
+        // that has no keeper.
+        let recorder = Recorder()
+        let view = FilePairCompareView(
+            left: copy("/L/x.txt"), right: copy("/R/x.txt"), title: "x.txt", subtitle: "A vs B",
+            claimHeadline: nil, offersVerify: false,
+            keeperPath: nil, allowsKeeperChoice: allowsChoice, notice: nil,
+            scanRoot: nil, providerName: nil, hue: .blue,
+            availableSize: CGSize(width: 900, height: 600),
+            onChooseKeeper: { recorder.keeperPicks.append($0) },
+            onClose: {},
+            probe: { _ in .missing }, hash: { _ in .hashed("a") },
+            verdict: { Text("Done") })
+        let host = NSHostingView(rootView: AnyView(view.frame(width: 900, height: 600)))
+        host.frame = CGRect(x: 0, y: 0, width: 900, height: 600)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let (focused, pumps) = await LayoutPumpWait.pump(window, upTo: 3) {
+            window.firstResponder !== window && !(window.firstResponder is NSText)
+        }
+        try #require(focused, "the surface never claimed focus (\(pumps) pumps)")
+        send(window, keyCode: 124, characters: "\u{f703}", modifiers: [.numericPad, .function])
+        #expect(recorder.keeperPicks.isEmpty, "a host with no keeper answered → anyway")
+    }
+
+    /// **A declined confirmation destroys nothing.** The one destructive path on this surface, and
+    /// until `confirmTrash` became a seam it could not be driven at all: `confirmDestructive` is a
+    /// blocking modal, so a test reaching this line would have hung on an alert.
+    @Test func decliningTheConfirmationTrashesNothing() async throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("FilePairCompareSeamTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("a.txt"), b = dir.appendingPathComponent("b.txt")
+        try Data("x".utf8).write(to: a)
+        try Data("x".utf8).write(to: b)
+
+        let recorder = Recorder()
+        recorder.answer = false
+        let manager = FileSyncManager()
+        let keeper = copy(a.path, keeper: true), other = copy(b.path)
+        manager.duplicateGroups = [DuplicateGroup(matchType: .identical, name: "a.txt",
+                                                  isDirectory: false, copies: [keeper, other],
+                                                  reclaimableBytes: 100)]
+        let overlay = CompareCopiesOverlay(
+            syncManager: manager,
+            pair: DuplicateComparePair(keeper: keeper, other: other, matchType: .identical,
+                                       groupName: "a.txt"),
+            scanRoot: dir.path, providerName: "iCloud",
+            onClose: {},
+            confirmTrash: { copy, keep, location in
+                recorder.confirmations.append((copy.path, keep.path, location))
+                return recorder.answer
+            })
+
+        overlay.trash(other, keeper: keeper)
+
+        #expect(recorder.confirmations.count == 1, "the confirmation was skipped entirely")
+        #expect(recorder.confirmations.first?.copy == b.path)
+        #expect(recorder.confirmations.first?.keeper == a.path)
+        #expect(recorder.confirmations.first?.location.contains("iCloud") == true,
+                "the dialog would not say where the kept copy lives")
+        // Give any (wrongly) started work a few main-actor turns to land before asserting absence.
+        for _ in 0..<20 { try? await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(FileManager.default.fileExists(atPath: b.path),
+                "a declined confirmation removed the copy anyway")
+        #expect(manager.duplicateGroups.count == 1)
+    }
+}

@@ -257,10 +257,11 @@ enum HelpBook {
                     .bullets([
                         "⌘D shows or hides the list; ⇧⌘F collapses or expands every folder in it.",
                         "⇧⌘V verifies date-only rows by checksum — the ones that differ only by a timestamp drop out.",
+                        "Right-click a row that exists on both sides and choose “Compare…” to see the two files side by side — the same viewer the Duplicates page describes, with a facts strip, live previews, the pixel modes for PDFs and images, and a line diff for text. It is read-only: copying, moving and ignoring a row stay on the row.",
                     ]),
                     .tip("Select rows and press ⌘→ or ⌘← to copy them across. Add ⇧ to move instead of copy."),
                 ],
-                related: ["copy-move", "guided-review"]
+                related: ["copy-move", "guided-review", "tidy-duplicates"]
             )),
             Topic(id: "copy-move", title: "Copy and move", systemImage: "arrow.left.arrow.right", article: Article(
                 intro: "Copying leaves the original in place; moving removes it from the source once the copy safely lands. SyncCloud confirms before it changes anything on either side.",
@@ -367,6 +368,9 @@ enum HelpBook {
                         "“Compare copies” opens any two copies side by side — for files as well as folders. A facts strip across the top shows name, location, size and date for both, with whatever differs picked out; below it, two live previews. Pick which copy to keep with ←/→ or the button over either pane, then Done, or trash the other one from the same bar. ⏎ and esc both mean Done: trashing is always a deliberate click.",
                         "A byte-identical pair says so, and offers to re-check it: “Verify now” hashes both files as they are on disk right now. If they no longer match, the scan is stale and it says so rather than letting you act on it.",
                         "A copy that hasn't been downloaded shows why its pane is empty, with a Download button — previewing it would pull the whole file down, which on a cloud folder is the normal case rather than the exception.",
+                        "Two PDFs or two images scroll and zoom together, and ⇞/⇟ page both at once. Hold ⌥ to move one pane on its own. A strip under the panes gives every page a dot: grey until it has been compared, green where nothing changed, amber where something did — and where one document is longer, the shorter side stops at its last page rather than hiding the pages only one file has.",
+                        "1–4 switch how the two pages are shown: side by side, a draggable swipe divider, a blend, or the pixel difference on black where identical is black and anything changed glows. That last one compares pixels with no alignment, so two scans of the same sheet of paper will glow all over — it says so on screen.",
+                        "Text, source, CSV and JSON files get a read-only line diff instead. An edited line is one row with both versions and the changed words picked out; ↑/↓ step between changes rather than between lines. A file that is too large, not downloaded, or not really text says which of those it is.",
                     ]),
                     .paragraph("What counts as a duplicate is yours to set. Settings ▸ Duplicates turns on version detection — Report, Report (1), Report-final as one family — and reading PDFs to find copies a byte-for-byte hash would miss. That same content reading is what lets Restructure notice two whole branches holding the same documents under different names."),
                     .tip("The last remaining copy of a file is never trashed, and removed files go to the Trash — never a hard delete."),
@@ -767,43 +771,13 @@ struct SyncHistoryWindowCommand: View {
 /// The card stays **centred**, so a drag moves the grabbed edge and the opposite one moves with
 /// it — see ``HelpCardSize/resized(from:by:grip:within:)`` for why that means doubling the
 /// translation rather than adding it.
-enum HelpCardGrip: CaseIterable {
-    case top, bottom, leading, trailing
-    case topLeading, topTrailing, bottomLeading, bottomTrailing
-
-    /// Whether this grip moves the card's width, and in which direction a positive drag takes it.
-    /// `0` for the two grips that only move height.
-    var horizontal: CGFloat {
-        switch self {
-        case .trailing, .topTrailing, .bottomTrailing: return 1
-        case .leading, .topLeading, .bottomLeading: return -1
-        case .top, .bottom: return 0
-        }
-    }
-
-    /// The same for height; `0` for the two that only move width.
-    var vertical: CGFloat {
-        switch self {
-        case .bottom, .bottomLeading, .bottomTrailing: return 1
-        case .top, .topLeading, .topTrailing: return -1
-        case .leading, .trailing: return 0
-        }
-    }
-
-    /// The pointer macOS shows over this grip.
-    var pointer: FrameResizePosition {
-        switch self {
-        case .top: return .top
-        case .bottom: return .bottom
-        case .leading: return .leading
-        case .trailing: return .trailing
-        case .topLeading: return .topLeading
-        case .topTrailing: return .topTrailing
-        case .bottomLeading: return .bottomLeading
-        case .bottomTrailing: return .bottomTrailing
-        }
-    }
-}
+/// The Help card's eight grips.
+///
+/// **A forward to ``ResizableCardGrip``, not a second table.** The direction table this used to
+/// spell out — `.leading` grows the card when dragged LEFT — moved to `Design` when the Compare
+/// Copies overlay became resizable too, because two copies of a sign table can only agree by
+/// luck. The name stays so this file's 29 test references keep naming the thing they test.
+typealias HelpCardGrip = ResizableCardGrip
 
 /// The Help card's size: its bounds, and the one rule that resolves a drag into a new one.
 ///
@@ -853,9 +827,8 @@ enum HelpCardSize {
     /// drifting at half the pointer's speed, which reads as lag rather than as a rule.
     static func resized(from start: CGSize, by translation: CGSize,
                         grip: HelpCardGrip, within available: CGSize) -> CGSize {
-        let wanted = CGSize(width: start.width + grip.horizontal * translation.width * 2,
-                            height: start.height + grip.vertical * translation.height * 2)
-        return clamped(wanted, within: available)
+        ResizableCardSize.resized(from: start, by: translation, grip: grip,
+                                  minimum: minimum, within: available)
     }
 
     /// A size held to the floor and to what the window can actually show.
@@ -866,10 +839,7 @@ enum HelpCardSize {
     /// smaller than the card also fails in the safer direction: an overflowing card is legible and
     /// a 0×0 one is gone.
     static func clamped(_ size: CGSize, within available: CGSize) -> CGSize {
-        let ceiling = CGSize(width: Swift.max(minimum.width, available.width),
-                             height: Swift.max(minimum.height, available.height))
-        return CGSize(width: Swift.min(Swift.max(size.width, minimum.width), ceiling.width),
-                      height: Swift.min(Swift.max(size.height, minimum.height), ceiling.height))
+        ResizableCardSize.clamped(size, minimum: minimum, within: available)
     }
 }
 
@@ -1044,7 +1014,7 @@ struct HelpView: View {
             onDrag: { apply($0.translation, grip: grip) },
             onCommit: commitDrag
         )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment(for: grip))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: grip.alignment)
     }
 
     /// One corner. `ResizeHandle` is single-axis by construction — it draws a strip and shows a
@@ -1060,20 +1030,7 @@ struct HelpView: View {
                     .onChanged { apply($0.translation, grip: grip) }
                     .onEnded { _ in commitDrag() }
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment(for: grip))
-    }
-
-    private func alignment(for grip: HelpCardGrip) -> Alignment {
-        switch grip {
-        case .top: return .top
-        case .bottom: return .bottom
-        case .leading: return .leading
-        case .trailing: return .trailing
-        case .topLeading: return .topLeading
-        case .topTrailing: return .topTrailing
-        case .bottomLeading: return .bottomLeading
-        case .bottomTrailing: return .bottomTrailing
-        }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: grip.alignment)
     }
 
     /// Resolve a drag into a live size, always from ``baseSize`` — see there for why the drag's

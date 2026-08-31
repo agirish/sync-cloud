@@ -58,12 +58,18 @@ enum BoundedTextRead {
     /// `isCloudOnly` is injectable for the reason `FileContentVerifier.hashOutcome`'s is: a real
     /// dataless file cannot be fabricated in a test, the flag is provider-set, and the cloud-only
     /// branch is the one that must never open the file.
+    ///
+    /// **There is deliberately no `FileManaging` seam here, and that is a decision rather than an
+    /// omission.** The protocol carries `attributesOfItem` but no `contents(atPath:)`, so a
+    /// manager parameter would route the stat through the seam and the BYTES through
+    /// `FileManager.default` — the size verdict and the read asked of two different filesystems,
+    /// which is the exact hazard `FileSyncManager+Duplicates` documents at its own `fileManager:`
+    /// call sites. One filesystem, named once.
     static func read(path: String,
-                     fileManager: FileManaging = FileManager.default,
                      isCloudOnly: (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) })
         -> Outcome {
         if isCloudOnly(path) { return .cloudOnly }
-        guard let attributes = try? fileManager.attributesOfItem(atPath: path) else {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else {
             return .unreadable
         }
         if (attributes[.type] as? FileAttributeType) == .typeDirectory { return .unreadable }

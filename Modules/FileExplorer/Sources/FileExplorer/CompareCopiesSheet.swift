@@ -78,9 +78,31 @@ enum CompareOverlayMetrics {
     static let minimumWidth: CGFloat = 560
     static let minimumHeight: CGFloat = 380
 
+    static var minimum: CGSize { CGSize(width: minimumWidth, height: minimumHeight) }
+
+    /// The remembered size. **Two keys rather than one archived `CGSize`**, the reason the Help
+    /// card gives: a width that survives a height's decoding failure is strictly better than
+    /// losing both, and `@AppStorage` reads `Double` natively. `0` means "never resized" — the
+    /// default below is then whatever the window can give.
+    static let widthDefaultsKey = "compareOverlayWidth"
+    static let heightDefaultsKey = "compareOverlayHeight"
+
+    /// What the card opens at on a window of `available`, before any remembered size.
     static func size(available: CGSize) -> CGSize {
         CGSize(width: max(minimumWidth, min(idealWidth, available.width - hostMargin)),
                height: max(minimumHeight, min(idealHeight, available.height - hostMargin)))
+    }
+
+    /// The size to draw at: the remembered one when there is one, always held to the floor and to
+    /// what the window can show.
+    ///
+    /// **A stored size is clamped on every render, not only when it is written.** The window can
+    /// shrink between sessions — or between two launches on different displays — and a card that
+    /// trusted what it stored would open wider than the window it is in, with its verdict bar off
+    /// screen and no way to reach the grip that would fix it.
+    static func size(available: CGSize, stored: CGSize?) -> CGSize {
+        guard let stored, stored.width > 0, stored.height > 0 else { return size(available: available) }
+        return ResizableCardSize.clamped(stored, minimum: minimum, within: available)
     }
 }
 
@@ -171,13 +193,35 @@ struct FilePairCompareView<Verdict: View>: View {
     @StateObject private var downloads = PaneDownloadWatch()
     @FocusState private var focused: Bool
 
+    @AppStorage(CompareOverlayMetrics.widthDefaultsKey) private var storedWidth: Double = 0
+    @AppStorage(CompareOverlayMetrics.heightDefaultsKey) private var storedHeight: Double = 0
+    /// The live size WHILE a grip is held. Separate from the stored one so a drag redraws without
+    /// writing to defaults on every frame — the size is committed once, on release.
+    @State private var dragging: CGSize?
+
     private var accent: Color { hue.accentColor }
 
     /// What every `.task(id:)` here is keyed on. The two paths, sorted — so opening the same pair
     /// from either side re-uses the work rather than redoing it.
     private var pairKey: String { [left.path, right.path].sorted().joined(separator: "\n") }
 
-    private var size: CGSize { CompareOverlayMetrics.size(available: availableSize) }
+    /// The size a drag measures FROM — the committed one, never the live one.
+    ///
+    /// **Always the committed size, so the drag needs no starting size captured.** Resolving each
+    /// frame against the previous frame's result compounds: the doubling in
+    /// `ResizableCardSize.resized` would be applied again to an already-grown size and the card
+    /// would run away from the pointer.
+    private var committedSize: CGSize {
+        CompareOverlayMetrics.size(available: availableSize,
+                                   stored: CGSize(width: storedWidth, height: storedHeight))
+    }
+
+    /// The size the card draws at — a live drag, else the remembered size, else the default.
+    private var size: CGSize {
+        dragging ?? CompareOverlayMetrics.size(
+            available: availableSize,
+            stored: CGSize(width: storedWidth, height: storedHeight))
+    }
 
     private var facts: ComparePairFacts {
         ComparePairFacts.make(left: left, right: right,
@@ -208,15 +252,39 @@ struct FilePairCompareView<Verdict: View>: View {
                 PageStrip(pairing: pairing, states: pageStates, current: page, accent: accent) {
                     page = $0
                 }
-                .padding(.horizontal, 12).padding(.vertical, 6)
+                .padding(.horizontal, 16).padding(.vertical, 8)
             }
             Divider()
             verdict()
         }
         .frame(width: size.width, height: size.height)
+        // **`.focusable()` is what makes the keys below work, and `.focusEffectDisabled()` is what
+        // stops it painting.** Without it macOS draws the standard focus ring — a hard accent
+        // rectangle around the WHOLE card, which reads as a stray highlight rather than as focus,
+        // because nothing about this surface looks like a control. The keys still arrive: the ring
+        // is the effect, not the focus.
         .focusable()
+        .focusEffectDisabled()
         .focused($focused)
         .onAppear { focused = true }
+        // Drag any edge or corner to resize, and the size is remembered. `ResizableCardGrips` is
+        // the Help card's own apparatus, moved to `Design` when this became the second resizable
+        // overlay rather than copied.
+        .overlay {
+            ResizableCardGrips(
+                onDrag: { translation, grip in
+                    dragging = ResizableCardSize.resized(
+                        from: committedSize, by: translation, grip: grip,
+                        minimum: CompareOverlayMetrics.minimum, within: availableSize)
+                },
+                onCommit: {
+                    if let dragging {
+                        storedWidth = dragging.width
+                        storedHeight = dragging.height
+                    }
+                    dragging = nil
+                })
+        }
         // Plain keys anchored on the surface's focused root. **The `keys:` overload, because it
         // is the one that hands the handler a `KeyPress`** — `.onKeyPress(_:action:)` does not, so
         // a handler written that way cannot tell a bare ← from ⌘←, and `.onKeyPress` is measured
@@ -285,6 +353,11 @@ struct FilePairCompareView<Verdict: View>: View {
                 pairing = PagePairing(leftPages: 0, rightPages: 0)
                 return
             }
+            // A fresh pair inherits none of the previous one's verdicts. Reachable: the host can
+            // swap the pair under a view SwiftUI has kept alive, and a strip showing the last
+            // document's dots would be describing a file nobody is looking at.
+            pageStates = [:]
+            page = 0
             async let leftCount = PagePairRaster.pageCount(path: left.path)
             async let rightCount = PagePairRaster.pageCount(path: right.path)
             pairing = PagePairing(leftPages: await leftCount ?? 0, rightPages: await rightCount ?? 0)
@@ -311,19 +384,22 @@ struct FilePairCompareView<Verdict: View>: View {
 
     // MARK: Header
 
+    /// Glyph, name, and the kind as a PILL beside it rather than grey text beneath.
+    ///
+    /// **The card states the kind as a pill and so does this.** Stacked under the title it read as
+    /// a subtitle — a property of the sentence above it — where it is really a claim about the
+    /// pair, and the one the whole surface is arguing about. On one line with the name it is the
+    /// same badge the group card wears, which is where the reader met it.
     private var header: some View {
         HStack(spacing: 10) {
-            FileTypeGlyph.view(name: title, isDirectory: false, pointSize: 15)
-                .frame(width: 18, height: 18)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .scaledFont(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(subtitle)
-                    .scaledFont(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+            FileTypeGlyph.view(name: title, isDirectory: false, pointSize: 16)
+                .frame(width: 19, height: 19)
+            Text(title)
+                .scaledFont(.system(size: 14.5, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .layoutPriority(1)
+            if !subtitle.isEmpty { kindPill }
             Spacer(minLength: 12)
             Button(action: onClose) {
                 Image(systemName: "xmark")
@@ -335,7 +411,21 @@ struct FilePairCompareView<Verdict: View>: View {
             .help(ShortcutHint.tooltip("Close", "esc"))
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.top, 13)
+        .padding(.bottom, 11)
+    }
+
+    private var kindPill: some View {
+        Text(subtitle)
+            .scaledFont(.system(size: 10.5, weight: .medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background {
+                Capsule().fill(Color.secondary.opacity(0.12))
+            }
+            .fixedSize()
     }
 
     // MARK: The host's notice
@@ -362,14 +452,19 @@ struct FilePairCompareView<Verdict: View>: View {
     @ViewBuilder
     private var claimAndFacts: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // **Verify sits beside the claim it re-checks, not at the far edge.** Pushed right by
+            // a `Spacer` it was a control floating alone 900pt from the sentence that gives it
+            // meaning; the eye had no reason to connect them.
             if claimHeadline != nil || offersVerify {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(claimHeadline ?? "")
-                        .scaledFont(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if let claimHeadline {
+                        Text(claimHeadline)
+                            .scaledFont(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if offersVerify { verifyControl }
+                    Spacer(minLength: 0)
                 }
             }
             if verify != .idle {
@@ -395,28 +490,54 @@ struct FilePairCompareView<Verdict: View>: View {
         }
     }
 
+    /// The facts, as two blocks — one over each pane.
+    ///
+    /// **The whole card is two columns, and this is the top of them.** A single table with the
+    /// labels in a left gutter pushed both value columns right by the gutter's width, so neither
+    /// sat over the pane it describes; a centre spine fixed the alignment and broke the reading,
+    /// because right-aligning the left column drags long paths into the middle and leaves the
+    /// pane's own half empty. Two self-contained blocks put each side's facts, its keeper control
+    /// and its preview in one column from top to bottom, which is the structure the reader is
+    /// already using.
+    ///
+    /// The labels repeat, and that is the cost. At 9pt tertiary they are a gutter rather than
+    /// content, and what is bought is that a value never sits over the wrong pane.
     private var factsGrid: some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 3) {
-            ForEach(facts.rows) { row in
-                GridRow {
-                    Text(row.label)
-                        .scaledFont(.system(size: 10.5))
-                        .foregroundStyle(.tertiary)
-                        .gridColumnAlignment(.trailing)
-                    factValue(row.left, differs: row.differs)
-                    factValue(row.right, differs: row.differs)
-                }
-            }
+        HStack(alignment: .top, spacing: 10) {
+            factsBlock(\.left)
+            factsBlock(\.right)
         }
     }
 
-    private func factValue(_ text: String, differs: Bool) -> some View {
+    private func factsBlock(_ side: KeyPath<ComparePairFacts.Row, String>) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+            ForEach(facts.rows) { row in
+                GridRow {
+                    Text(row.label.uppercased())
+                        .scaledFont(.system(size: 9, weight: .medium))
+                        .tracking(0.6)
+                        .foregroundStyle(.tertiary)
+                        .gridColumnAlignment(.trailing)
+                    factValue(row[keyPath: side], differs: row.differs,
+                              // **A path truncates from the HEAD.** Middle-truncation ate the one
+                              // part of a breadcrumb that distinguishes two copies — the deepest
+                              // folders — and left the provider name both sides share. A name
+                              // truncates in the middle, where the extension and any "(1)" live.
+                              truncation: row.field == .location ? .head : .middle)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func factValue(_ text: String, differs: Bool,
+                           truncation: Text.TruncationMode) -> some View {
         Text(text)
             .scaledFont(.system(size: 11.5, weight: differs ? .semibold : .regular,
                                 design: .monospaced))
             .foregroundStyle(differs ? Color.primary : Color.secondary)
             .lineLimit(1)
-            .truncationMode(.middle)
+            .truncationMode(truncation)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -448,16 +569,17 @@ struct FilePairCompareView<Verdict: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            if rasters.left != nil, let result = pageStates[page], case .changed = result {
-                // Only where a raster answered: a figure printed while the render is pending would
-                // be describing the previous page.
+            // Only where a raster answered AND the sizes actually differ: a caveat printed while
+            // the render is pending would be describing the previous page, and an empty one would
+            // reserve space for a sentence that is not there.
+            if !sizeCaveat.isEmpty, pageStates[page]?.isResolved == true {
                 Text(sizeCaveat)
                     .scaledFont(.system(size: 10.5))
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     /// Disclosed rather than hidden: a rescaled comparison resamples, so its figure is a weaker
@@ -621,8 +743,16 @@ struct FilePairCompareView<Verdict: View>: View {
     /// at all — the two `PDFView`s draw themselves — so switching INTO a pixel mode is what starts
     /// the work, and switching out stops re-doing it.
     private var rasterKey: String {
-        "\(pairKey)|\(page)|\(kind.rawValue)|\(needsRasters)|\(pairing.stripLength)"
+        "\(pairKey)|\(page)|\(kind.rawValue)|\(needsRasters)|\(showsOverlayModes)|\(pairing.stripLength)"
     }
+
+    /// Whether the DIFF is being looked at, as opposed to the rasters merely being needed.
+    ///
+    /// An image pair needs its rasters in every mode — `ImagePairView` draws them — but the
+    /// difference image is a third full-size raster and the comparison a pass over two more, and
+    /// side by side shows neither. Computing them anyway would spend that on every image pair
+    /// opened, for a number nobody is reading.
+    private var showsOverlayModes: Bool { mode != .sideBySide }
 
     private var needsRasters: Bool {
         kind.hasPixelModes && (mode != .sideBySide || kind == .image)
@@ -659,6 +789,11 @@ struct FilePairCompareView<Verdict: View>: View {
             pageStates[page] = .unrenderable
             return
         }
+        guard showsOverlayModes else {
+            // The rasters are up (the image viewer draws them); nothing here is being compared.
+            difference = nil
+            return
+        }
         // Off the main actor: this is the buffer loop, and on a 1600px page it is milliseconds of
         // arithmetic that has no business on the actor that draws the window.
         let comparison = await Task.detached(priority: .utility) { () -> (SendableImage?, BitmapDiffResult?) in
@@ -673,7 +808,7 @@ struct FilePairCompareView<Verdict: View>: View {
     }
 
     private func pane(_ copy: DuplicateCopy) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: keeperPath == nil ? 0 : 6) {
             paneHeader(copy)
             previewArea(copy)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -685,32 +820,48 @@ struct FilePairCompareView<Verdict: View>: View {
         }
     }
 
+    /// **A keeper picker only where there is a keeper to pick.** With `keeperPath` nil — the
+    /// Differences host, where two files at one relative path on two roots are not a group and
+    /// nothing is being kept — the header is the file's name and nothing else. It used to render
+    /// two disabled "Keep this" buttons there, which advertises a choice that does not exist: the
+    /// exact complaint that produced `DuplicateKeeperMarker` ("Why is there a checkbox, especially
+    /// if we can't choose among the rows?"), reached through a new door.
+    @ViewBuilder
     private func paneHeader(_ copy: DuplicateCopy) -> some View {
-        let isKeeper = copy.path == keeperPath
-        let marker = DuplicateKeeperMarker.style(allowsKeeperChoice: allowsKeeperChoice,
-                                                 isKeeper: isKeeper)
-        return HStack(spacing: 6) {
-            Button { chooseKeeper(copy) } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: isKeeper ? "largecircle.fill.circle" : "circle")
-                        .foregroundStyle(isKeeper ? accent : Color.secondary)
-                    Text(isKeeper ? "Keeping this" : "Keep this")
-                        .scaledFont(.system(size: 11.5, weight: isKeeper ? .semibold : .regular))
+        if let keeperPath {
+            let isKeeper = copy.path == keeperPath
+            let marker = DuplicateKeeperMarker.style(allowsKeeperChoice: allowsKeeperChoice,
+                                                     isKeeper: isKeeper)
+            // **The keeper control, and nothing else.** The file's name used to sit at the far
+            // end of this row — the same string the NAME fact states directly above it, on a
+            // surface whose whole complaint was clutter. One statement per fact.
+            HStack(spacing: 6) {
+                if isKeeper {
+                    // A state, drawn as a state: the kept side is not a control (clicking it does
+                    // nothing), so it wears a filled chip rather than a disabled button.
+                    Label("Keeping this", systemImage: "checkmark.circle.fill")
+                        .scaledFont(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(accent)
+                        .padding(.horizontal, 9).padding(.vertical, 3)
+                        .background { Capsule().fill(accent.opacity(0.13)) }
+                        .accessibilityLabel(marker.accessibilityLabel ?? "Kept copy")
+                } else {
+                    Button { chooseKeeper(copy) } label: {
+                        Label("Keep this instead", systemImage: "circle")
+                            .scaledFont(.system(size: 11.5))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(marker == .inert)
+                    .accessibilityLabel(marker.accessibilityLabel ?? "Copy")
+                    .help(ShortcutHint.tooltip("Keep this copy instead", "←→"))
                 }
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .contentShape(Rectangle())
+                Spacer(minLength: 6)
             }
-            .buttonStyle(.hoverAffordance(.segment, tint: accent))
-            .disabled(marker == .inert || isKeeper)
-            .accessibilityLabel(marker.accessibilityLabel ?? "Copy")
-            Spacer(minLength: 6)
-            Text(copy.name)
-                .scaledFont(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            .padding(.horizontal, 2)
         }
-        .padding(.horizontal, 2)
+        // With no keeper — the Differences host — the row collapses entirely. The facts block
+        // above already names and locates each side, and an empty header row is furniture.
     }
 
     @ViewBuilder
@@ -918,12 +1069,21 @@ struct CompareCopiesSheet: View {
             trashButton
             // **⏎ AND esc both mean Done** — the handlers live on the viewer's focused root. An
             // earlier draft of this surface put ⌘⏎ on the trash button.
+            //
+            // Prominent, and that is the house rule made visible: the SAFE act is the one the
+            // surface leads with, standing beside a destructive one that is a plain bordered
+            // button. Reversing the emphasis would be the ⌘⏎-to-trash mistake in paint.
             Button("Done", action: onClose)
+                .buttonStyle(.borderedProminent)
+                .tint(hue.accentColor)
                 .controlSize(.regular)
                 .shortcutKeycap("⏎")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        // A quiet ground under the bar that decides things, so it reads as the surface's footer
+        // rather than as one more row of content.
+        .background(Color.secondary.opacity(0.05))
     }
 
     @ViewBuilder
@@ -973,19 +1133,38 @@ public struct CompareCopiesOverlay: View {
     private let scanRoot: String?
     private let providerName: String?
     private let onClose: () -> Void
+    private let confirmTrash: (DuplicateCopy, DuplicateCopy, String) -> Bool
 
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
 
+    /// `confirmTrash` is a seam for the reason `DuplicateReviewCoordinator.confirmTrashRightCopy`
+    /// is one: `NativeAlerts.confirmDestructive` is a BLOCKING modal, so with the call inlined the
+    /// one destructive path on this surface could not be driven by a test at all — not the
+    /// declined answer, not the engine's refusals, not the success that closes the overlay.
+    /// Defaults to the real alert, so production behaviour is unchanged.
+    ///
+    /// It takes the copy, the keeper and the keeper's location rather than composing its own
+    /// wording: the words come from ``DuplicateComparePrompt``, which is where they are tested.
     public init(syncManager: FileSyncManager, pair: DuplicateComparePair,
                 scanRoot: String?, providerName: String?,
-                onClose: @escaping () -> Void) {
+                onClose: @escaping () -> Void,
+                confirmTrash: ((DuplicateCopy, DuplicateCopy, String) -> Bool)? = nil) {
         self.syncManager = syncManager
         self.pair = pair
         self.scanRoot = scanRoot
         self.providerName = providerName
         self.onClose = onClose
+        let kind = pair.matchType.kind
+        self.confirmTrash = confirmTrash ?? { copy, keeper, keeperLocation in
+            NativeAlerts.confirmDestructive(
+                messageText: DuplicateComparePrompt.messageText(copyName: copy.name),
+                informativeText: DuplicateComparePrompt.informativeText(
+                    kind: kind, keeperName: keeper.name, keeperLocation: keeperLocation,
+                    reclaimText: FileSyncManager.formatBytes(copy.size)),
+                confirmTitle: DuplicateComparePrompt.confirmTitle)
+        }
     }
 
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
@@ -1052,17 +1231,13 @@ public struct CompareCopiesOverlay: View {
     /// comes from ``DuplicateComparePrompt`` rather than being composed here, for the reason that
     /// type exists: inline destructive wording in a view is untestable, and this app has already
     /// shipped a dialog that called an unproven copy "redundant" at the point of no return.
-    private func trash(_ copy: DuplicateCopy, keeper: DuplicateCopy) {
-        let reclaim = FileSyncManager.formatBytes(copy.size)
+    /// Internal, not private, so the ONE destructive path on this surface is reachable from a
+    /// test at all — the same reason `confirmTrash` is a seam.
+    func trash(_ copy: DuplicateCopy, keeper: DuplicateCopy) {
         let keeperLocation = DuplicateGroupCard
             .crumbs(of: keeper.path, scanRoot: scanRoot, providerName: providerName)
             .dropLast().joined(separator: " › ")
-        guard NativeAlerts.confirmDestructive(
-            messageText: DuplicateComparePrompt.messageText(copyName: copy.name),
-            informativeText: DuplicateComparePrompt.informativeText(
-                kind: pair.matchType.kind, keeperName: keeper.name,
-                keeperLocation: keeperLocation, reclaimText: reclaim),
-            confirmTitle: DuplicateComparePrompt.confirmTitle) else {
+        guard confirmTrash(copy, keeper, keeperLocation) else {
             Logger.shared.info("User declined trashing the compared copy \(copy.path)")
             return
         }

@@ -139,42 +139,60 @@ struct PageStrip: View {
     var onSelect: (Int) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 12) {
+            Text("Page")
+                .scaledFont(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .fixedSize()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 3) {
+                    // `Array(0..<n)`, not `0..<n`: SwiftUI's range `ForEach` is the CONSTANT-range
+                    // initializer, and a strip whose length changes when the page counts land
+                    // would be re-identifying a range it promised would not move.
+                    ForEach(Array(0..<pairing.stripLength), id: \.self) { index in
+                        chip(index)
+                    }
+                }
+                .padding(.vertical, 1)
+            }
             if let note = pairing.lengthNote {
                 Text(note)
                     .scaledFont(.system(size: 10.5))
                     .foregroundStyle(.secondary)
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(0..<pairing.stripLength, id: \.self) { index in
-                        chip(index)
-                    }
-                }
-                .padding(.vertical, 2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(-1)
             }
         }
     }
 
+    /// One page.
+    ///
+    /// **The dot is drawn only once its comparison has resolved.** A grey dot under every page is
+    /// what the strip looked like in side-by-side mode, where no diff is computed at all — a row
+    /// of markers that mean nothing, which is worse than no markers: they read as "checked, and
+    /// unremarkable". The number alone is the honest resting state, and a dot appearing is then a
+    /// real event.
     private func chip(_ index: Int) -> some View {
         let state = states[index] ?? .pending
         let pinned = pairing.leftIsPinned(at: index) || pairing.rightIsPinned(at: index)
+        let isCurrent = index == current
         return Button { onSelect(index) } label: {
-            VStack(spacing: 2) {
+            HStack(spacing: 4) {
                 Text("\(index + 1)")
-                    .scaledFont(.system(size: 9.5, weight: index == current ? .bold : .regular,
+                    .scaledFont(.system(size: 10.5, weight: isCurrent ? .semibold : .regular,
                                         design: .monospaced))
-                Circle()
-                    .fill(color(for: state))
-                    .frame(width: 5, height: 5)
+                    .foregroundStyle(isCurrent ? accent : Color.secondary)
+                if let dot = state.dot {
+                    Circle().fill(color(for: dot)).frame(width: 5, height: 5)
+                }
             }
-            .frame(width: 22)
+            .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background {
-                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
-                    .fill(index == current ? accent.opacity(0.16) : Color.clear)
+                Capsule().fill(isCurrent ? accent.opacity(0.14) : Color.clear)
             }
-            .contentShape(Rectangle())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .help(help(for: state, pinned: pinned, index: index))
@@ -182,9 +200,10 @@ struct PageStrip: View {
         .accessibilityValue(help(for: state, pinned: pinned, index: index))
     }
 
-    private func color(for state: PageDiffState) -> Color {
-        switch state {
-        case .pending: return .secondary.opacity(0.35)
+    /// The paint for a dot's meaning. Whether there IS a dot is `PageDiffState.dot`'s decision,
+    /// where a test can call it; this only colours what that returns.
+    private func color(for dot: PageDiffState.Dot) -> Color {
+        switch dot {
         case .same: return .green
         case .changed: return .orange
         case .oneSided: return .blue

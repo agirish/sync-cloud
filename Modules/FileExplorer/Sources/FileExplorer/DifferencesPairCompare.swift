@@ -13,7 +13,7 @@ import Sync
 /// already owns its copy/resolve verbs on the row and in the bulk menu, so the bar here is Done
 /// only: a viewer that grew a second way to resolve a row would be a second rule table to keep in
 /// step with the first.
-struct DifferencePair: Identifiable, Equatable, Sendable {
+public struct DifferencePair: Identifiable, Equatable, Sendable {
     let relativePath: String
     let leftPath: String
     let rightPath: String
@@ -22,7 +22,7 @@ struct DifferencePair: Identifiable, Equatable, Sendable {
     let leftPaneName: String
     let rightPaneName: String
 
-    var id: String { [leftPath, rightPath].sorted().joined(separator: "\n") }
+    public var id: String { [leftPath, rightPath].sorted().joined(separator: "\n") }
 
     var title: String { (relativePath as NSString).lastPathComponent }
     var subtitle: String { "\(leftPaneName) vs \(rightPaneName)" }
@@ -90,11 +90,17 @@ enum DifferencesPairCompare {
 /// The same in-window overlay the Duplicates host uses, and for the same measured reason — macOS
 /// clamps a sheet to its window's content width, so a wide sheet is silently squeezed exactly at
 /// the 760×560 floor. See ``CompareOverlayMetrics``.
-struct DifferencesPairCompareOverlay: View {
+public struct DifferencesPairCompareOverlay: View {
 
-    let pair: DifferencePair
-    let hue: LiquidGlassHue
-    let onClose: () -> Void
+    private let pair: DifferencePair
+    private let hue: LiquidGlassHue
+    private let onClose: () -> Void
+
+    public init(pair: DifferencePair, hue: LiquidGlassHue, onClose: @escaping () -> Void) {
+        self.pair = pair
+        self.hue = hue
+        self.onClose = onClose
+    }
 
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
@@ -103,7 +109,7 @@ struct DifferencesPairCompareOverlay: View {
 
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
 
-    var body: some View {
+    public var body: some View {
         GeometryReader { proxy in
             ZStack {
                 Rectangle()
@@ -162,10 +168,13 @@ struct DifferencesPairCompareOverlay: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 12)
             Button("Done", action: onClose)
+                .buttonStyle(.borderedProminent)
+                .tint(hue.accentColor)
                 .controlSize(.regular)
                 .shortcutKeycap("⏎")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .background(Color.secondary.opacity(0.05))
     }
 }

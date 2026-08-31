@@ -357,6 +357,11 @@ struct ContentView: View {
     /// still the lens's — it decides which pairs come here at all.
     @State private var compareFilePair: DuplicateComparePair?
 
+    /// The same surface, opened on a changed row from the Differences list — ROADMAP §11. Two
+    /// states rather than one sum type: the two hosts carry different payloads and mean different
+    /// verdict bars, and a shared case would have to be unwrapped at every use anyway.
+    @State private var compareDifferencePair: DifferencePair?
+
     /// Both rungs of the toolbar row, resolved together from the window's width — see
     /// `WorkspaceBarMetrics.styleSet`.
     ///
@@ -866,6 +871,9 @@ struct ContentView: View {
                 // (discovery runs async in onAppear) — opening early would show "SyncCloud found 0
                 // places on this Mac" and then fill in behind the user's eyes.
                 setupOverlay
+            } else if let pair = compareDifferencePair {
+                DifferencesPairCompareOverlay(pair: pair, hue: glassHue,
+                                              onClose: { compareDifferencePair = nil })
             } else if let pair = compareFilePair {
                 // **Last in the chain, deliberately.** The four above are either a direct answer to
                 // something the user just did to a file (the picker) or an ambient panel with its
@@ -886,6 +894,7 @@ struct ContentView: View {
         // `ReduceMotionCoverageScanTests`; a new raw one would have to be classified too, and this
         // one has no reason to be.)
         .designAnimation(.easeOut(duration: 0.15), value: compareFilePair)
+        .designAnimation(.easeOut(duration: 0.15), value: compareDifferencePair)
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .animation(.easeOut(duration: 0.15), value: showHelp)
         .animation(.easeOut(duration: 0.15), value: showSetup)
@@ -4039,7 +4048,7 @@ struct ContentView: View {
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); the workspace bar lives in
             // the window toolbar.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil)
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed, shortcutsSuspended: pendingDestination != nil, onCompareFilePair: { compareDifferencePair = $0 })
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {

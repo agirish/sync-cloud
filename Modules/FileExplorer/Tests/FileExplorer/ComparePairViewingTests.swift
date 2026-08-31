@@ -130,6 +130,28 @@ import Testing
                                                     sizesDiffer: false)) == .changed(fraction: 0.2))
     }
 
+    /// **A pending page draws NO dot, and that is the rule rather than a shade of grey.** A grey
+    /// dot under every page is what the strip showed in side-by-side mode, where no comparison is
+    /// run at all — markers that mean nothing, which read as "checked, and unremarkable" rather
+    /// than as "not checked". The number alone is the honest resting state.
+    @Test func onlyAResolvedPageGetsADot() {
+        #expect(PageDiffState.pending.dot == nil)
+        #expect(PageDiffState.same.dot == .same)
+        #expect(PageDiffState.changed(fraction: 0.2).dot == .changed)
+        #expect(PageDiffState.oneSided.dot == .oneSided)
+        #expect(PageDiffState.unrenderable.dot == .unrenderable)
+    }
+
+    /// Every resolved state has a dot and the pending one does not — asserted as a pair, so a new
+    /// state cannot be added with neither.
+    @Test func aDotExistsForExactlyTheResolvedStates() {
+        let states: [PageDiffState] = [.pending, .same, .changed(fraction: 0.5), .oneSided,
+                                       .unrenderable]
+        for state in states {
+            #expect((state.dot != nil) == state.isResolved, "\(state)")
+        }
+    }
+
     // MARK: The renderer, on real documents
 
     private final class PDFFixture {
@@ -275,6 +297,49 @@ import Testing
             #expect(pane.frame.width > 300, "a pane laid out at \(pane.frame.width)pt")
             #expect(pane.frame.height > 400)
         }
+    }
+
+    /// **Scrolling one pane moves the other — the half that was silently dead.** The scroll
+    /// observers were registered in `makeNSView`, where a `PDFView` has no document and therefore
+    /// no `documentView`, no scroll view and no clip view: `guard let … else { continue }` found
+    /// nil and registered nothing, while the ZOOM half (posted by the view itself) worked and made
+    /// the pair look synchronised. Nothing but driving a real scroll could see it.
+    @MainActor
+    @Test func scrollingOnePaneMovesTheOther() async throws {
+        let fixture = try PDFFixture()
+        let view = PDFPairView(leftPath: fixture.twoPage, rightPath: fixture.twoPageEdited,
+                               page: 0, pairing: PagePairing(leftPages: 2, rightPages: 2),
+                               syncSuspended: false)
+        let host = NSHostingView(rootView: AnyView(view.frame(width: 400, height: 200)))
+        host.frame = CGRect(x: 0, y: 0, width: 400, height: 200)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        func views(_ v: NSView) -> [PDFView] {
+            v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + views($0) }
+        }
+        func clips() -> [NSClipView] {
+            views(host).compactMap { $0.documentView?.enclosingScrollView?.contentView }
+        }
+        // Wait for the CLIP VIEWS, not just the documents: the clip view is what the observer
+        // needs, and it is the thing that does not exist at construction.
+        let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 5) { clips().count == 2 }
+        try #require(held, "the panes never got scroll views (\(pumps) pumps)")
+        let pair = clips()
+        let target = CGPoint(x: 0, y: 40)
+        pair[0].scroll(to: target)
+        pair[0].enclosingScrollView?.reflectScrolledClipView(pair[0])
+        // The mirror runs on the main queue from a notification; give it turns to arrive.
+        let (mirrored, mirrorPumps) = await LayoutPumpWait.pump(window, upTo: 3) {
+            abs(pair[1].bounds.origin.y - pair[0].bounds.origin.y) < 0.5
+        }
+        #expect(mirrored, """
+                the right pane sat at \(pair[1].bounds.origin.y) while the left moved to \
+                \(pair[0].bounds.origin.y) (\(mirrorPumps) pumps) — the scroll observers were \
+                never registered
+                """)
     }
 
     // MARK: The reentrancy latch

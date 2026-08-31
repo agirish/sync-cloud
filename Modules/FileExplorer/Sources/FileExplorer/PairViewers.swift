@@ -65,6 +65,9 @@ struct PDFPairView: NSViewRepresentable {
         /// The paths the loaded documents came from, so `updateNSView` reloads only on a real
         /// change — re-opening the same document on every ancestor render is a parse per redraw.
         var loaded: (left: String, right: String)?
+        /// Whether the SCROLL observers are registered. They cannot be registered at construction
+        /// (see `wireScroll`), and registering them twice would mirror every scroll twice.
+        var scrollWired = false
 
         deinit {
             for observer in observers { NotificationCenter.default.removeObserver(observer) }
@@ -82,7 +85,8 @@ struct PDFPairView: NSViewRepresentable {
         context.coordinator.right = right
         split.addArrangedSubview(left)
         split.addArrangedSubview(right)
-        wire(context.coordinator)
+        // Only the zoom half can be wired now — see `wireScroll`.
+        wireZoom(context.coordinator)
         return split
     }
 
@@ -102,15 +106,19 @@ struct PDFPairView: NSViewRepresentable {
         coordinator.syncSuspended = syncSuspended
         if coordinator.loaded?.left != leftPath || coordinator.loaded?.right != rightPath {
             coordinator.loaded = (leftPath, rightPath)
-            load(leftPath, into: coordinator.left, page: pairing.leftIndex(at: page))
-            load(rightPath, into: coordinator.right, page: pairing.rightIndex(at: page))
+            coordinator.scrollWired = false
+            load(leftPath, into: coordinator.left, page: pairing.leftIndex(at: page),
+                 coordinator: coordinator)
+            load(rightPath, into: coordinator.right, page: pairing.rightIndex(at: page),
+                 coordinator: coordinator)
         } else {
             go(coordinator.left, to: pairing.leftIndex(at: page))
             go(coordinator.right, to: pairing.rightIndex(at: page))
         }
     }
 
-    private func load(_ path: String, into view: PDFView?, page index: Int) {
+    private func load(_ path: String, into view: PDFView?, page index: Int,
+                      coordinator: Coordinator) {
         guard let view else { return }
         Task { @MainActor in
             let document = await PDFKitSerialAccess.perform {
@@ -118,6 +126,12 @@ struct PDFPairView: NSViewRepresentable {
             }
             view.document = document?.document
             go(view, to: index)
+            // **HERE, not in `makeNSView`.** A `PDFView` with no document has no `documentView`,
+            // so it has no scroll view and no clip view to observe — the observers registered at
+            // construction found nil and silently registered nothing, and the panes then scrolled
+            // independently while every other part of the sync looked correct. This is the moment
+            // both halves exist.
+            wireScroll(coordinator)
         }
     }
 
@@ -138,39 +152,57 @@ struct PDFPairView: NSViewRepresentable {
         view.go(to: target)
     }
 
-    /// Mirrors scroll and magnification between the two views.
+    /// Mirrors magnification between the two views. Registrable at construction: the notification
+    /// is posted by the `PDFView` itself, which exists from the moment it is made.
     ///
-    /// Page changes are NOT mirrored here: the page is owned by the surface (the strip, ⇞/⇟), and
-    /// a viewer that also pushed page changes at its twin would fight the surface's own state for
+    /// Page changes are NOT mirrored: the page is owned by the surface (the strip, ⇞/⇟), and a
+    /// viewer that also pushed page changes at its twin would fight the surface's own state for
     /// which page is current. Scroll and zoom have no such owner, so they are mirrored.
-    private func wire(_ coordinator: Coordinator) {
+    private func wireZoom(_ coordinator: Coordinator) {
         guard let left = coordinator.left, let right = coordinator.right else { return }
         for (source, target) in [(left, right), (right, left)] {
-            guard let clip = source.documentView?.enclosingScrollView?.contentView else { continue }
-            clip.postsBoundsChangedNotifications = true
-            let observer = NotificationCenter.default.addObserver(
-                forName: NSView.boundsDidChangeNotification, object: clip, queue: .main
-            ) { [weak coordinator, weak target] _ in
-                guard let coordinator, let target, !coordinator.syncSuspended else { return }
-                coordinator.latch.mirror {
-                    guard let targetClip = target.documentView?.enclosingScrollView?.contentView
-                    else { return }
-                    targetClip.scroll(to: clip.bounds.origin)
-                    target.documentView?.enclosingScrollView?.reflectScrolledClipView(targetClip)
-                }
-            }
-            coordinator.observers.append(observer)
-
             let zoom = NotificationCenter.default.addObserver(
                 forName: .PDFViewScaleChanged, object: source, queue: .main
-            ) { [weak coordinator, weak target] _ in
-                guard let coordinator, let target, !coordinator.syncSuspended else { return }
+            ) { [weak coordinator, weak target, weak source] _ in
+                guard let coordinator, let target, let source,
+                      !coordinator.syncSuspended else { return }
                 coordinator.latch.mirror {
                     guard abs(target.scaleFactor - source.scaleFactor) > 0.001 else { return }
                     target.scaleFactor = source.scaleFactor
                 }
             }
             coordinator.observers.append(zoom)
+        }
+    }
+
+    /// Mirrors scroll, once both sides have a document.
+    ///
+    /// **Called from the document load, and this is the correction that matters.** A `PDFView`
+    /// with no document has no `documentView`, hence no enclosing scroll view and no clip view to
+    /// observe — so registering these in `makeNSView` registered nothing at all, silently, while
+    /// the zoom half worked and made the pair look synchronised. Idempotent, because both sides'
+    /// loads call it and only the second one can succeed.
+    @MainActor
+    private func wireScroll(_ coordinator: Coordinator) {
+        guard !coordinator.scrollWired,
+              let left = coordinator.left, let right = coordinator.right,
+              let leftClip = left.documentView?.enclosingScrollView?.contentView,
+              let rightClip = right.documentView?.enclosingScrollView?.contentView else { return }
+        coordinator.scrollWired = true
+        for (sourceClip, target) in [(leftClip, right), (rightClip, left)] {
+            sourceClip.postsBoundsChangedNotifications = true
+            let observer = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification, object: sourceClip, queue: .main
+            ) { [weak coordinator, weak target, weak sourceClip] _ in
+                guard let coordinator, let target, let sourceClip,
+                      !coordinator.syncSuspended else { return }
+                coordinator.latch.mirror {
+                    guard let targetScroll = target.documentView?.enclosingScrollView else { return }
+                    targetScroll.contentView.scroll(to: sourceClip.bounds.origin)
+                    targetScroll.reflectScrolledClipView(targetScroll.contentView)
+                }
+            }
+            coordinator.observers.append(observer)
         }
     }
 }

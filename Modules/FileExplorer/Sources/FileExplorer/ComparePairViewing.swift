@@ -149,6 +149,32 @@ enum PageDiffState: Equatable {
 
     var isResolved: Bool { self != .pending }
 
+    /// Which of the strip's four dot meanings this state carries, or nil where **no dot is
+    /// drawn at all**.
+    ///
+    /// **`.pending` has no dot, and that is the rule rather than a shade of grey.** A grey dot
+    /// under every page is what the strip showed in side-by-side mode, where no comparison is run
+    /// — a row of markers that mean nothing, which reads as "checked, and unremarkable" rather
+    /// than as "not checked". The number alone is the honest resting state, and a dot appearing is
+    /// then a real event.
+    ///
+    /// A value rather than a colour chosen inside the chip's `body`: the strip's whole vocabulary
+    /// is four meanings, and a reader who cannot separate green from orange gets the same four
+    /// through `PageStrip`'s tooltip, which switches on the same cases.
+    var dot: Dot? {
+        switch self {
+        case .pending: return nil
+        case .same: return .same
+        case .changed: return .changed
+        case .oneSided: return .oneSided
+        case .unrenderable: return .unrenderable
+        }
+    }
+
+    /// The dot's four meanings. Named rather than coloured here, so the meaning and the paint stay
+    /// separable — `PageStrip` maps these to the palette.
+    enum Dot: Equatable { case same, changed, oneSided, unrenderable }
+
     static func from(_ result: BitmapDiffResult?) -> PageDiffState {
         guard let result else { return .unrenderable }
         return result.isIdentical ? .same : .changed(fraction: result.changedFraction)

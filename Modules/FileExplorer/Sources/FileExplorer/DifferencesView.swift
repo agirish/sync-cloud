@@ -64,10 +64,7 @@ public struct DifferencesView: View {
     @State private var reviewSelection = Set<FileDifference.ID>()
     /// Bumped on every review-table click so the card re-claims key focus (see `focusNudge`).
     @State private var reviewFocusNudge = 0
-    /// The row currently open in the shared file-pair viewer, if any — ROADMAP §11's diff pane.
-    /// Held here rather than inside the table so it survives the table's own re-renders, and so
-    /// the overlay is anchored on the whole view rather than inside a scrolling subtree.
-    @State private var comparingPair: DifferencePair?
+
     private let paneNames: PaneProviderNames
     /// Both panes' name rulesets — see `PaneProviderRules` for why a differences row asks BOTH.
     private let paneRules: PaneProviderRules
@@ -116,7 +113,16 @@ public struct DifferencesView: View {
     ///     to the same `quickLookPreview` binding the spacebar shortcut uses, so there is a
     ///     single presenter; `nil` hides the Quick Look menu items.
     ///   - onGetInfo: Shows the Info inspector for a file path (the "Get Info" row action).
-    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false) {
+    /// Opens the shared file-pair viewer on a changed row — ROADMAP §11's diff pane.
+    ///
+    /// **A closure to the WINDOW, not an overlay of its own.** macOS clamps a sheet to its host
+    /// window and an `.overlay` to its anchor, and this view is the bottom pane: at the 760×560
+    /// window floor that is a few hundred points to draw two previews in. The Duplicates host
+    /// learned the same thing — see `CompareOverlayMetrics` — so both hosts hand the pair up and
+    /// `ContentView` presents it against the live window.
+    private let onCompareFilePair: (DifferencePair) -> Void
+
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, isCollapsed: Binding<Bool>? = nil, shortcutsSuspended: Bool = false, onCompareFilePair: @escaping (DifferencePair) -> Void = { _ in }) {
         self.syncManager = syncManager
         self.reviewStore = reviewStore
         self.paneNames = paneNames
@@ -125,6 +131,7 @@ public struct DifferencesView: View {
         self.onGetInfo = onGetInfo
         self.isCollapsed = isCollapsed
         self.shortcutsSuspended = shortcutsSuspended
+        self.onCompareFilePair = onCompareFilePair
     }
 
     private var isBulkSyncing: Bool {
@@ -415,19 +422,6 @@ public struct DifferencesView: View {
         } message: {
             Text("\(verifiedIdenticalCount) files verified identical. One permission — copies all from \(paneNames.left) to \(paneNames.right) to match dates. No per-file confirmation.")
         }
-        // ROADMAP §11's diff pane, and it is the Duplicates compare surface unchanged above its
-        // verdict bar — see `DifferencesPairCompare`. Anchored on the whole view, not inside the
-        // table: the table scrolls and re-renders per published file during a bulk sync, and an
-        // overlay inside it would be torn down and re-presented under the user.
-        .overlay {
-            if let pair = comparingPair {
-                DifferencesPairCompareOverlay(pair: pair, hue: glassHue,
-                                              onClose: { comparingPair = nil })
-            }
-        }
-        // `designAnimation`, not `.animation`: the scrim fade is motion and Reduce Motion has to
-        // reach it.
-        .designAnimation(.easeOut(duration: 0.15), value: comparingPair)
     }
 
     // MARK: Header — scan freshness
@@ -2016,7 +2010,7 @@ public struct DifferencesView: View {
         // reaches the review table's menu too.
         if let pair = DifferencesPairCompare.pair(for: difference, paneNames: paneNames) {
             Button {
-                comparingPair = pair
+                onCompareFilePair(pair)
             } label: {
                 Label("Compare…", systemImage: "rectangle.split.2x1")
             }

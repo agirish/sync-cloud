@@ -2040,3 +2040,22 @@ finds nothing a rescan later and fails open unless it is written fail-closed.
 On a line without the overlay that reasoning does not transfer, and `BareKeyEquivalentScanTests`
 exists on those lines too — read its exemption map before deciding, rather than copying `main`'s
 answer to a different question.
+
+**The later phases are one component, and they do NOT stand alone.** `main` also carries typed pair
+viewers (`PDFPairView`, `ImagePairView`), a bitmap diff, the page strip, a bounded text reader and
+a line diff, plus a second host on the Differences list (`DifferencesPairCompare`). All of it hangs
+off `FilePairCompareView`, which is the surface above — so on a line without the surface there is
+nothing to host any of it, and picking a piece of it alone would be picking a viewer with no
+viewer. Same status, and the same reason it is one row rather than five:
+
+| Piece | Depends on | Status |
+|---|---|---|
+| `PDFPairView` / `ImagePairView` | `FilePairCompareView` | RECORDED — not owed |
+| `BitmapDiff` / `PagePairRaster` | `PDFKitSerialAccess` (present on all lines) | RECORDED — not owed |
+| `BoundedTextRead` / `TextPairDiff` | nothing — both are pure and would apply anywhere | RECORDED — not owed |
+| `DifferencesPairCompare` | `FilePairCompareView` + `DifferencesView` | RECORDED — not owed |
+
+The two pure ones are the only genuinely independent pieces, and worth naming as such: a line
+wanting a text diff for its own reasons could take `BoundedTextRead` and `TextPairDiff` alone —
+they import only `Foundation` and `Sync`'s `FileSyncManager.formatBytes` and
+`MaterializationStatus`, both of which every line carries.

@@ -32,14 +32,44 @@ User-facing changes, newest first. For the full commit history see the
   empty pane. Previewing it would pull the whole file down, which on a cloud folder is the normal
   case rather than the exception.
 
+### Two PDFs, or two images, move together
+
+- **Synchronised panes for PDFs and images.** Scroll or zoom one side and the other follows; ⌥ held
+  breaks the sync while you move one alone. Quick Look has no scroll or zoom to synchronise at all,
+  which is why this arrives with per-type viewers rather than earlier.
+- **⇞/⇟ page both sides at once**, and a strip under the panes gives every page a dot — grey until
+  it has been compared, green where nothing changed, amber where something did, with the figure in
+  the tooltip. Where one document is longer, the strip runs to the longer one and the shorter side
+  stops at its last page rather than hiding the pages only one file has.
+- **Three ways to overlay the two pages,** picked with `1`–`4` or the segments: swipe a divider
+  across them, blend one into the other, or see the pixel difference on black — where identical is
+  black and anything that changed glows. The difference view says outright that it compares pixels
+  with no alignment, so two scans of one sheet of paper glowing all over reads as scanner noise
+  rather than as content.
+
+### Two text files, line by line
+
+- **A read-only side-by-side diff** for text, source, CSV, JSON and the like. An edited line shows
+  as one row with both versions on it and the changed WORDS picked out, rather than as a deleted
+  line above an added one. ↑/↓ step between changes, not between lines.
+- **Files that are not quite text still open.** A log truncated mid-character used to be
+  unreadable; it now decodes with the unreadable bytes marked and says so. Files over 4 MB, files
+  that are not downloaded, and files that turn out to be binary each say which of those they are.
+- **CRLF against LF is reported as a line-ending difference, not as a thousand changed lines.**
+
+### The same surface in Compare
+
+- **"Compare…" on a changed row in the Differences list** opens the identical viewer — facts,
+  previews, modes, the text diff — with a Done-only bar. Differences already owns copying, moving
+  and ignoring a row, so the viewer adds no second way to do them.
+
 ### Known limitations
 
-- The two previews scroll independently. Quick Look exposes no scroll or zoom API at all, so
-  synchronised panes need per-type viewers — PDF pairs, image pairs — which are not in this
-  release.
-- There is no visual or text diff yet: no swipe, onion or pixel-difference mode, and no
-  side-by-side text comparison.
 - Folder groups keep the existing Compare-workspace review; this surface is for pairs of files.
+- The pixel modes align pages by their frames only. Two scans of the same page will not line up,
+  and there is no de-skew or registration pass.
+- Formats with no typed viewer — Word documents, presentations, video — get two independent Quick
+  Look panes and a caption saying they do not scroll together.
 
 ---
 

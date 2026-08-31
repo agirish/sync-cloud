@@ -52,6 +52,43 @@ import Testing
                                height: CompareOverlayMetrics.minimumHeight))
     }
 
+    // MARK: The remembered size
+
+    /// A card that has never been resized opens at the default — which is what every existing
+    /// clamp case above is about.
+    @Test func withNothingStoredTheCardOpensAtItsDefault() {
+        let available = CGSize(width: 1600, height: 1000)
+        #expect(CompareOverlayMetrics.size(available: available, stored: nil)
+                    == CompareOverlayMetrics.size(available: available))
+        // Zero is what `@AppStorage` holds before the first drag, and it must read as "unset"
+        // rather than as a 0×0 card.
+        #expect(CompareOverlayMetrics.size(available: available, stored: .zero)
+                    == CompareOverlayMetrics.size(available: available))
+    }
+
+    @Test func aRememberedSizeIsHonoured() {
+        let stored = CGSize(width: 900, height: 620)
+        #expect(CompareOverlayMetrics.size(available: CGSize(width: 1600, height: 1000),
+                                           stored: stored) == stored)
+    }
+
+    /// **A stored size is clamped on every render, not only when it is written.** The window can
+    /// shrink between sessions — or between two launches on different displays — and a card that
+    /// trusted what it stored would open wider than the window it is in, with its verdict bar off
+    /// screen and no way to reach the grip that would fix it.
+    @Test func aRememberedSizeIsReClampedToASmallerWindow() {
+        let stored = CGSize(width: 1600, height: 1000)
+        let available = CGSize(width: 900, height: 700)
+        #expect(CompareOverlayMetrics.size(available: available, stored: stored) == available)
+    }
+
+    @Test func aRememberedSizeCannotSitBelowTheFloor() {
+        let stored = CGSize(width: 100, height: 100)
+        let size = CompareOverlayMetrics.size(available: CGSize(width: 1600, height: 1000),
+                                              stored: stored)
+        #expect(size == CompareOverlayMetrics.minimum)
+    }
+
     // MARK: The payload
 
     /// Opening the same two copies from either side is the same surface, not a second one sliding
@@ -351,6 +388,38 @@ import Testing
         let drawn = mounted.host.fittingSize
         #expect(abs(drawn.width - expected.width) < 1, "drew \(drawn.width), clamped to \(expected.width)")
         #expect(abs(drawn.height - expected.height) < 1, "drew \(drawn.height), clamped to \(expected.height)")
+    }
+
+    /// **The grips are really on the card, and a remembered size really reaches it.** The drag
+    /// itself is an AppKit gesture a test cannot post through SwiftUI, so what is pinned here is
+    /// the half a test can see: the card mounts at the size the arithmetic resolves — including a
+    /// stored one — so a committed drag has somewhere to land. `ResizableCardTests` pins the
+    /// arithmetic; together they cover the path.
+    @Test func theCardMountsAtItsRememberedSize() async throws {
+        let fixture = try Fixture()
+        let available = CGSize(width: 1600, height: 1000)
+        let defaults = ScratchDefaults("CompareCopiesSurfaceTests-size")
+        defaults.set(880.0, forKey: CompareOverlayMetrics.widthDefaultsKey)
+        defaults.set(600.0, forKey: CompareOverlayMetrics.heightDefaultsKey)
+        let keeper = copy(fixture.left, keeper: true)
+        let other = copy(fixture.right)
+        let host = NSHostingView(rootView: AnyView(
+            Harness(pair: DuplicateComparePair(keeper: keeper, other: other,
+                                               matchType: .identical, groupName: "note.txt"),
+                    keeperPath: fixture.left, isStale: false, available: available,
+                    source: .missing)
+                .defaultAppStorage(defaults)))
+        host.frame = CGRect(origin: .zero, size: available)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 3) {
+            abs(host.fittingSize.width - 880) < 1
+        }
+        #expect(held, "the card drew at \(host.fittingSize.width)pt, not the remembered 880 (\(pumps) pumps)")
+        #expect(abs(host.fittingSize.height - 600) < 1, "height \(host.fittingSize.height)")
     }
 
     /// A cloud-only side mounts NO Quick Look view — rendering one would force the provider to
