@@ -240,8 +240,9 @@ release, a live Pages article), so the ask covers the cut as a unit, not each co
    it runs.** The self-hosted runner IS this Mac. The v4.5 cut took three attempts on one SHA:
    attempts 1 and 2 failed while local `swift test` runs were competing with the runner, and
    attempt 3 went green on the same commit, no code changed, with the machine quiet and the load
-   average down from 6.61 to 4.20. Both flake families here — gate parking and log-buffer eviction,
-   mechanisms 10 and 12 in `docs/flaky-tests.md` — are load-sensitive, so a busy machine
+   average down from 6.61 to 4.20. Both flake families here — *"every gate parks at once, on the
+   pool their releases need"* and *"a log assertion reading a window that has already rolled"* in
+   [`docs/flaky-tests.md`](docs/flaky-tests.md) — are load-sensitive, so a busy machine
    manufactures exactly the reds that look like a bad release. Check `uptime` and
    `gh api repos/agirish/sync-cloud/actions/runners --jq '.runners[].busy'` BEFORE rerunning, and
    budget a rerun into the cut rather than reading the first red as a verdict. The discriminator, if
