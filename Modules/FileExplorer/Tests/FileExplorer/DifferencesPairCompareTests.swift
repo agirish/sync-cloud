@@ -256,3 +256,100 @@ import Testing
         #expect(manager.duplicateGroups.count == 1)
     }
 }
+
+// MARK: - Esc while the opening stat is outstanding
+
+/// **The surface's keys are on the pair view, which is not mounted until the stat lands.**
+///
+/// That looks harmless until you read why the stat is off the main actor at all: a dead SMB or
+/// unmounted cloud volume can block it indefinitely, and it is exactly then that the reader wants
+/// out. The scrim click still worked — nobody was trapped — but esc, which closes every other
+/// panel in the app, did nothing on the one surface that can sit there for a minute.
+///
+/// Driven through a real window's responder chain, like `CompareCopiesKeyTests`: the question is
+/// whether the key ARRIVES, and only a real chain answers that.
+@MainActor
+@Suite(.serialized) struct DifferencesPairCompareWaitingKeyTests {
+
+    private final class Recorder: @unchecked Sendable { var closes = 0 }
+
+    private func pair() -> DifferencePair {
+        DifferencesPairCompare.pair(
+            for: FileDifference(relativePath: "Reports/Q3.pdf",
+                                leftItemPath: "/L/Reports/Q3.pdf",
+                                rightItemPath: "/R/Reports/Q3.pdf",
+                                type: .differentDates, action: .copyToRight,
+                                description: "differs", enclosedItemCount: nil),
+            paneNames: PaneProviderNames(leftName: "iCloud", rightName: "Dropbox"))!
+    }
+
+    private func host(_ view: some View) -> NSWindow {
+        let size = CGSize(width: 1200, height: 800)
+        let hostView = NSHostingView(rootView: AnyView(view.frame(width: size.width,
+                                                                  height: size.height)))
+        hostView.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: hostView.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hostView
+        hostView.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    private func sendEscape(_ window: NSWindow) {
+        window.sendEvent(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil,
+            characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false, keyCode: 53)!)
+    }
+
+    /// A stat that never returns — the dead-mount case the off-main hop exists for.
+    private func blockedOverlay(_ recorder: Recorder) -> DifferencesPairCompareOverlay {
+        DifferencesPairCompareOverlay(
+            pair: pair(), hue: .blue, onClose: { recorder.closes += 1 },
+            copies: { _ in
+                // Long enough that the placeholder is certainly still what is mounted, and
+                // cancelled with the view rather than leaked.
+                try? await Task.sleep(for: .seconds(600))
+                return (DuplicateCopy(id: "l", name: "l", isDirectory: false, size: 0, itemCount: 1,
+                                      modificationDate: nil, uniqueItemCount: 0, depth: 0,
+                                      isRecommendedKeeper: false),
+                        DuplicateCopy(id: "r", name: "r", isDirectory: false, size: 0, itemCount: 1,
+                                      modificationDate: nil, uniqueItemCount: 0, depth: 0,
+                                      isRecommendedKeeper: false))
+            })
+    }
+
+    @Test func escClosesTheOverlayWhileTheStatIsStillOutstanding() async {
+        let recorder = Recorder()
+        let window = host(blockedOverlay(recorder))
+        let (focused, pumps) = await LayoutPumpWait.pump(window, upTo: 10) {
+            window.firstResponder !== window
+        }
+        #expect(focused, "the placeholder never claimed focus (\(pumps) pumps)")
+        sendEscape(window)
+        #expect(recorder.closes == 1)
+    }
+
+    /// **The positive control on the test above.** A `sendEvent` that reached nothing would leave
+    /// `closes` at 0 whatever the source said, so a green there has to be distinguishable from a
+    /// harness that delivers no keys at all — a modified esc must arrive and be REFUSED, which
+    /// only a live handler can do. `isPlainKeystroke`, the same guard every handler on the pair
+    /// view carries.
+    @Test func aModifiedEscIsIgnored() async {
+        let recorder = Recorder()
+        let window = host(blockedOverlay(recorder))
+        _ = await LayoutPumpWait.pump(window, upTo: 10) { window.firstResponder !== window }
+        window.sendEvent(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil,
+            characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false, keyCode: 53)!)
+        #expect(recorder.closes == 0)
+        // And the plain key still works on the same mounted view, so the refusal above is the
+        // modifier being read rather than the handler being absent.
+        sendEscape(window)
+        #expect(recorder.closes == 1)
+    }
+}

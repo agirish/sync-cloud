@@ -753,8 +753,17 @@ struct FilePairCompareView<Verdict: View>: View {
             if let note = BoundedTextRead.lineEndingNote(left: leftText, right: rightText) {
                 notes.append(note)
             }
-            return (TextPairDiff.make(left: BoundedTextRead.lines(leftText),
-                                      right: BoundedTextRead.lines(rightText)), notes)
+            let leftLines = BoundedTextRead.lines(leftText)
+            let rightLines = BoundedTextRead.lines(rightText)
+            // **Refused before it starts, because it cannot be stopped once it has.** The pass
+            // below is one `CollectionDifference` call, so the token guard further down discards a
+            // superseded result while the work runs on regardless. See
+            // ``TextPairDiff/maxEstimatedCost``.
+            if let refusal = TextPairDiff.refusalNote(left: leftLines, right: rightLines) {
+                notes.append(refusal)
+                return (nil, notes)
+            }
+            return (TextPairDiff.make(left: leftLines, right: rightLines), notes)
         }.value
         guard textDiffToken == token else { return }
         textDiff = result.0

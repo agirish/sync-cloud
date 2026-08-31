@@ -249,3 +249,65 @@ import Testing
         #expect(TextPairDiff.steppedRegion(from: 0, direction: -1, count: 1) == 0)
     }
 }
+
+// MARK: - The cost cap
+//
+// The byte cap bounds memory; this one bounds TIME, and they are not the same limit. Two 4 MB
+// logs pass `BoundedTextRead` and then put Myers at 10⁹–10¹⁰ operations, uncancellable, under a
+// spinner. The estimate has to separate that from an ordinary large diff, or a refusal is worse
+// than the wait.
+@Suite struct TextPairDiffCostTests {
+
+    /// Lines that appear the same number of times on both sides cost nothing to match, so a big
+    /// file with a small edit must stay well inside the budget. **This is the case a size-only cap
+    /// would have refused**, which is why the estimator counts difference rather than length.
+    @Test func aBigFileWithASmallEditIsCheap() {
+        var left = (0..<100_000).map { "line \($0)" }
+        var right = left
+        right[500] = "line 500 — edited"
+        left[900] = "line 900 — edited"
+        #expect(TextPairDiff.refusalNote(left: left, right: right) == nil)
+    }
+
+    /// Two files with nothing in common: every line on both sides is an edit, so the estimate is
+    /// (N+M)·(N+M) and lands far outside the budget. Two rotated logs, which is the pair this
+    /// whole cap exists for.
+    @Test func twoLargeFilesWithNothingInCommonAreRefused() {
+        let left = (0..<100_000).map { "alpha \($0)" }
+        let right = (0..<100_000).map { "beta \($0)" }
+        let note = TextPairDiff.refusalNote(left: left, right: right)
+        #expect(note != nil)
+        // Named for what it found, not for the number — the reader can act on "too different".
+        #expect(note?.contains("too different") == true)
+    }
+
+    /// **The positive control on the refusal.** A test that only ever sees "refused" cannot tell a
+    /// working cap from one wired to `true`, and a test that only ever sees "allowed" cannot tell
+    /// it from `false` — so the same shape of input is run at both sides of the budget.
+    @Test func anEntirelyRewrittenFileIsAllowedUntilItIsBigEnoughToRefuse() {
+        func rewrite(lines: Int) -> (left: [String], right: [String]) {
+            ((0..<lines).map { "alpha \($0)" }, (0..<lines).map { "beta \($0)" })
+        }
+        // 5,000 lines rewritten end to end — ~10⁸, the diff someone genuinely wants.
+        let small = rewrite(lines: 5_000)
+        #expect(TextPairDiff.refusalNote(left: small.left, right: small.right) == nil)
+        // 20,000 — the same shape, past the budget.
+        let large = rewrite(lines: 20_000)
+        #expect(TextPairDiff.refusalNote(left: large.left, right: large.right) != nil)
+    }
+
+    /// Identical files estimate zero however long they are: nothing is unmatched, so the product
+    /// is zero rather than (N+M)². The degenerate case a multiset estimator has to get right.
+    @Test func identicalFilesCostNothingAtAnySize() {
+        let lines = (0..<200_000).map { "line \($0)" }
+        #expect(TextPairDiff.estimatedCost(left: lines, right: lines) == 0)
+        #expect(TextPairDiff.refusalNote(left: lines, right: lines) == nil)
+    }
+
+    /// Empty sides are not a refusal — there is nothing to diff, and `make` handles it. Guarding
+    /// the arithmetic rather than the caller.
+    @Test func emptySidesAreNotRefused() {
+        #expect(TextPairDiff.refusalNote(left: [], right: []) == nil)
+        #expect(TextPairDiff.refusalNote(left: [], right: ["one"]) == nil)
+    }
+}

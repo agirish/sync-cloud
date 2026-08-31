@@ -96,10 +96,26 @@ public struct DifferencesPairCompareOverlay: View {
     private let hue: LiquidGlassHue
     private let onClose: () -> Void
 
+    /// The stat, injected.
+    ///
+    /// **A blocked stat cannot be fabricated**, and the placeholder branch only exists while one
+    /// is outstanding — so without a seam the test for it would have to win a race against two
+    /// stats of paths that do not exist, which return at once. The same reason
+    /// ``CompareCopiesSheet`` injects `probe:` and `hash:`, and `BoundedTextRead.read` injects
+    /// `isCloudOnly:`. Production passes nothing.
+    private let copiesForPair: @Sendable (DifferencePair) async -> (left: DuplicateCopy, right: DuplicateCopy)
+
     public init(pair: DifferencePair, hue: LiquidGlassHue, onClose: @escaping () -> Void) {
+        self.init(pair: pair, hue: hue, onClose: onClose,
+                  copies: { await DifferencesPairCompare.copies(for: $0) })
+    }
+
+    init(pair: DifferencePair, hue: LiquidGlassHue, onClose: @escaping () -> Void,
+         copies: @escaping @Sendable (DifferencePair) async -> (left: DuplicateCopy, right: DuplicateCopy)) {
         self.pair = pair
         self.hue = hue
         self.onClose = onClose
+        self.copiesForPair = copies
     }
 
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
@@ -111,6 +127,9 @@ public struct DifferencesPairCompareOverlay: View {
     @AppStorage(CompareOverlayMetrics.heightDefaultsKey) private var storedHeight: Double = 0
 
     @State private var copies: (left: DuplicateCopy, right: DuplicateCopy)?
+    /// Focus for the placeholder, which is the only thing mounted while the two stats are in
+    /// flight — see ``waitingPlaceholder``.
+    @FocusState private var waitingFocused: Bool
 
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
 
@@ -130,7 +149,7 @@ public struct DifferencesPairCompareOverlay: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .transition(.opacity)
-        .task(id: pair.id) { copies = await DifferencesPairCompare.copies(for: pair) }
+        .task(id: pair.id) { copies = await copiesForPair(pair) }
     }
 
     @ViewBuilder
@@ -157,10 +176,45 @@ public struct DifferencesPairCompareOverlay: View {
                 onClose: onClose,
                 verdict: { verdictBar })
         } else {
-            ProgressView()
-                .controlSize(.small)
-                .frame(width: size.width, height: size.height)
+            waitingPlaceholder(size: size)
         }
+    }
+
+    /// What is mounted while both sides are being statted — and it takes the keyboard, because
+    /// **esc was dead for exactly as long as that stat took**.
+    ///
+    /// The pair view owns every key this surface answers, and it is not mounted until `copies`
+    /// lands. That looks harmless until you remember why the stat is off the main actor at all: a
+    /// dead SMB or unmounted cloud volume can block it indefinitely, and it is precisely then that
+    /// the reader wants out. The scrim click still worked, so the surface was not trapping anyone
+    /// — but the key that closes every other panel in the app did nothing, on the one surface that
+    /// can sit there for a minute.
+    ///
+    /// **`.onKeyPress`, never `.cancelAction`.** This is an overlay with the whole window mounted
+    /// under it, so a key equivalent here would eat bare esc typed anywhere in the window —
+    /// `BareKeyEquivalentScanTests` bans it for this module, and the ban is right. `isPlainKeystroke`
+    /// for the reason every handler on the pair view carries it: `.onKeyPress` receives modified
+    /// presses too.
+    ///
+    /// Mounted only in this branch, so when the pair view arrives there is exactly ONE esc handler
+    /// on the surface rather than two racing to close it. Focus transfers on its own: the pair
+    /// view claims it in its own `onAppear`.
+    @ViewBuilder
+    private func waitingPlaceholder(size: CGSize) -> some View {
+        ProgressView()
+            .controlSize(.small)
+            .frame(width: size.width, height: size.height)
+            // `.focusEffectDisabled()` for the reason the pair view disables it: the ring is a
+            // hard accent rectangle around the whole card, which reads as a stray highlight.
+            .focusable()
+            .focusEffectDisabled()
+            .focused($waitingFocused)
+            .onAppear { waitingFocused = true }
+            .onKeyPress(keys: [.escape], phases: .down) { press in
+                guard press.isPlainKeystroke else { return .ignored }
+                onClose()
+                return .handled
+            }
     }
 
     /// **Done only.** The Differences list already owns copy, move and ignore for a row, in its own

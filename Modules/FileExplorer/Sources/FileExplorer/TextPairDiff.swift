@@ -80,6 +80,63 @@ struct TextPairDiff: Equatable {
         return (current + direction + count) % count
     }
 
+    // MARK: Cost
+
+    /// The most estimated work a diff will be asked to do before it is declined outright.
+    ///
+    /// **The read is byte-capped; this is the cost cap the byte cap is not.** `BoundedTextRead`
+    /// stops at 4 MB a side, which bounds MEMORY and says nothing about time: two 4 MB rotated
+    /// logs are ~100k lines each and almost entirely different, which puts Myers at 10⁹–10¹⁰
+    /// operations — minutes of a pinned core under a spinner, on a surface a reader reaches in two
+    /// clicks from the panes.
+    ///
+    /// **Cancelling is not available, which is why this is a refusal instead.** The pass is one
+    /// call to `CollectionDifference` in the standard library; there is no loop here to check
+    /// `Task.isCancelled` in, so the only place to stop is before it starts. The token guard added
+    /// alongside discards a superseded RESULT — the work still runs to completion.
+    ///
+    /// The two anchor cases this number sits between: a 5,000-line file rewritten end to end
+    /// (~10⁸, and a diff someone genuinely wants) passes; two mostly-different 100k-line logs
+    /// (~10¹⁰) does not.
+    static let maxEstimatedCost = 200_000_000
+
+    /// A cheap estimate of what the Myers pass will cost on these two line arrays.
+    ///
+    /// Myers runs in O((N+M)·D), where D is the edit distance — so the cost turns on how DIFFERENT
+    /// the files are, not how big they are. Two 100k-line files with fifty changed lines diff
+    /// instantly; two 100k-line files with nothing in common do not. A cap on size alone would
+    /// refuse the first and admit the second, which is backwards.
+    ///
+    /// D is estimated from the multiset difference — lines that appear on one side more often than
+    /// on the other must each be edited — in one O(N+M) pass over two dictionaries.
+    ///
+    /// **A lower bound on D, so this is an ESTIMATE and not a bound on the cost.** Lines can match
+    /// as a multiset and still need editing because their ORDER differs; a file with its paragraphs
+    /// shuffled estimates 0 and is not free. It is the right shape all the same: it separates the
+    /// case this exists for — two files with little text in common — from ordinary large diffs,
+    /// which is what a refusal has to get right to be worth having.
+    static func estimatedCost(left: [String], right: [String]) -> Int {
+        var counts: [String: Int] = [:]
+        counts.reserveCapacity(left.count + right.count)
+        for line in left { counts[line, default: 0] += 1 }
+        for line in right { counts[line, default: 0] -= 1 }
+        // Each unmatched line on either side is at least one edit.
+        let distance = counts.values.reduce(0) { $0 + abs($1) }
+        return (left.count + right.count) * distance
+    }
+
+    /// Why these two files will not be diffed, or nil when they will be.
+    ///
+    /// In the reader's words and in `BoundedTextRead.Outcome.caption`'s voice — it joins the same
+    /// notes list, so a refusal here reads like the size and encoding refusals it sits beside.
+    /// It names what it did instead of the number it exceeded: "too different" is the finding, and
+    /// a reader given "estimated cost 4.1e10" learns nothing they can act on.
+    static func refusalNote(left: [String], right: [String]) -> String? {
+        guard estimatedCost(left: left, right: right) > maxEstimatedCost else { return nil }
+        return "These two files are too large and too different to diff line by line — "
+            + "the comparison would take minutes. The other modes still work."
+    }
+
     // MARK: Building
 
     static func make(left: [String], right: [String]) -> TextPairDiff {
