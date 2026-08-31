@@ -15,8 +15,9 @@ User-facing changes, newest first. For the full commit history see the
 
 - **"Compare copies" works on files, not just folders.** A file group's copies each carried a 40pt
   thumbnail and that was the whole comparison; folder groups got a side-by-side review. Any two
-  copies now open in one surface: a strip across the top giving name, location, size and date for
-  both — with whatever differs picked out — and two live previews under it. Choose which copy to
+  copies now open in one surface: a strip across the top giving name, location, size, date and — for
+  two PDFs — page count for both, with whatever differs picked out, and two live previews under
+  it. Choose which copy to
   keep with ←/→ or the button over either pane; the card underneath follows.
 - **The verdict is one copy, not the whole group.** Trashing from here removes the copy you were
   looking at and leaves a third copy of the same file alone. It goes through the same last-moment
