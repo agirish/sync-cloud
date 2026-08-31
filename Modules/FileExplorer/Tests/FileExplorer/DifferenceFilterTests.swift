@@ -110,4 +110,42 @@ import Sync
         #expect(names.other(isLeft: true) == "Dropbox")
         #expect(names.other(isLeft: false) == "iCloud")
     }
+
+    // MARK: The plain name — what a surface showing ONE pane says
+
+    /// **The suffix is a disambiguator, not part of the provider's name.** It exists so two panes
+    /// on the same provider can be told apart; a surface showing one pane has nothing to tell it
+    /// apart from, and the suffix there is a distinction the reader cannot interpret. Reported
+    /// against the Organize tab, whose breadcrumbs all read "iCloud (left) › Documents › …"
+    /// whenever the Compare tab's two panes happened to sit on the same provider: "left in
+    /// parenthesis doesn't make sense right? Just iCloud should suffice."
+    @Test func testPlainNameDropsTheSideSuffix() {
+        let names = PaneProviderNames(leftName: "iCloud", rightName: "iCloud")
+        #expect(names.plain(isLeft: true) == "iCloud")
+        #expect(names.plain(isLeft: false) == "iCloud")
+        #expect(names.left == "iCloud (left)",
+                "the disambiguated pair must be untouched — the two-pane surfaces still need it")
+    }
+
+    /// Where the two panes already differ, plain and disambiguated are the same string — which is
+    /// what makes switching every single-pane surface to `plain` safe in one go: it can only have
+    /// changed anything for someone whose two panes are on one provider.
+    @Test func testPlainAndDisambiguatedAgreeForDifferentProviders() {
+        let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
+        #expect(names.plain(isLeft: true) == names.left)
+        #expect(names.plain(isLeft: false) == names.right)
+    }
+
+    /// **Kept, not stripped.** Recovering the plain name by removing a "(left)" suffix would
+    /// mangle a source a user genuinely named that way; the raw name is already in hand at init.
+    @Test func testAProviderNamedLikeTheSuffixSurvives() {
+        let names = PaneProviderNames(leftName: "Archive (left)", rightName: "Dropbox")
+        #expect(names.plain(isLeft: true) == "Archive (left)")
+        #expect(names.left == "Archive (left)")
+    }
+
+    @Test func testPlainFallsBackToTheSideName() {
+        #expect(PaneProviderNames.leftRight.plain(isLeft: true) == "Left")
+        #expect(PaneProviderNames.leftRight.plain(isLeft: false) == "Right")
+    }
 }

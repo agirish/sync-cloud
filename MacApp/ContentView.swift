@@ -2061,8 +2061,15 @@ struct ContentView: View {
 
     /// The provider name for the pane a lens scan targets: the single-source rail is always the left
     /// pane; in compare mode it follows the focused pane.
+    ///
+    /// **The PLAIN name, without "(left)"/"(right)".** This used to read `paneNames.left`, whose
+    /// suffix exists to tell two visible panes apart — and a lens workspace shows one. So every
+    /// breadcrumb in Organize and Storage said "iCloud (left) › Documents › …" whenever the
+    /// Compare tab's two panes happened to be on the same provider, disambiguating against a pane
+    /// that is not on screen. The Differences table and the duplicate-review banner, which really
+    /// do show both, keep `paneNames` and its suffix.
     var lensProviderName: String {
-        lensTargetIsRight ? paneNames.right : paneNames.left
+        paneNames.plain(isLeft: !lensTargetIsRight)
     }
 
     /// The absolute (tilde-expanded) folder a lens scan walks: the targeted pane's current directory
