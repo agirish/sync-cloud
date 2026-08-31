@@ -1591,6 +1591,13 @@ struct ProviderSettingsSection: View {
             }
             HStack(spacing: 8) {
                 Button("Show in Finder") { openInFinder(provider.rootPath) }
+                // The provider's own settings — System Settings for iCloud, the vendor's app or
+                // web surface for the rest; see `CloudProvider.settingsDoor` for why each vendor
+                // gets the door it gets. Absent, not disabled, when the vendor's app is missing.
+                if let door = provider.settingsDoor, let title = provider.settingsDoorTitle,
+                   ProviderSettingsOpener.canOpen(door) {
+                    Button(title) { ProviderSettingsOpener.open(door) }
+                }
                 if hasRootOverride {
                     Button("Reset") { resetRootToDiscovered() }
                 }

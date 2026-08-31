@@ -734,3 +734,42 @@ import Design
                 "the insertion line no longer reads willDrop — it would promise a commit the release refuses, or vice versa")
     }
 }
+
+/// **The provider-settings door on a source row** — offered only where the host supplied a title,
+/// placed above the consequential tail, and never confirmed: it changes nothing in SyncCloud.
+///
+/// Source scans, like `SidebarRowSideMenuTests` above and reusing its comment-stripped read.
+@Suite struct SidebarProviderSettingsMenuTests {
+
+    /// The dictionary is the capability set: no entry, no item. A bare `Button` here would draw
+    /// the door on every row, including folder sources and the Trash, which have none.
+    @Test func theDoorIsOfferedOnlyWhereTheHostSuppliedATitle() throws {
+        let code = try SidebarRowSideMenuTests.source()
+        #expect(code.contains("if let title = providerSettingsTitles[source.id]"),
+                "the provider-settings item is no longer gated on the host-supplied capability")
+    }
+
+    /// The door opens someone else's surface and changes nothing here, so it must not run
+    /// through `arm(_:)` — a confirmation would put it in the same class as Eject and Remove.
+    @Test func theDoorOpensDirectlyWithoutArmingAConfirmation() throws {
+        let code = try SidebarRowSideMenuTests.source()
+        let gate = try #require(code.range(of: "if let title = providerSettingsTitles[source.id]"),
+                                "the item's gate was not found — this scan is vacuous")
+        let body = String(code[gate.upperBound...].prefix(120))
+        try #require(body.contains("onOpenProviderSettings(source)"),
+                     "the item's action was not found — this scan is vacuous")
+        #expect(!body.contains("arm("),
+                "the provider-settings door arms a confirmation it has nothing to confirm")
+    }
+
+    /// Above Eject and Remove: those two end the menu because a mis-aimed click should land on
+    /// the mildest thing possible, and a menu item that merely shows another app's window is
+    /// milder than either.
+    @Test func theDoorSitsAboveTheConsequentialTail() throws {
+        let code = try SidebarRowSideMenuTests.source()
+        let door = try #require(code.range(of: "providerSettingsTitles[source.id]"))
+        let eject = try #require(code.range(of: "Button(\"Eject \\(source.name)…\")"))
+        #expect(door.lowerBound < eject.lowerBound,
+                "the provider-settings door has moved below the consequential tail")
+    }
+}

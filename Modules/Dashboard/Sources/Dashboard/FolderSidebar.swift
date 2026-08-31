@@ -568,6 +568,16 @@ public struct FolderSidebarView: View {
     /// would name an act that cannot happen — `SettingsManager.removeFolderSource` ignores the id
     /// and the row would still be there. Same reason `canRestoreStandardFavorites` is a parameter.
     private let removableSourceIds: Set<String>
+    /// **The menu title of a row's door to its provider's own settings, by source id** — present
+    /// only for the rows that have one, so the dictionary is also the capability set. Decided by
+    /// the caller for the same reason `removableSourceIds` is: only it holds the providers, knows
+    /// each vendor's door (`CloudProvider.settingsDoor`), and can ask whether the vendor's app is
+    /// installed. The title travels with the capability because it names a different surface per
+    /// vendor — System Settings, an app, the web — and a single spelling would overpromise for at
+    /// least two of them.
+    private let providerSettingsTitles: [String: String]
+    /// Open the row's provider-settings door. Only called for ids `providerSettingsTitles` names.
+    private let onOpenProviderSettings: (SidebarSourceRow) -> Void
     /// Put `SidebarFavoritePlaces.standard` back. Offered only when one of them is missing.
     private let onRestoreStandardFavorites: () -> Void
     /// Whether Restore has anything to do, decided by the caller because it owns the stored list.
@@ -750,6 +760,8 @@ public struct FolderSidebarView: View {
                 onEjectSource: @escaping (SidebarSourceRow) -> Void = { _ in },
                 ejectablePaths: Set<String> = [],
                 detachablePaths: Set<String> = [],
+                providerSettingsTitles: [String: String] = [:],
+                onOpenProviderSettings: @escaping (SidebarSourceRow) -> Void = { _ in },
                 onRestoreStandardFavorites: @escaping () -> Void = {},
                 canRestoreStandardFavorites: Bool = false,
                 onMoveFavorite: @escaping (Int, Int) -> Void = { _, _ in },
@@ -780,6 +792,8 @@ public struct FolderSidebarView: View {
         self.onEjectSource = onEjectSource
         self.ejectablePaths = ejectablePaths
         self.detachablePaths = detachablePaths
+        self.providerSettingsTitles = providerSettingsTitles
+        self.onOpenProviderSettings = onOpenProviderSettings
         self.onRestoreStandardFavorites = onRestoreStandardFavorites
         self.canRestoreStandardFavorites = canRestoreStandardFavorites
         self.onMoveFavorite = onMoveFavorite
@@ -1380,6 +1394,16 @@ public struct FolderSidebarView: View {
             if let verb = SidebarSourceModel.favoriteVerb(for: source) {
                 Divider()
                 Button(verb) { onToggleSourceFavorite(source) }
+            }
+            // **The provider's own settings, where the provider has any.** Between the toggles
+            // and the consequential verbs: it changes nothing in SyncCloud, so it does not belong
+            // in the confirmed tail — but it leaves the app entirely, which "Open in New Tab"
+            // does not, so it does not sit with the openers either. Deliberately NOT gated on
+            // `isAvailable`: a row is dimmed when its folder is not answering, and the vendor's
+            // settings are where a person goes to find out why.
+            if let title = providerSettingsTitles[source.id] {
+                Divider()
+                Button(title) { onOpenProviderSettings(source) }
             }
             // **Above Remove, and it is the commoner verb of the two.** Ejecting is something a
             // person does to a card every time they finish with one; removing a source is

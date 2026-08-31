@@ -660,12 +660,37 @@ extension ContentView {
             onEjectSource: { source in ejectFolderSidebarVolume(source) },
             ejectablePaths: folderSidebarEjectablePaths,
             detachablePaths: folderSidebarDetachablePaths,
+            providerSettingsTitles: folderSidebarProviderSettingsTitles,
+            onOpenProviderSettings: { source in openFolderSidebarProviderSettings(source) },
             onRestoreStandardFavorites: { restoreStandardFolderSidebarFavorites() },
             canRestoreStandardFavorites: SidebarFavoritePlaces.isMissingStandard(folderSidebarFavoritePlaces),
             onMoveFavorite: { from, to in moveFolderSidebarFavorite(from: from, to: to) },
             onMoveSource: { from, to in moveFolderSidebarSource(from: from, to: to) },
             onFavoriteRecent: { row, to in favoriteRecentByDrag(row, to: to) })
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+    }
+
+    /// **Which rows have a door to their vendor's own settings, and what the menu item says.**
+    /// Built from the enabled providers rather than from the rows, because a row that is not a
+    /// configured source carries a path for an id, and a path is not a provider. An application
+    /// door whose app is not installed is left out — the menu's absent-not-disabled rule; the
+    /// title travels with the capability because it differs per vendor (see
+    /// `CloudProvider.settingsDoorTitle`).
+    var folderSidebarProviderSettingsTitles: [String: String] {
+        folderSidebarProviders.reduce(into: [:]) { titles, provider in
+            guard let door = provider.settingsDoor, let title = provider.settingsDoorTitle,
+                  ProviderSettingsOpener.canOpen(door) else { return }
+            titles[provider.id] = title
+        }
+    }
+
+    /// The context menu's provider-settings verb: resolve the row back to its provider and open
+    /// that provider's door. By id against the same list the titles were built from, so the menu
+    /// cannot offer a door this cannot find.
+    func openFolderSidebarProviderSettings(_ source: SidebarSourceRow) {
+        guard let provider = folderSidebarProviders.first(where: { $0.id == source.id }),
+              let door = provider.settingsDoor else { return }
+        ProviderSettingsOpener.open(door)
     }
 
     /// The stored width, **clamped on read**.
