@@ -123,6 +123,19 @@ enum PairContentKind: String, Equatable, CaseIterable {
         "c", "h", "cpp", "hpp", "m", "mm", "java", "kt", "go", "rs", "sql",
     ]
 
+    /// The extensions the editor offers a rendered preview for.
+    ///
+    /// **A subset of ``textExtensions``, and spelled out rather than inferred**, for the same
+    /// reason that set is: this decides whether a control appears, and a UTI umbrella would quietly
+    /// pull in whatever the system decides conforms to `public.plain-text` on a given machine.
+    /// Both members are already text kinds — this only asks a second question about them.
+    static let markdownExtensions: Set<String> = ["md", "markdown"]
+
+    /// Whether this file is Markdown, and therefore has something to preview.
+    static func isMarkdown(path: String) -> Bool {
+        markdownExtensions.contains((path as NSString).pathExtension.lowercased())
+    }
+
     /// Whether this kind gets a synchronised pair viewer at all. `.other` and `.text` do not: one
     /// has no canvas to synchronise and the other synchronises by line, in its own pane.
     var hasSyncedViewer: Bool { self == .pdf || self == .image }

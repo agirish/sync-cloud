@@ -31,7 +31,7 @@ enum BoundedTextRead {
     ///
     /// Only encodings a byte-order mark names, which is the whole reason this is decidable: a BOM
     /// is a fact about the file, not a guess about it.
-    enum TextEncoding: String, Equatable, Sendable {
+    enum TextEncoding: String, Equatable, Sendable, CaseIterable {
         case utf8 = "UTF-8"
         case utf8WithBOM = "UTF-8 with a BOM"
         case utf16LittleEndian = "UTF-16 LE"
