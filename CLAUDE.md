@@ -135,12 +135,12 @@ it; it was simply wrong for two years.
 
 ### Where the version lives
 
-`project.yml` is the only source of truth:
+`project.yml` is the only source of truth. Each line's current values are in the branch table at the
+top of this file — this block shows the shape, not any line's numbers, so that it cannot drift:
 
 ```yaml
-# main's values; v4.x carries "4.7-dev" / "407", v3.x "3.2-dev" / "302", v2.x "2.10-dev" / "210"
-CFBundleShortVersionString: "5.1-dev"   # the marketing version — what people see
-CFBundleVersion: "501"                  # the build number — what Launch Services orders by
+CFBundleShortVersionString: "<MAJOR>.<MINOR>-dev"   # the marketing version — what people see
+CFBundleVersion: "<MAJOR × 100 + MINOR>"            # the build number — what Launch Services orders by
 ```
 
 `MacApp/Info.plist` is **generated from it by xcodegen and tracked in git** — run `xcodegen` after
@@ -156,9 +156,7 @@ anywhere, which is what makes changing it safe:
 they are copies, so nothing fails when they drift:
 
 - the `versionMarker` literal in `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` (step 2)
-- the branch table above, and the example block just above this list (a compaction removed the
-  third spelling this once pointed at — under **The two numbers** nothing repeats the tip marker
-  any more)
+- the branch table at the top of this file — the only place CLAUDE.md spells a live number
 - `MacApp/Info.plist`, which xcodegen regenerates
 
 The table is the one that gets missed — the v4.2 re-bump moved `project.yml` and the test literal but
@@ -166,9 +164,13 @@ left all three lines' tables reading `4.1-dev` / `401`, and the table is what a 
 *before* a cut. This prints nothing when the table is right, and names the offender when it is not:
 
 ```sh
+# main's row is read from the WORKING TREE — that is the copy you are about to land, and during a
+# cut it is the only one that is right. The maintenance rows come from origin, the only place they
+# exist. Reading origin on BOTH sides reports "clean" all through a local bump, which is useless.
 for l in main v4.x v3.x v2.x; do
-  m=$(git show origin/$l:project.yml | grep -o '"[0-9.]*-dev"' | tr -d '"')
-  r=$(git show origin/main:CLAUDE.md | grep "^| \`$l\`" | grep -o '`[0-9.]*-dev`' | tr -d '`')
+  if [ "$l" = main ]; then m=$(grep -o '"[0-9.]*-dev"' project.yml | tr -d '"')
+  else m=$(git show origin/$l:project.yml | grep -o '"[0-9.]*-dev"' | tr -d '"'); fi
+  r=$(grep "^| \`$l\`" CLAUDE.md | grep -o '`[0-9.]*-dev`' | tr -d '`')
   [ "$m" = "$r" ] || echo "$l: table says $r, project.yml says $m"
 done
 ```
