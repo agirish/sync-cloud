@@ -125,6 +125,36 @@ approval of the *previous* batch. One ask, one push.
 **Cite SHAs only after the push.** The squash and the rebase both renumber everything, so a SHA
 read before step 4 names a commit that no longer exists.
 
+### Never discard working-tree state to undo an experiment — commit first
+
+`git checkout -- <file>` and `git restore <file>` do not undo *your last edit*: they throw the file
+back to `HEAD` and take **every uncommitted change in it** with them, silently and with no reflog
+entry to recover from. The same is true of `git reset --hard`, `git clean -fd`, and `git stash
+drop`. Mutation testing is where this bites, because reverting the mutation is the whole point of
+the step and the file also holds the fix being tested.
+
+**It happened twice on 2026-08-30, in one session.** The second time it wiped a new view's entire
+API — a property, two parameters and the branch that used them — and the build then failed in a
+*different* file with `generic parameter 'R' could not be inferred` and a stray mention of
+`TableColumn`, because SwiftUI's `Group` had fallen back to another overload once its content
+stopped type-checking. The error named neither the deleted code nor the file it was deleted from.
+
+**So: commit a checkpoint BEFORE mutating anything.** Worktree commits are free and the squash in
+step 3 removes them, so there is no cost to pay:
+
+```sh
+git add -A && git commit -qm "checkpoint before mutation testing"
+# ...mutate, run the test, watch it fail...
+git checkout -- <file>     # now restores to the checkpoint, which is what was meant
+git status --short         # MUST still list the file as modified when work was expected
+```
+
+The check on the last line is the point: a `git status` that comes back clean where you expected
+modifications means the restore just took your work, and it is far cheaper to see that now than
+through a compiler error three files away. **Any command that discards working-tree state is
+forbidden while uncommitted work exists in its path** — commit, or `git stash push -- <file>` and
+pop it back, or copy the file aside and copy it back. Never `checkout --` on faith.
+
 ## Cutting a release
 
 **The version bump is part of the release, not a follow-up.** Between `v0.10` and `v2.8` the version
