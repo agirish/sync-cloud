@@ -29,6 +29,14 @@ struct PaneActionDelegate: FileActionDelegate {
     /// Raises the window's destination picker. Only the single-source rail offers the menu item
     /// that reaches this, so the comparison panes pass a no-op.
     let onChooseDestination: ([FileNode], Bool) -> Void
+    /// Hands a file to the Editor workspace. Built by `ContentView`, which owns the workspace
+    /// selection and the document — see `ContentView+Editor`.
+    ///
+    /// **Deliberately does NOT take the side.** It threaded one for a while, so the hand-off could
+    /// re-root "the pane the row was in" — but the editor reads the LEFT pane and only the left
+    /// pane, so passing the right one moved a pane the editor never draws while the rail carried on
+    /// listing the left. See ``ContentView/handOffToEditor(_:)``.
+    let onOpenInEditor: (String) -> Void
 
     /// A snapshot of the ignore set, carried purely so `isEquivalent` can notice it changing.
     ///
@@ -187,6 +195,7 @@ struct PaneActionDelegate: FileActionDelegate {
     }
     func handleDelete(_ nodes: [FileNode]) { handler?.confirmDelete(nodes) }
     func handleChooseDestination(_ nodes: [FileNode], isMove: Bool) { onChooseDestination(nodes, isMove) }
+    func handleOpenInEditor(_ path: String) { onOpenInEditor(path) }
     func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) { 
         handler?.handleCopyToClipboard(nodes, isCut: isCut)
     }

@@ -231,6 +231,7 @@
       <a href="#organize">Organize</a>
       <a href="#restructure">Restructure</a>
       <a href="#storage">Storage</a>
+      <a href="#editor">Edit</a>
       <a href="#ai">AI Filing</a>
       <a href="#safety">Safety</a>
       <a href="#cli">CLI</a>
@@ -314,7 +315,7 @@
     <div class="sec-head">
       <div class="kicker">Browse</div>
       <h2>Move through folders the way you think</h2>
-      <p>A whole workspace is just your files, and it is the one SyncCloud opens on: <b>Browse</b> gives one provider the full window — no lens, no suggestions, the plain file browser. A folder sidebar runs down the left of all four workspaces, holding the folders you keep and the ones you were last in. And wherever a pane appears, it renders as columns, the way Finder does — so you can see the path you took, not just where you landed. Drill into a folder and the linked pane follows.</p>
+      <p>A whole workspace is just your files, and it is the one SyncCloud opens on: <b>Browse</b> gives one provider the full window — no lens, no suggestions, the plain file browser. A folder sidebar runs down the left of all five workspaces, holding the folders you keep and the ones you were last in. And wherever a pane appears, it renders as columns, the way Finder does — so you can see the path you took, not just where you landed. Drill into a folder and the linked pane follows.</p>
     </div>
     <div class="safe-grid">
       <div class="safe">
@@ -442,6 +443,23 @@
         <h3>A treemap, and three ranked lists</h3>
         <p>Storage shows you a treemap of your biggest folders and three ranked lists: the largest files, the ones you haven't touched in over a year, and the big-and-idle reclaim candidates.</p>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- ---------------- EDITOR ---------------- -->
+<section id="editor">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Edit</div>
+      <h2>Write in a text file, without leaving</h2>
+      <p>Every other workspace moves files around. Edit is the one that changes what is <i>inside</i> one — a note, a README, a config file — and it does it with the same caution the rest of the app spends on moves.</p>
+    </div>
+    <div class="safe-grid">
+      <div class="safe"><div class="ico">📄</div><h4>A rail of what you can open</h4><p>A collapsible file pane to browse to any folder, and beside it every text file that folder holds. A row too large to read, or still in the cloud, is listed and dimmed rather than hidden — and says which it is.</p></div>
+      <div class="safe"><div class="ico">👁️</div><h4>Markdown, three ways</h4><p><b>Edit</b>, <b>Preview</b>, or <b>Split</b> with a divider you can drag. Rendered by a real Markdown parser — tables and task lists included — at the app's own text size rather than a web view's.</p></div>
+      <div class="safe"><div class="ico">💾</div><h4>No autosave, ever</h4><p><code>⌘S</code> writes; nothing else does. The save is staged and swapped in atomically, goes back in the encoding the file was read in — byte-order mark and line endings intact — and asks first if the file changed underneath you.</p></div>
+      <div class="safe"><div class="ico">🛑</div><h4>It refuses rather than guess</h4><p>A file that is not valid text opens read-only: saving it would replace the parts that could not be read. A folder that appeared where the file was is not written over. Typing has its own undo, so <code>⌘Z</code> here can never reach into a move.</p></div>
     </div>
   </div>
 </section>

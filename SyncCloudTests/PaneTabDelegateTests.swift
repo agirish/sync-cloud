@@ -21,7 +21,7 @@ import Sync
         PaneActionDelegate(
             handler: nil, syncManager: syncManager, settings: SettingsManager(), isLeft: isLeft,
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
+            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [],
             homeBadgeCoverage: nil, onFindDuplicatesOf: { _ in },
             onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in },

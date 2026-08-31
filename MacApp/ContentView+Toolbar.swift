@@ -155,7 +155,7 @@ extension ContentView {
     ///
     /// This replaces the two-level `Compare | Tidy` picker plus the lens tabs that used to head
     /// what is now Organize. The old arrangement kept the lens tabs *out* of here deliberately —
-    /// their ~300pt would have overflowed the window's `minWidth` (600 then, 760 now) and macOS would have
+    /// their ~300pt would have overflowed the window's `minWidth` (600 then, 810 now) and macOS would have
     /// folded them behind a chevron. Flattening does not repeal that constraint, it inherits it,
     /// which is what ``WorkspaceBarMetrics`` is for: below the width where six labels fit, every
     /// segment sheds its label at once and the glyphs carry the bar.
@@ -171,19 +171,19 @@ extension ContentView {
         let onAccent = glassHue.onAccentLabelColor
         let style = toolbarStyles.workspace
         return HStack(spacing: WorkspaceBarMetrics.segmentGap) {
+            // **No group rule, and its absence is a decision rather than an omission.** A 1pt
+            // `Divider` used to sit before Organize, separating the tree-lookers (Browse, Compare)
+            // from the tree-actors (Organize, Storage) — the one real grouping in the bar, pinned
+            // by a test that asserted the PROPERTY (everything after the rule owns a lens) rather
+            // than the index.
+            //
+            // Editor is the case that grouping cannot place: it neither looks at a tree nor acts on
+            // one, it rewrites a file's contents, and it owns no lens. Rather than redefine the
+            // grouping around a third kind — a rule whose meaning has to be explained is not doing
+            // the work a rule is for — the bar is now five equal segments. That also hands 13pt
+            // (the rule, its padding and its own `segmentGap`) back to the width budget, which is
+            // most of what keeps five labels under the window floor.
             ForEach(Array(Workspace.allCases.enumerated()), id: \.element) { index, workspace in
-                // Browse and Compare look at trees; Organize and Storage act on or account for
-                // one. The rule says so — it is the one real grouping in the bar.
-                //
-                // A hardcoded index, and it has to move whenever the bar's order does: it read
-                // `index == 1` when Compare led the bar, which with Browse in front would draw the
-                // rule between Browse and Compare — the wrong grouping, and invisible to
-                // `WorkspaceBarMetrics`, which is only ever told HOW MANY separators there are.
-                // `WorkspaceBarMetricsTests.theRuleSeparatesTheLookersFromTheActors` pins the pair
-                // it sits between rather than the number.
-                if index == Self.workspaceRuleIndex {
-                    Divider().frame(height: 14).padding(.horizontal, 4)
-                }
                 workspaceSegment(workspace, ordinal: index + 1, selection: selection, style: style,
                                  accentFill: accentFill, onAccent: onAccent)
             }
@@ -235,7 +235,7 @@ extension ContentView {
                 Image(systemName: workspace.symbol)
                     .font(.system(size: 12, weight: .medium))
                     // **Framed, so a segment's size stops depending on which symbol is in it.**
-                    // The four glyphs render at four different sizes — see
+                    // The glyphs render at several different sizes — see
                     // `WorkspaceBarMetrics.glyphSide` for the measurements and for the three
                     // separate defects that followed from not doing this. Same idiom as
                     // `PaneTabStripLadder.markSide`, which frames a chip's provider mark for the
@@ -282,13 +282,6 @@ extension ContentView {
     /// The `matchedGeometryEffect` id for the selected segment's accent capsule. One marker, so
     /// one id — a per-segment id would give each its own identity and defeat the whole effect.
     static let workspaceMarkerID = "workspace.selection.marker"
-
-    /// Which segment the group rule is drawn BEFORE, as an index into `Workspace.allCases`.
-    ///
-    /// Named rather than written inline so a test can assert what it separates instead of
-    /// restating the literal — a test that reads `2` and finds `2` would have passed just as
-    /// happily when `2` was the wrong answer.
-    static let workspaceRuleIndex = 2
 
     /// Each segment's rendered label width, at the app's current text scale.
     ///

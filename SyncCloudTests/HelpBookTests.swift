@@ -218,6 +218,7 @@ import Testing
             .compare: "what-is-synccloud",
             .filing: "organize-workspace",
             .storage: "storage-lens",
+            .editor: "editor-workspace",
         ]
         for workspace in Workspace.allCases {
             let id = expected[workspace]

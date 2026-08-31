@@ -40,15 +40,25 @@ import Foundation
         let supported = Workspace.allCases.filter(\.supportsFolderSidebar)
         #expect(supported.count == Workspace.allCases.count,
                 "\(supported.count) of \(Workspace.allCases.count) workspaces support the sidebar — decide about the rest")
-        #expect(Workspace.allCases.count == 4, "a workspace was added; decide whether it takes a sidebar")
+        #expect(Workspace.allCases.count == 5, "a workspace was added; decide whether it takes a sidebar")
     }
 }
 
 /// **The lens workspaces share one row three ways, and the sidebar is what gives way.**
 ///
 /// Browse hands the sidebar the window minus one pane, so the stored width always fits. Organize
-/// and Storage put it beside a rail (min 220) and a lens panel (min 340) — 560 of a 760 window
-/// floor — leaving exactly 200pt, which the 180 default fits and the 280 maximum does not.
+/// and Storage put it beside a rail (min 220) and a lens panel (min 340) — 560 of the window —
+/// leaving 250pt at the app's 810pt floor, which the 180 default fits and the 280 maximum does not.
+///
+/// **The fixtures below say 760, which is one notch UNDER that floor, and they stay there on
+/// purpose.** 760 was the floor when this suite was written; the Editor workspace raised it to 810
+/// for its fifth bar label. Re-pointing every fixture at the new number is the obvious move and the
+/// wrong one — a clamp only earns its test at a width where it actually bites, and moving a fixture
+/// up until it stops biting is how a suite goes green by no longer asking anything. (The Settings
+/// sheet's own floor test records the same lesson from the other side: `sheetClampsToTheSpaceTheHostHas`
+/// had to KEEP a narrower fixture once 810 gave the width axis two points of slack.) So these read
+/// as "at and below the narrowest window the app allows", and the arithmetic in the prose is the
+/// arithmetic of the fixture, not of the floor.
 @Suite struct LensSidebarWidthTests {
 
     private let gutter = LiquidGlass.cardGutter
@@ -96,7 +106,8 @@ import Foundation
     }
 
     /// **It clamps, it never collapses** — matching the resize divider's own rule. 150 fits at the
-    /// window floor with 45pt to spare, so the floor is reachable but never crossed.
+    /// 760pt fixture with 44pt to spare (and 94 at the app's real 810 floor), so the floor is
+    /// reachable but never crossed.
     @Test func itNeverShrinksBelowTheColumnsOwnMinimum() {
         #expect(width(stored: minSidebar, total: 760) == minSidebar)
         // Below the window floor the window cannot go, but the function must still not return
@@ -157,6 +168,7 @@ import Foundation
     }
 
     /// The clamp reserves what the layout actually spends, so the two cannot disagree at the floor.
+    /// 760 again, for the reason in the suite note — the narrowest width worth asking about.
     @Test func theClampReservesTheSeamToo() {
         let clamped = PaneLogic.lensSidebarWidth(stored: FolderSidebarView.maxWidth, totalWidth: 760,
                                                  minSidebar: FolderSidebarView.minWidth, gutter: gutter)

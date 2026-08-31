@@ -13,7 +13,7 @@ import Testing
 @Suite struct LensCardGridTests {
 
     /// **The ordinary case is one column for the renames card**, and it has to be: the app's own
-    /// window floor is 760pt wide and the Organize lens gets a fraction of it, so a rule that
+    /// window floor is 810pt wide and the Organize lens gets a fraction of it, so a rule that
     /// reached two columns too eagerly would make the narrow pane — the one this lens is usually
     /// read in — the broken one.
     @Test func aNarrowPaneStaysASingleColumn() {

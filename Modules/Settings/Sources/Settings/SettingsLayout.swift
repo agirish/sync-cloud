@@ -137,8 +137,13 @@ enum SettingsSheetMetrics {
     ///
     /// Scaling up is the point — Larger type needs a larger sheet, or the taller tabs go straight
     /// back to scrolling — but a sheet must never exceed the space it is centered in. The window's
-    /// own minimum is 760×560, and once `hostMargin` is taken off that is narrower and shorter
-    /// than the sheet wants at any text size — so this clamp still does the work.
+    /// own minimum is 810×560; `hostMargin` takes 48 off that, leaving 762×512, which is still
+    /// SHORTER than the sheet wants at any text size — so this clamp still does the work, in
+    /// height. **It no longer bites in width**, and that changed under this comment: the floor was
+    /// 760 when this was written, leaving 712 against the 760 the sheet asks for, and the Editor
+    /// workspace raised the floor to 810 for its fifth bar label. Two points of slack, which is
+    /// why the width clamp is now exercised by a fixture narrower than the window floor rather
+    /// than by the floor itself.
     ///
     /// **Grow only.** The scale is floored at 1, the same rule and the same reason as
     /// `ListDensity.tableRowHeight`. A tab's height is not proportional to the text scale: its
@@ -379,9 +384,10 @@ struct SettingsRail: View {
             // it overruns by 47–125pt at EVERY size (`theRailIsWhatTheFloorSizedSheetRunsOutOf`
             // records the measurements).
             //
-            // What has changed since is the window, not the rail: it now carries a 760×560 floor,
-            // so the smallest sheet a user can produce is 712×512 and the tabs DO fit there — by
-            // 9.6pt at the largest text size (`theRailFitsTheSheetTheWindowFloorProduces`). The
+            // What has changed since is the window, not the rail: it now carries an 810×560 floor,
+            // so the smallest sheet a user can produce is 762×512 and the tabs DO fit there — by
+            // 9.6pt at the largest text size (`theRailFitsTheSheetTheWindowFloorProduces`), which
+            // is a HEIGHT margin and so unmoved by the floor's width going 760 → 810. The
             // scroller is therefore a guard rather than the working case, which is the right way
             // round and no argument for removing it: 9.6pt is one tab from being gone, and the
             // sheet is also handed to hosts smaller than the main window.

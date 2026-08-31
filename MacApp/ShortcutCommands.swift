@@ -228,6 +228,14 @@ private struct NewFolderInFocusedPaneKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct SaveDocumentKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct NewTextFileKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 private struct ShowHiddenFilesKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -458,6 +466,21 @@ extension FocusedValues {
         set { self[NewFolderInFocusedPaneKey.self] = newValue }
     }
 
+    /// ⌘S — writes the editor's open document. **Absent while the document is clean**, so File ▸
+    /// Save greys out rather than offering to rewrite a file with the bytes it already has.
+    var saveDocument: (() -> Void)? {
+        get { self[SaveDocumentKey.self] }
+        set { self[SaveDocumentKey.self] = newValue }
+    }
+
+    /// ⌘N — opens the editor's naming row. Published from **every** workspace, not only the
+    /// editor: the folder sidebar spans them all, so "the current folder" always has an answer, and
+    /// from anywhere else this switches to the editor first and opens the row there.
+    var newTextFile: (() -> Void)? {
+        get { self[NewTextFileKey.self] }
+        set { self[NewTextFileKey.self] = newValue }
+    }
+
     /// The hidden-files filter — one switch for both panes (`FileSyncManager.showHiddenFiles`).
     var showHiddenFiles: Binding<Bool>? {
         get { self[ShowHiddenFilesKey.self] }
@@ -595,6 +618,8 @@ struct ShortcutValuePublisher: ViewModifier {
     let goForward: (() -> Void)?
     let rescan: (() -> Void)?
     let newFolder: (() -> Void)?
+    let saveDocument: (() -> Void)?
+    let newTextFile: (() -> Void)?
     let hiddenFiles: Binding<Bool>
     let previewColumn: Binding<Bool>?
     let inspector: Binding<Bool>
@@ -669,6 +694,8 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveGoForward: (() -> Void)? { suspended ? nil : goForward }
     var effectiveRescan: (() -> Void)? { suspended ? nil : rescan }
     var effectiveNewFolder: (() -> Void)? { suspended ? nil : newFolder }
+    var effectiveSaveDocument: (() -> Void)? { suspended ? nil : saveDocument }
+    var effectiveNewTextFile: (() -> Void)? { suspended ? nil : newTextFile }
     var effectiveHiddenFiles: Binding<Bool>? { suspended ? nil : hiddenFiles }
     var effectivePreviewColumn: Binding<Bool>? { suspended ? nil : previewColumn }
     var effectiveInspector: Binding<Bool>? { suspended ? nil : inspector }
@@ -707,6 +734,8 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.paneGoForward, effectiveGoForward)          // ⌘]
             .focusedSceneValue(\.rescanPanes, effectiveRescan)               // ⌘R
             .focusedSceneValue(\.newFolderInFocusedPane, effectiveNewFolder) // ⇧⌘N
+            .focusedSceneValue(\.saveDocument, effectiveSaveDocument)       // ⌘S
+            .focusedSceneValue(\.newTextFile, effectiveNewTextFile)         // ⌘N
             .focusedSceneValue(\.showHiddenFiles, effectiveHiddenFiles)      // ⇧⌘.
             .focusedSceneValue(\.previewColumn, effectivePreviewColumn)      // ⇧⌘P
             .focusedSceneValue(\.infoInspector, effectiveInspector)          // ⌘I
@@ -739,6 +768,8 @@ extension ContentView {
             goForward: shortcutGoForward,
             rescan: shortcutRescan,
             newFolder: shortcutNewFolder,
+            saveDocument: shortcutSaveDocument,
+            newTextFile: shortcutNewTextFile,
             hiddenFiles: $syncManager.showHiddenFiles,
             previewColumn: shortcutPreviewColumn,
             inspector: shortcutInfoInspector,
@@ -1143,6 +1174,15 @@ extension ContentView {
 
     var shortcutNewFolder: (() -> Void)? {
         guard actionHandler != nil else { return nil }
+        // **Only where a pane list is DRAWN — which is a question about the layout, not about the
+        // workspace.** ⇧⌘N opens a naming row inside the pane's file list. The Editor draws a real
+        // pane when its source column is expanded, and nothing but a 34pt spine when it is
+        // collapsed — which is how it starts — so gating on the workspace would be wrong in one
+        // direction and gating on `layoutMode` (which cannot tell a rail from a spine) was wrong in
+        // the other: it left ⇧⌘N live over a pane the user cannot see, in a naming state they
+        // cannot dismiss. Asked of the layout, like the collapse rung, so the next workspace with a
+        // collapsible pane inherits the answer rather than the bug.
+        guard contentLayout.drawsAPaneList else { return nil }
         let isLeft = shortcutTargetIsLeft
         return { beginNewFolder(isLeft: isLeft) }
     }
@@ -1153,6 +1193,11 @@ extension ContentView {
         // missed: in Browse it asked the RAIL's mode, so ⇧⌘P offered the preview column according
         // to a stack the user was not looking at — dead in Browse-Columns whenever the rail was in
         // Tree, and live in Browse-Tree whenever the rail was in Columns.
+        // Same gate as ⇧⌘N, and it was missing for the same reason: with its source pane collapsed
+        // the Editor has no columns to put a preview beside, but it fell through to the RAIL's
+        // stored mode — so ⇧⌘P was live there whenever the rail happened to be in Columns, toggling
+        // a key nothing on screen read. Expanded, the pane is real and so is the preview column.
+        guard contentLayout.drawsAPaneList else { return nil }
         let mode = resolvedViewModeBinding(isLeft: shortcutTargetIsLeft)
         guard PaneViewMode.showsPreviewToggle(mode: mode.wrappedValue) else { return nil }
         // Resolved the same way, for the same reason: Browse keeps its own preview preference, so a
@@ -1262,6 +1307,36 @@ struct NewFolderCommand: View {
         Button("New Folder…") { newFolder?() }
             .keyboardShortcut(AppChord.newFolder.key, modifiers: AppChord.newFolder.modifiers)
             .disabled(newFolder == nil)
+    }
+}
+
+/// File ▸ New Text File… — the editor's ⌘N, shaped exactly like New Folder above.
+///
+/// **The ellipsis is load-bearing**, and it is the same promise: this opens the naming row in the
+/// editor's rail and creates nothing. Return commits, Esc cancels, and until then the folder on
+/// disk is untouched.
+struct NewTextFileCommand: View {
+    @FocusedValue(\.newTextFile) private var newTextFile
+
+    var body: some View {
+        Button("New Text File…") { newTextFile?() }
+            .keyboardShortcut(AppChord.newTextFile.key, modifiers: AppChord.newTextFile.modifiers)
+            .disabled(newTextFile == nil)
+    }
+}
+
+/// File ▸ Save — the editor's ⌘S.
+///
+/// **No ellipsis and no "Save As".** This writes the file that is open, at the path it was opened
+/// from; there is no picker to summon and nothing to decide. The item greys out when the buffer
+/// matches the file, which is also what says the last ⌘S landed.
+struct SaveDocumentCommand: View {
+    @FocusedValue(\.saveDocument) private var save
+
+    var body: some View {
+        Button("Save") { save?() }
+            .keyboardShortcut(AppChord.saveDocument.key, modifiers: AppChord.saveDocument.modifiers)
+            .disabled(save == nil)
     }
 }
 

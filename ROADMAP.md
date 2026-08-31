@@ -70,17 +70,26 @@ and "add a top-level tab" are the same act, and the cost is a bar segment rather
 change to `ContentView`'s layout modes. Storage remains the precedent for a read-only analytical
 workspace, and the shared 81pt `LensHeaderCard` rung applies unchanged.
 
-**The bar-width consequence, which is the only real cost.** The labelled segments already exceed
-the window's 760pt `minWidth` once the traffic lights and utility pill are counted, and
-`WorkspaceBarMetrics` sheds every label at once (`.full` → `.iconOnly`) when they do. An added
-segment moves that threshold further out, so the bar spends more of its time icon-only. Measured
-through `WorkspaceBarMetrics.styles` at the default text size, with the ⌘K pill already compact:
-today's four segments need **708pt**, five (+Backup) need **800**, six need **883** — against a
-window floor of 760. So the fourth segment fits the narrowest window and the fifth does not; adding
-Backup means either an icon-only floor again or another raise. (At Large those become 755 / 856 /
-946.) That is a real regression in a control every workspace depends on, and it is the thing to
-weigh against Backup being a workspace rather than something reached from Storage. The glyph has to
-carry the whole label at narrow widths, so it must be legible alone rather than decorative.
+**The bar-width consequence, which is the only real cost — and it has since been paid once.**
+The labelled segments approach the window's `minWidth` once the traffic lights and utility pill are
+counted, and `WorkspaceBarMetrics` sheds every label at once (`.full` → `.iconOnly`) when they
+exceed it. An added segment moves that threshold further out, so the bar spends more of its time
+icon-only.
+
+**What this paragraph predicted, and what actually happened.** It measured four segments at
+**708pt** and five at **800** against a 760 floor, and concluded that a fifth means "either an
+icon-only floor again or another raise". A fifth arrived — the Edit workspace, not Backup — and
+the answer was *another raise*, plus one thing this analysis did not have: **deleting the bar's
+group rule**, which handed back 13pt (the rule, its padding, and its own `segmentGap`). Re-measured
+through `WorkspaceBarMetrics.styles` at the default text size with the ⌘K pill compact: four
+segments and a rule needed **720**, five with no rule need **793**, and the floor went to **810**.
+(At Large, 815; at Larger, 837 — both above the floor, so those two sizes still shed.)
+
+So the cost is real and it is now a *second* raise that Backup would have to argue for: a sixth
+segment lands somewhere near 880 and the floor cannot keep chasing it — the window opens at ~85% of
+the screen, and a floor that is most of a small display has stopped being a floor. That is the thing
+to weigh against Backup being a workspace rather than something reached from Storage. The glyph has
+to carry the whole label at narrow widths, so it must be legible alone rather than decorative.
 
 **Folders, not files — the decision the feature lives or dies on.** A home folder holds hundreds of
 thousands of files and listing them answers nothing. Report the **highest folder that is entirely

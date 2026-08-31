@@ -32,7 +32,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     /// through so the logged decision names how many operations were in flight.
     @Test func testQuitDecisionWarnsWhenActiveOperationsAndWarningEnabled() {
         #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 5, warnBeforeQuit: true)
-            == .warn(activeOperations: 5))
+            == .warn(activeOperations: 5, hasUnsavedDocument: false))
     }
 
     /// SwiftUI may re-run `App.init`, creating a throwaway `FileSyncManager` that `@StateObject`

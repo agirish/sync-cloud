@@ -15,7 +15,7 @@ import Sync
         PaneActionDelegate(
             handler: nil, syncManager: syncManager, settings: settings, isLeft: true,
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
+            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: keptNames,
             // Required rather than defaulted, deliberately: a pane that forgot to pass its
             // coverage would silently lose every ⌂ badge, and a default here would let it.

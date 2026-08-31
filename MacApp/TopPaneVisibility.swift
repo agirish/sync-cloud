@@ -58,7 +58,18 @@ enum TopPaneVisibility {
     /// change is that the source browser is in the same place on every workspace. Starting it
     /// collapsed would contradict that on first use. A stored override still wins, and the
     /// upgrade carries Tidy's forward (see ``migratingOverrides(_:)``).
-    static func defaultPanesHidden(for workspace: Workspace) -> Bool { false }
+    ///
+    /// **Editor is the one exception, and it starts hidden.** Its source pane is there for the
+    /// session where you need to browse to a folder you have not kept or visited; the ordinary
+    /// session opens a file from the rail and writes in it, and three columns standing between the
+    /// window edge and the text would be three things to look past every time. A stored override
+    /// still wins, so a user who expands it keeps it expanded.
+    static func defaultPanesHidden(for workspace: Workspace) -> Bool {
+        switch workspace {
+        case .browse, .compare, .filing, .storage: return false
+        case .editor: return true
+        }
+    }
 
     /// Resolves whether the panes are hidden for a workspace, honoring a stored override.
     static func panesHidden(for workspace: Workspace, override: Bool?) -> Bool {

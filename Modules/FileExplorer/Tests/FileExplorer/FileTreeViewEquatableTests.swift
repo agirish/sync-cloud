@@ -23,6 +23,7 @@ import Design
         /// Distinguishes two stubs so the delegate half of the comparison can be driven.
         var id: Int = 0
         func handleRefresh() {}
+        func handleOpenInEditor(_ path: String) {}
         func handleFocus(_ node: FileNode) {}
         func handleCopy(_ nodes: [FileNode]) {}
         func handleMove(_ nodes: [FileNode]) {}
@@ -321,6 +322,7 @@ import Design
     func nonOptedInDelegateBlocksTheGate() {
         struct Bare: FileActionDelegate {
             func handleRefresh() {}
+            func handleOpenInEditor(_ path: String) {}
             func handleFocus(_ node: FileNode) {}
             func handleCopy(_ nodes: [FileNode]) {}
             func handleMove(_ nodes: [FileNode]) {}

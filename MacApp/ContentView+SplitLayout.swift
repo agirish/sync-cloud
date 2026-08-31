@@ -156,6 +156,8 @@ extension ContentView {
                 singleSourceLayout(collapsed: contentLayout == .singleCollapsed, geo: geo)
             case .browseFull:
                 browseLayout(geo: geo)
+            case .editorExpanded, .editorCollapsed:
+                editorLayout(collapsed: contentLayout == .editorCollapsed, geo: geo)
             }
         }
     }
@@ -186,7 +188,7 @@ extension ContentView {
             //
             // The width itself is clamped, not the stored one — see `PaneLogic.lensSidebarWidth`.
             // Browse can afford whatever the user stored; here three things divide one row, and at
-            // the 760 window floor the rail and panel claim 560 of it.
+            // the 810 window floor the rail and panel claim 560 of it.
             let sidebarWidth = folderSidebarIsShowing
                 ? PaneLogic.lensSidebarWidth(stored: browseSidebarWidth, totalWidth: totalWidth,
                                              minSidebar: FolderSidebarView.minWidth,
@@ -415,7 +417,9 @@ extension ContentView {
     ///   - sidebarSlot: how far the split's leading edge sits from the row's. The drag reads
     ///     `railRowSpace`, which is anchored to the ROW, so the pointer's x has to be rebased or
     ///     every drag lands one sidebar-width to the right of where the cursor is.
-    private func railResizeHandle(splitWidth: CGFloat, sidebarSlot: CGFloat,
+    // Internal rather than private: the Editor's layout lives in `ContentView+Editor` and divides
+    // the same rail row against the same fraction.
+    func railResizeHandle(splitWidth: CGFloat, sidebarSlot: CGFloat,
                                   lower: Double, upper: Double) -> some View {
         ResizeHandle(
             axis: .horizontal,

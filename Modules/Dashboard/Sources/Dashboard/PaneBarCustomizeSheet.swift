@@ -109,7 +109,7 @@ struct PaneBarCustomizeSheet: View {
     // The ceiling is the *window*: `ContentView` set `minWidth: 600` when this was chosen, and the
     // fix for the first problem was a 700pt sheet — wider than the window it belongs to, at the
     // size a real user could drag theirs down to. Fixing an overflow by overflowing something
-    // bigger is not a fix. (That floor is 760 now. The sheet is deliberately left at 600: the
+    // bigger is not a fix. (That floor is 810 now. The sheet is deliberately left at 600: the
     // ceiling rising is not a reason to spend the room, and the track's metrics were tightened
     // around this width.)
     //

@@ -10,9 +10,9 @@
   <img src="docs/assets/screenshots/hero-compare.png" alt="SyncCloud two-pane comparison" width="900">
 </p>
 
-SyncCloud has four workspaces, and opens in **Browse** — the plain file browser: one provider's
+SyncCloud has five workspaces, and opens in **Browse** — the plain file browser: one provider's
 tree, full width, nothing proposed, for the moves you make by hand. A **folder sidebar** runs down
-the left of all four, holding the folders you keep, every account you have signed into, and the
+the left of all five, holding the folders you keep, every account you have signed into, and the
 folders you were last in. **Compare** puts two folders
 side by side and shows exactly what differs — what's missing on each side, what's newer, what
 only *looks* the same — and lets you copy, move, or reconcile items with one click. **Organize**
@@ -21,6 +21,8 @@ points a single provider at a rail of five lenses — **To File**, **Duplicates*
 with on-device Apple Intelligence or Claude), find duplicates, fix cloud-hostile filenames, and
 straighten a tree that disagrees with its own habits — reviewing and applying the change, with
 the way back written to disk first. **Storage** is a read-only view of where your space actually goes.
+**Edit** is the one workspace that changes what is *inside* a file: it opens a text file, renders
+Markdown beside it, and writes it back only when you ask.
 
 Deletes go to the Trash, overwrites are staged and swapped in atomically, and each run in the app is
 a single grouped **⌘Z** for as long as that session lasts. Permanent delete exists only as a
@@ -95,6 +97,16 @@ A read-only **treemap** of where your space actually goes — one ramp running d
 accent hue, ordered by size, so the colour *is* the ranking — plus ranked lists of the largest
 files, long-untouched files, and reclaim candidates, each row carrying a magnitude bar and its
 share of the scan. Strictly read-only: it never moves, deletes, or evicts anything.
+
+### ✏️ Edit — write in a text file
+The one workspace that changes what is *inside* a file rather than moving files around. A collapsible
+file pane on the left to browse to any folder, a rail listing that folder's text files, and the open
+document beside it. Markdown renders in **Edit / Preview / Split**, at the app's own text size rather
+than a web view's. **⌘N** makes a new file — nothing on disk until you press ↩ — and **⌘S** writes
+it; there is **no autosave**, because these are real cloud folders. A save is staged and swapped like
+every other write here, goes back in the encoding the file was read in, and asks first if the file
+changed underneath you. A file that is not valid text opens read-only rather than risking its bytes.
+Right-click any text file anywhere in the app and choose **Open in Edit** to open it here.
 
 ### 🤖 AI-assisted filing (optional)
 Organize's suggestions start from a fast, fully-offline engine (your existing folder names + filename

@@ -27,6 +27,7 @@ import Foundation
         ShortcutValuePublisher(
             workspace: .constant(.compare),
             goBack: {}, goForward: {}, rescan: {}, newFolder: {},
+            saveDocument: {}, newTextFile: {},
             hiddenFiles: .constant(false),
             previewColumn: .constant(true),
             inspector: .constant(false),
@@ -150,6 +151,10 @@ import Foundation
         #expect(publisher.effectiveGoForward == nil)
         #expect(publisher.effectiveRescan == nil)
         #expect(publisher.effectiveNewFolder == nil)
+        // The editor's two. ⌘S under a destination pick would write the buffer to a path the
+        // pick is still deciding about; ⌘N would switch workspace out from under it.
+        #expect(publisher.effectiveSaveDocument == nil)
+        #expect(publisher.effectiveNewTextFile == nil)
         #expect(publisher.effectiveHiddenFiles == nil)
         #expect(publisher.effectivePreviewColumn == nil)
         #expect(publisher.effectiveInspector == nil)
@@ -190,6 +195,8 @@ import Foundation
         #expect(publisher.effectiveGoForward != nil)
         #expect(publisher.effectiveRescan != nil)
         #expect(publisher.effectiveNewFolder != nil)
+        #expect(publisher.effectiveSaveDocument != nil)
+        #expect(publisher.effectiveNewTextFile != nil)
         #expect(publisher.effectiveHiddenFiles != nil)
         #expect(publisher.effectivePreviewColumn != nil)
         #expect(publisher.effectiveInspector != nil)

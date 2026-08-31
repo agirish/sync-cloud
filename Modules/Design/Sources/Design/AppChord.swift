@@ -71,7 +71,7 @@ public extension AppChord {
     /// **Nil past nine, rather than trapping.** `Character.init(String)` requires exactly one
     /// grapheme cluster, so a tenth workspace produced a two-character string and crashed — at
     /// MENU-BAR CONSTRUCTION, not at the tenth key press, which is to say the app would not open.
-    /// There are four workspaces today and the tests exercise 1…9, so nothing approaches it; a
+    /// There are five workspaces today and the tests exercise 1…9, so nothing approaches it; a
     /// latent trap on a number the UI is free to grow is worth one optional. A tenth item simply
     /// gets no chord, which is what the platform does too — ⌘0 is not "the tenth".
     static func workspace(_ ordinal: Int) -> AppChord? {
@@ -133,8 +133,10 @@ public extension AppChord {
     /// View ▸ Sidebar — the Favorites / Sources / Recents column, carried by every workspace.
     ///
     /// **⌃⌘S, which is Finder's own Show/Hide Sidebar** and free here: `switchPaneFocus` is the
-    /// only other ⌃ chord in the registry and it is ⌃⇥. ⌘S was never a candidate — it means Save
-    /// everywhere on the platform, in an app whose every action is already on disk.
+    /// only other ⌃ chord in the registry and it is ⌃⇥. ⌘S was not a candidate for this, because it
+    /// means Save everywhere on the platform — which was an argument for leaving it *unclaimed* in
+    /// an app whose every action was already on disk, and is now the argument for giving it to the
+    /// editor's document. See ``saveDocument``.
     ///
     /// Declared here from v4.2 until 2026-08-20, when the column was held back and this went with
     /// it: a declared chord is not free, because the registry drives the ⌘/ reference, and leaving
@@ -142,6 +144,31 @@ public extension AppChord {
     /// with the column itself (item #13), and the reference row and its window height came back in
     /// the same commit for the same reason.
     static let folderSidebar = AppChord("s", [.control, .command])
+
+    // The Editor workspace
+    //
+    // The first two chords in this registry that act on a file's CONTENTS rather than on files.
+    // Both were free, and both were free for the same reason: until the editor existed there was no
+    // document in this app to save and no document to create, so the two chords every other Mac app
+    // spends first had nothing to spend them on.
+
+    /// File ▸ Save — the editor's explicit write. **No autosave**, which is the decision this chord
+    /// carries: the app edits real cloud folders, and a background write is not something to
+    /// discover after the fact.
+    ///
+    /// ⌘S is unclaimed here. The sidebar's ⌃⌘S is a different chord (see ``folderSidebar``), and
+    /// nothing else registers a bare ⌘. It is also not one of the field editor's own bindings, so
+    /// it does not join `TextEditingChord`'s colliding set — a menu equivalent claims it outright
+    /// and the text view never sees it.
+    static let saveDocument = AppChord("s", .command)
+
+    /// File ▸ New Text File… — opens the naming row in the editor's rail. The ellipsis is the
+    /// promise: nothing is on disk until Return.
+    ///
+    /// ⌘N, and the neighbour it wants: ⇧⌘N is already New Folder. The `.newItem` command group
+    /// carried a comment for two years saying ⌘N "had nothing to do" in a one-window app with no
+    /// New Window — true until there was a document to make.
+    static let newTextFile = AppChord("n", .command)
 
     // Differences
     /// ⌘← / ⌘→ copy the differences selection across; ⇧ makes it a move.
@@ -213,6 +240,7 @@ public extension AppChord {
         settings, infoInspector, activityLog, shortcutsReference, commandPalette,
         selectAll, cut, copy, paste,
         findInPane, paneBack, paneForward, rescan, newFolder,
+        saveDocument, newTextFile,
         folderSidebar, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
         newTab, closeTab, nextTab, previousTab, tabBar,

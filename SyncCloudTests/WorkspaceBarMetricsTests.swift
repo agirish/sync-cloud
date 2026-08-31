@@ -19,14 +19,14 @@ import FileExplorer
 /// the old numbers were true of a toolbar this app no longer has.
 @Suite struct WorkspaceBarMetricsTests {
 
-    /// The narrowest window there is: `ContentView`'s `.frame(minWidth: 760, …)`, which
+    /// The narrowest window there is: `ContentView`'s `.frame(minWidth: 810, …)`, which
     /// `.windowResizability(.contentMinSize)` makes a floor rather than a preference.
     ///
     /// **One constant, because "the floor" is a claim every test here makes.** It was the bare
     /// literal 600, nine times across four tests, until the window was raised — and a literal
     /// repeated nine times is nine chances to update eight of them, the shape that leaves one
     /// assertion quietly measuring a width no window can have.
-    private static let windowFloor: CGFloat = 760
+    private static let windowFloor: CGFloat = 810
 
     /// The real labels at the real weight, so these assertions measure the shipping bar rather
     /// than a hypothetical one. Semibold because that is the selected segment's weight, and the
@@ -40,11 +40,11 @@ import FileExplorer
 
     /// `styles(...)` at a text scale, with the real pill measured at that same scale.
     private func styles(contentWidth: CGFloat, labelWidths: [CGFloat],
-                        scale: CGFloat = 1, separators: Int = 1) -> ToolbarBarStyles {
+                        scale: CGFloat = 1) -> ToolbarBarStyles {
         let search = searchWidths(scale: scale)
         return WorkspaceBarMetrics.styles(contentWidth: contentWidth, labelWidths: labelWidths,
                                           searchLabelWidth: search.label,
-                                          searchKeycapWidth: search.keycap, separators: separators)
+                                          searchKeycapWidth: search.keycap)
     }
 
     private func labelWidths(scale: CGFloat = 1) -> [CGFloat] {
@@ -54,23 +54,32 @@ import FileExplorer
         }
     }
 
-    /// **What the fourth segment costs, stated as a number rather than discovered.**
+    /// **What each new segment costs, stated as a number rather than discovered.**
     ///
     /// The history is the point of the number. Three labelled segments fit the window's old 600pt
     /// `minWidth` — the win of folding five workspaces down to three. The ⌘K pill then took part
-    /// of that row and left a 17pt band above the floor where the bar is glyphs. Browse takes its
+    /// of that row and left a 17pt band above the floor where the bar is glyphs. Browse took its
     /// label, its `segmentChrome` and one more `segmentGap`, and the band grew: below roughly
-    /// 720pt the segments are icons. (720 and not the 708 this said until 2026-08-30 —
-    /// `segmentChrome` had assumed a 14pt glyph where the four symbols draw at 14, 15, 16 and 17.)
+    /// 720pt the segments were icons. (720 and not the 708 this said until 2026-08-30 —
+    /// `segmentChrome` had assumed a 14pt glyph where the symbols draw at 14, 15, 16 and 17.)
     ///
     /// **That band is what raised the window rather than being shaved away.** Shortening a label
     /// people navigate by was the alternative, and under-measuring the row is exactly what folds
     /// the toolbar behind the overflow chevron — the failure this whole type exists to prevent.
-    /// So the arithmetic stayed and the floor moved to 760: the labels now survive the narrowest
-    /// window by ~40pt at the default text size, and the band lives entirely below a width no
-    /// window can be dragged to. What is pinned here is that it stays that way — a fifth segment
-    /// or another toolbar control would push the threshold back up through the floor, and this
-    /// fails naming the number rather than letting a glyph-only floor return unannounced.
+    /// So the arithmetic stayed and the floor moved: to 760 for four labels, and to **810** when
+    /// Edit made it five. Its label costs ~23pt plus 47 of chrome and a 4pt gap; deleting the group
+    /// rule handed 13 of that back, so the threshold went from 720.2 to **781.2** at the default
+    /// text size and the floor sits ~29pt clear of it.
+    ///
+    /// **781.2 and not the 793.4 this said while the label read "Editor"** — the tab was renamed to
+    /// "Edit", which is 12.2pt narrower at the default size and moves every number here with it.
+    /// The floor stays at 810 rather than following the label back down: Default still needs 781,
+    /// so a return to 760 would put the ordinary text size back behind the chevron. What the
+    /// shorter word bought is margin, not a smaller window.
+    ///
+    /// What is pinned here is that it stays that way — a sixth segment or another toolbar control
+    /// would push the threshold back up through the floor, and this fails naming the number rather
+    /// than letting a glyph-only floor return unannounced.
     @Test func testTheLabelsSurviveTheNarrowestWindow() {
         let widths = labelWidths()
         let search = searchWidths()
@@ -87,7 +96,12 @@ import FileExplorer
         // And from the other side, so the floor is not simply raised to whatever the row wants:
         // the window opens at ~85% of the screen, so the shedding band has to stay a corner of the
         // range rather than most of it.
-        #expect(keepsWords < 800,
+        // **An absolute ceiling, so the floor cannot simply be raised to whatever the row wants.**
+        // The window opens at ~85% of the screen, so the shedding band has to stay a corner of the
+        // range rather than most of it. 850 is the floor's 810 plus one segment's worth of room:
+        // the next workspace has to be paid for by a measurement and a decision, not by dragging
+        // this number along behind it. Measured at 781.2 today.
+        #expect(keepsWords < 850,
                 "the labels survive only above \(keepsWords)pt — that is no longer a narrow window")
     }
 
@@ -181,12 +195,12 @@ import FileExplorer
         // size, so nothing in the shipping app ever shed a label, and this test could only
         // exercise the arithmetic against a hypothetical five-segment bar. Browse changed that.
         //
-        // **What raising the floor to 760 changed is WHERE it is live, not WHETHER.** It is no
-        // longer the state of the narrowest window at every text size — that was the defect the
-        // raise fixed — but the largest text size still needs 773pt, so a floor-sized window at
-        // Larger sheds, and so does any window between 760 and the 720pt threshold at the sizes
-        // below it. This asserts the rung on a real bar rather than a hypothetical one, at the
-        // width where the shipping app still reaches it.
+        // **What raising the floor changed is WHERE it is live, not WHETHER.** It is no longer the
+        // state of the narrowest window at every text size — that was the defect the raise fixed —
+        // but with five labels the two largest text sizes need 833 and 853pt against an 810 floor,
+        // so a floor-sized window at Large or Larger sheds, and so does any window between 810 and
+        // the 781pt threshold at the sizes below. This asserts the rung on a real bar rather than a
+        // hypothetical one, at the width where the shipping app still reaches it.
         //
         // **Photographed there, not only computed.** This arithmetic says the row fits; what it
         // cannot say is what macOS does with a toolbar it decides is too wide, which is to fold
@@ -197,16 +211,17 @@ import FileExplorer
         // nothing folded away. The rung the capture photographed is the one asserted here; only
         // the width at which a user meets it has moved.
         //
-        // The same capture settled the one thing no assertion in this file can reach: WHERE the
-        // rule is drawn. A 1pt darker column sits at x=365 — inside the Compare→Organize gap — and
-        // the Browse→Compare gap has no darker column anywhere in it.
+        // That capture also settled the one thing no assertion in this file could reach: WHERE the
+        // group rule was drawn. The rule is gone as of the Editor workspace — five equal segments,
+        // no grouping to place a contents-editing workspace in — so there is nothing left here for
+        // a capture to check.
         //
         // Asserted with the app's OWN labels first, so the live behaviour is pinned, and then
         // against the queued bar so the arithmetic still has headroom under test.
         #expect(styles(contentWidth: Self.windowFloor,
                        labelWidths: labelWidths(scale: FontSize.extraLarge.scale),
                        scale: FontSize.extraLarge.scale).workspace == .iconOnly,
-                "the shipping four-segment bar keeps its labels at the floor even at the largest text size — if that is now true, this test and the band above disagree")
+                "the shipping five-segment bar keeps its labels at the floor even at the largest text size — if that is now true, this test and the band above disagree")
 
         let queued = ["Browse", "Compare", "Organize", "Storage", "Backup", "Home"]
         let font = NSFont.systemFont(ofSize: 12 * FontSize.large.scale, weight: .semibold)
@@ -348,21 +363,11 @@ import FileExplorer
     }
 
     @Test func testWidthGrowsWithTheSegmentsItActuallyDraws() {
-        // Guards the arithmetic itself: the gap and separator terms are easy to drop, and a
-        // width that ignores them under-measures and never sheds when it should.
-        let one = WorkspaceBarMetrics.fullWidth(labelWidths: [40], separators: 0)
-        let two = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40], separators: 0)
+        // Guards the arithmetic itself: the gap term is easy to drop, and a width that ignores it
+        // under-measures and never sheds when it should.
+        let one = WorkspaceBarMetrics.fullWidth(labelWidths: [40])
+        let two = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40])
         #expect(two == one + 40 + WorkspaceBarMetrics.segmentChrome + WorkspaceBarMetrics.segmentGap)
-    }
-
-    @Test func testTheSeparatorCostsItsOwnGapToo() {
-        // The rule is a child of the same HStack, so adding it adds BOTH its width and one more
-        // spacing gap. Charging only for the width under-measures the bar — the direction that
-        // ships a toolbar claiming to fit when it doesn't, which is the failure with no visible
-        // symptom short of the control vanishing.
-        let without = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40], separators: 0)
-        let with = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40], separators: 1)
-        #expect(with == without + WorkspaceBarMetrics.separatorWidth + WorkspaceBarMetrics.segmentGap)
     }
 
     @Test func testGapsAreCountedOverChildrenNotSegments() {
@@ -370,32 +375,6 @@ import FileExplorer
         // Degenerate inputs must not go negative: one child has no gaps, and neither has none.
         #expect(WorkspaceBarMetrics.gapWidth(children: 1) == 0)
         #expect(WorkspaceBarMetrics.gapWidth(children: 0) == 0)
-    }
-
-    /// **Where the rule is drawn, which this type cannot see.**
-    ///
-    /// `WorkspaceBarMetrics` is only ever told HOW MANY separators there are, so every assertion
-    /// above stays green with the rule in the wrong place. It is a hardcoded index in
-    /// `workspaceBar`, and it read `index == 1` when Compare led the bar — left alone, Browse
-    /// arriving in front would have drawn it between Browse and Compare, splitting the two
-    /// tree-lookers and grouping a looker with the actors.
-    ///
-    /// Asserted as the PROPERTY rather than the literal: everything before the rule shows no lens,
-    /// everything after it shows one. A test reading `== 2` against a constant of `2` would have
-    /// passed just as happily when `2` was wrong.
-    @Test func testTheRuleSeparatesTheLookersFromTheActors() {
-        let index = ContentView.workspaceRuleIndex
-        let before = Workspace.allCases.prefix(index)
-        let after = Workspace.allCases.dropFirst(index)
-
-        #expect(before.map(\.title) == ["Browse", "Compare"])
-        #expect(after.map(\.title) == ["Organize", "Storage"])
-        #expect(before.allSatisfy { $0.lens == nil }, "a workspace with a lens is on the lookers' side of the rule")
-        #expect(after.allSatisfy { $0.lens != nil }, "a workspace with no lens is on the actors' side of the rule")
-        // One rule, and the metrics are charged for exactly that many. The bar's arithmetic and
-        // the bar's drawing agreeing about the count is the other half of getting the rule right.
-        #expect(index > 0 && index < Workspace.allCases.count,
-                "the rule is drawn outside the bar, so it separates nothing")
     }
 
     @Test func testAnEmptyBarHasNoWidth() {
@@ -409,12 +388,11 @@ import FileExplorer
 
     /// `styles(...)` with the field open, at a text scale.
     private func openStyles(contentWidth: CGFloat, labelWidths: [CGFloat],
-                            scale: CGFloat = 1, separators: Int = 1) -> ToolbarBarStyles {
+                            scale: CGFloat = 1) -> ToolbarBarStyles {
         let search = searchWidths(scale: scale)
         return WorkspaceBarMetrics.styles(
             contentWidth: contentWidth, labelWidths: labelWidths,
             searchLabelWidth: search.label, searchKeycapWidth: search.keycap,
-            separators: separators,
             openField: OpenFieldRequest(keycapWidth: search.keycap, scale: scale))
     }
 
@@ -520,9 +498,10 @@ import FileExplorer
         #expect(!band.isEmpty, "the shed-on-open never happens at any width — the rule is dead")
         #expect(band.count == Int(last - first) + 1, "the band has a hole in it")
         // The numbers §7 quotes, held to the arithmetic rather than to prose: a band inside the
-        // window's own range, roughly 710–950. Loose bounds, because the exact edges move with the
+        // window's own range, roughly 810–1045 — it moved up with the fifth label, from the
+        // 710–950 four labels put it at. Loose bounds, because the exact edges move with the
         // labels' rendered widths; a band that walked out of this range would be a real change.
-        #expect(first >= Self.windowFloor && last <= 1000,
+        #expect(first >= Self.windowFloor && last <= 1100,
                 "the shed band is \(first)–\(last)pt, outside the range §7 describes")
     }
 

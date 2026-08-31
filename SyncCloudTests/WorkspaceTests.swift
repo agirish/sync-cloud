@@ -97,15 +97,24 @@ import FileExplorer
         #expect(Workspace(rawValue: "NotAWorkspace") == nil)
     }
 
-    // MARK: The four-segment bar
+    // MARK: The five-segment bar
 
-    @Test func testTheBarIsFourKindsOfPlace() {
+    @Test func testTheBarIsFiveKindsOfPlace() {
         // Browse shows one tree and proposes nothing, Compare holds two, Storage reads one,
-        // Organize changes one. Everything that moves a file inside a single tree ON THE APP'S
-        // SUGGESTION is a lens inside Organize — a fifth segment appearing means something was
-        // promoted back out of the umbrella.
-        #expect(Workspace.allCases.count == 4)
-        #expect(Workspace.allCases.map(\.title) == ["Browse", "Compare", "Organize", "Storage"])
+        // Organize changes one, and Editor changes what is inside one file. Everything that moves
+        // a file inside a single tree ON THE APP'S SUGGESTION is a lens inside Organize — a sixth
+        // segment appearing means something was promoted back out of the umbrella.
+        //
+        // **Editor is the one addition that was not a promotion**, which is why it is a segment
+        // and not a lens: it is the first surface in the app that writes a file's CONTENTS, so
+        // there was no umbrella for it to come out of.
+        #expect(Workspace.allCases.count == 5)
+        #expect(Workspace.allCases.map(\.title)
+                == ["Browse", "Compare", "Organize", "Storage", "Edit"])
+        // The raw values are the persistence format, and `Editor`'s happens to match its title —
+        // which is exactly the coincidence that invites renaming both at once later.
+        #expect(Workspace.allCases.map(\.rawValue)
+                == ["Browse", "Differences", "Filing", "Storage", "Editor"])
     }
 
     @Test func testTheFoldedWorkspacesAreGoneFromTheBar() {
@@ -118,19 +127,23 @@ import FileExplorer
         }
     }
 
-    @Test func testBarOrderPutsTheTreeLookersFirstAndTheLensGroupTogether() {
-        // The bar draws its one separator between the lookers and the actors, so the order has to
-        // put both lookers ahead of both actors — otherwise the rule lands mid-group and stops
-        // meaning anything. Browse leads because it is the plainest of the two: no lens, no second
-        // tree, nothing proposed.
-        #expect(Workspace.allCases.prefix(2) == [.browse, .compare])
-        // Everything from the rule onward shows a lens; nothing before it does. That is the
-        // grouping, stated as the property the separator's index has to keep matching.
-        let lookers = Workspace.allCases.prefix(ContentView.workspaceRuleIndex)
-        let actors = Workspace.allCases.dropFirst(ContentView.workspaceRuleIndex)
-        #expect(lookers.allSatisfy { $0.lens == nil })
-        #expect(actors.allSatisfy { $0.lens != nil })
-        #expect(!lookers.isEmpty && !actors.isEmpty)
+    /// **The bar no longer groups, and this is what is left of the rule that used to.**
+    ///
+    /// A 1pt divider sat before Organize, separating the tree-lookers (Browse, Compare) from the
+    /// tree-actors (Organize, Storage), and a test here asserted the property behind it rather than
+    /// the index. Editor is the case that grouping cannot place — it neither looks at a tree nor
+    /// acts on one — so the rule was removed rather than redefined around a third kind.
+    ///
+    /// What survives is the part that still means something: **Browse leads**, because it is the
+    /// plainest place in the bar, and the two workspaces that own a lens stay adjacent, so the bar
+    /// still reads as ordered rather than arbitrary.
+    @Test func testBarOrderPutsBrowseFirstAndKeepsTheLensPairTogether() {
+        #expect(Workspace.allCases.first == .browse)
+        let lensIndices = Workspace.allCases.indices.filter { Workspace.allCases[$0].lens != nil }
+        #expect(lensIndices == Array(lensIndices.first!...lensIndices.last!),
+                "the workspaces that own a lens are no longer adjacent in the bar")
+        // Editor is last, which is what hands it ⌘5 — the chords are positional.
+        #expect(Workspace.allCases.last == .editor)
     }
 
     @Test func testEverySegmentHasItsOwnGlyph() {

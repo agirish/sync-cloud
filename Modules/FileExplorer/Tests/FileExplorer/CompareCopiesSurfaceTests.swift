@@ -29,12 +29,12 @@ import Testing
 
     // MARK: The clamp
 
-    /// **The size nobody develops at.** The window floor is 760×560 and the overlay has to be
+    /// **The size nobody develops at.** The window floor is 810×560 and the overlay has to be
     /// usable there — that is the whole reason this is an overlay and not a sheet, since macOS
     /// would silently squeeze a 1080pt sheet to the window's content width exactly here.
     @Test func atTheWindowFloorTheOverlayGetsTwoWorkablePanes() {
-        let size = CompareOverlayMetrics.size(available: CGSize(width: 760, height: 560))
-        #expect(size == CGSize(width: 712, height: 512))
+        let size = CompareOverlayMetrics.size(available: CGSize(width: 810, height: 560))
+        #expect(size == CGSize(width: 762, height: 512))
     }
 
     /// And it stops growing: a 27-inch window must not hand two previews 1,900 points each.
@@ -497,10 +497,10 @@ import Testing
 
     /// **Two Quick Look panes, both of them, at the window floor.** The failure this catches is
     /// the one a screenshot on a big display never shows: a surface that lays out fine at 1080
-    /// and squeezes one pane to nothing at 712.
+    /// and squeezes one pane to nothing at 762.
     @Test func atTheFloorBothPanesMountAndAreWorkablyWide() async throws {
         let fixture = try Fixture()
-        let mounted = mount(fixture, available: CGSize(width: 760, height: 560))
+        let mounted = mount(fixture, available: CGSize(width: 810, height: 560))
         guard await pump(mounted, upTo: 3, until: {
             descendants(of: mounted.host).compactMap { $0 as? QLPreviewView }.count == 2
         }) else { return }
@@ -517,7 +517,7 @@ import Testing
     /// frame puts the verdict bar — the only thing that trashes a file — off screen.
     @Test func theSheetDrawsInsideItsClampedFrame() async throws {
         let fixture = try Fixture()
-        let available = CGSize(width: 760, height: 560)
+        let available = CGSize(width: 810, height: 560)
         let mounted = mount(fixture, available: available)
         let expected = CompareOverlayMetrics.size(available: available)
         await pump(mounted, upTo: 3, until: {

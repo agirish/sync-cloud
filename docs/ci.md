@@ -69,10 +69,14 @@ it carries the measurements and the fix for each.
   **Residual, deliberately left open.** The app target resolves through the
   generated `SyncCloud.xcodeproj`, which is gitignored, so its
   `xcshareddata/swiftpm/Package.resolved` cannot be tracked and the app-target
-  step still resolves fresh. That is tolerable because the app links no external
-  dependency — only the test-only snapshot library reaches it — whereas the CLI,
-  which does ship one, is pinned. Bumping a dependency is now a deliberate
-  `swift package update` plus a commit, which is the point.
+  step still resolves fresh. **The app now links one external dependency** —
+  `swift-markdown`, which the Edit workspace's preview parses with — so that
+  residual covers a shipping library rather than only a test-only one. What
+  keeps it from mattering is the pin: `swift-markdown`, its `swift-cmark`
+  parser, and the `swift-docc-plugin` / `swift-docc-symbolkit` pair it declares
+  are all `exact:` in `Modules/FileExplorer/Package.swift`, so a fresh resolve
+  can only land the versions already named. Bumping a dependency is a deliberate
+  edit to those four pins plus a commit, which is the point.
 
 ### Machine-pinned tests
 

@@ -840,8 +840,8 @@ import Design
     /// quantity.
     ///
     /// So this is the same rule asked in the units a caller can actually supply. Measured at the
-    /// default text size with two findings reporting: labels need a **623pt column**, which a
-    /// 760pt window cannot give while the source pane holds its own 220pt floor (540). Organize is
+    /// default text size with two findings reporting: labels need a **623pt column**, which an
+    /// 810pt window cannot give while the source pane holds its own 220pt floor (590). Organize is
     /// therefore a glyph rail at the narrowest window, exactly as the workspace bar is — and the
     /// tooltips it sheds into are why that rung exists.
     @Test("The column, not the window, is what the rail has to fit")
@@ -867,10 +867,10 @@ import Design
         #expect(OrganizeRailMetrics.style(columnWidth: threshold, leadingWidth: leading) == .full)
         #expect(OrganizeRailMetrics.style(columnWidth: threshold - 1, leadingWidth: leading) == .iconOnly)
 
-        // What the window's own floor produces: 760 content, less the source pane's 220pt minimum.
-        #expect(OrganizeRailMetrics.style(columnWidth: 760 - 220, leadingWidth: leading) == .iconOnly,
+        // What the window's own floor produces: 810 content, less the source pane's 220pt minimum.
+        #expect(OrganizeRailMetrics.style(columnWidth: 810 - 220, leadingWidth: leading) == .iconOnly,
                 """
-                the rail spells itself out in a 540pt column — if that is now true the threshold has \
+                the rail spells itself out in a 590pt column — if that is now true the threshold has \
                 moved and the window floor's consequence recorded here is out of date
                 """)
         // And a comfortable window still spells it out, or the shed has swallowed the normal case.

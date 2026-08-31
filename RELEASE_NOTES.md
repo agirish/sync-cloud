@@ -5,6 +5,42 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v5.2 — DRAFT, not released
+
+> **Not in v5.1**, which is why it is written up here rather than there: an entry in that section
+> would have announced, on a live page, a workspace the release does not contain. Being written as
+> `main` moves. Nothing here has been tagged and nothing here can be installed yet, and the badge on
+> the [releases page](https://agirish.github.io/sync-cloud/releases.html) stays on v5.1 until this
+> is cut.
+
+### A fifth workspace: Edit
+
+- **SyncCloud can now change what is inside a file.** Every workspace until now moved files around;
+  Edit opens one text file, shows it, and writes it back when you ask. A collapsible file pane on
+  the left browses to any folder, a rail beside it lists that folder's text files, and the document
+  sits beside them. ⌘5, or the new segment in the workspace bar.
+- **Markdown renders in Edit, Preview or Split**, with a divider you can drag. Real Markdown — tables
+  and task lists included — laid out in the app's own type at Settings ▸ Text size, not a web view's.
+- **There is no autosave.** ⌘S writes and nothing else does, because these are real cloud folders and
+  a background write is not a thing to discover afterwards. The save is staged and swapped in
+  atomically, exactly like every other write in the app.
+- **A file comes back as the file it was.** Line endings are untouched, and a file written in UTF-16
+  or carrying a byte-order mark is saved in the encoding it was read in rather than quietly becoming
+  UTF-8.
+- **It asks before writing over a surprise.** If the file changed on disk since it was opened — or
+  was filed somewhere else by an Organize run — ⌘S says so and names which, and Cancel means nothing
+  happened.
+- **It refuses rather than guess.** A file that is not valid text opens read-only, because saving it
+  would replace the parts that could not be read. One that is too large, still in the cloud, or
+  holds no text at all is listed and dimmed with the reason, instead of opening empty.
+- **⌘N makes a new file** in the folder you are in — a name row in the rail, nothing on disk until
+  you press ↩, and a name with no extension becomes `.md`.
+- **Open in Edit** is on the right-click menu of any text file anywhere in the app — Browse, either
+  Compare pane, the columns view — and brings it here with the rail already pointed at its folder.
+- **Typing has its own undo.** ⌘Z in the editor takes back what you typed and can never reach into a
+  file move or a copy, which have their own history and their own Undo button.
+- **The window's minimum width is now 810pt**, up from 760: five workspace labels need the room.
+
 ## v5.1
 
 ### Duplicates

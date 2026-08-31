@@ -59,11 +59,11 @@ public struct DuplicateComparePair: Identifiable, Equatable, Sendable {
 /// How big the overlay draws inside the space it is given.
 ///
 /// **Not a sheet, and the reason is measured.** macOS clamps a sheet to its host window's content
-/// width, the window floor is 760×560, and every existing sheet in this app is a fixed width of
+/// width, the window floor is 810×560, and every existing sheet in this app is a fixed width of
 /// 620 or less because of it — so a 1080pt sheet would be silently squeezed exactly when the user
 /// is at the floor and has least room to spare. The Settings card and the Help book already solve
 /// this the other way: a `GeometryReader` around an overlay that clamps itself against the live
-/// window. At the floor this resolves to 712×512 — two ~330pt panes, which is workable; on a large
+/// window. At the floor this resolves to 762×512 — two ~355pt panes, which is workable; on a large
 /// window it opens out to 1080×760 and stops.
 ///
 /// Pure, so the numbers can be checked without rendering anything — and checked at the floor,

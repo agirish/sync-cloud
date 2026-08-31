@@ -213,7 +213,7 @@ import Testing
 /// column count.
 ///
 /// **Keying it on the column count was wrong in a way that showed only at the floor.** One column
-/// merely meant "the pane is under 534pt", so at the app's 760pt window minimum the card came out
+/// merely meant "the pane is under 534pt", so at the app's 810pt window minimum the card came out
 /// near 350 — narrower than the one-line header needs — and the row header was drawn precisely
 /// where it does not fit, clipping its chevron and its figure at the pane edge.
 @Suite struct DuplicateCardHeaderLayoutTests {

@@ -21,6 +21,20 @@ public protocol FileActionDelegate: Sendable {
     /// verb, as distinct from `handleMove`/`handleCopy`, which put each item where its counterpart
     /// belongs in the opposite pane. `isMove` chooses the verb throughout.
     func handleChooseDestination(_ nodes: [FileNode], isMove: Bool)
+
+    /// Hands `path` to the Editor workspace: switches there, points its rail at the file's folder,
+    /// and opens the file.
+    ///
+    /// **A requirement rather than an extension member with a default**, which is the rule this
+    /// protocol states for its cloud-hostile-name members a few lines down and the reason is the
+    /// same: a default doing nothing would let a conformer inherit a menu item that silently is not
+    /// wired, and the failure has no symptom short of a user clicking it and watching nothing
+    /// happen.
+    ///
+    /// **Editing always HAPPENS in the one editor workspace**, which is why this is a hand-off
+    /// rather than an in-place edit: dirty state, the undo stack and the save circuit exist in
+    /// exactly one place, and a second writable surface would need its own copy of all three.
+    func handleOpenInEditor(_ path: String)
     /// Whether either clipboard holds files to paste — the app's own list or the system
     /// pasteboard, resolved by `ClipboardSource`. Drives the enablement
     /// of the "Paste here" menu items (pasting from an empty clipboard is a silent no-op).

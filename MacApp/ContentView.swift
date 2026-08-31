@@ -48,6 +48,39 @@ struct ContentView: View {
     /// Non-nil means "a deep link is mid-flight"; a plain open leaves it nil and so restores nothing.
     @State private var settingsTabBeforeDeepLink: SettingsView.SettingsTab?
 
+    // MARK: The Editor workspace
+
+    /// The one open document, owned by the app — see ``SyncCloudApp/editorDocument``. Held here as
+    /// an `@ObservedObject` so the workspace is a rendering of it and nothing else.
+    @ObservedObject var editorDocument: EditorDocument
+    /// The rail's rows for the current folder, re-listed off the main actor by `refreshEditorRail`.
+    @State var editorRailEntries: [EditorRailEntry] = []
+    /// Whether the rail's inline naming row is open. Held here because ⌘N opens it from any
+    /// workspace, including ones where the editor is not on screen yet.
+    @State var editorIsNaming = false
+    /// The name being typed in that row. **Here rather than inside the rail**, beside the flag that
+    /// says the row is open: as `@State` on the view it was thrown away by every workspace switch
+    /// while the flag survived, so the row came back open with the typed name silently replaced by
+    /// the `Untitled` prefill.
+    @State var editorTypedName = ""
+    /// Bumped by ⌘N so the naming row takes focus even when it is already open — a pure signal,
+    /// never read for its value.
+    @State var editorNamingFocus = 0
+    /// The editor's undo stack, owned by the app beside the document. See
+    /// ``PlainTextEditor/undoManager`` for why it is not the text view's.
+    let editorUndoManager: UndoManager
+    /// Edit / Preview / Split for the open document.
+    ///
+    /// **Window state, not a persisted preference.** Which of the three you want is a fact about
+    /// the file you are looking at right now; remembering it across launches would open the next
+    /// document in whatever mode the last one was left in. It lives here rather than in the
+    /// workspace view for the same reason the document does — the view is torn down on every tab
+    /// switch, and the mode would go back to Edit each time you came back.
+    @State var editorMode: EditorMode = .edit
+    /// How the editor's split divides its column. Beside `editorMode` because the two describe the
+    /// same reading session, and the workspace view that draws them is rebuilt on every tab switch.
+    @State var editorSplitFraction: CGFloat = 0.5
+
     // MARK: The ⌘K palette (ROADMAP 14)
 
     /// Raises and dismisses the palette. A `@StateObject` because it owns an `NSPanel` and a set of
@@ -353,7 +386,7 @@ struct ContentView: View {
     /// window.** macOS clamps a sheet to its host window's content width and the lens workspace is
     /// a fraction of that window (the panes take the rest), so an overlay anchored inside the lens
     /// would get a few hundred points to draw two previews in. Anchored here it clamps against the
-    /// live window: 1080×760 with room, 712×512 at the 760×560 floor. The rest of the wiring is
+    /// live window: 1080×760 with room, 762×512 at the 810×560 floor. The rest of the wiring is
     /// still the lens's — it decides which pairs come here at all.
     @State private var compareFilePair: DuplicateComparePair?
 
@@ -807,13 +840,26 @@ struct ContentView: View {
             // The window's floor, and `.windowResizability(.contentMinSize)` is what makes this
             // frame that floor rather than a suggestion.
             //
-            // **600 → 760 wide.** At 600 the toolbar was already past its last rung: the workspace
-            // bar needs 708pt of content width to keep its four labels beside even a COMPACT ⌘K
-            // pill at the default text size (`WorkspaceBarMetrics` records the ladder), so the
-            // narrowest window the app allowed showed the only control for switching workspace as
-            // four bare glyphs. 760 keeps the labels at Small, Default and Large, and leaves the
-            // icon-only rung to fire at Larger, which needs 773 — the shedding ladder is still
-            // reachable, it is just no longer the permanent condition of the floor.
+            // **600 → 760 → 810 wide, and each raise was made by the same measurement.** The
+            // workspace bar has to keep its labels at the narrowest window the app allows, because
+            // a toolbar that does not fit is not truncated — macOS folds it behind an overflow
+            // chevron, and the only control for switching workspace disappears with no error.
+            //
+            // At 600 the bar was icon-only at every text size the moment the window sat at its
+            // minimum. 760 fixed that for four labels, which need 720pt of content width beside a
+            // compact ⌘K pill at the default text size. **Edit is a fifth label and the number
+            // moved to 781** (`WorkspaceBarMetrics` records the ladder; removing the group rule
+            // paid 13pt of the 61 it would otherwise have cost). 810 is that threshold plus ~29pt
+            // of margin — enough that a small change in a label or in the pill does not silently
+            // put the floor back under the line, and still narrow enough that the shedding band
+            // stays a corner of the range rather than most of it.
+            //
+            // **760 is not enough even with the shorter word**, which is the thing to check before
+            // reverting this: Default needs 781. The rename from "Editor" to "Edit" bought 12pt of
+            // margin, not a smaller window.
+            //
+            // Small and Default keep their labels at this floor; Large and Larger still shed, so
+            // the icon-only rung remains live rather than becoming dead code.
             //
             // **A height floor at all**, which is the hole rather than the tightening. With no
             // `minHeight`, the window could be dragged down to the toolbar and nothing else: a
@@ -827,7 +873,7 @@ struct ContentView: View {
             // also clears the 428pt below which `SettingsLayout` stops shrinking its sheet
             // (`floorSize` 380 + `hostMargin` 48) and
             // starts overflowing the window it is centered in.
-            .frame(minWidth: 760, minHeight: 560)
+            .frame(minWidth: 810, minHeight: 560)
             // Resolved in the transform, so the action — and the state write behind it — fires
             // only when the answer changes. See `workspaceBarStyle`. The label widths are measured
             // rather than tabulated because the app scales its own type (Settings ▸ Text size), and
@@ -1017,6 +1063,11 @@ struct ContentView: View {
             // vs per-window split: re-running the session steps would discard a mid-session
             // hidden-files toggle and re-apply the distinct-pair provider selection over panes
             // the user may have deliberately set to the same provider.
+            // The quit guard needs the document, and this is the one place that runs once per
+            // window with the `@StateObject` already built. Without it ⌘Q is the only way out of
+            // the app that never asks about an unsaved buffer — every other route through the
+            // editor prompts.
+            SyncCloudAppDelegate.shared?.adoptEditorDocument(editorDocument)
             let isFirstAppearance = !hasBootstrappedSession
             hasBootstrappedSession = true
             for step in PaneLogic.bootstrapSteps(isFirstAppearance: isFirstAppearance) {
@@ -1478,6 +1529,50 @@ struct ContentView: View {
         /// Browse: the source pane alone, filling the window. No workspace half, so nothing to
         /// collapse toward and no spine to collapse into.
         case browseFull
+        /// Editor: a source pane, then the file rail and the open document.
+        ///
+        /// **Two arms, like the lens workspaces, because the source pane collapses.** The editor is
+        /// where you choose a folder to write in, and the sidebar alone answers that only for
+        /// folders you have already kept or visited — so the same file pane Organize docks on its
+        /// left is available here to browse to anywhere. It starts collapsed to its spine
+        /// (`TopPaneVisibility.defaultPanesHidden`): most sessions open a file and write in it, and
+        /// the pane is one click away when they do not.
+        case editorExpanded
+        /// Editor with the source pane collapsed to a spine.
+        case editorCollapsed
+
+        /// Whether this arrangement draws a `FileTreeView` at all — which is the question every
+        /// pane-scoped chord is really asking before it offers itself.
+        ///
+        /// The Editor is the first workspace to answer **no**. ⇧⌘N and ⇧⌘P were both gated on
+        /// `layoutMode`, which cannot tell a workspace with a rail from one with neither, so both
+        /// stayed live in a workspace with no pane to act on: ⇧⌘N put an invisible pane into a
+        /// naming state, and ⇧⌘P toggled the shared preview key with nothing to show it in.
+        var drawsAPaneList: Bool {
+            switch self {
+            case .compareSplit, .singleExpanded, .singleCollapsed, .browseFull: return true
+            // Expanded, the editor draws a real `FileTreeView` and the pane-scoped chords mean
+            // what they say. Collapsed there is only a spine, and ⇧⌘N would open a naming row
+            // inside a pane the user cannot see.
+            case .editorExpanded: return true
+            case .editorCollapsed: return false
+            }
+        }
+
+        /// Whether this arrangement has a source rail that can collapse to a spine — which is the
+        /// question the pane header's collapse rung is really asking.
+        ///
+        /// **Asked of the LAYOUT rather than of the workspace**, and switched with no `default:`.
+        /// The rung used to read `layoutMode == .singleSource && selectedWorkspace != .browse`: a
+        /// growing exclusion list, in which every new full-window workspace has to remember to
+        /// exclude itself and nothing says so if it forgets. Editor would have inherited a collapse
+        /// rung it has no spine for.
+        var hasCollapsibleRail: Bool {
+            switch self {
+            case .singleExpanded, .singleCollapsed, .editorExpanded, .editorCollapsed: return true
+            case .compareSplit, .browseFull: return false
+            }
+        }
     }
 
     /// The current tab's layout mode (compare vs single-source).
@@ -1501,6 +1596,14 @@ struct ContentView: View {
         // and there is no spine to click — but a stray key in the stored map must not be able to
         // blank the workspace either.
         if selectedWorkspace == .browse { return .browseFull }
+        // Editor is decided here for the same reason and one more: it owns no lens, so the lens
+        // mounting path answers nothing for it — `presentLensRail` early-returns on a nil lens and
+        // `bottomPaneView` mounts nothing — and a workspace that fell through to `.singleExpanded`
+        // would draw a source pane beside an empty half. It takes the same collapse state the lens
+        // workspaces do, through the same stored override, and only the workspace half differs.
+        if selectedWorkspace == .editor {
+            return panesHiddenForCurrentTab ? .editorCollapsed : .editorExpanded
+        }
         switch layoutMode {
         case .compare:
             // The comparison panes and the workspace are both always shown (their toggles were
@@ -1937,7 +2040,7 @@ struct ContentView: View {
     @ViewBuilder
     private var settingsOverlay: some View {
         // The card is sized in points and grows with the Text size setting, but the window's own
-        // minimum is 760×560 — less than the card wants in both axes once `hostMargin` is off it.
+        // minimum is 810×560 — less than the card wants in both axes once `hostMargin` is off it.
         // Hand it the space it actually has so it can clamp itself rather than hang off the edge.
         GeometryReader { proxy in
             ZStack {
@@ -3048,10 +3151,11 @@ struct ContentView: View {
                     ? { closeTab(id: syncManager.paneTabs(isLeft: isLeft).active.id, isLeft: isLeft) }
                     : nil,
                 // Only the single-source rail collapses itself (back to the spine); the two
-                // comparison panes never collapse individually, and Browse cannot — the pane IS
-                // the window there, so there is no spine to collapse into and nothing beside it
-                // that the space would go to.
-                onCollapse: layoutMode == .singleSource && selectedWorkspace != .browse
+                // comparison panes never collapse individually, and the full-window workspaces
+                // cannot — the pane IS the window there, so there is no spine to collapse into and
+                // nothing beside it that the space would go to. Asked of the layout, so a new
+                // full-window workspace does not have to remember to exclude itself.
+                onCollapse: contentLayout.hasCollapsibleRail
                     ? { withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() } }
                     : nil,
                 onRefresh: { forceRefreshAction() },
@@ -3683,6 +3787,7 @@ struct ContentView: View {
             forceRefreshAction: forceRefreshAction,
             onGetInfo: { showInfo(for: $0) },
             onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) },
+            onOpenInEditor: { path in handOffToEditor(path) },
             ignoreStateToken: syncManager.effectiveIgnoredPaths,
             keptNamesToken: syncManager.keptNamesStore?.names ?? [],
             homeBadgeCoverage: homeBadgeCoverage(forProviderId: pane.providerId),

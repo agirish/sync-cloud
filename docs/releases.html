@@ -135,6 +135,25 @@
 
 <div class="timeline">
 
+  <!-- v5.2 (in development) -->
+  <article class="rel draft">
+    <div class="rel-head"><span class="v">v5.2</span><span class="tag draft">In development</span></div>
+    <p class="lede"><b>A fifth workspace, and it writes.</b> Every workspace until now moved files around; <b>Edit</b> changes what is inside one. It opens a text file, renders Markdown beside it, and writes it back only when you ask &#8212; staged and swapped in atomically, in the encoding the file was read in, and never without asking if the file changed underneath you. <b>Not in v5.1</b> &#8212; this is the release after it.</p>
+    <div class="grp">
+      <h3>A fifth workspace: Edit</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9999;</span><span><b>SyncCloud can now change what is inside a file.</b> A collapsible file pane on the left browses to any folder, a rail beside it lists that folder&#8217;s text files, and the document sits beside them. <code>&#8984;5</code>, or the new segment in the workspace bar.</span></li>
+        <li><span class="ic">&#128065;</span><span><b>Markdown renders in Edit, Preview or Split,</b> with a divider you can drag. Real Markdown &#8212; tables and task lists included &#8212; laid out in the app&#8217;s own type at Settings &#9656; Text size, not a web view&#8217;s.</span></li>
+        <li><span class="ic">&#128190;</span><span><b>There is no autosave.</b> <code>&#8984;S</code> writes and nothing else does, because these are real cloud folders and a background write is not a thing to discover afterwards. The save is staged and swapped in atomically, exactly like every other write in the app.</span></li>
+        <li><span class="ic">&#128260;</span><span><b>A file comes back as the file it was.</b> Line endings are untouched, and a file written in UTF-16 or carrying a byte-order mark is saved in the encoding it was read in rather than quietly becoming UTF-8.</span></li>
+        <li><span class="ic">&#9888;</span><span><b>It asks before writing over a surprise.</b> If the file changed on disk since it was opened &#8212; or was filed somewhere else by an Organize run &#8212; <code>&#8984;S</code> says so and names which, and Cancel means nothing happened.</span></li>
+        <li><span class="ic">&#128683;</span><span><b>It refuses rather than guess.</b> A file that is not valid text opens read-only, because saving it would replace the parts that could not be read. One that is too large, still in the cloud, or holds no text at all is listed and dimmed with the reason, instead of opening empty.</span></li>
+        <li><span class="ic">&#10133;</span><span><b><code>&#8984;N</code> makes a new file</b> in the folder you are in &#8212; a name row in the rail, nothing on disk until you press &#8617;, and a name with no extension becomes <code>.md</code>. <b>Open in Edit</b> on any text file&#8217;s right-click menu brings an existing one here.</span></li>
+        <li><span class="ic">&#8617;</span><span><b>Typing has its own undo.</b> <code>&#8984;Z</code> in the editor takes back what you typed and can never reach into a file move or a copy, which keep their own history and their own Undo button.</span></li>
+      </ul>
+    </div>
+  </article>
+
   <!-- v5.1 -->
   <article class="rel">
     <div class="rel-head"><span class="v">v5.1</span><span class="tag latest">Latest</span></div>

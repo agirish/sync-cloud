@@ -57,7 +57,11 @@ enum ShortcutsReference {
             Item(keys: "⌘ ,", action: "Open Settings"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
             Item(keys: "⌘ ?", action: "Open SyncCloud Help"),
-            Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo the last file operation"),
+            // "(not typing)" rather than a second ⌘Z row in the Edit group: the editor's text
+            // view keeps its own undo stack, so the chord means two different things depending on
+            // where focus is, and the reference has to say which one this row is. Amended in place
+            // because a new row re-breaks `balancedSplit`'s two columns and moves the window.
+            Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo the last file operation (not typing)"),
             // The file clipboard, not the text one — though each of these four hands the keystroke
             // back to the caret when a text field has it (`TextEditingChord`).
             Item(keys: "⌘ A", action: "Select everything in the focused pane's current folder"),
@@ -86,6 +90,13 @@ enum ShortcutsReference {
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
             Item(keys: "⌥-click a breadcrumb", action: "Navigate both panes to that folder"),
+        ]),
+        // **Its own group rather than two rows in Panes**, which was the cheaper option and the
+        // misleading one: both of these act on a document in one workspace, and a "Save" row under
+        // a heading about panes reads as an app-wide key that saves something in Browse.
+        Group(title: "Edit", items: [
+            Item(keys: "⌘ N", action: "New text file in Edit's folder"),
+            Item(keys: "⌘ S", action: "Save the open document"),
         ]),
         Group(title: "Tabs", items: [
             Item(keys: "⌘ T", action: "New tab, at the folder this pane is showing"),
@@ -192,6 +203,14 @@ struct ShortcutsReferenceView: View {
     /// leaves **32pt**, squarely in the band the last four raises settled into, and stays under the
     /// 60pt ceiling `theReferenceFitsItsWindowWithoutScrolling` puts on empty space. Measured, not
     /// guessed: the number came from rendering `ShortcutsReferenceContent` at this width.
+    ///
+    /// **The Edit group cost nothing, and that is worth recording rather than assuming.** ⌘N and
+    /// ⌘S arrived as a group of their own (a header plus two rows — three rows by `balancedSplit`'s
+    /// counting, ~100pt of the ~36pt-a-row arithmetic every raise above used). The content still
+    /// **measures 728pt**: the new group landed in the shorter column and the split re-broke around
+    /// it, so the tall column did not grow. The sixth time this file has been measured, the second
+    /// time rows were added without the window moving, and the same lesson both times — the number
+    /// comes from rendering it, never from adding up rows.
     static let windowSize = CGSize(width: 880, height: 760)
 
     var body: some View {

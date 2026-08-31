@@ -157,8 +157,13 @@ import Foundation
     }
 
     /// **Compare has MORE slack than the lens workspaces, not less** — two 250pt panes claim 500 of
-    /// the 760 floor against the rail-plus-panel's 560. Worth pinning because the intuition runs
-    /// the other way: two panes sounds hungrier than one pane and a panel.
+    /// the row against the rail-plus-panel's 560. Worth pinning because the intuition runs the
+    /// other way: two panes sounds hungrier than one pane and a panel.
+    ///
+    /// Measured at 760, one notch below the app's 810pt floor, and deliberately so: at 810 the
+    /// Compare clamp does not bite at all — 810 − 500 − 6 = 304, more than the 280 maximum — so a
+    /// fixture moved up to the real floor would assert that a clamp did nothing. See the note on
+    /// `LensSidebarWidthTests`, which keeps its fixtures for the same reason.
     @Test func compareIsRoomierAtTheFloorThanTheLensWorkspaces() {
         let compare = width(stored: FolderSidebarView.maxWidth, total: 760)
         let lens = PaneLogic.lensSidebarWidth(stored: FolderSidebarView.maxWidth, totalWidth: 760,

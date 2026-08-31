@@ -71,6 +71,22 @@ struct SyncCloudApp: App {
     /// while the underlying comparison lives on in the shared FileSyncManager.
     @StateObject private var reviewStore = ReviewSessionStore()
 
+    /// The one open document.
+    ///
+    /// **Owned by the APP, for the reason `syncManager` is.** It began as a `@StateObject` on
+    /// `ContentView`, which already survives a workspace switch — but not the one gesture that
+    /// matters most: closing the window rebuilds `ContentView` and everything it owns, which this
+    /// codebase knows and relies on elsewhere (`hasBootstrappedSession` exists because "a close +
+    /// Dock reopen rebuilds this view and its `@State`"). So the red traffic light dropped an
+    /// unsaved buffer with no prompt, two pixels from a ⌘W that asks. Owning it here is what makes
+    /// the document outlive the window rather than adding a third modal question about it: close
+    /// the window, reopen from the Dock, and the typing is still there.
+    @StateObject private var editorDocument = EditorDocument()
+
+    /// The editor's undo stack, beside the document it belongs to and outliving the window for the
+    /// same reason. See ``PlainTextEditor/undoManager``.
+    @State private var editorUndoManager = UndoManager()
+
     /// Watches for ⌥ held alone, and publishes it to every `.shortcutKeycap(_:)` in the window.
     /// One per app: it installs local `NSEvent` monitors, and a second would double them.
     @StateObject private var shortcutReveal = ShortcutRevealTracker()
@@ -551,6 +567,8 @@ struct SyncCloudApp: App {
                     showSettings: $showSettings,
                     showHelp: $showHelp,
                     hasBootstrappedSession: $hasBootstrappedSession,
+                    editorDocument: editorDocument,
+                    editorUndoManager: editorUndoManager,
                     setupDismissedThisSession: $setupDismissedThisSession,
                     showSetup: $showSetup,
                     duplicateReview: $duplicateReview,
@@ -568,7 +586,7 @@ struct SyncCloudApp: App {
         .windowStyle(.hiddenTitleBar)
         // Open at ~85% of the screen (the two-pane + Differences layout needs room); without a
         // defaultSize, `.contentSize` resizability collapsed the first launch to the content's
-        // own minimum (760×560 — see `ContentView.chromedContent`). `.contentMinSize` keeps that
+        // own minimum (810×560 — see `ContentView.chromedContent`). `.contentMinSize` keeps that
         // minimum as a floor but lets the window take (and remember) any larger size.
         .defaultSize(
             width: (NSScreen.main?.visibleFrame.width ?? 1600) * 0.85,
@@ -606,14 +624,17 @@ struct SyncCloudApp: App {
                 FindInPaneCommand()         // ⌘F
             }
             // File ▸ the pane chrome's actions. Replacing `.newItem` is free real estate: this
-            // is a one-window app, so there is no "New Window" to displace and ⌘N had nothing
-            // to do. All four route to the focused pane (or its selection) via the focused
+            // is a one-window app, so there is no "New Window" to displace. ⌘N had nothing to do
+            // either until the Editor workspace arrived with a document to make — it is New Text
+            // File now, and it leads the menu with New Folder beside it, the two "new" items
+            // together. They route to the focused pane (or its selection) via the focused
             // values ContentView publishes — see `ShortcutCommands.swift`.
-            // **In the roadmap's own order** (§1, Fig. 9): the folder item the menu opened with,
-            // then the two tab items together, then the rest. Close Tab sits beside New Tab rather
+            // **In the roadmap's own order** (§1, Fig. 9): the items the menu opened with, then
+            // the two tab items together, then the rest. Close Tab sits beside New Tab rather
             // than in AppKit's `.saveItem` group, which renders after this one and would have put
             // it below Delete Selection — a long way from the item it is the opposite of.
             CommandGroup(replacing: .newItem) {
+                NewTextFileCommand()        // ⌘N
                 NewFolderCommand()          // ⇧⌘N
                 NewTabCommand()             // ⌘T
                 CloseTabCommand()           // ⌘W
@@ -630,15 +651,19 @@ struct SyncCloudApp: App {
             // `.saveItem` is where AppKit puts File ▸ Close, and Close Tab has taken its key and
             // its job (on the last tab it closes the window). Emptied rather than left alone, or
             // two items would register ⌘W and AppKit would silently pick one — measured: leaving
-            // this out puts "Close" and "Close All" back, with two items claiming ⌘W.
+            // this out puts "Close" and "Close All" back, with two items claiming ⌘W. Save is the
+            // one item that belongs here on AppKit's own terms, and it arrived with the Editor —
+            // the group is a replacement rather than an emptying now, but for the same reason.
             //
             // **Close All (⌥⌘W) goes with it, and that is the price.** This app is one window plus
             // three utility windows, so the loss is small; putting it back by hand is not an option
             // that costs nothing, because an ⌥ chord is the one kind that fires through the ⌥-hold
             // reveal (see `AppChord.foldAllDifferences`), which is an invariant the whole app is
             // held to. `theFileMenuIsInTheRoadmapsOrder` pins the absence so it stays a decision.
-            CommandGroup(replacing: .saveItem) { }
-            // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the four show/hide switches. The
+            CommandGroup(replacing: .saveItem) {
+                SaveDocumentCommand()       // ⌘S
+            }
+            // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the show/hide switches. The
             // workspace items sit in the View menu because that is what they change — which
             // surface the window shows — not what the app does to any file.
             CommandGroup(after: .sidebar) {
@@ -854,6 +879,33 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// Static reference so the delegate always has the current manager even if the App struct is recreated.
     static weak var sharedSyncManager: FileSyncManager?
 
+    /// The live delegate, so a view can hand it something to guard. `NSApp.delegate` rather than a
+    /// second static: AppKit already holds exactly one, and a parallel reference is a second thing
+    /// that can point at an orphan.
+    @MainActor static var shared: SyncCloudAppDelegate? { NSApp.delegate as? SyncCloudAppDelegate }
+
+    /// The window's open editor document, so the quit guard can ask whether it has unsaved work.
+    ///
+    /// **Weak and static, exactly like the manager above**, and for the same reason: SwiftUI may
+    /// re-run `App.init`, and the guard has to keep pointing at the live document rather than at an
+    /// orphan that answers "nothing unsaved" forever. Adopted by `ContentView` once it appears,
+    /// because that is where the `@StateObject` lives.
+    static weak var sharedEditorDocument: EditorDocument?
+
+    /// Wires the quit guard to the app's editor document.
+    ///
+    /// **Unconditional, unlike ``adoptSyncManager(_:)``.** That one keeps the first manager because
+    /// a re-run `App.init` would otherwise point the guard at an orphan `@StateObject` never kept
+    /// alive. This is the mirror hazard: a `guard … == nil` here meant that if the previous
+    /// document happened to still be alive when a rebuilt view adopted a new one — a teardown in
+    /// progress, an autorelease pool not yet drained — the stale object was kept and nothing ever
+    /// re-adopted, so the quit guard answered "nothing unsaved" about a document nobody could see,
+    /// forever. Taking the newest is right precisely because the reference is `weak`: there is only
+    /// ever one document, and the last one to say so is the live one.
+    func adoptEditorDocument(_ document: EditorDocument) {
+        Self.sharedEditorDocument = document
+    }
+
     /// Wires the termination guard to `manager`, keeping the first manager when one is already
     /// wired (both instance and static ref, so the guard works on every quit attempt). SwiftUI
     /// may re-run `App.init`, but `@StateObject` keeps only the first manager alive — re-wiring
@@ -944,17 +996,53 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         /// Operations are in flight but the user disabled the warning — quit, but log first.
         case allowWithoutWarning(activeOperations: Int)
         /// Operations are in flight and the warning is enabled — must show the alert.
-        case warn(activeOperations: Int)
+        ///
+        /// **`hasUnsavedDocument` travels with it, and dropping it was a way to lose work.** The
+        /// file-operation warning outranks the document's, which is right — but "outranks" was
+        /// implemented as "replaces", so with a copy running and a buffer dirty the alert named
+        /// only the copy and its "Quit Anyway" button terminated with no second question. The
+        /// ranking that justified it says the *"Wait" answer keeps the app up, which is also the
+        /// answer that saves the buffer* — true of one of the two buttons. The other one dropped
+        /// the typing, and the alert never mentioned it existed.
+        case warn(activeOperations: Int, hasUnsavedDocument: Bool)
+        /// The editor holds a document that is not on disk, and nothing outranks saying so.
+        ///
+        /// **Carries the operation count even though the wording does not use it**, so the
+        /// breadcrumb this branch logs still records how many operations were in flight at
+        /// termination — the single event most correlated with crash-time corruption, and one this
+        /// case silently stopped recording when it started outranking `.allowWithoutWarning`.
+        ///
+        /// **Not covered by `warnBeforeQuit`.** That setting is about interrupting file
+        /// operations, which the engine can finish or roll back; this is about typing that exists
+        /// nowhere but in memory. Switching the operations warning off is not a statement that
+        /// unsaved documents may be discarded.
+        case warnUnsavedDocument(activeOperations: Int)
     }
 
     /// Pure decision: given the in-flight operation count and the warn-before-quit setting,
     /// which quit path applies. Kept side-effect-free so `SyncCloudTests` can pin the branches
     /// without driving a modal alert. `nonisolated`: pure over its arguments, so the tests
     /// don't have to hop to the main actor just because the class is isolated.
-    nonisolated static func quitDecision(activeOperations: Int, warnBeforeQuit: Bool) -> QuitDecision {
-        guard activeOperations > 0 else { return .allowNoActiveOperations }
-        return warnBeforeQuit
-            ? .warn(activeOperations: activeOperations)
+    nonisolated static func quitDecision(activeOperations: Int, warnBeforeQuit: Bool,
+                                         hasUnsavedDocument: Bool = false) -> QuitDecision {
+        guard activeOperations > 0 else {
+            return hasUnsavedDocument ? .warnUnsavedDocument(activeOperations: 0)
+                                      : .allowNoActiveOperations
+        }
+        // Operations in flight: their warning leads, because a half-finished copy is the worse
+        // thing to interrupt. It no longer *replaces* the document's question — the buffer travels
+        // with the decision so one alert can name both.
+        if warnBeforeQuit {
+            return .warn(activeOperations: activeOperations, hasUnsavedDocument: hasUnsavedDocument)
+        }
+        // **The warning is off, and the buffer still asks.** This arm returned `.allowWithoutWarning`
+        // and quit outright — so with one copy in flight and the setting switched off, ⌘Q discarded
+        // unsaved typing with no prompt at all, which is exactly what the paragraph on
+        // `warnUnsavedDocument` says must not happen. The setting is about interrupting file
+        // operations, which the engine can finish or roll back; it says nothing about a document
+        // that exists nowhere but in memory.
+        return hasUnsavedDocument
+            ? .warnUnsavedDocument(activeOperations: activeOperations)
             : .allowWithoutWarning(activeOperations: activeOperations)
     }
 
@@ -980,7 +1068,12 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // Respect the General setting; default to warning when the key was never written.
         let warnBeforeQuit = UserDefaults.standard.object(forKey: GeneralSettings.warnBeforeQuitKey) as? Bool ?? true
 
-        switch Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit) {
+        // **The editor writes no autosave, so ⌘Q is the one gesture that can take a buffer with
+        // it.** Every other way of leaving the document — clicking another file, ⌘N — already asks.
+        let hasUnsavedDocument = Self.sharedEditorDocument?.isDirty ?? false
+
+        switch Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit,
+                                 hasUnsavedDocument: hasUnsavedDocument) {
         case .allowNoActiveOperations:
             // Counterpart to the launch breadcrumb: a clean quit gets a closing line, so a log that
             // simply stops with no shutdown line reads as a crash or force-kill, not a normal exit.
@@ -1005,17 +1098,27 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             SyncHistoryStore.shared.flushToDisk()
             return .terminateNow
 
-        case .warn(let count):
+        case .warn(let count, let unsaved):
             let alert = NSAlert()
             alert.messageText = "File Operations in Progress"
-            alert.informativeText = "Quitting now may cause data corruption or partial synchronization. Are you sure you want to quit?"
+            // The document's sentence is appended rather than given its own alert: two modal
+            // questions in a row on ⌘Q is how a person learns to dismiss both without reading.
+            let name = Self.sharedEditorDocument?.name ?? "the open document"
+            alert.informativeText = "Quitting now may cause data corruption or partial synchronization."
+                + (unsaved ? " Unsaved changes to “\(name)” are discarded too." : "")
+                + " Are you sure you want to quit?"
             alert.addButton(withTitle: "Wait")
             alert.addButton(withTitle: "Quit Anyway")
             alert.alertStyle = .warning
+            // The destructive answer gives up Return, as it does everywhere else in the app — and
+            // it is more destructive now that it can also drop a buffer.
+            alert.buttons.last?.keyEquivalent = ""
+            alert.buttons.last?.hasDestructiveAction = true
 
             let response = alert.runModal()
             if response == .alertSecondButtonReturn {
-                Logger.shared.warning("User chose Quit Anyway with \(count) active file operation(s)")
+                Logger.shared.warning("User chose Quit Anyway with \(count) active file operation(s)"
+                    + (unsaved ? " and unsaved changes to “\(name)”" : ""))
                 Logger.shared.flushToDisk()
                 SyncHistoryStore.shared.flushToDisk()
                 return .terminateNow
@@ -1023,6 +1126,33 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
                 Logger.shared.info("User chose Wait with \(count) active file operation(s) in progress")
                 return .terminateCancel
             }
+
+        case .warnUnsavedDocument(let count):
+            let name = Self.sharedEditorDocument?.name ?? "the open document"
+            let alert = NSAlert()
+            alert.messageText = "“\(name)” has unsaved changes"
+            // **Cancel, not Save.** Saving from here would need the divergence check and its own
+            // prompt to run inside a termination handler, on state the app is already tearing
+            // down. Returning the user to the editor with the buffer intact is the honest answer,
+            // and ⌘S is one keystroke away once they are back.
+            alert.informativeText = "Quitting now discards them. Cancel to go back and save with "
+                + "\(AppChord.saveDocument.display)."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Discard Changes")
+            alert.alertStyle = .warning
+            // The destructive answer gives up Return, as it does everywhere else in the app.
+            alert.buttons.last?.keyEquivalent = ""
+            alert.buttons.last?.hasDestructiveAction = true
+
+            if alert.runModal() == .alertSecondButtonReturn {
+                Logger.shared.warning("User chose Discard Changes and quit with “\(name)” unsaved"
+                    + (count > 0 ? " and \(count) active file operation(s)" : ""))
+                Logger.shared.flushToDisk()
+                SyncHistoryStore.shared.flushToDisk()
+                return .terminateNow
+            }
+            Logger.shared.info("User cancelled quitting to save “\(name)”")
+            return .terminateCancel
         }
     }
 }

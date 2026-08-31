@@ -234,7 +234,7 @@ public enum FolderSidebarModel {
     /// **Browse-only until 2026-08-24**, on the reasoning that "the lens workspaces are
     /// single-source too, and their pane is the 220pt-clamped rail, which has no room for a 180pt
     /// column beside it". The premise was right and the conclusion did not follow: the window floor
-    /// is 760 and the rail and lens panel together claim 560, so there is exactly 200pt for a
+    /// is 810 and the rail and lens panel together claim 560, so there is exactly 250pt for a
     /// sidebar whose default is 180. What the lens workspaces need is a clamp, not an exclusion —
     /// `PaneLogic.lensSidebarWidth` is it.
     ///

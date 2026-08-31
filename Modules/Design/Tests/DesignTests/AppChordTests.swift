@@ -24,6 +24,11 @@ import Foundation
         #expect(AppChord.rescan.display == "⌘R")
         #expect(AppChord.newFolder.display == "⇧⌘N")
         #expect(AppChord.folderSidebar.display == "⌃⌘S")
+        // The editor's two, and the pair that has to stay distinguishable from the two above it:
+        // ⌘S beside ⌃⌘S, and ⌘N beside ⇧⌘N. `noTwoChordsCollide` compares key AND modifiers, so
+        // these are four separate chords rather than two with an accident in them.
+        #expect(AppChord.saveDocument.display == "⌘S")
+        #expect(AppChord.newTextFile.display == "⌘N")
         #expect(AppChord.hiddenFiles.display == "⇧⌘.")
         #expect(AppChord.previewColumn.display == "⇧⌘P")
         #expect(AppChord.deleteSelection.display == "⌘⌫")
@@ -51,7 +56,7 @@ import Foundation
         #expect(AppChord.workspace(5)?.display == "⌘5")
         // **Past nine there is no chord, and asking for one must not take the app down.**
         // `Character.init(String)` requires exactly one grapheme cluster, so a two-digit ordinal
-        // trapped — at menu-bar construction, which is to say the app would not open. Four
+        // trapped — at menu-bar construction, which is to say the app would not open. Five
         // workspaces exist today; this is the boundary the 1…9 loops below never approach.
         #expect(AppChord.workspace(10) == nil)
         #expect(AppChord.workspace(0) == nil)

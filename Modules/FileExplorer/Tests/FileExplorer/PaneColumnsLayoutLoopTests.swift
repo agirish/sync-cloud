@@ -26,6 +26,7 @@ import Sync
 
     private struct StubDelegate: FileActionDelegate {
         func handleRefresh() {}
+        func handleOpenInEditor(_ path: String) {}
         func handleFocus(_ node: FileNode) {}
         func handleCopy(_ nodes: [FileNode]) {}
         func handleMove(_ nodes: [FileNode]) {}

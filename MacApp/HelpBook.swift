@@ -138,18 +138,19 @@ enum HelpBook {
                 related: ["what-is-synccloud", "choose-folders", "people", "organize-workspace"]
             )),
             Topic(id: "what-is-synccloud", title: "What is SyncCloud?", systemImage: "sparkles", article: Article(
-                intro: "SyncCloud works on your cloud folders through four workspaces — Browse one provider's files, Compare two folders side by side, Organize what's out of place, and Storage to see where the space goes — without ever removing anything you didn't approve.",
+                intro: "SyncCloud works on your cloud folders through five workspaces — Browse one provider's files, Compare two folders side by side, Organize what's out of place, Storage to see where the space goes, and Edit to write in a text file — without ever removing anything you didn't approve.",
                 blocks: [
-                    .paragraph("They are four different kinds of place rather than four tasks. Browse shows one tree and proposes nothing, Compare holds two trees side by side, Organize changes one tree on the app's suggestion, and Storage reads one tree and changes nothing at all."),
+                    .paragraph("They are five different kinds of place rather than five tasks. Browse shows one tree and proposes nothing, Compare holds two trees side by side, Organize changes one tree on the app's suggestion, Storage reads one tree and changes nothing at all, and Edit changes what is inside a single file."),
                     .bullets([
                         "Browse — the plain file browser: one provider's tree at full width, nothing proposed, nothing changed.",
                         "Compare — pick any two cloud folders, or two folders inside the same provider, and scan them. The differences list shows everything that isn't identical, and which way a copy would go.",
                         "Organize — five sections over a single tree: To File, Duplicates, Renames, Restructure, and Rules.",
                         "Storage — a treemap of where a folder's bytes are, its largest and longest-untouched files, and the large-and-idle overlap worth reclaiming.",
+                        "Edit — open a text file from the folder you are in and write in it. The only place in SyncCloud that changes what is inside a file, and it saves when you ask it to.",
                     ]),
-                    .tip("Nothing is copied, moved, or removed until you ask, and ⌘Z takes back what you just did. ⌘1 through ⌘4 switch workspaces."),
+                    .tip("Nothing is copied, moved, or removed until you ask, and ⌘Z takes back what you just did. ⌘1 through ⌘5 switch workspaces."),
                 ],
-                related: ["setup", "browse-workspace", "organize-workspace", "scan"]
+                related: ["setup", "browse-workspace", "editor-workspace", "organize-workspace", "scan"]
             )),
             Topic(id: "browse-workspace", title: "Browse your files", systemImage: "folder", article: Article(
                 intro: "Browse is where SyncCloud opens, and it's the plain file browser: one provider's tree at the full width of the window, with nothing proposed and nothing changed. It's where you go to work on files by hand, without a lens's opinion.",
@@ -168,6 +169,25 @@ enum HelpBook {
                     .tip("Browse and Compare's left pane share the same spot, so switching over keeps you in the folder you were just browsing — tabs and all. To aim Organize at a folder, use “Organize This Folder…” from its right-click menu."),
                 ],
                 related: ["what-is-synccloud", "folder-sidebar", "choose-folders", "command-palette"]
+            )),
+            Topic(id: "editor-workspace", title: "Write in a text file", systemImage: "square.and.pencil", article: Article(
+                intro: "Edit is the one place in SyncCloud that changes what is inside a file rather than moving files around. It lists the text files in the folder you are in, opens one, and saves it when you ask — there is no autosave, because these are your real cloud folders.",
+                blocks: [
+                    .bullets([
+                        "The rail lists the text files in the folder the file pane on its left is showing — Markdown, plain text, and the other text kinds SyncCloud already reads. That pane starts folded to a narrow strip; click it open to browse anywhere, or use the sidebar to jump.",
+                        "Right-click any text file anywhere in SyncCloud — Browse, either Compare pane, the columns view — and choose Open in Edit to bring it here.",
+                        "A dim row is one that can be listed but not opened: a file too large to read, or one that is still in the cloud and has not been downloaded. Point at it and the rail says which. A file that holds no readable text at all is not opened either, and the editor says so instead.",
+                        "The dot beside the file name means what is on screen does not match what is on disk. ⌘S writes it; the dot clears when it lands.",
+                        "⌘N makes a new text file in that same folder. It opens a name field in the rail — nothing exists on disk until you press ↩, and a name with no extension becomes .md.",
+                        "A Markdown file gets Edit, Preview and Split above it: the text, the rendered document, or both side by side with a divider you can drag. Other text files are always just the text.",
+                        "A file that is not valid text opens for reading only, and says so. Saving it would replace the parts that couldn't be read, so the editor won't.",
+                        "If the file changed on disk — or was filed somewhere else by Organize — while it was open, ⌘S asks before writing over it.",
+                        "⌘Z inside the editor takes back your typing. It is a separate history from the one that takes back file operations, so an undo here can never reach into a move or a copy.",
+                        "The file name at the top is a button: it takes you to the file where it lives, in Browse, without closing it here.",
+                    ]),
+                    .tip("Editing always happens here, in one place, so there is only ever one unsaved document to keep track of."),
+                ],
+                related: ["what-is-synccloud", "folder-sidebar", "browse-workspace", "keyboard-shortcuts"]
             )),
             Topic(id: "folder-sidebar", title: "The folder sidebar", systemImage: "sidebar.left", article: Article(
                 intro: "The column down the left of every workspace holds the folders you keep, the accounts you have signed into, and the folders you were last in. View ▸ Sidebar shows or hides it, and ⌃⌘S does the same from the keyboard.",
@@ -591,7 +611,7 @@ enum HelpBook {
                 intro: "⌘K grows the Go to pill at the right of the toolbar into a field, with its results hanging underneath — so the tree you are navigating stays on screen while you type the name of the folder you want. It reaches anywhere the app can go, including places that aren’t on screen at all, and Go ▸ Go to… is the same field, first in that menu because it’s the only item there that can reach a destination you’re not already near.",
                 blocks: [
                     .bullets([
-                        "Places — the four workspaces, and each of Organize's five sections.",
+                        "Places — the five workspaces, and each of Organize's five sections.",
                         "People — everything belonging to someone on your list.",
                         "Folders — anywhere SyncCloud has surveyed, plus recent and pinned folders. Type a path and it will take you there.",
                         "Sources — point the pane at another cloud account or folder.",
@@ -616,11 +636,11 @@ enum HelpBook {
                         "Hold ⌥ on its own for a moment and every control with a shortcut grows a key badge; let go and they vanish. Press any key, click, or add a second modifier and the badges stay away — so ⌥-click and ⌥-typed characters work exactly as before.",
                         "Because ⌥ is held, the shortcut itself won't fire while the badges are up: look, release, then press.",
                         "The full reference is a window of its own: Window ▸ Keyboard Shortcuts, or ask for it by name in ⌘K.",
-                        "⌘1 – ⌘4 switch workspaces; ⌘→ / ⌘← copy the selected differences, and ⇧ makes it a move.",
+                        "⌘1 – ⌘5 switch workspaces; ⌘→ / ⌘← copy the selected differences, and ⇧ makes it a move.",
                         "Space opens Quick Look; ⌥-click a breadcrumb navigates both panes at once.",
                         "⌘X, ⌘C and ⌘V are the file clipboard, and they reach Finder; ⌘A selects the folder the focused pane is in; ↩ renames the selected row.",
                     ]),
-                    .paragraph("The menu bar carries the rest, a menu per place. File holds the folder and tab items, the verbs that act on the selected row, and Delete — its Ignore in Comparison appears only while you are comparing, because ignoring is a statement about a comparison and Browse and Storage have none. Edit holds the file clipboard — Cut, Copy, Paste and Select All — with Find in Pane… under them. Go holds ⌘K and the per-pane Back and Forward. Compare holds the four transfers plus Review and Verify. Organize holds its five sections, the verbs that aim them at the selected folder, and Undo This Reorganisation, which is the only item there that needs no selection. View holds the four workspaces and the show/hide switches — View ▸ Hidden Files and View ▸ Info Inspector among them."),
+                    .paragraph("The menu bar carries the rest, a menu per place. File holds New Text File… and New Folder…, the tab items, the verbs that act on the selected row, Delete, and Save at the end — its Ignore in Comparison appears only while you are comparing, because ignoring is a statement about a comparison and Browse and Storage have none. Edit holds the file clipboard — Cut, Copy, Paste and Select All — with Find in Pane… under them. Go holds ⌘K and the per-pane Back and Forward. Compare holds the four transfers plus Review and Verify. Organize holds its five sections, the verbs that aim them at the selected folder, and Undo This Reorganisation, which is the only item there that needs no selection. View holds the five workspaces and the show/hide switches — View ▸ Hidden Files and View ▸ Info Inspector among them."),
                 ],
                 related: ["command-palette", "copy-move", "clipboard"]
             )),

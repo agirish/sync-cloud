@@ -116,7 +116,7 @@ public struct DifferencesView: View {
     /// Opens the shared file-pair viewer on a changed row — ROADMAP §11's diff pane.
     ///
     /// **A closure to the WINDOW, not an overlay of its own.** macOS clamps a sheet to its host
-    /// window and an `.overlay` to its anchor, and this view is the bottom pane: at the 760×560
+    /// window and an `.overlay` to its anchor, and this view is the bottom pane: at the 810×560
     /// window floor that is a few hundred points to draw two previews in. The Duplicates host
     /// learned the same thing — see `CompareOverlayMetrics` — so both hosts hand the pair up and
     /// `ContentView` presents it against the live window.

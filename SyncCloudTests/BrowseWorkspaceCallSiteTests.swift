@@ -204,10 +204,30 @@ import FileExplorer
     /// The gather's "Open" calls it too now, but only behind `contentLayout == .singleCollapsed`,
     /// a layout Browse resolves before the flag is read — so Browse still writes no override, and
     /// `contentLayout`'s assumption that it never does still holds.
+    ///
+    /// **Asked of the layout since the Editor workspace arrived.** The rung read
+    /// `layoutMode == .singleSource && selectedWorkspace != .browse` — an exclusion list that every
+    /// new full-window workspace has to remember to join, and Editor would have inherited a rung it
+    /// has no spine for. `ContentLayout.hasCollapsibleRail` answers it with a `switch` and no
+    /// `default:`, so the next one is a compile error rather than a silent inheritance. Both halves
+    /// are pinned: the call site asks the layout, and Browse's arm of the layout says no.
     @Test func testTheCollapseRungIsNotOfferedInBrowse() throws {
         let content = try macAppSources()
-        #expect(content.contains("onCollapse: layoutMode == .singleSource && selectedWorkspace != .browse"),
-                "Browse offers a collapse rung — it would hide the only thing in the window")
+        #expect(content.contains("onCollapse: contentLayout.hasCollapsibleRail"),
+                "the collapse rung is no longer resolved from the layout — a full-window workspace can inherit one")
+        // The answer's own body, sliced from its declaration to the first brace closing at the
+        // nested type's indentation — `hasCollapsibleRail` lives inside `ContentLayout`, so the
+        // member-level slicer other tests here use would read past it.
+        let declaration = try #require(content.range(of: "var hasCollapsibleRail: Bool {"),
+                                       "the collapse rung's answer is gone — this scan would be vacuous")
+        let rest = content[declaration.upperBound...]
+        let close = try #require(rest.range(of: "\n        }"),
+                                 "hasCollapsibleRail never closes at its own indentation")
+        let rung = Self.codeOnly(String(rest[..<close.lowerBound]))
+        #expect(rung.contains(".browseFull"),
+                "Browse is no longer named in the collapse rung's answer — it would hide the only thing in the window")
+        #expect(!rung.contains("default:"),
+                "a default arm would silently give the next workspace a collapse rung")
     }
 
     // MARK: The view-mode key
@@ -377,14 +397,29 @@ import FileExplorer
         #expect(host.contains("workspaceSelection.wrappedValue = .browse"))
     }
 
-    // MARK: The bar's rule
+    // MARK: The bar has no rule
 
-    @Test func testTheBarDrawsItsRuleFromTheNamedIndex() throws {
+    /// **The group rule is gone, and this is what keeps it gone.**
+    ///
+    /// It separated the tree-lookers from the tree-actors, drawn before a named index so a test
+    /// could assert what it separated rather than restate a literal. Editor is the workspace that
+    /// grouping cannot place — it neither looks at a tree nor acts on one — so the rule was removed
+    /// rather than redefined around a third kind, which also handed 13pt back to the width budget
+    /// the five labels now spend.
+    ///
+    /// Asserted here rather than deleted, because the failure mode is somebody re-adding a divider
+    /// to "tidy up" the bar: `WorkspaceBarMetrics` is not told about separators any more, so a rule
+    /// drawn now would be 13pt of bar the arithmetic cannot see — and under-measuring is what folds
+    /// the whole toolbar behind macOS's overflow chevron.
+    @Test func testTheBarDrawsNoGroupRule() throws {
         let toolbar = try Self.source("ContentView+Toolbar.swift")
-        #expect(toolbar.contains("if index == Self.workspaceRuleIndex"),
-                "the group rule is back to a bare literal — it can drift from the bar's order with nothing to catch it")
-        #expect(!toolbar.contains("if index == 1 {"),
-                "the old separator position is still in the file")
+        #expect(!toolbar.contains("workspaceRuleIndex"),
+                "the group rule's index is back — the bar's width arithmetic no longer counts separators")
+        let bar = try #require(toolbar.range(of: "var workspaceBar: some View {"))
+        let rest = toolbar[bar.upperBound...]
+        let end = try #require(rest.range(of: "\n    }"))
+        #expect(!String(rest[..<end.lowerBound]).contains("Divider()"),
+                "the workspace bar draws a Divider again — the metrics charge nothing for it")
     }
 
     // MARK: A person gather has somewhere to land

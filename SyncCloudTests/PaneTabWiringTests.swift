@@ -2224,8 +2224,12 @@ import Sync
         let file = try #require(NSApp.mainMenu?.items.first { $0.title == "File" }?.submenu,
                                 "the app has no File menu — this check would be vacuous")
         let titles = file.items.map(\.title).filter { !$0.isEmpty }
-        #expect(titles.prefix(4) == ["New Folder…", "New Tab", "Close Tab", "Reopen Closed Tab"],
-                "the File menu opens with \(titles.prefix(4)) — Fig. 9 puts the tab items with New Folder")
+        // New Text File… leads from 2026-08-31: ⌘N is the item AppKit's `.newItem` group is named
+        // for, and the two "new" items belong together at the top. Everything after them keeps the
+        // order Fig. 9 gave it.
+        #expect(titles.prefix(5)
+                == ["New Text File…", "New Folder…", "New Tab", "Close Tab", "Reopen Closed Tab"],
+                "the File menu opens with \(titles.prefix(5)) — Fig. 9 puts the tab items with the new-item pair")
 
         // AppKit's own Close is gone, and exactly one item claims ⌘W. Two would leave one of them
         // dead, and which one AppKit picks is not something this app decides.

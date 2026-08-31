@@ -444,13 +444,51 @@ enum PaneLogic {
                                   activePane: activePane)
     }
 
+    /// A folder expressed relative to a pane's root, or `nil` when it is not inside that root.
+    ///
+    /// **Component-wise, never a string prefix**, and that is the whole reason this is a named
+    /// function rather than a `hasPrefix` at the call site: `/Users/me/Documents` *does* begin with
+    /// `/Users/me/Doc`, so a prefix test puts a folder under a root that merely shares an opening
+    /// with it and the pane lands somewhere real and wrong. Splitting into path components makes
+    /// the boundary a component boundary, which is what "inside" actually means.
+    ///
+    /// The root itself answers `""` — the pane's own resting position, which is what `focusOn`
+    /// takes for "the top".
+    ///
+    /// **Both paths must be absolute.** `split(separator:)` drops the leading empty component, so
+    /// a *relative* `"Users/me/Docs"` compared against `/Users/me` produced `"Docs"` — a caller
+    /// that had lost the leading slash somewhere would be told its path was inside a root it has
+    /// no relationship to.
+    ///
+    /// **Compared case-insensitively**, because the volumes this app runs on are. APFS is
+    /// case-insensitive by default and so is every iCloud and Dropbox folder on it, so
+    /// `/Users/me/documents` and `/Users/me/Documents` are one folder — comparing components with
+    /// `==` made the pane silently refuse to follow a path that differed only in case.
+    static func relativePath(of folder: String, under root: String) -> String? {
+        guard folder.hasPrefix("/"), root.hasPrefix("/") else { return nil }
+        let folderParts = (folder as NSString).standardizingPath.split(separator: "/").map(String.init)
+        let rootParts = (root as NSString).standardizingPath.split(separator: "/").map(String.init)
+        guard folderParts.count >= rootParts.count else { return nil }
+        for (mine, theirs) in zip(folderParts, rootParts) where
+            mine.compare(theirs, options: .caseInsensitive) != .orderedSame {
+            return nil
+        }
+        // The folder's own spelling is returned, not the root's — this is a path the app will hand
+        // back to the filesystem, and correcting somebody's capitalisation is not this function's
+        // business.
+        return folderParts.dropFirst(rootParts.count).joined(separator: "/")
+    }
+
     /// **How wide the folder sidebar may actually be in a lens workspace**, which is not always the
     /// width the user stored.
     ///
     /// Browse gives the sidebar the window minus one pane, so its stored width always fits. The lens
     /// workspaces do not: their row is sidebar + rail + workspace panel, and the rail and the panel
-    /// carry hard minimums of 220 and 340. At the window floor of 760 that leaves exactly 200pt,
-    /// which the 180 default fits with 15 to spare and the 280 maximum overruns by 85.
+    /// carry hard minimums of 220 and 340. At the window floor — 760 when this clamp was written,
+    /// 810 since the Editor workspace took the bar to five labels — that leaves 200pt and 250pt
+    /// respectively, so the 180 default fits either with room and the 280 maximum overruns the
+    /// narrower one by 85. The clamp is computed from the row's real width rather than from the
+    /// floor, so raising the floor loosens it rather than changing it.
     ///
     /// **The sidebar is what gives way**, because of the three it is the newcomer and the one whose
     /// job survives being narrower — a rail under 220 cannot show a file name and a lens panel under

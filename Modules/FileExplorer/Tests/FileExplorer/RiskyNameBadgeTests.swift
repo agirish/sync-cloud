@@ -100,6 +100,7 @@ import Sync
         var reasons: [String: String] = [:]
         var kept: Set<String> = []
         func handleRefresh() {}
+        func handleOpenInEditor(_ path: String) {}
         func handleFocus(_ node: FileNode) {}
         func handleCopy(_ nodes: [FileNode]) {}
         func handleMove(_ nodes: [FileNode]) {}
@@ -150,6 +151,7 @@ import Sync
     /// reports nothing, so no surface starts badging by accident when the protocol grew.
     private struct BareDelegate: FileActionDelegate {
         func handleRefresh() {}
+        func handleOpenInEditor(_ path: String) {}
         func handleFocus(_ node: FileNode) {}
         func handleCopy(_ nodes: [FileNode]) {}
         func handleMove(_ nodes: [FileNode]) {}

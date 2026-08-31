@@ -34,7 +34,7 @@ import Sync
             // Defaults to `isSingleSource` so the existing cases keep asking what they asked; the
             // two new ones below pass it explicitly, which is the whole point of the split.
             ownsOrganizeScope: ownsOrganizeScope ?? isSingleSource,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
+            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
             onFindDuplicatesOf: { _ in }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in },
             onOrganizeScope: scoped, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
@@ -109,7 +109,7 @@ import Sync
         let d = PaneActionDelegate(
             handler: nil, syncManager: FileSyncManager(), settings: SettingsManager(),
             isLeft: true, leftProviderId: "left", rightProviderId: "right", isSingleSource: true, ownsOrganizeScope: true,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
+            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
             onFindDuplicatesOf: { _ in },
             onOrganizeFolder: { scanned.append($0.id) }, onCheckFolderShape: { _ in },

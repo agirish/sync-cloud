@@ -30,7 +30,7 @@ import Sync
         PaneActionDelegate(
             handler: nil, syncManager: syncManager, settings: settings, isLeft: true,
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
+            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [],
             homeBadgeCoverage: homeBadgeCoverage, onFindDuplicatesOf: { _ in },
             onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
@@ -74,6 +74,7 @@ import Sync
     @Test func aDelegateWithNoCoverageAnswersFalseThroughTheExistential() {
         struct Stub: FileActionDelegate {
             func handleRefresh() {}
+            func handleOpenInEditor(_ path: String) {}
             func handleFocus(_ node: FileNode) {}
             func handleCopy(_ nodes: [FileNode]) {}
             func handleMove(_ nodes: [FileNode]) {}
@@ -131,7 +132,7 @@ import Sync
         let d = PaneActionDelegate(
             handler: nil, syncManager: base.syncManager, settings: base.settings, isLeft: true,
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
+            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
             onFindDuplicatesOf: { _ in }, onOrganizeFolder: { asked.append($0.id) }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
 
@@ -155,7 +156,7 @@ import Sync
         d = PaneActionDelegate(
             handler: nil, syncManager: d.syncManager, settings: d.settings, isLeft: true,
             leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false,
-            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
+            forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
             ignoreStateToken: [], keptNamesToken: [], homeBadgeCoverage: nil,
             onFindDuplicatesOf: { asked.append($0.id) }, onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in }, onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
 

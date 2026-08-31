@@ -3,14 +3,22 @@ import FileExplorer
 
 /// The one top-level selection: which workspace the window is showing.
 ///
-/// Four segments, and they are four different *kinds of place* rather than four tasks:
+/// Five segments, and they are five different *kinds of place* rather than five tasks:
 /// **Browse** shows one tree and proposes nothing, **Compare** holds two trees side by side,
-/// **Storage** reads one tree and changes nothing, and **Organize** changes one tree. Everything
-/// that moves a file inside a single tree *on the app's suggestion* is a lens inside Organize
-/// (see ``OrganizeLens``) — duplicates and automations included, which is what took the bar from
-/// five segments to three.
+/// **Storage** reads one tree and changes nothing, **Organize** changes one tree, and **Editor**
+/// changes what is *inside* one file. Everything that moves a file inside a single tree *on the
+/// app's suggestion* is a lens inside Organize (see ``OrganizeLens``) — duplicates and automations
+/// included, which is what took the bar from five segments to three.
 ///
-/// Browse is the fourth kind rather than a mode inside Organize, and the distinction is the whole
+/// **Editor is the fifth kind because it is the first surface that writes a file's contents.**
+/// Every other workspace moves, copies, trashes or accounts for whole files and never opens one to
+/// change it; the editor never moves a file and only ever rewrites the bytes of the one that is
+/// open. That is a different verb, not a mode of Browse — which is why it is a segment and not a
+/// pane inside one. It is also the app's only *writable* text surface on purpose: dirty state, the
+/// undo stack and the save circuit exist in exactly one place, and every other workspace that
+/// wants to edit a file hands off to here (see `openInEditor`).
+///
+/// Browse is a kind of its own rather than a mode inside Organize, and the distinction is the whole
 /// reason it exists: it is where you go when you do not want a lens's opinion — move this file, by
 /// hand, now. A mode inside Organize could not be that, because it would still be Organize.
 ///
@@ -40,6 +48,18 @@ enum Workspace: String, CaseIterable, Identifiable {
     case filing = "Filing"
     /// Read-only: what is using the space.
     case storage = "Storage"
+    /// One text file, open and writable. The app's only editing surface.
+    ///
+    /// **The raw value is `Editor` and must never be reworded**, for the same reason `Filing` is
+    /// still `Filing` on disk: it is a persistence format the moment the first person clicks it.
+    /// It no longer matches the title, which is the ordinary state of affairs here — `Filing` has
+    /// read "Organize" in the bar for as long as it has existed, and `Differences` reads "Compare".
+    /// `WorkspaceTests` pins the raw values separately from the titles so a rename of one cannot
+    /// quietly take the other with it.
+    ///
+    /// Declared LAST, which is what hands it ⌘5: `allCases` is the bar's order and the chords are
+    /// positional (`AppChord.workspace(_:)`, bounded at nine).
+    case editor = "Editor"
 
     var id: String { rawValue }
 
@@ -58,9 +78,12 @@ enum Workspace: String, CaseIterable, Identifiable {
     ///
     /// Still `switch`ed with no `default:`. A workspace added later should be a decision here, not
     /// an inheritance.
+    /// Editor answers **true** and needs it more than any of them: the sidebar's selected folder is
+    /// the only thing that says which folder's text files the rail lists, so without it the editor
+    /// has no way to reach a second folder.
     var supportsFolderSidebar: Bool {
         switch self {
-        case .browse, .filing, .storage, .compare: return true
+        case .browse, .filing, .storage, .compare, .editor: return true
         }
     }
 
@@ -72,6 +95,14 @@ enum Workspace: String, CaseIterable, Identifiable {
         case .compare: return "Compare"
         case .filing: return "Organize"
         case .storage: return "Storage"
+        // **"Edit", and the menu-bar collision is the known cost.** The app has a top-level Edit
+        // menu holding the clipboard, so `View ▸ Edit` names a workspace a few pixels from an
+        // `Edit` that means something else entirely. That is a real ambiguity and it was the
+        // argument for "Editor" — overruled deliberately: the bar is a row of verbs a person
+        // picks, "Edit" is the one that matches the other four, and no other workspace pays a
+        // syllable to disambiguate itself from a menu. `HelpBookTests` still separates the two,
+        // because it matches on the `Edit ▸ ` PATH rather than on the bare word.
+        case .editor: return "Edit"
         }
     }
 
@@ -89,6 +120,11 @@ enum Workspace: String, CaseIterable, Identifiable {
         case .compare: return "arrow.left.arrow.right"
         case .filing: return "folder.badge.gearshape"
         case .storage: return "chart.pie"
+        // A sheet with a pencil on it: the one glyph in the bar that is about a file's CONTENTS
+        // rather than about files. 15×15 at 12pt medium, so it sits inside `glyphSide` (17) with a
+        // point to spare on both axes — checked, because a symbol wider than the frame is clipped
+        // rather than scaled and nothing but `theBarDrawsEverySegmentAtOneHeight` would notice.
+        case .editor: return "square.and.pencil"
         }
     }
 
@@ -101,7 +137,11 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// `WorkspaceLensKind` for its per-lens search grammars and scroll state.
     var lens: WorkspaceLensKind? {
         switch self {
-        case .browse, .compare: return nil
+        // Editor joins Browse and Compare here: it shows one open file, and a lens is a *proposal*
+        // about a tree. It has no right-hand slot at all, which is why it cannot ride the lens
+        // mounting path — `presentLensRail` and `bottomPaneView` both answer nothing for a
+        // lens-less workspace. See `ContentLayout.editorExpanded` / `.editorCollapsed`.
+        case .browse, .compare, .editor: return nil
         case .filing: return .filing
         case .storage: return .storage
         }

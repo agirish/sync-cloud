@@ -38,16 +38,31 @@ import AppKit
 
     // MARK: Defaults
 
-    @Test func testNothingStartsHidden() {
-        // The rule the flat bar is built on — the source browser is in the same place on every
-        // workspace — is only true on first use if the rail actually starts up. This changes what
-        // `Tidy` defaulted to (its rail started collapsed), deliberately: you could not reach a
-        // lens without the lens tabs, and picking one there opened the rail, so the collapsed
-        // default described a state almost nobody saw.
+    /// **Every workspace that shows files starts with its pane up — and Editor, which shows a
+    /// document, does not.**
+    ///
+    /// The rule the flat bar is built on — the source browser is in the same place on every
+    /// workspace — is only true on first use if the rail actually starts up. That changed what
+    /// `Tidy` defaulted to (its rail started collapsed), deliberately: you could not reach a lens
+    /// without the lens tabs, and picking one there opened the rail, so the collapsed default
+    /// described a state almost nobody saw.
+    ///
+    /// Editor is the one exception, and it is the opposite case: its pane exists for the session
+    /// where you must browse to a folder you have not kept or visited, while the ordinary session
+    /// opens a file from the rail and writes in it. Three columns between the window edge and the
+    /// text would be three things to look past every time. Listed by name rather than derived, so
+    /// that a workspace changing its mind about this is a decision somebody writes down.
+    @Test func onlyTheEditorStartsWithItsPaneCollapsed() {
+        let startCollapsed: Set<Workspace> = [.editor]
         for workspace in Workspace.allCases {
-            #expect(!TopPaneVisibility.defaultPanesHidden(for: workspace))
-            #expect(!TopPaneVisibility.panesHidden(for: workspace, override: nil))
+            let expected = startCollapsed.contains(workspace)
+            #expect(TopPaneVisibility.defaultPanesHidden(for: workspace) == expected,
+                    "\(workspace.title) starts \(expected ? "expanded" : "collapsed") — the opposite of the rule this test states")
+            #expect(TopPaneVisibility.panesHidden(for: workspace, override: nil) == expected)
         }
+        // The control: if this ever became "all of them" or "none of them", the loop above would
+        // still pass while saying nothing.
+        #expect(!startCollapsed.isEmpty && startCollapsed.count < Workspace.allCases.count)
     }
 
     @Test func testOverrideWinsOnEveryWorkspace() {
