@@ -57,4 +57,32 @@ import Testing
         #expect(text.contains("focusedRegion = nil"),
                 "the stepper keeps the previous pair's position, and ↓ resumes mid-file")
     }
+
+    /// **A verify in flight when the pair changes has to be orphaned by the reset itself.**
+    ///
+    /// The other two tokens look after themselves: `refreshRasters` and `refreshTextDiff` are taken
+    /// inside `.task(id:)`s keyed on the pair, so a new pair re-runs them and rotates them on the
+    /// way in. A verify is started by the READER, from a button, and nothing re-runs it — so
+    /// clearing `verify` left an in-flight hash whose token still matched, and its verdict landed
+    /// under the new pair's name. "These two are byte-for-byte identical right now" about two files
+    /// the surface is no longer showing is the worst sentence this pane can print.
+    @Test func aFreshPairOrphansAVerifyThatIsStillRunning() throws {
+        let text = try Self.source()
+        let reset = try #require(Self.pairResetBlock(text),
+                                 "the pair reset block moved — this check is reading the wrong code")
+        #expect(reset.contains("verifyToken = UUID()"),
+                "the reset clears the verdict but leaves the token, so a stale hash still lands")
+        // The premise, so this cannot pass because the reset stopped clearing things generally.
+        #expect(reset.contains("verify = .idle"))
+    }
+
+    /// The reset block's text, from the marker that opens it to the end of the `.task`. Isolated
+    /// rather than searched for in the whole file: `verifyToken = UUID()` also appears where the
+    /// state is declared, and a whole-file `contains` would pass on that alone.
+    private static func pairResetBlock(_ text: String) -> String? {
+        guard let start = text.range(of: "**A fresh pair inherits nothing.**"),
+              let end = text.range(of: "if !modes.contains(mode)", range: start.upperBound..<text.endIndex)
+        else { return nil }
+        return String(text[start.upperBound..<end.lowerBound])
+    }
 }

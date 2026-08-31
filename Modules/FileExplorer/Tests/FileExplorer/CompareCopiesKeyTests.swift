@@ -194,4 +194,44 @@ import Testing
         sendEscape(window)
         #expect(recorder.closes == 1)
     }
+
+    // MARK: The Differences overlay, before its stat lands
+
+    /// **esc, while the surface is still nothing but a spinner.**
+    ///
+    /// The pair view owns every key this surface answers and is not mounted until both sides have
+    /// been statted — and that stat is off the main actor precisely because a dead SMB or unmounted
+    /// cloud volume can block it indefinitely. So the one moment the reader most wants out was the
+    /// one moment esc did nothing. The fix mounts a focusable placeholder carrying its own handler;
+    /// this is what says that handler is reachable, focused, and wired to the close.
+    ///
+    /// The stat here never answers, which IS the state under test rather than a slow stand-in.
+    @Test func escapeClosesTheDifferencesOverlayWhileTheStatIsStillBlocking() async throws {
+        let recorder = Recorder()
+        let difference = FileDifference(relativePath: "Reports/Q3.pdf",
+                                        leftItemPath: "/L/Reports/Q3.pdf",
+                                        rightItemPath: "/R/Reports/Q3.pdf",
+                                        type: .differentDates, action: .copyToRight,
+                                        description: "differs", enclosedItemCount: nil)
+        // Built out here, not inside the closure: the closure is `@Sendable` and these come from a
+        // main-actor helper. They are values, so capturing them is free.
+        let left = copy("/L/Reports/Q3.pdf", keeper: true)
+        let right = copy("/R/Reports/Q3.pdf")
+        let pair = try #require(DifferencesPairCompare.pair(
+            for: difference,
+            paneNames: PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")))
+        let overlay = DifferencesPairCompareOverlay(
+            pair: pair, hue: .blue,
+            onClose: { recorder.closes += 1 },
+            copies: { _ in
+                try? await Task.sleep(nanoseconds: .max)   // a mount that will not answer
+                return (left: left, right: right)          // never reached; the closure must type
+            })
+        let window = host(overlay)
+        guard await waitForFocus(in: window) else { return }
+
+        sendEscape(window)
+
+        #expect(recorder.closes == 1, "esc did nothing while the surface waited on its stat")
+    }
 }

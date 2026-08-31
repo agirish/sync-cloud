@@ -428,6 +428,14 @@ struct FilePairCompareView<Verdict: View>: View {
             textNotes = []
             focusedRegion = nil
             verify = .idle
+            // **Rotated, not just cleared — the one token the pair change has to move itself.**
+            // `rasterToken` and `textDiffToken` are taken inside `.task(id:)`s keyed on the pair, so
+            // a new pair re-runs them and they rotate on their own. A verify is started by the
+            // READER, from a button, and nothing re-runs it here: clearing `verify` alone left an
+            // in-flight hash whose token still matched, so it landed its verdict — about the
+            // previous pair's two files — under the new pair's name, on the surface whose whole
+            // claim is that it is telling you about these two.
+            verifyToken = UUID()
             rasters = (nil, nil)
             pageComparison = PageComparison()
             renderOutcome = .rendering
