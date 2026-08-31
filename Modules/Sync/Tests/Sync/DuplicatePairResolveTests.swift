@@ -363,4 +363,124 @@ import Events
         #expect(manager.duplicateGroups.isEmpty, "the group went on listing a file that is gone")
         #expect(manager.banner?.message.contains("already gone") == true)
     }
+
+    // MARK: Protected copies
+
+    /// A copy that may never be offered for removal, refused by the ENGINE rather than by the
+    /// surface that happens to be driving it.
+    ///
+    /// **The surface disabling its button was the whole protection, and the verb is `public`.**
+    /// `recommendedRemovalPaths` filters these copies out of every batch, and the Compare surface
+    /// greys its trash button for one — but neither is a rule the engine kept, so any other caller,
+    /// or the same one a release later, could trash a file out of a folder another group is
+    /// keeping. The bytes survive in the pair's keeper; the kept folder's snapshot does not, and
+    /// every later resolve of THAT group then refuses as drifted.
+    @MainActor
+    @Test func aProtectedCopyIsRefusedByTheEngineNotJustTheButton() async throws {
+        let fm = MockFileManager()
+        let manager = makeManager(fm)
+        fm.virtualDisk["/a/x"] = stub()
+        fm.virtualDisk["/kept/x"] = stub()
+        let keeper = copy("/a/x", keeper: true)
+        let other = DuplicateCopy(id: "/kept/x", name: "x", isDirectory: false, size: 1000,
+                                  itemCount: 1, modificationDate: Self.scanned, uniqueItemCount: 0,
+                                  depth: 1, isRecommendedKeeper: false,
+                                  isProtectedFromRemoval: true)
+        manager.duplicateGroups = [group([keeper, other])]
+
+        #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
+        #expect(fm.virtualDisk["/kept/x"] != nil, "a protected copy was trashed")
+        #expect(manager.banner?.message.contains("another duplicate group is keeping") == true,
+                "the refusal did not say why: \(manager.banner?.message ?? "no banner")")
+    }
+
+    /// The positive control the case above needs. The same shape with the flag cleared really does
+    /// remove the copy — so the refusal is the protection, not the fixture failing to line up.
+    @MainActor
+    @Test func theSamePairWithoutTheFlagIsRemoved() async throws {
+        let fm = MockFileManager()
+        let manager = makeManager(fm)
+        fm.virtualDisk["/a/x"] = stub()
+        fm.virtualDisk["/kept/x"] = stub()
+        let keeper = copy("/a/x", keeper: true)
+        let other = copy("/kept/x", keeper: false)
+        manager.duplicateGroups = [group([keeper, other])]
+
+        #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == true)
+        #expect(fm.virtualDisk["/kept/x"] == nil)
+    }
+
+    /// **Protection read from the LIVE group, not from the caller's value.** This is the window the
+    /// gate exists for: the surface opened on a copy that was removable, a rescan then kept the
+    /// folder it sits in, and the caller is still holding the value from before that scan. Asking
+    /// the passed-in copy would answer about results that have moved on — and would trash it.
+    @MainActor
+    @Test func protectionAcquiredInARescanStillRefuses() async throws {
+        let fm = MockFileManager()
+        let manager = makeManager(fm)
+        fm.virtualDisk["/a/x"] = stub()
+        fm.virtualDisk["/kept/x"] = stub()
+        let keeper = copy("/a/x", keeper: true)
+        let unprotected = copy("/kept/x", keeper: false)          // what the surface holds
+        let protectedNow = DuplicateCopy(id: "/kept/x", name: "x", isDirectory: false, size: 1000,
+                                         itemCount: 1, modificationDate: Self.scanned,
+                                         uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false,
+                                         isProtectedFromRemoval: true)
+        manager.duplicateGroups = [group([keeper, protectedNow])] // what the rescan produced
+
+        #expect(await manager.resolveDuplicateCopy(unprotected, keeper: keeper) == false,
+                "the caller's stale value decided it, not the current results")
+        #expect(fm.virtualDisk["/kept/x"] != nil)
+    }
+
+    /// And the same, arriving inside the permanent-delete dialog — the gate re-runs the assessment
+    /// at the moment of removal, so protection acquired while the user was reading the alert is
+    /// caught by the same check.
+    @MainActor
+    @Test func protectionAcquiredInsideTheDialogIsRefusedByTheGate() async throws {
+        let fm = MockFileManager()
+        fm.shouldFailTrash = true            // no Trash on this volume: the dialog is reached
+        let manager = makeManager(fm)
+        fm.virtualDisk["/a/x"] = stub()
+        fm.virtualDisk["/kept/x"] = stub()
+        let keeper = copy("/a/x", keeper: true)
+        let other = copy("/kept/x", keeper: false)
+        manager.duplicateGroups = [group([keeper, other])]
+        manager.permanentDeleteConfirmer = { [weak manager] _ in
+            // While the alert is up, a rescan lands and keeps the folder this copy sits in.
+            let protectedNow = DuplicateCopy(id: "/kept/x", name: "x", isDirectory: false,
+                                             size: 1000, itemCount: 1, modificationDate: Self.scanned,
+                                             uniqueItemCount: 0, depth: 1, isRecommendedKeeper: false,
+                                             isProtectedFromRemoval: true)
+            manager?.duplicateGroups = [DuplicateGroup(matchType: .identical, name: "x",
+                                                       isDirectory: false,
+                                                       copies: [keeper, protectedNow],
+                                                       reclaimableBytes: 1000)]
+            return true
+        }
+
+        #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
+        #expect(fm.virtualDisk["/kept/x"] != nil,
+                "the gate destroyed a copy that became protected while the alert was open")
+    }
+
+    /// A protected copy that is also already GONE is reported as gone, not as protected: there is
+    /// nothing left to protect, and the vanished path is what takes it out of the list. Pins the
+    /// order of the two checks, which is otherwise invisible.
+    @MainActor
+    @Test func aVanishedProtectedCopyIsStillReportedAsVanished() async throws {
+        let fm = MockFileManager()
+        let manager = makeManager(fm)
+        fm.virtualDisk["/a/x"] = stub()      // "/kept/x" is already gone
+        let keeper = copy("/a/x", keeper: true)
+        let other = DuplicateCopy(id: "/kept/x", name: "x", isDirectory: false, size: 1000,
+                                  itemCount: 1, modificationDate: Self.scanned, uniqueItemCount: 0,
+                                  depth: 1, isRecommendedKeeper: false,
+                                  isProtectedFromRemoval: true)
+        manager.duplicateGroups = [group([keeper, other])]
+
+        #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
+        #expect(manager.banner?.message.contains("already gone") == true,
+                "reported \(manager.banner?.message ?? "no banner") for a file that does not exist")
+    }
 }

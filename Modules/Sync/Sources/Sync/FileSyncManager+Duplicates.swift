@@ -960,6 +960,11 @@ extension FileSyncManager {
         /// The copy is already off the disk. Not drift, and not a refusal: there is nothing to
         /// trash and nothing was lost.
         case copyVanished
+        /// The copy lives inside a folder another group is KEEPING, so no removal may offer it —
+        /// see ``DuplicateCopy/isProtectedFromRemoval``. Not a safety failure like drift: the file
+        /// is exactly what the scan saw, and removing it would still undo a decision made
+        /// elsewhere in the same results.
+        case copyProtected
     }
 
     /// The whole verdict for ONE pair, in the order the group resolve asks it: is there still a
@@ -974,7 +979,7 @@ extension FileSyncManager {
     /// Fail-closed on a missing group: "the scan moved on" and "verified against the current
     /// results" must not be the same outcome.
     func assessDuplicatePair(copy: DuplicateCopy, keeper: DuplicateCopy) async -> DuplicatePairVerdict {
-        guard liveGroup(holding: copy.path, and: keeper.path) != nil else { return .noLiveGroup }
+        guard let live = liveGroup(holding: copy.path, and: keeper.path) else { return .noLiveGroup }
         // Spelled out rather than folded into a `guard`'s `&&`: an `await` may not appear in the
         // autoclosure operand of a short-circuiting operator.
         var keeperHolds = copyStillExists(keeper)
@@ -988,6 +993,17 @@ extension FileSyncManager {
         // and the one the Compare review draws with `.deleteVanished`. `copyDriftedInPlace`
         // answers false for a path that is simply gone, so this has to be asked separately.
         guard fileManager.fileExists(atPath: copy.path) else { return .copyVanished }
+        // **Read from the LIVE group, not from the caller's snapshot** — which is the whole reason
+        // this sits in the assessment rather than beside it in the surface. Protection is a fact
+        // about the current results: a rescan can make a copy protected by keeping the folder it
+        // sits in, and the caller is holding a value from before that scan. Asking the passed-in
+        // copy would answer about a grouping that has moved on.
+        //
+        // After the disk questions that can say "there is nothing to do here", and before the
+        // copy's own drift measurement, which this refusal makes pointless.
+        if live.copies.first(where: { $0.path == copy.path })?.isProtectedFromRemoval == true {
+            return .copyProtected
+        }
         var copyHolds = !copyDriftedInPlace(copy)
         if copyHolds, copy.isDirectory { copyHolds = !(await folderDriftedInPlace(copy)) }
         guard copyHolds else {
@@ -1034,6 +1050,9 @@ extension FileSyncManager {
         case .copyDrifted(missingBaseline: false):
             banner = .warning("“\(copy.name)” changed since it was scanned — it may no longer be a copy. Rescan before trashing it.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — it changed after the scan, so it is no longer provably a duplicate")
+        case .copyProtected:
+            banner = .warning("“\(copy.name)” sits inside a folder another duplicate group is keeping — removing it here would undo that. Resolve that group first.")
+            Logger.shared.warning("Duplicates: refused to trash \(copy.path) — it is inside a folder another group is keeping, which the recommended removal also excludes")
         }
     }
 
@@ -1054,7 +1073,7 @@ extension FileSyncManager {
             switch verdict {
             case .matches, .copyVanished:
                 return []
-            case .noLiveGroup, .keeperDrifted, .copyDrifted:
+            case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyProtected:
                 await self.reportPairRefusal(verdict, copy: copy, keeper: keeper)
                 // Refuse what the gate was ASKED about, in the caller's own spelling: the
                 // post-confirmation pass is fed URL round-tripped paths, and a refusal that
@@ -1089,7 +1108,7 @@ extension FileSyncManager {
         }
         let verdict = await assessDuplicatePair(copy: copy, keeper: keeper)
         switch verdict {
-        case .noLiveGroup, .keeperDrifted, .copyDrifted:
+        case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyProtected:
             reportPairRefusal(verdict, copy: copy, keeper: keeper)
             return false
         case .copyVanished:
