@@ -2059,3 +2059,75 @@ The two pure ones are the only genuinely independent pieces, and worth naming as
 wanting a text diff for its own reasons could take `BoundedTextRead` and `TextPairDiff` alone —
 they import only `Foundation` and `Sync`'s `FileSyncManager.formatBytes` and
 `MaterializationStatus`, both of which every line carries.
+
+---
+
+## 2026-08-30 — the Trash-refusal family, and the third attempt (`4e94ddfe`, `14bc6bc3`, `91fa7d18`, `77e2bba6`)
+
+**RECORDED — not owed**, and the whole family is absent from all three lines, not just the last
+commit. `main` now answers `NSCocoaErrorDomain 513` from `trashItem` with a diagnosis, a named
+path, a log line carrying the codes, and **three** attempts to move the item; every maintenance
+line still answers it with Foundation's sentence and one attempt.
+
+**What this is actually about, because the first two commits' rationale was wrong.** The refusal
+was diagnosed as a missing Full Disk Access grant and the alert said so. It is not a permission
+problem at all. Measured 2026-08-30 on `~/Documents` — iCloud-synced, so the Trash for these items
+is `~/Library/Mobile Documents/.Trash`:
+
+- **12 of 12** long-standing files were refused by `FileManager.trashItem` **and** by
+  `NSWorkspace.recycle`. Both. The out-of-process fallback hits the same wall.
+- The items are user-owned, mode `700`, no `chflags`, no deny ACL, writable parent, fully
+  materialised (`stat -f %b` > 0, not evicted placeholders), and `access(2)` grants every
+  permission the move needs.
+- An **ad-hoc-signed `.app` bundle holding no privacy grants at all** creates and trashes files in
+  the very folder that refuses them — so it is not TCC, and not the app's signing identity.
+- A plain `rename(2)` of the same item into that same Trash directory **succeeds**.
+
+So the denial lives in the Trash layer the two APIs share, over a stale file-provider record for
+items registered long ago. Moving the item re-registers it, after which the ordinary `trashItem`
+succeeds — which is what `trashAfterReregistering` does, and why it is ordered last: it is the only
+one of the three attempts that touches the item.
+
+**Where each line stands, checked rather than assumed.** Positive control first — every line
+carries the file, so an absence below is the shape missing, not the path mis-spelled:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/FileOperations.swift
+done          # all four print the path
+for l in main v4.x v3.x v2.x; do
+  git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift |
+    grep -c 'isPermissionRefusal'                       # main 4; v4.x, v3.x, v2.x all 0
+done
+```
+
+| Line | `isPermissionRefusal` | `trashViaWorkspace` | `trashNotPermitted` | `trashAfterReregistering` | Status |
+|---|---|---|---|---|---|
+| `v4.x` | 0 | 0 | 0 | 0 | RECORDED — not owed |
+| `v3.x` | 0 | 0 | 0 | 0 | RECORDED — not owed |
+| `v2.x` | 0 | 0 | 0 | 0 | RECORDED — not owed |
+
+**The pick splits into three parts, and only the last one is self-contained.**
+
+| Part | Needs | Note for a line taking it |
+|---|---|---|
+| `isPermissionRefusal` + `trashFailureDiagnosis` | nothing — both are pure `NSError` walks | Portable as-is. The chain walk is the point: Foundation wraps the POSIX cause, and the codes are what tell a TCC denial from a deny-delete ACL. |
+| `SyncError.trashNotPermitted` + the alert | `SyncError` (all lines carry it) | **Do not port the earlier wording.** `4e94ddfe`/`14bc6bc3` sent the reader to System Settings for a grant that was measured not to help. Only `77e2bba6`'s text is true. |
+| `trashAfterReregistering` | `FileManaging.moveItem` + `trashItem` — both present on every line | The genuinely independent piece: pure Foundation, no AppKit, no `DeleteOutcome`. |
+
+**`trashViaWorkspace` is the one to think twice about.** It is a seam wired from the app
+(`MacApp/SyncCloudApp.swift`) because `NSWorkspace` is AppKit and `LayeringPinTests` forbids Sync
+importing it. On the evidence above it also *does not fix the reported case* — `recycle` refused all
+12 files. A line taking only `trashAfterReregistering` and skipping the workspace seam would get the
+measured benefit without the AppKit boundary problem, and that is the recommended shape.
+
+**And a note for whoever ports the tests.** `MockFileManager.trashErrorOnce` clears on the first
+throw, so it cannot express "every attempt denied" — a retry then passes merely because the injected
+failure ran out. `main` added `trashErrorAlways` and `trashRefusedUntilMovedIn` for exactly that, and
+without them the re-registration test cannot fail. Two existing tests on `main` had to be rewritten
+onto `trashErrorAlways` when the third attempt landed; a line porting this will hit the same two.
+
+**`v3.x` caveat, as everywhere in this file:** it has none of the `DeleteOutcome` family (item 1),
+so `deleteItems` there still answers an `Int` and cannot report trashed-vs-destroyed. The refusal
+family above does not depend on `DeleteOutcome` and would apply on its own — but the ⌘Z promise the
+alert implies is still one that line cannot keep on a Trash-less volume.
