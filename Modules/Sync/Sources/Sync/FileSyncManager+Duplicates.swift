@@ -960,6 +960,12 @@ extension FileSyncManager {
         /// The copy is already off the disk. Not drift, and not a refusal: there is nothing to
         /// trash and nothing was lost.
         case copyVanished
+        /// The pair names a `keeper` the live group is NOT keeping — a three-copy group compared
+        /// pairwise, where the group keeps the third copy. Not drift and not staleness: both
+        /// paths are in a current group and both are exactly what the scan saw. What is wrong is
+        /// the CLAIM — the removal would be verified against a keeper this group does not have,
+        /// and reported to the user as "keeping" a copy the rest of the app is not.
+        case keeperNotKept(groupKeeperName: String)
         /// The copy lives inside a folder another group is KEEPING, so no removal may offer it —
         /// see ``DuplicateCopy/isProtectedFromRemoval``. Not a safety failure like drift: the file
         /// is exactly what the scan saw, and removing it would still undo a decision made
@@ -967,8 +973,9 @@ extension FileSyncManager {
         case copyProtected
     }
 
-    /// The whole verdict for ONE pair, in the order the group resolve asks it: is there still a
-    /// live grouping for these two paths, is the keeper intact, has the copy drifted.
+    /// The whole verdict for ONE pair: is there still a live grouping for these two paths, is
+    /// there anything left to trash, may it be trashed, has it drifted — and last of all, is the
+    /// keeper still what the scan measured.
     ///
     /// **The live-group lookup is by PATH, never by group id.** `DuplicateGroup.id` is a fresh
     /// `UUID` on every scan — the rescan replaces `duplicateGroups` wholesale — so a surface that
@@ -978,36 +985,59 @@ extension FileSyncManager {
     ///
     /// Fail-closed on a missing group: "the scan moved on" and "verified against the current
     /// results" must not be the same outcome.
+    ///
+    /// **The keeper is measured LAST, and that ordering is the point** — the rule
+    /// ``driftedFolderInGroup`` states and the group path already follows. A folder walk is real
+    /// time (~0.7 s per 40k nodes), and a verdict ages from the moment it is formed: asked first,
+    /// the keeper's "unchanged" answer was staled by the copy's own walk, so an edit landing in
+    /// the keeper during those seconds was never seen and the copy was trashed against a keeper
+    /// that no longer held the scanned content. Walking the copy being KEPT last leaves its
+    /// verdict the freshest one at the moment `deleteItems` acts on it.
+    ///
+    /// **The cheap disk question comes first, before either walk.** A copy that is simply gone has
+    /// nothing to trash and nothing to lose, whatever the keeper's state — and asked after the
+    /// keeper, that case could be reported as `keeperDrifted`, sending the reader to rescan over a
+    /// file that had already left the disk.
     func assessDuplicatePair(copy: DuplicateCopy, keeper: DuplicateCopy) async -> DuplicatePairVerdict {
         guard let live = liveGroup(holding: copy.path, and: keeper.path) else { return .noLiveGroup }
-        // Spelled out rather than folded into a `guard`'s `&&`: an `await` may not appear in the
-        // autoclosure operand of a short-circuiting operator.
-        var keeperHolds = copyStillExists(keeper)
-        if keeperHolds, keeper.isDirectory { keeperHolds = !(await folderDriftedInPlace(keeper)) }
-        guard keeperHolds else {
-            return .keeperDrifted(missingBaseline:
-                fileManager.fileExists(atPath: keeper.path)
-                    && keeper.isDirectory && keeper.contentSnapshot == nil)
-        }
         // **A vanished copy is not drift** — the same distinction `dropFullyRemovedGroups` draws,
         // and the one the Compare review draws with `.deleteVanished`. `copyDriftedInPlace`
         // answers false for a path that is simply gone, so this has to be asked separately.
         guard fileManager.fileExists(atPath: copy.path) else { return .copyVanished }
+        // **The keeper has to be the one the GROUP is keeping, and nothing checked that.** The
+        // live-group lookup above asks only that both paths are in one group, which a group's
+        // second and third copies satisfy while it keeps the first. The surface no longer offers
+        // that pair a verdict (`PairKeeperStanding`), but this verb is `public` and a disabled
+        // button is not a rule — the same argument that moved `copyProtected` in here. Refused
+        // rather than silently redirected to the real keeper: the caller asked to keep a specific
+        // copy, and quietly acting on a different one is worse than not acting.
+        guard live.keeper.path == keeper.path else {
+            return .keeperNotKept(groupKeeperName: live.keeper.name)
+        }
         // **Read from the LIVE group, not from the caller's snapshot** — which is the whole reason
         // this sits in the assessment rather than beside it in the surface. Protection is a fact
         // about the current results: a rescan can make a copy protected by keeping the folder it
         // sits in, and the caller is holding a value from before that scan. Asking the passed-in
         // copy would answer about a grouping that has moved on.
         //
-        // After the disk questions that can say "there is nothing to do here", and before the
-        // copy's own drift measurement, which this refusal makes pointless.
+        // After the disk question that can say "there is nothing to do here", and before either
+        // drift measurement, which this refusal makes pointless.
         if live.copies.first(where: { $0.path == copy.path })?.isProtectedFromRemoval == true {
             return .copyProtected
         }
+        // Spelled out rather than folded into a `guard`'s `&&`: an `await` may not appear in the
+        // autoclosure operand of a short-circuiting operator.
         var copyHolds = !copyDriftedInPlace(copy)
         if copyHolds, copy.isDirectory { copyHolds = !(await folderDriftedInPlace(copy)) }
         guard copyHolds else {
             return .copyDrifted(missingBaseline: copy.isDirectory && copy.contentSnapshot == nil)
+        }
+        var keeperHolds = copyStillExists(keeper)
+        if keeperHolds, keeper.isDirectory { keeperHolds = !(await folderDriftedInPlace(keeper)) }
+        guard keeperHolds else {
+            return .keeperDrifted(missingBaseline:
+                fileManager.fileExists(atPath: keeper.path)
+                    && keeper.isDirectory && keeper.contentSnapshot == nil)
         }
         return .matches
     }
@@ -1050,6 +1080,9 @@ extension FileSyncManager {
         case .copyDrifted(missingBaseline: false):
             banner = .warning("“\(copy.name)” changed since it was scanned — it may no longer be a copy. Rescan before trashing it.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — it changed after the scan, so it is no longer provably a duplicate")
+        case .keeperNotKept(let groupKeeperName):
+            banner = .warning("This group is keeping “\(groupKeeperName)”, not “\(keeper.name)” — so “\(copy.name)” can't be trashed against it here. Compare against the copy being kept, or resolve the whole group.")
+            Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the removal named \(keeper.path) as the keeper, but the live group keeps a different copy, so nothing here was verified against the copy this group is actually keeping")
         case .copyProtected:
             banner = .warning("“\(copy.name)” sits inside a folder another duplicate group is keeping — removing it here would undo that. Resolve that group first.")
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — it is inside a folder another group is keeping, which the recommended removal also excludes")
@@ -1073,7 +1106,7 @@ extension FileSyncManager {
             switch verdict {
             case .matches, .copyVanished:
                 return []
-            case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyProtected:
+            case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyProtected, .keeperNotKept:
                 await self.reportPairRefusal(verdict, copy: copy, keeper: keeper)
                 // Refuse what the gate was ASKED about, in the caller's own spelling: the
                 // post-confirmation pass is fed URL round-tripped paths, and a refusal that
@@ -1108,7 +1141,7 @@ extension FileSyncManager {
         }
         let verdict = await assessDuplicatePair(copy: copy, keeper: keeper)
         switch verdict {
-        case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyProtected:
+        case .noLiveGroup, .keeperDrifted, .copyDrifted, .copyProtected, .keeperNotKept:
             reportPairRefusal(verdict, copy: copy, keeper: keeper)
             return false
         case .copyVanished:

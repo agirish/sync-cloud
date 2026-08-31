@@ -54,6 +54,105 @@ import Events
         await loggedLineOnDisk(containing: fragment)
     }
 
+    // MARK: The order the verdict asks its questions in
+
+    /// **A copy that is already gone is not a drifted keeper.** The assessment used to walk the
+    /// keeper before asking whether there was anything left to trash, so a copy the user had
+    /// already removed elsewhere — with a keeper that had also moved on — came back as
+    /// `keeperDrifted`: a warning banner sending the reader to rescan before trashing a file that
+    /// left the disk some time ago. There is nothing to trash and nothing was lost, and that is
+    /// what the surface has to say.
+    @MainActor
+    @Test func aVanishedCopyIsNotBlamedOnTheKeeper() async throws {
+        let fm = MockFileManager()
+        let manager = makeManager(fm)
+        // The keeper is on disk but rewritten since the scan — drift, on its own enough to refuse.
+        fm.virtualDisk["/a/x"] = stub(size: 4000)
+        // ...and the copy is simply gone.
+        let keeper = copy("/a/x", keeper: true)
+        let other = copy("/b/x", keeper: false)
+        manager.duplicateGroups = [group([keeper, other])]
+
+        #expect(await manager.assessDuplicatePair(copy: other, keeper: keeper) == .copyVanished,
+                "a copy that had already left the disk was reported as a problem with the keeper")
+        #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
+        let message = try #require(manager.banner?.message)
+        #expect(message.contains("already gone"))
+        #expect(!message.contains("no longer what the scan saw"),
+                "the reader was sent to rescan over a file that is not there to rescan")
+    }
+
+    /// **The keeper's folder is walked LAST**, the rule ``driftedFolderInGroup`` states and the
+    /// group resolve already follows. A walk is real time — ~0.7 s per 40k nodes — and a verdict
+    /// ages from the moment it is formed: asked first, the keeper's "unchanged" answer was stale
+    /// by the time the copy's own walk finished, so an edit landing in the keeper during those
+    /// seconds was never seen and the copy was trashed against a keeper that no longer held the
+    /// scanned content.
+    ///
+    /// Driven through the walk itself rather than through the verdict, because the verdict is the
+    /// same either way — the ORDER is the whole finding, and only the enumerations show it.
+    @MainActor
+    @Test func theKeepersFolderIsWalkedAfterTheCopys() async throws {
+        let fm = MockFileManager()
+        let manager = makeManager(fm)
+        fm.virtualDisk["/a/d"] = MockFileManager.FileStub(isDirectory: true, attributes: nil,
+                                                          contents: [])
+        fm.virtualDisk["/b/d"] = MockFileManager.FileStub(isDirectory: true, attributes: nil,
+                                                          contents: [])
+        let walked = Recorder()
+        fm.onEnumerate = { url in walked.append(url.path) }
+        let empty = FolderContentSnapshot(entries: [:], ignoredNames: [])
+        let keeper = copy("/a/d", keeper: true, isDirectory: true, snapshot: empty)
+        let other = copy("/b/d", keeper: false, isDirectory: true, snapshot: empty)
+        manager.duplicateGroups = [group([keeper, other])]
+
+        #expect(await manager.assessDuplicatePair(copy: other, keeper: keeper) == .matches,
+                "the fixture itself refuses, so the order below would prove nothing")
+        let order = walked.paths
+        let copyWalk = try #require(order.firstIndex(of: "/b/d"), "the copy was never walked")
+        let keeperWalk = try #require(order.firstIndex(of: "/a/d"), "the keeper was never walked")
+        #expect(copyWalk < keeperWalk,
+                "the keeper was measured first, so its verdict aged behind the copy's walk")
+    }
+
+    /// **A keeper the group is not keeping is refused in the ENGINE, not only in the button.**
+    ///
+    /// Open a three-copy group's second and third copies against each other and both are in one
+    /// live group while the group keeps the FIRST — so the live-group lookup, which asks only that
+    /// both paths are grouped together, waves it through. The Compare surface no longer offers
+    /// that pair a verdict, but this verb is `public` and a disabled control is not a rule: the
+    /// removal would be verified against a keeper the group does not have and reported to the user
+    /// as "keeping" a copy the rest of the app is not. The same argument that put the protection
+    /// check in here.
+    ///
+    /// The refusal has to name the copy that IS being kept, or the reader cannot act on it.
+    @MainActor
+    @Test func aKeeperTheGroupIsNotKeepingIsRefused() async throws {
+        let fm = MockFileManager()
+        let manager = makeManager(fm)
+        fm.virtualDisk["/a/x"] = stub()
+        fm.virtualDisk["/b/x"] = stub()
+        fm.virtualDisk["/c/x"] = stub()
+        let kept = copy("/a/x", keeper: true)
+        let b = copy("/b/x", keeper: false)
+        let c = copy("/c/x", keeper: false)
+        manager.duplicateGroups = [group([kept, b, c])]
+
+        #expect(await manager.assessDuplicatePair(copy: c, keeper: b)
+                    == .keeperNotKept(groupKeeperName: "x"),
+                "a pair naming a non-keeper as the keeper was verified as if it were one")
+        #expect(await manager.resolveDuplicateCopy(c, keeper: b) == false)
+        #expect(fm.virtualDisk["/c/x"] != nil, "the copy was trashed against a keeper the group does not have")
+        let message = try #require(manager.banner?.message)
+        #expect(message.contains("is keeping"), "the refusal did not say which copy is being kept")
+        #expect(await loggedLine(containing: "refused to trash /c/x") != nil,
+                "a refusal he can see on screen must also be in the log he audits")
+
+        // The positive control: the SAME group, and the pair that does name its keeper resolves.
+        #expect(await manager.assessDuplicatePair(copy: c, keeper: kept) == .matches,
+                "the fixture refuses everything, so the refusal above proves nothing")
+    }
+
     // MARK: Refusals
 
     /// **The stale-scan case, and the reason the payload never carries a group UUID.** A rescan
@@ -482,5 +581,20 @@ import Events
         #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
         #expect(manager.banner?.message.contains("already gone") == true,
                 "reported \(manager.banner?.message ?? "no banner") for a file that does not exist")
+    }
+}
+
+/// Order-recording box for the walk-order test — the mock's `onEnumerate` fires off the main
+/// actor, so the array needs its own lock rather than the suite's isolation.
+private final class Recorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+    func append(_ path: String) {
+        lock.lock(); defer { lock.unlock() }
+        storage.append(path)
+    }
+    var paths: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return storage
     }
 }
