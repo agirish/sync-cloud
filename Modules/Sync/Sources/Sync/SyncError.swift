@@ -164,17 +164,25 @@ extension SyncError {
     ///
     /// Not retryable: pressing the same button again cannot change a permission.
     ///
-    /// **What this message may NOT say.** An earlier version told the reader to grant Full Disk
-    /// Access, as though that were the fix. It was measured and it is not — and the measurement
-    /// since went further: an ad-hoc-signed app bundle holding NO privacy grants at all creates
-    /// and trashes files in the very folder that refuses these items, and `access(2)` grants
-    /// every permission the move needs. The refusal is not a missing grant, so this no longer
-    /// sends anyone to System Settings to change a setting that will not help.
+    /// **What this message may NOT say, and the trap is symmetric.** An earlier version told the
+    /// reader to grant Full Disk Access as though that were the fix; it was granted and the refusal
+    /// stood, and an ad-hoc-signed bundle holding no grants at all was later measured trashing
+    /// files in the same folder. So Full Disk Access is gone from the text.
     ///
-    /// By the time a reader sees this, all three attempts have been refused: in-process, the
-    /// system's Trash service, and the retry after re-registering the item with a move in place
-    /// (see `trashAfterReregistering`). That is worth saying plainly, because the remaining
-    /// honest advice is to move the item in Finder — measured to work on exactly these files.
+    /// The replacement then made the opposite mistake — it asserted the cause, telling every reader
+    /// "this is not a missing privacy grant: the same folder accepts other items, and the file's
+    /// own permissions allow the move". That was measured on ONE condition, and this error is
+    /// raised for EVERY permission refusal: a root-owned folder, a deny-delete ACL, a read-only
+    /// mount. On those the sentence is simply false, and it talks the reader out of the check that
+    /// would have helped. A message may state what the app tried and what it observed; the cause
+    /// is the log's job.
+    ///
+    /// What is honest by the time a reader sees this: all three attempts were refused — in-process,
+    /// the system's Trash service, and the retry after re-registering the item with a move in place
+    /// (see `trashAfterReregistering`) — and nothing was removed. And the refusal has been measured
+    /// CLEARING ON ITS OWN (12 of 12 items refused at 19:26, 24 of 24 trashable at 20:30), so
+    /// "try again later" is real advice here rather than a platitude, even though an immediate
+    /// retry is not — which is why `isRetryable` stays false and no Retry button is offered.
     public static func trashNotPermitted(path: String, reason: String) -> SyncError {
         SyncError(
             title: "Not Allowed to Move to the Trash",
@@ -182,11 +190,40 @@ extension SyncError {
                 + "— directly, through the system's own Trash service, and again after moving the "
                 + "item in place to re-register it. Nothing was removed and the file is "
                 + "untouched.\n\n"
-                + "This is not a missing privacy grant: the same folder accepts other items, and "
-                + "the file's own permissions allow the move. Moving it to the Trash in Finder "
-                + "still works. The exact refusal, with its error codes, is in ~/sync-cloud.log.",
+                + "This refusal has been seen to clear on its own, so trying again in a while may "
+                + "simply work; moving the item to the Trash in Finder is worth a try meanwhile. "
+                + "The exact refusal, with its error codes, is in ~/sync-cloud.log.",
             path: path,
             reason: reason,
+            isRetryable: false
+        )
+    }
+
+    /// The item was parked under a hidden sibling name to re-register it with the Trash, and could
+    /// not be moved back. Nothing was deleted; it is simply not where the user left it.
+    ///
+    /// **Its own case because the refusal's message would be a lie here.** That one says the file
+    /// is untouched at its own path, which is exactly what is no longer true — and someone told
+    /// "nothing was removed" goes looking in a folder where the file now sits under a dotted name
+    /// Finder hides by default. The path carried is the PARKED one, so Reveal in Finder lands on
+    /// the item rather than on a path that holds nothing.
+    ///
+    /// Not retryable: the delete did not fail for a reason a second press addresses, and the thing
+    /// that needs doing is a rename the user can see.
+    public static func trashParkedAndNotRestored(originalPath: String,
+                                                 parkedPath: String) -> SyncError {
+        let parkedName = (parkedPath as NSString).lastPathComponent
+        let originalName = (originalPath as NSString).lastPathComponent
+        return SyncError(
+            title: "Renamed, Not Deleted",
+            message: "To get past a Trash refusal, SyncCloud briefly renamed this item inside its "
+                + "own folder — and could not rename it back. Nothing was deleted and no content "
+                + "changed.\n\n"
+                + "It is still in the same folder, now named “\(parkedName)”. That name starts "
+                + "with a dot, so Finder hides it until you show hidden files. Renaming it back to "
+                + "“\(originalName)” restores it exactly. The details are in ~/sync-cloud.log.",
+            path: parkedPath,
+            reason: "was “\(originalName)”",
             isRetryable: false
         )
     }

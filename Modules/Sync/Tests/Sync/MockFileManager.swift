@@ -217,6 +217,12 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                 throw NSError(domain: NSPOSIXErrorDomain, code: Int(EXDEV), userInfo: nil)
             }
 
+            if failMoveToPathsOnce.contains(dstURL.path) {
+                failMoveToPathsOnce.remove(dstURL.path)
+                throw NSError(domain: NSCocoaErrorDomain,
+                              code: NSFileWriteNoPermissionError, userInfo: nil)
+            }
+
             if (shouldFailMoveOnTempRename || tempRenameFailuresRemaining > 0) && srcURL.path.contains(".tmp_") {
                 shouldFailMoveOnTempRename = false
                 if tempRenameFailuresRemaining > 0 { tempRenameFailuresRemaining -= 1 }
@@ -232,6 +238,12 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             movedInto.insert(dstURL.path)
         }
     }
+
+    /// Destination paths whose next `moveItem` throws a permission error (then clears). This is
+    /// the ONLY way to reach `trashAfterReregistering`'s strand branch: the park must succeed and
+    /// the move BACK must fail, and `shouldFailMove` cannot express that — it clears on its first
+    /// throw, so it always takes the park instead.
+    public var failMoveToPathsOnce: Set<String> = []
 
     /// When set, EVERY `trashItem` throws this error — unlike `trashErrorOnce`, which clears on
     /// the first throw. This is the "nothing can trash this" case, where all three attempts are

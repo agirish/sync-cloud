@@ -377,24 +377,32 @@ extension FileSyncManager {
             do {
                 try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
             } catch {
-                do {
-                    try fileManager.removeItem(at: sourceURL)
-                    // The one branch of a move that removes something unrecoverably. The data
-                    // survives at the destination, but the original is gone without a Trash stop,
-                    // so the log must say so — the delete path's equivalent already does.
-                    Task { @MainActor in
-                        Logger.shared.warning("Cross-volume move: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
+                // **Spend the re-registration retry before destroying anything.** The transient
+                // provider refusal measured on 2026-08-30 blocks this trash exactly as it blocks
+                // a delete — and unlike a delete, the fallback below is unrecoverable, so under
+                // that refusal a move would quietly become a permanent deletion of the original.
+                if !FileSyncManager.retriedSourceCleanupTrash(
+                    sourceURL, after: error, fileManager: fileManager,
+                    context: "Cross-volume move") {
+                    do {
+                        try fileManager.removeItem(at: sourceURL)
+                        // The one branch of a move that removes something unrecoverably. The data
+                        // survives at the destination, but the original is gone without a Trash stop,
+                        // so the log must say so — the delete path's equivalent already does.
+                        Task { @MainActor in
+                            Logger.shared.warning("Cross-volume move: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
+                        }
+                    } catch let cleanupError {
+                        // The move already landed, so the item at the destination is this operation's
+                        // own copy - removing it is a clean revert when the source can't be cleaned up.
+                        let reverted = (try? fileManager.removeItem(at: destinationURL)) != nil
+                        Task { @MainActor in
+                            Logger.shared.warning(reverted
+                                ? "Cross-volume move of \(sourceURL.path) failed at source cleanup — the copy at \(destinationURL.path) was removed to revert it"
+                                : "Cross-volume move of \(sourceURL.path) failed at source cleanup, and the copy at \(destinationURL.path) could not be removed — both copies remain")
+                        }
+                        throw cleanupError
                     }
-                } catch let cleanupError {
-                    // The move already landed, so the item at the destination is this operation's
-                    // own copy - removing it is a clean revert when the source can't be cleaned up.
-                    let reverted = (try? fileManager.removeItem(at: destinationURL)) != nil
-                    Task { @MainActor in
-                        Logger.shared.warning(reverted
-                            ? "Cross-volume move of \(sourceURL.path) failed at source cleanup — the copy at \(destinationURL.path) was removed to revert it"
-                            : "Cross-volume move of \(sourceURL.path) failed at source cleanup, and the copy at \(destinationURL.path) could not be removed — both copies remain")
-                    }
-                    throw cleanupError
                 }
             }
         }
@@ -499,23 +507,29 @@ extension FileSyncManager {
             do {
                 try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
             } catch {
-                do {
-                    try fileManager.removeItem(at: sourceURL)
-                    // Same unrecoverable removal as the plain cross-volume move above, and the
-                    // same obligation to say so.
-                    Task { @MainActor in
-                        Logger.shared.warning("Cross-volume replace: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
+                // Same retry, same reason, as the cross-volume move above: the fallback below is
+                // the unrecoverable one, so the re-registration attempt is spent first.
+                if !FileSyncManager.retriedSourceCleanupTrash(
+                    sourceURL, after: error, fileManager: fileManager,
+                    context: "Cross-volume replace") {
+                    do {
+                        try fileManager.removeItem(at: sourceURL)
+                        // Same unrecoverable removal as the plain cross-volume move above, and the
+                        // same obligation to say so.
+                        Task { @MainActor in
+                            Logger.shared.warning("Cross-volume replace: the original at \(sourceURL.path) could not be moved to the Trash and was permanently deleted — its content is at \(destinationURL.path)")
+                        }
+                    } catch let cleanupError {
+                        // Neither Trash nor remove worked, so this cross-volume move can't complete.
+                        // Undo the replace and fail — matching the dest-absent cross-volume path, and
+                        // avoiding a "moved" undo entry for a source still on disk.
+                        if let backupURL {
+                            revertReplace(destinationURL: destinationURL, from: backupURL, fileManager: fileManager)
+                        }
+                        throw cleanupError
                     }
-                } catch let cleanupError {
-                    // Neither Trash nor remove worked, so this cross-volume move can't complete.
-                    // Undo the replace and fail — matching the dest-absent cross-volume path, and
-                    // avoiding a "moved" undo entry for a source still on disk.
-                    if let backupURL {
-                        revertReplace(destinationURL: destinationURL, from: backupURL, fileManager: fileManager)
-                    }
-                    throw cleanupError
                 }
-            }
+                }
         }
 
         return finalizeBackup(backupURL, replacing: destinationURL, fileManager: fileManager)

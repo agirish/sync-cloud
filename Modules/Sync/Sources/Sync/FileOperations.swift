@@ -603,57 +603,130 @@ extension FileSyncManager {
         return false
     }
 
+    /// What `trashAfterReregistering` did. Three cases, because two of them are not "it failed"
+    /// and the caller has to tell them apart — one of them means the item is no longer at the path
+    /// the user knows it by, which no "nothing was touched" message may be shown over.
+    enum ReregisteredTrash {
+        /// Reached the Trash. The URL is where it landed, when the platform reported one.
+        case trashed(URL?)
+        /// Nothing changed: the item is still at its original path, under its own name.
+        case untouched
+        /// Parked to re-register it, and could NOT be put back. Intact at this path — a hidden
+        /// sibling of where it was — and nothing was deleted.
+        case parkedAndNotRestored(URL)
+    }
+
     /// Trashes an item that a permission refusal blocked, by first moving it inside its own
     /// directory and putting it straight back.
     ///
-    /// **Measured on the reported files, 2026-08-30.** Twelve of twelve long-standing files under
-    /// `~/Documents` — a tree iCloud syncs, so the Trash they belong in is
-    /// `~/Library/Mobile Documents/.Trash` — refused BOTH ways to trash: `trashItem` from this
-    /// process and `NSWorkspace.recycle` from the system service, each `NSCocoaErrorDomain 513`.
-    /// Nothing about the items explains it. They are user-owned, mode `700`, carry no `chflags`
-    /// and no deny ACL, sit in a writable parent, are fully materialised rather than evicted
-    /// placeholders, and `access(2)` grants every permission the move needs — while a plain
-    /// `rename(2)` of the very same item into that very same Trash directory succeeds. So the
-    /// refusal is not the filesystem's: it comes from the Trash layer the two APIs share, over a
-    /// file-provider record for items registered long ago.
+    /// **Measured 2026-08-30, and the second measurement is the important one.** At 18:11–19:26,
+    /// twelve of twelve long-standing files under `~/Documents` — a tree iCloud syncs, so the Trash
+    /// they belong in is `~/Library/Mobile Documents/.Trash` — refused BOTH ways to trash:
+    /// `trashItem` from this process and `NSWorkspace.recycle` from the system service, each
+    /// `NSCocoaErrorDomain 513`, while newly created files in the same folders trashed fine.
+    /// Nothing about the items explained it: user-owned, mode `700`, no `chflags`, no deny ACL,
+    /// writable parent, fully materialised rather than evicted placeholders, `access(2)` granting
+    /// every permission the move needs — and a plain `rename(2)` of the very same item into that
+    /// very same Trash directory succeeding. An ad-hoc-signed app bundle holding no privacy grants
+    /// at all trashed files in the folder that refused them, so it was never TCC either.
     ///
-    /// Moving such an item re-registers it, after which the ordinary `trashItem` succeeds. This
-    /// parks it under a hidden sibling name and moves it right back, so the item ends where it
-    /// began — same name, same inode, `rename(2)` leaves mtime alone — and the Trash it then
-    /// reaches is the real one, with real put-back metadata and the `(original, trashed)` pair
-    /// ⌘Z already relies on. A hand-rolled move into `.Trash` would reach neither.
+    /// **Then at 20:30 the same probe found 24 of 24 trashable, across three subtrees, two of
+    /// which had never been touched.** So this is a TRANSIENT state in the file-provider layer the
+    /// two Trash APIs share — it clears on its own — and not, as the first version of this comment
+    /// claimed, a permanent property of items registered long ago. What cleared it was not
+    /// established; the app was quit and reinstalled at 19:32, which is a candidate and unverified.
+    /// Age is what the refusal *correlated* with in one window, not what causes it.
     ///
-    /// **Last, because it is the only one of the three that touches the item.** `trashItem` and
-    /// the system service are both tried first and leave it alone. Returns `nil` — item exactly
-    /// where it was — if any step refuses.
-    nonisolated static func trashAfterReregistering(_ url: URL,
-                                                    fileManager fm: FileManaging) -> URL? {
+    /// While it is in force, moving the item re-registers it and the ordinary `trashItem` then
+    /// succeeds (5 of 5 on the reported tree). This parks it under a hidden sibling name and moves
+    /// it right back, so the item ends where it began — same name, same inode, `rename(2)` leaves
+    /// mtime alone — and the Trash it reaches is the real one, with real put-back metadata and the
+    /// `(original, trashed)` pair ⌘Z already relies on. A hand-rolled move into `.Trash` would
+    /// reach neither.
+    ///
+    /// **Last, because it is the only one of the three attempts that touches the item.**
+    /// `trashItem` and the system service are both tried first and leave it alone.
+    nonisolated static func trashAfterReregistering(
+        _ url: URL, fileManager fm: FileManaging) -> ReregisteredTrash {
+        // Deliberately NOT `.tmp_<UUID>`. That is `OrphanSweeper`'s reap pattern, and for the
+        // width of this function the name belongs to one of the user's own documents — a sweep
+        // that mistook it for build debris would trash a real file under a name nobody chose.
+        // The cost of a private prefix is that nothing reaps it, which is why the one path that
+        // can leave it behind reports itself rather than returning a bare failure.
         let parked = url.deletingLastPathComponent()
             .appendingPathComponent(".synccloud-trash-retry-\(UUID().uuidString)")
         do {
             try fm.moveItem(at: url, to: parked)
         } catch {
-            return nil
+            // Not silent: without this line the log shows the first refusal and nothing about the
+            // retry, so a reader cannot tell whether it ran. Same reason the refusal above is
+            // logged with its codes rather than Foundation's sentence.
+            Logger.shared.warning(
+                "Delete: \(url.path) could not be moved inside its own folder to re-register it "
+                + "for the Trash, so the refusal stands — \(Self.trashFailureDiagnosis(error))")
+            return .untouched
         }
         do {
             try fm.moveItem(at: parked, to: url)
         } catch {
-            // The one step that can strand the item under a name the user never chose. It is a
-            // same-directory rename back to the name it just had, so a failure here is close to
-            // impossible — and precisely because of that, it must not be silent.
+            // The one step that can leave the item under a name the user never chose. It is a
+            // same-directory rename back to the name it held a moment ago, so a failure here is
+            // close to impossible — and precisely because of that, it must be loud AND must reach
+            // the user, who otherwise goes looking for a file that is sitting right there hidden.
             Logger.shared.error(
                 "Delete: \(url.path) was parked as \(parked.lastPathComponent) to re-register it "
                 + "with the Trash and could NOT be moved back — the file is intact under that "
-                + "name in the same folder and nothing was deleted (\(error.localizedDescription))")
-            return nil
+                + "name in the same folder and NOTHING was deleted — "
+                + "\(Self.trashFailureDiagnosis(error))")
+            return .parkedAndNotRestored(parked)
         }
         var trashed: NSURL?
         do {
             try fm.trashItem(at: url, resultingItemURL: &trashed)
         } catch {
-            return nil
+            Logger.shared.warning(
+                "Delete: \(url.path) was re-registered by a move in place and the Trash STILL "
+                + "refused it — \(Self.trashFailureDiagnosis(error))")
+            return .untouched
         }
-        return trashed as URL?
+        return .trashed(trashed as URL?)
+    }
+
+    /// The re-registration retry, wrapped for the move primitives' source cleanup.
+    ///
+    /// **Those two call sites fall back to `removeItem` — the one unrecoverable branch of a move.**
+    /// The refusal above blocks them exactly as it blocks a delete, so under it a move would
+    /// silently destroy the original instead of trashing it. Spending the retry there first is the
+    /// difference between a recoverable move and an unrecoverable one.
+    ///
+    /// Returns `true` when the caller must NOT fall through to that fallback: either the source
+    /// reached the Trash, or it is parked, in which case `removeItem` would be aimed at a path
+    /// that no longer holds it. Only for a permission refusal — a busy item is better served by
+    /// the retry the caller already gets, the same discipline `deleteItems` applies.
+    nonisolated static func retriedSourceCleanupTrash(_ sourceURL: URL,
+                                                      after refusal: Error,
+                                                      fileManager fm: FileManaging,
+                                                      context: String) -> Bool {
+        guard isPermissionRefusal(refusal) else { return false }
+        switch trashAfterReregistering(sourceURL, fileManager: fm) {
+        case .trashed:
+            Task { @MainActor in
+                Logger.shared.info(
+                    "\(context): the original at \(sourceURL.path) reached the Trash after being "
+                    + "re-registered by a move in place")
+            }
+            return true
+        case .parkedAndNotRestored(let parked):
+            Task { @MainActor in
+                Logger.shared.error(
+                    "\(context): the original at \(sourceURL.path) could not be moved to the "
+                    + "Trash, was parked as \(parked.lastPathComponent) to retry that, and could "
+                    + "not be moved back — it is intact under that name and was NOT deleted")
+            }
+            return true
+        case .untouched:
+            return false
+        }
     }
 
     /// The domain and code of an error and everything under it, for the log.
@@ -916,21 +989,39 @@ extension FileSyncManager {
                         // the remaining difference. Only on a PERMISSION refusal: a busy item is
                         // better served by the retry the caller already gets, and the Trash-less
                         // volume keeps its permanent-delete confirmation untouched below.
-                        if Self.isPermissionRefusal(error),
-                           let moved = await recycle([url])[url] {
-                            Logger.shared.info(
-                                "Delete: \(path) was refused in-process and moved to the Trash by "
-                                + "the system service instead")
-                            trashedItems.append((original: url, trashed: moved))
-                        } else if Self.isPermissionRefusal(error),
-                                  let reregistered = Self.trashAfterReregistering(
-                                    url, fileManager: fm) {
-                            Logger.shared.info(
-                                "Delete: \(path) was refused in-process AND by the system Trash "
-                                + "service, and reached the Trash after being re-registered by a "
-                                + "move in place")
-                            trashedItems.append((original: url, trashed: reregistered))
-                        } else if Self.isTransientTrashFailure(error) {
+                        // Three attempts, in increasing order of how much they disturb the
+                        // item, and a flag rather than a longer `else if` chain because the last
+                        // one has three outcomes of its own — two of which are resolutions.
+                        var resolved = false
+                        if Self.isPermissionRefusal(error) {
+                            if let moved = await recycle([url])[url] {
+                                Logger.shared.info(
+                                    "Delete: \(path) was refused in-process and moved to the Trash "
+                                    + "by the system service instead")
+                                trashedItems.append((original: url, trashed: moved))
+                                resolved = true
+                            } else {
+                                switch Self.trashAfterReregistering(url, fileManager: fm) {
+                                case .trashed(let destination):
+                                    Logger.shared.info(
+                                        "Delete: \(path) was refused in-process AND by the system "
+                                        + "Trash service, and reached the Trash after being "
+                                        + "re-registered by a move in place")
+                                    trashedItems.append((original: url, trashed: destination))
+                                    resolved = true
+                                case .parkedAndNotRestored(let parkedURL):
+                                    // Nothing was deleted, but the item is no longer at the path
+                                    // the user knows it by — so the ordinary refusal below, which
+                                    // says the file is untouched at that path, would be a lie.
+                                    taskErrors.append(SyncError.trashParkedAndNotRestored(
+                                        originalPath: path, parkedPath: parkedURL.path))
+                                    resolved = true
+                                case .untouched:
+                                    break
+                                }
+                            }
+                        }
+                        if !resolved, Self.isTransientTrashFailure(error) {
                             // Busy / locked / permission-blocked right now — common for a cloud file
                             // a provider daemon is mid-write, or an evicted placeholder. Report it as
                             // a retryable failure rather than escalating to the permanent-delete
@@ -950,7 +1041,7 @@ extension FileSyncManager {
                                     ? SyncError.trashNotPermitted(
                                         path: path, reason: error.localizedDescription)
                                     : error)
-                        } else {
+                        } else if !resolved {
                             trashFailures.append(url)
                         }
                     }

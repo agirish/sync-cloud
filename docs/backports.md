@@ -2083,10 +2083,19 @@ is `~/Library/Mobile Documents/.Trash`:
   the very folder that refuses them — so it is not TCC, and not the app's signing identity.
 - A plain `rename(2)` of the same item into that same Trash directory **succeeds**.
 
-So the denial lives in the Trash layer the two APIs share, over a stale file-provider record for
-items registered long ago. Moving the item re-registers it, after which the ordinary `trashItem`
-succeeds — which is what `trashAfterReregistering` does, and why it is ordered last: it is the only
-one of the three attempts that touches the item.
+So the denial lives in the Trash layer the two APIs share. Moving the item re-registers it, after
+which the ordinary `trashItem` succeeds — which is what `trashAfterReregistering` does, and why it
+is ordered last: it is the only one of the three attempts that touches the item.
+
+**And the follow-up measurement matters more than the first, so do not port the original rationale.**
+At 20:30 the same probe found **24 of 24 trashable**, across three subtrees, two of which had never
+been touched. The refusal is therefore a TRANSIENT state in the file-provider layer that clears on
+its own — not, as this row first said, a permanent property of items registered long ago. Age was
+what it *correlated* with inside one window, not a cause. What cleared it was not established; the
+app was quit and reinstalled at 19:32, which is a candidate and unverified. Two consequences for any
+line reading this: the retry is worth having because it works while the state is in force (5 of 5),
+and a line that cannot reproduce the refusal has not disproved it — it has probably just measured
+outside the window.
 
 **Where each line stands, checked rather than assumed.** Positive control first — every line
 carries the file, so an absence below is the shape missing, not the path mis-spelled:
