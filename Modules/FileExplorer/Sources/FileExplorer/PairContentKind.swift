@@ -61,14 +61,36 @@ enum PairContentKind: String, Equatable, CaseIterable {
     /// one component whose answer actually governs — `PagePairRaster.renderImage` is a
     /// `CGImageSource` — so the classification and the renderer cannot disagree.
     static func imageIOCanDecode(_ type: UTType) -> Bool {
-        if decodableImageTypes.contains(type.identifier) { return true }
-        // A concrete type that ImageIO lists under a broader one it also declares (some RAW
-        // families). Conformance is asked in this direction only: `public.svg-image` conforms to
-        // `public.image`, which ImageIO does not list, so nothing here readmits it.
-        return decodableImageTypes.contains { identifier in
-            guard let decodable = UTType(identifier), decodable != .image else { return false }
-            return type.conforms(to: decodable)
-        }
+        canDecode(type, listing: decodableImageTypes, resolved: decodableImageUTTypes)
+    }
+
+    /// The rule itself, against a listing supplied rather than read from the framework.
+    ///
+    /// **A parameter so the umbrella guard in ``decodableTypes(in:)`` is reachable at all.**
+    /// Measured on this machine, `CGImageSourceCopyTypeIdentifiers` returns 62 identifiers and
+    /// `public.image` is not among them — so against the real listing that guard can never fire,
+    /// and deleting it passes every test there is. A defensive half no test can fail is one this
+    /// repo has been bitten by before; the listing is an argument here, and the guard is asserted
+    /// against one that does name the umbrella.
+    ///
+    /// - Parameters:
+    ///   - listing: the identifiers a decoder is claimed for, matched by name first.
+    ///   - resolved: the same listing as concrete types, for a type ImageIO lists only under a
+    ///     broader one it also declares (some RAW families). Passed in already built, because this
+    ///     is called from a `body` — see ``decodableImageUTTypes``.
+    static func canDecode(_ type: UTType, listing: Set<String>, resolved: [UTType]) -> Bool {
+        if listing.contains(type.identifier) { return true }
+        return resolved.contains { type.conforms(to: $0) }
+    }
+
+    /// A listing of identifiers as concrete `UTType`s, with any umbrella dropped.
+    ///
+    /// **`public.image` is the one that matters and it is dropped deliberately.** It is the type
+    /// every image conforms to, so a listing naming it would answer "decodable" for all of them —
+    /// including `public.svg-image`, which ImageIO cannot decode and which this whole branch exists
+    /// to keep out of the image viewer.
+    static func decodableTypes(in listing: Set<String>) -> [UTType] {
+        listing.compactMap { UTType($0) }.filter { $0 != .image }
     }
 
     /// The identifiers `CGImageSourceCopyTypeIdentifiers` reports, read once. A framework-wide
@@ -77,6 +99,14 @@ enum PairContentKind: String, Equatable, CaseIterable {
     private static let decodableImageTypes: Set<String> = {
         Set(CGImageSourceCopyTypeIdentifiers() as? [String] ?? [])
     }()
+
+    /// The same list as resolved `UTType`s, built once rather than per call.
+    ///
+    /// **`classify` runs inside a `body`.** `FilePairCompareView.kind` is a computed property that
+    /// classifies both paths on every render, and the conformance walk is the branch a type ImageIO
+    /// does not list by name takes — SVG on every frame, and every RAW subtype. Rebuilding 62
+    /// `UTType`s from their identifiers there is work whose answer never changes.
+    private static let decodableImageUTTypes: [UTType] = decodableTypes(in: decodableImageTypes)
 
     static func classify(path: String) -> PairContentKind {
         classify(ext: (path as NSString).pathExtension)

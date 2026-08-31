@@ -87,6 +87,31 @@ import UniformTypeIdentifiers
         #expect(PairContentKind.classify(ext: "arw") == .image)
     }
 
+    /// **The guard that no real listing can exercise.**
+    ///
+    /// `CGImageSourceCopyTypeIdentifiers` names 62 concrete formats on this machine and no
+    /// umbrella, so the drop of `public.image` in `decodableTypes(in:)` cannot fire against it —
+    /// remove that filter and every test above still passes. It is guarding a listing that could
+    /// name the umbrella, so the listing is supplied here.
+    ///
+    /// What it prevents is the SVG defect returning by the back door: `public.svg-image` conforms
+    /// to `public.image`, so an umbrella left in the resolved list answers "decodable" for it, for
+    /// `.rtf`-adjacent vector formats, and for every image type at once.
+    @Test func anUmbrellaInTheListingDoesNotReadmitEveryImageType() throws {
+        let listing: Set<String> = ["public.image", "public.png"]
+        let resolved = PairContentKind.decodableTypes(in: listing)
+        #expect(!resolved.contains(.image), "the umbrella survived into the resolved list")
+
+        let svg = try #require(UTType("public.svg-image"))
+        #expect(!PairContentKind.canDecode(svg, listing: listing, resolved: resolved),
+                "a listing naming public.image readmits SVG to the image viewer it cannot fill")
+
+        // The positive control: dropping the umbrella must not cost the listing what it really
+        // names, by identifier or by conformance to a concrete type.
+        let png = try #require(UTType(filenameExtension: "png"))
+        #expect(PairContentKind.canDecode(png, listing: listing, resolved: resolved))
+    }
+
     @Test func onlyTheRasterKindsGetPixelModes() {
         #expect(PairContentKind.pdf.hasPixelModes)
         #expect(PairContentKind.image.hasPixelModes)
