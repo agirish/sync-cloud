@@ -898,13 +898,18 @@ import Testing
     /// intrinsic width says how close to the edge the line is, and the rail height says whether
     /// it actually wrapped.
     ///
-    /// **The measured margin.** The line has 142pt to lay out in
+    /// **The measured margin** (re-measured 2026-08-30 — the earlier figures had drifted at the two
+    /// larger sizes; `97154a32`, which changed the measured face, is the likely cause but was not
+    /// verified by rebuilding at the prior SHA). The line has 142pt to lay out in
     /// (176pt of rail, less 8pt of rail inset and 9pt of row inset on each side). "SyncCloud
-    /// 3.0-dev" wants 86 / 95 / 107 / 119pt at Small / Default / Large / Larger — so the worst
-    /// case, the largest text size, still keeps 23pt in hand, about three characters. A marker
-    /// stays safe out to roughly 21 characters including the "SyncCloud " prefix, which covers
-    /// every number the scheme in `CLAUDE.md` can produce for a long time ("10.10-dev" measures
-    /// 132pt, still clear). If a version ever does approach that, this test says so.
+    /// 3.0-dev" wants 86 / 95 / 115 / 123pt at Small / Default / Large / Largest — so the worst
+    /// case, Largest, keeps 19pt in hand, under three characters.
+    ///
+    /// **The ceiling is 19 characters including the "SyncCloud " prefix, and it is tighter than it
+    /// looks** — "SyncCloud 10.10-dev" is 19 characters and measures 136pt, but "SyncCloud
+    /// 100.10-dev" is 20 and measures 145pt, which WRAPS. The scheme in `CLAUDE.md` stays clear as
+    /// long as MAJOR stays below 100; it is a two-character marker away from trouble, not the
+    /// comfortable margin the earlier note claimed. If a version does approach it, this test says so.
     @MainActor
     @Test(arguments: FontSize.allCases)
     func theVersionLineFitsTheRailOnOneLine(_ size: FontSize) async throws {

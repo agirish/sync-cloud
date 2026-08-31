@@ -193,7 +193,9 @@ rule would apply only on submission, and would mean dropping the suffix, nothing
 (`"2.10"` vs `"2.9"` does not); it increases across all lines at once, so a v4 build always outranks
 a v3.x one; and it is derived rather than being a second thing to remember. It changes in the same
 edit as the marker, and the `-dev` build shares it with the release it becomes — fine, because it
-identifies the version, not the build. **Keep MINOR under 100** or it stops being monotonic.
+identifies the version, not the build. **Keep MINOR under 100** or it stops being monotonic — and
+**MAJOR under 100** too, for a different reason: past that the rail's version line wraps (see **The
+version line has a width budget**). Both halves of the scheme are bounded.
 
 ### Writing the notes
 
@@ -306,10 +308,13 @@ render on its own and every rail test was blind to it. `SettingsRail.versionText
 fixes that: the tests inject `versionMarker` and really lay the line out. **Keep that literal in step
 with `project.yml`** — the whole reason step 2 exists.
 
-Measured room is 142pt against 119pt for `SyncCloud 3.0-dev` at the largest text size — about three
-characters spare, comfortable out to roughly a 21-character line (`10.10-dev` still fits). If a
-version does get long enough to matter, `theVersionLineFitsTheRailOnOneLine` fails and names the
-number; do not widen the rail without re-measuring the tabs that share its opening.
+**The safe ceiling is 19 characters including the `SyncCloud ` prefix** — measured 2026-08-30, and
+tighter than it looks. The column is 142pt; `SyncCloud 10.10-dev` is 19 characters and measures
+136pt, but `SyncCloud 100.10-dev` is 20 and measures 145pt, which **wraps**. So the scheme here is
+safe only while MAJOR stays below 100 — a two-character marker from trouble, not a comfortable
+margin. The per-size table is in the test's doc comment. If a version does get long enough to
+matter, `theVersionLineFitsTheRailOnOneLine` fails and names the number; do not widen the rail
+without re-measuring the tabs that share its opening.
 
 ## Trying an app change
 
