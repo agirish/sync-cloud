@@ -251,8 +251,11 @@ struct TextPairDiff: Equatable {
             return (nil, nil)
         }
         budget -= cost
-        let (ls, rs) = segments(left, right)
-        return (ls, rs)
+        // The tokenised arrays, not the strings: `words` is O(characters) and allocates one string
+        // per word, and on the lines this budget is here to bound that is ~800,000 of them a side.
+        // Measuring and then re-tokenising to diff would pay it twice on every row that PASSES,
+        // which is every row of an ordinary diff.
+        return segments(leftWords: leftWords, rightWords: rightWords)
     }
 
     /// The note when rows were marked whole, or nil when every changed row got its words. Joins the
@@ -272,7 +275,13 @@ struct TextPairDiff: Equatable {
     /// line findable at all. Whitespace is carried inside the runs so the two sides still line up
     /// when rendered.
     static func segments(_ left: String, _ right: String) -> ([Segment], [Segment]) {
-        let lw = words(left), rw = words(right)
+        segments(leftWords: words(left), rightWords: words(right))
+    }
+
+    /// The same pass over lines already tokenised — what the budgeted path calls, having had to
+    /// tokenise them to price the row in the first place.
+    static func segments(leftWords lw: [String], rightWords rw: [String])
+        -> ([Segment], [Segment]) {
         let difference = rw.difference(from: lw)
         var removed = Set<Int>(), inserted = Set<Int>()
         for change in difference {

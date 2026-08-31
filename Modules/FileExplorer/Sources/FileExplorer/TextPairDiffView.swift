@@ -105,23 +105,21 @@ struct TextPairDiffView: View {
     @ViewBuilder
     private func row(_ row: TextPairDiff.Row) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            side(number: row.leftNumber, text: row.left, segments: row.leftSegments,
-                 tint: leftTint(row.kind))
+            side(number: row.leftNumber, text: row.left, segments: row.leftSegments)
             Divider()
-            side(number: row.rightNumber, text: row.right, segments: row.rightSegments,
-                 tint: rightTint(row.kind))
+            side(number: row.rightNumber, text: row.right, segments: row.rightSegments)
         }
         .background(row.kind == .same ? Color.clear : tintRow(row.kind))
     }
 
-    private func side(number: Int?, text: String?, segments: [TextPairDiff.Segment]?,
-                      tint: Color) -> some View {
+    private func side(number: Int?, text: String?,
+                      segments: [TextPairDiff.Segment]?) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Text(number.map(String.init) ?? "")
                 .scaledFont(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .frame(width: 34, alignment: .trailing)
-            lineText(text, segments: segments, tint: tint)
+            lineText(text, segments: segments)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
         }
@@ -137,8 +135,7 @@ struct TextPairDiffView: View {
     /// long line would push the row and the stack would wrap between runs at arbitrary points.
     /// That is the same trap the duplicates card's breadcrumb was rebuilt to avoid.
     @ViewBuilder
-    private func lineText(_ text: String?, segments: [TextPairDiff.Segment]?,
-                          tint: Color) -> some View {
+    private func lineText(_ text: String?, segments: [TextPairDiff.Segment]?) -> some View {
         if let segments, !segments.isEmpty {
             segments.reduce(Text("")) { partial, segment in
                 partial + Text(segment.text)
@@ -166,6 +163,13 @@ struct TextPairDiffView: View {
     /// **The row's meaning is carried by its position and its line numbers, and only reinforced by
     /// colour.** A removed row has a left line number and no right one; an added row the reverse.
     /// That is what a reader who cannot separate the two tints reads it by.
+    ///
+    /// The row's ground is the only place colour is spent. There were per-side text tints here too
+    /// — red on a removed line, green on an added one — computed, threaded through two functions,
+    /// and never applied: `lineText` paints from the segments and the row's presence, and took the
+    /// colour only to drop it. Deleted rather than wired up, because the ground already carries the
+    /// same distinction and a second, stronger statement of it would fight the intra-line
+    /// highlight, which is the one thing on the row that has to stand out.
     private func tintRow(_ kind: TextPairDiff.RowKind) -> Color {
         switch kind {
         case .same: return .clear
@@ -173,13 +177,5 @@ struct TextPairDiffView: View {
         case .added: return Color.green.opacity(0.07)
         case .changed: return accent.opacity(0.07)
         }
-    }
-
-    private func leftTint(_ kind: TextPairDiff.RowKind) -> Color {
-        kind == .removed ? .red : .primary
-    }
-
-    private func rightTint(_ kind: TextPairDiff.RowKind) -> Color {
-        kind == .added ? .green : .primary
     }
 }
