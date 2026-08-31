@@ -37,8 +37,10 @@ User-facing changes, newest first. For the full commit history see the
 
 ### Two PDFs, or two images, move together
 
-- **Synchronised panes for PDFs and images.** Scroll or zoom one side and the other follows; ⌥ held
-  breaks the sync while you move one alone. Quick Look has no scroll or zoom to synchronise at all,
+- **Synchronised panes for PDFs and images.** Scroll or zoom one side and the other follows, and
+  scrolling onto another page walks the page strip along with you — so `1`–`4` open on the page you
+  were actually reading, rather than on the one you started at. ⌥ held breaks the sync while you
+  move one alone, pages included. Quick Look has no scroll or zoom to synchronise at all,
   which is why this arrives with per-type viewers rather than earlier.
 - **⇞/⇟ page both sides at once**, and a strip under the panes marks each page once it has been
   compared — green where nothing changed, amber where something did, with the figure in the
@@ -60,6 +62,11 @@ User-facing changes, newest first. For the full commit history see the
 - **Files that are not quite text still open.** A log truncated mid-character used to be
   unreadable; it now decodes with the unreadable bytes marked and says so. Files over 4 MB, files
   that are not downloaded, and files that turn out to be binary each say which of those they are.
+- **A diff it cannot afford is declined, not started.** Two large files with almost nothing in
+  common would take minutes to line up, and a single line long enough to be a whole minified file
+  would take as long again to compare word by word. Both are now refused up front and said out
+  loud — the other modes still work, and a line marked whole says it was marked whole — rather
+  than leaving a spinner over a pane that was never going to answer.
 - **CRLF against LF is reported as a line-ending difference, not as a thousand changed lines.**
 
 ### The same surface in Compare
