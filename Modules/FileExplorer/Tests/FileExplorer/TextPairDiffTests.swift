@@ -310,4 +310,65 @@ import Testing
         #expect(TextPairDiff.refusalNote(left: [], right: []) == nil)
         #expect(TextPairDiff.refusalNote(left: [], right: ["one"]) == nil)
     }
+
+    // MARK: The intra-line pass has a budget too
+
+    /// **A file with no newlines in it walks straight past the line cap.** `estimatedCost` on the
+    /// LINE arrays answers 4 for one line against one line, so a 4 MiB minified script — or JSON
+    /// saved in one line, or a log whose writer never flushed — is admitted, and the row is then a
+    /// changed row whose words go through the same Myers. Measured: such a file holds ~800,000
+    /// words a side, where 8,000 already costs a second. The pane hung, and nothing in the line cap
+    /// could see it coming.
+    @Test func oneEnormousLineIsMarkedWholeRatherThanHangingThePane() throws {
+        let left = (0..<40_000).map { "alpha\($0)" }.joined(separator: " ")
+        let right = (0..<40_000).map { "beta\($0)" }.joined(separator: " ")
+        // The premise: the LINE cap admits this pair, so the intra-line budget is the only thing
+        // standing between the reader and the hang.
+        #expect(TextPairDiff.refusalNote(left: [left], right: [right]) == nil,
+                "the line cap now refuses this, and this test no longer tests what it says")
+
+        let diff = TextPairDiff.make(left: [left], right: [right])
+
+        #expect(diff.coarseRows == 1, "the row paid for a word pass it could not afford")
+        let row = try #require(diff.rows.first)
+        #expect(row.kind == .changed, "the row is still a changed row — only its word runs are gone")
+        #expect(row.leftSegments == nil && row.rightSegments == nil)
+        #expect(row.left == left, "the text itself must survive: the pane still renders the line")
+    }
+
+    /// The positive control, and the line this feature is actually for: ordinary changed lines
+    /// still get their word runs, so the budget has not simply turned the intra-line pass off.
+    @Test func anOrdinaryChangedLineStillGetsItsWordRuns() throws {
+        let diff = TextPairDiff.make(left: ["Total due: $4,120.00 by 15 March"],
+                                     right: ["Total due: $9,999.00 by 15 March"])
+        #expect(diff.coarseRows == 0)
+        let row = try #require(diff.rows.first)
+        let marked = try #require(row.rightSegments).filter(\.changed).map(\.text)
+        #expect(marked == ["$9,999.00 "])
+    }
+
+    /// A whole document of ordinary changed lines stays inside the budget — the aggregate is what
+    /// the budget bounds, and a diff of this shape is the common case, not the pathological one.
+    @Test func aWholeDocumentOfShortChangedLinesStaysInsideTheBudget() {
+        let left = (0..<2_000).map { "the quick brown fox number \($0) jumps over the lazy dog" }
+        let right = (0..<2_000).map { "the quick brown cat number \($0) jumps over the lazy dog" }
+        let diff = TextPairDiff.make(left: left, right: right)
+        #expect(diff.coarseRows == 0, "\(diff.coarseRows) ordinary lines lost their word runs")
+        #expect(diff.rows.allSatisfy { $0.kind != .changed || $0.leftSegments != nil })
+    }
+
+    /// The budget is spent in order, so what the reader sees first is what keeps its detail. Two
+    /// unaffordable rows: both go coarse, and the note counts them rather than mentioning one.
+    @Test func theNoteCountsEveryRowThatLostItsWords() throws {
+        let long = { (tag: String, seed: Int) in
+            (0..<20_000).map { "\(tag)\($0 + seed)" }.joined(separator: " ")
+        }
+        let diff = TextPairDiff.make(left: [long("alpha", 0), long("gamma", 0)],
+                                     right: [long("beta", 0), long("delta", 0)])
+        #expect(diff.coarseRows == 2)
+        let note = try #require(TextPairDiff.coarseNote(rows: diff.coarseRows))
+        #expect(note.contains("2 lines"))
+        #expect(TextPairDiff.coarseNote(rows: 1)?.contains("One line") == true)
+        #expect(TextPairDiff.coarseNote(rows: 0) == nil, "a clean diff must say nothing")
+    }
 }

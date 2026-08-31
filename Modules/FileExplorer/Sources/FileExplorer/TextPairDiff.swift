@@ -48,6 +48,11 @@ struct TextPairDiff: Equatable {
     /// a twelve-line replacement is one thing that happened, and twelve stops for it is twelve
     /// presses to get past one edit.
     let regions: [Range<Int>]
+    /// Changed rows whose intra-line pass was skipped to stay inside
+    /// ``maxEstimatedIntraLineCost`` — their text is marked whole instead of word by word.
+    /// Reported rather than silent: a row with no word runs looks exactly like a row where every
+    /// word changed, and the reader would have no way to tell the two apart.
+    let coarseRows: Int
 
     var isIdentical: Bool { regions.isEmpty }
 
@@ -137,6 +142,24 @@ struct TextPairDiff: Equatable {
             + "the comparison would take minutes. The other modes still work."
     }
 
+    /// The budget for the INTRA-LINE passes, spent across the whole diff, in the units
+    /// ``estimatedCost(left:right:)`` counts.
+    ///
+    /// **The line cap above does not reach this one, and a single line is enough to prove it.** A
+    /// 4 MiB file with no newlines in it — minified JavaScript, JSON saved in one line, a log whose
+    /// writer never flushed one — is ONE line, so `estimatedCost` on the line arrays answers 4 and
+    /// waves it through. The row is then a changed row, and `segments` runs the same Myers over its
+    /// words: measured, that file holds ~800,000 words a side, where 8,000 already costs a second.
+    ///
+    /// Spent per row rather than capped per row, because both shapes run away: one enormous line,
+    /// and thousands of ordinary changed lines each paying a little. Rows are served in order and
+    /// what is left renders whole, so the budget lands where the reader is looking — the top of the
+    /// pane — rather than being spread thin across a diff nobody scrolls to the end of.
+    ///
+    /// 100,000,000 is ~0.4s of intra-line work on this machine at its busiest, and leaves an
+    /// ordinary diff untouched: a 5,000-line rewrite of ten-word lines spends about 2,000,000.
+    static let maxEstimatedIntraLineCost = 100_000_000
+
     // MARK: Building
 
     static func make(left: [String], right: [String]) -> TextPairDiff {
@@ -151,6 +174,8 @@ struct TextPairDiff: Equatable {
         }
 
         var rows: [Row] = []
+        var intraLineBudget = maxEstimatedIntraLineCost
+        var coarse = 0
         var l = 0, r = 0
         while l < left.count || r < right.count {
             let leftIsRemoved = l < left.count && removed.contains(l)
@@ -158,7 +183,8 @@ struct TextPairDiff: Equatable {
             if leftIsRemoved && rightIsInserted {
                 // **The alignment that `CollectionDifference` does not give.** A removal facing an
                 // insertion is one edited line, not a delete above an add.
-                let (ls, rs) = segments(left[l], right[r])
+                let (ls, rs) = segmentsWithinBudget(left[l], right[r],
+                                                    budget: &intraLineBudget, coarse: &coarse)
                 rows.append(Row(id: rows.count, kind: .changed, leftNumber: l + 1,
                                 rightNumber: r + 1, left: left[l], right: right[r],
                                 leftSegments: ls, rightSegments: rs))
@@ -206,7 +232,36 @@ struct TextPairDiff: Equatable {
         }
         if let s = start { regions.append(s..<rows.count) }
 
-        return TextPairDiff(rows: rows, regions: regions)
+        return TextPairDiff(rows: rows, regions: regions, coarseRows: coarse)
+    }
+
+    /// The intra-line pass, if the budget can still pay for it — otherwise `(nil, nil)`, which
+    /// renders the row as changed with no word runs.
+    ///
+    /// The estimate is the same multiset lower bound ``estimatedCost(left:right:)`` uses, over the
+    /// line's words instead of the file's lines, so one idea governs both scales. Tokenising to
+    /// measure is O(characters) and is the only work a refused row pays.
+    private static func segmentsWithinBudget(_ left: String, _ right: String,
+                                             budget: inout Int, coarse: inout Int)
+        -> ([Segment]?, [Segment]?) {
+        let leftWords = words(left), rightWords = words(right)
+        let cost = estimatedCost(left: leftWords, right: rightWords)
+        guard cost <= budget else {
+            coarse += 1
+            return (nil, nil)
+        }
+        budget -= cost
+        let (ls, rs) = segments(left, right)
+        return (ls, rs)
+    }
+
+    /// The note when rows were marked whole, or nil when every changed row got its words. Joins the
+    /// same list the size, encoding and refusal notes use, in the same voice.
+    static func coarseNote(rows: Int) -> String? {
+        guard rows > 0 else { return nil }
+        return rows == 1
+            ? "One line was too long to compare word by word — it is marked whole."
+            : "\(rows) lines were too long to compare word by word — they are marked whole."
     }
 
     /// The intra-line pass: which WORDS of a changed line changed.

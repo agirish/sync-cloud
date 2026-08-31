@@ -811,7 +811,11 @@ struct FilePairCompareView<Verdict: View>: View {
                 notes.append(refusal)
                 return (nil, notes)
             }
-            return (TextPairDiff.make(left: leftLines, right: rightLines), notes)
+            let diff = TextPairDiff.make(left: leftLines, right: rightLines)
+            // Rows the intra-line budget could not pay for are marked whole, and say so — see
+            // ``TextPairDiff/maxEstimatedIntraLineCost``.
+            if let note = TextPairDiff.coarseNote(rows: diff.coarseRows) { notes.append(note) }
+            return (diff, notes)
         }.value
         guard textDiffToken == token else { return }
         textDiff = result.0
