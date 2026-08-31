@@ -1988,7 +1988,13 @@ along with its own numbers. Reclaiming it means finding ~12pt in `reservedChrome
 generous, and unmeasured) or in the segments' 12pt horizontal padding — a design call, not an
 arithmetic one, and deliberately not made here.
 
-## 2026-08-30 — Compare Copies for file pairs (`bb27a528`, `8296889a`, `e4d76336`)
+## 2026-08-30 — Compare Copies for file pairs (`90e0ac67`, `e2082929`, `51c37256`, `e5508bc6`)
+
+> **The SHAs above are the second set.** This row first cited `bb27a528`, `8296889a` and
+> `e4d76336` — commits from before the branch was squashed and force-pushed the same day, which no
+> ref on `origin` reaches any more. They resolve to nothing on a fresh clone, in the file a future
+> audit reads to find the work. Cite a SHA only after the push that fixes it, and re-check any SHA
+> written down before a squash.
 
 **RECORDED — not owed**, and unusually this is a feature rather than a defect: the Duplicates card
 offered "Compare copies" only for FOLDER groups (`if group.isDirectory`), so a user comparing two

@@ -40,10 +40,12 @@ User-facing changes, newest first. For the full commit history see the
 - **Synchronised panes for PDFs and images.** Scroll or zoom one side and the other follows; ⌥ held
   breaks the sync while you move one alone. Quick Look has no scroll or zoom to synchronise at all,
   which is why this arrives with per-type viewers rather than earlier.
-- **⇞/⇟ page both sides at once**, and a strip under the panes gives every page a dot — grey until
-  it has been compared, green where nothing changed, amber where something did, with the figure in
-  the tooltip. Where one document is longer, the strip runs to the longer one and the shorter side
-  stops at its last page rather than hiding the pages only one file has.
+- **⇞/⇟ page both sides at once**, and a strip under the panes marks each page once it has been
+  compared — green where nothing changed, amber where something did, with the figure in the
+  tooltip; blue where only one document has that page, red where a side could not be rendered. A
+  page carries no mark until its comparison has actually run, so nothing on the strip stands for a
+  page that has not been looked at. Where one document is longer, the strip runs to the longer one
+  and the shorter side stops at its last page rather than hiding the pages only one file has.
 - **Three ways to overlay the two pages,** picked with `1`–`4` or the segments: swipe a divider
   across them, blend one into the other, or see the pixel difference on black — where identical is
   black and anything that changed glows. The difference view says outright that it compares pixels

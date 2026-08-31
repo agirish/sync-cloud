@@ -132,9 +132,11 @@ struct PagePairing: Equatable {
 
 /// What the page strip knows about one position.
 ///
-/// **`.pending` is a state, not a missing `.same`.** A dot that renders grey until its diff lands
-/// and green afterwards is honest; one that renders "same" while the render is still queued behind
-/// a scan is a claim nobody has checked, on a surface whose next button trashes a file.
+/// **`.pending` is a state, not a missing `.same`.** A position whose comparison has not run yet
+/// draws no dot at all — see ``dot`` — where one that rendered "same" while the render was still
+/// queued behind a scan would be a claim nobody has checked, on a surface whose next button trashes
+/// a file. (An earlier design drew `.pending` grey; this doc described that one for a while after
+/// the code stopped agreeing with it.)
 enum PageDiffState: Equatable {
     /// Not compared yet.
     case pending

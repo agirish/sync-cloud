@@ -124,12 +124,15 @@ struct VisualPairModeView: View {
 
 // MARK: - The page strip
 
-/// One dot per page, coloured by what the diff found — and grey until it has found anything.
+/// One dot per page, coloured by what the diff found — and no dot at all until it has found
+/// something.
 ///
-/// **A dot that is grey while its render is queued is the point.** The strip is read as a map of
-/// where the two documents differ, so a dot that renders "same" before its comparison has run is a
-/// claim nobody made, on a surface whose next button trashes a file. `.pending` is its own state
-/// and its own colour.
+/// **A page with no dot is a page nothing has claimed anything about.** The strip is read as a map
+/// of where the two documents differ, so a marker that appears before its comparison has run reads
+/// as "checked, and unremarkable" — a claim nobody made, on a surface whose next button trashes a
+/// file. An earlier design gave `.pending` a grey dot; the number alone turned out to be the
+/// honest resting state, and a dot appearing is then a real event. `PageDiffState.dot` is where
+/// that rule lives.
 struct PageStrip: View {
 
     let pairing: PagePairing
