@@ -210,6 +210,19 @@ struct FilePairCompareView<Verdict: View>: View {
     @State private var onionOpacity: Double = 0.5
     /// ⌥ held: the two viewers stop mirroring each other so one pane can be moved on its own.
     @State private var optionHeld = false
+    /// The PDF panes' zoom, held HERE rather than in the viewer, because the viewer does not
+    /// survive a mode switch.
+    ///
+    /// **`panes` switches on the mode, so `2`–`4` unmount `PDFPairView` and `1` builds a fresh
+    /// one** — new coordinator, new `PDFView`s, `autoScales` back to fit. Measured: a reader zoomed
+    /// to 2.01× to read a table came back to 0.81× after checking the pixel difference and pressing
+    /// `1`. The page already survives that round trip by living here; the zoom is the other half of
+    /// where the reader was, and losing it on every `1`–`4` press is a tax on the one workflow the
+    /// modes exist for.
+    ///
+    /// nil until the reader zooms — `autoScales` owns the fit until then, and a surface that has
+    /// never been zoomed must not take that decision away from it.
+    @State private var pdfZoom: CGFloat?
     /// Guards a raster that arrives after the user has paged on — the same token shape the verify
     /// uses, for the same reason.
     @State private var rasterToken = UUID()
@@ -440,6 +453,9 @@ struct FilePairCompareView<Verdict: View>: View {
             renderOutcome = .rendering
             pageSearchToken = UUID()
             pageSearching = false
+            // A zoom is about the document the reader was reading, not about this one — a new pair
+            // opens fitted, the way it would if the surface had just been opened on it.
+            pdfZoom = nil
             if !modes.contains(mode) { mode = .sideBySide }
             guard kind == .pdf else {
                 pairing = PagePairing(leftPages: 0, rightPages: 0)
@@ -901,7 +917,9 @@ struct FilePairCompareView<Verdict: View>: View {
                                 let last = max(0, resolvedPairing.stripLength - 1)
                                 let clamped = min(max(0, reported), last)
                                 if clamped != page { page = clamped }
-                            })
+                            },
+                            zoom: pdfZoom,
+                            onZoomChange: { pdfZoom = $0 })
             }
         } else if kind == .image, bothSidesReadable, !renderOutcome.didFail {
             typedPanes {

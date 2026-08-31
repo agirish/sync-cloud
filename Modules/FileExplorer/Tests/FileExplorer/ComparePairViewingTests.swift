@@ -418,6 +418,204 @@ import Testing
         #expect(!latch.isMirroring)
     }
 
+    // MARK: The zoom has to survive a mode switch
+
+    final class ZoomReports: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [CGFloat] = []
+        func record(_ zoom: CGFloat) { lock.lock(); seen.append(zoom); lock.unlock() }
+        var zooms: [CGFloat] { lock.lock(); defer { lock.unlock() }; return seen }
+    }
+
+    /// The mode switch, in the shape the surface performs it: `panes` switches on the mode, so
+    /// leaving side-by-side REMOVES the representable and coming back builds a fresh one. A test
+    /// that only ever mounts cannot see anything this is about.
+    private struct ModeSwitchHarness: View {
+        let left: String
+        let right: String
+        let syncSuspended: Bool
+        @ObservedObject var box: ZoomBox
+        var body: some View {
+            Group {
+                if box.showingPair {
+                    PDFPairView(leftPath: left, rightPath: right, page: 0,
+                                pairing: PagePairing(leftPages: 3, rightPages: 3),
+                                syncSuspended: syncSuspended,
+                                zoom: box.zoom,
+                                onZoomChange: { box.zoom = $0 })
+                } else {
+                    Color.clear      // stands in for a pixel mode
+                }
+            }
+            .frame(width: 1000, height: 430)
+        }
+    }
+
+    @MainActor
+    final class ZoomBox: ObservableObject {
+        @Published var showingPair = true
+        /// What the surface remembers. Recorded rather than only stored, so a test can assert the
+        /// report happened at all as well as what came back.
+        @Published var zoom: CGFloat? { didSet { if let zoom { reports.record(zoom) } } }
+        let reports = ZoomReports()
+    }
+
+    @MainActor
+    private func mountSwitchable(_ fixture: LetterFixture, box: ZoomBox,
+                                 syncSuspended: Bool = false)
+        -> (NSHostingView<AnyView>, NSWindow) {
+        let host = NSHostingView(rootView: AnyView(
+            ModeSwitchHarness(left: fixture.left, right: fixture.right,
+                              syncSuspended: syncSuspended, box: box)))
+        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 430)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        return (host, window)
+    }
+
+    @MainActor
+    private func loadedPanes(_ host: NSHostingView<AnyView>, _ window: NSWindow) async throws -> [PDFView] {
+        let (loaded, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
+        }
+        try #require(loaded, "the pair never loaded (\(pumps) pumps)")
+        return pdfViews(host)
+    }
+
+    /// **The whole round trip, in the shape the reader performs it.**
+    ///
+    /// Zoom in to read a table, press `2`–`4` to check the pixel difference, press `1` to come
+    /// back. Measured on the unfixed code: 2.01× in, 0.81× out — `autoScales` refits the fresh
+    /// mount and the reader's place is gone. The page already survives this by living on the
+    /// surface; the zoom is the other half of where they were.
+    @MainActor
+    @Test func theReadersZoomSurvivesLeavingAndReenteringSideBySide() async throws {
+        let fixture = try LetterFixture()
+        let box = ZoomBox()
+        let (host, window) = mountSwitchable(fixture, box: box)
+        let panes = try await loadedPanes(host, window)
+
+        let fitted = panes[0].scaleFactor
+        let chosen = fitted * 2.5
+        panes[0].scaleFactor = chosen
+        _ = await LayoutPumpWait.pump(window, upTo: 2) { false }
+
+        box.showingPair = false                                   // 2–4: the pair unmounts
+        let (told, tellPumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            box.zoom.map { abs($0 - chosen) < 0.001 } ?? false
+        }
+        try #require(told, """
+                     leaving side by side reported \(box.zoom.map(String.init) ?? "nothing") \
+                     after \(tellPumps) pumps, not the reader's \(chosen)
+                     """)
+
+        box.showingPair = true                                    // 1: a fresh pair is built
+        let back = try await loadedPanes(host, window)
+        let (restored, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            back.allSatisfy { abs($0.scaleFactor - chosen) < 0.001 }
+        }
+        #expect(restored, """
+                came back at \(back.map(\.scaleFactor)) rather than \(chosen) after \(pumps) \
+                pumps — the reader is at fit (\(fitted)) again
+                """)
+        #expect(abs(fitted - chosen) > 0.001, "positive control: the fit and the choice differ")
+    }
+
+    /// **A fresh mount that already carries a zoom applies it, with no further update passes.**
+    ///
+    /// The mount is static — one `updateNSView`, no observable object nudging it — which is the
+    /// configuration that catches the timing. Applied inline in the load completion the zoom is
+    /// overwritten: PDFKit performs its own initial fit when the view next lays out, which is after
+    /// the assignment returns, and the pane comes up at the fit with `autoScales` already false.
+    /// Measured that way at 0.806 against an asked-for 2.0.
+    ///
+    /// The round-trip test above does NOT catch this — its harness publishes, so a later update
+    /// pass re-applies and hides the ordering. Two load completions landing at different moments
+    /// hide it too. This is the shape with neither rescue.
+    @MainActor
+    @Test func aFreshStaticMountAppliesTheZoomItWasGiven() async throws {
+        let fixture = try LetterFixture()
+        // The fit this pane chooses on its own, so the assertion cannot pass by naming it.
+        let box = ZoomBox()
+        let (fitHost, fitWindow) = mountSwitchable(fixture, box: box)
+        let fitted = try await loadedPanes(fitHost, fitWindow)[0].scaleFactor
+        let remembered = fitted * 2.5
+
+        let view = PDFPairView(leftPath: fixture.left, rightPath: fixture.right, page: 0,
+                               pairing: PagePairing(leftPages: 3, rightPages: 3),
+                               syncSuspended: false, zoom: remembered)
+        let host = NSHostingView(rootView: AnyView(view.frame(width: 1000, height: 430)))
+        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 430)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+
+        let panes = try await loadedPanes(host, window)
+        let (applied, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            panes.allSatisfy { abs($0.scaleFactor - remembered) < 0.001 }
+        }
+        #expect(applied, """
+                opened at \(panes.map(\.scaleFactor)) rather than the remembered \(remembered) \
+                after \(pumps) pumps — the fit overwrote it and the reader is back at \(fitted)
+                """)
+    }
+
+    /// **A pair the reader never zoomed must keep fitting itself.**
+    ///
+    /// The notification route failed exactly here: PDFKit posts its own initial fit, the mirror
+    /// turns the far pane's `autoScales` off carrying it, and the surface was handed 0.806 as
+    /// though it had been chosen — which then pins every later mount at one window's fit.
+    @MainActor
+    @Test func anUntouchedPairReportsNoZoomAndKeepsFitting() async throws {
+        let fixture = try LetterFixture()
+        let box = ZoomBox()
+        let (host, window) = mountSwitchable(fixture, box: box)
+        let panes = try await loadedPanes(host, window)
+        // NOT `panes.allSatisfy` — measured, the mirror turns ONE pane's `autoScales` off during
+        // load, and which one depends on load ordering. That is exactly why the report is decided
+        // by `fittedScale` rather than by the flag; asserting the flag here would be asserting the
+        // coin toss.
+        try #require(panes.contains { $0.autoScales }, "premise: a pane is still fitting itself")
+
+        box.showingPair = false
+        _ = await LayoutPumpWait.pump(window, upTo: 5) { box.zoom != nil }
+        #expect(box.zoom == nil,
+                "the fit was recorded as a choice (\(box.reports.zooms)) — every later mount is pinned to it")
+
+        box.showingPair = true
+        let back = try await loadedPanes(host, window)
+        #expect(back.contains { $0.autoScales }, "the fresh pair stopped fitting itself")
+    }
+
+    /// **⌥ silences the zoom report, for the reason it silences the page report.**
+    ///
+    /// With ⌥ held the panes are deliberately apart and there is no single zoom to record; storing
+    /// one would hand it to BOTH panes on the next mount, which is what ⌥ exists to prevent.
+    @MainActor
+    @Test func aZoomSetWhileOptionIsHeldIsNotRecorded() async throws {
+        let fixture = try LetterFixture()
+        let box = ZoomBox()
+        let (host, window) = mountSwitchable(fixture, box: box, syncSuspended: true)
+        let panes = try await loadedPanes(host, window)
+
+        panes[0].scaleFactor = panes[0].scaleFactor * 2.5
+        _ = await LayoutPumpWait.pump(window, upTo: 2) { false }
+        box.showingPair = false
+
+        // Pumped for as long as the round-trip test needs to SEE a report, so this is a waited-out
+        // absence rather than a race won by being quick.
+        let (recorded, pumps) = await LayoutPumpWait.pump(window, upTo: 5) { box.zoom != nil }
+        #expect(!recorded, """
+                \(box.reports.zooms) recorded after \(pumps) pumps with ⌥ held — the next mount \
+                applies it to both panes, which is what ⌥ forbids
+                """)
+    }
+
     // MARK: Scrolling, at the size the reader actually gets
 
     /// A page-sized document at the pane size the overlay really opens, so the fixture cannot be

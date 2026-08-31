@@ -58,6 +58,16 @@ struct PDFPairView: NSViewRepresentable {
     /// The page the reader has scrolled onto, reported back so the strip and the pixel modes
     /// follow. Only ever called with a page the surface is not already on.
     var onPageChange: (Int) -> Void = { _ in }
+    /// The zoom the surface remembers, or nil to let `autoScales` fit the page.
+    ///
+    /// **The surface holds it because this view does not survive a mode switch.** `panes` switches
+    /// on the mode, so pressing `2`–`4` removes this representable and pressing `1` builds a fresh
+    /// one — new coordinator, new `PDFView`s, `autoScales` back at fit. Measured: a reader zoomed
+    /// to 2.01× came back to 0.81×. The page already survives, for exactly this reason and by
+    /// exactly this route; the zoom is the other half of where the reader was.
+    var zoom: CGFloat?
+    /// The zoom the reader has set, reported back so the surface can hand it to the next mount.
+    var onZoomChange: (CGFloat) -> Void = { _ in }
 
     final class Coordinator: NSObject {
         let latch = SyncLatch()
@@ -114,6 +124,20 @@ struct PDFPairView: NSViewRepresentable {
         /// every render, and an observer holding the FIRST one would be calling into a closure
         /// whose captured state stopped moving.
         var onPageChange: (Int) -> Void = { _ in }
+        var onZoomChange: (CGFloat) -> Void = { _ in }
+        /// The zoom the surface remembers, as of the most recent update.
+        var surfaceZoom: CGFloat?
+        /// What "not zoomed" currently means: the scale a pane that is still auto-fitting has
+        /// settled on.
+        ///
+        /// **`autoScales` alone cannot answer "did the reader zoom", and the reason is the
+        /// mirror.** During load one pane fits first and the mirror copies its scale to the other,
+        /// which turns THAT pane's `autoScales` off — measured, on every ordinary mount, with no
+        /// reader involved. Which pane loses it depends on which of two concurrent loads finished
+        /// first, so a flag read off one side is a coin toss. This is a value instead, kept current
+        /// by whichever pane is still fitting itself, so a card resized while open moves the
+        /// baseline with it rather than making the new fit look like a choice.
+        var fittedScale: CGFloat?
 
         deinit {
             // Both lists, because they are disjoint: `observers` holds the ones registered once
@@ -145,6 +169,38 @@ struct PDFPairView: NSViewRepresentable {
         return split
     }
 
+    /// Hands the reader's zoom back to the surface on the way out.
+    ///
+    /// **At unmount, not from `PDFViewScaleChanged`, and the notification route was tried first.**
+    /// Two things make it the wrong hook. PDFKit posts its own initial fit, so a fit and a reader's
+    /// zoom arrive as the same notification and a value check cannot separate them — the surface
+    /// was told 0.806 and dutifully remembered the fit as a choice. And the mirror makes it worse:
+    /// setting `target.scaleFactor` turns the target's `autoScales` off, so the far pane's echo of
+    /// a fit then looks like a deliberate zoom by every test available at that moment.
+    ///
+    /// Unmount has neither problem. It is the exact moment the value is needed (this view does not
+    /// survive a mode switch), everything has settled by then, and `autoScales` still standing is a
+    /// complete answer to "did the reader ever zoom": PDFKit clears it on any explicit
+    /// `scaleFactor` set, measured.
+    ///
+    /// `syncSuspended` is honoured here for the reason the page report honours it: with ⌥ held the
+    /// two panes are deliberately apart, and there is no single zoom to record.
+    ///
+    /// The test for "did the reader zoom" is a comparison against ``Coordinator/fittedScale``
+    /// rather than the pane's `autoScales` flag — see there for why the flag is a coin toss.
+    ///
+    /// Off this turn, because dismantle runs inside a view-graph update and the closure writes
+    /// `@State`. The value is only read by the NEXT mount, so a turn's delay costs nothing.
+    static func dismantleNSView(_ nsView: NSSplitView, coordinator: Coordinator) {
+        guard !coordinator.syncSuspended,
+              let pane = coordinator.left, pane.document != nil,
+              let fitted = coordinator.fittedScale,
+              abs(pane.scaleFactor - fitted) > 0.001 else { return }
+        let zoom = pane.scaleFactor
+        let report = coordinator.onZoomChange
+        DispatchQueue.main.async { report(zoom) }
+    }
+
     private func makePDFView() -> PDFView {
         let view = PDFView()
         view.autoScales = true
@@ -173,7 +229,9 @@ struct PDFPairView: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.syncSuspended = syncSuspended
         coordinator.onPageChange = onPageChange
+        coordinator.onZoomChange = onZoomChange
         coordinator.surfacePage = page
+        coordinator.surfaceZoom = zoom
         // Recorded FIRST, and on every update: a turn arriving while the documents are still
         // opening reaches the panes only through this, since the `go` below has nothing to act on
         // yet. See `Coordinator.requestedPages`.
@@ -191,6 +249,31 @@ struct PDFPairView: NSViewRepresentable {
         }
     }
 
+    /// Puts both panes at the zoom the surface remembers.
+    ///
+    /// **Nothing happens with no remembered zoom**, which is the ordinary first mount: `autoScales`
+    /// fits the page, and a surface that has never been zoomed must not take that decision away
+    /// from it. Turning `autoScales` off is deliberate once a zoom HAS been chosen — a pane that
+    /// re-fits itself on the next overlay resize would be discarding the reader's choice a second
+    /// time, by a different route.
+    ///
+    /// **Applied inline, and the timing was measured both ways rather than assumed.** A hop onto
+    /// the next main-queue turn sat here for a while, on the theory that PDFKit's own initial fit
+    /// lands after the document assignment returns and would overwrite this. Traced over ten layout
+    /// passes on a static mount asking for 2.0, the two spellings are indistinguishable — both hold
+    /// 2.0 from the first pass — so the hop was removed rather than kept as a defensive half no test
+    /// could fail. `aFreshStaticMountAppliesTheZoomItWasGiven` is what guards the outcome; if a fit
+    /// ever does win the race, that test fails and names the number.
+    @MainActor
+    private func applyZoom(_ coordinator: Coordinator) {
+        guard let zoom = coordinator.surfaceZoom else { return }
+        for view in [coordinator.left, coordinator.right].compactMap({ $0 }) {
+            guard view.document != nil, abs(view.scaleFactor - zoom) > 0.001 else { continue }
+            view.autoScales = false
+            view.scaleFactor = zoom
+        }
+    }
+
     private func load(_ path: String, into view: PDFView?,
                       side: KeyPath<(left: Int, right: Int), Int>,
                       coordinator: Coordinator) {
@@ -205,6 +288,9 @@ struct PDFPairView: NSViewRepresentable {
             // the open reaches the view only here.
             go(view, to: coordinator.requestedPages[keyPath: side])
             coordinator.drivingPage = false
+            // The remembered zoom, once there is a document to apply it to — `autoScales` has just
+            // fitted this page and would otherwise be the last word.
+            applyZoom(coordinator)
             // **HERE, not in `makeNSView`.** A `PDFView` with no document has no `documentView`,
             // so it has no scroll view and no clip view to observe — the observers registered at
             // construction found nil and silently registered nothing, and the panes then scrolled
@@ -243,8 +329,11 @@ struct PDFPairView: NSViewRepresentable {
             let zoom = NotificationCenter.default.addObserver(
                 forName: .PDFViewScaleChanged, object: source, queue: .main
             ) { [weak coordinator, weak target, weak source] _ in
-                guard let coordinator, let target, let source,
-                      !coordinator.syncSuspended else { return }
+                guard let coordinator, let target, let source else { return }
+                // A pane still auto-fitting is reporting a FIT, not a zoom. Recorded before the ⌥
+                // guard, because a fit is a fit whether or not the panes are being held apart.
+                if source.autoScales { coordinator.fittedScale = source.scaleFactor }
+                guard !coordinator.syncSuspended else { return }
                 coordinator.latch.mirror {
                     guard abs(target.scaleFactor - source.scaleFactor) > 0.001 else { return }
                     target.scaleFactor = source.scaleFactor
