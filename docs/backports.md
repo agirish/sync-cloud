@@ -2146,3 +2146,59 @@ onto `trashErrorAlways` when the third attempt landed; a line porting this will 
 so `deleteItems` there still answers an `Int` and cannot report trashed-vs-destroyed. The refusal
 family above does not depend on `DeleteOutcome` and would apply on its own — but the ⌘Z promise the
 alert implies is still one that line cannot keep on a Trash-less volume.
+
+---
+
+## 2026-08-30 — Compare from the panes, region callouts, page stepping (`dee80cf7`, `fa494bdc`, `bbaa7986`, `6975cf4f`, `504debf7`)
+
+**RECORDED — not owed**, for the same structural reason the Compare Copies row above gives: every
+piece hangs off `FilePairCompareView`, and no maintenance line has it. Recorded anyway, because the
+per-file reasoning is the expensive half to reconstruct and two of these pieces are portable in a
+way the rest are not.
+
+**The positive control first**, because a mis-spelled path answers "absent" on every line at once —
+`FileTreeView.swift` is on all four, so the pathspec is right:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s ' "$l"
+  git ls-tree -r --name-only origin/$l -- \
+    Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift \
+    Modules/FileExplorer/Sources/FileExplorer/PaneComparePairMenu.swift | tr '\n' ' '; echo
+done   # every line prints FileTreeView; only main prints the second
+```
+
+Checked 2026-08-30: `PaneComparePairMenu`, `ChangedRegionCallouts`, `PageDifferenceStepper` and
+`DifferencesPairCompare` are absent from `v4.x`, `v3.x` and `v2.x`; `FileTreeView` is on all four.
+
+| Piece | Depends on | Status |
+|---|---|---|
+| The panes' two Compare items (`PaneComparePairMenu`, two `FileActionDelegate` requirements) | `DifferencePair` + `FilePairCompareView` | RECORDED — not owed |
+| `ChangedRegionCallouts` + `BitmapDiff.regions` | `BitmapDiff` | RECORDED — not owed |
+| `PageDifferenceStepper` | `PageDiffState` + `PagePairRaster` | RECORDED — not owed |
+| esc on the blocked overlay | `DifferencesPairCompareOverlay` | RECORDED — not owed |
+| `TextPairDiff.refusalNote` / `estimatedCost` | `TextPairDiff` | RECORDED — not owed, but see below |
+
+**Two pieces are portable in a way the others are not, and it is worth saying which.**
+`ChangedRegionCallouts.fittedRect` is pure aspect-fit arithmetic over two `CGSize`s and imports only
+`CoreGraphics` — any line drawing an overlay on a `.aspectRatio(contentMode: .fit)` image could take
+it alone. And `TextPairDiff.estimatedCost` is a plain multiset pass over two `[String]`s; a line that
+took `BoundedTextRead` and `TextPairDiff` on their own — which the row above already names as the
+one genuinely independent pair — **should take the cost cap with them**. The byte cap bounds memory
+and says nothing about time, the Myers pass is one `CollectionDifference` call with no loop to check
+`Task.isCancelled` in, and two 4 MB rotated logs are minutes of a pinned core. Porting the diff
+without the cap ports the wedge.
+
+**And one thing that is a deletion rather than an addition.** `PagePairRaster.stripLongEdge` (72px)
+is gone from `main`. It was written for a cheap sweep of a whole document's pages, and the sweep
+cannot be honest: a downsampled comparison can prove two pages DIFFER but cannot prove they are the
+same, since a one-pixel mark averages below the tolerance. On a strip whose rule is that a dot is a
+claim somebody checked — which is why a pending page draws no dot — that sweep must not fill it. A
+line that ever adds a page strip will meet the same question; the answer is in
+`PageDifferenceStepper`'s doc, and the constant's absence is deliberate rather than an oversight.
+
+**The selection invariant is on every line, and it is the reason the entry point is a right-click.**
+`PaneLogic.applySelectionWrite` clears the other pane on every non-empty selection write, so "both
+panes have a file selected" is unreachable by construction — and its empty-write carve-out names the
+cross-pane "Copy '…' from ⟨pane⟩" menu as the reason it exists. Any line adding a cross-pane
+affordance should reach for a context menu for that reason rather than relaxing the invariant.
