@@ -455,11 +455,12 @@ import Testing
     }
 
     @MainActor
-    private func mountLetterPair(_ fixture: LetterFixture, pageReports: PageReports? = nil)
+    private func mountLetterPair(_ fixture: LetterFixture, pageReports: PageReports? = nil,
+                                 syncSuspended: Bool = false)
         -> (NSHostingView<AnyView>, NSWindow) {
         let view = PDFPairView(leftPath: fixture.left, rightPath: fixture.right, page: 0,
                                pairing: PagePairing(leftPages: 3, rightPages: 3),
-                               syncSuspended: false,
+                               syncSuspended: syncSuspended,
                                onPageChange: { [pageReports] in pageReports?.record($0) })
         let host = NSHostingView(rootView: AnyView(view.frame(width: 1000, height: 430)))
         host.frame = CGRect(x: 0, y: 0, width: 1000, height: 430)
@@ -540,6 +541,39 @@ import Testing
         #expect(reported, """
                 landing on page 2 reported \(reports.pages) (\(pumps) pumps) — the strip would \
                 still be pointing at page 1
+                """)
+    }
+
+    /// **⌥ has to silence the report, not only the scroll mirror.**
+    ///
+    /// While ⌥ is held the two viewers stop mirroring so one pane can be moved alone — the promise
+    /// the Help book makes in those words. A report is not a mirror though: it is a message to the
+    /// surface, and the surface owns the page for BOTH panes. So a ⌥-held scroll crossing a page
+    /// boundary reported it, the surface set its page, and its next update drove the other pane
+    /// there — the one thing ⌥ exists to prevent, arriving by the long way round. Invisible in
+    /// review because the scroll offsets really had stopped mirroring; only whole pages jumped.
+    @MainActor
+    @Test func aPageLandedOnWhileOptionIsHeldIsNotReported() async throws {
+        let fixture = try LetterFixture()
+        let reports = PageReports()
+        let (host, window) = mountLetterPair(fixture, pageReports: reports, syncSuspended: true)
+        let (loaded, _) = await LayoutPumpWait.pump(window, upTo: 5) {
+            pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
+        }
+        try #require(loaded, "the pair never loaded")
+
+        let pane = pdfViews(host)[0]
+        let document = try #require(pane.document)
+        pane.go(to: try #require(document.page(at: 1)))
+
+        // Pumped for as long as the positive control above needs to SEE a report, so this is a
+        // waited-out absence rather than a race won by being quick.
+        let (reported, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            reports.pages.contains(1)
+        }
+        #expect(!reported, """
+                page 2 was reported after \(pumps) pumps with ⌥ held \(reports.pages) — the \
+                surface will drive the other pane there, which is what ⌥ forbids
                 """)
     }
 
@@ -649,5 +683,73 @@ import Testing
                 the panes landed on \(landed) after a turn to page 2 (\(turnPumps) pumps) — the \
                 load went to the index it captured before the turn
                 """)
+    }
+}
+
+// MARK: - The scroll observers a path change replaces
+
+/// Re-wiring the scroll sync must retire the previous pair's observers as it registers this pair's.
+///
+/// **The `PDFView`s are reused across a path change**, so their clip views can be the very same
+/// objects: a second registration on one clip mirrors every scroll twice. The latch collapses the
+/// duplicate, which is precisely why this was invisible — the effect was right and the registration
+/// count grew by two per pair opened.
+///
+/// Driven on a bare `Coordinator` against real `NotificationCenter` observers, so it measures the
+/// bookkeeping itself rather than a PDF pair's rendering.
+@Suite struct PDFPairScrollObserverTests {
+
+    private final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func bump() { lock.lock(); value += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    }
+
+    private static let name = Notification.Name("SyncCloudTestScroll")
+
+    private func observer(_ subject: AnyObject, _ counter: Counter) -> NSObjectProtocol {
+        NotificationCenter.default.addObserver(forName: Self.name, object: subject,
+                                               queue: nil) { _ in counter.bump() }
+    }
+
+    @Test func rewiringRetiresThePreviousPairsObservers() {
+        let coordinator = PDFPairView.Coordinator()
+        let clip = NSObject()
+        let first = Counter(), second = Counter()
+
+        coordinator.replaceScrollObservers { [observer(clip, first), observer(clip, second)] }
+        NotificationCenter.default.post(name: Self.name, object: clip)
+        #expect(first.count == 1 && second.count == 1, "the first wiring never took")
+
+        let third = Counter()
+        coordinator.replaceScrollObservers { [observer(clip, third)] }
+        NotificationCenter.default.post(name: Self.name, object: clip)
+
+        #expect(third.count == 1, "the new observer is not registered")
+        #expect(first.count == 1 && second.count == 1, """
+                the previous pair's observers still fire (\(first.count), \(second.count)) — every \
+                scroll is mirrored once per pair ever opened
+                """)
+        #expect(coordinator.scrollObservers.count == 1,
+                "\(coordinator.scrollObservers.count) tokens retained for one wiring")
+
+        coordinator.replaceScrollObservers { [] }
+    }
+
+    /// The lifetime list is disjoint from the scroll list, so a re-wire cannot strand a token in
+    /// it. Asserted by identity: a scroll observer appearing in `observers` is a token the re-wire
+    /// removes from the centre and the coordinator then retains for the life of the view.
+    @Test func aScrollObserverIsNotAlsoHeldInTheLifetimeList() {
+        let coordinator = PDFPairView.Coordinator()
+        let clip = NSObject()
+        coordinator.replaceScrollObservers { [observer(clip, Counter())] }
+        let scroll = coordinator.scrollObservers
+        #expect(!scroll.isEmpty, "positive control: there is a token to look for")
+        for token in scroll {
+            #expect(!coordinator.observers.contains { $0 === token },
+                    "a scroll observer is in both lists — the re-wire will strand it in one")
+        }
+        coordinator.replaceScrollObservers { [] }
     }
 }

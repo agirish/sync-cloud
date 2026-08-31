@@ -73,7 +73,23 @@ struct PDFPairView: NSViewRepresentable {
         var scrollWired = false
         /// Just the scroll observers, so a re-wire after a path change can drop the previous
         /// pair's without disturbing the zoom ones, which are registered once for the view's life.
-        var scrollObservers: [NSObjectProtocol] = []
+        ///
+        /// **Disjoint from ``observers``, not a subset of it, and maintained only through
+        /// ``replaceScrollObservers(_:)``.** A token held in both lists survives the re-wire in the
+        /// other one: this list is cleared and `observers` goes on holding a token already removed
+        /// from the centre, for the life of the view and growing by two per pair opened.
+        private(set) var scrollObservers: [NSObjectProtocol] = []
+
+        /// Swaps this pair's scroll observers in and the previous pair's out, in one step.
+        ///
+        /// **One step, because two was the bug.** The `PDFView`s are reused across a path change,
+        /// so their clip views can be the very same objects — a second registration on one clip
+        /// mirrors every scroll twice, and the latch hiding that in effect is exactly what let it
+        /// go unnoticed as a leak in fact.
+        func replaceScrollObservers(_ make: () -> [NSObjectProtocol]) {
+            for observer in scrollObservers { NotificationCenter.default.removeObserver(observer) }
+            scrollObservers = make()
+        }
         /// The page each side should be showing, as of the most recent `updateNSView`.
         ///
         /// **Read by the load completion rather than captured at its start**, because a page turn
@@ -100,7 +116,14 @@ struct PDFPairView: NSViewRepresentable {
         var onPageChange: (Int) -> Void = { _ in }
 
         deinit {
-            for observer in observers { NotificationCenter.default.removeObserver(observer) }
+            // Both lists, because they are disjoint: `observers` holds the ones registered once
+            // for the view's life, `scrollObservers` the ones a path change re-registers. Keeping
+            // a scroll observer in both was the shape this started as, and it meant the re-wire
+            // could drop it from one list and leave it in the other — a token already removed from
+            // the centre, retained for the life of the view and growing by two per pair opened.
+            for observer in observers + scrollObservers {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
 
@@ -243,12 +266,22 @@ struct PDFPairView: NSViewRepresentable {
     /// setting a page moves both views, each of which posts — so the guard is that a report equal
     /// to what the surface already asked for is not a report at all. That also collapses the second
     /// side's notification when a mirrored scroll carries it onto the same page.
+    ///
+    /// **⌥ silences the report, and that is not the same guard as the scroll mirror's.** While ⌥ is
+    /// held the two viewers stop mirroring so one pane can be moved alone — but a report is not a
+    /// mirror, it is a message to the surface, and the surface owns the page for BOTH panes. So a
+    /// ⌥-held scroll that crossed a page boundary reported it, the surface set its page, and the
+    /// next update drove the other pane there: the one thing ⌥ exists to prevent, arriving by the
+    /// long way round. Nothing said so, because the scroll offsets really had stopped mirroring —
+    /// only whole pages jumped. Released, the surface's page drives both panes back into step,
+    /// which is what ⌥ being held-and-released means.
     private func wirePageReporting(_ coordinator: Coordinator) {
         for view in [coordinator.left, coordinator.right].compactMap({ $0 }) {
             let observer = NotificationCenter.default.addObserver(
                 forName: .PDFViewPageChanged, object: view, queue: .main
             ) { [weak coordinator, weak view] _ in
-                guard let coordinator, let view, !coordinator.drivingPage,
+                guard let coordinator, let view,
+                      !coordinator.drivingPage, !coordinator.syncSuspended,
                       let document = view.document, let current = view.currentPage else { return }
                 let index = document.index(for: current)
                 guard index >= 0, index != coordinator.surfacePage else { return }
@@ -274,30 +307,23 @@ struct PDFPairView: NSViewRepresentable {
               let left = coordinator.left, let right = coordinator.right,
               let leftClip = left.documentView?.enclosingScrollView?.contentView,
               let rightClip = right.documentView?.enclosingScrollView?.contentView else { return }
-        // **Drop the previous pair's observers before adding this pair's.** The `PDFView`s are
-        // reused across a path change, so their clip views can be the very same objects — and a
-        // second registration on one clip mirrors every scroll twice. Harmless in effect (the
-        // latch collapses the duplicate) and a leak in fact, growing by two per pair opened.
-        for observer in coordinator.scrollObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        coordinator.scrollObservers.removeAll()
         coordinator.scrollWired = true
-        for (sourceClip, target) in [(leftClip, right), (rightClip, left)] {
-            sourceClip.postsBoundsChangedNotifications = true
-            let observer = NotificationCenter.default.addObserver(
-                forName: NSView.boundsDidChangeNotification, object: sourceClip, queue: .main
-            ) { [weak coordinator, weak target, weak sourceClip] _ in
-                guard let coordinator, let target, let sourceClip,
-                      !coordinator.syncSuspended else { return }
-                coordinator.latch.mirror {
-                    guard let targetScroll = target.documentView?.enclosingScrollView else { return }
-                    targetScroll.contentView.scroll(to: sourceClip.bounds.origin)
-                    targetScroll.reflectScrolledClipView(targetScroll.contentView)
+        // The previous pair's observers go as this pair's arrive — see `replaceScrollObservers`.
+        coordinator.replaceScrollObservers {
+            [(leftClip, right), (rightClip, left)].map { sourceClip, target in
+                sourceClip.postsBoundsChangedNotifications = true
+                return NotificationCenter.default.addObserver(
+                    forName: NSView.boundsDidChangeNotification, object: sourceClip, queue: .main
+                ) { [weak coordinator, weak target, weak sourceClip] _ in
+                    guard let coordinator, let target, let sourceClip,
+                          !coordinator.syncSuspended else { return }
+                    coordinator.latch.mirror {
+                        guard let targetScroll = target.documentView?.enclosingScrollView else { return }
+                        targetScroll.contentView.scroll(to: sourceClip.bounds.origin)
+                        targetScroll.reflectScrolledClipView(targetScroll.contentView)
+                    }
                 }
             }
-            coordinator.observers.append(observer)
-            coordinator.scrollObservers.append(observer)
         }
     }
 }
