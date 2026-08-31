@@ -24,8 +24,16 @@ enum PagePairRaster {
     /// nothing here ever rasterises a whole document.
     static let compareLongEdge: CGFloat = 1600
 
-    /// The long edge for a page-strip dot's diff, which only has to answer "did anything change".
-    static let stripLongEdge: CGFloat = 72
+    // There was a second, much smaller long edge here — 72px, "for a page-strip dot's diff, which
+    // only has to answer did anything change" — for a cheap sweep of a whole document that was
+    // never built. It is deliberately gone rather than left waiting for a caller.
+    //
+    // **A downsampled comparison can prove that two pages DIFFER; it cannot prove they are the
+    // same.** Averaging takes a one-pixel mark below the tolerance, so a 72px pass reporting
+    // nothing is inconclusive, not a verdict. The strip's whole rule is that a dot is a claim
+    // somebody checked — which is why a pending page gets no dot at all — so filling it from a
+    // resolution that can miss is the one thing it must not do. `PageDifferenceStepper` searches
+    // at `compareLongEdge` instead, and bounds the cost by how many pages one press will render.
 
     /// How many pages a document has, or nil when it cannot be opened.
     ///

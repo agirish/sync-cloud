@@ -199,6 +199,12 @@ struct FilePairCompareView<Verdict: View>: View {
         var regions: [CGRect] = []
     }
     @State private var pageComparison = PageComparison()
+    /// Guards a page search still walking when the pair or the page moves under it — the raster
+    /// path's token, for the same race.
+    @State private var pageSearchToken = UUID()
+    /// Whether a ↑/↓ search is walking pages right now, so the strip can say so rather than
+    /// looking like a key that did nothing on a document whose next difference is far away.
+    @State private var pageSearching = false
     @State private var pageStates: [Int: PageDiffState] = [:]
     @State private var swipeFraction: Double = 0.5
     @State private var onionOpacity: Double = 0.5
@@ -295,7 +301,7 @@ struct FilePairCompareView<Verdict: View>: View {
             if kind == .pdf, resolvedPairing.stripLength > 1 {
                 Divider()
                 PageStrip(pairing: resolvedPairing, states: pageStates, current: page,
-                          accent: accent) { page = $0 }
+                          accent: accent, isSearching: pageSearching) { page = $0 }
                     .padding(.horizontal, 16).padding(.vertical, 8)
             }
             Divider()
@@ -425,6 +431,8 @@ struct FilePairCompareView<Verdict: View>: View {
             rasters = (nil, nil)
             pageComparison = PageComparison()
             renderOutcome = .rendering
+            pageSearchToken = UUID()
+            pageSearching = false
             if !modes.contains(mode) { mode = .sideBySide }
             guard kind == .pdf else {
                 pairing = PagePairing(leftPages: 0, rightPages: 0)
@@ -439,17 +447,35 @@ struct FilePairCompareView<Verdict: View>: View {
         // Cancelled by `.task(id:)` when the page changes, which is what stops a 300-page document
         // from queueing 300 renders behind a scan.
         .task(id: rasterKey) { await refreshRasters() }
+        // **A page search does not outlive the mode that started it.** ↑/↓ only searches in a
+        // pixel mode, and a search still walking when the reader leaves one would land its jump
+        // under whatever they switched to — moving the page in a text diff they had started
+        // reading, or in a side-by-side pane they were scrolling. Cancelled rather than finished:
+        // the verdicts it already wrote stay in the strip, so nothing it learned is thrown away.
+        .onChange(of: activeMode) { _, _ in
+            pageSearchToken = UUID()
+            pageSearching = false
+        }
         // Re-read only when the pair changes or the diff is actually being looked at — a text
         // pair the user never switches to Diff costs nothing.
         .task(id: "\(pairKey)|\(activeMode.rawValue)") { await refreshTextDiff() }
-        // ↑/↓ step between CHANGES, not lines: a twelve-line replacement is one thing that
-        // happened, and twelve presses to get past it is twelve too many.
+        // ↑/↓ step between what CHANGED, in whichever unit the mode is made of: text regions in
+        // the diff — a twelve-line replacement is one thing that happened, and twelve presses to
+        // get past it is twelve too many — and differing PAGES in a visual mode, where ⇞/⇟ already
+        // move one page at a time and the thing a reader is hunting for is the next amber dot.
+        // One grammar, two units.
         .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
-            guard press.isPlainKeystroke, activeMode == .textDiff,
-                  let diff = textDiff, !diff.regions.isEmpty else { return .ignored }
-            focusedRegion = TextPairDiff.steppedRegion(from: focusedRegion,
-                                                       direction: press.key == .upArrow ? -1 : 1,
-                                                       count: diff.regions.count)
+            guard press.isPlainKeystroke else { return .ignored }
+            let direction = press.key == .upArrow ? -1 : 1
+            if activeMode == .textDiff {
+                guard let diff = textDiff, !diff.regions.isEmpty else { return .ignored }
+                focusedRegion = TextPairDiff.steppedRegion(from: focusedRegion,
+                                                           direction: direction,
+                                                           count: diff.regions.count)
+                return .handled
+            }
+            guard showsOverlayModes, resolvedPairing.stripLength > 1 else { return .ignored }
+            stepToDifferingPage(direction: direction)
             return .handled
         }
         .accessibilityElement(children: .contain)
@@ -940,6 +966,72 @@ struct FilePairCompareView<Verdict: View>: View {
 
     private var needsRasters: Bool {
         kind.hasPixelModes && (activeMode != .sideBySide || kind == .image)
+    }
+
+    /// Moves to the next page in `direction` whose comparison found a difference.
+    ///
+    /// **A bounded search, because the strip does not already know.** `pageStates` is filled by
+    /// the raster refresh, which runs for the current page alone — so on a fresh pair nothing is
+    /// known and the step has to go and look. Verdicts already held are taken for free;
+    /// ``PageDifferenceStepper/renderBudget`` caps how many pages one press will render, and a
+    /// second press resumes from what the first learned rather than re-treading it.
+    ///
+    /// The states it writes are the same ones the strip draws, so a search visibly fills the strip
+    /// in as it walks — which is also what tells a reader the key did something on a long document
+    /// where the answer is far away.
+    ///
+    /// Token-guarded like the raster path, and for the same race: a search still walking when the
+    /// pair or the page moves under it would land on a page nobody asked for.
+    private func stepToDifferingPage(direction: Int) {
+        let token = UUID()
+        pageSearchToken = token
+        switch PageDifferenceStepper.plan(from: page, direction: direction,
+                                          stripLength: resolvedPairing.stripLength,
+                                          states: pageStates) {
+        case .nothingToFind:
+            return
+        case .jump(let destination):
+            page = destination
+        case .examine(let candidates, let fallback):
+            pageSearching = true
+            Task {
+                defer { if pageSearchToken == token { pageSearching = false } }
+                for candidate in candidates {
+                    guard pageSearchToken == token else { return }
+                    let state = await comparedState(atPage: candidate)
+                    guard pageSearchToken == token else { return }
+                    pageStates[candidate] = state
+                    if PageDifferenceStepper.isDifference(state) {
+                        page = candidate
+                        return
+                    }
+                }
+                // None of them differed, but the walk had already passed a page that does — see
+                // `Plan.examine`. Landing there is what stops the press reading as a dead key.
+                if let fallback { page = fallback }
+            }
+        }
+    }
+
+    /// One page pair's verdict, rendered and compared off the main actor.
+    ///
+    /// **At `compareLongEdge`, the same resolution the page the reader is looking at is judged
+    /// at.** A cheaper render would let the strip hold two dots that were decided by different
+    /// arithmetic, and the smaller one cannot prove sameness — see ``PageDifferenceStepper``.
+    private func comparedState(atPage index: Int) async -> PageDiffState {
+        guard resolvedPairing.isComparable(at: index) else { return .oneSided }
+        let kind = self.kind
+        async let leftImage = PagePairRaster.render(path: left.path, kind: kind,
+                                                    page: resolvedPairing.leftIndex(at: index),
+                                                    longEdge: PagePairRaster.compareLongEdge)
+        async let rightImage = PagePairRaster.render(path: right.path, kind: kind,
+                                                     page: resolvedPairing.rightIndex(at: index),
+                                                     longEdge: PagePairRaster.compareLongEdge)
+        guard let l = await leftImage, let r = await rightImage else { return .unrenderable }
+        let result = await Task.detached(priority: .utility) {
+            BitmapDiff.compare(l.cgImage, r.cgImage)
+        }.value
+        return PageDiffState.from(result)
     }
 
     /// Renders both sides of the current page and diffs them.

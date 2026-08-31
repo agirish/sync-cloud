@@ -200,6 +200,9 @@ struct PageStrip: View {
     let states: [Int: PageDiffState]
     let current: Int
     let accent: Color
+    /// Whether a ↑/↓ search is walking pages right now. The caption says so, because on a document
+    /// whose next difference is twenty pages away the key otherwise looks dead until it lands.
+    var isSearching: Bool = false
     var onSelect: (Int) -> Void
 
     var body: some View {
@@ -218,6 +221,17 @@ struct PageStrip: View {
                     }
                 }
                 .padding(.vertical, 1)
+            }
+            // How much of the pair has actually been judged — "of N compared", never "of N
+            // pages": only visited and searched pages have verdicts, and a count phrased against
+            // the document's length would claim the whole of it had been checked. The same
+            // over-claim the strip refuses when it withholds a dot from a pending page.
+            if let counted = PageDifferenceStepper.caption(states: states,
+                                                           stripLength: pairing.stripLength) {
+                Text(isSearching ? "still comparing…" : counted)
+                    .scaledFont(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
             }
             if let note = pairing.lengthNote {
                 Text(note)
