@@ -164,7 +164,7 @@ import Sync
         let views = viewCount(window.contentView!)
         let heights = rowHeights(window.contentView!)
         #expect(worst < views / 4,
-                "a width change took \(worst) layout rounds against \(views) views — AppKit raises once passes exceed views")
+                "the width change to \(worstWidth)pt took \(worst) layout rounds against \(views) views — AppKit raises once passes exceed views")
         #expect(heights.count == 1, "rows settled at disagreeing heights \(heights.sorted()) — height is width-dependent")
     }
 

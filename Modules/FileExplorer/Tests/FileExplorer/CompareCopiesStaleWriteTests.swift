@@ -51,10 +51,16 @@ import Testing
 
     /// The reset that runs when a new pair arrives has to clear the diff too — the guard above
     /// stops a stale write, and this stops a stale *read* of what the previous pair left behind.
+    ///
+    /// **Read out of the reset block, not out of the file.** Both lines also appear in
+    /// `refreshTextDiff`, which clears the same two states when the mode leaves the diff — so a
+    /// whole-file `contains` passed on those copies alone and would have gone on passing with the
+    /// reset's own lines deleted.
     @Test func aFreshPairClearsTheTextDiffAndItsFocus() throws {
-        let text = try Self.source()
-        #expect(text.contains("textDiff = nil"))
-        #expect(text.contains("focusedRegion = nil"),
+        let reset = try #require(Self.pairResetBlock(try Self.source()),
+                                 "the pair reset block moved — this check is reading the wrong code")
+        #expect(reset.contains("textDiff = nil"))
+        #expect(reset.contains("focusedRegion = nil"),
                 "the stepper keeps the previous pair's position, and ↓ resumes mid-file")
     }
 
@@ -84,5 +90,17 @@ import Testing
               let end = text.range(of: "if !modes.contains(mode)", range: start.upperBound..<text.endIndex)
         else { return nil }
         return String(text[start.upperBound..<end.lowerBound])
+    }
+
+    /// The isolation itself, since every check above rests on it. A block that had swallowed the
+    /// whole file would make those checks vacuous in exactly the way they were written to avoid.
+    @Test func theResetBlockIsTheResetBlockAndNotTheWholeFile() throws {
+        let text = try Self.source()
+        let reset = try #require(Self.pairResetBlock(text))
+        #expect(reset.count < text.count / 4, "the block spans \(reset.count) of \(text.count) characters")
+        #expect(!reset.contains("private func refreshTextDiff"),
+                "the block reaches into refreshTextDiff, whose own clears would satisfy every check")
+        #expect(!reset.contains("private func runVerify"),
+                "the block reaches into runVerify, whose own token take would satisfy every check")
     }
 }
