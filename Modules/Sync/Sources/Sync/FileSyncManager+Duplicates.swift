@@ -999,7 +999,7 @@ extension FileSyncManager {
     /// The live group holding both paths, or nil. Every copy is compared by absolute path — the
     /// spelling `removeResolvedDuplicateCopy` matches on — because that is the identity that
     /// survives a rescan.
-    func liveGroup(holding copyPath: String, and keeperPath: String) -> DuplicateGroup? {
+    public func liveGroup(holding copyPath: String, and keeperPath: String) -> DuplicateGroup? {
         duplicateGroups.first { group in
             let paths = Set(group.copies.map(\.path))
             return paths.contains(copyPath) && paths.contains(keeperPath)

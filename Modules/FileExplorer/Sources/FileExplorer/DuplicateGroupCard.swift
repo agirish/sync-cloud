@@ -384,10 +384,25 @@ struct DuplicateGroupCard: View {
             // truncates and omits the file name.
             .help("Keep this copy instead — \(copy.path)")
             .accessibilityHint("Keeps this copy instead")
+            .contextMenu { compareWithKeeperItem(copy) }
         } else {
             // No action to describe, so the tooltip is the path alone — still on the row, so a
             // reader gets the same answer wherever they rest the pointer.
             copyRowContent(copy).help(copy.path)
+                .contextMenu { compareWithKeeperItem(copy) }
+        }
+    }
+
+    /// The row's secondary way in to Compare — the whole row is already a keeper-pick `Button`, so
+    /// a competing click gesture on it would collide (which is why the ⌘-double-click idea was
+    /// dropped). A context menu adds no gesture to the row at all.
+    ///
+    /// Absent on the keeper's own row: comparing the keeper with the keeper is not a thing, and a
+    /// menu item that no-ops is worse than no menu.
+    @ViewBuilder
+    private func compareWithKeeperItem(_ copy: DuplicateCopy) -> some View {
+        if !copy.isRecommendedKeeper, copy.id != group.keeper.id {
+            Button("Compare with keeper") { onCompareCopies(group.keeper, copy) }
         }
     }
 
@@ -635,11 +650,12 @@ struct DuplicateGroupCard: View {
                 .controlSize(.small)
                 .disabled(isMerging)
             }
-            // Folder groups can be inspected side by side before deciding. File groups do not get
-            // this: their copies carry a preview each, which is the same comparison in place.
-            if group.isDirectory {
-                compareControl
-            }
+            // **Every group gets this now.** It used to be folder-only, on the grounds that a
+            // file group's copies "carry a preview each, which is the same comparison in place" —
+            // a 40pt thumbnail is not. A file pair opens the in-window Compare Copies surface; a
+            // folder pair keeps the Compare-workspace hand-off. The card does not know which: it
+            // has one closure, and the host branches on `isDirectory` (see `LensWorkspaceView`).
+            compareControl
             Button(action: onReveal) {
                 Label("Reveal", systemImage: RevealGlyph.inFinder)
             }

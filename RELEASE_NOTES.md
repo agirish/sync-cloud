@@ -5,6 +5,44 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v5.1 — DRAFT, not released
+
+> Being written as `main` moves. Nothing here has been tagged, and nothing here can be installed
+> yet. The badge on the [releases page](https://agirish.github.io/sync-cloud/releases.html) stays
+> on v5.0 until this is cut.
+
+### Duplicates
+
+- **"Compare copies" works on files, not just folders.** A file group's copies each carried a 40pt
+  thumbnail and that was the whole comparison; folder groups got a side-by-side review. Any two
+  copies now open in one surface: a strip across the top giving name, location, size and date for
+  both — with whatever differs picked out — and two live previews under it. Choose which copy to
+  keep with ←/→ or the button over either pane; the card underneath follows.
+- **The verdict is one copy, not the whole group.** Trashing from here removes the copy you were
+  looking at and leaves a third copy of the same file alone. It goes through the same last-moment
+  re-check every other removal does: if either copy changed since the scan — or a rescan landed
+  while the surface was open — it refuses and says which one and why, rather than trashing on a
+  verdict that has expired.
+- **⏎ and esc both mean Done.** Trashing a copy is always a deliberate click.
+- **A byte-identical pair can be re-checked on the spot.** "Verify now" hashes both files as they
+  are on disk right now, and reports three outcomes rather than two: they match, they no longer
+  match (so the scan is stale — rescan before removing either), or one of them could not be read,
+  naming which side and why.
+- **A copy that has not been downloaded says so** and offers to fetch it, instead of showing an
+  empty pane. Previewing it would pull the whole file down, which on a cloud folder is the normal
+  case rather than the exception.
+
+### Known limitations
+
+- The two previews scroll independently. Quick Look exposes no scroll or zoom API at all, so
+  synchronised panes need per-type viewers — PDF pairs, image pairs — which are not in this
+  release.
+- There is no visual or text diff yet: no swipe, onion or pixel-difference mode, and no
+  side-by-side text comparison.
+- Folder groups keep the existing Compare-workspace review; this surface is for pairs of files.
+
+---
+
 ## v5.0
 
 **Restructure stops being a report.** It could recognise one thing — a family of folders organised

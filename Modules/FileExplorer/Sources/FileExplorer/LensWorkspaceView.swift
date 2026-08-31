@@ -375,8 +375,11 @@ public struct LensWorkspaceView: View {
     /// asks for the same sheet, and two states bound to two sheets would be two pickers to keep in
     /// step. Defaults to a no-op so previews and tests can build a lens without a host.
     private let onRequestDestination: (PendingDestination) -> Void
-    /// Opens two copies of a duplicate folder group in the Compare tab (keeper left, redundant right).
+    /// Opens two copies of a duplicate FOLDER group in the Compare tab (keeper left, redundant
+    /// right). Files go to `onCompareFilePair` instead — see `compareCopies(keep:other:in:)`.
     private let onCompareCopies: (DuplicateCopy, DuplicateCopy) -> Void
+    /// Opens two copies of a duplicate FILE group in the in-window Compare Copies surface.
+    private let onCompareFilePair: (DuplicateComparePair) -> Void
     /// A "Find duplicates of this" handoff from a pane row: the file whose group to reveal. nil is
     /// the ordinary case — nobody has asked. See `DuplicateReveal`, which owns every decision this
     /// view makes about it.
@@ -424,6 +427,7 @@ public struct LensWorkspaceView: View {
         onManageProviders: @escaping () -> Void = {},
         onChooseFolder: (() -> Void)? = nil,
         onCompareCopies: @escaping (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in },
+        onCompareFilePair: @escaping (DuplicateComparePair) -> Void = { _ in },
         onRequestDestination: @escaping (PendingDestination) -> Void = { _ in },
         revealRequest: DuplicateRevealRequest? = nil,
         onRevealHandled: ((UUID) -> Void)? = nil,
@@ -469,6 +473,7 @@ public struct LensWorkspaceView: View {
         self.onManageProviders = onManageProviders
         self.onChooseFolder = onChooseFolder
         self.onCompareCopies = onCompareCopies
+        self.onCompareFilePair = onCompareFilePair
         self.onRequestDestination = onRequestDestination
         self.revealRequest = revealRequest
         self.onRevealHandled = onRevealHandled
@@ -4517,6 +4522,32 @@ public struct LensWorkspaceView: View {
         }
     }
 
+    /// **The card has ONE compare closure; the branch is here.** A folder pair goes to the
+    /// Compare-workspace hand-off, which relativizes both paths against provider roots and re-pins
+    /// the panes — the right tool for two folders and the wrong one for two files. A file pair
+    /// opens the in-window Compare Copies surface instead.
+    ///
+    /// Branching in the card would have meant the card knowing about two hosts; branching at
+    /// `ContentView` would have meant the wiring knowing which kind of group a click came from,
+    /// which it does not. This wrapper already exists and already holds the group.
+    ///
+    /// The payload carries copy VALUES and paths, never `group.id`: a rescan mints a fresh UUID
+    /// for every group, so an id captured here names nothing a few seconds later. Everything the
+    /// surface acts through re-looks-up the live group by path at click time.
+    /// Internal, not private, and named — the `keeperAction(for:)` precedent. A branch written
+    /// inline in the card's closure argument is reachable from nothing: swapping its two arms
+    /// compiles, ships, and sends a file pair down the folder path, which re-pins both Compare
+    /// panes against provider roots for two files that have no such relationship.
+    func compareCopies(keep: DuplicateCopy, other: DuplicateCopy, in group: DuplicateGroup) {
+        if group.isDirectory {
+            onCompareCopies(keep, other)
+        } else {
+            onCompareFilePair(DuplicateComparePair(keeper: keep, other: other,
+                                                   matchType: group.matchType,
+                                                   groupName: group.name))
+        }
+    }
+
     /// One group's card, with the two things drawn from OUTSIDE it — the landing mark and the
     /// scroll anchor.
     ///
@@ -4537,7 +4568,7 @@ public struct LensWorkspaceView: View {
             onKeepSeparate: { syncManager.keepDuplicateGroupSeparate(group) },
             onChooseKeeper: { syncManager.setKeeper(for: group.id, to: $0) },
             onMerge: { merge(group) },
-            onCompareCopies: { keep, delete in onCompareCopies(keep, delete) },
+            onCompareCopies: { keep, other in compareCopies(keep: keep, other: other, in: group) },
             isMerging: syncManager.mergingGroupIDs.contains(group.id),
             headerLayout: .forCard(width: cardWidth, isExpanded: expanded.contains(group.id))
         )

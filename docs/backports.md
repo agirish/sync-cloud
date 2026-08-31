@@ -1987,3 +1987,56 @@ safe direction, but the first is a real loss, and any line taking this pick inhe
 along with its own numbers. Reclaiming it means finding ~12pt in `reservedChrome` (deliberately
 generous, and unmeasured) or in the segments' 12pt horizontal padding — a design call, not an
 arithmetic one, and deliberately not made here.
+
+## 2026-08-30 — Compare Copies for file pairs (`bb27a528`, `8296889a`, `e4d76336`)
+
+**RECORDED — not owed**, and unusually this is a feature rather than a defect: the Duplicates card
+offered "Compare copies" only for FOLDER groups (`if group.isDirectory`), so a user comparing two
+files had a 40pt thumbnail per row and nothing else. `main` now ungates it and opens an in-window
+overlay — facts strip, two Quick Look panes, keeper toggle, verdict bar — backed by a new engine
+verb, `resolveDuplicateCopy(_:keeper:)`, that trashes ONE copy of a group.
+
+**Where each line actually stands, checked rather than assumed.** The positive control first,
+because a mis-spelled path answers "absent" on every line at once:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/DuplicateGroupCard.swift
+done          # main and v4.x print the path; v3.x and v2.x print nothing
+```
+
+| Line | Carries the card? | The gate | Status |
+|---|---|---|---|
+| `v4.x` | yes | `if group.isDirectory { compareControl }` — 1 hit, `compareControl` 2 hits | RECORDED — not owed |
+| `v3.x` | **no such file** | — | CLOSED — does not apply |
+| `v2.x` | **no such file** | — | CLOSED — does not apply |
+
+`v3.x` and `v2.x` predate the card entirely: their whole duplicates UI is
+`DuplicateSearch`/`DuplicateThumbnail` plus the app-target review coordinator
+(`git ls-tree -r --name-only origin/v2.x | grep -i Duplicate`). There is no card to ungate and no
+`compareControl` to reach, so the pick is not small on those lines — it is the card as well.
+
+**The engine half is the interesting part, and it is genuinely portable.** All three maintenance
+lines carry `FileSyncManager+Duplicates.swift` WITH `removeResolvedDuplicateCopy` (1 hit each), so
+the in-memory update the new verb ends in already exists everywhere. What none of them has is a
+single-copy TRASH inside the engine: the only one in those trees is
+`DuplicateReviewCoordinator.trashRightCopy` in the app target, unreachable from `Modules/FileExplorer`.
+
+```sh
+for l in v4.x v3.x v2.x; do
+  git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Duplicates.swift | grep -c 'removeResolvedDuplicateCopy'
+done                                              # 1, 1, 1
+```
+
+**Two things a line taking this pick must not skip.** First, `assessDuplicatePair` is what makes the
+verb safe, and both the pre-check AND the removal gate must consult it — a version that verifies
+once, before `deleteItems`, is verifying before the serialized queue and before a user-paced
+permanent-delete dialog, which are the two windows the gate exists for. Second, the live-group
+lookup is BY PATH: `DuplicateGroup.id` is minted fresh every scan on every line, so a lookup by id
+finds nothing a rescan later and fails open unless it is written fail-closed.
+
+**And one thing not to port at all.** The surface's ⏎/esc handling is `.onKeyPress`, not
+`.keyboardShortcut`, because an in-window overlay leaves the whole window mounted underneath it.
+On a line without the overlay that reasoning does not transfer, and `BareKeyEquivalentScanTests`
+exists on those lines too — read its exemption map before deciding, rather than copying `main`'s
+answer to a different question.

@@ -135,6 +135,24 @@
 
 <div class="timeline">
 
+  <!-- v5.1 (in development) -->
+  <article class="rel draft">
+    <div class="rel-head"><span class="v">v5.1</span><span class="tag draft">In development</span></div>
+    <p class="lede"><b>Compare copies works on files.</b> A duplicate file group gave each copy a 40pt thumbnail and called that the comparison, while folder groups got a side-by-side review. Any two copies now open in one surface &#8212; the facts both sides carry, with whatever differs picked out, over two live previews &#8212; and the verdict acts on the one copy you were looking at rather than the whole group.</p>
+    <div class="grp">
+      <h3>Duplicates</h3>
+      <ul class="flist">
+        <li><span class="ic">&#128441;</span><span><b>&#8220;Compare copies&#8221; is offered for files, not just folders.</b> A strip across the top gives name, location, size and date for both copies, emphasising what differs; two live previews sit under it. Choose which copy to keep with &#8592;/&#8594; or the button over either pane, and the card underneath follows.</span></li>
+        <li><span class="ic">&#128465;</span><span><b>The verdict is one copy, not the whole group.</b> Trashing here removes the copy you were looking at and leaves a third copy of the same file alone. It runs the same last-moment re-check every other removal does: if either copy changed since the scan, or a rescan landed while the surface was open, it refuses and names which one and why.</span></li>
+        <li><span class="ic">&#9166;</span><span><b>&#8617; and esc both mean Done.</b> Trashing a copy is always a deliberate click.</span></li>
+        <li><span class="ic">&#128273;</span><span><b>A byte-identical pair can be re-checked on the spot.</b> &#8220;Verify now&#8221; hashes both files as they are on disk right now, and reports three outcomes rather than two: they match, they no longer match (the scan is stale &#8212; rescan before removing either), or one side could not be read, naming which and why.</span></li>
+        <li><span class="ic">&#9729;</span><span><b>A copy that has not been downloaded says so</b> and offers to fetch it, instead of showing an empty pane &#8212; previewing it would pull the whole file down, which on a cloud folder is the normal case rather than the exception.</span></li>
+      </ul>
+    </div>
+    <p class="known"><b>Still to come in v5.1.</b> The two previews scroll independently: Quick Look exposes no scroll or zoom API at all, so synchronised panes need per-type viewers (PDF pairs, image pairs) that are not built yet. There is no visual or text diff &#8212; no swipe, onion or pixel-difference mode, and no side-by-side text comparison. Folder groups keep the existing Compare-workspace review; this surface is for pairs of files.</p>
+    <p class="chlog">Changes so far: <a href="https://github.com/agirish/sync-cloud/compare/v5.0...main">v5.0...main</a></p>
+  </article>
+
   <!-- v5.0 -->
   <article class="rel">
     <div class="rel-head"><span class="v">v5.0</span><span class="tag latest">Latest</span></div>

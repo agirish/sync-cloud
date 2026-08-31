@@ -32,6 +32,11 @@ enum PaneToken: Equatable, Sendable {
     case right
     /// The single-source rail, which has no opposite pane at all.
     case singleSource
+    /// The Compare Copies overlay, which is not a pane at all — it owns its own
+    /// ``PaneDownloadWatch`` and never posts through `NotificationCenter`. The case exists so the
+    /// surface names itself in a request rather than borrowing a pane's identity, which is what
+    /// would let a pane latch a download it did not start. Appended last, per the case-add rule.
+    case compareCopies
 
     init(isLeft: Bool, isSingleSource: Bool) {
         self = isSingleSource ? .singleSource : (isLeft ? .left : .right)

@@ -347,6 +347,16 @@ struct ContentView: View {
     /// it names a scan that only exists in this session.
     @State var duplicateRevealRequest: DuplicateRevealRequest?
 
+    /// The file pair the Compare Copies surface is open on, if any.
+    ///
+    /// **Held at the window, not inside `LensWorkspaceView`, because the surface needs the
+    /// window.** macOS clamps a sheet to its host window's content width and the lens workspace is
+    /// a fraction of that window (the panes take the rest), so an overlay anchored inside the lens
+    /// would get a few hundred points to draw two previews in. Anchored here it clamps against the
+    /// live window: 1080×760 with room, 712×512 at the 760×560 floor. The rest of the wiring is
+    /// still the lens's — it decides which pairs come here at all.
+    @State private var compareFilePair: DuplicateComparePair?
+
     /// Both rungs of the toolbar row, resolved together from the window's width — see
     /// `WorkspaceBarMetrics.styleSet`.
     ///
@@ -856,8 +866,26 @@ struct ContentView: View {
                 // (discovery runs async in onAppear) — opening early would show "SyncCloud found 0
                 // places on this Mac" and then fill in behind the user's eyes.
                 setupOverlay
+            } else if let pair = compareFilePair {
+                // **Last in the chain, deliberately.** The four above are either a direct answer to
+                // something the user just did to a file (the picker) or an ambient panel with its
+                // own entry points this window cannot gate (⌘, and ⌘? live in the App scene). A
+                // compare that yields to them loses nothing: the pair is `@State` here, so closing
+                // Settings brings the surface back exactly as it was — where refusing those panels
+                // would need the whole latch-refusal apparatus the picker has, to protect a surface
+                // that survives being covered.
+                CompareCopiesOverlay(
+                    syncManager: syncManager, pair: pair,
+                    scanRoot: syncManager.duplicateScanRoot,
+                    providerName: lensProviderName.isEmpty ? nil : lensProviderName,
+                    onClose: { compareFilePair = nil })
             }
         }
+        // `designAnimation`, not `.animation`: the scrim fade is motion, and Reduce Motion has to
+        // reach it. (The four `.animation` lines below predate the wrapper and are classified in
+        // `ReduceMotionCoverageScanTests`; a new raw one would have to be classified too, and this
+        // one has no reason to be.)
+        .designAnimation(.easeOut(duration: 0.15), value: compareFilePair)
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .animation(.easeOut(duration: 0.15), value: showHelp)
         .animation(.easeOut(duration: 0.15), value: showSetup)
@@ -3991,6 +4019,7 @@ struct ContentView: View {
                 onManageProviders: openProviderSettings,
                 onChooseFolder: { chooseFolderSource { leftProviderId = $0 } },
                 onCompareCopies: reviewCoordinator.compareCopies,
+                onCompareFilePair: { compareFilePair = $0 },
                 onRequestDestination: { presentDestination($0) },
                 revealRequest: duplicateRevealRequest,
                 // Retire an ANSWERED request. The lens's own applied-id is @State and dies with
