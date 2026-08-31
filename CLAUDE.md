@@ -73,55 +73,70 @@ namespace is release-only (`git tag | grep -v '^v[0-9]*\.[0-9]*$'` must stay emp
 is where it lives. **Delete it and the doc cites a SHA that git will eventually collect.** Any other
 branch you find is scaffolding and can go.
 
-## Session isolation: work in a worktree, land on your target line directly
+## Session isolation: work in a worktree, land only when he says so
 
-The goal is a **linear `main`** where every completed change lands directly — no long-lived feature
-branches, no PRs. But **in-progress (uncommitted) work must never share a working tree with another
-session**: on 2026-07-13 several sessions edited the shared `main` checkout at once and their
-uncommitted changes got entangled. `/Users/abhishek/Projects/SyncCloud` is the shared landing zone,
-not a scratch space — do not edit it while work is in progress.
+The goal is a **linear `main`** where every completed change lands as a small number of thematic
+commits — no long-lived feature branches, no PRs, no merge commits. But **in-progress work must
+never share a working tree with another session**: on 2026-07-13 several sessions edited the shared
+`main` checkout at once and their uncommitted changes got entangled.
+`/Users/abhishek/Projects/SyncCloud` is the shared landing zone, not a scratch space — do not edit
+it while work is in progress.
 
-1. **Start** — worktree on a fresh branch off the line you are targeting (`origin/main` for v4 work,
-   `origin/v3.x` / `origin/v2.x` for a maintenance fix):
+**Everything stays local until he says to push. Standing direction, 2026-08-30.** Commit freely
+inside the worktree — those commits are a working record, not the shipped history — but do not
+touch the primary checkout, do not `push`, and do not treat "the work is done and the tests are
+green" as permission to land. **Ask, in so many words, and wait for an explicit yes.** "Looks
+good" about the code is not a push approval; neither is an earlier session's approval, nor his
+approval of the *previous* batch. One ask, one push.
+
+1. **Start** — worktree on a fresh branch off `origin/main`:
    ```sh
    git -C /Users/abhishek/Projects/SyncCloud fetch origin
-   git worktree add /Users/abhishek/Projects/SyncCloud-<task> -b <task> origin/<line>
+   git worktree add /Users/abhishek/Projects/SyncCloud-<task> -b <task> origin/main
    ```
    This is an **xcodegen** project — run `xcodegen` in the new worktree before `xcodebuild`.
 
-2. **Work** — all changes inside that worktree; nothing leaks until you deliberately commit.
+2. **Work** — all changes inside that worktree. Commit as often as is useful; the granularity here
+   is for you, not for `main`, so a commit per experiment is fine and reverting one is cheap.
+   Nothing leaves the worktree at this stage.
 
-3. **Finish — land on the target line directly.** Only once the work is complete:
-   - Commit on the worktree branch (imperative subject; prose body explaining *why*; trailer
-     `Co-Authored-By: <model> <noreply@anthropic.com>`).
-   - Rebase onto the latest `origin/<line>` if the line moved.
-   - **Drop the empty `WIP` commit from step 1 — it is scaffolding, not work.** Nothing else in
-     this step removes it, and every landing verb here takes the WHOLE branch: `merge --ff-only`
-     and `push <task>:<line>` both carry it onto the line, where it is permanent. Four sit in
-     `main`'s history (`33c25bd2`, `8456c9d0`, `ea6441bf`, `a6622782`) from sessions that followed
-     every other line of this step exactly — which is the point: the rule that mints the commit
-     has to be the rule that retires it.
+3. **Squash into thematic commits — before you ask, not after he says yes.** The branch's shipped
+   shape is a handful of commits, each one theme a reader could review on its own: a behaviour
+   change and its tests together, a refactor separate from the behaviour change it enabled, docs
+   separate from code. Not one commit per file, and not one commit for the whole session.
+   Interactive rebase is unavailable here, so squash by replaying onto the line and re-committing
+   in themed chunks, or with `git reset --soft` to the merge base and staging path by path:
+   ```sh
+   git fetch origin && git rebase origin/main            # rebase first, squash onto the real base
+   git reset --soft $(git merge-base origin/main HEAD)   # all work now staged, nothing lost
+   git restore --staged . && git add <paths for theme 1> && git commit   # repeat per theme
+   ```
+   `git reset --soft` **stages against the ref as it is now** — if the line moved under you, it
+   clobbers; rebase first, and check `git status` shows exactly the files you expect before the
+   first commit.
+   - Message shape: imperative subject; prose body explaining *why*; trailer
+     `Co-Authored-By: <model> <noreply@anthropic.com>`.
+   - **Empty commits do not survive the squash, but check anyway** — this prints nothing when the
+     branch is clean and names the offender when it is not:
      ```sh
-     git rebase --onto origin/<line> <the-WIP-sha> <task>   # replays the real work only
-     git log --oneline --format='%H %s' origin/<line>..<task> |
+     git log --oneline --format='%H %s' origin/main..HEAD |
        while read sha rest; do [ -z "$(git show --stat --format= $sha)" ] && echo "EMPTY: $sha $rest"; done
      ```
-     The second command prints nothing when the branch is clean, and names the offender when it is
-     not. Run it before landing, not after: removing one afterwards needs a force-push to a branch
-     other sessions are working on, which is why the four above are staying.
-   - Fast-forward the primary checkout — **no merge commits**. The primary tracks `main`; to land on
-     a maintenance line, push the branch straight to it:
-     ```sh
-     git push origin <task>:v2.x        # v2.x (likewise <task>:v3.x)
-     git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task> && git push   # main
-     ```
-   - Record any maintenance-line gap in `docs/backports.md` — a record, not a to-do; see the
-     standing direction above. (If a maintenance fix is ever authorised again, pick it forward in
-     the same session, `v2.x` → `v3.x` → `main`, and verify by CONTENT: a cherry-pick has a new SHA,
-     so `git branch -r --contains` answers about the wrong commit.)
-   - `git worktree remove /Users/abhishek/Projects/SyncCloud-<task>`.
+     Four empty `WIP` commits sit in `main`'s history (`33c25bd2`, `8456c9d0`, `ea6441bf`,
+     `a6622782`) from sessions that landed the whole branch without looking. Removing one after it
+     lands needs a force-push, which is why they are staying.
+   - Then show him what you are proposing to land — `git log --oneline origin/main..HEAD` and
+     `git diff --stat origin/main..HEAD` — and ask.
 
-Commit and push **proactively** as work lands; don't wait to be asked each time.
+4. **Land, once he has said yes.** Fast-forward the primary checkout; **no merge commits**:
+   ```sh
+   git -C /Users/abhishek/Projects/SyncCloud merge --ff-only <task> && git push
+   ```
+   Then record any maintenance-line gap in `docs/backports.md` — a record, not a to-do; see the
+   standing direction above. Finally `git worktree remove /Users/abhishek/Projects/SyncCloud-<task>`.
+
+**Cite SHAs only after the push.** The squash and the rebase both renumber everything, so a SHA
+read before step 4 names a commit that no longer exists.
 
 ## Cutting a release
 
@@ -271,7 +286,10 @@ of the notes — v2.9's headline became its test volume, the one superlative tha
 ### Cutting it
 
 Tags are **two components** — `v2.9`, never `v2.9.0`; `git tag | grep -v '^v[0-9]*\.[0-9]*$'` should
-stay empty. Work in a worktree as always.
+stay empty. Work in a worktree as always — and the push rule from **Session isolation** applies
+here too: build the whole cut locally, then ask once before step 3 puts any of it on `origin`.
+Everything after that point is outward-facing and irreversible in public (a pushed tag, a published
+release, a live Pages article), so the ask covers the cut as a unit, not each command in turn.
 
 1. **Drop the suffix, and publish the notes with it.** In `project.yml`, `2.9-dev` → `2.9`. Leave
    `CFBundleVersion` alone — it is already `209`. In the same commit take the notes out of draft:
@@ -363,7 +381,11 @@ characters spare, comfortable out to roughly a 21-character line (`10.10-dev` st
 version does get long enough to matter, `theVersionLineFitsTheRailOnOneLine` fails and names the
 number; do not widen the rail without re-measuring the tabs that share its opening.
 
-## After shipping an app change
+## Trying an app change
+
+**Install from the worktree, before you ask for the push** — an app change he has not seen running
+is not a change he can approve. The skill resolves the current worktree's `.dd` as well as the
+shared DerivedData root, so nothing has to land first.
 
 Run the `install-sync-cloud` skill (quits the running instance, installs the fresh build to
 `/Applications/SyncCloud.app`, de-dupes the DerivedData copy from Spotlight, then sweeps stale build
