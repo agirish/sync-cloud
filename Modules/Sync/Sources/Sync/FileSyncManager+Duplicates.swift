@@ -534,9 +534,16 @@ extension FileSyncManager {
     /// merge path deliberately has neither — see `copyDriftedInPlace` — its keeper is *meant* to
     /// change, and its own trash step re-walks the source.)
     private func keeperStillExists(_ group: DuplicateGroup) -> Bool {
-        let keeper = group.keeper
-        guard fileManager.fileExists(atPath: keeper.path) else { return false }
-        return !copyDriftedInPlace(keeper)
+        copyStillExists(group.keeper)
+    }
+
+    /// The keeper test above, for ANY copy — extracted so the pair resolve
+    /// (``resolveDuplicateCopy(_:keeper:)``) asks the keeper question in the one spelling the
+    /// group resolve asks it, rather than re-deriving "exists, and hasn't drifted" beside it.
+    /// Two copies of a safety predicate can only agree by luck.
+    private func copyStillExists(_ copy: DuplicateCopy) -> Bool {
+        guard fileManager.fileExists(atPath: copy.path) else { return false }
+        return !copyDriftedInPlace(copy)
     }
 
     /// Whether `copy` is still on disk but no longer the size the scan recorded — an in-place
@@ -929,6 +936,196 @@ extension FileSyncManager {
                               undoable: outcome.isUndoable)
         }
         Logger.shared.info("Duplicates: removed \(paths.count) redundant copy(ies) of “\(group.keeper.name)”, reclaimed \(Self.formatBytes(bytes))")
+        return true
+    }
+
+    // MARK: Resolve one copy (the Compare Copies pair verdict)
+
+    /// Why a single-copy resolve refused — or that it may proceed. One value, produced by one
+    /// routine (``assessDuplicatePair(copy:keeper:)``), consulted by both the pre-check and the
+    /// removal gate, so the two windows around a `deleteItems` can never disagree about what they
+    /// verified. The shape mirrors the Compare review's `ReviewedPairVerdict`, which is the same
+    /// question asked from the app target.
+    enum DuplicatePairVerdict: Sendable, Equatable {
+        /// Both ends are still what the scan saw; the copy may be removed.
+        case matches
+        /// No live group holds BOTH paths any more — a rescan replaced the results under the
+        /// surface, so nothing here has been re-verified against a current grouping.
+        case noLiveGroup
+        /// The keeper is gone, or is no longer what the scan measured. Removing the other copy
+        /// could take the last instance of the keeper's original content.
+        case keeperDrifted(missingBaseline: Bool)
+        /// The copy being removed changed after the scan — it is no longer provably a duplicate.
+        case copyDrifted(missingBaseline: Bool)
+        /// The copy is already off the disk. Not drift, and not a refusal: there is nothing to
+        /// trash and nothing was lost.
+        case copyVanished
+    }
+
+    /// The whole verdict for ONE pair, in the order the group resolve asks it: is there still a
+    /// live grouping for these two paths, is the keeper intact, has the copy drifted.
+    ///
+    /// **The live-group lookup is by PATH, never by group id.** `DuplicateGroup.id` is a fresh
+    /// `UUID` on every scan — the rescan replaces `duplicateGroups` wholesale — so a surface that
+    /// stayed open across one holds an id that names nothing, and a lookup by it would silently
+    /// find no group where a lookup by path finds the current one. `DuplicateCompareContext` set
+    /// this precedent for the Compare review for the same reason.
+    ///
+    /// Fail-closed on a missing group: "the scan moved on" and "verified against the current
+    /// results" must not be the same outcome.
+    func assessDuplicatePair(copy: DuplicateCopy, keeper: DuplicateCopy) async -> DuplicatePairVerdict {
+        guard liveGroup(holding: copy.path, and: keeper.path) != nil else { return .noLiveGroup }
+        // Spelled out rather than folded into a `guard`'s `&&`: an `await` may not appear in the
+        // autoclosure operand of a short-circuiting operator.
+        var keeperHolds = copyStillExists(keeper)
+        if keeperHolds, keeper.isDirectory { keeperHolds = !(await folderDriftedInPlace(keeper)) }
+        guard keeperHolds else {
+            return .keeperDrifted(missingBaseline:
+                fileManager.fileExists(atPath: keeper.path)
+                    && keeper.isDirectory && keeper.contentSnapshot == nil)
+        }
+        // **A vanished copy is not drift** — the same distinction `dropFullyRemovedGroups` draws,
+        // and the one the Compare review draws with `.deleteVanished`. `copyDriftedInPlace`
+        // answers false for a path that is simply gone, so this has to be asked separately.
+        guard fileManager.fileExists(atPath: copy.path) else { return .copyVanished }
+        var copyHolds = !copyDriftedInPlace(copy)
+        if copyHolds, copy.isDirectory { copyHolds = !(await folderDriftedInPlace(copy)) }
+        guard copyHolds else {
+            return .copyDrifted(missingBaseline: copy.isDirectory && copy.contentSnapshot == nil)
+        }
+        return .matches
+    }
+
+    /// The live group holding both paths, or nil. Every copy is compared by absolute path — the
+    /// spelling `removeResolvedDuplicateCopy` matches on — because that is the identity that
+    /// survives a rescan.
+    func liveGroup(holding copyPath: String, and keeperPath: String) -> DuplicateGroup? {
+        duplicateGroups.first { group in
+            let paths = Set(group.copies.map(\.path))
+            return paths.contains(copyPath) && paths.contains(keeperPath)
+        }
+    }
+
+    /// Posts the banner AND the log line for a refusing pair verdict — both sides, both wordings,
+    /// in one place so the pre-check and the gate report a refusal identically. He audits
+    /// `~/sync-cloud.log`; a copy the app offered to trash and then kept must say why there too.
+    ///
+    /// The two folder refusals stay worded apart for the reason `resolveDuplicateGroup` words them
+    /// apart: a copy carrying NO scan baseline was never fully read, so "changed since it was
+    /// scanned" would assert a change nobody measured, and would send the user to a rescan that
+    /// records nil again over the same unreadable subtree.
+    private func reportPairRefusal(_ verdict: DuplicatePairVerdict,
+                                   copy: DuplicateCopy, keeper: DuplicateCopy) {
+        switch verdict {
+        case .matches, .copyVanished:
+            break   // nothing to refuse
+        case .noLiveGroup:
+            banner = .warning("The duplicate scan has moved on since these copies were compared — rescan before trashing “\(copy.name)”.")
+            Logger.shared.warning("Duplicates: refused to trash \(copy.path) — no current group holds it together with the keeper \(keeper.path), so the pair could not be re-verified")
+        case .keeperDrifted(missingBaseline: true):
+            banner = .warning("“\(keeper.name)” couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so “\(copy.name)” can't be proven redundant. Review them manually.")
+            Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the scan recorded no baseline for the keeper \(keeper.path) (subtree unreadable, too deep, or a link cycle), so the copy is not provably redundant")
+        case .keeperDrifted(missingBaseline: false):
+            banner = .warning("“\(keeper.name)” is no longer what the scan saw — rescan before trashing “\(copy.name)”.")
+            Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the keeper \(keeper.path) is no longer what the scan saw, so the copy may be its last intact instance")
+        case .copyDrifted(missingBaseline: true):
+            banner = .warning("“\(copy.name)” couldn't be fully checked against the scan — the scan couldn't read all of it (unreadable, or nested too deep), so it can't be proven still a copy. Review it manually.")
+            Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the scan recorded no baseline for it (subtree unreadable, too deep, or a link cycle), so it is not provably still a duplicate")
+        case .copyDrifted(missingBaseline: false):
+            banner = .warning("“\(copy.name)” changed since it was scanned — it may no longer be a copy. Rescan before trashing it.")
+            Logger.shared.warning("Duplicates: refused to trash \(copy.path) — it changed after the scan, so it is no longer provably a duplicate")
+        }
+    }
+
+    /// The gate ``resolveDuplicateCopy(_:keeper:)`` hands to `deleteItems`, over one pair.
+    ///
+    /// A named member rather than a closure written at the call site, for the reason
+    /// ``duplicateRemovalGate(groups:refusals:)`` is one: the nil-`self` branch is by construction
+    /// unreachable through the call site (which holds `self` on the awaiting frame), so a test can
+    /// only exercise it by building the closure directly. `return []` there would refuse nothing
+    /// and let a file be destroyed with nothing having re-verified it.
+    func duplicatePairRemovalGate(copy: DuplicateCopy, keeper: DuplicateCopy)
+        -> @Sendable ([String]) async -> Set<String> {
+        { [weak self] about in
+            // Fail CLOSED on a torn-down manager, for the reason `duplicateRemovalGate` says:
+            // "nothing has re-verified this" and "this may be destroyed" must not be one outcome.
+            guard let self else { return Set(about) }
+            let verdict = await self.assessDuplicatePair(copy: copy, keeper: keeper)
+            switch verdict {
+            case .matches, .copyVanished:
+                return []
+            case .noLiveGroup, .keeperDrifted, .copyDrifted:
+                await self.reportPairRefusal(verdict, copy: copy, keeper: keeper)
+                // Refuse what the gate was ASKED about, in the caller's own spelling: the
+                // post-confirmation pass is fed URL round-tripped paths, and a refusal that
+                // cannot be matched back is a banner posted over a file destroyed anyway.
+                return Set(about)
+            }
+        }
+    }
+
+    /// Trashes ONE copy of a duplicate group, keeping `keeper` — the verdict the Compare Copies
+    /// surface reaches on a pair.
+    ///
+    /// **A group resolve could not stand in for this.** ``resolveDuplicateGroup(_:)`` trashes
+    /// *every* redundant copy of a group; on a two-copy group that happens to be the same act, and
+    /// on a three-copy group compared pairwise it destroys two files where the user decided about
+    /// one. The only single-copy trash that existed lived in the app target's Compare review
+    /// coordinator, unreachable from the module that draws this surface.
+    ///
+    /// Built inside the shared machinery rather than beside it: the same
+    /// ``assessDuplicatePair(copy:keeper:)`` verdict before and inside the removal gate, the same
+    /// `deleteItems` path, the same conditional ⌘Z promise (`DeleteOutcome.isUndoable` is false on
+    /// a Trash-less volume, where the file was destroyed rather than trashed), and the same
+    /// in-memory update through ``removeResolvedDuplicateCopy(atPath:)``, which already handles a
+    /// copy that legitimately sits in two groups.
+    ///
+    /// Returns true only when the copy actually left the disk.
+    @discardableResult
+    public func resolveDuplicateCopy(_ copy: DuplicateCopy, keeper: DuplicateCopy) async -> Bool {
+        guard copy.path != keeper.path else {
+            Logger.shared.warning("Duplicates: refused to trash \(copy.path) — it IS the keeper")
+            return false
+        }
+        let verdict = await assessDuplicatePair(copy: copy, keeper: keeper)
+        switch verdict {
+        case .noLiveGroup, .keeperDrifted, .copyDrifted:
+            reportPairRefusal(verdict, copy: copy, keeper: keeper)
+            return false
+        case .copyVanished:
+            // Nothing to trash and nothing lost — say so, and take the copy out of the list so the
+            // surface and the card stop offering an act with no subject.
+            Logger.shared.info("Duplicates: \(copy.path) is already gone — nothing to trash")
+            removeResolvedDuplicateCopy(atPath: copy.path)
+            banner = .success("“\(copy.name)” was already gone — nothing to trash.")
+            return false
+        case .matches:
+            break
+        }
+        // The verdict above is the FIRST check, not the last: `deleteItems` routes through the
+        // serialized op queue (a long queued operation inserts its whole duration here) and can
+        // hold a permanent-delete confirmation open for as long as the user leaves it. The gate
+        // re-runs the SAME assessment at the moment the removal starts and again after a confirmed
+        // permanent delete, and refuses — with the same banner and log line — if either end
+        // drifted in between. `fileManager: fileManager` explicitly, so the verdict and the
+        // removal are asked of one filesystem even under an injected manager.
+        let bytes = copy.size
+        let outcome = await deleteItems(at: [copy.path], fileManager: fileManager,
+                                        removalGate: duplicatePairRemovalGate(copy: copy,
+                                                                              keeper: keeper))
+        guard outcome.removed > 0 else { return false }
+        // **Say which way it went.** `removed` folds together the two outcomes `DeleteOutcome`
+        // exists to separate: on a Trash-less volume — exFAT, most SMB shares — the copy was
+        // destroyed permanently, and calling that "Trashed" sends anyone reading the log to a
+        // Trash that never received it.
+        Logger.shared.info(outcome.trashed > 0
+            ? "Duplicates: trashed the compared copy \(copy.path), keeping \(keeper.path), reclaimed \(Self.formatBytes(bytes))"
+            : "Duplicates: permanently deleted the compared copy \(copy.path), keeping \(keeper.path), reclaimed \(Self.formatBytes(bytes))")
+        removeResolvedDuplicateCopy(atPath: copy.path)
+        if currentError == nil {
+            banner = .success("Reclaimed \(Self.formatBytes(bytes))" + (outcome.isUndoable ? " — press ⌘Z to undo" : ""),
+                              undoable: outcome.isUndoable)
+        }
         return true
     }
 
