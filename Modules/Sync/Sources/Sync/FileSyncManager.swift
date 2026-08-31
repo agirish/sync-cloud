@@ -119,6 +119,23 @@ public class FileSyncManager: ObservableObject {
     /// and it is the path every successful delete in this app has always taken.
     public var trashViaWorkspace: @Sendable ([URL]) async -> [URL: URL] = { _ in [:] }
 
+    /// Whether a provider is moving this item's bytes right now — consulted by `deleteItems`
+    /// before it spends the re-registration retry, which physically renames the item twice.
+    ///
+    /// **A property on the manager rather than a parameter, so exactly one path can consult it.**
+    /// The delete path's alternative to parking is a retryable refusal that leaves the file where
+    /// it is; the MOVE primitives' source cleanup reaches the same retry through
+    /// `retriedSourceCleanupTrash`, and there the alternative is `removeItem` — a permanent
+    /// deletion. One answer must not serve both, so the question is asked where the delete loop
+    /// can see it and nothing static can pick it up by accident.
+    ///
+    /// A seam for the reason `trashViaWorkspace` above is one: an uploading ubiquitous item cannot
+    /// be fabricated in a test, the flag is provider-set, and this decides the branch that must not
+    /// touch the file. Unlike `trashViaWorkspace` it defaults to the REAL probe, because
+    /// `URL.resourceValues` is Foundation and needs no AppKit — nothing has to be wired for it to
+    /// work, and an answer of false is the behaviour that existed before it.
+    public var isMidCloudTransfer: @Sendable (URL) -> Bool = { FileSyncManager.midCloudTransfer($0) }
+
     /// Confirms a cloud (Claude) Filing classify before it commits, given a pre-flight cost estimate
     /// and this month's spend-vs-cap. Consulted once per **refine pass** — never by a scan, which
     /// classifies at ``FilingClassifierTier/free`` and cannot spend — and only when cloud Filing is

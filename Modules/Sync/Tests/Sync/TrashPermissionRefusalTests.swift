@@ -176,6 +176,91 @@ import Testing
         #expect(manager.currentError == nil, "a recovered trash still reported a failure")
     }
 
+    // MARK: Reading the system service's answer
+
+    /// **The service answers with ITS spelling of the URL, not yours.** `NSWorkspace.recycle`
+    /// documents the keys as the URLs it was given and hands back its own standardisation of them
+    /// — a resolved `/private` prefix, a trailing slash on a directory. `URL` hashes on the
+    /// absolute string, so `moved[url]` is nil over a file the service had just trashed.
+    ///
+    /// Three readings, each with its own case, because the narrow one is what a re-spelling
+    /// defeats and the wide one is what a multi-item answer must not fall through to.
+    @Test func aRecycledItemIsFoundEvenWhenTheServiceRespellsTheKey() {
+        let asked = URL(fileURLWithPath: "/docs/a.pdf")
+        let landed = URL(fileURLWithPath: "/Trash/a.pdf")
+
+        #expect(FileSyncManager.recycled(asked, in: [asked: landed]) == landed,
+                "the ordinary exact-key answer stopped working")
+        // A key naming the same file in a different spelling.
+        let respelt = URL(fileURLWithPath: "/docs/./a.pdf")
+        #expect(FileSyncManager.recycled(asked, in: [respelt: landed]) == landed,
+                "a re-spelt key made a recycled file look untouched")
+        // Nothing moved: the service reports only what it moved, so an empty answer is a refusal.
+        #expect(FileSyncManager.recycled(asked, in: [:]) == nil)
+        // More than one entry and no key that matches: no guessing which one was ours.
+        let other = URL(fileURLWithPath: "/docs/b.pdf")
+        #expect(FileSyncManager.recycled(asked, in: [other: landed,
+                                                     URL(fileURLWithPath: "/docs/c.pdf"): landed])
+                    == nil,
+                "a file was reported as trashed on the strength of somebody else's entry")
+        // **And a SINGLE unrelated entry is nil here too**, which is the boundary between the two
+        // functions: read as a rule over a dictionary alone, "one entry must be mine" is false —
+        // a caller asking about five items and getting one back would misattribute it. That
+        // reading is sound only for a one-item request, so it lives in `recycledSingle` below.
+        #expect(FileSyncManager.recycled(asked, in: [other: landed]) == nil,
+                "the one-item-only reading leaked into the general one")
+    }
+
+    /// The wide reading, where it IS sound: the request and the read are one call, so a one-entry
+    /// answer to a one-item request is that item whatever spelling came back. `/private/docs` is a
+    /// key no amount of standardising maps to `/docs`, so only this rule can find it — which is
+    /// what the real `/private` prefix on a symlinked root looks like.
+    @Test func aOneItemRequestReadsAOneEntryAnswerAsItsOwn() async {
+        let asked = URL(fileURLWithPath: "/docs/a.pdf")
+        let landed = URL(fileURLWithPath: "/Trash/a.pdf")
+
+        let found = await FileSyncManager.recycledSingle(asked) { _ in
+            [URL(fileURLWithPath: "/private/docs/a.pdf"): landed]
+        }
+        #expect(found == landed, "a key no standardisation reaches made a trashed file look untouched")
+
+        // And a refusal is still a refusal.
+        let refused = await FileSyncManager.recycledSingle(asked) { _ in [:] }
+        #expect(refused == nil)
+    }
+
+    /// The same thing end to end: with the service re-spelling its key, the delete must still
+    /// count the item as trashed and must never reach the permanent-delete prompt — which, before
+    /// this, it did, offering to destroy outright a file already sitting recoverable in the Trash.
+    @MainActor
+    @Test func aRespeltRecycleKeyDoesNotEscalateToAPermanentDelete() async throws {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        // Refuses in-process every time, so the answer below is the only way out.
+        fm.trashErrorAlways = NSError(domain: NSCocoaErrorDomain,
+                                      code: NSFileWriteNoPermissionError, userInfo: nil)
+        manager.trashViaWorkspace = { urls in
+            // `/private` + the path, the real shape of a symlinked-root re-spelling — and one
+            // no standardisation maps back, so this drives the widest of the three readings.
+            Dictionary(uniqueKeysWithValues: urls.map { url -> (URL, URL) in
+                (URL(fileURLWithPath: "/private\(url.path)"),
+                 URL(fileURLWithPath: "/Trash/\(url.lastPathComponent)"))
+            })
+        }
+        manager.permanentDeleteConfirmer = { _ in
+            Issue.record("a file the system service had already trashed reached the permanent-delete prompt")
+            return false
+        }
+
+        let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
+
+        #expect(outcome.trashed == 1, "the recycled item was not counted as trashed")
+        #expect(manager.currentError == nil, "a recovered trash still reported a failure")
+    }
+
     // MARK: The third attempt — re-registering the item with a move in place
 
     /// **An item both Trash APIs refuse still reaches the Trash.** Measured on the reported tree,
@@ -559,6 +644,103 @@ import Testing
     /// for something a test could drive, this is what would notice.
     private final class Recorder: @unchecked Sendable {
         var urls: [String] = []
+    }
+
+    // MARK: The item the delete path must not park — and the move path must
+
+    /// **The re-registration retry is declined while a provider is still moving the item's
+    /// bytes.** The refusal it answers — `NSFileWriteNoPermissionError` on a file-provider item —
+    /// is the same error an item its daemon is mid-write on throws, so the error cannot tell the
+    /// two apart and the item's transfer state has to. Renaming a file out from under a sync that
+    /// is halfway through it invites the provider to record a delete-and-create where there was
+    /// neither.
+    ///
+    /// The fixture is one where the park WOULD have worked (`trashRefusedUntilMovedIn`), so the
+    /// refusal is the only thing that can produce this result — and the control below is the same
+    /// fixture with the probe answering false.
+    @MainActor
+    @Test func theDeletePathDeclinesToParkAnItemMidTransfer() async throws {
+        func attempt(midTransfer: Bool) async -> (DeleteOutcome, stillThere: Bool, MockFileManager) {
+            let fm = MockFileManager()
+            let manager = FileSyncManager(fileManager: fm)
+            manager.undoManager = UndoManager()
+            fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
+                isDirectory: false, attributes: [.size: 100], contents: nil)
+            fm.trashRefusedUntilMovedIn = true
+            manager.trashViaWorkspace = { _ in [:] }
+            manager.isMidCloudTransfer = { _ in midTransfer }
+            manager.permanentDeleteConfirmer = { _ in
+                Issue.record("a permission refusal reached the permanent-delete prompt")
+                return false
+            }
+            let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
+            return (outcome, fm.virtualDisk["/docs/a.pdf"] != nil, fm)
+        }
+
+        let (declined, stillThere, fm) = await attempt(midTransfer: true)
+        #expect(declined.trashed == 0, "an item mid-transfer was parked and trashed anyway")
+        #expect(stillThere, "an item mid-transfer left its own path")
+        #expect(fm.movedInto.isEmpty, "the item was physically moved despite the refusal")
+
+        // The control: the identical fixture with nothing transferring parks, restores and trashes.
+        let (parked, gone, _) = await attempt(midTransfer: false)
+        #expect(parked.trashed == 1, "the fixture cannot park at all, so the refusal proves nothing")
+        #expect(!gone, "the control never reached the Trash")
+    }
+
+    /// **And the MOVE path must park regardless, because there the alternative destroys the file.**
+    ///
+    /// `retriedSourceCleanupTrash` returning false sends its two callers to `removeItem` — the one
+    /// unrecoverable branch of a cross-volume move. Declining to park there would trade a source
+    /// that reaches the Trash for one deleted outright, which is strictly worse for exactly the
+    /// item the delete path's refusal exists to protect. It is a `nonisolated static` and the
+    /// policy is a property on the manager, so it cannot pick the refusal up by accident — this
+    /// pins that, by parking on a fixture whose only way to the Trash is the park.
+    @Test func theMoveSourceCleanupParksEvenSoBecauseItsAlternativeIsPermanent() throws {
+        let fm = MockFileManager()
+        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.size: 100], contents: nil)
+        fm.trashRefusedUntilMovedIn = true
+        let refusal = NSError(domain: NSCocoaErrorDomain,
+                              code: NSFileWriteNoPermissionError, userInfo: nil)
+
+        let handled = FileSyncManager.retriedSourceCleanupTrash(
+            URL(fileURLWithPath: "/docs/a.pdf"), after: refusal, fileManager: fm,
+            context: "Cross-volume move")
+
+        #expect(handled, """
+                the move's source cleanup did not reach the Trash, so its caller falls through to                 removeItem and destroys the original outright
+                """)
+        #expect(fm.virtualDisk["/docs/a.pdf"] == nil, "the source never left its path")
+    }
+
+    /// **The test above is a positive control and cannot fail on the regression it describes**, so
+    /// this is the pin that can.
+    ///
+    /// `retriedSourceCleanupTrash` is a `nonisolated static` and the policy is an instance
+    /// property, so it cannot reach `manager.isMidCloudTransfer` — the compiler enforces that half.
+    /// The half the compiler does NOT enforce is somebody calling the static probe directly, which
+    /// is a two-word edit and would reintroduce exactly the data loss: a source that would have
+    /// reached the Trash goes to `removeItem` instead. Injecting a probe to test it is not
+    /// available — a `nonisolated static` with a seam is a seam production has to pass through,
+    /// and the point is that this path has none — so the scan states the rule and says so.
+    @Test func theMoveSourceCleanupDoesNotConsultTheMidTransferProbe() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/Sync/FileOperations.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read FileOperations.swift — this check is vacuous")
+        let start = try #require(source.range(of: "static func retriedSourceCleanupTrash("),
+                                 "`retriedSourceCleanupTrash` is gone or renamed — re-aim this scan")
+        let end = try #require(source.range(of: "\n    }\n", range: start.upperBound..<source.endIndex),
+                               "cannot find the end of `retriedSourceCleanupTrash` — re-aim this scan")
+        let body = String(source[start.upperBound..<end.lowerBound])
+        // The positive control: the body really is the one being read.
+        #expect(body.contains("trashAfterReregistering("),
+                "the scan is reading the wrong function — it does not park at all")
+        #expect(!body.contains("midCloudTransfer"), """
+                the move's source cleanup consults the mid-transfer probe, so an uploading file                 that would have reached the Trash is sent to removeItem and destroyed instead
+                """)
     }
 
     // MARK: End to end

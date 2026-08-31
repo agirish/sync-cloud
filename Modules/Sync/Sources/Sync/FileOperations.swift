@@ -603,6 +603,67 @@ extension FileSyncManager {
         return false
     }
 
+    /// Whether a provider is moving this item's bytes right now.
+    ///
+    /// iCloud's own signals, which is all that is available without a file-provider entitlement —
+    /// the same two keys `FilingSurvey` reads, and the same limitation: a Dropbox or Drive item
+    /// mid-sync answers false here and is not covered. Nothing is claimed beyond what is
+    /// measurable, and a false answer only restores the previous behaviour for that item.
+    nonisolated static func midCloudTransfer(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey,
+                                                             .ubiquitousItemIsUploadingKey,
+                                                             .ubiquitousItemIsDownloadingKey]),
+              values.isUbiquitousItem == true else { return false }
+        return values.ubiquitousItemIsUploading == true
+            || values.ubiquitousItemIsDownloading == true
+    }
+
+    /// Where the system Trash service put `url`, read out of the dictionary it answers with —
+    /// **not by asking that dictionary for the URL we passed it.**
+    ///
+    /// `NSWorkspace.recycle` documents its keys as the URLs it was given, and in practice hands
+    /// back its own spelling of them: a standardised path, a `/private` prefix on a symlinked
+    /// root, a trailing slash on a directory. `URL` hashes and compares on the absolute string, so
+    /// any of those makes `moved[url]` nil over a file the service had just trashed — and the
+    /// caller then reads "the service refused too", parks the item to re-register it (a move that
+    /// now fails, because the item is in the Trash), and finally offers to PERMANENTLY DELETE a
+    /// file that is already recoverable in the Trash and no longer at the path being deleted.
+    ///
+    /// Two readings, both sound for an answer about any number of items: the exact key, and a key
+    /// naming the same file once both sides are standardised and symlink-resolved. A third and
+    /// wider reading exists, and it lives in ``recycledSingle(_:using:)`` rather than here,
+    /// because it is sound only for a request of exactly one item.
+    nonisolated static func recycled(_ url: URL, in moved: [URL: URL]) -> URL? {
+        if let exact = moved[url] { return exact }
+        let wanted = url.standardizedFileURL.resolvingSymlinksInPath().path
+        return moved.first {
+            $0.key.standardizedFileURL.resolvingSymlinksInPath().path == wanted
+        }?.value
+    }
+
+    /// Asks the system Trash service about ONE item and reads its answer.
+    ///
+    /// **The request and the read are one call, and that is what makes the last reading sound.**
+    /// When exactly one item was asked about, a one-entry answer IS that item — the service
+    /// reports only what it moved — whatever spelling its key came back in. Written as a rule over
+    /// a dictionary alone that would be false: a caller asking about five items and getting one
+    /// entry back would have that one entry attributed to whichever URL it happened to ask about.
+    /// Keeping the two together means the precondition cannot drift away from the rule.
+    ///
+    /// The wide reading logs, because it is the one that cannot be proven from the key: a reader
+    /// auditing `~/sync-cloud.log` should be able to see that the service answered under a name
+    /// this app did not choose, rather than have it silently absorbed.
+    nonisolated static func recycledSingle(
+        _ url: URL, using recycle: @Sendable ([URL]) async -> [URL: URL]) async -> URL? {
+        let moved = await recycle([url])
+        if let named = recycled(url, in: moved) { return named }
+        guard moved.count == 1, let (key, destination) = moved.first else { return nil }
+        Logger.shared.info(
+            "Delete: the system Trash service reported moving \(url.path) under a different key "
+            + "(\(key.path)) — read as this item, which is the only one it was asked about")
+        return destination
+    }
+
     /// What `trashAfterReregistering` did. Three cases, because two of them are not "it failed"
     /// and the caller has to tell them apart — one of them means the item is no longer at the path
     /// the user knows it by, which no "nothing was touched" message may be shown over.
@@ -646,6 +707,12 @@ extension FileSyncManager {
     ///
     /// **Last, because it is the only one of the three attempts that touches the item.**
     /// `trashItem` and the system service are both tried first and leave it alone.
+    ///
+    /// **Whether it should be attempted at all is the CALLER's question, not this function's** —
+    /// see ``FileSyncManager/isMidCloudTransfer``. The delete path declines it for an item a
+    /// provider is mid-transfer on; the move path must not, because there `.untouched` means
+    /// `removeItem`. Deciding here would have applied one answer to two callers whose alternatives
+    /// are a retryable refusal and a permanent deletion.
     nonisolated static func trashAfterReregistering(
         _ url: URL, fileManager fm: FileManaging) -> ReregisteredTrash {
         // Deliberately NOT `.tmp_<UUID>`. That is `OrphanSweeper`'s reap pattern, and for the
@@ -708,6 +775,13 @@ extension FileSyncManager {
                                                       fileManager fm: FileManaging,
                                                       context: String) -> Bool {
         guard isPermissionRefusal(refusal) else { return false }
+        // **The delete path's mid-transfer refusal deliberately does NOT reach here**, and this is
+        // the one place that has to be said. There, declining to park costs a retryable refusal
+        // and the file stays where it is. Here, not parking returns `false` and sends the caller
+        // to `removeItem` — the unrecoverable branch named above — so declining would trade a file
+        // that reaches the Trash for one destroyed outright, which is strictly worse for exactly
+        // the item that refusal exists to protect. `isMidCloudTransfer` lives on the manager and
+        // is read by `deleteItems`; nothing static can pick it up by accident.
         switch trashAfterReregistering(sourceURL, fileManager: fm) {
         case .trashed:
             Task { @MainActor in
@@ -863,6 +937,7 @@ extension FileSyncManager {
         }
         let confirmPermanentDelete = permanentDeleteConfirmer
         let recycle = trashViaWorkspace
+        let midTransfer = isMidCloudTransfer
 
         // Prune nested paths to avoid redundant operations on children if parent is trashed.
         //
@@ -994,12 +1069,27 @@ extension FileSyncManager {
                         // one has three outcomes of its own — two of which are resolutions.
                         var resolved = false
                         if Self.isPermissionRefusal(error) {
-                            if let moved = await recycle([url])[url] {
+                            if let moved = await Self.recycledSingle(url, using: recycle) {
                                 Logger.shared.info(
                                     "Delete: \(path) was refused in-process and moved to the Trash "
                                     + "by the system service instead")
                                 trashedItems.append((original: url, trashed: moved))
                                 resolved = true
+                            } else if midTransfer(url) {
+                                // **The third attempt is declined while the provider is still
+                                // moving this item's bytes.** The refusal it answers is the same
+                                // `NSFileWriteNoPermissionError` an item its daemon is mid-write on
+                                // throws, so the error cannot tell the two apart and the item's
+                                // transfer state has to. Renaming a file out from under a sync
+                                // that is halfway through it invites the provider to record a
+                                // delete-and-create where there was neither — and here, unlike the
+                                // move path, the cost of not trying is only the retryable refusal
+                                // below, which leaves the file exactly where it is.
+                                Logger.shared.warning(
+                                    "Delete: \(path) was refused the Trash while its provider is "
+                                    + "still transferring it, so it was left where it is rather "
+                                    + "than moved in place to re-register it — retry once the "
+                                    + "transfer finishes")
                             } else {
                                 switch Self.trashAfterReregistering(url, fileManager: fm) {
                                 case .trashed(let destination):
