@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 
 /// What kind of viewer a compared pair gets.
@@ -43,9 +44,39 @@ enum PairContentKind: String, Equatable, CaseIterable {
         if Self.textExtensions.contains(ext) { return .text }
         guard let type = UTType(filenameExtension: ext), type.isDeclared else { return .other }
         if type.conforms(to: .pdf) { return .pdf }
-        if type.conforms(to: .image) { return .image }
+        // **Conforming to `.image` is not the same as being decodable, and `.svg` is the proof.**
+        // `public.svg-image` conforms to `public.image` and ImageIO has no codec for it, so the
+        // typed viewer this once returned mounted two image views over nil, with no caption and a
+        // difference mode that spun for ever — while `.other`, the answer it displaced, would have
+        // rendered both sides through Quick Look, which reads SVG perfectly well.
+        if type.conforms(to: .image) { return imageIOCanDecode(type) ? .image : .other }
         return .other
     }
+
+    /// Whether ImageIO can actually turn this type into a raster.
+    ///
+    /// **Asked of the framework, not written down here**, for the reason the `.image` branch exists
+    /// at all: the decodable set is open-ended (`heic`, `arw`, `cr3`, whatever a camera ships next)
+    /// and a hand-kept list of it is the thing that silently stops covering a format. This asks the
+    /// one component whose answer actually governs — `PagePairRaster.renderImage` is a
+    /// `CGImageSource` — so the classification and the renderer cannot disagree.
+    static func imageIOCanDecode(_ type: UTType) -> Bool {
+        if decodableImageTypes.contains(type.identifier) { return true }
+        // A concrete type that ImageIO lists under a broader one it also declares (some RAW
+        // families). Conformance is asked in this direction only: `public.svg-image` conforms to
+        // `public.image`, which ImageIO does not list, so nothing here readmits it.
+        return decodableImageTypes.contains { identifier in
+            guard let decodable = UTType(identifier), decodable != .image else { return false }
+            return type.conforms(to: decodable)
+        }
+    }
+
+    /// The identifiers `CGImageSourceCopyTypeIdentifiers` reports, read once. A framework-wide
+    /// constant for the life of the process — it enumerates installed codecs, which do not change
+    /// under a running app.
+    private static let decodableImageTypes: Set<String> = {
+        Set(CGImageSourceCopyTypeIdentifiers() as? [String] ?? [])
+    }()
 
     static func classify(path: String) -> PairContentKind {
         classify(ext: (path as NSString).pathExtension)

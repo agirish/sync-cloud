@@ -71,6 +71,14 @@ struct PDFPairView: NSViewRepresentable {
         /// Just the scroll observers, so a re-wire after a path change can drop the previous
         /// pair's without disturbing the zoom ones, which are registered once for the view's life.
         var scrollObservers: [NSObjectProtocol] = []
+        /// The page each side should be showing, as of the most recent `updateNSView`.
+        ///
+        /// **Read by the load completion rather than captured at its start**, because a page turn
+        /// during the open is otherwise dropped on the floor: `go` bails while `document` is still
+        /// nil, and the load then goes to the index it captured before the turn. The strip pointed
+        /// at page 12 and the panes sat on page 1 until the next turn — most likely exactly when
+        /// the lane is busy behind a scan, which is when the open is slow enough to click through.
+        var requestedPages: (left: Int, right: Int) = (0, 0)
 
         deinit {
             for observer in observers { NotificationCenter.default.removeObserver(observer) }
@@ -107,20 +115,23 @@ struct PDFPairView: NSViewRepresentable {
     func updateNSView(_ split: NSSplitView, context: Context) {
         let coordinator = context.coordinator
         coordinator.syncSuspended = syncSuspended
+        // Recorded FIRST, and on every update: a turn arriving while the documents are still
+        // opening reaches the panes only through this, since the `go` below has nothing to act on
+        // yet. See `Coordinator.requestedPages`.
+        coordinator.requestedPages = (pairing.leftIndex(at: page), pairing.rightIndex(at: page))
         if coordinator.loaded?.left != leftPath || coordinator.loaded?.right != rightPath {
             coordinator.loaded = (leftPath, rightPath)
             coordinator.scrollWired = false
-            load(leftPath, into: coordinator.left, page: pairing.leftIndex(at: page),
-                 coordinator: coordinator)
-            load(rightPath, into: coordinator.right, page: pairing.rightIndex(at: page),
-                 coordinator: coordinator)
+            load(leftPath, into: coordinator.left, side: \.left, coordinator: coordinator)
+            load(rightPath, into: coordinator.right, side: \.right, coordinator: coordinator)
         } else {
-            go(coordinator.left, to: pairing.leftIndex(at: page))
-            go(coordinator.right, to: pairing.rightIndex(at: page))
+            go(coordinator.left, to: coordinator.requestedPages.left)
+            go(coordinator.right, to: coordinator.requestedPages.right)
         }
     }
 
-    private func load(_ path: String, into view: PDFView?, page index: Int,
+    private func load(_ path: String, into view: PDFView?,
+                      side: KeyPath<(left: Int, right: Int), Int>,
                       coordinator: Coordinator) {
         guard let view else { return }
         Task { @MainActor in
@@ -128,7 +139,9 @@ struct PDFPairView: NSViewRepresentable {
                 PDFDocument(url: URL(fileURLWithPath: path)).map(SendableDocument.init)
             }
             view.document = document?.document
-            go(view, to: index)
+            // The page as it stands NOW, not as it stood when this open was queued — a turn during
+            // the open reaches the view only here.
+            go(view, to: coordinator.requestedPages[keyPath: side])
             // **HERE, not in `makeNSView`.** A `PDFView` with no document has no `documentView`,
             // so it has no scroll view and no clip view to observe — the observers registered at
             // construction found nil and silently registered nothing, and the panes then scrolled

@@ -369,4 +369,82 @@ import Testing
         #expect(hops == 3)
         #expect(!latch.isMirroring)
     }
+
+    // MARK: A page turned while the documents are still opening
+
+    /// Holds the page the way the surface does, so the test can turn it under a mounted pair.
+    private final class PageBox: ObservableObject {
+        @Published var page: Int
+        init(page: Int) { self.page = page }
+    }
+
+    private struct PagingHarness: View {
+        @ObservedObject var box: PageBox
+        let left: String
+        let right: String
+
+        var body: some View {
+            PDFPairView(leftPath: left, rightPath: right, page: box.page,
+                        pairing: PagePairing(leftPages: 2, rightPages: 2), syncSuspended: false)
+                .frame(width: 800, height: 500)
+        }
+    }
+
+    /// **A page turn during the open used to be dropped on the floor.** The load captured the page
+    /// index at the moment it was queued, and `go` — the only other way in — bails while
+    /// `document` is still nil. So a turn arriving in between reached neither: the strip pointed
+    /// at page 2 and both panes sat on page 1 until the next turn. The window is real, and it is
+    /// widest exactly when the strip is most worth clicking: a scan holding the PDFKit lane makes
+    /// the open slow while the strip is already interactive.
+    ///
+    /// The turn is made BEFORE any await, so no document can have arrived yet — the require below
+    /// says so rather than assuming it, because a test that turned the page after the load would
+    /// pass through the ordinary `go` path and prove nothing.
+    @MainActor
+    @Test func aPageTurnedWhileTheDocumentsOpenIsNotLost() async throws {
+        let fixture = try PDFFixture()
+        let box = PageBox(page: 0)
+        let host = NSHostingView(rootView: AnyView(
+            PagingHarness(box: box, left: fixture.twoPage, right: fixture.twoPageEdited)))
+        host.frame = CGRect(x: 0, y: 0, width: 800, height: 500)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+
+        func panes(_ v: NSView) -> [PDFView] {
+            v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + panes($0) }
+        }
+        // Both halves matter: `allSatisfy` is vacuously true on an empty array, so the count is
+        // asserted with it — two panes exist, and neither has a document yet.
+        try #require(panes(host).count == 2 && panes(host).allSatisfy { $0.document == nil },
+                     "a document arrived before the turn — this would test the ordinary path")
+
+        box.page = 1
+        host.layoutSubtreeIfNeeded()
+
+        let (loaded, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
+            let found = panes(host)
+            return found.count == 2 && found.allSatisfy { $0.document != nil }
+        }
+        try #require(loaded, "the pair never finished loading (\(pumps) pumps)")
+
+        let (turned, turnPumps) = await LayoutPumpWait.pump(window, upTo: 3) {
+            panes(host).allSatisfy { pane in
+                guard let document = pane.document, let current = pane.currentPage else {
+                    return false
+                }
+                return document.index(for: current) == 1
+            }
+        }
+        let landed = panes(host).map { pane -> Int in
+            guard let document = pane.document, let current = pane.currentPage else { return -1 }
+            return document.index(for: current)
+        }
+        #expect(turned, """
+                the panes landed on \(landed) after a turn to page 2 (\(turnPumps) pumps) — the \
+                load went to the index it captured before the turn
+                """)
+    }
 }
