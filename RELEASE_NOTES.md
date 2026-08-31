@@ -38,17 +38,18 @@ User-facing changes, newest first. For the full commit history see the
 ### Two PDFs, or two images, move together
 
 - **Synchronised panes for PDFs and images.** Scroll or zoom one side and the other follows, and
-  scrolling onto another page walks the page strip along with you — so `1`–`4` open on the page you
-  were actually reading, rather than on the one you started at. ⌥ held breaks the sync while you
-  move one alone, pages included. Quick Look has no scroll or zoom to synchronise at all,
-  which is why this arrives with per-type viewers rather than earlier.
-- **⇞/⇟ page both sides at once**, and a strip under the panes marks each page once it has been
-  compared — green where nothing changed, amber where something did, with the figure in the
-  tooltip; blue where only one document has that page, red where a side could not be rendered. A
-  page carries no mark until its comparison has actually run, so nothing on the strip stands for a
-  page that has not been looked at. Where one document is longer, the strip runs to the longer one
-  and the shorter side stops at its last page rather than hiding the pages only one file has.
-- **Three ways to overlay the two pages,** picked with `1`–`4` or the segments: swipe a divider
+  ⌥ held breaks the sync while you move one alone. Quick Look has no scroll or zoom to synchronise
+  at all, which is why this arrives with per-type viewers rather than earlier.
+- **Paging is the PDF half — two images have no pages to turn.** ⇞/⇟ move both sides at once, and
+  scrolling onto another page walks the page strip along with you, so `1`–`4` open on the page you
+  were actually reading rather than on the one you started at; ⌥ breaks that too. A
+  strip under the panes marks each page once it has been compared — green where nothing changed,
+  amber where something did, with the figure in the tooltip; blue where only one document has that
+  page, red where a side could not be rendered. A page carries no mark until its comparison has
+  actually run, so nothing on the strip stands for a page that has not been looked at. Where one
+  document is longer, the strip runs to the longer one and the shorter side stops at its last page
+  rather than hiding the pages only one file has.
+- **Three ways to overlay the two sides,** picked with `1`–`4` or the segments: swipe a divider
   across them, blend one into the other, or see the pixel difference on black — where identical is
   black and anything that changed glows. The difference view says outright that it compares pixels
   with no alignment, so two scans of one sheet of paper glowing all over reads as scanner noise
@@ -59,9 +60,10 @@ User-facing changes, newest first. For the full commit history see the
 - **A read-only side-by-side diff** for text, source, CSV, JSON and the like. An edited line shows
   as one row with both versions on it and the changed WORDS picked out, rather than as a deleted
   line above an added one. ↑/↓ step between changes, not between lines.
-- **Files that are not quite text still open.** A log truncated mid-character used to be
-  unreadable; it now decodes with the unreadable bytes marked and says so. Files over 4 MB, files
-  that are not downloaded, and files that turn out to be binary each say which of those they are.
+- **Files that are not quite text still open.** A log truncated mid-character decodes with the
+  unreadable bytes marked and says so, and a file that announces its encoding with a byte-order
+  mark is read in that encoding rather than sniffed as binary. Files over 4 MB, files that are not
+  downloaded, and files that turn out to be binary each say which of those they are.
 - **A diff it cannot afford is declined, not started.** Two large files with almost nothing in
   common would take minutes to line up, and a single line long enough to be a whole minified file
   would take as long again to compare word by word. Both are now refused up front and said out
@@ -74,6 +76,13 @@ User-facing changes, newest first. For the full commit history see the
 - **"Compare…" on a changed row in the Differences list** opens the identical viewer — facts,
   previews, modes, the text diff — with a Done-only bar. Differences already owns copying, moving
   and ignoring a row, so the viewer adds no second way to do them.
+
+### Elsewhere
+
+- **The Activity Log survives a log file it cannot fully decode.** One byte of invalid UTF-8 — an
+  append cut short by a crash, or a path written by another process — took the entire
+  previous-session history with it and put an error note where the history should have been. The
+  unreadable bytes are now marked and everything around them loads.
 
 ### Known limitations
 
