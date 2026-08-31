@@ -321,6 +321,13 @@ import Sync
     /// copy would read the same too, and an action row that offers a per-group trash while the
     /// group stays out of "Apply recommended". Rendered because none of that is provable from
     /// geometry — the badge, the note and the button label are the whole claim.
+    ///
+    /// **The row includes "Compare copies", and that is the point of the reference being re-taken.**
+    /// This is a FILE group, and the action was once gated to folders; ungating it is the whole
+    /// premise of the compare surface. The reference was recorded before that landed, so it went on
+    /// asserting a row that no longer existed — the render was right and the picture was stale.
+    /// A source scan pins the gate's absence, but only this reference pins what the reader SEES,
+    /// which is a button in a row of four rather than a control reachable in principle.
     @Test func duplicateGroupCardExpandedSameText() {
         let group = DuplicateGroup(
             matchType: .sameText,
