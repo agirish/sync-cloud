@@ -24,10 +24,16 @@ struct SendableImage: @unchecked Sendable {
 struct BitmapDiffResult: Equatable {
     /// Pixels that differ by more than the tolerance, as a fraction of the compared raster.
     let changedFraction: Double
-    /// The bounding rects of the changed regions, in the compared raster's pixel coordinates —
-    /// what the page strip's dots and the difference view's callouts are drawn from. Coarse by
-    /// construction (see ``BitmapDiff/cellSide``): a per-pixel region list on a 1600px page is
-    /// hundreds of thousands of rects, none of which is a thing anyone points at.
+    /// One bounding rect per changed REGION, in the compared raster's pixel coordinates — what the
+    /// difference view's callouts are drawn from, and what "3 regions differ" counts.
+    ///
+    /// **Regions, not cells, and the difference is the whole point of the field.** The comparison
+    /// marks 16-pixel cells (see ``BitmapDiff/cellSide``) because a per-pixel list on a 1600px page
+    /// is hundreds of thousands of rects, none of which is a thing anyone points at. But a cell is
+    /// not pointable either: one edited sentence lights eight adjacent cells, and "8 regions
+    /// differ" about one edit is a worse answer than "something differs". Touching cells are merged
+    /// into connected components — diagonally too, since a line of text lights a ragged edge — and
+    /// each component's bounding box is one region.
     let changedRects: [CGRect]
     /// True when the two images did not have the same pixel dimensions and one was rescaled to
     /// compare. **Disclosed rather than hidden**: a rescale resamples, so a "0.4% differ" from a
@@ -109,15 +115,57 @@ enum BitmapDiff {
             }
         }
 
-        var rects: [CGRect] = []
-        for index in touched.indices where touched[index] {
-            let cx = index % cells, cy = index / cells
-            rects.append(CGRect(x: cx * cellSide, y: cy * cellSide,
-                                width: min(cellSide, width - cx * cellSide),
-                                height: min(cellSide, height - cy * cellSide)))
-        }
+        let rects = regions(touched: touched, cells: cells, rows: rows,
+                            width: width, height: height)
         return BitmapDiffResult(changedFraction: Double(changed) / Double(width * height),
                                 changedRects: rects, sizesDiffer: sizesDiffer)
+    }
+
+    /// Merges the touched cell grid into one bounding box per connected component.
+    ///
+    /// **Eight-connectivity, not four.** A line of text lights a ragged edge of cells, and a
+    /// diagonal step between two of them is the same edit — four-connectivity would split one
+    /// changed paragraph into a handful of "regions" and report the count as the finding.
+    ///
+    /// An explicit stack rather than recursion: a page that changed everywhere is one component
+    /// covering every cell, which on a 1600×2000 raster is 12,500 deep.
+    ///
+    /// Sorted top-to-bottom then left-to-right, so the callouts a reader steps through are in
+    /// reading order rather than in whatever order the scan happened to reach them.
+    static func regions(touched: [Bool], cells: Int, rows: Int,
+                        width: Int, height: Int) -> [CGRect] {
+        guard cells > 0, rows > 0 else { return [] }
+        var seen = [Bool](repeating: false, count: touched.count)
+        var rects: [CGRect] = []
+        var stack: [Int] = []
+        for start in touched.indices where touched[start] && !seen[start] {
+            seen[start] = true
+            stack.append(start)
+            var minX = Int.max, minY = Int.max, maxX = Int.min, maxY = Int.min
+            while let index = stack.popLast() {
+                let cx = index % cells, cy = index / cells
+                minX = min(minX, cx); maxX = max(maxX, cx)
+                minY = min(minY, cy); maxY = max(maxY, cy)
+                for dy in -1...1 {
+                    for dx in -1...1 where dx != 0 || dy != 0 {
+                        let nx = cx + dx, ny = cy + dy
+                        guard nx >= 0, nx < cells, ny >= 0, ny < rows else { continue }
+                        let neighbour = ny * cells + nx
+                        guard touched[neighbour], !seen[neighbour] else { continue }
+                        seen[neighbour] = true
+                        stack.append(neighbour)
+                    }
+                }
+            }
+            // Clamped to the compared area: the trailing cell of a row or column is a partial one
+            // wherever the raster is not a multiple of `cellSide`, and a rect running past the
+            // page would draw a callout over nothing.
+            let x = minX * cellSide, y = minY * cellSide
+            rects.append(CGRect(x: x, y: y,
+                                width: min((maxX + 1) * cellSide, width) - x,
+                                height: min((maxY + 1) * cellSide, height) - y))
+        }
+        return rects.sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
     }
 
     /// The visual difference itself: the two rasters' per-channel distance, drawn as light on

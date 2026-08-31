@@ -22,6 +22,10 @@ struct VisualPairModeView: View {
     /// here: it is the same arithmetic the page strip's verdict comes from, and computing it twice
     /// is how two numbers about one page start disagreeing.
     let difference: CGImage?
+    /// The changed regions in the difference raster's pixel coordinates, drawn as callouts over
+    /// it. Empty where there is nothing to outline — including the over-the-cap case, which
+    /// ``ChangedRegionCallouts/maxDrawn`` decides and the mode bar's caption discloses.
+    var changedRegions: [CGRect] = []
     @Binding var swipeFraction: Double
     @Binding var onionOpacity: Double
 
@@ -39,7 +43,7 @@ struct VisualPairModeView: View {
                 case .onion:
                     onion
                 case .difference:
-                    differenceView
+                    differenceView(in: proxy.size)
                 }
             }
             .contentShape(Rectangle())
@@ -99,15 +103,27 @@ struct VisualPairModeView: View {
     /// tooltip**: two scans of the same sheet of paper glow everywhere from scanner noise, and a
     /// reader who has not been told that reads the glow as content.
     @ViewBuilder
-    private var differenceView: some View {
+    private func differenceView(in available: CGSize) -> some View {
         ZStack {
             Color.black
             if let difference {
-                Image(nsImage: NSImage(cgImage: difference,
-                                       size: CGSize(width: difference.width,
-                                                    height: difference.height)))
+                let size = CGSize(width: difference.width, height: difference.height)
+                Image(nsImage: NSImage(cgImage: difference, size: size))
                     .resizable()
                     .aspectRatio(contentMode: .fit)
+                // **The callouts are laid out against the same fitted rect the image gets**,
+                // recomputed rather than inferred from a container — an outline that is plausibly
+                // near the change rather than on it looks like a working feature.
+                ForEach(Array(ChangedRegionCallouts.drawable(regions: changedRegions,
+                                                             imageSize: size,
+                                                             in: available).enumerated()),
+                        id: \.offset) { _, rect in
+                    RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(Color.accentColor.opacity(0.9), lineWidth: 1.5)
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        .allowsHitTesting(false)
+                }
             } else if let message = differenceMessage {
                 // Light on black, like the mode itself — a message here is read against the same
                 // ground the picture would have been.
@@ -116,6 +132,12 @@ struct VisualPairModeView: View {
                 ProgressView().controlSize(.small)
             }
         }
+        // One element: the outlines are a visual index of the same finding the caption states, and
+        // reading out a dozen unlabelled rectangles would be worse than the sentence.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Difference")
+        .accessibilityValue(ChangedRegionCallouts.caption(regionCount: changedRegions.count)
+                            ?? "No visible difference")
     }
 
     /// The line the difference view draws instead of a picture, or nil while it should wait.

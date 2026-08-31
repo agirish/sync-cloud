@@ -187,7 +187,18 @@ struct FilePairCompareView<Verdict: View>: View {
     /// extension process spun up for a preview that was about to be replaced.
     @State private var pairing: PagePairing?
     @State private var rasters: (left: CGImage?, right: CGImage?) = (nil, nil)
-    @State private var difference: CGImage?
+    /// The difference raster and the regions it found, held as ONE value.
+    ///
+    /// **Two `@State`s would be two lifetimes for one computation.** Five places clear or set this
+    /// — a pair swap, three guards in the raster refresh, and the refresh's own landing — and a
+    /// count that outlived its canvas by one of them would caption a page the reader is no longer
+    /// looking at. The struct makes that unwriteable rather than a rule to remember.
+    private struct PageComparison: Equatable {
+        var image: CGImage?
+        /// Changed regions in the difference raster's pixel coordinates. See ``BitmapDiff``.
+        var regions: [CGRect] = []
+    }
+    @State private var pageComparison = PageComparison()
     @State private var pageStates: [Int: PageDiffState] = [:]
     @State private var swipeFraction: Double = 0.5
     @State private var onionOpacity: Double = 0.5
@@ -412,7 +423,7 @@ struct FilePairCompareView<Verdict: View>: View {
             focusedRegion = nil
             verify = .idle
             rasters = (nil, nil)
-            difference = nil
+            pageComparison = PageComparison()
             renderOutcome = .rendering
             if !modes.contains(mode) { mode = .sideBySide }
             guard kind == .pdf else {
@@ -631,6 +642,16 @@ struct FilePairCompareView<Verdict: View>: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // The count the callouts are an index of. Gated on the page being RESOLVED for the
+            // reason the size caveat below is: a count printed over a pending render describes the
+            // previous page.
+            if activeMode == .difference, pageStates[page]?.isResolved == true,
+               let regions = ChangedRegionCallouts.caption(
+                    regionCount: pageComparison.regions.count) {
+                Text(regions)
+                    .scaledFont(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+            }
             Spacer(minLength: 0)
             // Only where a raster answered AND the sizes actually differ: a caveat printed while
             // the render is pending would be describing the previous page, and an empty one would
@@ -665,7 +686,8 @@ struct FilePairCompareView<Verdict: View>: View {
                 VisualPairModeView(mode: activeMode, left: rasters.left, right: rasters.right,
                                    outcome: renderOutcome,
                                    leftName: left.name, rightName: right.name,
-                                   difference: difference,
+                                   difference: pageComparison.image,
+                                   changedRegions: pageComparison.regions,
                                    swipeFraction: $swipeFraction, onionOpacity: $onionOpacity)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                     .overlay {
@@ -928,7 +950,7 @@ struct FilePairCompareView<Verdict: View>: View {
     private func refreshRasters() async {
         guard needsRasters, bothSidesReadable else {
             rasters = (nil, nil)
-            difference = nil
+            pageComparison = PageComparison()
             // No answer rather than a verdict: nothing was asked of the renderer here, and a
             // `.failed` left standing from a previous page would caption a pane that is merely
             // waiting for its first render.
@@ -952,7 +974,7 @@ struct FilePairCompareView<Verdict: View>: View {
         guard rasterToken == token else { return }
         rasters = (l?.cgImage, r?.cgImage)
         guard let l, let r else {
-            difference = nil
+            pageComparison = PageComparison()
             pageStates[page] = .unrenderable
             // **The same finding the strip just recorded, told to the panes.** They knew only that
             // they had no image, which is what a render still in flight looks like too.
@@ -962,7 +984,7 @@ struct FilePairCompareView<Verdict: View>: View {
         renderOutcome = .ready
         guard showsOverlayModes else {
             // The rasters are up (the image viewer draws them); nothing here is being compared.
-            difference = nil
+            pageComparison = PageComparison()
             return
         }
         // Off the main actor: this is the buffer loop, and on a 1600px page it is milliseconds of
@@ -972,7 +994,8 @@ struct FilePairCompareView<Verdict: View>: View {
              BitmapDiff.compare(l.cgImage, r.cgImage))
         }.value
         guard rasterToken == token else { return }
-        difference = comparison.0?.cgImage
+        pageComparison = PageComparison(image: comparison.0?.cgImage,
+                                        regions: comparison.1?.changedRects ?? [])
         pageStates[page] = resolvedPairing.isComparable(at: page)
             ? PageDiffState.from(comparison.1)
             : .oneSided
