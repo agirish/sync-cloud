@@ -2569,3 +2569,63 @@ publishes "three" lenses where the code has said two since risky names became ro
 Prose-only — `answersOneLens` counts `lenses`, so nothing depended on the number. **This one IS a
 one-line prose fix that would apply cleanly to `v4.x`**, whose copy carries the same error; it is
 recorded here rather than picked, per the standing direction.
+
+## 2026-08-31 — the mode capsules' glyph boxes did not grow with the text size (`1a1af60f`) — CLOSED, does not apply
+
+`EditorModeBar` and `StorageSectionBar` each drew their SF Symbol as
+`.scaledFont(.system(size: 10, weight: .medium))` inside a hard `.frame(width: 13, height: 13)`.
+The glyph grew with Settings ▸ Text size; the box did not — so the glyph-only rung measured **85pt
+(Editor) and 113pt (Storage) at Small, Default, Large and Largest alike** — and since `.frame` does
+not clip, an enlarged glyph overflowed its box rather than being trimmed by it. Fixed by scaling
+the box by the same factor the glyph uses, in a shared `CapsuleGlyph`.
+
+**Neither control exists on any maintenance line, so there is nothing here to send.** This is the
+rare row where stage 1 and stage 2 disagree in the useful direction: `StorageLensView.swift` *is*
+present on all three lines, which is exactly the shape that reads as "already there" if the file
+check is the only one run.
+
+```sh
+git ls-tree -r --name-only origin/main -- \
+  Modules/FileExplorer/Sources/FileExplorer/EditorMode.swift \
+  Modules/FileExplorer/Sources/FileExplorer/StorageLensView.swift    # positive control: both found
+
+for l in v4.x v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- \
+    Modules/FileExplorer/Sources/FileExplorer/EditorMode.swift       # absent on all three
+  git ls-tree -r --name-only origin/$l -- \
+    Modules/FileExplorer/Sources/FileExplorer/StorageLensView.swift  # PRESENT on all three
+  git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/StorageLensView.swift |
+    grep -c 'StorageSectionBar'                                      # 0 on all three
+done
+```
+
+`EditorMode.swift` arrived with the Edit workspace and `StorageSectionBar` with the Storage fold,
+both on `main` this week — the two sections immediately above. **What each line has instead differs,
+and only one of them has a switcher at all:**
+
+- **`v4.x`** draws Storage's switcher as a header **rail**, built from
+  `RailItemLabel(title:systemImage:)` in `LensWorkspaceView.storageRailItem`. Its glyph is a
+  `Label`'s `systemImage`, so there is no framed `Image` for a hard box to be wrong about.
+- **`v3.x` and `v2.x`** have no switcher of any kind. `StorageSection` is there, but only as a
+  collapse key (`@State collapsed`) and a heading over `listSection(_:entries:)` — the three lists
+  are one scroll, which is what they were before the rail existed.
+
+`grep -c 'frame(width: 13, height: 13)'` over `Modules/FileExplorer` returns zero on all three
+lines, so the defect is absent in renamed form as well as by name.
+
+**What the lines DO carry is the pattern, elsewhere.** A scan for a `.scaledFont` with a nearby
+square `.frame` found roughly a dozen other sites on `main` — `OrganizeOverview` (×5),
+`DifferencesView` (×3), `CloseButton`, `PersonView`, `EditorFileRailView`, `DestinationPicker`,
+`SettingsView` (×2), `HelpBook`, `SetupSheet` — and several of those files are old enough to be on
+every line. **They are not audited and this row does not claim they are defects**: a box generous
+enough that a 1.35× glyph still fits is a reservation, and pinning it is correct. Measuring each
+with `NSHostingView.fittingSize` across the four scales is what would settle it, and none of that
+was done here. Recorded so a future audit knows the question was seen and left open, not answered.
+
+**The transferable lesson, which is cheaper than the fix.** Both bars had a growth test —
+`theCapsuleGrowsWithTheAppsTextSize` — and both stayed green for the life of the defect, because
+each measured the **labelled** rung only. That rung's words are `Text`, so it scaled the whole
+time. Both bars also had *ceiling* checks on the glyph rung (fits a 260pt document column / a 340pt
+lens column), and a control pinned at one size passes any ceiling at the size it was tuned for. **A
+rung the ceiling checks ask about is a rung the growth check has to ask about too.** Any line that
+grows one of these controls should carry the pair, not the ceiling alone.
