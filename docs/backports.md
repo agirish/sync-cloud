@@ -2609,7 +2609,7 @@ Prose-only — `answersOneLens` counts `lenses`, so nothing depended on the numb
 one-line prose fix that would apply cleanly to `v4.x`**, whose copy carries the same error; it is
 recorded here rather than picked, per the standing direction.
 
-## 2026-09-01 — the person axis is compared by spelling, not by identity (`<sha after push>`) — not owed, and the cleanest pick in this file
+## 2026-09-01 — the person axis is compared by spelling, not by identity (`33a2b379`) — not owed, and the cleanest pick in this file
 
 `thePersonAndLifecycleAxesAgree` compared `axes["person"]` with a raw `==`. Every consumer of that
 value resolves it through `PersonRegistry.person(forAxisValue:)`, whose matcher lowercases, so
