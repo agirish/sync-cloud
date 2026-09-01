@@ -2619,12 +2619,15 @@ the other copies asserting something known to be false.
 **What `v4.x` carries, measured rather than assumed:**
 
 ```sh
-# Positive control first — the phrase must be found somewhere, or absence proves nothing.
-git show origin/main:docs/flaky-tests.md | grep -c "no amount of load can shrink it below the floor"
-for l in v4.x v3.x v2.x; do
-  echo "$l: claim=$(git show origin/$l:docs/flaky-tests.md 2>/dev/null | grep -c 'no amount of load can shrink it below the floor')" \
+# Grep for the CORRECTION, not for the wrong sentence. The wrong sentence still appears on
+# `main` — quoted inside the correction that repeals it ("This section said …") — so counting
+# it returns 1 on `main` and 1 on `v4.x` and cannot tell a repealed claim from a live one.
+# That is the first control this row shipped, and it was useless; recorded because the same
+# shape is worth avoiding elsewhere in this file.
+for l in main v4.x v3.x v2.x; do
+  echo "$l: corrected=$(git show origin/$l:docs/flaky-tests.md 2>/dev/null | grep -c 'Corrected 2026-09-01')" \
        "suite=$(git grep -l FolderSurveyGroundTruthTests origin/$l -- Modules/Sync/Tests 2>/dev/null | wc -l)"
-done   # measured 2026-09-01: v4.x claim=1 suite=1; v3.x and v2.x both 0
+done   # measured 2026-09-01: main corrected=1; v4.x corrected=0 suite=1; v3.x and v2.x both 0
 ```
 
 | Finding | `v4.x` | `v3.x` / `v2.x` |
