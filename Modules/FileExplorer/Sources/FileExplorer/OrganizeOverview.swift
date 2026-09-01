@@ -17,8 +17,14 @@ enum RailItemState: Equatable {
     case clean
     /// It has not run here at all. Never a zero — that would be a claim it cannot support.
     case notScanned
-    /// Not a finding at all: Rules is configuration you keep. It never reports and never goes
-    /// quiet, so it is neither `clean` nor `notScanned` — those both describe a scan.
+    /// **Not a finding at all** — neither `clean` nor `notScanned`, because those both describe a
+    /// scan whose answer was a count.
+    ///
+    /// Two lenses wear it, and the name is the older of the two: Rules is configuration you keep,
+    /// which never reports and never goes quiet. Storage joined it at the fold — its analyzer does
+    /// run, but what it produces is a report with no verb, so a badge would promise work and a
+    /// "nothing here" would be false. The shared meaning is **this item has no count that means
+    /// something needs you**, which is exactly what `OrganizeLens.carriesBadge` decides.
     case configuration
 }
 
@@ -275,6 +281,22 @@ enum OrganizeOverviewState: Equatable {
     case clean
     /// Never ran here. Never rendered as a zero — a zero would be a claim this lens cannot make.
     case notScanned
+    /// **An answer that is not a backlog** — Storage's report, and the reason this case exists
+    /// rather than Storage borrowing ``findings``.
+    ///
+    /// `findings` renders count-forward: a number in a pill, examples beneath, and a way in
+    /// captioned with the count. On Storage that reads as a to-do — "Open Storage — 62 ›" — for a
+    /// lens with no verb that touches a file, which is the exact misread the badge rule exists to
+    /// prevent. Shoehorning it in would have put the promise back on the one screen where the badge
+    /// had been careful to withhold it.
+    ///
+    /// So a receipt: **when it ran, over what, and what it found**, rendered like `clean`'s quiet
+    /// card with the numbers restored. `headline` is the standing fact ("214.6 GB"), `detail` the
+    /// provenance ("Analyzed Tuesday · ~/Documents").
+    ///
+    /// It is deliberately NOT counted by ``Ledger`` — see `countedLenses`, which gates on
+    /// `carriesBadge` and so excludes this lens without a line of ledger code.
+    case receipt(headline: String, detail: String)
 }
 
 /// One lens's contribution to the overview.
@@ -460,6 +482,18 @@ struct OrganizeOverview: View {
     /// took an `OrganizeLens` and every call site was `{ railLens = item }` — a control captioned
     /// "Scan…" that navigated to a lens and left you to find that lens's own scan button. It scans.
     let onRun: (OrganizePass) -> Void
+    /// Runs Storage's analysis. **Its own handler, not `onRun`, and that is not an oversight.**
+    /// `onRun` takes an `OrganizePass`, and Storage is in no pass — its report has a lifecycle of
+    /// its own, restored across launches, which is exactly why it is not one of the checks the
+    /// ledger counts. `rescanControl(for:)` mints its button from `OrganizePass(producing:)` and
+    /// would have nothing to mint from here, so the receipt carries its own verb.
+    ///
+    /// Optional like `onUpdateFolderMemory`, and for the same reason: a host that cannot run it
+    /// must get a card that states the position rather than a button that no-ops.
+    var onBuildStorage: (() -> Void)?
+    /// Whether Storage's analysis is running right now — the card's verb is withheld while it is,
+    /// gated exactly as the header's own button is.
+    var isBuildingStorage: Bool = false
 
     private var reporting: [OrganizeOverviewSection] {
         sections.filter { if case .findings = $0.state { return true } else { return false } }
@@ -467,6 +501,12 @@ struct OrganizeOverview: View {
 
     private var clean: [OrganizeOverviewSection] {
         sections.filter { $0.state == .clean }
+    }
+
+    /// The sections that are reports rather than backlogs — Storage today, and anything else that
+    /// concludes something about the tree without proposing work.
+    private var receipts: [OrganizeOverviewSection] {
+        sections.filter { if case .receipt = $0.state { return true } else { return false } }
     }
 
     /// The passes offered a card: every lens they answer is `.notScanned`, **and this host can
@@ -556,8 +596,16 @@ struct OrganizeOverview: View {
                 ForEach(pendingPasses) { pass in
                     passCard(pass)
                 }
-                if reporting.isEmpty && pendingPasses.isEmpty {
+                if reporting.isEmpty && pendingPasses.isEmpty && receipts.isEmpty {
                     allClearState
+                }
+                // **After the findings and the offers, before the footer.** A receipt is not work,
+                // so it must not sit above things that are; it is also not nothing, so it does not
+                // belong on the quiet trailing line with the clean checks. Its own rung between
+                // them is what says "this is an answer you asked for, and there is nothing to do
+                // about it".
+                ForEach(receipts) { section in
+                    receiptCard(section)
                 }
                 if let inboxShortcut { inboxOffer(inboxShortcut) }
                 if !strandedUnscanned.isEmpty || !clean.isEmpty {
@@ -749,6 +797,73 @@ struct OrganizeOverview: View {
     private func sectionView(_ section: OrganizeOverviewSection) -> some View {
         if case .findings(let count, let headline, let examples) = section.state {
             findingsSection(section, count: count, headline: headline, examples: examples)
+        }
+    }
+
+    // MARK: A lens with a report
+
+    /// Storage's card: a receipt, not a to-do.
+    ///
+    /// **No accent stripe and no count pill**, which is the whole visual argument. Both of those
+    /// are how this screen says "here is work"; the stripe marks a findings card and the pill
+    /// carries the number you would act on. A card that borrowed them would promise a backlog for a
+    /// lens that has no verb touching a file — the misread the badge rule already refuses on the
+    /// rail, arriving through the overview instead.
+    ///
+    /// What it does carry is provenance. "Analyzed Tuesday · ~/Documents" is the thing a stale
+    /// report most needs to say about itself, and it is the honest alternative to pretending the
+    /// report has the same clock as the scans around it.
+    @ViewBuilder
+    private func receiptCard(_ section: OrganizeOverviewSection) -> some View {
+        if case .receipt(let headline, let detail) = section.state {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: section.lens.symbol)
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 21, height: 21)
+                    .background(RoundedRectangle(cornerRadius: Radius.chip).fill(.quaternary.opacity(0.4)))
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(section.lens.title)
+                            .scaledFont(.system(size: 12.5, weight: .semibold))
+                        Text(detail)
+                            .scaledFont(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(headline)
+                        .scaledFont(.system(size: 11.5))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                // **Two explicit controls, and no whole-card tap gesture.** The first draft made
+                // the card itself tappable, which was the only `onTapGesture` in this file and
+                // wrong twice: it puts an invisible target under the Re-analyze button, and it
+                // makes a card that looks inert behave like a link with no hover affordance to say
+                // so. Every other way in on this screen is a `Button`, and so are these.
+                //
+                // "Open Storage" without a count, unlike `findingsSection`'s "Open X — 12 ›". The
+                // count belongs on a backlog you are going to work through; here it would put the
+                // number in the one place the badge rule was careful to keep it out of.
+                Button("Open Storage ›") { onOpen(section.lens) }
+                    .buttonStyle(.plain)
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .chromeHover()
+                if let onBuildStorage {
+                    Button(isBuildingStorage ? "Analyzing…" : "Re-analyze", action: onBuildStorage)
+                        .buttonStyle(.plain)
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isBuildingStorage ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
+                        .chromeHover()
+                        .disabled(isBuildingStorage)
+                }
+            }
+            .padding(11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.35)))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("\(section.lens.title), \(detail), \(headline)")
         }
     }
 

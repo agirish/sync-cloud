@@ -268,15 +268,23 @@ import SwiftUI
     ///
     /// Asserted at the full runnable set, because that is the only configuration in which the two
     /// are meant to be equal; narrowing is the ledger's own business and is covered separately.
-    @Test func theLedgerCountsExactlyTheLensesThatTakeSections() {
+    @Test func theLedgerCountsExactlyTheLensesThatTakeCountableSections() {
         let emitted = Set(subject(FileSyncManager()).overviewModel.sections.map(\.lens))
         let counted = OrganizeOverview.Ledger
             .countedLenses(runnablePasses: Set(OrganizePass.allCases))
-        let emittedNames = emitted.map(\.rawValue).sorted()
-        let countedNames = counted.map(\.rawValue).sorted()
-        #expect(emitted == counted, "sections \(emittedNames) vs counted \(countedNames)")
-        // Non-vacuity: an equality between two empty sets would satisfy the line above.
+        // **The two sets are no longer equal, and the difference is named rather than tolerated.**
+        // This asserted plain equality while every section was a check the ledger counted. Storage
+        // emits a section that is deliberately NOT a check — a receipt has no clean/reporting
+        // answer to contribute, and counting it would make the meter read "4 of 5" forever from
+        // the first analysis onward. So the invariant becomes: every section is either counted, or
+        // it is one of the known uncounted kinds, and nothing is counted without a section.
+        #expect(emitted.subtracting(counted) == [.storage],
+                "a lens takes a section the ledger does not count, and it is not Storage — either it belongs in the meter or its exemption needs stating here")
+        #expect(counted.subtracting(emitted).isEmpty,
+                "the ledger counts a lens that emits no section — the meter's denominator includes a check the page never shows")
+        // Non-vacuity: an equality between two empty sets would satisfy the lines above.
         #expect(!emitted.isEmpty)
+        #expect(!counted.isEmpty)
     }
 
     // MARK: - The half-scanned Renames cell, on both surfaces at once
@@ -345,8 +353,102 @@ import SwiftUI
     @Test func rulesTakesNoSection() {
         let sections = subject(FileSyncManager()).overviewModel.sections
         #expect(!sections.contains { $0.lens == .rules })
-        // Rail items only: the folded Names lens takes no section either (its findings ride
-        // the Renames card), so the sections are the badge-carrying RAIL items.
-        #expect(sections.count == OrganizeLens.railItems.filter(\.carriesBadge).count)
+        // **Badge-carriers PLUS Storage**, and the addition is deliberate rather than a widening
+        // of the old rule. Rules takes no section because there is nothing about a standing
+        // configuration for a landing page to report. Storage has something to report — it just
+        // is not work — so it takes a section and that section is a `.receipt`.
+        #expect(sections.count == OrganizeLens.railItems.filter(\.carriesBadge).count + 1)
+        #expect(sections.contains { $0.lens == .storage })
+    }
+
+    // MARK: - Storage's card is a receipt, not a backlog
+
+    private func storageState(_ manager: FileSyncManager) -> OrganizeOverviewState? {
+        subject(manager).overviewModel.sections.first { $0.lens == .storage }?.state
+    }
+
+    private static func report(largest: Int = 62, stale: Int = 318,
+                               reclaim: Int = 4) -> StorageLensReport {
+        func entry(_ n: String, _ b: Int) -> StorageEntry {
+            StorageEntry(path: "/root/\(n)", name: n, bytes: b,
+                         modified: Date(timeIntervalSince1970: 0))
+        }
+        return StorageLensReport(treemap: [],
+                                 largest: (0..<largest).map { entry("big\($0)", 3_000_000) },
+                                 stale: (0..<stale).map { entry("old\($0)", 1_000_000) },
+                                 reclaimCandidates: (0..<reclaim).map { entry("r\($0)", 2_000_000) },
+                                 totalBytes: 214_600_000_000)
+    }
+
+    /// **Never `.findings`, and that is the whole reason `.receipt` exists.**
+    ///
+    /// `.findings` renders count-forward — a pill, examples, and a way in captioned with the count
+    /// — which on a lens with no verb that touches a file reads as a to-do nobody can discharge.
+    /// That is the exact misread `carriesBadge` refuses on the rail; a `.findings` state here would
+    /// let it back in through the landing page.
+    @Test func storageReportsAReceiptRatherThanFindings() {
+        let m = FileSyncManager()
+        m.storageLensReport = Self.report()
+        m.storageLensRoot = URL(fileURLWithPath: "/root/Documents")
+
+        let state = storageState(m)
+        guard case .receipt(let headline, let detail)? = state else {
+            Issue.record("Storage's overview section is \(String(describing: state)), not a receipt")
+            return
+        }
+        // The standing facts, not a single count to act on.
+        #expect(headline.contains("total"))
+        #expect(headline.contains("62 large"))
+        #expect(headline.contains("318 untouched"))
+        // Provenance: which tree, so a RESTORED report can never be read under the wrong root.
+        #expect(detail.contains("Documents"),
+                "the receipt does not name the root it describes — a restored report would be read under whatever scope happens to be set")
+        #expect(detail.hasPrefix("Analyzed"))
+    }
+
+    /// Before an analysis it says it has not looked, rather than reporting an empty report.
+    @Test func storageSaysNotScannedBeforeItHasRun() {
+        #expect(storageState(FileSyncManager()) == .notScanned)
+    }
+
+    /// **The ledger's denominator does not move**, in either state — which is the claim SL4 rests
+    /// on and the reason no ledger code was written for it.
+    ///
+    /// `countedLenses` gates on `carriesBadge`, so a badgeless Storage never enters `checksTotal`;
+    /// a receipt is likewise not a "check that reported". Asserted in BOTH states because the
+    /// failure would be asymmetric — a section that counted only once it had something to say would
+    /// leave the meter reading "4 of 5" from the moment the first analysis finished.
+    @Test func theLedgerIgnoresStorageInEveryState() {
+        let counted = OrganizeOverview.Ledger.countedLenses(runnablePasses: Set(OrganizePass.allCases))
+        #expect(!counted.contains(.storage))
+        #expect(!counted.contains(.rules))
+        #expect(counted.count == 4)
+
+        let before = OrganizeOverview.Ledger.derived(
+            from: subject(FileSyncManager()).overviewModel.sections,
+            runnablePasses: Set(OrganizePass.allCases), reclaimable: nil, scopeFolders: nil)
+        let m = FileSyncManager()
+        m.storageLensReport = Self.report()
+        let after = OrganizeOverview.Ledger.derived(
+            from: subject(m).overviewModel.sections,
+            runnablePasses: Set(OrganizePass.allCases), reclaimable: nil, scopeFolders: nil)
+        #expect(before.checksTotal == 4)
+        #expect(after.checksTotal == 4)
+        #expect(before.checksRun == after.checksRun,
+                "analyzing storage moved the checks-run count — the report is being counted as a check that reported")
+    }
+
+    /// The receipt's day-word, which is the one piece of the card that is arithmetic.
+    @Test func theReceiptNamesADayRatherThanADuration() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(LensWorkspaceView.receiptDay(now, now: now) == "today")
+        #expect(LensWorkspaceView.receiptDay(now.addingTimeInterval(-86_400), now: now) == "yesterday")
+        // Inside the week: a weekday name, which is what someone matches against their own memory.
+        let threeDays = LensWorkspaceView.receiptDay(now.addingTimeInterval(-3 * 86_400), now: now)
+        #expect(!threeDays.hasPrefix("on "), "a day inside the week rendered as a date: \(threeDays)")
+        #expect(threeDays != "today" && threeDays != "yesterday")
+        // Beyond it, a date — "Tuesday" three weeks on is worse than useless.
+        let month = LensWorkspaceView.receiptDay(now.addingTimeInterval(-30 * 86_400), now: now)
+        #expect(month.hasPrefix("on "), "a month-old analysis rendered as a weekday: \(month)")
     }
 }
