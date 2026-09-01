@@ -2965,3 +2965,48 @@ That is why the Markup context menu carries **no key equivalents** and the ⌘/ 
 says `Right-click` rather than a chord: the keys belong to menu items that do not exist, and a
 reference listing `⌘B` for a chord nothing registers would be the one place in the app that lies
 about the keyboard.
+
+## 2026-09-01 (later) — ⌘F routes, and the find bar gains its Replace row
+
+`af233139`. Two things: `PlainTextEditor.showFindBar` sends
+`NSTextFinder.Action.showReplaceInterface` rather than `.showFindInterface`, because the latter
+builds the Replace field and then leaves it `isHidden` at y = -22 with no control in the bar to
+reveal it — so the button promising "find and replace" opened a bar that could only find. And ⌘F
+now routes: with the caret in the open document it opens that bar, and everywhere else it is the
+pane search it has always been.
+
+**Nothing is owed, and this time two of the three files involved DO exist on the maintenance
+lines** — which is exactly the case where "not owed" has to be established rather than assumed.
+
+```sh
+for l in v4.x v3.x v2.x; do
+  git show origin/$l:MacApp/ContentView+PaneSearch.swift 2>/dev/null | grep -c 'Find in Pane…'
+  git show origin/$l:MacApp/ShortcutsReference.swift | grep -o 'Find a file or folder[^"]*'
+done
+```
+
+- **`PlainTextEditor` and `EditorDocumentSurface` are `main`-only.** No maintenance line has an
+  editor at all — established in the entry above — so the Replace-row fix has no site to be applied
+  to. The whole of `EditorDocumentSurface` is new.
+- **`v4.x` and `v3.x` carry `FindInPaneCommand`, and their version is already correct.** Both hold
+  the item titled `Find in Pane…` and the reference row `Find a file or folder in this pane`.
+  `main` retitled the item to `Find…` and amended the row to name both destinations — **because
+  `main` has two**. On a line with no editor there is one destination, the old title names it
+  exactly, and picking either change would replace a true sentence with a misleading one. This is
+  the same shape as the ⌘Z row in the entry above: a correction that is only a correction where the
+  thing being corrected for exists.
+- **`v2.x` has no pane search at all.** `MacApp/ContentView+PaneSearch.swift` does not exist there,
+  and `ShortcutsReference.swift` — which does — contains no find or search row and no `findInPane`
+  anywhere on the line. Checked rather than inferred from the file's absence.
+
+Recorded rather than picked, per the standing direction.
+
+### One decision settled while this was built
+
+**⌘R stays Rescan.** Replace was offered a chord of its own and he declined it, 2026-09-01. The
+collision is real and worth writing down so the menu-bar batch does not re-open it: `⌘R` is
+`AppChord.rescan`, app-wide, and routing it the way ⌘F is routed would leave a menu item titled
+**Rescan** that opens Replace — while two items registering `⌘R` would let AppKit silently pick
+one, the collision the emptied `.saveItem` group already exists to avoid. It is also unnecessary:
+with the Replace row showing, ⌘F opens a bar carrying Replace and Replace All, so a second chord
+would only move the caret between two fields that are both already on screen.
