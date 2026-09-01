@@ -3010,3 +3010,40 @@ collision is real and worth writing down so the menu-bar batch does not re-open 
 one, the collision the emptied `.saveItem` group already exists to avoid. It is also unnecessary:
 with the Replace row showing, ⌘F opens a bar carrying Replace and Replace All, so a second chord
 would only move the caret between two fields that are both already on screen.
+
+## 2026-09-01 (later still) — the editor's rail becomes two tabs
+
+`4383f7f2`, `2d561935`. The rail stacked the folder's text files over the open document's outline,
+with the outline capped at eight rows so the list above it would not vanish. They are two tabs now —
+**Text Files** and **Outline** — each with the whole card, with the folder the files come from named
+on a line under the tabs and ⌘N snapping the tab back to the files it opens its naming row in.
+
+**Nothing is owed, and unlike the ⌘F entry above, this time the check is short**: every file the
+first commit touches is either new or `main`-only, and the two that exist everywhere —
+`MacApp/ContentView.swift` and `MacApp/HelpBook.swift` — were edited only in the parts that describe
+the editor, which no maintenance line has.
+
+```sh
+for l in v4.x v3.x v2.x; do
+  git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorFileRailView.swift >/dev/null 2>&1 \
+    && echo "$l HAS the rail" || echo "$l: no rail file"
+  git show origin/$l:MacApp/ContentView.swift | grep -c editorRailFilter    # the state it sits beside
+  git show origin/$l:MacApp/HelpBook.swift | grep -c 'the rail grows an Outline\|funnel button'
+done
+```
+
+- **`EditorRailTab.swift` is new, and `EditorFileRailView` / `EditorWorkspaceView` are `main`-only.**
+  No maintenance line has an editor at all — established two entries above — so there is no rail on
+  any of them to give tabs to.
+- **`ContentView.swift` exists on all three and none of them carries the editor's rail state.**
+  `editorRailFilter` and `editorTypedName`, which the new `editorRailTab` is held beside and for the
+  same reason, are absent on every line; the property added here refers to a type those lines do not
+  have.
+- **`HelpBook.swift` exists on all three and none of them carries the sentences edited.** Neither
+  "the rail grows an Outline" nor the funnel bullet is present, because the Edit topic they belong
+  to is `main`-only. Checked directly rather than inferred from the missing workspace.
+
+The notes and the releases page went with it, and both are `main`'s own: `docs/` is served from
+`main`, and the v5.2 draft describes a release no maintenance line will ever cut.
+
+Recorded rather than picked, per the standing direction.
