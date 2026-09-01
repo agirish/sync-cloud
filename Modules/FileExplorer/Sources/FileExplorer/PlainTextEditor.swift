@@ -78,6 +78,13 @@ struct PlainTextEditor: NSViewRepresentable {
     /// be saved — see ``EditorDocument/readOnlyReason``.
     var offersMarkup: Bool = true
 
+    // Read here rather than threaded in, the way `EditorWorkspaceView` reads the window's glass
+    // settings: these are preferences, not state a caller owns. See `EditorTextSettings`.
+    @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines: Bool
+        = EditorTextSettings.wrapsDefault
+    @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling: Bool
+        = EditorTextSettings.checksSpellingDefault
+
     /// The editor's base size before the app's text scale is applied. 13 is the platform's own
     /// monospace reading size and matches the keycaps elsewhere in the app.
     static let baseFontSize: CGFloat = 13
@@ -208,7 +215,11 @@ struct PlainTextEditor: NSViewRepresentable {
         /// nothing registers would be telling the reader something untrue.
         func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent,
                       at charIndex: Int) -> NSMenu? {
-            guard offersMarkup else { return menu }
+            guard offersMarkup else {
+                // Read-only: no verbs, but the two view switches still apply.
+                insertTextSettings(into: menu, at: 0)
+                return menu
+            }
             let markup = NSMenu(title: "Markup")
             for (index, verb) in MarkupVerb.menuOrder.enumerated() {
                 guard let verb else {
@@ -225,7 +236,57 @@ struct PlainTextEditor: NSViewRepresentable {
             host.submenu = markup
             menu.insertItem(host, at: 0)
             menu.insertItem(.separator(), at: 1)
+            insertTextSettings(into: menu, at: 2)
             return menu
+        }
+
+        /// The two switches that change how the text is DRAWN rather than what it says.
+        ///
+        /// **Above the standard items and below Markup**, because that is the order they are
+        /// reached in: the verbs act on the selection you right-clicked, these act on the view you
+        /// right-clicked in, and Cut/Copy/Look Up act on the word under the pointer.
+        ///
+        /// Offered on a read-only document too — unlike the markup verbs. Wrapping and spell
+        /// checking change nothing on disk, so there is no reason a file you can only read should
+        /// be harder to read.
+        func insertTextSettings(into menu: NSMenu, at index: Int) {
+            let defaults = UserDefaults.standard
+            let wraps = defaults.object(forKey: EditorTextSettings.wrapsKey) as? Bool
+                ?? EditorTextSettings.wrapsDefault
+            let checks = defaults.object(forKey: EditorTextSettings.checksSpellingKey) as? Bool
+                ?? EditorTextSettings.checksSpellingDefault
+
+            let wrapItem = NSMenuItem(title: "Wrap Lines", action: #selector(toggleWrapping(_:)),
+                                      keyEquivalent: "")
+            wrapItem.target = self
+            wrapItem.state = wraps ? .on : .off
+
+            let spellItem = NSMenuItem(title: "Check Spelling While Typing",
+                                       action: #selector(toggleSpellChecking(_:)), keyEquivalent: "")
+            spellItem.target = self
+            spellItem.state = checks ? .on : .off
+
+            menu.insertItem(spellItem, at: index)
+            menu.insertItem(wrapItem, at: index)
+            menu.insertItem(.separator(), at: index + 2)
+        }
+
+        /// **Written to `UserDefaults`, not to the view.** The `@AppStorage` properties on
+        /// `PlainTextEditor` observe that store, so the write re-renders every mounted editor and
+        /// `updateNSView` applies it — which is what keeps the two halves of a split in step
+        /// instead of leaving the one that was not right-clicked wrapping differently.
+        @objc func toggleWrapping(_ sender: NSMenuItem) {
+            let defaults = UserDefaults.standard
+            let current = defaults.object(forKey: EditorTextSettings.wrapsKey) as? Bool
+                ?? EditorTextSettings.wrapsDefault
+            defaults.set(!current, forKey: EditorTextSettings.wrapsKey)
+        }
+
+        @objc func toggleSpellChecking(_ sender: NSMenuItem) {
+            let defaults = UserDefaults.standard
+            let current = defaults.object(forKey: EditorTextSettings.checksSpellingKey) as? Bool
+                ?? EditorTextSettings.checksSpellingDefault
+            defaults.set(!current, forKey: EditorTextSettings.checksSpellingKey)
         }
 
         /// Applies a verb to the view's own selection, as an edit the view can undo.
@@ -248,6 +309,36 @@ struct PlainTextEditor: NSViewRepresentable {
             guard let view = notification.object as? NSTextView else { return }
             onSelectionChange(view.selectedRange())
         }
+    }
+
+    /// Turns soft wrapping on or off.
+    ///
+    /// **Five properties, and leaving any one of them out gets you a view that half-wraps.** The
+    /// container has to stop tracking the view's width AND be given unbounded width, the view has
+    /// to become horizontally resizable, and the scroll view has to grow a horizontal scroller —
+    /// otherwise the long line is laid out and then clipped, with no way to reach the end of it.
+    ///
+    /// Going back the other way, the view's width must be reset to the visible width: an
+    /// unwrapped view has grown to the width of its longest line, and a container that starts
+    /// tracking that width again wraps at the wrong column.
+    static func applyWrapping(_ wraps: Bool, to view: NSTextView, in scroll: NSScrollView) {
+        guard let container = view.textContainer else { return }
+        let visible = scroll.contentSize.width
+        if wraps {
+            container.widthTracksTextView = true
+            container.size = NSSize(width: visible, height: CGFloat.greatestFiniteMagnitude)
+            view.isHorizontallyResizable = false
+            view.frame.size.width = visible
+            scroll.hasHorizontalScroller = false
+        } else {
+            container.widthTracksTextView = false
+            container.size = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                    height: CGFloat.greatestFiniteMagnitude)
+            view.isHorizontallyResizable = true
+            scroll.hasHorizontalScroller = true
+        }
+        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                              height: CGFloat.greatestFiniteMagnitude)
     }
 
     /// Opens the find bar over the text view, **with its Replace row showing**.
@@ -317,13 +408,17 @@ struct PlainTextEditor: NSViewRepresentable {
         view.isAutomaticSpellingCorrectionEnabled = false
         view.isAutomaticDataDetectionEnabled = false
         view.isAutomaticLinkDetectionEnabled = false
-        view.isContinuousSpellCheckingEnabled = false
+        // **Checking is a choice; correcting is not.** Everything above rewrites the file unasked
+        // and has no switch anywhere. This one only draws a red line, so it is the one setting in
+        // this block that a person may turn on — see `EditorTextSettings.checksSpellingKey`.
+        view.isContinuousSpellCheckingEnabled = checksSpelling
         view.isGrammarCheckingEnabled = false
         view.drawsBackground = false
         view.textContainerInset = NSSize(width: 14, height: 12)
         view.font = Self.font(scale: fontScale)
         view.string = text
         view.isEditable = isEditable
+        Self.applyWrapping(wrapsLines, to: view, in: scroll)
         context.coordinator.currentText = text
         context.coordinator.textView = view
         context.coordinator.offersMarkup = offersMarkup
@@ -365,6 +460,12 @@ struct PlainTextEditor: NSViewRepresentable {
             view.scrollRangeToVisible(range)
         }
         if view.isEditable != isEditable { view.isEditable = isEditable }
+        if view.isContinuousSpellCheckingEnabled != checksSpelling {
+            view.isContinuousSpellCheckingEnabled = checksSpelling
+        }
+        if (view.textContainer?.widthTracksTextView ?? true) != wrapsLines {
+            Self.applyWrapping(wrapsLines, to: view, in: scroll)
+        }
         let font = Self.font(scale: fontScale)
         if view.font != font {
             view.font = font
