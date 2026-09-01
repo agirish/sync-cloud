@@ -57,11 +57,14 @@ enum ShortcutsReference {
             Item(keys: "⌘ ,", action: "Open Settings"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
             Item(keys: "⌘ ?", action: "Open SyncCloud Help"),
-            // "(not typing)" rather than a second ⌘Z row in the Edit group: the editor's text
+            // **One row for two stacks, and the wording has moved once already.** The editor's text
             // view keeps its own undo stack, so the chord means two different things depending on
-            // where focus is, and the reference has to say which one this row is. Amended in place
-            // because a new row re-breaks `balancedSplit`'s two columns and moves the window.
-            Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo the last file operation (not typing)"),
+            // where focus is. This read "(not typing)" — written when the parenthesis was the whole
+            // truth, because there was no editor — and it survived the Edit workspace arriving with
+            // an undo stack for precisely the typing it excludes. It now names both, in the order
+            // the reader meets them. Amended in place rather than split into a second row, because
+            // a new row re-breaks `balancedSplit`'s two columns and moves the window.
+            Item(keys: "⌘ Z / ⇧⌘ Z", action: "Undo / redo — the last file operation, or your typing in Edit"),
             // The file clipboard, not the text one — though each of these four hands the keystroke
             // back to the caret when a text field has it (`TextEditingChord`).
             Item(keys: "⌘ A", action: "Select everything in the focused pane's current folder"),
@@ -97,6 +100,11 @@ enum ShortcutsReference {
         Group(title: "Edit", items: [
             Item(keys: "⌘ N", action: "New text file in Edit's folder"),
             Item(keys: "⌘ S", action: "Save the open document"),
+            // **No row for the markup verbs, and that is not an omission.** They live on the text
+            // view's context menu and carry no chords: the keys they will eventually take belong to
+            // menu-bar items that have not been built, and a reference listing ⌘B for a chord
+            // nothing registers would be the one place in the app that lies about the keyboard.
+            Item(keys: "Right-click", action: "Markup — bold, headings, lists, links, in the text"),
         ]),
         Group(title: "Tabs", items: [
             Item(keys: "⌘ T", action: "New tab, at the folder this pane is showing"),
