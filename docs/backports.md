@@ -2609,7 +2609,7 @@ Prose-only — `answersOneLens` counts `lenses`, so nothing depended on the numb
 one-line prose fix that would apply cleanly to `v4.x`**, whose copy carries the same error; it is
 recorded here rather than picked, per the standing direction.
 
-## 2026-08-31 — the Storage fold's review fixes (`<shas after push>`) — not owed, with one caveat
+## 2026-08-31 — the Storage fold's review fixes (`c851b661`, `8836023a`) — not owed, with one caveat
 
 An adversarial review of the fold above found one shipped bug and one gap. Both are **fixes to code
 that only exists on `main`**, so neither is owed — but the caveat is worth reading, because one of
