@@ -1068,8 +1068,29 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // Respect the General setting; default to warning when the key was never written.
         let warnBeforeQuit = UserDefaults.standard.object(forKey: GeneralSettings.warnBeforeQuitKey) as? Bool ?? true
 
-        // **The editor writes no autosave, so ⌘Q is the one gesture that can take a buffer with
-        // it.** Every other way of leaving the document — clicking another file, ⌘N — already asks.
+        // **Flushed before it is asked about, which is what autosave changed here.** The buffer is
+        // normally already on disk; what ⌘Q can still catch is the two-second debounce window, so
+        // the honest thing is to write it rather than ask about it. `EditorAutosave.attempt` is the
+        // same decision the timer makes and needs nothing from the view layer.
+        //
+        // **The question survives for what the flush could NOT write.** A document autosave is
+        // stopped on — the file changed underneath it, or the volume refused — is still dirty after
+        // this line, and that is the one case where quitting really does lose work. So the guard is
+        // no longer "is there a buffer" but "is there a buffer that could not be saved", which is a
+        // strictly smaller and more truthful question.
+        if let document = Self.sharedEditorDocument {
+            switch EditorAutosave.attempt(document) {
+            case .wrote:
+                Logger.shared.info("Flushed the editor's document before quitting")
+            case .blocked(let divergence):
+                Logger.shared.warning(
+                    "Could not flush the editor's document before quitting: it \(divergence == .missing ? "is no longer where it was opened" : "changed on disk")")
+            case .failed(let message):
+                Logger.shared.warning("Could not flush the editor's document before quitting — \(message)")
+            case .nothingToDo:
+                break
+            }
+        }
         let hasUnsavedDocument = Self.sharedEditorDocument?.isDirty ?? false
 
         switch Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit,

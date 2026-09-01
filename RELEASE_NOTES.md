@@ -21,9 +21,16 @@ User-facing changes, newest first. For the full commit history see the
   sits beside them. ⌘5, or the new segment in the workspace bar.
 - **Markdown renders in Edit, Preview or Split**, with a divider you can drag. Real Markdown — tables
   and task lists included — laid out in the app's own type at Settings ▸ Text size, not a web view's.
-- **There is no autosave.** ⌘S writes and nothing else does, because these are real cloud folders and
-  a background write is not a thing to discover afterwards. The save is staged and swapped in
-  atomically, exactly like every other write in the app.
+- **It saves itself.** A couple of seconds after you stop typing, and whenever the document leaves
+  the screen — switching workspace, closing the tab, quitting. Every write is staged and swapped in
+  atomically, exactly like every other write in the app, so there is no moment where the file on
+  disk is half of anything. **⌘S still means "now"**, and stays available even when the document is
+  clean.
+- **Autosave stops rather than guessing.** If the file changes on disk while you have it open — or
+  an Organize run files it somewhere else — writing would either discard what arrived or leave a
+  second copy at the old path. So it stops, says so on the header line, and asks straight away which
+  version wins. Declining leaves it stopped rather than asking again every two seconds, and ⌘S is
+  how you settle it when you are ready.
 - **A file comes back as the file it was.** Line endings are untouched, and a file written in UTF-16
   or carrying a byte-order mark is saved in the encoding it was read in rather than quietly becoming
   UTF-8.

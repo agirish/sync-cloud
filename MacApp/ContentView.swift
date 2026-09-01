@@ -66,6 +66,15 @@ struct ContentView: View {
     /// Bumped by ⌘N so the naming row takes focus even when it is already open — a pure signal,
     /// never read for its value.
     @State var editorNamingFocus = 0
+
+    /// Why autosave has stopped writing, or `nil` while it is working.
+    ///
+    /// **A latch, and the reason it exists is the alert.** Autosave interrupts the moment it finds
+    /// the file changed underneath the buffer — but the attempt behind it restarts on every
+    /// keystroke, so without somewhere to record "this was already asked and declined" the alert
+    /// would return two seconds after each dismissal for as long as the file stayed diverged. It is
+    /// cleared by a successful write, by discarding the buffer, and by nothing else.
+    @State var editorAutosaveStop: EditorAutosaveStop?
     /// The editor's undo stack, owned by the app beside the document. See
     /// ``PlainTextEditor/undoManager`` for why it is not the text view's.
     let editorUndoManager: UndoManager
@@ -1254,6 +1263,7 @@ struct ContentView: View {
         .modifier(BrowseTabPersistence(syncManager: syncManager,
                                        leftProviderId: leftProviderId,
                                        rightProviderId: rightProviderId) { saveBrowseTabs(isLeft: $0) })
+        .modifier(EditorAutosaveDriver(document: editorDocument) { runAutosave() })
         .onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }
         .onChange(of: syncManager.selectedRightPaths) { _, _ in infoPath = nil }
         // The Get-Info override also goes stale when the comparison context changes underneath it:

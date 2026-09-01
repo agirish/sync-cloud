@@ -171,17 +171,17 @@ enum HelpBook {
                 related: ["what-is-synccloud", "folder-sidebar", "choose-folders", "command-palette"]
             )),
             Topic(id: "editor-workspace", title: "Write in a text file", systemImage: "square.and.pencil", article: Article(
-                intro: "Edit is the one place in SyncCloud that changes what is inside a file rather than moving files around. It lists the text files in the folder you are in, opens one, and saves it when you ask — there is no autosave, because these are your real cloud folders.",
+                intro: "Edit is the one place in SyncCloud that changes what is inside a file rather than moving files around. It lists the text files in the folder you are in, opens one, and saves it for you — a couple of seconds after you stop typing, and whenever you leave it. ⌘S writes immediately if you want to be sure.",
                 blocks: [
                     .bullets([
                         "The rail lists the text files in the folder the file pane on its left is showing — Markdown, plain text, and the other text kinds SyncCloud already reads. That pane starts folded to a narrow strip; click it open to browse anywhere, or use the sidebar to jump.",
                         "Right-click any text file anywhere in SyncCloud — Browse, either Compare pane, the columns view — and choose Open in Edit to bring it here.",
                         "A dim row is one that can be listed but not opened: a file too large to read, or one that is still in the cloud and has not been downloaded. Point at it and the rail says which. A file that holds no readable text at all is not opened either, and the editor says so instead.",
-                        "The dot beside the file name means what is on screen does not match what is on disk. ⌘S writes it; the dot clears when it lands.",
+                        "The line under the file name says “saved”, which it is within a second or two of you stopping. If it ever says “not saving”, an amber dot appears beside the name and nothing you type is reaching the file until you settle it — see below.",
                         "⌘N makes a new text file in that same folder. It opens a name field in the rail — nothing exists on disk until you press ↩, and a name with no extension becomes .md.",
                         "A Markdown file gets Edit, Preview and Split above it: the text, the rendered document, or both side by side with a divider you can drag. Other text files are always just the text.",
                         "A file that is not valid text opens for reading only, and says so. Saving it would replace the parts that couldn't be read, so the editor won't.",
-                        "If the file changed on disk — or was filed somewhere else by Organize — while it was open, ⌘S asks before writing over it.",
+                        "If the file changes on disk while you have it open — or an Organize run files it somewhere else — saving would either throw away what arrived or leave a second copy at the old path. So the editor stops saving and asks you straight away which version wins. If you dismiss that question it stays stopped rather than asking again every couple of seconds; ⌘S brings it back when you are ready to decide.",
                         "⌘Z inside the editor takes back your typing. It is a separate history from the one that takes back file operations, so an undo here can never reach into a move or a copy.",
                         "The file name at the top is a button: it takes you to the file where it lives, in Browse, without closing it here.",
                     ]),

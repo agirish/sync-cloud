@@ -152,9 +152,14 @@ public extension AppChord {
     // document in this app to save and no document to create, so the two chords every other Mac app
     // spends first had nothing to spend them on.
 
-    /// File ▸ Save — the editor's explicit write. **No autosave**, which is the decision this chord
-    /// carries: the app edits real cloud folders, and a background write is not something to
-    /// discover after the fact.
+    /// File ▸ Save — write the open document NOW.
+    ///
+    /// **It is no longer the only thing that writes**, which changes what this chord is for rather
+    /// than removing the need for it. The editor autosaves once the typing settles; ⌘S means "do
+    /// not wait", and it is also how a document autosave has STOPPED on — one that changed
+    /// underneath the buffer — is settled, since that is the one state where typing is not reaching
+    /// the file. Live whenever a document is open, including when it is clean: a greyed-out Save
+    /// would be the menu's answer to "did my work make it?" at exactly the wrong moment.
     ///
     /// ⌘S is unclaimed here. The sidebar's ⌃⌘S is a different chord (see ``folderSidebar``), and
     /// nothing else registers a bare ⌘. It is also not one of the field editor's own bindings, so

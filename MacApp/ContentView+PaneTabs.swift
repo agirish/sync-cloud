@@ -612,7 +612,7 @@ extension ContentView {
             // looking at the document they have not saved, and a prompt here is what the platform
             // does when a window with unsaved work is closed. Cancelling leaves both the tab and
             // the window where they are.
-            guard resolveUnsavedChanges() else {
+            guard settleEditorDocument() else {
                 Logger.shared.info(
                     "User cancelled Close Tab on the \(PaneSideChoice.name(isLeft)) pane's last "
                     + "browse tab \(closing) — the editor has unsaved changes")

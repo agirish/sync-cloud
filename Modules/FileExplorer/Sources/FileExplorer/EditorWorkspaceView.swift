@@ -89,6 +89,9 @@ public struct EditorWorkspaceView: View {
     let namingFocus: Int
     /// The window's editor undo stack. See ``PlainTextEditor/undoManager``.
     let undoManager: UndoManager
+    /// Why autosave has stopped, in the header's own words, or `nil` while it is working. A string
+    /// rather than the host's enum: this view draws it and never branches on it.
+    let stopped: String?
     let prefilledName: () -> String
     let refusal: (String) -> String?
     let onOpen: (EditorRailEntry) -> Void
@@ -128,6 +131,7 @@ public struct EditorWorkspaceView: View {
                 typedName: Binding<String>,
                 namingFocus: Int = 0,
                 undoManager: UndoManager,
+                stopped: String? = nil,
                 prefilledName: @escaping () -> String,
                 refusal: @escaping (String) -> String?,
                 onOpen: @escaping (EditorRailEntry) -> Void,
@@ -144,6 +148,7 @@ public struct EditorWorkspaceView: View {
         self._typedName = typedName
         self.namingFocus = namingFocus
         self.undoManager = undoManager
+        self.stopped = stopped
         self.prefilledName = prefilledName
         self.refusal = refusal
         self.onOpen = onOpen
@@ -205,15 +210,18 @@ public struct EditorWorkspaceView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                // The dirty dot, and it is the only thing on screen that says a change is not on
-                // disk yet — there is no autosave here, deliberately, because this app writes real
-                // cloud data and a background write is not a thing to discover afterwards.
+                // **The dot now means "autosave has stopped", not "you have not saved yet".**
+                // Under autosave an unsaved buffer is the ordinary state for about two seconds at a
+                // time, and a dot that blinked on through every pause in typing would be a light
+                // that is always on — worth nothing at the moment it matters. So it appears only
+                // when writing has actually halted, and it wears the warning colour rather than the
+                // accent, because it is now a problem rather than a status.
                 Circle()
-                    .fill(accent)
+                    .fill(stopped == nil ? Color.clear : Color.orange)
                     .frame(width: 6, height: 6)
-                    .opacity(document.isDirty ? 1 : 0)
-                    .accessibilityHidden(!document.isDirty)
-                    .accessibilityLabel("Unsaved changes")
+                    .opacity(stopped == nil ? 0 : 1)
+                    .accessibilityHidden(stopped == nil)
+                    .accessibilityLabel("Not saving")
                 Text(document.name)
                     .scaledFont(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
@@ -245,13 +253,25 @@ public struct EditorWorkspaceView: View {
         .padding(.vertical, 8)
     }
 
+    /// **What the last segment says, and it is the whole visible account of autosave.**
+    ///
+    /// There is no "saving…" state on purpose. The write is a staged file and a rename on a local
+    /// path — it finishes far inside a frame — so a spinner would be a flicker nobody can read, and
+    /// the honest reading of "saved" here is "everything you have typed is on disk", which is true
+    /// between keystrokes and false for at most the debounce.
+    ///
+    /// A stop is what actually needs saying, because it is the one state where typing is not
+    /// reaching the file, and it replaces the segment rather than joining it: "saved · not saving"
+    /// is a contradiction, and the stop is the half that matters.
     private var metaLine: String {
         var parts: [String] = [document.isMarkdown ? "Markdown" : "Plain text"]
         if let size = document.stamp?.size { parts.append(FileSyncManager.formatBytes(size)) }
         if document.isReadOnly {
             parts.append("read only")
+        } else if let stopped {
+            parts.append(stopped)
         } else {
-            parts.append(document.isDirty ? "unsaved changes" : "saved")
+            parts.append("saved")
         }
         return parts.joined(separator: " · ")
     }

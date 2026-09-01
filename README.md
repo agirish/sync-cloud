@@ -103,7 +103,8 @@ The one workspace that changes what is *inside* a file rather than moving files 
 file pane on the left to browse to any folder, a rail listing that folder's text files, and the open
 document beside it. Markdown renders in **Edit / Preview / Split**, at the app's own text size rather
 than a web view's. **⌘N** makes a new file — nothing on disk until you press ↩ — and **⌘S** writes
-it; there is **no autosave**, because these are real cloud folders. A save is staged and swapped like
+it — but you rarely need to: the editor **autosaves** a couple of seconds after you stop typing, and
+whenever the document leaves the screen. A save is staged and swapped like
 every other write here, goes back in the encoding the file was read in, and asks first if the file
 changed underneath you. A file that is not valid text opens read-only rather than risking its bytes.
 Right-click any text file anywhere in the app and choose **Open in Edit** to open it here.

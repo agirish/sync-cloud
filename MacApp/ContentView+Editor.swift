@@ -155,6 +155,7 @@ extension ContentView {
             typedName: $editorTypedName,
             namingFocus: editorNamingFocus,
             undoManager: editorUndoManager,
+            stopped: editorAutosaveStop?.caption,
             // Both closures, so neither walks the folder until the naming row is actually open.
             prefilledName: { EditorFileStore.availableUntitledName(in: editorFolder) },
             refusal: { typed in EditorFileStore.refusal(forName: typed, in: editorFolder) },
@@ -188,7 +189,7 @@ extension ContentView {
         // been trimmed, is a second click away from opening, and the early return used to swallow
         // it and leave the stale refusal on screen.
         guard path != editorDocument.path || editorDocument.refusal != nil else { return }
-        guard resolveUnsavedChanges() else { return }
+        guard settleEditorDocument() else { return }
         // Choosing a file is the answer to the question the naming row was asking, so the row goes
         // with it. Left open it sat above a document the user was by then editing, with no way to
         // dismiss it short of Esc and nothing on screen saying so.
@@ -218,15 +219,52 @@ extension ContentView {
         }
     }
 
-    /// Settles a dirty buffer before it is replaced.
+    /// Settles the buffer before it is replaced — by WRITING it, not by asking about it.
     ///
-    /// - Returns: `false` when the user cancelled, in which case the caller must do nothing at all.
-    func resolveUnsavedChanges() -> Bool {
-        guard editorDocument.isDirty else { return true }
+    /// **This used to be a three-button question at every route out of the document**, and autosave
+    /// is what removed it: the ordinary case is now a flush that finishes in microseconds and says
+    /// nothing, because there is no decision left to put to anybody. The name and the folder were
+    /// settled when the file was created, so "save where?" never had an answer to ask for.
+    ///
+    /// **The question survives for exactly one case: a document autosave is BLOCKED on.** When the
+    /// file has changed underneath the buffer, the flush cannot write and the work really would be
+    /// lost — so that, and only that, still asks. Callers must honour a `false`.
+    ///
+    /// - Returns: `false` when the caller must do nothing at all.
+    @discardableResult
+    func settleEditorDocument() -> Bool {
+        // A blocked document is asked about BEFORE the flush, because the flush would only refuse
+        // again for the same reason and the alert is where the choice lives.
+        if editorAutosaveStop != nil, editorDocument.isDirty {
+            return confirmLeavingAStoppedDocument()
+        }
+        switch EditorAutosave.attempt(editorDocument) {
+        case .nothingToDo, .wrote:
+            noteAutosave()
+            return true
+        case .blocked(let divergence):
+            // It diverged between the last attempt and this one. Same question, asked now.
+            editorAutosaveStop = .diverged(divergence)
+            return confirmLeavingAStoppedDocument()
+        case .failed(let message):
+            editorAutosaveStop = .failed(message)
+            syncManager.banner = .error("Couldn't save “\(editorDocument.name)” — \(message)")
+            return confirmLeavingAStoppedDocument()
+        }
+    }
+
+    /// The one remaining unsaved-changes question: leaving a document autosave cannot write.
+    private func confirmLeavingAStoppedDocument() -> Bool {
         switch EditorAlerts.askAboutUnsavedChanges(name: editorDocument.name) {
         case .cancel: return false
-        case .discard: return true
-        case .save: return saveEditorDocument()
+        case .discard:
+            editorAutosaveStop = nil
+            return true
+        case .save:
+            // "Save" here means "overwrite what is on disk", which is the choice the divergence
+            // alert puts. Routed through it rather than written directly, so the destructive answer
+            // keeps the confirmation it has everywhere else.
+            return saveEditorDocument()
         }
     }
 
@@ -252,7 +290,7 @@ extension ContentView {
             if selectedWorkspace != .editor { selectedWorkspace = .editor }
             return
         }
-        guard resolveUnsavedChanges() else { return }
+        guard settleEditorDocument() else { return }
         let folder = (path as NSString).deletingLastPathComponent
         // **The LEFT pane, whichever pane the row was in.** It took the row's side for a while,
         // which sounds more careful and is not: `editorFolder` reads the left pane and only the
@@ -304,30 +342,59 @@ extension ContentView {
 
     // MARK: - Saving
 
-    /// ⌘S. **Absent while the document is clean**, which is what greys out File ▸ Save.
+    /// ⌘S. **Present even when the document is clean**, unlike before autosave.
+    ///
+    /// It used to be absent while clean, which greyed out File ▸ Save and was exactly right when
+    /// ⌘S was the only thing that ever wrote. Now the ordinary document is already on disk, so a
+    /// greyed-out Save would be the menu's answer to "did my work make it?" — and the one moment
+    /// somebody reaches for it is the moment autosave has STOPPED and the document is not clean at
+    /// all. It stays live whenever there is a document, and means "write it now, and settle
+    /// whatever is blocking that".
     var shortcutSaveDocument: (() -> Void)? {
-        guard editorDocument.canSave else { return nil }
+        guard editorDocument.path != nil, !editorDocument.isReadOnly else { return nil }
         return { _ = saveEditorDocument() }
     }
 
-    /// Writes the open document.
+    /// ⌘S: write the document now, asking about a divergence if there is one.
     ///
-    /// - Returns: `false` when nothing was written — either the user cancelled the changed-on-disk
-    ///   question, or the write failed. Callers that were about to drop the buffer must respect it.
+    /// - Returns: `false` when nothing was written.
     @discardableResult
     func saveEditorDocument() -> Bool {
         guard let path = editorDocument.path, let stamp = editorDocument.stamp,
               !editorDocument.isReadOnly else { return false }
-        // Re-stat before writing. A file the user opened an hour ago may have been filed, renamed
-        // or edited since — including by this same window's Organize run.
+        // Re-stat before writing. A file opened an hour ago may have been filed, renamed or edited
+        // since — including by this same window's Organize run.
         if let divergence = EditorFileStore.divergence(atPath: path, from: stamp) {
             guard EditorAlerts.confirmSaveOverDivergence(name: editorDocument.name,
-                                                         divergence: divergence) else { return false }
+                                                         divergence: divergence) else {
+                // Declining leaves autosave stopped, and says so on the header rather than going
+                // quiet: the document is now in the one state where typing is not reaching disk.
+                editorAutosaveStop = .diverged(divergence)
+                return false
+            }
         }
+        return writeEditorDocument(explicit: true)
+    }
+
+    /// The write itself, with no questions in it — both ⌘S and autosave land here.
+    ///
+    /// **A successful write clears the stop**, whatever it was: the file on disk is now this
+    /// buffer, so the reason autosave halted has gone with it.
+    @discardableResult
+    private func writeEditorDocument(explicit: Bool) -> Bool {
         do {
-            let written = try EditorFileStore.write(editorDocument)
-            editorDocument.markSaved(stamp: written)
-            Logger.shared.info("Editor saved \(path)")
+            editorDocument.markSaved(stamp: try EditorFileStore.write(editorDocument))
+            editorAutosaveStop = nil
+            // **⌘S is INFO and autosave is DEBUG, and that split is deliberate.** He audits this
+            // log. One line per explicit save is a record; one line every two seconds of typing is
+            // a flood that buries everything around it — including the failures below, which is the
+            // half of this that has to be readable.
+            let path = editorDocument.path ?? ""
+            if explicit {
+                Logger.shared.info("Editor saved \(path)")
+            } else {
+                Logger.shared.debug("Editor autosaved \(path)")
+            }
             Task { await refreshEditorRail() }
             return true
         } catch {
@@ -337,6 +404,51 @@ extension ContentView {
             return false
         }
     }
+
+    // MARK: - Autosave
+
+    /// One autosave attempt, from the debounce or from a flush.
+    ///
+    /// **The stop latch is checked first, and it is what keeps this from becoming a nag.** The
+    /// alert below interrupts the moment a divergence is found, which is what was asked for — but
+    /// an alert raised from a timer that restarts on every keystroke would come back two seconds
+    /// after it was dismissed, and again, and again, for as long as the file stayed diverged. So a
+    /// stop LATCHES: autosave does nothing further until a write succeeds or the user clears it,
+    /// and ⌘S is the way to ask again deliberately.
+    func runAutosave() {
+        guard editorAutosaveStop == nil else { return }
+        switch EditorAutosave.attempt(editorDocument) {
+        case .nothingToDo:
+            break
+        case .wrote:
+            _ = writeEditorDocumentDidWrite()
+        case .blocked(let divergence):
+            editorAutosaveStop = .diverged(divergence)
+            // Interrupt now rather than wait to be noticed. The latch above is already set, so
+            // declining leaves the document visibly stopped instead of asking again.
+            if EditorAlerts.confirmSaveOverDivergence(name: editorDocument.name,
+                                                      divergence: divergence) {
+                _ = writeEditorDocument(explicit: false)
+            }
+        case .failed(let message):
+            // Latched for the same reason: a full disk or a read-only volume fails identically
+            // every two seconds, and a banner per attempt is not a report, it is noise.
+            editorAutosaveStop = .failed(message)
+            syncManager.banner = .error("Couldn't save “\(editorDocument.name)” — \(message)")
+        }
+    }
+
+    /// `EditorAutosave.attempt` has already written and stamped the document; this is the host's
+    /// half — the log line, the rail, and clearing any stop.
+    private func writeEditorDocumentDidWrite() -> Bool {
+        editorAutosaveStop = nil
+        Logger.shared.debug("Editor autosaved \(editorDocument.path ?? "")")
+        Task { await refreshEditorRail() }
+        return true
+    }
+
+    /// Called after a flush that wrote or had nothing to do.
+    func noteAutosave() { editorAutosaveStop = nil }
 
     // MARK: - Creating
 
@@ -369,7 +481,7 @@ extension ContentView {
     func createTextFile(named name: String) -> Bool {
         let folder = editorFolder
         guard !folder.isEmpty else { return false }
-        guard resolveUnsavedChanges() else { return false }
+        guard settleEditorDocument() else { return false }
         do {
             let path = try EditorFileStore.createEmptyFile(named: name, in: folder)
             Logger.shared.info("Editor created \(path)")
