@@ -2609,7 +2609,7 @@ Prose-only — `answersOneLens` counts `lenses`, so nothing depended on the numb
 one-line prose fix that would apply cleanly to `v4.x`**, whose copy carries the same error; it is
 recorded here rather than picked, per the standing direction.
 
-## 2026-09-01 — two flake findings and a correction to `flaky-tests.md` (`<shas after push>`) — not owed, but `v4.x` carries the wrong claim
+## 2026-09-01 — two flake findings and a correction to `flaky-tests.md` (`7aa4fa82`) — not owed, but `v4.x` carries the wrong claim
 
 Docs only, and the most *pickable* row in this file — which is exactly why it needs writing down
 rather than quietly picking. `docs/flaky-tests.md` is carried on all four lines precisely so a
