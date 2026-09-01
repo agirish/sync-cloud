@@ -190,8 +190,12 @@ struct CapsuleGlyph: View {
     static let boxSize: CGFloat = 13
 
     /// The box at `scale`, in the same proportion to the glyph as `boxSize` is to `pointSize`.
+    ///
+    /// The arithmetic moved to ``Design/FontSize/scaledBox(_:basePoint:scale:)`` once the sweep
+    /// that followed this fix found the same shape in `SetupSheet` and Organize's pass-lens row.
+    /// Same expression, one copy — and the doc for the rule is where the reasoning now lives.
     static func box(at scale: CGFloat) -> CGFloat {
-        boxSize * FontSize.scaledPointSize(pointSize, scale: scale) / pointSize
+        FontSize.scaledBox(boxSize, basePoint: pointSize, scale: scale)
     }
 
     var body: some View {

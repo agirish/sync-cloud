@@ -244,6 +244,40 @@ public struct FontSize: Hashable, Identifiable, Sendable {
         guard base > knee else { return base * scale }
         return max(base, knee * scale + (base - knee) * surplusSlope)
     }
+
+    /// The size a **box drawn around a scaled glyph** should be at `scale`.
+    ///
+    /// `box` is the frame at the default text size and `basePoint` the point size of the glyph
+    /// inside it, so the answer is `box` held in the same proportion to the glyph it had at 100%.
+    ///
+    /// **This exists because a hard `.frame` around a `.scaledFont` glyph is a bug that renders as
+    /// nothing until it renders as overflow.** `.frame` does not clip, so the box neither grows
+    /// with its glyph nor trims it: the glyph simply draws past its own edges. `EditorModeBar` and
+    /// `StorageSectionBar` shipped that way — a `13×13` frame whose rung measured 85pt and 113pt at
+    /// Small, Default, Large **and** Largest alike — and a sweep on 2026-08-31 found two more, in
+    /// `SetupSheet`'s step mark and Organize's pass-lens row.
+    ///
+    /// **Through `scaledPointSize`, deliberately, rather than a bare `box * scale`.** Above `knee`
+    /// the type ramp damps and then clamps, so a bare multiply would keep growing a box whose glyph
+    /// had stopped: `SetupSheet`'s mark is 22pt, which renders at 22pt for Default, Large and
+    /// Largest alike, and a flat `× 1.35` would open a 40pt disc around a glyph that never left
+    /// 22pt. Asking the ramp instead keeps the frame and its glyph locked together whatever either
+    /// constant becomes.
+    ///
+    /// Returns `box` exactly at `scale == 1`, so adopting this changes no shipped rendering at the
+    /// default text size — the fixes that use it are visible only away from 100%, except where the
+    /// call site also corrects a `box` that was too small to begin with.
+    ///
+    /// - Note: This sizes a box around a glyph. A **hit target** is a different thing and is not
+    ///   its business — a pointer does not grow with the text size, so a frame whose job is to be
+    ///   clickable is right to be a constant. The 2026-08-31 sweep measured six of those
+    ///   (`CloseButton`, the two `DifferencesView` toggles, the Editor rail's `plus`, the
+    ///   destination grip, Settings' disclosure chevron) and left every one alone: each still holds
+    ///   its glyph's ink at Largest, which is the test that tells a reservation from a pin.
+    public static func scaledBox(_ box: CGFloat, basePoint: CGFloat, scale: CGFloat) -> CGFloat {
+        guard basePoint > 0 else { return box }
+        return box * scaledPointSize(basePoint, scale: scale) / basePoint
+    }
 }
 
 // MARK: - Environment
