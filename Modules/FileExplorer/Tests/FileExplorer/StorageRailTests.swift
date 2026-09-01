@@ -82,8 +82,9 @@ import Design
         // **This replaced a glyph-width table, and the replacement is the point.** The rail
         // tabulated each symbol's rendered width (13, 15 and 16 at 10.5pt) because its arithmetic
         // had to reserve room per item, and a wrong number there sheds the row early or overruns
-        // it. The capsule frames every glyph at a fixed 13×13, so the widths no longer enter any
-        // model — what remains is the one thing a frame cannot fix: a symbol that does not resolve
+        // it. `CapsuleGlyph` frames every glyph at one width — scaled with the text size, but the
+        // same for all four symbols — so the widths no longer enter any model. What remains is the
+        // one thing a frame cannot fix: a symbol that does not resolve
         // draws nothing at all, and on a shed rung the glyph is the ONLY thing naming the section.
         for section in StorageSection.allCases {
             #expect(NSImage(systemSymbolName: section.railSymbol, accessibilityDescription: nil) != nil,
@@ -120,14 +121,23 @@ import Design
         }
     }
 
-    @Test("The capsule grows with the app's text size")
-    func theCapsuleGrowsWithTheAppsTextSize() {
+    @Test("Both rungs grow with the app's text size")
+    func bothRungsGrowWithTheAppsTextSize() {
         // The failure that would make every ceiling above vacuous: a control pinned at one size
         // passes any width assertion at the size it was tuned for.
-        let smallest = capsule(.labelled, scale: scales.min() ?? 1).width
-        let largest = capsule(.labelled, scale: scales.max() ?? 1).width
-        #expect(largest > smallest,
-                "the capsule measures \(smallest) at the smallest text size and \(largest) at the largest — it is not scaling")
+        //
+        // **Asked of the glyph-only rung too, because that is the one that was pinned.** This
+        // measured the labelled rung alone — which scales, since its words are `Text` — and stayed
+        // green over a glyph rung stuck at 113pt at all four sizes, its symbols in a hard `13×13`
+        // frame that the enlarged glyph simply overflowed. Inherited from `EditorModeBar` along
+        // with everything else this bar copied; fixed in both, in `CapsuleGlyph`.
+        for rung in [StorageSectionBar.Rung.labelled, .glyphOnly] {
+            let widths = scales.map { capsule(rung, scale: $0).width }
+            #expect(zip(widths, widths.dropFirst()).allSatisfy { $0 <= $1 },
+                    "the \(rung) capsule measures \(widths) across \(scales) — it shrinks as the text grows")
+            #expect((widths.last ?? 0) > (widths.first ?? 0),
+                    "the \(rung) capsule measures \(widths) across \(scales) — it is not scaling")
+        }
     }
 
     @Test("The capsule fits the content card at the window's floor, at every text size")

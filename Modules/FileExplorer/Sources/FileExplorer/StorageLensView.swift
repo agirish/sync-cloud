@@ -405,8 +405,10 @@ struct StorageLensView: View {
 ///   the selected segment measures a different width depending on which one that is — and
 ///   everything beside it moves on every click. The fill marks the selection; the weight was
 ///   saying it twice and charging for it.
-/// - **Glyphs in a fixed 13×13 frame**, because these four symbols draw at four different widths
-///   and an unframed row would resize as the selection moved through it.
+/// - **Glyphs in a framed box** (``CapsuleGlyph``), because these four symbols draw at four
+///   different widths and an unframed row would resize as the selection moved through it. Shared
+///   with the Editor's capsule rather than copied a second time — the copy is how both bars came
+///   to hold a hard `13` that did not grow with the app's text size.
 ///
 /// `nil` is All, matching ``StorageSection/defaultsKey``'s "absent means all three" — there is no
 /// value to write for "no section picked", and inventing one makes the unselected state something
@@ -467,9 +469,7 @@ struct StorageSectionBar: View {
             section = candidate
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: symbol(candidate))
-                    .scaledFont(.system(size: 10, weight: .medium))
-                    .frame(width: 13, height: 13)
+                CapsuleGlyph(symbol: symbol(candidate))
                 if labelled {
                     Text(title(candidate))
                         .scaledFont(.system(size: 10, weight: .semibold))

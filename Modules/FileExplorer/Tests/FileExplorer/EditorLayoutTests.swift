@@ -284,11 +284,22 @@ import Design
 
     /// It grows with the app's type rather than staying pinned — the failure that would make the
     /// ceiling check above vacuous.
-    @Test func theCapsuleGrowsWithTheAppsTextSize() {
-        let smallest = capsule(.labelled, mode: .edit, scale: scales.min() ?? 1).width
-        let largest = capsule(.labelled, mode: .edit, scale: scales.max() ?? 1).width
-        #expect(largest > smallest,
-                "the capsule measures \(smallest) at the smallest text size and \(largest) at the largest — it is not scaling")
+    ///
+    /// **Both rungs, and the glyph-only one is why this test was rewritten.** It measured the
+    /// labelled rung alone, which scaled the whole time because its words are `Text` — so it went
+    /// green over a glyph-only rung that measured **85pt at every one of the four sizes**, its
+    /// symbols framed at a hard `13×13` while the glyphs inside them grew and overflowed. A rung
+    /// the ceiling checks above are asked about is a rung this has to be asked about too.
+    @Test func bothRungsGrowWithTheAppsTextSize() {
+        for rung in [EditorModeBar.Rung.labelled, .glyphOnly] {
+            let widths = scales.map { capsule(rung, mode: .edit, scale: $0).width }
+            // Ascending scales, so the widths may not go backwards anywhere along them...
+            #expect(zip(widths, widths.dropFirst()).allSatisfy { $0 <= $1 },
+                    "the \(rung) capsule measures \(widths) across \(scales) — it shrinks as the text grows")
+            // ...and the ends must actually differ, which is the half a pinned frame fails.
+            #expect((widths.last ?? 0) > (widths.first ?? 0),
+                    "the \(rung) capsule measures \(widths) across \(scales) — it is not scaling")
+        }
     }
 
     // MARK: The preview's type ramp

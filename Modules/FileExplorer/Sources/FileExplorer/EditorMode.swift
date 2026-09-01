@@ -50,10 +50,17 @@ public enum EditorMode: String, CaseIterable, Sendable {
 /// window's glass and ignores `.tint`, so a selected segment could never carry the app's accent.
 ///
 /// **It sheds its words when the column is narrow**, the same bargain the workspace bar strikes and
-/// for the same reason. Measured, the labelled capsule is 185pt at the default text size and 215 at
-/// the largest — against a document column whose guaranteed minimum is 260, which leaves no room
-/// for the file name it sits beside. Glyph-only it is 96–110, which does. The names survive in the
-/// tooltip and the accessibility label, exactly as the workspace bar's do.
+/// for the same reason. Re-measured 2026-08-31 across Small · Default · Large · Largest, the
+/// labelled capsule is **183 · 192 · 220 · 231pt** — against a document column whose guaranteed
+/// minimum is 260, which leaves no room for the file name it sits beside. Glyph-only it is
+/// **82 · 85 · 95 · 99**, which does. The names survive in the tooltip and the accessibility label,
+/// exactly as the workspace bar's do.
+///
+/// **The glyph figures used to be one number, and that was the bug, not a rounding.** Until the
+/// same date this read "96–110" and the rung actually measured 85 at all four sizes, because the
+/// symbols sat in a hard `13×13` frame; see ``CapsuleGlyph`` for what the frame is for and what it
+/// now scales by. Every number here is `NSHostingView.fittingSize` on the forced rung, which is
+/// what `EditorLayoutTests` measures — prose is not a measurement, so re-run it before editing it.
 ///
 /// `ViewThatFits` rather than arithmetic, which is the opposite of `WorkspaceBarMetrics`' choice:
 /// that one is in a toolbar item, which is proposed its own ideal width rather than the window's,
@@ -99,12 +106,7 @@ struct EditorModeBar: View {
             mode = candidate
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: candidate.symbol)
-                    .scaledFont(.system(size: 10, weight: .medium))
-                    // Framed for the reason the workspace bar's glyphs are: these three symbols
-                    // draw at three different widths, and an unframed row would change size as the
-                    // selection moved through it.
-                    .frame(width: 13, height: 13)
+                CapsuleGlyph(symbol: candidate.symbol)
                 if labelled {
                     // **Semibold whether or not it is selected.** Weight changes width, so a
                     // capsule that bolded only the selected segment measured two different widths
@@ -129,5 +131,51 @@ struct EditorModeBar: View {
         .help(candidate.title)
         .accessibilityLabel(candidate.title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+// MARK: - Capsule glyph
+
+/// One segment's symbol, drawn inside a box that keeps the row a fixed width.
+///
+/// **The box exists so the row does not resize as the selection moves through it.** These symbols
+/// draw at different natural widths — `pencil`, `eye` and `rectangle.split.2x1` on the Editor's
+/// capsule; four more on ``StorageSectionBar`` — and an unframed row would be a different width
+/// depending on which segment happened to be under the fill, shifting whatever sits beside it on
+/// every click. That goal is real and this keeps it.
+///
+/// **What it did NOT keep was a hard `13`.** The frame was a literal, so although the glyph inside
+/// it was `.scaledFont`-ed and grew with Settings ▸ Text size, the box did not: measured
+/// 2026-08-31, the Editor's glyph-only rung was **85pt at Small, Default, Large and Largest alike**
+/// and Storage's was 113pt at all four — a control pinned at one size while the words beside it
+/// grew, and, because `.frame` does not clip, an enlarged glyph *overflowing* its box rather than
+/// being trimmed by it. The labelled rung scaled the whole time (186 → 217), which is exactly why
+/// this went unseen: the test that asked whether the capsule grows only ever measured that one.
+///
+/// So the box is `boxSize` *at the scale the glyph itself renders at* — and through
+/// `FontSize.scaledPointSize`, not a bare multiply, so the frame and its glyph track the type
+/// ramp's own knee curve rather than diverging the moment `pointSize` moves above `knee`. At
+/// today's 10pt they are the same number over the whole selectable range; the point is that they
+/// stay the same number if either constant changes.
+struct CapsuleGlyph: View {
+
+    let symbol: String
+
+    @Environment(\.appFontScale) private var scale
+
+    /// The glyph's own point size at the default text size.
+    static let pointSize: CGFloat = 10
+    /// The box drawn around it at the default text size, holding the widest symbol comfortably.
+    static let boxSize: CGFloat = 13
+
+    /// The box at `scale`, in the same proportion to the glyph as `boxSize` is to `pointSize`.
+    static func box(at scale: CGFloat) -> CGFloat {
+        boxSize * FontSize.scaledPointSize(pointSize, scale: scale) / pointSize
+    }
+
+    var body: some View {
+        Image(systemName: symbol)
+            .scaledFont(.system(size: Self.pointSize, weight: .medium))
+            .frame(width: Self.box(at: scale), height: Self.box(at: scale))
     }
 }
