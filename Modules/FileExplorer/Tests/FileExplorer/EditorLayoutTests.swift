@@ -43,6 +43,7 @@ import Design
             filter: .constant(""),
             filterIsExpanded: .constant(false),
             outline: outline,
+            outlineAnchors: .constant([:]),
             onOpen: { _ in },
             onCreate: { _ in true })
     }

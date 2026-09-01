@@ -62,6 +62,16 @@ struct EditorFileRailView: View {
     var outline: [MarkdownOutlineEntry] = []
     /// Which outline row the caret is inside, or `nil` when it is above the first heading.
     var currentOutlineIndex: Int?
+    /// Where each document's outline was last scrolled to, keyed by path, as the source line of the
+    /// top visible heading.
+    ///
+    /// **Held by the host for the reason the filter and the tab are** — this view is destroyed by a
+    /// trip to Browse and back — and keyed by path rather than kept as one value because the point
+    /// is per-document memory. It is not persisted across launches: it describes a reading session,
+    /// the same call ``EditorRailTab`` and ``EditorMode`` make. Nothing evicts from it; an entry is
+    /// a path and an integer, and a session would have to open tens of thousands of files before
+    /// that is worth a rule.
+    @Binding var outlineAnchors: [String: Int]
     /// Sends the reader to a heading's line.
     var onSelectHeading: (MarkdownOutlineEntry) -> Void = { _ in }
     let onOpen: (EditorRailEntry) -> Void
@@ -80,7 +90,20 @@ struct EditorFileRailView: View {
     static var width: CGFloat { EditorLayoutMetrics.railWidth }
 
     @FocusState private var nameFieldFocused: Bool
+    /// The outline's top row, as `.scrollPosition(id:)` reports and accepts it.
+    @State private var outlineTopRow: Int?
+    /// The outline section's height, as the scroll view reports it — the one input that decides how
+    /// many rows are on screen, and so whether the caret's heading would be past the fold.
+    ///
+    /// **`onGeometryChange` on the scroll view, not a `GeometryReader` around it.** A reader is a
+    /// container with no intrinsic size of its own, and one wrapped around this rail collapsed it to
+    /// 10pt for anything asking its ideal height — the trap `EditorLayoutTests` caught when the
+    /// outline was first built. A modifier reads the same number and takes part in no layout.
+    @State private var outlineHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Read again for the outline's row-height arithmetic — how many rows fit is a question about
+    /// the app's text size as much as about the section's height.
+    @Environment(\.appFontScale) private var fontScale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -318,12 +341,59 @@ struct EditorFileRailView: View {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(outline.enumerated()), id: \.element.id) { index, entry in
                         outlineRow(entry, isCurrent: index == currentOutlineIndex)
+                            .id(entry.id)
                     }
                 }
+                // The rows are the scroll targets, which is what lets the view below report which
+                // of them are on screen.
+                .scrollTargetLayout()
                 .padding(.horizontal, 6)
                 .padding(.bottom, 8)
             }
+            // **Both directions of one binding.** It accepts the row to open at, below, and it
+            // reports the top row as the reader scrolls, which is what the recording reads.
+            .scrollPosition(id: $outlineTopRow)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { outlineHeight = $0 }
+            // **`initial: true` on the outline, not on the path.** The outline is CLEARED the
+            // instant the path changes and refilled 150ms later by a parse that runs off the main
+            // actor, so a restore hung on the path change would scroll a list with no rows in it and
+            // do nothing at all. This fires on the arrival, which is the first moment there is
+            // anything to scroll to — and on the tab coming back, where the rows are already there.
+            .onChange(of: outline, initial: true) { _, rows in
+                guard !rows.isEmpty else { return }
+                let fits = EditorOutlineScroll.rowsThatFit(height: outlineHeight, scale: fontScale)
+                if let target = EditorOutlineScroll.openingTarget(remembered: rememberedAnchor,
+                                                                  current: currentOutlineRow,
+                                                                  outline: rows,
+                                                                  rowsThatFit: fits) {
+                    outlineTopRow = target
+                }
+            }
+            // **Recording is the binding reporting, not a second observation.** Every way the top
+            // row can change ends up here — the reader scrolling, and the opening scroll above —
+            // and both are worth remembering: the list is where it is either way.
+            .onChange(of: outlineTopRow) { _, top in
+                guard EditorOutlineScroll.recordsAnchor(path: selectedPath,
+                                                        outlineIsEmpty: outline.isEmpty,
+                                                        top: top),
+                      let path = selectedPath, let top else { return }
+                outlineAnchors[path] = top
+            }
         }
+    }
+
+    /// The row this document was left on, or `nil` for one nobody has scrolled yet.
+    private var rememberedAnchor: Int? {
+        selectedPath.flatMap { outlineAnchors[$0] }
+    }
+
+    /// The caret's heading as a row id rather than an index into the array — which is what the
+    /// scroll view speaks, and what makes "is it visible" a set membership test.
+    private var currentOutlineRow: Int? {
+        guard let currentOutlineIndex, outline.indices.contains(currentOutlineIndex) else {
+            return nil
+        }
+        return outline[currentOutlineIndex].id
     }
 
     /// What the outline says when it has no rows — **two different questions, asked as a function
@@ -340,6 +410,22 @@ struct EditorFileRailView: View {
     /// The step each outline level is drawn in by. Half the preview's, because the rail is 232pt
     /// wide and the words are what matter here.
     static let outlineIndentStep: CGFloat = 10
+
+    /// One outline row, for the test that measures a drawn row against the height estimate the
+    /// fold arithmetic runs on. **A seam rather than a replica**: the number that matters is what
+    /// this builder lays out, and a test that rebuilt the row would be measuring its own copy.
+    static func outlineRowProbe(_ entry: MarkdownOutlineEntry, isCurrent: Bool) -> some View {
+        EditorFileRailView.probe.outlineRow(entry, isCurrent: isCurrent)
+    }
+
+    /// A rail with nothing in it, built only to reach ``outlineRow(_:isCurrent:)`` from the probe.
+    private static var probe: EditorFileRailView {
+        EditorFileRailView(folderName: "", entries: [], selectedPath: nil, accent: .blue,
+                           onAccent: .white, tab: .constant(.outline), isNaming: .constant(false),
+                           typedName: .constant(""), prefilledName: { "" }, refusal: { _ in nil },
+                           filter: .constant(""), filterIsExpanded: .constant(false),
+                           outlineAnchors: .constant([:]), onOpen: { _ in }, onCreate: { _ in true })
+    }
 
     private func outlineRow(_ entry: MarkdownOutlineEntry, isCurrent: Bool) -> some View {
         Button {

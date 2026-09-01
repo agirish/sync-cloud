@@ -88,6 +88,9 @@ public struct EditorWorkspaceView: View {
     /// Which half of the rail is showing — its files, or the open document's outline. Held by the
     /// host beside the filter, for the reason that one is: see ``EditorRailTab``.
     @Binding var railTab: EditorRailTab
+    /// Where each document's outline was last scrolled to. Held by the host beside the tab, for the
+    /// reason that one is — see ``EditorFileRailView/outlineAnchors``.
+    @Binding var railOutlineAnchors: [String: Int]
     /// The name being typed in the naming row. Held by the host beside `isNaming` — see
     /// ``EditorFileRailView/typedName``.
     @Binding var typedName: String
@@ -160,6 +163,7 @@ public struct EditorWorkspaceView: View {
                 railFilter: Binding<String>,
                 railFilterIsExpanded: Binding<Bool>,
                 railTab: Binding<EditorRailTab>,
+                railOutlineAnchors: Binding<[String: Int]>,
                 namingFocus: Int = 0,
                 undoManager: UndoManager,
                 stopped: String? = nil,
@@ -171,6 +175,7 @@ public struct EditorWorkspaceView: View {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
         self._railTab = railTab
+        self._railOutlineAnchors = railOutlineAnchors
         self.document = document
         self.folder = folder
         self.entries = entries
@@ -233,6 +238,7 @@ public struct EditorWorkspaceView: View {
                                outline: outline,
                                currentOutlineIndex: MarkdownOutline.currentEntry(forLine: caret.line,
                                                                                 in: outline),
+                               outlineAnchors: $railOutlineAnchors,
                                onSelectHeading: goToHeading,
                                onOpen: onOpen,
                                onCreate: onCreate)

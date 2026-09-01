@@ -76,6 +76,10 @@ struct ContentView: View {
     /// view does not exist yet. Not persisted across launches — it describes a reading session,
     /// the same call ``EditorMode`` makes.
     @State var editorRailTab: EditorRailTab = .files
+    /// Where each document's outline was last scrolled to, keyed by path. **Here for the reason the
+    /// tab is**, and it has to outlive more than the tab does: the rail's outline is destroyed by a
+    /// tab switch as well as by a workspace one, and the memory is the whole point of it.
+    @State var editorOutlineAnchors: [String: Int] = [:]
 
     /// Why autosave has stopped writing, or `nil` while it is working.
     ///
