@@ -2629,3 +2629,50 @@ time. Both bars also had *ceiling* checks on the glyph rung (fits a 260pt docume
 lens column), and a control pinned at one size passes any ceiling at the size it was tuned for. **A
 rung the ceiling checks ask about is a rung the growth check has to ask about too.** Any line that
 grows one of these controls should carry the pair, not the ceiling alone.
+
+## 2026-08-31 — the editor's first mode is labelled "Source", not "Edit" (`56f619f5`) — CLOSED, does not apply
+
+`EditorMode.title` for `.edit` returns **"Source"**, so the editor's mode capsule reads
+Source / Preview / Split. The app has three controls reading "Edit" — the menu bar's, the workspace
+bar's, and this segment — and this was the only one that could move: the menu is an AppKit
+convention and `Workspace.title` had already weighed the workspace against it and taken the cost.
+The segment is the tightest of the three anyway, because it sits *inside* the Edit workspace.
+
+**Nothing is owed.** `Modules/FileExplorer/Sources/FileExplorer/EditorMode.swift` is absent on
+`v4.x`, `v3.x` and `v2.x` — the file arrived with the Edit workspace, on `main` this week — so
+there is no capsule on any maintenance line to relabel. Same absence the row immediately above
+established for `1a1af60f`, and it is checked the same way; the positive control matters for the
+same reason:
+
+```sh
+git ls-tree -r --name-only origin/main -- \
+  Modules/FileExplorer/Sources/FileExplorer/EditorMode.swift    # positive control: found
+
+for l in v4.x v3.x v2.x; do
+  git ls-tree -r --name-only origin/$l -- \
+    Modules/FileExplorer/Sources/FileExplorer/EditorMode.swift  # prints nothing on all three
+done
+```
+
+The other seven files in the change are prose about that capsule — the Help article, the README,
+`ContentView` and `EditorWorkspaceView` doc comments, `EditorLayoutTests`, and the **still-draft**
+v5.2 sections of `RELEASE_NOTES.md` and `docs/releases.html`. None of it describes anything the
+maintenance lines carry, so none of it applies either. The notes were corrected rather than left
+standing because v5.2 is unreleased; had it been cut, the shipped text would have been left alone.
+
+**What is worth carrying forward is the measurement, not the label.** The rename cost 15–20pt on
+the labelled rung (183 · 192 · 220 · 231 → 198 · 208 · 239 · 251 across Small · Default · Large ·
+Largest) and nothing on the glyph rung. That pushed the capsule over a boundary at the narrowest
+window the app allows: at the 760pt floor with the sidebar at its 150pt minimum, the words now shed
+at **135% alone**, where 251 + a 120pt name allowance is 371 against a 368pt column. Three points.
+**It took two changes to get there** — this rename and `1a1af60f`'s glyph-box scaling, which landed
+hours apart and neither of which crossed it alone. A line that ever takes both should re-measure
+rather than assume the pair is free.
+
+**The transferable lesson.** The guard that pins this is
+`EditorLayoutTests.theWordsShedAtTheNarrowestWindowOnlyAtTheTopOfTheTextRange`, and it sweeps
+`FontSize.selectablePercents` — every step the slider lands on from 90 to 135 — rather than
+`FontSize.allCases`, which is the four *named* presets. The turnover is at **130**,
+which is not a preset: a four-row table would have reported "Large fits, Largest does not" and left
+the six steps between them unmeasured, including the one that actually matters. Any control whose
+width is checked against a text size should be swept over the selectable set, not the named one.
