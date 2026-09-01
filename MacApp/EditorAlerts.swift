@@ -79,25 +79,69 @@ enum EditorAlerts {
         }
     }
 
-    /// The confirm title is the verb, not "OK": the button says what it will do.
-    nonisolated static let divergenceButtonTitles = ["Save Anyway", "Cancel"]
+    /// What the user can do about a file that moved under the buffer.
+    enum DivergenceAnswer: Equatable {
+        /// Overwrite what is on disk with the buffer.
+        case saveAnyway
+        /// Throw the buffer away and re-read the file. **Only offered for `.changed`** — see
+        /// ``divergenceButtonTitles(for:)``.
+        case reloadFromDisk
+        /// Change nothing, and leave autosave stopped.
+        case cancel
+    }
+
+    /// **Three buttons for a file that CHANGED, two for one that is GONE**, and the difference is
+    /// not tidiness. "Reload from Disk" answers "keep theirs, drop mine" — a real answer when there
+    /// is a their-version to read. For a file that has been moved or renamed there is nothing at
+    /// that path to reload, so offering it would be a button that cannot do what it says.
+    ///
+    /// Both non-cancel answers are destructive in opposite directions — one discards what arrived,
+    /// the other discards what you typed — so Cancel is the safe default and neither of the others
+    /// keeps Return.
+    nonisolated static func divergenceButtonTitles(
+        for divergence: EditorFileStore.Divergence) -> [String] {
+        switch divergence {
+        case .changed: return ["Save Anyway", "Reload from Disk", "Cancel"]
+        case .missing: return ["Save Anyway", "Cancel"]
+        }
+    }
+
+    /// **The one place a button position becomes an answer**, and it has to be read against the
+    /// same divergence the titles were built from: "Reload from Disk" is the second button for a
+    /// changed file and does not exist for a missing one, where the second button is Cancel.
+    /// Reading the position without the case is how the safe answer becomes the destructive one.
+    nonisolated static func divergenceAnswer(
+        for response: NSApplication.ModalResponse,
+        divergence: EditorFileStore.Divergence) -> DivergenceAnswer {
+        switch (divergence, response) {
+        case (_, .alertFirstButtonReturn): return .saveAnyway
+        case (.changed, .alertSecondButtonReturn): return .reloadFromDisk
+        // Every other response — Cancel, a dismissed sheet, anything AppKit adds later — is the
+        // answer that changes nothing.
+        default: return .cancel
+        }
+    }
 
     nonisolated static func isConfirmed(_ response: NSApplication.ModalResponse) -> Bool {
         response == .alertFirstButtonReturn
     }
 
-    /// - Returns: `true` when the user asked to write over it anyway.
-    static func confirmSaveOverDivergence(name: String,
-                                          divergence: EditorFileStore.Divergence) -> Bool {
+    /// Asks which version wins.
+    static func askAboutDivergence(name: String,
+                                   divergence: EditorFileStore.Divergence) -> DivergenceAnswer {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = divergenceMessage(name: name, divergence: divergence)
         alert.informativeText = divergenceInformativeText(divergence)
-        for title in divergenceButtonTitles { alert.addButton(withTitle: title) }
-        // The confirming button loses Return, so the destructive answer is never one blind
-        // keystroke away — the same guard `SyncOperationAlerts` puts on a permanent delete.
-        alert.buttons.first?.keyEquivalent = ""
-        alert.buttons.first?.hasDestructiveAction = true
-        return isConfirmed(alert.runModal())
+        let titles = divergenceButtonTitles(for: divergence)
+        for title in titles { alert.addButton(withTitle: title) }
+        // **Neither destructive answer keeps Return**, which is the same guard `SyncOperationAlerts`
+        // puts on a permanent delete — and there are two of them here, discarding in opposite
+        // directions. Cancel is what a blind Return does.
+        for (index, button) in alert.buttons.enumerated() where titles[index] != "Cancel" {
+            button.keyEquivalent = ""
+            button.hasDestructiveAction = true
+        }
+        return divergenceAnswer(for: alert.runModal(), divergence: divergence)
     }
 }

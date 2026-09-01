@@ -75,6 +75,10 @@ struct ContentView: View {
     /// would return two seconds after each dismissal for as long as the file stayed diverged. It is
     /// cleared by a successful write, by discarding the buffer, and by nothing else.
     @State var editorAutosaveStop: EditorAutosaveStop?
+    /// Whether the launch refresh was asked for and could not start, because a pane named a source
+    /// `enabledProviders` had not published yet. Cleared by the arrival that completes it.
+    @State private var launchRefreshPending = false
+
     /// The editor's undo stack, owned by the app beside the document. See
     /// ``PlainTextEditor/undoManager`` for why it is not the text view's.
     let editorUndoManager: UndoManager
@@ -1185,7 +1189,12 @@ struct ContentView: View {
                         restoreBrowseTabs(isLeft: true)
                         restoreBrowseTabs(isLeft: false)
                         if !settings.enabledProviders.isEmpty {
-                            refreshAction()
+                            // **Recorded when it does not start.** `enabledProviders` being
+                            // non-empty does not mean it holds THESE two: a folder source, or one a
+                            // restored tab has just adopted, can still be on its way. The load then
+                            // never happens and the pane draws whatever it had — so the attempt is
+                            // remembered and finished the moment the sources arrive.
+                            launchRefreshPending = !refreshAction()
                         }
                         isBootstrappingProviders = false
                     }
@@ -1370,6 +1379,15 @@ struct ContentView: View {
             let previousLeftId = leftProviderId
             let previousRightId = rightProviderId
             applyProviderSelection(preferDistinctPair: isBootstrappingProviders)
+            // **Before the bootstrap guard, because that guard is what strands it.** A launch
+            // refresh that could not start for want of a source has to be finished when the source
+            // turns up, and that arrival is this handler — which returns below while the bootstrap
+            // is still up, i.e. exactly when the pending flag is set. Only ever completes a refresh
+            // that was already asked for and skipped; it starts nothing new.
+            if launchRefreshPending, refreshAction() {
+                launchRefreshPending = false
+                Logger.shared.info("Completed the launch refresh once its sources were published")
+            }
             guard !isBootstrappingProviders else { return }
             // If re-resolution switched a pane's provider, its id onChange below already
             // refreshes via retargetPane — don't schedule a second scan here.
@@ -1586,12 +1604,20 @@ struct ContentView: View {
         /// naming state, and ⇧⌘P toggled the shared preview key with nothing to show it in.
         var drawsAPaneList: Bool {
             switch self {
-            case .compareSplit, .singleExpanded, .singleCollapsed, .browseFull: return true
-            // Expanded, the editor draws a real `FileTreeView` and the pane-scoped chords mean
-            // what they say. Collapsed there is only a spine, and ⇧⌘N would open a naming row
-            // inside a pane the user cannot see.
+            case .compareSplit, .singleExpanded, .browseFull: return true
+            // Expanded, a workspace with a source rail draws a real `FileTreeView` and the
+            // pane-scoped chords mean what they say. **Collapsed, there is only a 34pt spine, and
+            // that is true of BOTH kinds** — the editor's source pane and the lens rail collapse to
+            // the same strip through the same stored override.
+            //
+            // The lens arm answered `true` when this member was introduced, and that was a
+            // half-fix: it was written for the editor, and the collapsed-lens case is the same
+            // defect in a workspace that shipped long before it. ⇧⌘N put a naming row into a pane
+            // nobody can see, and ⇧⌘P toggled a preview column for a stack that was not on screen.
+            // Now that Storage is a lens on Organize's rail, that rail is collapsed more often, not
+            // less.
             case .editorExpanded: return true
-            case .editorCollapsed: return false
+            case .singleCollapsed, .editorCollapsed: return false
             }
         }
 
@@ -1729,15 +1755,35 @@ struct ContentView: View {
     ///   enabled-providers handler, which asks `paneRootEdits` which pane's Location was edited and
     ///   must pass that same scope to `invalidateComparisonState` — a pane whose tree is dropped
     ///   there and not walked here stays blank.
-    private func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both) {
+    /// - Returns: whether a refresh was actually started. **The `false` is the point.**
+    ///
+    /// This guard returned in silence, and a pane load skipped at launch with nothing said about it
+    /// is how a pane comes to draw one source's tree under another source's name for a whole
+    /// session. The two ids are `@AppStorage` and are restored before discovery finishes, so at
+    /// bootstrap it is ordinary for a pane to name a source `enabledProviders` has not published
+    /// yet — a folder source, or one a restored tab just adopted. When that happens this does
+    /// nothing, and `onChange(of: enabledProviders)` cannot pick it up either, because that handler
+    /// returns early while the bootstrap guard is up. Nothing else walks the tree, so the pane
+    /// keeps whatever an earlier, differently-targeted refresh happened to leave in it.
+    ///
+    /// Saying so is half the fix; the caller completing it when the source arrives is the other
+    /// half (see `launchRefreshPending`).
+    @discardableResult
+    private func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both) -> Bool {
         guard let leftProvider = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
               let rightProvider = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else {
-            return
+            let missing = [leftProviderId, rightProviderId]
+                .filter { id in !settings.enabledProviders.contains { $0.id == id } }
+            Logger.shared.warning(
+                "Skipped a refresh: \(missing.joined(separator: ", ")) "
+                + "\(missing.count == 1 ? "is" : "are") not among the enabled sources yet")
+            return false
         }
         Task {
             await syncManager.refreshTreesAndScan(left: leftProvider, right: rightProvider,
                                                   reloading: reloading)
         }
+        return true
     }
 
     /// Swaps the left and right panes entirely — providers, focused folders, selections,

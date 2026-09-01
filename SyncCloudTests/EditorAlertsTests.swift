@@ -59,7 +59,10 @@ import FileExplorer
     // MARK: The file changed under the buffer
 
     @Test func onlyTheFirstButtonConfirmsWritingOverAChangedFile() {
-        #expect(EditorAlerts.divergenceButtonTitles == ["Save Anyway", "Cancel"])
+        // The titles are now per-divergence: a changed file gains a reload it can actually do.
+        #expect(EditorAlerts.divergenceButtonTitles(for: .missing) == ["Save Anyway", "Cancel"])
+        #expect(EditorAlerts.divergenceButtonTitles(for: .changed)
+                == ["Save Anyway", "Reload from Disk", "Cancel"])
         #expect(EditorAlerts.isConfirmed(.alertFirstButtonReturn))
         for response: NSApplication.ModalResponse in [.alertSecondButtonReturn, .alertThirdButtonReturn,
                                                       .abort, .stop, .cancel, .OK] {
@@ -182,6 +185,63 @@ import FileExplorer
         #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 2, warnBeforeQuit: false,
                                                   hasUnsavedDocument: false)
                 == .allowWithoutWarning(activeOperations: 2))
+    }
+
+    // MARK: Which version wins
+
+    /// **A button's POSITION only becomes an answer once you know which divergence it was built
+    /// for.** "Reload from Disk" is the second button for a file that changed and does not exist
+    /// for one that is gone — where the second button is Cancel. Reading the position without the
+    /// case turns the safe answer into the destructive one, which is the whole reason the mapping
+    /// takes the divergence as an argument.
+    @Test func theSameButtonPositionMeansDifferentThingsForTheTwoDivergences() {
+        #expect(EditorAlerts.divergenceAnswer(for: .alertSecondButtonReturn, divergence: .changed)
+                == .reloadFromDisk)
+        #expect(EditorAlerts.divergenceAnswer(for: .alertSecondButtonReturn, divergence: .missing)
+                == .cancel,
+                "the second button on a MISSING file is Cancel — reading it as reload would discard the buffer for a file there is nothing to reload from")
+    }
+
+    /// The titles and the mapping have to be read together, position by position, or the alert says
+    /// one thing and the code does another. This is the pairing `theTitleAndTheAnswerAgree…` makes
+    /// for the unsaved question, made for this one.
+    @Test func everyDivergenceButtonMapsToTheAnswerItsWordsPromise() {
+        let responses: [NSApplication.ModalResponse] =
+            [.alertFirstButtonReturn, .alertSecondButtonReturn, .alertThirdButtonReturn]
+        for divergence in [EditorFileStore.Divergence.changed, .missing] {
+            let titles = EditorAlerts.divergenceButtonTitles(for: divergence)
+            for (index, title) in titles.enumerated() {
+                let answer = EditorAlerts.divergenceAnswer(for: responses[index],
+                                                           divergence: divergence)
+                switch title {
+                case "Save Anyway": #expect(answer == .saveAnyway)
+                case "Reload from Disk": #expect(answer == .reloadFromDisk)
+                case "Cancel": #expect(answer == .cancel)
+                default: Issue.record("unrecognised button “\(title)” — it maps to \(answer)")
+                }
+            }
+        }
+    }
+
+    /// **A file that is gone is not offered a reload**, because there is nothing at that path to
+    /// read. A button that cannot do what it says is worse than one fewer choice.
+    @Test func aMissingFileIsNotOfferedAReload() {
+        #expect(!EditorAlerts.divergenceButtonTitles(for: .missing).contains("Reload from Disk"))
+        #expect(EditorAlerts.divergenceButtonTitles(for: .changed).contains("Reload from Disk"))
+        // Cancel is last in both, which is what makes it the safe landing for a dismissed sheet.
+        #expect(EditorAlerts.divergenceButtonTitles(for: .changed).last == "Cancel")
+        #expect(EditorAlerts.divergenceButtonTitles(for: .missing).last == "Cancel")
+    }
+
+    /// Anything AppKit returns that is not a button this alert drew is the answer that changes
+    /// nothing — the same rule the unsaved question keeps, and for the same reason.
+    @Test func anUnrecognisedResponseChangesNothing() {
+        for divergence in [EditorFileStore.Divergence.changed, .missing] {
+            #expect(EditorAlerts.divergenceAnswer(for: .alertThirdButtonReturn,
+                                                  divergence: divergence) != .saveAnyway)
+            #expect(EditorAlerts.divergenceAnswer(for: .stop, divergence: divergence) == .cancel)
+            #expect(EditorAlerts.divergenceAnswer(for: .abort, divergence: divergence) == .cancel)
+        }
     }
 
     /// The default keeps every existing caller of this function meaning what it meant.

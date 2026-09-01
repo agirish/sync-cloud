@@ -365,8 +365,13 @@ extension ContentView {
         // Re-stat before writing. A file opened an hour ago may have been filed, renamed or edited
         // since — including by this same window's Organize run.
         if let divergence = EditorFileStore.divergence(atPath: path, from: stamp) {
-            guard EditorAlerts.confirmSaveOverDivergence(name: editorDocument.name,
-                                                         divergence: divergence) else {
+            switch EditorAlerts.askAboutDivergence(name: editorDocument.name,
+                                                   divergence: divergence) {
+            case .saveAnyway:
+                break
+            case .reloadFromDisk:
+                return reloadOverTheBuffer(path: path)
+            case .cancel:
                 // Declining leaves autosave stopped, and says so on the header rather than going
                 // quiet: the document is now in the one state where typing is not reaching disk.
                 editorAutosaveStop = .diverged(divergence)
@@ -426,9 +431,11 @@ extension ContentView {
             editorAutosaveStop = .diverged(divergence)
             // Interrupt now rather than wait to be noticed. The latch above is already set, so
             // declining leaves the document visibly stopped instead of asking again.
-            if EditorAlerts.confirmSaveOverDivergence(name: editorDocument.name,
-                                                      divergence: divergence) {
-                _ = writeEditorDocument(explicit: false)
+            switch EditorAlerts.askAboutDivergence(name: editorDocument.name,
+                                                   divergence: divergence) {
+            case .saveAnyway: _ = writeEditorDocument(explicit: false)
+            case .reloadFromDisk: _ = reloadOverTheBuffer(path: editorDocument.path ?? "")
+            case .cancel: break   // the latch above is already set
             }
         case .failed(let message):
             // Latched for the same reason: a full disk or a read-only volume fails identically
@@ -449,6 +456,29 @@ extension ContentView {
 
     /// Called after a flush that wrote or had nothing to do.
     func noteAutosave() { editorAutosaveStop = nil }
+
+    /// "Reload from Disk": throw the buffer away and re-read the file.
+    ///
+    /// **The only route in this app that discards typing on purpose**, which is why it is a named
+    /// function rather than a call to `loadIntoEditor` at two call sites: the thing worth stating
+    /// is that the buffer is gone deliberately and the undo stack goes with it, since the text view
+    /// is handed a document whose identity has not changed and would otherwise keep registrations
+    /// made against the text being discarded.
+    ///
+    /// - Returns: `false` always — nothing was written, and callers whose contract is "did the save
+    ///   happen" must not be told it did.
+    @discardableResult
+    private func reloadOverTheBuffer(path: String) -> Bool {
+        guard !path.isEmpty else { return false }
+        Logger.shared.info("Editor reloaded \(path) from disk, discarding the buffer")
+        // Clear the stop BEFORE the load: `loadIntoEditor` re-stamps the document, so the reason
+        // autosave halted is gone by the time it returns, and leaving the latch set would stop the
+        // next keystroke reaching disk for no reason anybody could see.
+        editorAutosaveStop = nil
+        editorUndoManager.removeAllActions()
+        loadIntoEditor(path: path)
+        return false
+    }
 
     // MARK: - Creating
 
