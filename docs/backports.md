@@ -2907,3 +2907,61 @@ a new lens or a sixth setup step is covered the day it is added. And it is swept
 `FontSize.selectablePercents` — all ten stops from 90 to 135 — not `FontSize.allCases`, which is the
 four *named* presets: the row above records the Editor capsule's shedding boundary turning over at
 **130**, which is not a preset, and a four-row table would have missed it.
+
+## 2026-09-01 — Text and markup in the Edit workspace
+
+`main` gained the in-window half of the Edit workspace's text and markup work: source lines through
+the Markdown walk and front matter split off before parsing (`e102505b`), the task toggle and the
+markup verbs as pure functions (`6ad2c9e2`), the document's status line (`c7968b42`), the text
+view's new seams and AppKit's find bar (`f0135694`), the outline, the rail filter and the find
+button (`6755c2c0`), and the Help and ⌘/ text that describes them (`baba5de4`).
+
+**Nothing is owed to any maintenance line, and the reason is the same for all three: none of them
+has an editor at all.** This is the cheap half of the audit and it is worth writing down, because
+"the Edit workspace is v5-only" is exactly the kind of claim a future session would otherwise have
+to re-establish from the branch table.
+
+```sh
+for l in v4.x v3.x v2.x; do
+  echo "== $l"
+  git ls-tree --name-only origin/$l Modules/FileExplorer/Sources/FileExplorer/ |
+    grep -E 'Editor(WorkspaceView|Document|Rail)\.swift|Markdown(Blocks|Preview)\.swift'
+  git show origin/$l:MacApp/Workspace.swift | grep -c 'case editor'
+done
+```
+
+- **`v4.x`, `v3.x`, `v2.x` — no editor sources, and no `Workspace.editor` case.** The listing prints
+  nothing and the count is `0` on each. Every file this batch created is new to `main`, and every
+  file it changed except two exists on those lines only in a version that has no editor in it.
+
+### The two shared files, checked rather than assumed
+
+`MacApp/ShortcutsReference.swift` and `MacApp/HelpBook.swift` are carried on all four lines, so a
+change to either is the kind that *looks* portable. Neither is.
+
+- **The ⌘Z row is already right on the maintenance lines, and picking the correction would make it
+  wrong.** `main`'s row read `Undo / redo the last file operation (not typing)` and now reads
+  `Undo / redo — the last file operation, or your typing in Edit`, because the Edit workspace
+  arrived with an undo stack for precisely the typing the parenthesis excluded. All three
+  maintenance lines read `Undo / redo the last file operation` — **no parenthesis at all**, which is
+  the complete and correct sentence on a line with no editor. Nothing to pick.
+- **The Help topic does not exist there.** `editor-workspace` is a `main`-only topic; the bullets
+  added to it have no home on a line without one.
+
+Recorded rather than picked, per the standing direction.
+
+### What is NOT here, and is not owed either
+
+The menu-bar half of this work — a Text menu, a Markup menu, ⌘F routing to the open document, the
+view-mode items, and chords for the markup verbs — **was deliberately not built**, on his
+instruction of 2026-09-01: *"No changes to menu bar right now. We will decide this when we work on
+menu bar."* One decision is settled in advance and belongs with that batch when it happens: **⌘I
+becomes Italic when the editor's own document view has focus, and the Info inspector everywhere
+else.** `TextEditingChord` is the wrong test for it — it asks whether the first responder
+`is NSTextView`, which is true of every field editor in the window, so Italic would fire into the
+Go-to field.
+
+That is why the Markup context menu carries **no key equivalents** and the ⌘/ reference's new row
+says `Right-click` rather than a chord: the keys belong to menu items that do not exist, and a
+reference listing `⌘B` for a chord nothing registers would be the one place in the app that lies
+about the keyboard.
