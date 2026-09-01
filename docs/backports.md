@@ -2715,3 +2715,82 @@ rather than assume the pair is free.
 which is not a preset: a four-row table would have reported "Large fits, Largest does not" and left
 the six steps between them unmeasured, including the one that actually matters. Any control whose
 width is checked against a text size should be swept over the selectable set, not the named one.
+
+## 2026-08-31 — two more glyph boxes that did not grow with the text size — OWED to `v4.x`, does not apply to `v3.x`/`v2.x`
+
+The row above (`1a1af60f`) fixed `EditorModeBar` and `StorageSectionBar` and left a question open:
+"roughly a dozen other sites on `main` pair a `.scaledFont` with a square `.frame`, several in files
+old enough to be on every line… none were measured." **They have now been measured, and the answer
+is two.** Of the fourteen sites that are a square box around a single SF Symbol, twelve are fine and
+two are defects — and both of those exist verbatim on `v4.x`.
+
+**The measurement that decided it is ink, not `fittingSize`.** `Image(systemName:)` reports its
+symbol's layout box, side bearings included, which overstates drawn ink by 3–5pt at these sizes.
+Six of the fourteen sites read as overflows under `fittingSize` and are clean when the pixels are
+rendered and read back. Anyone re-running this sweep on a maintenance line should render, not
+measure — a `fittingSize` table would report six defects here, four of them imaginary.
+
+### What is owed
+
+Both are on `main`, in the commits *Hoist the scaled glyph box into one rule* (the shared
+`FontSize.scaledBox`), *Let the pass-lens column grow across as well as down*, and *Widen the
+setup step's disc to hold the symbols it actually draws* — named rather than cited by SHA,
+because a rebase renumbers and this file outlives the branch that wrote it.
+
+1. **Organize's pass-lens column** — `passLensRow` framed its lens symbol `.frame(width: 14)` with
+   no height, so the box grew *down* with the type ramp and not *across*: 14×12 at Small, 14×16 at
+   Largest. Rendered, the widest lens symbols put **10.8pt² of ink outside the column at Large and
+   21.0pt² at Largest**. Small and Default are clean, which is why it went unseen.
+2. **The setup card's step mark** — a 22pt symbol in a hard `.frame(width: 30, height: 30)` behind a
+   `Circle()`. **Wrong at the default text size**, not only away from it: `person.2` draws **15pt²**
+   outside the disc and `folder.badge.gearshape` **13pt²**, at Default, Large and Largest alike.
+   22pt is above `FontSize.knee`, so the ramp clamps it and the glyph never grows past Default —
+   scaling a 30pt box would have left three of the four sizes exactly as broken. The diameter had to
+   change; 34 is the smallest that holds all five step symbols clean.
+
+The second is the one worth a maintainer's attention: it is a visible defect on the **first screen a
+new user sees**, at the size everybody runs.
+
+### Checked, and present
+
+Stage 1 (the file) and stage 2 (the symbol) agree on all three lines, and stage 3 — the pinned frame
+itself — is what confirms the defect rather than just the call site:
+
+```sh
+for l in v4.x v3.x v2.x; do
+  echo "== $l"
+  git ls-tree -r --name-only origin/$l -- \
+    Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift MacApp/SetupSheet.swift
+  git show origin/$l:MacApp/SetupSheet.swift 2>/dev/null |
+    grep -A5 'private func stepHeader' | grep 'frame(width: 30'
+done
+```
+
+- **`v4.x` — both files present, both defects present verbatim.** `passLensRow` carries the same
+  `.frame(width: 14)` under the same `.system(size: 10, weight: .semibold)`; `stepHeader` carries the
+  same `.frame(width: 30, height: 30)` under the same `.system(size: 22)`. The symbol sets match too,
+  which is what makes the measurements transfer rather than merely the code shape: `SetupFlow.Step`
+  is the identical five including `person.2` and `folder.badge.gearshape`, and `OrganizeLens` is five
+  rather than `main`'s six (no `.storage`) but still includes `folder.badge.gearshape`, the offender.
+  `FontSize.scaledPointSize` is present, so the fix would port without its dependency.
+- **`v3.x` and `v2.x` — neither file exists.** Nothing is owed; there is no Organize overview and no
+  setup sheet on either line.
+
+Recorded rather than picked, per the standing direction.
+
+### The transferable lesson, which is about the tests and not the boxes
+
+`EditorLayoutTests` asked whether the mode capsule grew with the text size and went green over a
+rung pinned at 85pt at all four sizes — because it asked it of the **labelled** rung, whose words
+are `Text` and which scaled the whole time. A composed row's width is mostly text, and text scales;
+asking a row whether it grew answers about the text and says nothing about the box beside it. **A
+growth test has to measure a view whose width IS the pinned dimension.** That is why the fixes here
+each introduce a named glyph view rather than editing a `.frame` in place — not for reuse, but so
+there is something a test can address.
+
+Two further habits came out of it, both of which the sites on `v4.x` would need if this is ever
+picked. Containment is swept from `allCases` of the symbol enum rather than a hand-written list, so
+a new lens or a sixth setup step is covered the day it is added. And it is swept over
+`FontSize.selectablePercents` — all ten stops from 90 to 135 — not `FontSize.allCases`, which is the
+four *named* presets: the row above records the Editor capsule's shedding boundary turning over at
+**130**, which is not a preset, and a four-row table would have missed it.
