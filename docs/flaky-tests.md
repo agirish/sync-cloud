@@ -1305,6 +1305,30 @@ scan rather than a hope: `everyThreadBlockingWaitInThisTargetIsAccountedFor` rea
 file in the target, so a gate defined privately in a suite is exactly as visible to it as
 `ParkGate` is.
 
+**Live instance, 2026-09-01 — `RestructureApplyGuardTests.theFlagIsHeldAcrossALiveLanding`.** The
+same shape in a suite that owns its gate rather than borrowing `ParkGate`, which is why a search for
+gate users would not have found it:
+
+```swift
+let arrived = await withCheckedContinuation { done in
+    DispatchQueue.global().async {
+        done.resume(returning: gate.entered.wait(timeout: .now() + 10) == .success)
+    }
+}
+#expect(arrived, "the landing never reached its first disk probe")
+```
+
+A `DispatchSemaphore` with a 10 s bound, waited on from the global pool — the mechanism above,
+exactly. The message is the honest half doing its job: it says the landing never arrived, which is
+true, and says nothing about *why*, which is the machine.
+
+**Measured across two arms on one afternoon, unchanged code at `ada033b7`:** 0/8 at loadavg 5–8,
+and 1/5 under ten `yes` spinners with loadavg peaking at **70**. The same loaded batch also took
+`ScanSupersedenceTests` twice (mechanism 5), `BulkOperationsTests`, `CopyMoveBehaviorPinTests` and
+`DifferenceResolutionTests` once each, membership changing every run — the cluster signature this
+section opens with, arriving in a package that has since grown well past the four suites named
+above. **A member whose gate is private to its own suite is still this mechanism.**
+
 ---
 
 ### 11. Five palette tests the fixture dismissed out from under itself — FIXED
@@ -2141,9 +2165,42 @@ sampler acknowledges having taken a sample while the flag was up (bounded by a d
 sampler fails the test rather than hanging the pool thread). The premise assertion is now "a sample
 was taken while the merge was suspended inside its trash operation" — the very thing the count was
 approximating — and no longer mentions a count at all. Two properties worth copying: the evidence
-is produced by the code under observation, so no amount of load can shrink it below the floor; and
+is produced by the code under observation, so **throughput** cannot shrink it below the floor; and
 the suspension now lasts exactly as long as it needs to be observed, so the healthy case got
 *faster* than the fixed 0.3 s sleep it replaced.
+
+**Corrected 2026-09-01 — the fix traded a throughput bet for a LATENCY one, and the residual is its
+own deadline.** This section said "no amount of load can shrink it below the floor". That is true of
+the *count* and not of the rendezvous: the trash side gives up after a **10 s wall-clock deadline**
+and returns unacknowledged, so `sampledDuringTrash` is false and the premise assertion fails exactly
+as its predecessor did, with every substantive assertion still green.
+
+```swift
+let deadline = Date().addingTimeInterval(10)
+while !sampledDuringTrash.withLock({ $0 }) && Date() < deadline {
+    Thread.sleep(forTimeInterval: 0.01)
+}
+```
+
+The bound is not a mistake — without it a wedged sampler hangs a pool thread, which the comment says
+and is right about. What is wrong is only the claim above it: **a bounded rendezvous still bets that
+the other side gets scheduled inside the bound**, and the other side here is the *main actor*. Ten
+seconds of main-actor starvation is not a normal machine, but it is a reachable one — this was
+observed on 2026-08-31 in a full `Modules/Sync` run at loadavg 20–42, with another session's
+`xcodebuild` compiling on the same Mac.
+
+**Not reproduced under synthetic load, and that is a methodological point rather than a doubt.**
+Five full-package runs under ten `yes` spinners (loadavg peaking at 70) did not reproduce it, while
+the same batch did reproduce `theFlagIsHeldAcrossALiveLanding` — see mechanism 10. `yes` contends
+for **CPU**; it does not contend for the **main actor**, and the main actor is what this sampler
+needs a turn on. A compile does, because the toolchain's own work lands on queues this process's
+main thread competes with. So when validating a main-actor-latency failure, load the machine with
+*work of the same shape* — a real build or another test process — rather than with spinners, which
+the triage card's recipe is otherwise right to prefer for CPU-bound timing.
+
+If it recurs often enough to be worth another repair, the fix is not a longer deadline: it is to
+make the trash side wait on something the sampler **signals** rather than on a flag it polls, so the
+wait ends when the observation happens instead of when the clock says it probably has.
 
 [silent-half]: flaky-triage.md#the-silent-half--read-before-writing-any-absence-assertion
 
@@ -2206,3 +2263,58 @@ that throws beats a comment claiming the yield was enough.
 **The general rule:** a counter that makes the fast path observable is not bookkeeping. Two tests
 here had been green and vacuous for as long as the reconcile pass existed, and the only thing that
 ever saw it was a counter added for an unrelated reason.
+
+### 20. The display fell asleep mid-batch, so a suite left the denominator — a VACUOUS green
+
+**Symptom.** There isn't one, again — a run that was red goes green partway through a repeated
+batch, on unchanged code, and the obvious reading is "the flake rate is low". What actually happened
+is that a **gated suite stopped running**, so the thing that was failing is no longer being asked.
+
+Measured here, 2026-09-01, while establishing a flake rate on `Modules/Sync`:
+
+| Arm | Runs | `thePersonAndLifecycleAxesAgree` |
+|---|---|---|
+| idle, loadavg ~5–8 | 8 | failed **8/8**, identical value each time |
+| under CPU spin, loadavg → 70 | 5 | failed run 1, then **absent from runs 2–5** |
+
+Counted naively that is **9 failures in 13 runs**, and the natural conclusion is a failure that is
+load-*sensitive* and clears about a third of the time. The true rate is **9 in 9** — the other four
+runs never asked the question. The conclusion is the exact opposite of the truth: this failure is
+entirely deterministic. What changed was the **display**: `FolderSurveyGroundTruthTests` is `.machinePinned` behind a gate that needs a live
+profile *and* an awake display, because an iCloud walk makes no progress against a sleeping one. The
+batch ran long enough for the screen to sleep, and from that moment the suite skipped.
+
+```
+[ground-truth] SKIPPED — the display is asleep; an iCloud walk makes no progress,
+so the survey rules were not checked against a real tree
+```
+
+**Mechanism.** Any gate whose input is *ambient machine state* can change its answer between two
+runs of a batch that is otherwise controlled. The display is the one that bites here because it
+sleeps on a timer measured in minutes and every load experiment in this file is measured in
+minutes. Nothing in the run output says a suite left: a skipped test is not a failure, and
+"0 issues" is what a green run says too.
+
+**Why it is filed beside the other vacuous-green entries rather than with the load mechanisms.** It
+produces no red at all. It corrupts the *denominator* of the very comparisons
+[flaky-triage.md](flaky-triage.md) prescribes — "run the old source under the same conditions",
+"compare rates" — and it corrupts them in the direction of making a real, constant failure look
+intermittent, which is the worst direction for this file's purpose.
+
+**How to not be fooled.** Read the gate's verdict rather than the issue count, every time you
+compare runs:
+
+```bash
+arch -arm64 swift test --package-path Modules/Sync 2>&1 | grep -oE '\[ground-truth\][^"]*'
+# want RAN on every run of the batch, or the runs are not comparable
+```
+
+To hold a long batch open, wake the display and **keep** it awake — `caffeinate -u` alone only
+prevents sleep and a short `-t` expires mid-batch, which is how this happened:
+`nohup caffeinate -u -t 3600 &`, run the batch, then `pkill caffeinate`. The same discipline the
+release checklist already asks for when it wants a `RAN` out of this suite; it applies to every
+measured comparison, not just to a cut.
+
+**The general rule, and it is the same one mechanism 19 states from the other side:** before
+comparing two runs, establish that they asked the same questions. A suite that stops running is
+indistinguishable from a suite that started passing, in every output this repo produces.

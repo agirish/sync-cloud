@@ -65,6 +65,7 @@ machine state at all.
 | A timing or **ratio** assertion, red busy and green idle | [6](flaky-tests.md#6-load-scaled-benchmarks) | Interleave the arms — never all of one then all of the other |
 | Fails near a **time boundary** — a freshness cutoff, a recency window | [5](flaky-tests.md#5-tests-racing-a-real-time-window) | Inject the instant so the window is a value, not a race |
 | **Many** tests at ≥10 s at once, and `~/Library/Preferences` is filling with `<Suite>-<UUID>.plist` | [4](flaky-tests.md#4-leaked-defaults-suites) | Read the *passing* durations, not just the failures — one global `cfprefsd` freeze looks selective |
+| A test that failed **every** run of a batch stops failing partway through, on unchanged code — and the batch has been running for minutes | [20](flaky-tests.md#20-the-display-fell-asleep-mid-batch-so-a-suite-left-the-denominator--a-vacuous-green) | It did not start passing; a gated suite stopped running. `grep '\[ground-truth\]'` each run — a skip is not a pass, and it makes a constant failure look intermittent |
 
 ## 2. Check what else is running
 
@@ -80,6 +81,20 @@ git worktree list               # every one of these is a session that may be bu
 ```
 
 ## 3. Run the OLD source under the SAME conditions
+
+**"The same conditions" includes what the machine was doing to itself.** A batch measured over
+several minutes can lose a suite partway through without saying so — the display sleeps, a
+`.machinePinned` gate closes, and the run that was red goes green because the question stopped being
+asked. Establish that every run in a comparison asked the same questions before you read a rate off
+them; [mechanism 20](flaky-tests.md#20-the-display-fell-asleep-mid-batch-so-a-suite-left-the-denominator--a-vacuous-green)
+is the worked example, measured at 8/8 → absent inside one afternoon on a failure that is entirely
+deterministic.
+
+**And load the machine with work of the right shape.** The spinner recipe below is right for
+CPU-bound timing, and wrong for anything waiting on the **main actor**: `yes` contends for cores and
+not for the main thread, so a main-actor-latency failure can be unreproducible under a loadavg of 70
+and reproduce readily beside a real `xcodebuild`. Measured both ways 2026-09-01 — see the correction
+in [mechanism 17](flaky-tests.md#17-the-control-that-stops-an-absence-being-vacuous-is-itself-load-dependent--fixed).
 
 This is the step that settles it, and the one easiest to skip. On 2026-08-01 a suite failed 4/4 and
 CI had been green on the previous commit, so the new commit looked guilty. It wasn't:
