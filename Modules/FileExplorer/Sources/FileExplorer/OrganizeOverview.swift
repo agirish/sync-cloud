@@ -1069,10 +1069,7 @@ struct OrganizeOverview: View {
                 .fill(accent.opacity(0.35))
                 .frame(width: 2)
                 .accessibilityHidden(true)
-            Image(systemName: lens.symbol)
-                .scaledFont(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .frame(width: 14)
+            PassLensGlyph(symbol: lens.symbol)
             VStack(alignment: .leading, spacing: 0) {
                 Text(lens.title)
                     .scaledFont(.system(size: 11.5, weight: .semibold))
@@ -1150,5 +1147,53 @@ struct OrganizeOverview: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Pass lens glyph
+
+/// One lens's symbol in the column that keeps a pass card's rows aligned.
+///
+/// **The column is real and is kept.** ``OrganizeLens/symbol`` draws six shapes at six different
+/// widths — `doc` is narrow, `folder.badge.gearshape` is not — and without a frame the titles
+/// beside them would each start at a different x, turning a list that is meant to read as one
+/// bracketed group into a ragged edge. That is the same argument ``CapsuleGlyph`` makes, and the
+/// same one this got wrong in the same way.
+///
+/// **What was wrong was pinning the width alone.** The frame was `.frame(width: 14)` with no
+/// height, so the box grew *down* with the text size and not *across*: measured 2026-08-31, the
+/// glyph column was 14×12 at Small and 14×16 at Largest — one axis following the type ramp while
+/// the other sat still. `.frame` does not clip, so the surplus drew straight out of the column,
+/// and rendered back off a bitmap the widest lens symbol put ink **3.0pt past the column at Large
+/// and 4.0pt past it at Largest**, into an 8pt gap it shares with the title beside it. Small and
+/// Default were clean, which is why nothing saw it: the two sizes anybody develops at are the two
+/// this never broke at.
+///
+/// Scaling the box through ``Design/FontSize/scaledBox(_:basePoint:scale:)`` takes that worst
+/// overhang to **0.4 · 0.0 · 1.5 · 1.1pt** and leaves Default at exactly 14, so the shipped
+/// rendering at 100% is unchanged. The residue is deliberate rather than overlooked: closing it
+/// completely wants ``boxSize`` at 17, which would move every pass card's titles 3pt at *every*
+/// text size to buy 1.5pt at one of them.
+struct PassLensGlyph: View {
+
+    let symbol: String
+
+    @Environment(\.appFontScale) private var scale
+
+    /// The glyph's own point size at the default text size.
+    static let pointSize: CGFloat = 10
+    /// The column drawn around it at the default text size.
+    static let boxSize: CGFloat = 14
+
+    /// The column at `scale`, in the same proportion to the glyph as `boxSize` is to `pointSize`.
+    static func box(at scale: CGFloat) -> CGFloat {
+        FontSize.scaledBox(boxSize, basePoint: pointSize, scale: scale)
+    }
+
+    var body: some View {
+        Image(systemName: symbol)
+            .scaledFont(.system(size: Self.pointSize, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .frame(width: Self.box(at: scale))
     }
 }
