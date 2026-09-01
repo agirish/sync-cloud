@@ -365,7 +365,12 @@ enum FolderSurveyGroundTruth {
             return "\(field.rawValue) agreed on \(matches[field] ?? 0)/\(shared)\n  \(sample)"
         }
         var description: String {
-            var out = "FolderSurveyBuilder vs the hand-built profile — \(shared) shared folders "
+            // **"the profile on disk", not "the hand-built profile".** `LiveProfile` loads whatever
+            // `FilingProfileStore.activeProfileId` names, which is a DERIVED profile on any machine
+            // that has applied a reorganisation — the hand-built one is only the comparand until
+            // the first landing. Saying "hand-built" sent one session hunting for corruption in a
+            // profile the report was not reading.
+            var out = "FolderSurveyBuilder vs the active profile on disk — \(shared) shared folders "
                 + "(\(builtOnly) new in the tree, \(profileOnly) gone from it)\n"
             for field in Field.allCases {
                 out += String(format: "  %-24s %.4f  (%d differ)\n",
@@ -478,7 +483,40 @@ enum FolderSurveyGroundTruth {
                   "built \(got.subfolderCount), profile \(want.subfolderCount)")
             for axis: Field in [.year, .fiscalYear, .jurisdiction, .person, .lifecycle] {
                 let a = got.axes[axis.rawValue], b = want.axes[axis.rawValue]
-                check(axis, a == b, "built \(a ?? "nil"), profile \(b ?? "nil")")
+                // **The person axis is compared the way the app RESOLVES it, not by spelling.**
+                //
+                // Every consumer of `axes["person"]` — `FilingRouter`, `FilingEngine`,
+                // `PeopleOverview`, `PersonFiles` — reads it through
+                // `PersonRegistry.person(forAxisValue:)`, and that matcher tokenizes through
+                // `PersonRegistry.words`, which lowercases. So `Aditi` and `aditi` are the same
+                // person to every line of code that acts on this value, and a raw `==` here was
+                // asserting something the app does not believe.
+                //
+                // It mattered: measured 2026-09-01 on the live tree, **477 of 5019 folders
+                // disagreed and every one of them was case alone** — 0.905 against a 0.99 floor,
+                // with the roster complete and the attributions correct. The spelling differs by
+                // the registry's PROVENANCE, not by the survey rules: a profile built from
+                // `people.json` carries display names (`Aditi`), one built from the profile's own
+                // tokens carries ids (`aditi`), and both are correct. This suite exists to check
+                // the RULES, so a provenance difference must not read as a rules failure — it sent
+                // one session to the edge of rebuilding a live profile, which would have cost 2309
+                // folders of filing memory to repair nothing.
+                //
+                // **Not `.lowercased()`, which would pass two unrelated unresolvable strings.**
+                // Resolved identity, and raw equality still required when neither side resolves,
+                // so a genuinely wrong attribution — or one side going nil — still fails. (That
+                // fallback is unexercised on the current tree, where every person value resolves;
+                // it is the guard against two different unresolvable strings reading as agreement,
+                // which is the vacuity this file's own triage page warns about.)
+                let agrees: Bool
+                if axis == .person {
+                    let ra = a.flatMap { registry.person(forAxisValue: $0) }
+                    let rb = b.flatMap { registry.person(forAxisValue: $0) }
+                    agrees = (ra != nil || rb != nil) ? ra == rb : a == b
+                } else {
+                    agrees = a == b
+                }
+                check(axis, agrees, "built \(a ?? "nil"), profile \(b ?? "nil")")
             }
             if let raw = contents[path] {
                 let viaRouter = FolderSurveyBuilder.anchors(components: raw.components,
