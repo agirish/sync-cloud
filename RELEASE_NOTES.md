@@ -62,7 +62,9 @@ User-facing changes, newest first. For the full commit history see the
   folder it is reading named under the tabs — the same folder ⌘N creates in. Outline is the headings
   in the open Markdown document: click one to go to it, and the heading you are in is marked as you
   move about. Each tab gets the whole rail, so a long document's outline is a list rather than a
-  peephole.
+  peephole — and it keeps its place per file, so coming back to a document does not send you to the
+  top of it. The one exception is the heading you are actually in: if remembering the place would
+  leave that off the fold, the outline opens there instead.
 - **⌘N makes a new file** in the folder you are in — a name row in the rail, nothing on disk until
   you press ↩, and a name with no extension becomes `.md`.
 - **Open in Edit** is on the right-click menu of any text file anywhere in the app — Browse, either
