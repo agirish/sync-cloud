@@ -155,6 +155,7 @@ extension ContentView {
             typedName: $editorTypedName,
             railFilter: $editorRailFilter,
             railFilterIsExpanded: $editorRailFilterIsExpanded,
+            railTab: $editorRailTab,
             namingFocus: editorNamingFocus,
             undoManager: editorUndoManager,
             stopped: editorAutosaveStop?.caption,

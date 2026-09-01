@@ -85,6 +85,9 @@ public struct EditorWorkspaceView: View {
     /// `typedName`, for the same reason — see ``EditorFileRailView/filter``.
     @Binding var railFilter: String
     @Binding var railFilterIsExpanded: Bool
+    /// Which half of the rail is showing — its files, or the open document's outline. Held by the
+    /// host beside the filter, for the reason that one is: see ``EditorRailTab``.
+    @Binding var railTab: EditorRailTab
     /// The name being typed in the naming row. Held by the host beside `isNaming` — see
     /// ``EditorFileRailView/typedName``.
     @Binding var typedName: String
@@ -156,6 +159,7 @@ public struct EditorWorkspaceView: View {
                 typedName: Binding<String>,
                 railFilter: Binding<String>,
                 railFilterIsExpanded: Binding<Bool>,
+                railTab: Binding<EditorRailTab>,
                 namingFocus: Int = 0,
                 undoManager: UndoManager,
                 stopped: String? = nil,
@@ -166,6 +170,7 @@ public struct EditorWorkspaceView: View {
                 onRevealInBrowse: @escaping (String) -> Void) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
+        self._railTab = railTab
         self.document = document
         self.folder = folder
         self.entries = entries
@@ -215,6 +220,8 @@ public struct EditorWorkspaceView: View {
                                entries: entries,
                                selectedPath: document.path,
                                accent: accent,
+                               onAccent: onAccent,
+                               tab: $railTab,
                                isNaming: $isNaming,
                                typedName: $typedName,
                                documentStatus: status,

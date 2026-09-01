@@ -26,12 +26,16 @@ import Design
     // MARK: The rail
 
     private func rail(entries: [EditorRailEntry], naming: Bool = false,
-                      outline: [MarkdownOutlineEntry] = []) -> EditorFileRailView {
+                      outline: [MarkdownOutlineEntry] = [],
+                      tab: EditorRailTab = .files,
+                      selected: String?? = nil) -> EditorFileRailView {
         EditorFileRailView(
             folderName: "Notes",
             entries: entries,
-            selectedPath: entries.first?.path,
+            selectedPath: selected ?? entries.first?.path,
             accent: .blue,
+            onAccent: .white,
+            tab: .constant(tab),
             isNaming: .constant(naming),
             typedName: .constant(""),
             prefilledName: { "Untitled.md" },
@@ -422,35 +426,95 @@ import Design
                 "the full rung measured \(small) with tiny numbers and \(large) with large ones")
     }
 
-    // MARK: The outline section
+    // MARK: The rail's tabs
 
-    /// The section is absent, not empty, when the document has no headings — a `.txt`, or a note
-    /// that never uses one. An empty titled section would be a permanent question in a 232pt rail.
-    @Test func aDocumentWithNoHeadingsDrawsNoOutlineSection() {
-        let bare = size(rail(entries: [entry("one.md")]))
+    /// **The words fit both halves at every text size — measured, not assumed.**
+    ///
+    /// The bar spans a rail that is 232pt and cannot be anything else, in two equal halves, so what
+    /// decides whether "Text Files" truncates is the widest label in HALF the bar. An ideal-width
+    /// reading of the real bar would answer about the sum of the two, which is a different and more
+    /// forgiving number — hence `tabs:`, which puts the widest title in both halves and measures the
+    /// layout's actual worst case. `fittingSize` overstates a symbol's ink by a few points, so this
+    /// errs toward failing early, which is the safe direction for a ceiling.
+    @Test func theRailTabsFitTheRailAtEveryTextSize() {
+        let widest = EditorRailTab.allCases.max { $0.title.count < $1.title.count } ?? .files
+        // What the bar is actually handed: the rail, less the 10pt it is inset by on each side.
+        let available = EditorLayoutMetrics.railWidth - 20
+        for scale in scales {
+            let bar = EditorRailTabBar(tab: .constant(.files),
+                                       tabs: [widest, widest],
+                                       accent: .blue, onAccent: .white)
+                .environment(\.appFontScale, scale)
+            let measured = size(bar).width
+            #expect(measured <= available,
+                    "“\(widest.title)” in both halves measured \(measured) against \(available) at scale \(scale) — the label truncates")
+        }
+    }
+
+    /// Both tabs draw at the one width the layout reserves — the rail is hard-framed, so this is
+    /// really asking that neither half's content escapes the frame and pushes it.
+    @Test func eitherTabDrawsAtTheReservedWidth() {
+        let files = size(rail(entries: [entry("one.md")], tab: .files))
         let outlined = size(rail(entries: [entry("one.md")],
-                                 outline: [heading("Title", line: 1)]))
-        #expect(outlined.height > bare.height,
-                "the outline section added nothing: \(bare.height) then \(outlined.height)")
+                                 outline: (1...3).map { heading("Row \($0)", line: $0) },
+                                 tab: .outline))
+        #expect(abs(files.width - EditorLayoutMetrics.railWidth) < 0.51,
+                "the files tab drew at \(files.width)")
+        #expect(abs(outlined.width - EditorLayoutMetrics.railWidth) < 0.51,
+                "the outline tab drew at \(outlined.width)")
     }
 
-    /// The cap holds the same number of rows at every text size — eight at Default and eight at
-    /// Largest — which is what makes it a cap on the section rather than on the type.
-    @Test func theOutlineCapGrowsWithTheTextSize() {
-        let caps = scales.map { EditorFileRailView.outlineCap(scale: $0) }
-        #expect(caps == caps.sorted(), "the cap does not grow with the text size: \(caps)")
-        #expect(caps.first ?? 0 < caps.last ?? 0, "the cap is flat across the whole range: \(caps)")
-    }
+    // MARK: The outline tab
 
-    /// The rail is hard-framed, so the width cannot move; the height is the axis that says the
-    /// outline rows are really drawn rather than reserved.
-    @Test func theOutlineGrowsWithItsRowsUntilTheCap() {
-        let one = size(rail(entries: [entry("one.md")], outline: [heading("A", line: 1)]))
+    /// **The eight-row cap is gone with the stack that needed it**, which is half the point of the
+    /// tabs: the outline has the whole card, so its twelfth row is drawn as surely as its fourth.
+    /// Twelve against four, either side of the old ceiling.
+    @Test func theOutlineTabDrawsPastTheRowCapTheStackImposed() {
         let four = size(rail(entries: [entry("one.md")],
-                             outline: (1...4).map { heading("Row \($0)", line: $0) }))
+                             outline: (1...4).map { heading("Row \($0)", line: $0) },
+                             tab: .outline))
+        let twelve = size(rail(entries: [entry("one.md")],
+                               outline: (1...12).map { heading("Row \($0)", line: $0) },
+                               tab: .outline))
+        #expect(twelve.height > four.height,
+                "twelve outline rows measured \(twelve.height) against four rows' \(four.height) — something is still capping the section")
+    }
+
+    /// The rows are really drawn rather than reserved: one row is shorter than four.
+    @Test func theOutlineGrowsWithItsRows() {
+        let one = size(rail(entries: [entry("one.md")], outline: [heading("A", line: 1)],
+                            tab: .outline))
+        let four = size(rail(entries: [entry("one.md")],
+                             outline: (1...4).map { heading("Row \($0)", line: $0) },
+                             tab: .outline))
         #expect(four.height > one.height,
                 "four outline rows measured \(four.height) against one row's \(one.height)")
-        #expect(abs(four.width - EditorLayoutMetrics.railWidth) < 0.51,
-                "the outline widened the rail to \(four.width)")
+    }
+
+    /// **The two empties are different questions.** Nothing open, and something open with no
+    /// headings in it — a `.txt`, or a note that never types a `#`. The second is where "there are
+    /// none" is unhelpful, so it says what makes one.
+    @Test func theEmptyOutlineSaysWhichEmptyItIs() {
+        let noFile = EditorFileRailView.outlineEmptyCaption(hasDocument: false)
+        let noHeadings = EditorFileRailView.outlineEmptyCaption(hasDocument: true)
+        #expect(noFile != noHeadings, "both empties say the same thing: \(noFile)")
+        #expect(noFile.lowercased().contains("open"),
+                "the no-document caption does not say to open something: \(noFile)")
+        #expect(noHeadings.contains("#"),
+                "the no-headings caption does not say what makes a heading: \(noHeadings)")
+    }
+
+    /// An empty outline is a caption, not a blank card.
+    ///
+    /// **Asserted as a difference between the two captions, not as a height floor.** A floor is
+    /// what this was first written as — `> 60pt` — and the tabs and the context line clear that on
+    /// their own, so it passed with the caption replaced by an empty string. The two captions are
+    /// different lengths and wrap to different numbers of lines in a 232pt rail, so comparing them
+    /// is a measurement of the words themselves: blank either one and the heights collapse together.
+    @Test func theEmptyOutlineTabDrawsTheCaptionAndNotJustSpace() {
+        let noHeadings = size(rail(entries: [entry("one.md")], tab: .outline))
+        let noFile = size(rail(entries: [], tab: .outline, selected: .some(nil)))
+        #expect(noHeadings.height > noFile.height,
+                "the two empty captions laid out to the same height — \(noHeadings.height) and \(noFile.height) — so at least one of them is not being drawn")
     }
 }

@@ -7,12 +7,21 @@ import Sync
 /// **A rail rather than a tree.** Changing folder is the sidebar's job, and this list exists so
 /// that opening a second file in the folder you are already in does not send you to another
 /// workspace and back.
+///
+/// **Two tabs over one stack.** The files and the open document's outline used to be stacked here,
+/// the second under a divider and capped at eight rows so the first would not vanish; they are now
+/// the two halves of ``EditorRailTab``, each with the whole card. That doc has the argument.
 struct EditorFileRailView: View {
 
     let folderName: String
     let entries: [EditorRailEntry]
     let selectedPath: String?
     let accent: Color
+    /// The label colour on the accent fill, for the selected tab. See ``EditorRailTabBar/onAccent``.
+    let onAccent: Color
+    /// Which half of the rail is showing. A binding for the reason ``filter`` is one — and because
+    /// ⌘N reaches in from outside to put it back on ``EditorRailTab/files``.
+    @Binding var tab: EditorRailTab
     /// Whether the inline naming row is showing. A binding, because ⌘N opens it from outside this
     /// view — from another workspace, even.
     @Binding var isNaming: Bool
@@ -71,55 +80,18 @@ struct EditorFileRailView: View {
     static var width: CGFloat { EditorLayoutMetrics.railWidth }
 
     @FocusState private var nameFieldFocused: Bool
-    @Environment(\.appFontScale) private var fontScale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// How many outline rows are shown before the section scrolls.
-    ///
-    /// **A row count, not a share of the height, and the first draft was the share.** Taking a
-    /// fraction needs the rail's own height, which means a `GeometryReader` — and that has no
-    /// intrinsic size, so wrapping the rail in one collapsed it to 10pt for anything that asks its
-    /// ideal height. `EditorLayoutTests` measures exactly that, and caught it. A constant cap keeps
-    /// the rail sizing itself while still leaving the larger half to the files, which is the whole
-    /// point of capping: you have to open a file before an outline of it means anything.
-    static let outlineRowsBeforeScrolling = 8
-
-    /// The cap in points, at the app's text size — so it holds the same EIGHT rows at every size
-    /// rather than eight at Default and four at Largest.
-    static func outlineCap(scale: CGFloat) -> CGFloat {
-        let row = FontSize.scaledPointSize(11, scale: scale) * 1.35 + 6
-        // Plus the section's own heading and its padding, which are not rows but are in the frame.
-        return CGFloat(outlineRowsBeforeScrolling) * row
-            + FontSize.scaledPointSize(11, scale: scale) * 1.35 + 20
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            if isNaming { namingRow }
-            if filterIsExpanded {
-                ExpandingSearchField(text: $filter, isExpanded: $filterIsExpanded,
-                                     placeholder: "Filter by name")
-                    .scaledFont(.system(size: 11))
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 6)
-            }
-            let shown = EditorRail.filtered(entries, matching: filter)
-            if shown.isEmpty && !isNaming {
-                emptyCaption(anyEntries: !entries.isEmpty)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 1) {
-                        ForEach(shown) { entry in row(entry) }
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 8)
-                }
-            }
-            if !outline.isEmpty {
-                Divider().padding(.horizontal, 8)
-                outlineSection
-                    .frame(maxHeight: Self.outlineCap(scale: fontScale))
+            EditorRailTabBar(tab: $tab, accent: accent, onAccent: onAccent)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+            contextRow
+            switch tab {
+            case .files: filesSection
+            case .outline: outlineSection
             }
             Spacer(minLength: 0)
         }
@@ -134,59 +106,134 @@ struct EditorFileRailView: View {
             // `Untitled` can change while the row is closed, and a stale prefill would land the
             // user on a name that now collides.
             guard naming else { return }
+            // **The tab goes with it.** The naming row is drawn in the files half, and ⌘N is
+            // reachable from anywhere — including from this rail with Outline showing, where
+            // opening a row nobody can see would take the keystroke and answer with nothing.
+            tab = .files
             if typedName.isEmpty { typedName = prefilledName() }
             nameFieldFocused = true
         }
         .onChange(of: namingFocus) { _, _ in
             guard isNaming else { return }
+            tab = .files
             nameFieldFocused = true
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 6) {
-            Text(folderName.isEmpty ? "Text files" : "Text files in \(folderName)")
+    /// The line under the tabs: which folder these files are in, or which document this outline
+    /// belongs to.
+    ///
+    /// **The sentence the old header used to be, split in two.** That header read "Text files in
+    /// Downloads" — a phrase that truncated in the middle on any folder with a real name, in a
+    /// 232pt rail, at the one text size where it mattered most. The kind of thing is now the tab
+    /// and the name of the thing is here, with the whole width to itself.
+    ///
+    /// **Present on both tabs, and that is a layout decision as much as an informational one.**
+    /// The files half carries two buttons and the outline half carries none, so a row that appeared
+    /// only over the files would move the list under it by its own height every time the tabs were
+    /// clicked. It says something worth saying on both sides, so it says it on both sides.
+    private var contextRow: some View {
+        HStack(spacing: 5) {
+            Image(systemName: tab == .files ? "folder" : "doc.text")
+                .scaledFont(.system(size: 10))
+                .foregroundStyle(.tertiary)
+            Text(contextName)
                 .scaledFont(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            // **Revealed rather than always shown**, the bargain every other search in this app
-            // strikes: the rail is 232pt wide and a permanent field would spend a row of it on a
-            // control most sessions never touch.
-            Button {
-                // `withDesignAnimation`, not a bare `withAnimation` — the reveal is a width change
-                // under the pointer, which is exactly what Reduce Motion turns off. A repo-wide
-                // scan in the Design package holds every site in the app to this.
-                withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
-                    filterIsExpanded.toggle()
+            if tab == .files {
+                // **Revealed rather than always shown**, the bargain every other search in this app
+                // strikes: the rail is 232pt wide and a permanent field would spend a row of it on
+                // a control most sessions never touch.
+                Button {
+                    // `withDesignAnimation`, not a bare `withAnimation` — the reveal is a width
+                    // change under the pointer, which is exactly what Reduce Motion turns off. A
+                    // repo-wide scan in the Design package holds every site in the app to this.
+                    withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
+                        filterIsExpanded.toggle()
+                    }
+                    if !filterIsExpanded { filter = "" }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .frame(width: 18, height: 18)
                 }
-                if !filterIsExpanded { filter = "" }
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .frame(width: 18, height: 18)
+                .buttonStyle(.hoverAffordance(filterIsExpanded ? .filled : .glyph, tint: accent))
+                .accessibilityLabel("Filter text files")
+                .help("Filter this list by name")
+                .disabled(entries.isEmpty)
+                Button {
+                    isNaming = true
+                } label: {
+                    Image(systemName: "plus")
+                        .scaledFont(.system(size: 11, weight: .semibold))
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                .accessibilityLabel("New text file")
+                .shortcutKeycap(AppChord.newTextFile.display)
+                .help(ShortcutHint.tooltip(newFileDestination, AppChord.newTextFile.display))
+                .disabled(folderName.isEmpty)
             }
-            .buttonStyle(.hoverAffordance(filterIsExpanded ? .filled : .glyph, tint: accent))
-            .accessibilityLabel("Filter text files")
-            .help("Filter this list by name")
-            .disabled(entries.isEmpty)
-            Button {
-                isNaming = true
-            } label: {
-                Image(systemName: "plus")
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .frame(width: 18, height: 18)
-            }
-            .buttonStyle(.hoverAffordance(.glyph, tint: accent))
-            .accessibilityLabel("New text file")
-            .shortcutKeycap(AppChord.newTextFile.display)
-            .help(ShortcutHint.tooltip("New text file", AppChord.newTextFile.display))
-            .disabled(folderName.isEmpty)
         }
+        // **A floor, not a height.** The two tabs put different things in this row — 18pt buttons
+        // on one side, an 11pt line on the other — and without it the list below would step up and
+        // down by the difference on every tab click. A floor rather than a fixed height so the row
+        // can still grow with Settings ▸ Text size, where the line outgrows the buttons.
+        .frame(minHeight: 18)
         .padding(.horizontal, 12)
-        .padding(.top, 10)
         .padding(.bottom, 6)
+        .help(tab == .files ? newFileDestination : "The headings in the open document")
+    }
+
+    /// What the context line names — the folder, or the open file.
+    ///
+    /// The two "nothing here yet" cases say what to do about it rather than going blank: an empty
+    /// rail with an unexplained blank line above it is the state a first-run session actually sees.
+    private var contextName: String {
+        switch tab {
+        case .files:
+            return folderName.isEmpty ? "No folder selected" : folderName
+        case .outline:
+            guard let selectedPath, !selectedPath.isEmpty else { return "No file open" }
+            return (selectedPath as NSString).lastPathComponent
+        }
+    }
+
+    /// Where ＋ would put a new file, in the words the tooltip needs. **Answers the question the
+    /// folder line is there to answer**: the rail is not the sidebar, and "new file" with no
+    /// destination in sight is the one act here that writes to a folder the user has not looked at.
+    private var newFileDestination: String {
+        folderName.isEmpty
+            ? "Pick a folder in the sidebar first"
+            : "New files are created in \(folderName)"
+    }
+
+    /// The folder's text files: the naming row, the filter field, and the list itself.
+    @ViewBuilder
+    private var filesSection: some View {
+        if isNaming { namingRow }
+        if filterIsExpanded {
+            ExpandingSearchField(text: $filter, isExpanded: $filterIsExpanded,
+                                 placeholder: "Filter by name")
+                .scaledFont(.system(size: 11))
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
+        }
+        let shown = EditorRail.filtered(entries, matching: filter)
+        if shown.isEmpty && !isNaming {
+            emptyCaption(anyEntries: !entries.isEmpty)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(shown) { entry in row(entry) }
+                }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 8)
+            }
+        }
     }
 
     /// The inline naming row — the same bargain New Folder strikes: the field opens, and nothing
@@ -245,19 +292,28 @@ struct EditorFileRailView: View {
         isNaming = false
     }
 
-    /// The open document's headings, under the files they belong beside.
+    /// The open document's headings.
     ///
-    /// **Under the file list rather than replacing it**, because they answer two halves of one
-    /// question — which file, and where in it — and a rail that swapped between them would make
-    /// opening a second file a two-step operation.
+    /// **Its own tab rather than a capped section under the files.** The stacked arrangement was
+    /// argued for on the grounds that "which file" and "where in it" are one question — true, and
+    /// it still cost the outline a hard eight-row ceiling and a scroller inside a scroller for
+    /// anything longer. A tab answers the second question with the whole card; the first is one
+    /// click away, and ⌘N brings it back on its own.
+    ///
+    /// **The two empty states are different questions**, the same distinction ``emptyCaption(anyEntries:)``
+    /// draws for the files: nothing is open, or something is open and has no headings in it. A
+    /// `.txt` and a note that never types a `#` land in the second, which is why it says what makes
+    /// a heading rather than only that there are none.
+    @ViewBuilder
     private var outlineSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Outline")
-                .scaledFont(.system(size: 11, weight: .semibold))
+        if outline.isEmpty {
+            Text(Self.outlineEmptyCaption(hasDocument: selectedPath != nil))
+                .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+                .padding(.top, 4)
+        } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(outline.enumerated()), id: \.element.id) { index, entry in
@@ -268,6 +324,17 @@ struct EditorFileRailView: View {
                 .padding(.bottom, 8)
             }
         }
+    }
+
+    /// What the outline says when it has no rows — **two different questions, asked as a function
+    /// so the distinction is testable.** Nothing is open, or something is open and has no headings
+    /// in it; a `.txt` and a note that never types a `#` land in the second, and "there are none"
+    /// is unhelpful there in the way "The + button makes one" is unhelpful to a filter that matched
+    /// nothing. Same shape as ``emptyCaption(anyEntries:)``, one level up.
+    static func outlineEmptyCaption(hasDocument: Bool) -> String {
+        hasDocument
+            ? "No headings in this document. A line starting with # makes one."
+            : "Open a text file to see its headings."
     }
 
     /// The step each outline level is drawn in by. Half the preview's, because the rail is 232pt

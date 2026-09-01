@@ -71,6 +71,11 @@ struct ContentView: View {
     /// rebuilt from nothing by every workspace switch.
     @State var editorRailFilter = ""
     @State var editorRailFilterIsExpanded = false
+    /// Which half of the rail is showing. **Here for the reason the filter is here**, and for one
+    /// more: ⌘N puts it back on the files, and ⌘N is pressed from workspaces where the editor's
+    /// view does not exist yet. Not persisted across launches — it describes a reading session,
+    /// the same call ``EditorMode`` makes.
+    @State var editorRailTab: EditorRailTab = .files
 
     /// Why autosave has stopped writing, or `nil` while it is working.
     ///
