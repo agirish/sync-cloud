@@ -27,6 +27,12 @@ struct MarkdownPreview: View {
     /// Ticks or unticks the task on a source line, or `nil` when this document must not be edited —
     /// which is what makes the checkbox a picture rather than a control on a read-only file.
     var onToggleTask: ((Int) -> Void)?
+    /// The folder the open document lives in, which is what a relative image path is relative to.
+    /// `nil` when nothing is open, and then no image resolves — a path with nothing to resolve
+    /// against is not a path.
+    var documentFolder: String?
+    /// Sends the reader to a heading in this same document, for a `#fragment` link.
+    var onFollowAnchor: ((String) -> Void)?
 
     /// Settings ▸ Text size. Read here rather than relied on ambiently because the `Text`
     /// concatenation in ``styled(_:)`` builds `Text` VALUES, which the `View`-level `.scaledFont`
@@ -36,6 +42,12 @@ struct MarkdownPreview: View {
     var body: some View {
         ScrollViewReader { proxy in
             scroller
+                // **The one place a link is decided.** A fragment names a heading in the document
+                // already on screen, so following it is a scroll rather than a launch; everything
+                // else is handed to the system. Returning `.systemAction` rather than opening it
+                // here is what keeps the app out of the business of deciding which schemes are
+                // acceptable — that is the system's job and it already asks.
+                .environment(\.openURL, OpenURLAction { url in openLink(url) })
                 // **`initial: false`.** A request that arrives with the view — opening a file from
                 // an outline row — is answered by the `.task` below instead, once the blocks it
                 // names actually exist; scrolling to an id in a `LazyVStack` that has not built a
@@ -48,6 +60,17 @@ struct MarkdownPreview: View {
                     scroll(to: scrollRequest, with: proxy)
                 }
         }
+    }
+
+    /// What a click on a link does.
+    private func openLink(_ url: URL) -> OpenURLAction.Result {
+        // A fragment-only link — `[go](#the-two-numbers)` — has no scheme and no path.
+        let isFragmentOnly = url.scheme == nil && url.path.isEmpty
+        if isFragmentOnly, let fragment = url.fragment, let onFollowAnchor {
+            onFollowAnchor(fragment)
+            return .handled
+        }
+        return .systemAction
     }
 
     /// Where a scroll lands, or nothing when the request names a document this preview has not
@@ -186,6 +209,10 @@ struct MarkdownPreview: View {
 
         case .frontMatter(let matter):
             frontMatterChip(matter)
+
+        case .image(let source, let alt):
+            MarkdownImageView(source: MarkdownImageSource.resolve(source, relativeTo: documentFolder),
+                              alt: alt, accent: accent)
 
         case .listItem(let marker, let text):
             HStack(alignment: .firstTextBaseline, spacing: 7) {
@@ -338,10 +365,17 @@ struct MarkdownPreview: View {
         if run.isItalic { intents.insert(.emphasized) }
         if run.isStruck { intents.insert(.strikethrough) }
         if !intents.isEmpty { piece.inlinePresentationIntent = intents }
-        // A link is coloured rather than clickable: this preview renders a file on disk, and a
-        // preview that opened a browser on a stray click would be doing something the editor does
-        // not offer to undo.
-        if run.link != nil { piece.foregroundColor = accent }
+        // **Clickable now, and the app still fetches nothing.** The comment here used to argue that
+        // a preview which opened a browser would be "doing something the editor does not"; what it
+        // actually does is hand a URL to the system, which is what every Markdown preview on the
+        // platform does and what a reader clicking a link is asking for. Rendering the *contents*
+        // of a remote thing is the line, and it is still not crossed — see `MarkdownImageView`.
+        //
+        // A `#fragment` is intercepted rather than opened: see `openLink`.
+        if let link = run.link {
+            piece.foregroundColor = accent
+            if let url = URL(string: link) { piece.link = url }
+        }
         return piece
     }
 
@@ -358,3 +392,80 @@ struct MarkdownPreview: View {
         }
     }
 }
+
+/// One image from the document's own folder, or the reason it is not being drawn.
+///
+/// **Loaded off the main actor and only when the row is built.** The preview is a `LazyVStack`, so
+/// a note with forty screenshots decodes the two that are on screen — and decoding is the expensive
+/// part, which is why it happens in a `Task` rather than in `body`.
+struct MarkdownImageView: View {
+
+    let source: MarkdownImageSource
+    let alt: String
+    let accent: Color
+
+    @State private var image: NSImage?
+    @State private var failed = false
+
+    /// The tallest an image is drawn, whatever its own size.
+    ///
+    /// **A cap on the DRAWN height, which is a different question from the file's byte cap.** A
+    /// tall narrow image — a phone screenshot — would otherwise take four screens of a document
+    /// somebody is reading for its words. Width is the column's; the aspect ratio is kept.
+    static let maxHeight: CGFloat = 420
+
+    var body: some View {
+        Group {
+            switch source {
+            case .local(let path):
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: Self.maxHeight, alignment: .leading)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.well))
+                        .accessibilityLabel(alt.isEmpty ? "Image" : alt)
+                } else {
+                    placeholder(failed ? "Couldn’t be read as an image." : "Loading…")
+                        .task(id: path) { await load(path) }
+                }
+            case .refused(let reason):
+                placeholder(reason)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    /// The alt text and the reason, in the preview's own type — never a broken-image glyph.
+    ///
+    /// **The alt text leads.** It is what the document's author wrote to stand for the picture, so
+    /// it is the more useful half when the picture is missing; the reason is why, in smaller type.
+    private func placeholder(_ reason: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "photo")
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(alt.isEmpty ? "Image" : alt)
+                    .scaledFont(.system(size: 12))
+                Text(reason)
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.3)))
+    }
+
+    private func load(_ path: String) async {
+        let loaded = await Task.detached(priority: .userInitiated) {
+            // `NSImage(contentsOfFile:)` and not `contentsOf:` — the path has already been resolved
+            // and checked; building a URL here only to have AppKit take it apart again invites a
+            // second, different opinion about what the path meant.
+            NSImage(contentsOfFile: path)
+        }.value
+        if let loaded { image = loaded } else { failed = true }
+    }
+}
+

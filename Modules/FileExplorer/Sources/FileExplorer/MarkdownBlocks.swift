@@ -80,6 +80,13 @@ struct MarkdownBlock: Equatable, Sendable {
         case thematicBreak
         /// The YAML block the file opened with, held as its raw text. See ``MarkdownFrontMatter``.
         case frontMatter(String)
+        /// A paragraph that is nothing but one image. See ``MarkdownImageSource``.
+        ///
+        /// **Only when it is the whole paragraph**, which is how images are written in notes —
+        /// `![alt](shot.png)` on its own line. An image in the middle of a sentence stays an inline
+        /// run showing its alt text, because SwiftUI's `Text` concatenation is what draws a
+        /// sentence and a picture is not a `Text`.
+        case image(source: String, alt: String)
     }
 
     init(_ kind: Kind, indent: Int = 0, quoteDepth: Int = 0, line: Int? = nil) {
@@ -150,6 +157,11 @@ enum MarkdownBlocks {
             emit(.heading(level: heading.level, text: text(of: heading)))
 
         case let paragraph as Paragraph:
+            // A paragraph holding one image and nothing else is a picture, not a sentence.
+            if let image = loneImage(in: paragraph) {
+                emit(.image(source: image.source ?? "", alt: text(of: image).plain))
+                break
+            }
             let content = text(of: paragraph)
             // An empty paragraph is a blank the source did not really contain — dropping it keeps
             // the preview's spacing the stack's business rather than the document's.
@@ -204,6 +216,30 @@ enum MarkdownBlocks {
             guard !plain.isEmpty else { break }
             emit(.paragraph(MarkdownText(runs: [MarkdownRun(text: plain)])))
         }
+    }
+
+    /// The image a paragraph consists of, or `nil` when it holds anything else.
+    ///
+    /// **Whitespace-only text around it does not count as "anything else".** `![a](b.png)` followed
+    /// by a newline parses as an image plus an empty text node, and treating that as a mixed
+    /// paragraph would send every image in every file back to the alt-text placeholder.
+    private static func loneImage(in paragraph: Paragraph) -> Markdown.Image? {
+        var image: Markdown.Image?
+        for child in paragraph.children {
+            if let candidate = child as? Markdown.Image {
+                guard image == nil else { return nil }   // two images: a row, not a picture
+                image = candidate
+            } else if let text = child as? Markdown.Text {
+                guard text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return nil
+                }
+            } else if child is SoftBreak || child is LineBreak {
+                continue
+            } else {
+                return nil
+            }
+        }
+        return image
     }
 
     /// The 1-based line a node begins on, or `nil` when the parser reported no range.

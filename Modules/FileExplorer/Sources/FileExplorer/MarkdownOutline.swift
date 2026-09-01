@@ -82,4 +82,30 @@ enum MarkdownOutline {
         }
         return found ?? 0
     }
+
+    /// The anchor a `#link` in the same document points at.
+    ///
+    /// **GitHub's rule, because that is the one his files are written against**: lowercased, spaces
+    /// to hyphens, and everything that is not a letter, a digit, a hyphen or an underscore dropped.
+    /// It is not a standard — CommonMark has no anchors at all — so this is a convention, and the
+    /// only honest thing to do when a link matches nothing is to leave it to the system rather than
+    /// scroll somewhere arbitrary.
+    static func anchor(for title: String) -> String {
+        var slug = ""
+        for character in title.lowercased() {
+            if character.isLetter || character.isNumber || character == "-" || character == "_" {
+                slug.append(character)
+            } else if character == " " {
+                slug.append("-")
+            }
+        }
+        return slug
+    }
+
+    /// The line a `#fragment` names, or `nil` when no heading matches it.
+    static func line(forAnchor fragment: String, in entries: [MarkdownOutlineEntry]) -> Int? {
+        let wanted = fragment.hasPrefix("#") ? String(fragment.dropFirst()) : fragment
+        let normalised = anchor(for: wanted.replacingOccurrences(of: "-", with: " "))
+        return entries.first { anchor(for: $0.title) == wanted || anchor(for: $0.title) == normalised }?.line
+    }
 }

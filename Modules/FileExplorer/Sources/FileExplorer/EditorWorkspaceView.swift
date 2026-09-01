@@ -507,7 +507,8 @@ public struct EditorWorkspaceView: View {
             editorSurface
         case .preview:
             MarkdownPreview(blocks: blocks, accent: accent, scrollRequest: previewScrollRequest,
-                            onToggleTask: taskToggle)
+                            onToggleTask: taskToggle, documentFolder: documentFolder,
+                            onFollowAnchor: followAnchor)
         case .split:
             GeometryReader { geo in
                 let width = geo.size.width
@@ -521,7 +522,8 @@ public struct EditorWorkspaceView: View {
                     // `0 - 0 - 1` is the negative dimension SwiftUI logs and refuses to lay out.
                     MarkdownPreview(blocks: blocks, accent: accent,
                                     scrollRequest: previewScrollRequest,
-                                    onToggleTask: taskToggle)
+                                    onToggleTask: taskToggle, documentFolder: documentFolder,
+                                    onFollowAnchor: followAnchor)
                         .frame(width: max(0, width - editorWidth - 1))
                 }
                 // Compare's divider ergonomics: a 1pt rule with an invisible 12pt grab strip
@@ -578,6 +580,26 @@ public struct EditorWorkspaceView: View {
             }
             document.text = rewritten
         }
+    }
+
+    /// The folder the open document lives in — what a relative image path resolves against.
+    ///
+    /// **The DOCUMENT's folder, not the rail's.** They are usually the same and are not always: a
+    /// file opened from a pane row in another folder keeps its own, and an image beside *it* is
+    /// what its `![…](shot.png)` means.
+    private var documentFolder: String? {
+        document.path.map { ($0 as NSString).deletingLastPathComponent }
+    }
+
+    /// A `#heading` link inside the document, followed rather than opened.
+    ///
+    /// Nothing happens when no heading matches — which is the honest answer, because the anchor
+    /// convention is GitHub's rather than a standard and a near-miss should not scroll somebody
+    /// somewhere they did not ask to go.
+    private func followAnchor(_ fragment: String) {
+        guard let line = MarkdownOutline.line(forAnchor: fragment, in: outline) else { return }
+        scrollToken &+= 1
+        previewScrollRequest = EditorScrollRequest(line: line, token: scrollToken)
     }
 
     /// Keeps the preview level with the text, in split.

@@ -249,13 +249,22 @@ import Foundation
         #expect(text.runs.count == 1, "an unstyled sentence came back as \(text.runs.count) runs")
     }
 
-    @Test func anImageBecomesItsAltTextRatherThanAFetch() {
+    /// **This asserted a paragraph until images became drawable, and the claim it was making has
+    /// survived the change intact.** A lone image is its own block now, so the walk carries the
+    /// source and the alt text instead of flattening them into a placeholder string — but nothing
+    /// here fetches anything, and a remote source is still refused. The refusal moved to
+    /// `MarkdownImageSource`, which is where the decision now lives, and this checks both halves so
+    /// the promise is not left resting on the other suite alone.
+    @Test func aRemoteImageIsCarriedButNeverFetched() {
         let parsed = blocks("![a diagram](https://example.com/x.png)\n")
-        guard case .paragraph(let text) = parsed.first?.kind else {
-            Issue.record("expected a paragraph, got \(parsed)")
+        guard case .image(let source, let alt) = parsed.first?.kind else {
+            Issue.record("expected an image block, got \(parsed)")
             return
         }
-        #expect(text.plain.contains("a diagram"))
+        #expect(alt == "a diagram")
+        #expect(source == "https://example.com/x.png")
+        #expect(MarkdownImageSource.resolve(source, relativeTo: "/tmp")
+                == .refused("Remote images aren’t downloaded."))
     }
 
     // MARK: Hostile input

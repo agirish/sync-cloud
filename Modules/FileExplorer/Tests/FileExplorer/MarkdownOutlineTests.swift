@@ -127,3 +127,33 @@ import Foundation
         #expect(EditorCaret.utf16Offset(ofLine: 2, in: "one\r\ntwo") == 5)
     }
 }
+
+/// The `#heading` links that scroll the preview instead of leaving the app.
+@Suite struct MarkdownAnchorTests {
+
+    private func outline(_ source: String) -> [MarkdownOutlineEntry] {
+        MarkdownOutline.entries(from: MarkdownBlocks.blocks(from: source))
+    }
+
+    @Test func anAnchorIsTheGitHubSlug() {
+        #expect(MarkdownOutline.anchor(for: "The two numbers") == "the-two-numbers")
+        #expect(MarkdownOutline.anchor(for: "Cutting it — step 3!") == "cutting-it--step-3")
+        #expect(MarkdownOutline.anchor(for: "snake_case and dash-case") == "snake_case-and-dash-case")
+    }
+
+    @Test func aFragmentFindsItsHeadingsLine() {
+        let rows = outline("# One\n\ntext\n\n## The two numbers\n\nmore\n")
+        #expect(MarkdownOutline.line(forAnchor: "the-two-numbers", in: rows) == 5)
+        #expect(MarkdownOutline.line(forAnchor: "#the-two-numbers", in: rows) == 5)
+        #expect(MarkdownOutline.line(forAnchor: "one", in: rows) == 1)
+    }
+
+    /// No match is no scroll. The anchor convention is GitHub's rather than a standard, so a
+    /// near-miss must not send the reader somewhere they did not ask to go.
+    @Test func aFragmentThatMatchesNothingAnswersNothing() {
+        let rows = outline("# One\n")
+        #expect(MarkdownOutline.line(forAnchor: "nowhere", in: rows) == nil)
+        #expect(MarkdownOutline.line(forAnchor: "", in: rows) == nil)
+        #expect(MarkdownOutline.line(forAnchor: "one", in: []) == nil)
+    }
+}
