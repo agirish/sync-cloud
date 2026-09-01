@@ -100,7 +100,7 @@ import Design
         let manager = FileSyncManager()
         manager.storageLensReport = Self.report()
         let subject = StorageLensView(syncManager: manager, providerName: "Projects",
-                                      onBuild: {}, onReveal: { _ in }, section: section)
+                                      onBuild: {}, onReveal: { _ in }, section: .constant(section))
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
@@ -124,9 +124,16 @@ import Design
     /// Chroma rather than "is it blue": the ground is `Color.primary` at 4% over a neutral window
     /// background and the row text is gray, so both are achromatic, while the bar is a hue at 16%.
     /// That keeps the measurement true whichever accent hue the host's defaults happen to carry.
+    ///
+    /// **Scanlines above ``belowTheSwitcher`` are skipped, and that exclusion is new.** The section
+    /// switcher moved into the top of this card when Storage folded into Organize, and its selected
+    /// segment is an accent *fill* — chromatic, wide, and above every list. Left in, it read as a
+    /// fifth bar on the largest page and as the untouched page's only bar. So the capsule is
+    /// excluded by ROW exactly as the file-type glyphs are excluded by COLUMN: measured, not
+    /// guessed — the capsule inks device-y 33–70 and the first bar starts at 177.
     private func chromaEdges(_ rep: NSBitmapImageRep) -> [Int: Int] {
         var edges: [Int: Int] = [:]
-        for y in 0..<rep.pixelsHigh {
+        for y in Self.belowTheSwitcher..<rep.pixelsHigh {
             var edge = -1
             for x in stride(from: rep.pixelsWide - 1, through: 0, by: -1) {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
@@ -138,6 +145,14 @@ import Design
         }
         return edges
     }
+
+    /// The first scanline below the section switcher, in **device** pixels (this bitmap is 2×).
+    ///
+    /// 120 sits in the gap between the capsule's last inked row (70) and the first bar's first (177)
+    /// — far enough from both that a few points of layout drift cannot move the boundary across
+    /// either. `theSwitcherIsAboveTheBandTheBarsAreMeasuredIn` is what stops it drifting silently
+    /// into the list and quietly deleting a bar from every count here.
+    static let belowTheSwitcher = 120
 
     /// The distinct bar lengths on the page, largest first.
     ///
@@ -188,5 +203,34 @@ import Design
         let largest = try #require(render(section: .largest))
         #expect(barEdges(largest).count == 4, "the largest list lost its bars: \(barEdges(largest))")
         #expect(barEdges(stale).isEmpty, "the untouched list is drawing bars: \(barEdges(stale))")
+    }
+
+    /// The exclusion above cuts the switcher and nothing else.
+    ///
+    /// **A skipped band is a place bugs hide**, and this one was introduced to silence real ink. So
+    /// both edges are pinned: the capsule must be entirely inside the skipped band (or its fill
+    /// leaks back in as a phantom bar), and the band must contain no bar (or every count above is
+    /// quietly one short and the ratio test is measuring the wrong four).
+    @Test func theSwitcherIsAboveTheBandTheBarsAreMeasuredIn() throws {
+        let rep = try #require(render(section: .largest))
+        var chromatic: [Int] = []
+        for y in 0..<rep.pixelsHigh {
+            for x in stride(from: rep.pixelsWide - 1, through: 200, by: -1) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let hi = max(c.redComponent, max(c.greenComponent, c.blueComponent))
+                let lo = min(c.redComponent, min(c.greenComponent, c.blueComponent))
+                if hi - lo > 0.03 { chromatic.append(y); break }
+            }
+        }
+        let above = chromatic.filter { $0 < Self.belowTheSwitcher }
+        let below = chromatic.filter { $0 >= Self.belowTheSwitcher }
+        // The capsule is there, and it is above the cut — not "there is nothing above the cut",
+        // which would also pass if the switcher had stopped rendering entirely.
+        #expect(!above.isEmpty,
+                "nothing chromatic above the cut — the section capsule is not drawing at all, so this exclusion is protecting nothing")
+        #expect((above.max() ?? 0) < Self.belowTheSwitcher - 20,
+                "the capsule inks up to device-y \(above.max() ?? 0), within 20px of the \(Self.belowTheSwitcher) cut — one layout nudge and its fill is a phantom bar again")
+        #expect((below.min() ?? .max) > Self.belowTheSwitcher + 20,
+                "a bar starts at device-y \(below.min() ?? -1), within 20px of the \(Self.belowTheSwitcher) cut — the exclusion is about to start eating real bars")
     }
 }

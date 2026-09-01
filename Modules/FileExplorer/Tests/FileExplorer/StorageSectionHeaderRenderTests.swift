@@ -39,7 +39,7 @@ import Design
         let manager = FileSyncManager()
         manager.storageLensReport = Self.report()
         let subject = StorageLensView(syncManager: manager, providerName: "Projects",
-                                      onBuild: {}, onReveal: { _ in }, section: section)
+                                      onBuild: {}, onReveal: { _ in }, section: .constant(section))
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)

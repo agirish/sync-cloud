@@ -5,15 +5,33 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// Storage's rail — the four places that replaced an empty half-row.
+/// Storage's four sections — the places, and the capsule that switches between them.
 ///
-/// **Removing the intro button gave Organize's rail 21pt and gave Storage nothing but a hole.**
-/// Storage has no lens rail, so the ⓘ *was* row 1's leading half; without it the row was a 27pt
-/// band with two controls floated right and its first two-thirds blank, on a card whose height is
-/// pinned whatever it holds. The page underneath was already three ranked lists under a treemap,
-/// so the hole and the structure to fill it arrived at the same time.
+/// **These were a rail in the header until Storage folded into Organize.** While Storage was a
+/// workspace, `LensHeaderCard`'s rail slot was free and Storage borrowed it for All · Largest ·
+/// Untouched · Reclaim. The fold gives that slot to the Organize rail, so the switcher moved down
+/// into the content card as a capsule (``StorageSectionBar``) — the idiom the Editor's mode bar
+/// established — and the header now draws one rail with one shedding rule, which is what
+/// `OrganizeRailMetrics`' own comment asked for all along.
+///
+/// What did **not** change is everything below: the section-to-list mapping, the "N of M"
+/// arithmetic, and the collapse rule. Those tests are untouched on purpose — the switcher moved,
+/// the sections did not.
 @MainActor
 @Suite(.serialized) struct StorageRailTests {
+
+    private func size<V: View>(_ view: V) -> CGSize {
+        NSHostingView(rootView: AnyView(view)).fittingSize
+    }
+
+    private var scales: [CGFloat] { FontSize.allCases.map(\.scale) }
+
+    private func capsule(_ rung: StorageSectionBar.Rung, section: StorageSection? = nil,
+                         scale: CGFloat = 1) -> CGSize {
+        size(StorageSectionBar(section: .constant(section), accent: .blue, onAccent: .white,
+                               forcedRung: rung)
+            .environment(\.appFontScale, scale))
+    }
 
     private static func entry(_ name: String, _ bytes: Int) -> StorageEntry {
         StorageEntry(path: "/root/\(name)", name: name, bytes: bytes,
@@ -59,38 +77,71 @@ import Design
         }
     }
 
-    @Test("The rail's glyph table still matches the renderer")
-    func theStorageGlyphTableMatchesTheRenderer() throws {
-        // Tabulated for the reason `theGlyphTableMatchesTheRenderer` gives — measuring costs ~135µs
-        // a symbol on a path that runs per `body` — and pinned here so the numbers cannot rot
-        // silently. **A glyph is not its point size**: these are 13, 15 and 16 at 10.5pt, not 10.5.
-        let config = NSImage.SymbolConfiguration(pointSize: 10.5, weight: .semibold)
+    @Test("Every section the capsule offers still resolves to a symbol")
+    func everySectionsGlyphResolves() throws {
+        // **This replaced a glyph-width table, and the replacement is the point.** The rail
+        // tabulated each symbol's rendered width (13, 15 and 16 at 10.5pt) because its arithmetic
+        // had to reserve room per item, and a wrong number there sheds the row early or overruns
+        // it. The capsule frames every glyph at a fixed 13×13, so the widths no longer enter any
+        // model — what remains is the one thing a frame cannot fix: a symbol that does not resolve
+        // draws nothing at all, and on a shed rung the glyph is the ONLY thing naming the section.
         for section in StorageSection.allCases {
-            let drawn = try #require(NSImage(systemSymbolName: section.railSymbol,
-                                             accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)?.size.width)
-            #expect(abs(OrganizeRailMetrics.storageGlyphWidth(section) - drawn) < 0.51,
-                    "\(section.railSymbol) renders \(drawn)pt and the table says \(OrganizeRailMetrics.storageGlyphWidth(section))")
+            #expect(NSImage(systemSymbolName: section.railSymbol, accessibilityDescription: nil) != nil,
+                    "\(section.railSymbol) does not resolve — on the glyph-only rung this segment is unnamed")
+        }
+        // "All" is not a StorageSection, so its symbol lives on the bar and is checked separately —
+        // exactly the gap that once let the overview item ride the Organize rail uncounted.
+        #expect(NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil) != nil)
+    }
+
+    @Test("The capsule is one width whichever section is selected")
+    func theCapsuleIsOneWidthWhicheverSectionIsSelected() {
+        // The bug `EditorModeBar` records and this control inherits the fix for: the selected
+        // segment was semibold and the rest medium, weight changes width, so the capsule measured
+        // differently depending on which segment was live — and everything beside it moved on every
+        // click. Semibold in both states; the fill is what marks the selection.
+        for rung in [StorageSectionBar.Rung.labelled, .glyphOnly] {
+            let widths = ([nil] + StorageSection.allCases.map { Optional($0) })
+                .map { capsule(rung, section: $0).width }
+            #expect(Set(widths.map { ($0 * 100).rounded() }).count == 1,
+                    "the \(rung) capsule measures \(widths) across the four selections")
         }
     }
 
-    @Test("The rail fits the header it sits in, with every list reporting")
-    func theStorageRailFits() {
-        // The widest the rail ever gets is the day all three lists report, which is the day it must
-        // still fit. Storage's trailing set is Reanalyze and the search toggle — 129pt measured —
-        // so this clears with room; the point of asserting it is that Storage's leading half was
-        // empty until now, and an unmodelled control on this side of a row is exactly how a 21pt
-        // intro button once rode here uncharged.
-        let reporting: (StorageSection) -> RailItemState = { _ in .reporting(999) }
-        let width = OrganizeRailMetrics.storageLeadingWidth(scale: 1, state: reporting)
-        #expect(width < 900 - OrganizeRailMetrics.searchToggleWidth,
-                "Storage's rail models \(width)pt and would shed at the 900pt card it is used on")
-        // …and it is not trivially small, or the assertion above holds for a rail that draws
-        // nothing. Measured 417.8pt with three reporting lists.
-        #expect(width > 350, "Storage's rail models \(width)pt — that is not four items")
-        // An unscanned rail costs less than a reporting one, or the state is not reaching the model.
-        let unscanned = OrganizeRailMetrics.storageLeadingWidth(scale: 1, state: { _ in .notScanned })
-        #expect(unscanned < width)
+    @Test("The labelled rung is the wider one it sheds from")
+    func theLabelledRungIsTheWiderOneItShedsFrom() {
+        // Or `ViewThatFits` is choosing between two rungs that cost the same, and shedding the
+        // words buys nothing — which would make the fallback decorative.
+        for scale in scales {
+            let labelled = capsule(.labelled, scale: scale).width
+            let glyphs = capsule(.glyphOnly, scale: scale).width
+            #expect(labelled > glyphs + 40,
+                    "at scale \(scale) the rungs measure \(labelled) and \(glyphs) — shedding the words buys almost nothing")
+        }
+    }
+
+    @Test("The capsule grows with the app's text size")
+    func theCapsuleGrowsWithTheAppsTextSize() {
+        // The failure that would make every ceiling above vacuous: a control pinned at one size
+        // passes any width assertion at the size it was tuned for.
+        let smallest = capsule(.labelled, scale: scales.min() ?? 1).width
+        let largest = capsule(.labelled, scale: scales.max() ?? 1).width
+        #expect(largest > smallest,
+                "the capsule measures \(smallest) at the smallest text size and \(largest) at the largest — it is not scaling")
+    }
+
+    @Test("The capsule fits the content card at the window's floor, at every text size")
+    func theCapsuleFitsTheNarrowestContentCard() {
+        // Where it now has to fit. The lens column's floor is 340pt (`OrganizeRailMetrics`' own
+        // constant), and the capsule sits inside the content card's padding rather than in the
+        // header — so the question the rail used to answer against row 1's reserve is asked here
+        // against the card. At least one rung must clear it at every text size, or `ViewThatFits`
+        // has nothing to fall back to and SwiftUI draws the LAST rung overflowing.
+        for scale in scales {
+            let glyphs = capsule(.glyphOnly, scale: scale).width
+            #expect(glyphs < 340,
+                    "at scale \(scale) even the glyph-only capsule is \(glyphs)pt against a 340pt lens column — it has nothing left to shed")
+        }
     }
 
     @Test("“N of M” follows the rail, not the whole report")
@@ -197,15 +248,32 @@ import Design
                 "the chevron is still drawn on a page that cannot fold")
     }
 
-    @Test("Before a scan the rail says it has not looked, rather than claiming zero")
-    func theRailDoesNotClaimZeroBeforeAScan() {
-        // The rule Organize's rail follows, applied here: a storage lens that has not run cannot
-        // say there are no large files. `.notScanned` draws a dot; `.clean` draws nothing; neither
-        // draws a `0`.
+    @Test("Before a scan there is no switcher at all, rather than one claiming zero")
+    func theCapsuleIsAbsentBeforeAScan() throws {
+        // **The rail answered this with a dot; the capsule answers it by not being there.** A
+        // storage lens that has not run cannot say there are no large files — the rail said so with
+        // `.notScanned` where a badge would go. The capsule carries no counts (they live in the
+        // header's row-2 pills, unchanged by the fold), so the honest form of the same rule is that
+        // it is not drawn until a report exists: there is nothing to switch between, and four
+        // segments over an intro card would offer places that do not yet exist.
         let empty = Self.report(largest: 0, stale: 0, reclaim: 0)
         #expect(StorageSection.allCases.allSatisfy { $0.entries(in: empty).isEmpty })
-        #expect(OrganizeRailMetrics.stateWidth(.notScanned, scale: 1)
-                > OrganizeRailMetrics.stateWidth(.clean, scale: 1),
-                "unscanned and clean cost the same width — the dot is not being charged for")
+
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/StorageLensView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read StorageLensView.swift — this scan would be vacuous")
+        // Asserted on the source because the arm is a `@ViewBuilder` branch with no seam to ask.
+        // **Adjacency, not membership**: the bar has to sit immediately above `reportBody`, which
+        // places it inside the `let report` arm and nowhere else. A looser "the file mentions
+        // sectionBar" would pass with the bar hoisted above the whole `if`, which is exactly the
+        // mistake — four segments over an intro card, offering places that do not exist yet.
+        #expect(source.contains("                sectionBar\n                reportBody(report)"),
+                "the switcher is not immediately above the report body — it may now draw over the intro or building states, offering sections that do not exist yet")
+        // Exactly two mentions: the declaration and that single use. A third is a second draw site,
+        // which is how it would creep back onto a page with no report.
+        #expect(source.components(separatedBy: "sectionBar").count - 1 == 2,
+                "sectionBar is referenced more than the once it is declared and the once it is drawn")
     }
 }

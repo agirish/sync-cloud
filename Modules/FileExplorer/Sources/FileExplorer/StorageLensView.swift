@@ -33,8 +33,14 @@ struct StorageLensView: View {
     private let onReveal: (String) -> Void
     /// Presents a Quick Look preview for a file path. nil hides the per-row Preview button.
     private let onQuickLook: ((String) -> Void)?
-    /// Which ranked list the rail is showing, or nil for all three under the treemap.
-    private let section: StorageSection?
+    /// Which ranked list is showing, or nil for all three under the treemap.
+    ///
+    /// **A `Binding` since the switcher came into this card.** It was a value passed down from
+    /// `LensWorkspaceView`, which owned both the storage rail and the `@AppStorage` behind it; the
+    /// rail is gone and the capsule that replaced it lives here, so the write has to travel back
+    /// up. The storage stayed exactly where it was — same key, same owner — and only the direction
+    /// of the wire changed.
+    @Binding private var section: StorageSection?
 
     init(
         syncManager: FileSyncManager,
@@ -43,7 +49,7 @@ struct StorageLensView: View {
         onBuild: @escaping () -> Void,
         onReveal: @escaping (String) -> Void,
         onQuickLook: ((String) -> Void)? = nil,
-        section: StorageSection? = nil
+        section: Binding<StorageSection?> = .constant(nil)
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
@@ -51,7 +57,7 @@ struct StorageLensView: View {
         self.onBuild = onBuild
         self.onReveal = onReveal
         self.onQuickLook = onQuickLook
-        self.section = section
+        self._section = section
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -78,6 +84,14 @@ struct StorageLensView: View {
             if syncManager.isBuildingStorageLens {
                 buildingState
             } else if let report {
+                // **Above the ScrollView, not inside it.** The switcher is how you get to a list,
+                // so scrolling the list must not take it off screen — the header rail it replaced
+                // was fixed for the same reason, and putting it in the scroll would have made
+                // "click Untouched" require scrolling back up first.
+                //
+                // Only with a report in hand: before one there are no sections to switch between,
+                // and the intro card is already asking the one question that matters.
+                sectionBar
                 reportBody(report)
             } else {
                 introState
@@ -85,6 +99,18 @@ struct StorageLensView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
+    }
+
+    /// The section switcher, over the content it switches.
+    private var sectionBar: some View {
+        HStack {
+            StorageSectionBar(section: $section,
+                              accent: glassHue.accentColor,
+                              onAccent: glassHue.onAccentLabelColor)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, densityMetrics.cardListPadding)
+        .padding(.top, densityMetrics.cardListPadding)
     }
 
     // MARK: Intro / building states
@@ -354,6 +380,115 @@ struct StorageLensView: View {
             }
         }
         return (parent as NSString).abbreviatingWithTildeInPath
+    }
+}
+
+// MARK: - Section bar
+
+/// Storage's section switcher: **All · Largest · Untouched · Reclaim**, as a capsule at the top of
+/// the content card.
+///
+/// **It used to be a rail in the header, and it could not stay there.** While Storage was a
+/// workspace of its own, `LensHeaderCard`'s rail slot was free and Storage borrowed it. Folding
+/// Storage into Organize gives that slot to the Organize rail, and the alternative — a second rail
+/// row nested under the first — is precisely the shape `OrganizeRailMetrics` warns against in its
+/// own words: *"the one thing worse than a rail that sheds is two rails in one header that shed by
+/// different rules."* So the switcher comes down into the content it switches, where the Editor's
+/// mode capsule already established the idiom.
+///
+/// Modelled on ``EditorModeBar`` and deliberately copying its three load-bearing choices, each of
+/// which was a bug there first:
+///
+/// - **`ViewThatFits` over two rungs**, labelled then glyph-only, rather than width arithmetic.
+///   This sits in an ordinary `HStack` that is handed a real width, so it can simply ask.
+/// - **Semibold in both selection states.** Weight changes width, so a capsule that bolded only
+///   the selected segment measures a different width depending on which one that is — and
+///   everything beside it moves on every click. The fill marks the selection; the weight was
+///   saying it twice and charging for it.
+/// - **Glyphs in a fixed 13×13 frame**, because these four symbols draw at four different widths
+///   and an unframed row would resize as the selection moved through it.
+///
+/// `nil` is All, matching ``StorageSection/defaultsKey``'s "absent means all three" — there is no
+/// value to write for "no section picked", and inventing one makes the unselected state something
+/// you can fail to migrate.
+struct StorageSectionBar: View {
+
+    @Binding var section: StorageSection?
+    let accent: Color
+    let onAccent: Color
+    /// Forces a rung, for the tests that measure each one. `nil` picks by width.
+    var forcedRung: Rung?
+
+    /// The two rungs, named so a test can ask for one rather than trying to provoke it.
+    enum Rung { case labelled, glyphOnly }
+
+    /// The segments in order, `nil` first. A computed list rather than a literal so a fourth
+    /// section is a segment the day it is added — the same argument `StorageSection.allCases`
+    /// carries for the lists themselves.
+    private var segments: [StorageSection?] { [nil] + StorageSection.allCases }
+
+    var body: some View {
+        if let forcedRung {
+            capsule(labelled: forcedRung == .labelled)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                capsule(labelled: true)
+                capsule(labelled: false)
+            }
+        }
+    }
+
+    private func capsule(labelled: Bool) -> some View {
+        HStack(spacing: 3) {
+            ForEach(segments, id: \.self) { candidate in
+                segment(candidate, labelled: labelled)
+            }
+        }
+        .padding(2)
+        .background(Capsule().fill(.quaternary.opacity(0.5)))
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Storage section")
+    }
+
+    /// The label for a segment. All is not a ``StorageSection``, so its words live here — the same
+    /// reason `OrganizeRailMetrics.overviewTitle` exists rather than being inferred.
+    private func title(_ candidate: StorageSection?) -> String {
+        candidate?.railTitle ?? "All"
+    }
+
+    private func symbol(_ candidate: StorageSection?) -> String {
+        candidate?.railSymbol ?? "square.grid.2x2"
+    }
+
+    private func segment(_ candidate: StorageSection?, labelled: Bool) -> some View {
+        let isSelected = section == candidate
+        return Button {
+            section = candidate
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: symbol(candidate))
+                    .scaledFont(.system(size: 10, weight: .medium))
+                    .frame(width: 13, height: 13)
+                if labelled {
+                    Text(title(candidate))
+                        .scaledFont(.system(size: 10, weight: .semibold))
+                }
+            }
+            .foregroundStyle(isSelected ? AnyShapeStyle(onAccent) : AnyShapeStyle(Color.secondary))
+            .padding(.horizontal, labelled ? 8 : 6)
+            .padding(.vertical, 3)
+            .background {
+                if isSelected { Capsule().fill(accent) }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: accent))
+        // Once the word is shed the glyph is the only thing naming the section, so the name has to
+        // survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
+        .help(title(candidate))
+        .accessibilityLabel(title(candidate))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
