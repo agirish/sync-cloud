@@ -2609,6 +2609,43 @@ Prose-only — `answersOneLens` counts `lenses`, so nothing depended on the numb
 one-line prose fix that would apply cleanly to `v4.x`**, whose copy carries the same error; it is
 recorded here rather than picked, per the standing direction.
 
+## 2026-09-01 — two flake findings and a correction to `flaky-tests.md` (`<shas after push>`) — not owed, but `v4.x` carries the wrong claim
+
+Docs only, and the most *pickable* row in this file — which is exactly why it needs writing down
+rather than quietly picking. `docs/flaky-tests.md` is carried on all four lines precisely so a
+maintainer can read it without going through `main`, so a correction that lands only here leaves
+the other copies asserting something known to be false.
+
+**What `v4.x` carries, measured rather than assumed:**
+
+```sh
+# Positive control first — the phrase must be found somewhere, or absence proves nothing.
+git show origin/main:docs/flaky-tests.md | grep -c "no amount of load can shrink it below the floor"
+for l in v4.x v3.x v2.x; do
+  echo "$l: claim=$(git show origin/$l:docs/flaky-tests.md 2>/dev/null | grep -c 'no amount of load can shrink it below the floor')" \
+       "suite=$(git grep -l FolderSurveyGroundTruthTests origin/$l -- Modules/Sync/Tests 2>/dev/null | wc -l)"
+done   # measured 2026-09-01: v4.x claim=1 suite=1; v3.x and v2.x both 0
+```
+
+| Finding | `v4.x` | `v3.x` / `v2.x` |
+|---|---|---|
+| **Mechanism 17's claim is wrong** — the rendezvous that replaced the sample floor is bounded by a 10 s wall-clock deadline, so it traded a throughput bet for a latency one | **Applies.** Carries `noUndoGroupIsEverOpenWhileTheMergeIsSuspended` **and** the sentence verbatim | Neither the test nor the claim |
+| **Mechanism 20** — a `.machinePinned` suite leaving the denominator when the display sleeps mid-batch, making a deterministic failure look intermittent | **Applies.** Carries `FolderSurveyGroundTruthTests` and the same display gate | No ground-truth suite |
+| **Mechanism 10's new live instance** (`RestructureApplyGuardTests`) | No — that suite is `main`-only | No |
+
+**Not owed, per the standing direction, and the numbering is why picking it would be awkward
+anyway.** The lines carry **19 / 19 / 11 / 12** mechanisms respectively, so "mechanism 17" and
+"mechanism 20" name different things depending on where you are standing — which is the reason
+CLAUDE.md says to cite these by title and never by number. A pick would have to renumber, and this
+file's own convention is that its numbering is per-line.
+
+**What a `v4.x` maintainer is therefore told, wrongly, until this is picked or re-derived:** that
+`noUndoGroupIsEverOpenWhileTheMergeIsSuspended`'s load-dependence was fixed on 2026-08-23 and that
+no amount of load can defeat the replacement. It can — observed on `main` 2026-08-31 in a full
+`Modules/Sync` run at loadavg 20–42 beside another session's `xcodebuild`. If that test ever reds on
+`v4.x` on its `sampledDuringTrash` premise with everything substantive green, this row is the
+answer, and the section there will actively point away from it.
+
 ## 2026-08-31 — the Storage fold's review fixes (`c851b661`, `8836023a`) — not owed, with one caveat
 
 An adversarial review of the fold above found one shipped bug and one gap. Both are **fixes to code
