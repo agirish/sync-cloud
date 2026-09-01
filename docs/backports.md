@@ -2480,6 +2480,45 @@ around it is the tidy-up that silently removes the reservation, and no rendered 
 hard-framed container can catch it — both mutations were run and neither moved a pixel. Anywhere a
 marker appears and disappears in a list row, on any line, the same trap is available.
 
+**`46705cc9` — SPLIT VERDICT, and one part is genuinely owed.** Three fixes landed together; two
+are editor-only and the third is not.
+
+| Piece | Applies to a maintenance line? |
+|---|---|
+| "Reload from Disk" in the changed-on-disk alert | No — the alert arrived with the editor |
+| `drawsAPaneList` for a collapsed lens rail | **YES, all three lines** — see below |
+| `refreshAction`'s silent skip, and completing a stranded launch refresh | **YES, all three lines** |
+
+**The silent skip is the one to send if the direction ever changes.** `refreshAction` returns
+without starting anything when a pane names a source `enabledProviders` has not published yet, and
+says nothing about it — at launch that is ordinary rather than exotic, because both pane ids are
+`@AppStorage` restored before discovery finishes. Nothing else walks the tree either: the
+provider-arrival handler returns early while the bootstrap guard is up, which is exactly the window
+in question. The pane then draws whatever an earlier refresh left in it, under a breadcrumb that
+names the right folder. Every line has this shape:
+
+```sh
+for l in v4.x v3.x v2.x; do
+  echo "$l: $(git show origin/$l:MacApp/ContentView.swift | grep -c 'private func refreshAction')"
+done   # expect 1 each — then read the guard: a bare `return` with no log is the defect
+```
+
+The fix is two parts and the ORDER is the load-bearing half: the bootstrap records that the refresh
+did not start, and the arrival of the sources completes it **above** the bootstrap guard. Below it
+the completion never runs, because the guard is up for precisely the window the flag is set in.
+
+**The collapsed-rail half is owed in EFFECT rather than in code, and to all three lines.**
+`drawsAPaneList` exists on none of them — it arrived with the Edit workspace — so there is nothing
+to port literally. What they have is the defect: ⇧⌘N opens a naming row and ⇧⌘P toggles a preview
+column while a single-source rail is collapsed to its spine, because both are gated on `layoutMode`,
+which cannot tell a rail from a spine.
+
+**Checked, because the first draft of this row said `v3.x` and `v2.x` predate the collapsible rail
+and that is wrong.** All three carry `ContentLayout.singleCollapsed` and resolve it the same way —
+`panesHiddenForCurrentTab ? .singleCollapsed : .singleExpanded` — at `v4.x:1405`, `v3.x:898` and
+`v2.x:861`. A porter needs a `drawsAPaneList` of their own, or the same question asked inline at the
+two chords; there is no patch to cherry-pick.
+
 **Two corrections landed alongside it that DO touch shared code**, and both are recorded here
 because a reader scanning for "did anything in this batch reach existing surfaces" would otherwise
 have to read the whole diff:
