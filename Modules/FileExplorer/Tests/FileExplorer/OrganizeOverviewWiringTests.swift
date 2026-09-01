@@ -438,6 +438,34 @@ import SwiftUI
                 "analyzing storage moved the checks-run count — the report is being counted as a check that reported")
     }
 
+    /// **A never-analyzed Storage is stranded, and stranded is where it would have had no verb.**
+    ///
+    /// Every other unscanned lens reaches a scan from the landing page: it is either covered by a
+    /// pass card (`pendingPasses`) or gets a run button beside its footer line. Storage is in no
+    /// `OrganizePass`, so `OrganizePass(producing: .storage)` is nil and BOTH routes answer nothing
+    /// — the line read "Storage — not scanned" with nothing to click, the only dead end on the
+    /// screen, on the one lens whose entire state is "you have not looked yet".
+    ///
+    /// Pinned here rather than in pixels because the shape is what matters: if Storage ever stops
+    /// being stranded (someone gives it a pass), the footer stops being where its verb belongs and
+    /// this fails rather than leaving a second button somewhere nobody looks.
+    @Test func aNeverAnalyzedStorageIsStrandedWithNoPassToOfferIt() {
+        let sections = subject(FileSyncManager()).overviewModel.sections
+        let overview = OrganizeOverview(
+            sections: sections, scopeLabel: nil, accent: .blue,
+            ledger: OrganizeOverview.Ledger(),
+            runnablePasses: Set(OrganizePass.allCases),
+            onOpen: { _ in }, onRun: { _ in })
+
+        #expect(sections.first { $0.lens == .storage }?.state == .notScanned)
+        #expect(overview.strandedUnscanned.contains { $0.lens == .storage },
+                "Storage is not on the stranded line, so the Analyze button added there never draws")
+        #expect(!overview.pendingPasses.flatMap(\.lenses).contains(.storage),
+                "a pass now claims Storage — its verb belongs on that card, not on the footer line")
+        #expect(OrganizePass(producing: .storage) == nil,
+                "Storage gained a pass; `offersPassRun` will now mint a run button beside the storage-specific one")
+    }
+
     /// The receipt's day-word, which is the one piece of the card that is arithmetic.
     @Test func theReceiptNamesADayRatherThanADuration() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)

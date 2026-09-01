@@ -836,7 +836,7 @@ public struct LensWorkspaceView: View {
     ///
     /// Nil rather than `(0, 0)`, which is the rail's own rule arriving at the readout: a storage
     /// lens that has not run cannot claim there are no large files, it can only say it has not
-    /// looked. `storageRailItem` says exactly that two members up — the count is absent before a
+    /// looked. The section headers say exactly that in the body — the count is absent before a
     /// report, not zero — while this row, over the intro card's "Analyze storage" pitch, answered a
     /// query with "0 of 0": a scan's result, reported by a scan that never ran.
     ///
@@ -2001,6 +2001,23 @@ public struct LensWorkspaceView: View {
     /// of its own, and a named day ("Tuesday") is what someone matches against their own memory of
     /// when they last looked. Older than a week it falls back to a date, because "Tuesday" three
     /// weeks on is worse than useless.
+    /// **Both formatters are cached.** `DateFormatter` is expensive to construct, and this runs
+    /// from `overviewModel`, which rebuilds on every state change the landing page observes — so a
+    /// per-call formatter is a real allocation on a per-`body` path. Same reason
+    /// `OrganizeRailMetrics` tabulates its glyph widths rather than measuring them each time.
+    private static let receiptWeekday: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEEE"
+        return f
+    }()
+
+    private static let receiptDate: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
+
     static func receiptDay(_ date: Date, now: Date = Date()) -> String {
         let calendar = Calendar.current
         // **Every comparison is against the injected `now`, including today and yesterday.**
@@ -2014,15 +2031,8 @@ public struct LensWorkspaceView: View {
         let days = calendar.dateComponents([.day], from: start, to: today).day ?? 0
         if days == 0 { return "today" }
         if days == 1 { return "yesterday" }
-        if (2...6).contains(days) {
-            let f = DateFormatter()
-            f.dateFormat = "EEEE"
-            return f.string(from: date)
-        }
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return "on " + f.string(from: date)
+        if (2...6).contains(days) { return receiptWeekday.string(from: date) }
+        return "on " + receiptDate.string(from: date)
     }
 
     @ViewBuilder
@@ -2850,10 +2860,12 @@ public struct LensWorkspaceView: View {
                               help: "This storage picture is for “\(((syncManager.storageLensRoot?.path ?? "") as NSString).lastPathComponent)”")
             Pill(.standard, tint: glassHue.accentColor, systemImage: "externaldrive",
                  text: "\(FileSyncManager.formatBytes(report.totalBytes)) total")
-            // **The three counts are on the rail now**, where each sits on the place it describes
-            // and clicking it goes there. They were StatPills here, and the row could only ever say
-            // how many — never take you to them. What stays is what belongs to the whole report
-            // rather than to one list: the folder, the total, and how old the numbers are.
+            // **The three counts are on the section headers**, where each sits over the list it
+            // describes. They were StatPills here, and the row could only ever say how many; they
+            // moved to Storage's own rail when it had one, and came down to the headers with the
+            // fold — the capsule that replaced that rail carries no counts, because a switcher is
+            // for choosing a list rather than for sizing one. What stays here is what belongs to the
+            // whole report rather than to one list: the folder, the total, and how old the numbers are.
             storageFreshnessPill
         }
     }
@@ -4001,10 +4013,13 @@ public struct LensWorkspaceView: View {
                 // restored at launch. `.receipt` is what lets the card say that instead of
                 // borrowing `.findings` and reading as a backlog nobody can discharge.
                 //
-                // Not scoped-filtered here, deliberately. A scope change RE-ANALYSES Storage
-                // (Decision B), so the report in hand always describes `storageLensRoot` — and
-                // naming that root in the detail line is what makes a restored report honest about
-                // which tree it is about.
+                // **Not scoped-filtered, and the detail line is why that is honest rather than
+                // sloppy.** Every other arm narrows its rows to the scope; a treemap cannot be
+                // narrowed without misstating its own proportions, so this reports what the analysis
+                // actually covered and *names the root* beside it. On the Storage lens
+                // `restoreStorageLensIfShowing` keeps report and scope in step; on this page there
+                // is no lens selected, so the card can legitimately describe a root the current
+                // scope does not — and says so rather than implying otherwise.
                 guard let report = syncManager.storageLensReport else {
                     return OrganizeOverviewSection(
                         lens: item,

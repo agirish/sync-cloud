@@ -142,15 +142,19 @@ import Design
 
     @Test("The capsule fits the content card at the window's floor, at every text size")
     func theCapsuleFitsTheNarrowestContentCard() {
-        // Where it now has to fit. The lens column's floor is 340pt (`OrganizeRailMetrics`' own
-        // constant), and the capsule sits inside the content card's padding rather than in the
-        // header — so the question the rail used to answer against row 1's reserve is asked here
-        // against the card. At least one rung must clear it at every text size, or `ViewThatFits`
-        // has nothing to fall back to and SwiftUI draws the LAST rung overflowing.
+        // Where it now has to fit. The lens column's floor is **340pt** — `PaneLogic.minLensWorkspace-
+        // Width`, which lives in MacApp and is unreachable from this package, so the number is a
+        // literal here exactly as it is in `OrganizeRailTests` and `OrganizeRailOverflowTests`. The
+        // capsule sits inside the content card rather than in the header, so the question the rail
+        // used to answer against row 1's reserve is asked here against the card — and the card's own
+        // chrome comes off first, which is what those neighbouring tests do too. At least one rung
+        // must clear it at every text size, or `ViewThatFits` has nothing to fall back to and
+        // SwiftUI draws the LAST rung overflowing.
+        let usable = 340 - OrganizeRailMetrics.cardChrome
         for scale in scales {
             let glyphs = capsule(.glyphOnly, scale: scale).width
-            #expect(glyphs < 340,
-                    "at scale \(scale) even the glyph-only capsule is \(glyphs)pt against a 340pt lens column — it has nothing left to shed")
+            #expect(glyphs < usable,
+                    "at scale \(scale) even the glyph-only capsule is \(glyphs)pt against \(usable)pt of usable card at the 340pt lens column — it has nothing left to shed")
         }
     }
 

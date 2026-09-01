@@ -845,7 +845,7 @@ struct OrganizeOverview: View {
                 // "Open Storage" without a count, unlike `findingsSection`'s "Open X — 12 ›". The
                 // count belongs on a backlog you are going to work through; here it would put the
                 // number in the one place the badge rule was careful to keep it out of.
-                Button("Open Storage ›") { onOpen(section.lens) }
+                Button("Open \(section.lens.title) ›") { onOpen(section.lens) }
                     .buttonStyle(.plain)
                     .scaledFont(.system(size: 11, weight: .semibold))
                     .foregroundStyle(accent)
@@ -1143,6 +1143,20 @@ struct OrganizeOverview: View {
                             .scaledFont(.system(size: 11, weight: .semibold))
                             .foregroundStyle(accent)
                             .chromeHover()
+                    }
+                    // **Storage's verb, because it is the one lens no pass can offer.** Every other
+                    // unscanned lens reaches a scan from this screen — through a pass card above, or
+                    // through the button beside it. Storage is in no `OrganizePass`, so both routes
+                    // answer nothing for it and the line said "Storage — not scanned" with no way to
+                    // do anything about it: the only dead end on the landing page, on the lens whose
+                    // whole point is that you have not looked yet.
+                    if section.lens == .storage, let onBuildStorage {
+                        Button(isBuildingStorage ? "Analyzing…" : "Analyze") { onBuildStorage() }
+                            .buttonStyle(.plain)
+                            .scaledFont(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(isBuildingStorage ? AnyShapeStyle(.secondary) : AnyShapeStyle(accent))
+                            .chromeHover()
+                            .disabled(isBuildingStorage)
                     }
                 }
             }
