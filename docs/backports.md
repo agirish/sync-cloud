@@ -2609,6 +2609,40 @@ Prose-only — `answersOneLens` counts `lenses`, so nothing depended on the numb
 one-line prose fix that would apply cleanly to `v4.x`**, whose copy carries the same error; it is
 recorded here rather than picked, per the standing direction.
 
+## 2026-09-01 — the person axis is compared by spelling, not by identity (`<sha after push>`) — not owed, and the cleanest pick in this file
+
+`thePersonAndLifecycleAxesAgree` compared `axes["person"]` with a raw `==`. Every consumer of that
+value resolves it through `PersonRegistry.person(forAxisValue:)`, whose matcher lowercases, so
+`Aditi` and `aditi` are one person to the app and two to the test. On the live tree that was **477
+of 5019 folders, all of them case alone** — 0.905 against a 0.99 floor, with the roster complete and
+every attribution correct.
+
+```sh
+# Positive control first — the expression must be found somewhere, or absence proves nothing.
+for l in main v4.x v3.x v2.x; do
+  echo "$l: suiteFile=$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Tests/Sync/FolderSurveyGroundTruthTests.swift | wc -l)" \
+       "rawCompare=$(git show origin/$l:Modules/Sync/Tests/Sync/FolderSurveyGroundTruthTests.swift 2>/dev/null | grep -c 'check(axis, a == b')"
+done   # measured 2026-09-01: main suiteFile=1 rawCompare=0 (fixed); v4.x 1/1; v3.x and v2.x 0/0
+```
+
+**`v4.x` carries the suite and the bug.** `v3.x` and `v2.x` have neither — the ground-truth suite
+arrived after they were cut.
+
+**Not owed, per the standing direction — but this is the one row here that would pick cleanly.** It
+is test-only, non-breaking, touches no shipping code, and the file it changes exists on `v4.x` at
+the same path. Recorded rather than picked, and the reason to know it: **the suite is machine-pinned
+and never runs on CI**, so `v4.x` will look green forever and go red the moment someone runs
+`Modules/Sync` locally on a machine whose active profile was built from the profile's own tokens
+rather than from `people.json` — which is this Mac. A maintainer meeting that red will read 0.905 as
+data corruption, because that is exactly what it looks like.
+
+**The expensive part is what the red invites you to do.** The recorded diagnosis for this failure
+said one survey refresh would repair it. It would not: `resurveyFilingMemory` never touches the
+folder profile, and the only paths that rebuild the person axis are `deriveFolderProfile`, which
+writes a fresh profile with no `carryOver` and drops the filing memory (2309 folders here), and the
+restructure landing, which moves files. A maintainer on `v4.x` acting on that red would pay one of
+those prices to fix a spelling the app ignores. That is the whole reason this row exists.
+
 ## 2026-09-01 — two flake findings and a correction to `flaky-tests.md` (`7aa4fa82`) — not owed, but `v4.x` carries the wrong claim
 
 Docs only, and the most *pickable* row in this file — which is exactly why it needs writing down
