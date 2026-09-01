@@ -2,10 +2,18 @@ import Foundation
 
 /// Which of Organize's lenses is on screen, or `nil` for the overview.
 ///
-/// Organize is the one place that changes a single tree, and every way of changing it is a lens
-/// here: the filing queue, duplicates, cloud-hostile names, the rename backlog, the structure
-/// findings, and the rules that file without asking. Compare (two trees) and Storage (reads, never
-/// writes) stay workspaces of their own; nothing else does.
+/// **Organize is everything the app concludes about a single tree.** Most lenses act on their
+/// conclusion — the filing queue, duplicates, the rename backlog, the structure findings; Rules
+/// writes the standing instructions that act without asking; Storage only reports — it never
+/// moves, deletes, or evicts a file. Compare (two trees) stays a workspace of its own; nothing
+/// else does.
+///
+/// The boundary used to read "Organize changes one tree, Storage reads one tree and changes
+/// nothing", and that put Storage in a tab. It was the wrong cut: **acting is not what makes a
+/// lens, being about the same tree is.** Rules proved that first — configuration, no badge, in no
+/// pass — and Storage is the same shape one step further along. What survives the rewording is the
+/// enforcement: ``carriesBadge`` means *there is something here to act on*, so the two lenses that
+/// do not act do not badge.
 ///
 /// ## Why a rail, when the chips worked
 ///
@@ -17,10 +25,10 @@ import Foundation
 /// somewhere before any scan has found anything, and a chip that materialises only after a scan
 /// has nowhere to land. So the rail item is permanent and the badge is not:
 ///
-/// - **The item always exists.** Five of them — ``railItems``, in this order, whatever the counts
+/// - **The item always exists.** Six of them — ``railItems``, in this order, whatever the counts
 ///   are.
 /// - **The badge is absent at zero** — not greyed, not "0". `badge(count:)` returns `nil`.
-/// - **The overview is the unselected state**, not a sixth item. It is what the rail shows when
+/// - **The overview is the unselected state**, not a seventh item. It is what the rail shows when
 ///   no lens is picked, so it needs no name of its own and cannot be "a tab you forget to visit".
 ///
 /// ## No `effective` fallback any more
@@ -59,8 +67,20 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
     /// Where the tree disagrees with its own habits (ROADMAP 20).
     case restructure = "Restructure"
     /// The rules that file things without asking (ROADMAP 15). Configuration, not a finding —
-    /// which is why ``carriesBadge`` says no for this one alone.
+    /// which is why ``carriesBadge`` says no for this one.
     case rules = "Rules"
+    /// Where the space goes: a treemap of one tree, the largest files, the untouched ones, and what
+    /// could be reclaimed. **A report, not a backlog** — this lens never moves, deletes, or evicts
+    /// a file, which is why ``carriesBadge`` says no for it too: a "9.4 GB reclaimable" badge would
+    /// read as a to-do the lens has no verb to execute.
+    ///
+    /// **Last, because the rail runs act-heavy to act-never.** To File through Restructure act,
+    /// Rules configures the acting, Storage only looks.
+    ///
+    /// It was a workspace of its own until the fold, which is the only reason its report is the one
+    /// lens result restored across launches — see `FileSyncManager+StorageLens`. That lifecycle
+    /// came with it unchanged.
+    case storage = "Storage"
 
     public var id: String { rawValue }
 
@@ -90,6 +110,7 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
         case .renames: return "Renames"
         case .restructure: return "Restructure"
         case .rules: return "Rules"
+        case .storage: return "Storage"
         }
     }
 
@@ -105,15 +126,28 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
         case .renames: return "folder.badge.gearshape"
         case .restructure: return "square.stack.3d.up"
         case .rules: return "wand.and.stars"
+        case .storage: return "chart.pie"
         }
     }
 
     /// Whether this lens can ever wear a count badge.
     ///
-    /// **Rules cannot, and that is the whole distinction the badge draws.** Eight rules is a
-    /// configuration you keep, not a result a scan turned up; a badge on it would report a
-    /// standing number that never means "something needs you". Every other lens counts work.
-    public var carriesBadge: Bool { self != .rules }
+    /// **A badge promises there is something here to act on, and two lenses cannot keep that
+    /// promise.** Eight rules is a configuration you keep, not a result a scan turned up; a badge
+    /// on it would report a standing number that never means "something needs you". Storage is the
+    /// second, for the same reason one step further along: its numbers are true and large — "9.4 GB
+    /// reclaimable" — and the lens has no verb to spend them, so a badge would be a to-do the app
+    /// cannot execute. The other four count work you can start.
+    ///
+    /// **This is not the same line ``isScoped`` draws, and it stopped being the same line when
+    /// Storage folded in.** Rules is exempt from both, which made the two look like one
+    /// distinction; Storage is exempt from *this* one and honours scope. See `isScoped`.
+    public var carriesBadge: Bool {
+        switch self {
+        case .rules, .storage: return false
+        case .toFile, .duplicates, .renames, .restructure: return true
+        }
+    }
 
     /// The badge for a count: **`nil` at zero**, so a lens with nothing to report says nothing.
     ///
@@ -124,10 +158,24 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
         return count
     }
 
-    /// Whether Organize's scope narrows this lens — **false for Rules, and for the same reason
-    /// ``carriesBadge`` is.**
+    /// Whether Organize's scope narrows this lens — **false for Rules alone.**
     ///
-    /// Five lenses report what a scan turned up *somewhere*, so "somewhere" is a narrowing that
+    /// **Rules is the only exemption, and this is no longer the same line ``carriesBadge`` draws.**
+    /// It was, while Rules was the only lens exempt from either: badgeless and unscoped described
+    /// one set, so one rule seemed to explain both. Storage separates them. It is badgeless (a
+    /// badge promises action; Storage only reports) and yet **scoped** — a treemap of `~/Documents`
+    /// and a treemap of `~/Documents/Media` are both honest pictures of the root they name, so
+    /// narrowing is meaningful in a way it is not for a rule whose destinations lie all over the
+    /// source. Two distinctions, each with its own reason.
+    ///
+    /// **For Storage, scope means re-analysis, never a filter** — the analyzer re-runs at the scope
+    /// root and the report describes that root. A treemap is a part-of-whole picture, so subsetting
+    /// an existing report would misstate every proportion in it; Storage already refuses to let
+    /// *search* subset it for exactly this reason, and scope is the same hazard with a different
+    /// door. `storageLensRoot` records which root a report describes so a restored one is never
+    /// presented under a scope it was not built from.
+    ///
+    /// Four lenses report what a scan turned up *somewhere*, so "somewhere" is a narrowing that
     /// means something: scope To File to `Finance` and you get the loose files in Finance. Rules are
     /// configuration, and a rule's whole job is to move a file from where it is to somewhere else —
     /// **rules file into destinations all over the source.** Narrowing them by the folder you happen
@@ -168,7 +216,7 @@ extension OrganizeLens {
     public var goesStaleDuringFilingScan: Bool {
         switch self {
         case .toFile, .renames: return true
-        case .duplicates, .restructure, .rules: return false
+        case .duplicates, .restructure, .rules, .storage: return false
         }
     }
 }
@@ -191,15 +239,21 @@ extension OrganizeLens {
         case .toFile, .renames, .restructure: return .filing
         case .duplicates: return .duplicates
         case .rules: return .automations
+        case .storage: return .storage
         }
     }
 
     /// The rail item a programmatic caller naming a ``WorkspaceLensKind`` is asking for.
     ///
     /// Not a strict inverse of ``searchLens`` and cannot be: three rail items share `.filing`, so
-    /// this picks the one that *is* the filing queue. `.storage` answers `nil` — it is a workspace
-    /// of its own, not a lens inside Organize, and a caller asking for it wants
-    /// ``Workspace/storage``.
+    /// this picks the one that *is* the filing queue. Every other kind answers the one rail item
+    /// that owns it.
+    ///
+    /// **Still failable, and now only for the sake of the caller.** `.storage` used to answer `nil`
+    /// — it was a workspace of its own and a caller naming it wanted `Workspace.storage`. Since the
+    /// fold every `WorkspaceLensKind` bridges to a rail item, so this never returns `nil` today;
+    /// the optionality is kept because the *next* apparatus added without a rail item of its own
+    /// needs somewhere to say so, which is the same argument ``railItems`` is kept for.
     ///
     /// There is no arm for the retired `.rename` apparatus: risky names are rows in the Renames
     /// backlog now, and `WorkspaceLensKind` no longer carries a case for them.
@@ -208,7 +262,7 @@ extension OrganizeLens {
         case .filing: self = .toFile
         case .duplicates: self = .duplicates
         case .automations: self = .rules
-        case .storage: return nil
+        case .storage: self = .storage
         }
     }
 }
@@ -243,6 +297,10 @@ extension OrganizeLens {
                                 + "that were shaped differently in different years."
         case .rules:       what = "The rules that file things without asking. Configuration, so "
                                 + "this one never carries a count."
+        case .storage:     what = "Where the space goes — the largest files, the ones nothing has "
+                                + "touched, and what could be reclaimed. A report, so this one "
+                                + "never carries a count and never moves, deletes, or evicts a "
+                                + "file."
         }
         switch state {
         case .reporting(let count):

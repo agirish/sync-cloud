@@ -34,7 +34,8 @@ import Testing
     /// Order matters as much as membership: the retirement removes an item that was already
     /// undrawn, so the rail a user sees must be byte-for-byte the rail they saw yesterday.
     @Test func theRailDrawsEveryLens() {
-        #expect(OrganizeLens.railItems == [.toFile, .duplicates, .renames, .restructure, .rules])
+        #expect(OrganizeLens.railItems == [.toFile, .duplicates, .renames, .restructure, .rules,
+                                           .storage])
         #expect(OrganizeLens.railItems.count == OrganizeLens.allCases.count,
                 "a lens exists that the rail does not draw — the state this retirement ended")
     }
@@ -46,7 +47,10 @@ import Testing
     /// not end up selecting nothing.
     @Test func theBridgeAnswersOnlyRailItems() {
         for kind in WorkspaceLensKind.allCases {
-            guard let item = OrganizeLens(kind) else { continue }   // `.storage` is a workspace
+            // No kind is skipped any more. `.storage` used to be — it was a workspace of its own
+            // and the bridge answered nil for it — and the `guard` survives the fold only because
+            // the bridge stays failable for the NEXT apparatus added without a rail item.
+            guard let item = OrganizeLens(kind) else { continue }
             #expect(OrganizeLens.railItems.contains(item),
                     "\(kind.rawValue) bridges to a lens the rail does not draw")
         }

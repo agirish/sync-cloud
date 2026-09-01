@@ -16,8 +16,9 @@ enum OrganizeRailStyle: Equatable, Sendable {
 /// The rail's width arithmetic, kept pure so the shedding rule can be asserted without mounting a
 /// header.
 ///
-/// **Why this exists at all: the rail took row 1, and row 1 already had tenants.** Six spelled-out
-/// items are about 670pt at the default text size, and the trailing controls on the same row are
+/// **Why this exists at all: the rail took row 1, and row 1 already had tenants.** Seven
+/// spelled-out elements — the overview plus six lenses — are about 765pt at the default text size
+/// with three-digit badges up (623pt with every item quiet), and the trailing controls on the same row are
 /// Rescan, Refine and *File all N* plus the search toggle. At the 900pt canvas the two together
 /// overran the row and SwiftUI resolved it the way it always does — by truncating the flexible
 /// side, which is the action labels. Nothing disappeared and nothing logged; "Refine with Opus"
@@ -86,14 +87,6 @@ enum OrganizeRailMetrics {
     /// `theLeadingModelMatchesWhatTheRowDraws` states: a model short of the row it describes lets
     /// the row overrun before it sheds.
     static let overviewMargin: CGFloat = 8
-    /// Storage's equivalent, measured on Storage's own row rather than inherited.
-    ///
-    /// **Zero, and that is a measurement.** Organize's 8pt covers slack in a six-item assembly whose
-    /// labels are measured at `.semibold` and mostly drawn at `.medium`; Storage's rail is four
-    /// items and its "All" is the *selected* one in the default state, so the same 8pt was pure
-    /// over-count — the render put the model 13.3 / 19.7 / 22.1pt over at 0.9 / 1.15 / 1.3.
-    /// `theStorageLeadingModelMatchesWhatTheRowDraws` holds both ends of this.
-    static let storageOverviewMargin: CGFloat = 0
     /// A group separator: the 1pt rule, plus the ONE `itemGap` adding an element to the row costs.
     ///
     /// Not two. The rail is an `HStack(spacing: itemGap)`, so N elements carry N−1 gaps and each
@@ -112,6 +105,14 @@ enum OrganizeRailMetrics {
     /// reserve meant row 1 wanted **1,183pt of card** before it would show six names. Most windows
     /// are narrower than that, so most windows got the glyph-only rail — the shed was the normal
     /// state rather than the exception it was designed to be.
+    ///
+    /// **Storage's fold added one badgeless item and moved that threshold to ~801pt** (default text
+    /// size, three-digit badges on the four counters; ~659 with the rail quiet) — measured, not
+    /// estimated, and `theLeadingModelMatchesWhatTheRowDraws` holds it against the render at every
+    /// text size. Badgeless is the cheapest kind of item there is: 86.7pt at default, no badge to
+    /// reserve digits for. What the same commit *removed* is larger — the whole separate
+    /// `storageRail` and its `storageLeadingWidth` special case, so row 1 went from two rails that
+    /// shed by different rules to one.
     ///
     /// The measured trailing sets are kept here because they are what justified the move and would
     /// have to be re-measured to undo it: To File **436.5–468** with the refine offer showing,
@@ -157,6 +158,7 @@ enum OrganizeRailMetrics {
         case .renames:     base = 17
         case .restructure: base = 14
         case .rules:       base = 14
+        case .storage:     base = 13
         }
         return base * scale
     }
@@ -276,53 +278,6 @@ enum OrganizeRailMetrics {
     /// rather than beside the rail where the first cut of this type left it uncounted.
     static func leadingWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         fullWidth(scale: scale, state: state)
-    }
-
-    /// Everything **Storage's** row 1 must seat: All, a separator, and its three ranked lists.
-    ///
-    /// A second entry point rather than a second type, because the two rails are the same control
-    /// drawn from different vocabularies — and the one thing worse than a rail that sheds is two
-    /// rails in one header shedding by different rules.
-    ///
-    /// Measured at 417.8pt with all three lists reporting, against the only thing row 1 reserves —
-    /// ``searchToggleWidth``, 36pt — so it clears every width this app is used at with room to
-    /// spare. **Reanalyze is not in that reserve.** This said "roughly 130 (Reanalyze and the
-    /// search toggle)", which described row 1 as it stood before Storage's controls moved down
-    /// beside Organize's; ``style(contentWidth:leadingWidth:)`` has charged the toggle alone since,
-    /// so the arithmetic was right and only the sentence named a row that no longer exists.
-    ///
-    /// It is modelled anyway: Storage's leading half was empty until this rail filled it, and an
-    /// unmodelled control on this side of the row is exactly how a 21pt intro button once rode here
-    /// uncharged.
-    static func storageLeadingWidth(scale: CGFloat,
-                                    state: (StorageSection) -> RailItemState) -> CGFloat {
-        // The ramp's curve, not `11.5 * scale` — see ``overviewItemWidth(scale:margin:)``.
-        let font = NSFont.systemFont(ofSize: FontSize.scaledPointSize(11.5, scale: scale),
-                                     weight: .semibold)
-        let items = StorageSection.allCases.reduce(CGFloat.zero) { total, section in
-            total + (section.railTitle as NSString).size(withAttributes: [.font: font]).width
-                + storageGlyphWidth(section, scale: scale) + glyphGap + itemPadding
-                + stateWidth(state(section), scale: scale)
-        }
-        // **`count - 1`, and the off-by-one this fixes was found by rendering the row.** Five
-        // elements — All, the rule, and three sections — carry four gaps, and the three sections
-        // account for only two of them between themselves; `overviewItemWidth` and
-        // `separatorWidth` each carry the one gap their own element adds. Charging `count` put a
-        // whole `itemGap` in twice. Same shape as ``fullWidth(scale:state:)``, which had it right.
-        return items + CGFloat(max(0, StorageSection.allCases.count - 1)) * itemGap
-            + overviewItemWidth(scale: scale, margin: storageOverviewMargin) + separatorWidth
-    }
-
-    /// Storage's rail glyphs at 10.5pt semibold, tabulated like ``glyphWidth(_:scale:)`` and pinned
-    /// against the renderer by `theStorageGlyphTableMatchesTheRenderer`.
-    static func storageGlyphWidth(_ section: StorageSection, scale: CGFloat = 1) -> CGFloat {
-        let base: CGFloat
-        switch section {
-        case .largest: base = 13
-        case .stale: base = 15
-        case .reclaim: base = 16
-        }
-        return base * scale
     }
 
     /// The same, with the rail shed — what the row falls back to.

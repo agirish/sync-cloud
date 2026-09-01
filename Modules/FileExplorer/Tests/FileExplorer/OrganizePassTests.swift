@@ -49,12 +49,13 @@ import SwiftUI
         #expect(OrganizePass(producing: .rules) == nil)
     }
 
-    /// The file pass answers **three** lenses, and that is the whole point of the type.
+    /// The file pass answers **two** lenses, and that is the whole point of the type.
     ///
     /// Pinned as a literal rather than derived, because the number is the claim: `FileSyncManager`
     /// publishes the filing queue and the rename backlog — risky names included, as that backlog's
     /// to-fix rows — from one walk, and an offer that promised fewer would be the old footer's
-    /// mistake told the other way round.
+    /// mistake told the other way round. (The prose said "three" while the assertion said two, from
+    /// back when risky names were a lens rather than rows inside Renames.)
     @Test func theFilePassAnswersBothOfItsLenses() {
         #expect(OrganizePass.file.lenses == [.toFile, .renames])
         #expect(OrganizePass.duplicates.lenses == [.duplicates])
@@ -463,18 +464,25 @@ import SwiftUI
         #expect(ledger.checksRun == 2)
     }
 
-    /// The denominator is the lenses that can run — five, not six.
+    /// The denominator is the lenses that can run — four of the six.
     ///
-    /// With six, a tree where every check has completed reads "5 of 6" forever: a screen
+    /// Count them all and a tree where every check has completed reads "4 of 6" forever: a screen
     /// permanently claiming outstanding work that no button can ever discharge.
-    @Test func theDenominatorExcludesRules() {
+    @Test func theDenominatorExcludesTheLensesThatCannotRun() {
         let ledger = OrganizeOverview.Ledger.derived(from: [],
                                                      runnablePasses: Set(OrganizePass.allCases),
                                                      reclaimable: nil, scopeFolders: nil)
-        // Four: rules never scans, and the folded Names lens is counted with its host —
-        // a denominator that still counted it would read "4 of 5" forever on a clean tree.
+        // Four. **Two lenses are excluded, not one**, and they are excluded by the same gate:
+        // `countedLenses` keeps only badge-carriers, so Rules (configuration) and Storage (a
+        // report with no verb) both stay out of the meter with no ledger code of their own.
         #expect(ledger.checksTotal == 4)
-        #expect(ledger.checksTotal == OrganizeLens.railItems.count - 1)
+        // Derived from the badge rule rather than from `railItems.count - 1`. The subtraction was
+        // an arithmetic way of saying "there is exactly one exemption", which stopped being true
+        // the day Storage folded in — and would have gone on reading as arithmetic rather than as
+        // the claim it was. State the rule; let the count follow it.
+        #expect(ledger.checksTotal == OrganizeLens.railItems.filter(\.carriesBadge).count)
+        #expect(OrganizeLens.railItems.filter { !$0.carriesBadge } == [.rules, .storage],
+                "a third lens stopped carrying a badge — it has silently left this denominator too, so decide deliberately whether the meter should still be counting it")
     }
 
     /// Every lens run, and the ratio closes.

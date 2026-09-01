@@ -26,8 +26,12 @@ import Foundation
 /// simply never gets offered a scan, which looks exactly like a lens that has already run.
 enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
 
-    /// One walk of the tree, publishing **three** lenses' answers together: the filing queue,
-    /// the risky names found on the same pass, and the folder-rename backlog.
+    /// One walk of the tree, publishing **two** lenses' answers together: the filing queue and the
+    /// rename backlog, whose to-fix rows are the risky names found on the same pass.
+    ///
+    /// It said "three" until the risky names stopped being a lens of their own and became rows
+    /// inside Renames. Nothing depended on the number — ``answersOneLens`` counts ``lenses`` — so
+    /// the prose rotted quietly, which is the failure mode this whole type exists to make loud.
     case file
 
     /// Hashing. The only pass that reads file *contents* rather than the tree's shape, and the
@@ -36,16 +40,19 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
 
     /// The folder survey behind Restructure. **Not a scan of the tree** — Restructure runs no
     /// walk of its own; it reads what the survey already learned, which is why the lens can be
-    /// reporting while the other five have never run.
+    /// reporting while every other lens has never run.
     case folderMemory
 
     var id: String { rawValue }
 
     /// The lenses this pass answers, in rail order.
     ///
-    /// Rules appears in no pass and that is the whole of its difference: it is configuration you
-    /// keep, never a result a scan turned up — the same distinction ``OrganizeLens/carriesBadge``
-    /// draws, and the reason `overviewSections` returns `nil` for it.
+    /// **Two lenses appear in no pass, and that is the whole of their difference.** Rules is
+    /// configuration you keep, never a result a scan turned up. Storage does run an analysis, but
+    /// not one of *these* — its report has its own lifecycle, restored across launches, and its own
+    /// Re-analyze verb, so putting it in a pass would offer it through a scan button that cannot
+    /// produce it. Both exemptions are the distinction ``OrganizeLens/carriesBadge`` already draws,
+    /// which is why `countedLenses` needed no code to exclude either.
     var lenses: [OrganizeLens] {
         switch self {
         case .file: return [.toFile, .renames]
