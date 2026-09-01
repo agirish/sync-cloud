@@ -3075,3 +3075,31 @@ done   # `grep -c` EXITS 1 ON ZERO, so the loop's own status says nothing — re
   inside the Edit topic, which is `main`-only.
 
 Recorded rather than picked, per the standing direction.
+
+## 2026-09-01 (later still) — wrapping, spell checking, live links, drawn images
+
+`51233deb`, `fe3656d1`, `c768ca92`. Two switches on the editor's context menu; links that open and
+`#heading` links that scroll; and an image on a line of its own drawn from a file already on this
+disk.
+
+**Nothing is owed.** Every file involved is either `main`-only or is one of the two shared documents
+whose `main` wording is only correct because `main` has an editor:
+
+- **`PlainTextEditor`, `MarkdownPreview`, `MarkdownBlocks`, `MarkdownOutline`,
+  `EditorWorkspaceView`, `EditorTextSettings`, `MarkdownImageSource` — none exist on any
+  maintenance line.** Established two entries above and unchanged: no line has an editor, and the
+  Markdown renderer arrived with it.
+- **`HelpBook`'s `editor-workspace` topic is `main`-only**, so its new bullets have nowhere to go.
+- **`ShortcutsReference`'s Edit group is `main`-only too** — the group was added with the editor.
+  Its amended row names a right-click menu that does not exist elsewhere.
+
+### The one thing here that would be worth picking, if it applied
+
+`MarkdownImageSource`'s cloud-only rule is the kind of decision that usually generalises: **drawing
+a cloud-only file materialises it**, so a preview that renders whatever a document links to
+downloads things onto somebody's disk because they opened a note. That rule is not owed anywhere
+only because nothing else on any line renders a file's *linked contents* — the panes list files and
+Quick Look shows what is already there. Worth writing down so a future surface that does render
+linked content inherits the reasoning rather than rediscovering it in somebody's iCloud quota.
+
+Recorded rather than picked, per the standing direction.
