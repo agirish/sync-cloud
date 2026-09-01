@@ -250,14 +250,26 @@ struct PlainTextEditor: NSViewRepresentable {
         }
     }
 
-    /// Opens the find bar over the text view.
+    /// Opens the find bar over the text view, **with its Replace row showing**.
     ///
     /// **Through a tagged sender, which is the only way in.** `performTextFinderAction(_:)` reads
     /// which action to run off the sender's `tag` — there is no typed entry point — so a menu item
     /// that is never in a menu is the standard way to ask for one by hand.
-    static func showFindBar(in view: NSTextView) {
+    ///
+    /// **`.showReplaceInterface`, not `.showFindInterface`, and the difference is not cosmetic.**
+    /// This shipped as the latter, on the reasonable-sounding assumption that the bar carries both
+    /// rows and lets the reader reveal the second. Measured, it does not: AppKit builds the Replace
+    /// field either way, and under `.showFindInterface` it is `isHidden` and parked at y = -22 with
+    /// no control in the bar to bring it back. So the one button in the document header — whose
+    /// tooltip says "Find and replace in this document", and whose Help entry promises replace and
+    /// replace-all — opened a bar that could only find. `theFindBarOpensWithItsReplaceRowShowing`
+    /// pins it by measuring the field rather than by trusting the action's name.
+    ///
+    /// The find field still takes the caret, so opening this for a plain find costs one extra row
+    /// and no keystrokes.
+    public static func showFindBar(in view: NSTextView) {
         let sender = NSMenuItem()
-        sender.tag = NSTextFinder.Action.showFindInterface.rawValue
+        sender.tag = NSTextFinder.Action.showReplaceInterface.rawValue
         view.performTextFinderAction(sender)
     }
 
@@ -272,6 +284,9 @@ struct PlainTextEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
+        // **Marked, so a chord fired from outside can tell this text view from every other one.**
+        // See `EditorDocumentSurface` for why `responder is NSTextView` is the wrong question.
+        scroll.identifier = EditorDocumentSurface.identifier
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false

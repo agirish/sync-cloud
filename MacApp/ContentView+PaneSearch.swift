@@ -301,15 +301,35 @@ extension ContentView {
 /// pane search is invoked precisely when focus is sitting in a file table, which is where the key
 /// would never arrive. A menu item is also the only form that documents itself — the shortcut shows
 /// up in the menu bar, which is where someone looks for it.
+/// **It routes, and the title had to stop naming one destination.**
+///
+/// ⌘F means "find what I am looking at". With the caret in the editor's open document that is the
+/// document — the Edit workspace shipped with no way to search it at all, because this item claimed
+/// the chord and expanded the search field of a source pane that is *collapsed by default* there.
+/// Everywhere else it is still the pane, unchanged.
+///
+/// The routing is resolved when the key is pressed rather than when the menu is built, which is
+/// what lets one item serve both without tracking focus in SwiftUI state: `NSApp.keyWindow`'s first
+/// responder is the authority, and it is right at the instant it is asked. The cost is that the
+/// title cannot name the destination the way `Go ▸ Focus <pane>` does — so it names neither, and
+/// "Find…" is true of both.
+///
+/// **Routed on `EditorDocumentSurface`, NOT on `TextEditingChord`.** The latter asks whether the
+/// responder `is NSTextView`, which is true of every field editor in the window — so it would open
+/// the document's find bar from inside a pane's own search box.
 struct FindInPaneCommand: View {
     /// Set by whichever scene is focused; `nil` when no window is up, which is when the item should
     /// be disabled rather than silently doing nothing.
     @FocusedValue(\.beginPaneSearch) private var begin
 
     var body: some View {
-        Button("Find in Pane…") { begin?() }
-            .keyboardShortcut(AppChord.findInPane.key, modifiers: AppChord.findInPane.modifiers)
-            .disabled(begin == nil)
+        Button("Find…") {
+            // The document first: when the caret is in it, the pane search is not what was meant.
+            guard !EditorDocumentSurface.showFindBar(in: NSApp.keyWindow) else { return }
+            begin?()
+        }
+        .keyboardShortcut(AppChord.findInPane.key, modifiers: AppChord.findInPane.modifiers)
+        .disabled(begin == nil)
     }
 }
 

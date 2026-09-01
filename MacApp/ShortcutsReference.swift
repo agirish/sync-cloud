@@ -82,7 +82,9 @@ enum ShortcutsReference {
             // the split from the other side; leaving this row unqualified made one of the two wrong
             // wherever the reader happened to be.
             Item(keys: "⌃ ⇥", action: "In Compare, focus the other pane — aims ⌘F, ⌘[ / ⌘], ⇧⌘N and ⇧⌘P"),
-            Item(keys: "⌘ F", action: "Find a file or folder in this pane"),
+            // Routed by where the caret is (`FindInPaneCommand`), so the row has to say so — this
+            // is the only place a reader is told the chord has two destinations.
+            Item(keys: "⌘ F", action: "Find a file or folder in this pane — in Edit, in the document"),
             Item(keys: "⌘ [ / ⌘ ]", action: "Back / forward in the focused pane"),
             Item(keys: "⌘ R", action: "Scan both panes for changes"),
             Item(keys: "⇧⌘ N", action: "New folder in the focused pane's current folder"),
@@ -104,6 +106,11 @@ enum ShortcutsReference {
             // view's context menu and carry no chords: the keys they will eventually take belong to
             // menu-bar items that have not been built, and a reference listing ⌘B for a chord
             // nothing registers would be the one place in the app that lies about the keyboard.
+            // **No ⌘F row here, and it was tried.** The chord's two destinations are named on its
+            // one row in Panes above; a second row for the editor's half read better and pushed the
+            // reference to 784pt against a 760pt window, which
+            // `theReferenceFitsItsWindowWithoutScrolling` caught. Rows are the budget, not words —
+            // so a fact that fits on an existing row belongs on it.
             Item(keys: "Right-click", action: "Markup — bold, headings, lists, links, in the text"),
         ]),
         Group(title: "Tabs", items: [
