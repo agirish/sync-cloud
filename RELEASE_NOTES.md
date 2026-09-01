@@ -58,6 +58,11 @@ User-facing changes, newest first. For the full commit history see the
 - **It refuses rather than guess.** A file that is not valid text opens read-only, because saving it
   would replace the parts that could not be read. One that is too large, still in the cloud, or
   holds no text at all is listed and dimmed with the reason, instead of opening empty.
+- **The rail has two tabs: Text Files and Outline.** Text Files is the folder's list, with the
+  folder it is reading named under the tabs — the same folder ⌘N creates in. Outline is the headings
+  in the open Markdown document: click one to go to it, and the heading you are in is marked as you
+  move about. Each tab gets the whole rail, so a long document's outline is a list rather than a
+  peephole.
 - **⌘N makes a new file** in the folder you are in — a name row in the rail, nothing on disk until
   you press ↩, and a name with no extension becomes `.md`.
 - **Open in Edit** is on the right-click menu of any text file anywhere in the app — Browse, either
