@@ -111,7 +111,7 @@ enum ShortcutsReference {
             // reference to 784pt against a 760pt window, which
             // `theReferenceFitsItsWindowWithoutScrolling` caught. Rows are the budget, not words —
             // so a fact that fits on an existing row belongs on it.
-            Item(keys: "Right-click", action: "Markup — bold, headings, lists, links, in the text"),
+            Item(keys: "Right-click", action: "Markup, plus Wrap Lines and spell checking"),
         ]),
         Group(title: "Tabs", items: [
             Item(keys: "⌘ T", action: "New tab, at the folder this pane is showing"),
