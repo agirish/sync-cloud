@@ -151,6 +151,62 @@ import Foundation
         #expect(a != EditorAutosave.Key(version: 5, path: "/a/one.md"))
     }
 
+    // MARK: What the header says
+
+    /// **Every combination of the three inputs, and the two that matter most are the ordinary
+    /// ones.** The header shipped for a few minutes saying "saved" whether or not anything had been
+    /// written — the dot tracked only the stopped state — which is precisely the reassurance a
+    /// person should not have to take on trust. Watching "unsaved" become "saved" is the entire
+    /// visible evidence that autosave is running.
+    @Test func theHeaderDistinguishesPendingFromWrittenFromStopped() {
+        #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: true, stopped: nil) == .unsaved)
+        #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: false, stopped: nil) == .saved)
+        #expect(EditorSaveStatus.resolve(isReadOnly: true, isDirty: false, stopped: nil) == .readOnly)
+
+        // The two states a person reads to answer "did my typing land": different words AND a
+        // different dot, so neither the glance nor the read can confuse them.
+        let pending = EditorSaveStatus.unsaved
+        let written = EditorSaveStatus.saved
+        #expect(pending.caption != written.caption)
+        #expect(pending.showsDot && !written.showsDot,
+                "pending and written draw the same dot — the only glanceable difference is gone")
+        #expect(!pending.isWarning, "ordinary pending work is being shown as a problem")
+    }
+
+    /// A stop outranks dirtiness, and read-only outranks both. A stopped document is dirty by
+    /// definition, so "unsaved" there would be the same fact in its less useful spelling.
+    @Test func aStopOutranksTheOrdinaryPendingState() {
+        let stopped = EditorSaveStatus.resolve(isReadOnly: false, isDirty: true,
+                                               stopped: "not saving — changed on disk")
+        #expect(stopped == .stopped("not saving — changed on disk"))
+        #expect(stopped.caption == "not saving — changed on disk")
+        #expect(stopped.showsDot && stopped.isWarning,
+                "a stopped document does not warn — it looks exactly like ordinary pending work")
+        // Read-only wins even over a stop: nothing can be written, so nothing is pending.
+        #expect(EditorSaveStatus.resolve(isReadOnly: true, isDirty: true, stopped: "x") == .readOnly)
+    }
+
+    /// **The guard that says the bytes really landed.**
+    ///
+    /// `write` re-stats the file it just installed — it needs the new stamp anyway — and now checks
+    /// that the length matches what it handed over. This is the premise that check rests on, across
+    /// every encoding: a byte-order mark is part of the file, so a guard that forgot one would
+    /// refuse every UTF-16 save. Driven off `allCases` so a seventh encoding cannot skip it.
+    @Test(arguments: BoundedTextRead.TextEncoding.allCases)
+    func aSavedFileIsExactlyAsLongAsWhatWasWritten(encoding: BoundedTextRead.TextEncoding) throws {
+        let folder = try scratch()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let body = "hello there\n"
+        let bytes = try #require(EditorFileStore.encode(body, as: encoding))
+        let path = folder.appendingPathComponent("note.md").path
+        try bytes.write(to: URL(fileURLWithPath: path))
+
+        let stamp = try EditorFileStore.write(body, toPath: path, encoding: encoding)
+        #expect(stamp.size == bytes.count,
+                "\(encoding.rawValue): the stamp reports \(stamp.size)B for \(bytes.count)B written")
+        #expect(try Data(contentsOf: URL(fileURLWithPath: path)).count == bytes.count)
+    }
+
     /// The quiet interval is a decision, not an accident: short enough that little is at risk,
     /// long enough that an ordinary paragraph is one write rather than a dozen uploads.
     @Test func theQuietIntervalIsAPauseForThoughtRatherThanAKeystroke() {

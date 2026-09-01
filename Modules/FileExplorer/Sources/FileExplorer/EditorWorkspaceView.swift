@@ -210,18 +210,25 @@ public struct EditorWorkspaceView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                // **The dot now means "autosave has stopped", not "you have not saved yet".**
-                // Under autosave an unsaved buffer is the ordinary state for about two seconds at a
-                // time, and a dot that blinked on through every pause in typing would be a light
-                // that is always on — worth nothing at the moment it matters. So it appears only
-                // when writing has actually halted, and it wears the warning colour rather than the
-                // accent, because it is now a problem rather than a status.
+                // **Three states, because two of them are the point.**
+                //
+                // This briefly drew only the stopped state, on the reasoning that an unsaved buffer
+                // is now ordinary and a dot tracking it would be a light that is always on. That
+                // was wrong about what the light is FOR: it is on while you type and for the couple
+                // of seconds after, and off the rest of the time — so watching it go out is the
+                // only evidence on screen that autosave is working at all. Removing it left a
+                // header that said "saved" whether or not anything had been written, which is
+                // exactly the reassurance nobody should take on trust.
+                //
+                // Accent while the write is pending, amber when writing has STOPPED, nothing when
+                // the file matches the buffer. The two coloured states are never both true: a stop
+                // is only interesting because the document is dirty under it.
                 Circle()
-                    .fill(stopped == nil ? Color.clear : Color.orange)
+                    .fill(dotColour ?? .clear)
                     .frame(width: 6, height: 6)
-                    .opacity(stopped == nil ? 0 : 1)
-                    .accessibilityHidden(stopped == nil)
-                    .accessibilityLabel("Not saving")
+                    .opacity(dotColour == nil ? 0 : 1)
+                    .accessibilityHidden(dotColour == nil)
+                    .accessibilityLabel(status.isWarning ? "Not saving" : "Not saved yet")
                 Text(document.name)
                     .scaledFont(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
@@ -263,16 +270,34 @@ public struct EditorWorkspaceView: View {
     /// A stop is what actually needs saying, because it is the one state where typing is not
     /// reaching the file, and it replaces the segment rather than joining it: "saved · not saving"
     /// is a contradiction, and the stop is the half that matters.
+    /// The one resolution of "where does this document stand", used by the dot and the words alike.
+    private var status: EditorSaveStatus {
+        EditorSaveStatus.resolve(isReadOnly: document.isReadOnly,
+                                 isDirty: document.isDirty, stopped: stopped)
+    }
+
+    /// Which colour the dot wears, or `nil` for no dot at all.
+    private var dotColour: Color? {
+        guard status.showsDot else { return nil }
+        return status.isWarning ? .orange : accent
+    }
+
+    /// **What the last segment says, and it is the whole visible account of autosave.**
+    ///
+    /// "unsaved" is a real state rather than a courtesy: it is true from the keystroke until the
+    /// debounce elapses and the write returns, which is the window where a crash would cost
+    /// something. Saying "saved" through it would be a claim the app cannot support.
+    ///
+    /// There is still no "saving…" between them. The write is a staged file and a rename on a local
+    /// path and returns inside a frame, so a third state would be a flicker nobody can read — and
+    /// it would suggest a duration the app does not actually spend.
+    ///
+    /// A stop REPLACES the pair rather than joining it: "unsaved · not saving" is the same fact
+    /// twice, and the stop is the half that says what to do about it.
     private var metaLine: String {
         var parts: [String] = [document.isMarkdown ? "Markdown" : "Plain text"]
         if let size = document.stamp?.size { parts.append(FileSyncManager.formatBytes(size)) }
-        if document.isReadOnly {
-            parts.append("read only")
-        } else if let stopped {
-            parts.append(stopped)
-        } else {
-            parts.append("saved")
-        }
+        parts.append(status.caption)
         return parts.joined(separator: " · ")
     }
 

@@ -284,6 +284,24 @@ public enum EditorFileStore {
             // reported rather than treated as a lost save.
             throw Failure(message: "Saved, but the file couldn't be re-checked afterwards.")
         }
+        // **The read-back is CHECKED, not just taken.** This stat was already here to give the
+        // buffer its next stamp, and its size is free evidence about the write that just happened:
+        // the file at this path should be exactly as long as the bytes handed to it. When it is
+        // not, the file is not the one written a microsecond ago — something replaced it in the
+        // window between the swap and this line, which the comment above already names as a real
+        // (if narrow) race and which was, until now, silently accepted. Accepting it is the part
+        // that mattered: the caller would mark the buffer clean against a stamp describing somebody
+        // else's file, and the NEXT save would then see no divergence and overwrite it without
+        // asking. Refusing here turns an invisible lost update into a question.
+        //
+        // Size rather than a hash of the contents: re-reading the whole file on every autosave
+        // would cost more than the write, and length is enough to catch a replacement by anything
+        // that is not byte-identical — which a different version of a document being edited on two
+        // machines essentially never is.
+        guard stamp.size == bytes.count else {
+            throw Failure(message: "Saved, but the file changed again immediately afterwards — "
+                + "check it before writing over it.")
+        }
         return stamp
     }
 
