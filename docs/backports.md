@@ -3047,3 +3047,31 @@ The notes and the releases page went with it, and both are `main`'s own: `docs/`
 `main`, and the v5.2 draft describes a release no maintenance line will ever cut.
 
 Recorded rather than picked, per the standing direction.
+
+## 2026-09-01 (later again) — the outline keeps its place
+
+`d5172fa4`, `dfaf9811`. The rail's outline reopens where each document was left — resolved to the
+nearest surviving heading when the remembered line has been edited away — unless that would leave
+the heading the caret is in past the fold, in which case it opens there instead.
+
+**Nothing is owed, and it is the same short check as the entry above**, for the same reason: the
+editor is `main`-only, so there is no outline on any maintenance line to remember a place in. The
+one new file is new, and the three shared files were touched only in editor-shaped parts of them.
+
+```sh
+for l in v4.x v3.x v2.x; do
+  git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/EditorFileRailView.swift \
+    >/dev/null 2>&1 && echo "$l HAS the rail" || echo "$l: no rail file"
+  git show origin/$l:MacApp/ContentView.swift | grep -c 'editorRailTab\|editorRailFilter'
+  git show origin/$l:MacApp/HelpBook.swift | grep -c 'Outline is the headings'
+done   # `grep -c` EXITS 1 ON ZERO, so the loop's own status says nothing — read the numbers
+```
+
+- **`EditorOutlineScroll.swift` is new**, and `EditorFileRailView` / `EditorWorkspaceView` are
+  `main`-only: no maintenance line has an editor, established three entries above.
+- **`ContentView.swift` carries none of the editor's rail state on any line** — not
+  `editorRailFilter`, not `editorRailTab`, so not the anchors dictionary added beside them.
+- **`HelpBook.swift` has no Outline sentence to amend on any line.** The clause added here sits
+  inside the Edit topic, which is `main`-only.
+
+Recorded rather than picked, per the standing direction.
