@@ -484,11 +484,12 @@ enum PaneLogic {
     ///
     /// Browse gives the sidebar the window minus one pane, so its stored width always fits. The lens
     /// workspaces do not: their row is sidebar + rail + workspace panel, and the rail and the panel
-    /// carry hard minimums of 220 and 340. At the window floor — 760 when this clamp was written,
-    /// 810 since the Editor workspace took the bar to five labels — that leaves 200pt and 250pt
-    /// respectively, so the 180 default fits either with room and the 280 maximum overruns the
-    /// narrower one by 85. The clamp is computed from the row's real width rather than from the
-    /// floor, so raising the floor loosens it rather than changing it.
+    /// carry hard minimums of 220 and 340. At the window floor — 760 again, after a spell at 810
+    /// while the bar carried five labels — that leaves **200pt**, so the 180 default fits with 20
+    /// to spare and the 280 maximum overruns by 80. The clamp is computed from the row's real width
+    /// rather than from the floor, so a floor that moves loosens or tightens it without this
+    /// arithmetic having to be restated — which is exactly what happened when the floor went 760 →
+    /// 810 → 760 and nothing here had to change but the sentence.
     ///
     /// **The sidebar is what gives way**, because of the three it is the newcomer and the one whose
     /// job survives being narrower — a rail under 220 cannot show a file name and a lens panel under

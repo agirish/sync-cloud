@@ -4,14 +4,20 @@ import FileExplorer
 
 /// Whether the workspace bar can afford to spell its segments out.
 ///
-/// Six labelled segments are about 500pt — the bar carries five now, and has gained one twice:
-/// Browse, and then Edit. Each move pushed the icon-only rung to a wider window rather than
-/// changing any of this arithmetic. The toolbar also has to seat the traffic lights and the
-/// trailing utility pill. Measured through `styles`, the five labels need **781pt** of content
-/// width beside a compact ⌘K pill at the default text size (Small 760, Large 833, Largest 853) —
-/// which is why the window's floor has been raised twice, 600 → 760 → **810**, rather than this
-/// rung being loosened: at a floor under the threshold the bar is icon-only at every text size the
-/// moment the window sits at its minimum. A
+/// The bar carries **four** segments, and the count has moved three times: it gained Browse, then
+/// Edit, then lost Storage to Organize's rail. Each move shifted where the icon-only rung is
+/// reached rather than changing any of this arithmetic. The toolbar also has to seat the traffic
+/// lights and the trailing utility pill. Measured through `styles` beside a compact ⌘K pill, the
+/// four labels need **683.8pt** of content width at the default text size (Small 666.8, Large
+/// 725.1, Largest 741.6) — all of them under the window's **760** floor, so the bar keeps its
+/// labels at every text size at the narrowest window the app allows.
+///
+/// **The floor has followed that count: 600 → 760 → 810 → 760.** At a floor under the threshold the
+/// bar is icon-only at every text size the moment the window sits at its minimum, which is what 600
+/// was; 810 was the price of a fifth label (781 at Default, 833 and 853 at the two largest sizes,
+/// so those two shed even at 810). Four labels need none of that. The margin to watch is Largest —
+/// 741.6 against 760 is 18.4pt, and `ROADMAP.md` §1b is where a fifth segment argues for spending
+/// it. A
 /// toolbar that does not fit does not wrap or truncate — macOS silently folds the overflow behind
 /// a chevron, which is how the *only* control for switching workspace disappears. The two-level
 /// picker avoided this by keeping the lens tabs out of the toolbar entirely; a flat bar cannot.
@@ -67,8 +73,9 @@ enum WorkspaceBarMetrics {
     /// **17 is the tallest glyph, and one point clear of the widest.** `arrow.left.arrow.right`
     /// sets the height at 17; the widest are `folder` and `folder.badge.gearshape` at 16. So a
     /// square 17 clips nothing and over-reserves width by a point per segment — the safe direction
-    /// by this file's own rule. The point of headroom it was holding for a fifth workspace's glyph
-    /// has now been spent: `square.and.pencil` is 15 × 15 and fits with room. A 16×17 frame
+    /// by this file's own rule. The point of headroom it was holding for a further workspace's
+    /// glyph has now been spent: `square.and.pencil` is 15 × 15 and fits with room. (`chart.pie`
+    /// fitted it too, and left the bar with Storage — the frame is what made both free.) A 16×17 frame
     /// would be the exact maxima and save 4pt across the bar; it was not taken because it spends
     /// the headroom to buy 4pt that changes no threshold.
     ///

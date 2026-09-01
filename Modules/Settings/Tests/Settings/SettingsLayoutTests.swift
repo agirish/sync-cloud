@@ -122,7 +122,7 @@ import Testing
     /// as a literal because the Settings module cannot see `MacApp`; the same arrangement
     /// `sheetClampsToTheSpaceTheHostHas` has always used, and the direction is safe — a floor
     /// raised in `ContentView` without updating this only ever gives the sheet more room.
-    private static let windowFloor = CGSize(width: 810, height: 560)
+    private static let windowFloor = CGSize(width: 760, height: 560)
 
     /// The version string this branch's builds actually carry, mirroring `project.yml`'s
     /// `CFBundleShortVersionString`. Kept in step by the release procedure in `CLAUDE.md`, which
@@ -631,28 +631,47 @@ import Testing
         #expect(larger.height > base.height)
     }
 
-    /// **At the window floor the clamp bites in HEIGHT only, and that changed when the floor
-    /// moved.** It used to bite in both axes: the floor was 760 wide, `hostMargin` took 48 off it,
-    /// and 712 was narrower than the 760 the sheet wants. The Editor workspace took the bar to five
-    /// labels and the floor to **810**, which leaves 762 — two points more than the sheet asks for
-    /// — so width is no longer clamped at the narrowest window the app allows.
+    /// **At the window floor the clamp bites in BOTH axes — and this conclusion has now flipped
+    /// twice, which is why it is derived here rather than stated.**
     ///
-    /// That is a real improvement rather than a lost assertion, and it is why the width clamp is
-    /// still exercised below at a width where it does bite: an axis that stops being clamped at the
-    /// fixture is an axis with no test at all unless the fixture moves with it.
+    /// The floor was 760, `hostMargin` took 48 off it, and 712 was narrower than the 760 the sheet
+    /// wants: both axes clamped. The Editor workspace took the bar to five labels and the floor to
+    /// 810, leaving 762 — two points more than the sheet asks for — and width stopped being
+    /// clamped. Folding Storage into Organize took the bar back to four labels and the floor back
+    /// to **760**, so width is clamped again.
+    ///
+    /// **Neither state is asserted as a fact.** Both are read off `windowFloor − hostMargin` versus
+    /// `baseSize.width` at the top of the test, and the assertions follow whichever way that
+    /// comparison goes — so the next time the floor moves this test reports the new truth instead
+    /// of failing on the old one. The invariant that does not move is underneath: the sheet is
+    /// never larger than the space it is centred in, in either axis.
     @Test func sheetClampsToTheSpaceTheHostHas() {
         let available = Self.windowFloor
         let cramped = SettingsSheetMetrics.resolvedSize(textScale: 1, available: available)
+        let roomForWidth = available.width - SettingsSheetMetrics.hostMargin
+        let roomForHeight = available.height - SettingsSheetMetrics.hostMargin
 
-        #expect(cramped.height == available.height - SettingsSheetMetrics.hostMargin,
+        // The invariant, in both axes and whichever way the comparison above goes.
+        #expect(cramped.width <= roomForWidth,
+                "the sheet is wider than the narrowest window can hold and is not being clamped to it")
+        #expect(cramped.height <= roomForHeight,
                 "the sheet is taller than the narrowest window and is not being clamped to it")
-        // Width is NOT clamped here — it is the sheet's own, with room to spare.
-        #expect(cramped.width == SettingsSheetMetrics.baseSize.width)
-        #expect(available.width - SettingsSheetMetrics.hostMargin > SettingsSheetMetrics.baseSize.width,
-                "the floor no longer leaves room for the sheet's natural width — this test is now measuring a clamp it claims is absent")
 
-        // And the width clamp still works, at a window narrow enough to need it. Not a size the
-        // app allows any more, which is the point: the clamp has to survive the floor moving.
+        // Height always clamps at the floor: the sheet is taller than 512 at every text size.
+        #expect(cramped.height == roomForHeight)
+
+        // Width follows the floor. Today 760 − 48 = 712 against a 760 base, so it clamps; at the
+        // 810 floor it did not. Asserted as a derivation so the flip is reported, not failed on.
+        if roomForWidth < SettingsSheetMetrics.baseSize.width {
+            #expect(cramped.width == roomForWidth,
+                    "the floor is narrower than the sheet's natural width and the width clamp is not biting")
+        } else {
+            #expect(cramped.width == SettingsSheetMetrics.baseSize.width,
+                    "the floor leaves room for the sheet's natural width, but it is being clamped anyway")
+        }
+
+        // And the width clamp works at a window narrow enough to need it whatever the floor is
+        // doing — the assertion that survives every move of the number above.
         let narrow = CGSize(width: 700, height: available.height)
         let squeezed = SettingsSheetMetrics.resolvedSize(textScale: 1, available: narrow)
         #expect(squeezed.width == narrow.width - SettingsSheetMetrics.hostMargin)

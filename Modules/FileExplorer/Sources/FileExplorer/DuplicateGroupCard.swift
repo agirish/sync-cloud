@@ -844,7 +844,7 @@ enum DuplicateCardHeaderLayout: Equatable {
     /// than on admitting narrower cards: at this width the name now gets ~116pt where it got ~16.
     ///
     /// It was chosen by COLUMN COUNT before, which was the wrong question: one column simply meant
-    /// "the pane is under 534pt", and a pane at the app's 810pt window floor gives a card near
+    /// "the pane is under 534pt", and a pane at the app's 760pt window floor gives a card near
     /// 350 — narrower than the header needs, so the row header was drawn only at widths where it
     /// does not fit and the chevron and reclaim figure were clipped at the pane edge.
     static let rowHeaderMinimumWidth: CGFloat = 380

@@ -137,13 +137,17 @@ enum SettingsSheetMetrics {
     ///
     /// Scaling up is the point — Larger type needs a larger sheet, or the taller tabs go straight
     /// back to scrolling — but a sheet must never exceed the space it is centered in. The window's
-    /// own minimum is 810×560; `hostMargin` takes 48 off that, leaving 762×512, which is still
-    /// SHORTER than the sheet wants at any text size — so this clamp still does the work, in
-    /// height. **It no longer bites in width**, and that changed under this comment: the floor was
-    /// 760 when this was written, leaving 712 against the 760 the sheet asks for, and the Editor
-    /// workspace raised the floor to 810 for its fifth bar label. Two points of slack, which is
-    /// why the width clamp is now exercised by a fixture narrower than the window floor rather
-    /// than by the floor itself.
+    /// own minimum is 760×560; `hostMargin` takes 48 off that, leaving 712×512, which is SHORTER
+    /// than the sheet wants in both axes — so this clamp does the work in width and in height.
+    ///
+    /// **This conclusion has now flipped twice, and the second flip is why it is written as a
+    /// derivation rather than as a fact.** At the original 760 floor the clamp bit in both axes.
+    /// The Editor workspace raised the floor to 810 for a fifth bar label, leaving 762 against the
+    /// 760 the sheet asks for — two points of slack, and the width clamp stopped biting. Folding
+    /// Storage into Organize took the bar back to four labels and the floor back to 760, so the
+    /// width clamp bites again. The lesson is that this is `floor − hostMargin` versus what the
+    /// sheet asks for, and both operands move; `SettingsLayoutTests.windowFloor` is the one place
+    /// the number lives, so the test flips with the app rather than after it.
     ///
     /// **Grow only.** The scale is floored at 1, the same rule and the same reason as
     /// `ListDensity.tableRowHeight`. A tab's height is not proportional to the text scale: its

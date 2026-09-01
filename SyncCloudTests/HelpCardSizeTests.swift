@@ -119,8 +119,9 @@ import Testing
     /// **The window's own floor can show the card's floor.** If the minimum were larger than the
     /// smallest window the app allows, the clamp would fight the window on every small display.
     @Test func theCardsFloorFitsTheWindowsFloor() {
-        // `ContentView.chromedContent` pins the window to 810×560.
-        let windowFloor = CGSize(width: 810, height: 560)
+        // `ContentView.chromedContent` pins the window to 760×560. (810 while the bar carried
+        // five labels; folding Storage into Organize took it back to four and the floor with it.)
+        let windowFloor = CGSize(width: 760, height: 560)
         #expect(HelpCardSize.minimum.width <= windowFloor.width)
         #expect(HelpCardSize.minimum.height <= windowFloor.height)
     }

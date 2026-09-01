@@ -40,7 +40,7 @@ public enum EditorLayoutMetrics {
     ///
     /// **One function, because this arithmetic has already shipped a bug in each direction.**
     /// `min(max(x, lower), 1 - lower)` is not a clamp when `lower > 1 - lower`: it collapses to the
-    /// constant `1 - lower` for every input. At the 810pt window floor the document column is
+    /// constant `1 - lower` for every input. At the 760pt window floor the document column is
     /// ~391pt, well under 2 × 220, so split mode first shipped with a divider frozen at the
     /// narrowest window the app allows. The guard below fixed that where the divider is DRAWN — and
     /// the drag handler kept its own copy of the unguarded expression, so every drag at that width

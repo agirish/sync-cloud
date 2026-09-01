@@ -285,9 +285,8 @@ public struct SettingsView: View {
     private var fontSize: FontSize { FontSize(percent: fontSizePercent) }
 
     /// The space the host has to place the sheet in, or `nil` when the host doesn't say. The
-    /// window's own minimum is 810×560, which after `hostMargin` is still shorter than the sheet
-    /// wants at any text size, so without this the sheet would hang off the bottom of a small
-    /// window.
+    /// window's own minimum is 760×560, which after `hostMargin` is smaller than the sheet wants
+    /// in both axes at any text size, so without this the sheet would hang off a small window.
     private let availableSize: CGSize?
 
     public init(

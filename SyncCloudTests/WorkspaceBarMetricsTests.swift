@@ -26,7 +26,7 @@ import FileExplorer
     /// literal 600, nine times across four tests, until the window was raised — and a literal
     /// repeated nine times is nine chances to update eight of them, the shape that leaves one
     /// assertion quietly measuring a width no window can have.
-    private static let windowFloor: CGFloat = 810
+    private static let windowFloor: CGFloat = 760
 
     /// The real labels at the real weight, so these assertions measure the shipping bar rather
     /// than a hypothetical one. Semibold because that is the selected segment's weight, and the
@@ -140,26 +140,34 @@ import FileExplorer
     /// user at the narrowest window now navigates by glyphs. Reclaiming that would mean buying back
     /// ~12pt from `reservedChrome` (deliberately generous, and unmeasured) or from the segments' own
     /// padding, and that is a design call rather than an arithmetic one.
-    @Test func testTheFloorKeepsItsLabelsAtEveryTextSizeButTheLargest() {
+    @Test func testTheFloorKeepsItsLabelsAtEveryTextSize() {
+        // **Every size now, and that is what the Storage fold bought.** This asserted `.iconOnly`
+        // at Large and Largest, because five labels needed 833 and 853pt against an 810 floor. Four
+        // labels need **666.8 / 683.8 / 725.1 / 741.6** at Small / Default / Large / Largest —
+        // measured through `styles`, all of them under the restored 760 floor. So a user at the
+        // narrowest window the app allows keeps the words at every text size the app ships, which
+        // is the state the 600 → 760 raise was originally trying to reach and never quite did.
+        //
+        // The tightest margin is Largest: 741.6 against 760, **18.4pt**. That is real headroom but
+        // it is not generous, and it is the number a sixth label or a wider pill would spend first.
         for size in FontSize.allCases {
             let resolved = styles(contentWidth: Self.windowFloor,
                                   labelWidths: labelWidths(scale: size.scale), scale: size.scale)
-            // Small and Default keep their words at the floor; Large and Larger do not.
-            let expected: WorkspaceBarStyle =
-                (size == .large || size == .extraLarge) ? .iconOnly : .full
-            #expect(resolved.workspace == expected,
-                    "at the \(Self.windowFloor)pt floor the bar is \(resolved.workspace) at \(size.displayName), expected \(expected)")
-            // The pill pays first at every size — it is the cheaper word to lose, and it pays
-            // before the bar does even at the sizes where the bar sheds too.
+            #expect(resolved.workspace == .full,
+                    "at the \(Self.windowFloor)pt floor the bar is \(resolved.workspace) at \(size.displayName) — the narrowest window is glyphs again at this size")
+            // **The pill now splits where the bar used to.** It read `.compact` at every size at
+            // the 810 floor with five labels — the pill pays first, so it was already paying before
+            // the bar started to. With four labels there is room to spell it out at Small and
+            // Default, and the two larger sizes still spend it. That is the ladder working exactly
+            // as designed: the cheap word goes first and the navigation labels never go at all.
             //
-            // **This used to be `.full` at Small and is now `.compact` there as well.** Not a
-            // change of policy: at Small the whole row *did* fit spelled out, by about 8pt, and the
-            // 12pt of glyph the arithmetic was not counting is more than that. The first draft of
-            // this test asserted a flat "compact" and the Small case refuted it; the corrected
-            // widths have now made the flat answer the true one, which is worth stating rather than
-            // letting it read as the original mistake reinstated.
-            #expect(resolved.search == .compact,
-                    "at the floor the ⌘K pill is \(resolved.search) at \(size.displayName), expected .compact")
+            // Asserted per size rather than flat, because a flat answer is what hid the previous
+            // split: this test asserted a flat `.compact` and was right by accident once the bar
+            // had grown enough to make it true everywhere.
+            let expectedPill: CommandPaletteBarStyle =
+                (size == .large || size == .extraLarge) ? .compact : .full
+            #expect(resolved.search == expectedPill,
+                    "at the floor the ⌘K pill is \(resolved.search) at \(size.displayName), expected \(expectedPill)")
         }
     }
 
@@ -189,45 +197,54 @@ import FileExplorer
         }
     }
 
-    @Test func testTheIconOnlyRungIsLiveInTheShippingBar() {
-        // **This rung is no longer dormant, and that is the headline of the fourth segment.** It
-        // used to be unreachable: three labelled segments fit the old 600pt floor at every text
-        // size, so nothing in the shipping app ever shed a label, and this test could only
-        // exercise the arithmetic against a hypothetical five-segment bar. Browse changed that.
-        //
-        // **What raising the floor changed is WHERE it is live, not WHETHER.** It is no longer the
-        // state of the narrowest window at every text size — that was the defect the raise fixed —
-        // but with five labels the two largest text sizes need 833 and 853pt against an 810 floor,
-        // so a floor-sized window at Large or Larger sheds, and so does any window between 810 and
-        // the 781pt threshold at the sizes below. This asserts the rung on a real bar rather than a
-        // hypothetical one, at the width where the shipping app still reaches it.
-        //
-        // **Photographed there, not only computed.** This arithmetic says the row fits; what it
-        // cannot say is what macOS does with a toolbar it decides is too wide, which is to fold
-        // the whole thing behind a chevron with no error and no visual cue. So the shipping build
-        // was captured at a 600pt window — then the floor, now below it — and the pixels read
-        // back: four glyph clusters in the capsule (the selected Browse pill 73px wide, then three
-        // 22–31px glyphs), the compact ⌘K pill and all three trailing utilities still painted, and
-        // nothing folded away. The rung the capture photographed is the one asserted here; only
-        // the width at which a user meets it has moved.
-        //
-        // That capture also settled the one thing no assertion in this file could reach: WHERE the
-        // group rule was drawn. The rule is gone as of the Editor workspace — five equal segments,
-        // no grouping to place a contents-editing workspace in — so there is nothing left here for
-        // a capture to check.
-        //
-        // Asserted with the app's OWN labels first, so the live behaviour is pinned, and then
-        // against the queued bar so the arithmetic still has headroom under test.
+    /// **The shipping bar no longer reaches the icon-only rung, and that is a finding rather than
+    /// a tidy-up.**
+    ///
+    /// This test used to assert the opposite, and the history is the point. At the 600pt floor the
+    /// rung was unreachable: three labelled segments fitted at every text size, so nothing in the
+    /// shipping app ever shed a label. Browse made it reachable, Edit made it reachable at more
+    /// sizes, and this test was renamed to say so. **Folding Storage in has made it unreachable
+    /// again** — four labels need at most 741.6pt (Largest) against the restored 760pt floor, so
+    /// there is no legal window width at any text size where the shipping bar sheds.
+    ///
+    /// **It is not deleted, for two reasons.** The rung is still *live code* — the arithmetic runs
+    /// on every layout pass and still answers `.iconOnly` for a wider bar, which the queued-bar half
+    /// below exercises. And it is one segment from mattering again: ROADMAP costs Backup out as the
+    /// fifth workspace this fold makes room for, and five labels at 833/853 put the rung straight
+    /// back into the shipping range. Deleting it now would mean rediscovering it then.
+    ///
+    /// What this test asserts is therefore the CURRENT truth in both directions: the shipping bar
+    /// does not reach the rung, and a wider bar still does. If a change ever makes the shipping bar
+    /// shed again, the first assertion fails and names the size — which is the notification worth
+    /// having, and the reason this is not simply an `.disabled` test.
+    @Test func testTheIconOnlyRungIsOutOfTheShippingBarsReachButStillLive() {
+        // The shipping bar, at the floor, at the largest text the app offers — the single hardest
+        // case there is. It keeps its labels.
         #expect(styles(contentWidth: Self.windowFloor,
                        labelWidths: labelWidths(scale: FontSize.extraLarge.scale),
-                       scale: FontSize.extraLarge.scale).workspace == .iconOnly,
-                "the shipping five-segment bar keeps its labels at the floor even at the largest text size — if that is now true, this test and the band above disagree")
+                       scale: FontSize.extraLarge.scale).workspace == .full,
+                "the shipping four-segment bar sheds its labels at the floor — the rung is back in reach, so this test and the floor test above now disagree and one of them is describing an app that no longer exists")
 
-        let queued = ["Browse", "Compare", "Organize", "Storage", "Backup", "Home"]
+        // …and no width in the app's whole legal range reaches it either, which is the claim the
+        // single case above cannot make on its own. Swept from the floor, because narrower than
+        // the floor is not a window a user can make.
+        for size in FontSize.allCases {
+            let widths = labelWidths(scale: size.scale)
+            for width in stride(from: Self.windowFloor, through: 2400.0, by: 5.0) {
+                #expect(styles(contentWidth: width, labelWidths: widths, scale: size.scale).workspace == .full,
+                        "at \(width)pt and \(size.displayName) the shipping bar is glyphs — the rung is reachable again")
+            }
+        }
+
+        // **The rung itself still works**, which is what keeps this from being dead code. Six
+        // labelled segments — Backup and one more beyond it — shed at the floor exactly as they
+        // should. This is the half that will matter when Backup lands.
+        let queued = ["Browse", "Compare", "Organize", "Edit", "Backup", "Home"]
         let font = NSFont.systemFont(ofSize: 12 * FontSize.large.scale, weight: .semibold)
         let widths = queued.map { ($0 as NSString).size(withAttributes: [.font: font]).width }
         #expect(styles(contentWidth: Self.windowFloor, labelWidths: widths,
-                       scale: FontSize.large.scale).workspace == .iconOnly)
+                       scale: FontSize.large.scale).workspace == .iconOnly,
+                "even six labelled segments fit the floor — the shedding rule is now unreachable by any bar, which makes it genuinely dead rather than merely dormant")
         // And the fallback still solves it, or shedding buys nothing.
         let iconOnly = WorkspaceBarMetrics.iconOnlyWidth(segmentCount: queued.count)
         #expect(iconOnly <= Self.windowFloor - WorkspaceBarMetrics.reservedChrome)

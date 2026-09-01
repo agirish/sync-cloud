@@ -124,7 +124,7 @@ enum DifferencesPairCompare {
 ///
 /// The same in-window overlay the Duplicates host uses, and for the same measured reason — macOS
 /// clamps a sheet to its window's content width, so a wide sheet is silently squeezed exactly at
-/// the 810×560 floor. See ``CompareOverlayMetrics``.
+/// the 760×560 floor. See ``CompareOverlayMetrics``.
 public struct DifferencesPairCompareOverlay: View {
 
     private let pair: DifferencePair

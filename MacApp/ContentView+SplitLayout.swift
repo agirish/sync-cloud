@@ -188,7 +188,7 @@ extension ContentView {
             //
             // The width itself is clamped, not the stored one — see `PaneLogic.lensSidebarWidth`.
             // Browse can afford whatever the user stored; here three things divide one row, and at
-            // the 810 window floor the rail and panel claim 560 of it.
+            // the 760 window floor the rail and panel claim 560 of it.
             let sidebarWidth = folderSidebarIsShowing
                 ? PaneLogic.lensSidebarWidth(stored: browseSidebarWidth, totalWidth: totalWidth,
                                              minSidebar: FolderSidebarView.minWidth,

@@ -160,10 +160,16 @@ import Foundation
     /// the row against the rail-plus-panel's 560. Worth pinning because the intuition runs the
     /// other way: two panes sounds hungrier than one pane and a panel.
     ///
-    /// Measured at 760, one notch below the app's 810pt floor, and deliberately so: at 810 the
-    /// Compare clamp does not bite at all — 810 − 500 − 6 = 304, more than the 280 maximum — so a
-    /// fixture moved up to the real floor would assert that a clamp did nothing. See the note on
-    /// `LensSidebarWidthTests`, which keeps its fixtures for the same reason.
+    /// Measured at 760, which is the app's floor again — and the fixture did not have to move to
+    /// get there.
+    ///
+    /// **It was one notch UNDER the floor for a while, deliberately.** While the bar carried five
+    /// labels the floor was 810, and at 810 the Compare clamp does not bite at all
+    /// (810 − 500 − 6 = 304, more than the 280 maximum), so a fixture raised to match would have
+    /// asserted that a clamp did nothing. Folding Storage into Organize brought the floor back to
+    /// 760 and the fixture is now exactly at it. The rule that kept it here is the one worth
+    /// keeping: **a clamp earns its test at a width where it bites**, and chasing the floor is how
+    /// a suite goes green by no longer asking anything.
     @Test func compareIsRoomierAtTheFloorThanTheLensWorkspaces() {
         let compare = width(stored: FolderSidebarView.maxWidth, total: 760)
         let lens = PaneLogic.lensSidebarWidth(stored: FolderSidebarView.maxWidth, totalWidth: 760,
