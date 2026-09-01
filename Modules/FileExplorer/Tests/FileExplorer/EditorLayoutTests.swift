@@ -163,6 +163,35 @@ import Design
                 "the row is back on the dismiss-glyph variant, which washes in ink and draws a circle")
     }
 
+    /// **Only the OPEN row wears the unsaved dot.**
+    ///
+    /// The rail lists every text file in the folder and exactly one of them is the document, so a
+    /// dot resolved from a document-wide status without checking which row it is would mark the
+    /// whole folder as unsaved. That mistake is invisible in the obvious place to look — a folder
+    /// with one file in it — which is why it is asserted here rather than left to a screenshot.
+    @Test func onlyTheOpenRowShowsTheUnsavedDot() {
+        let open = "/a/open.md"
+        let other = "/a/other.md"
+        let unsaved = EditorSaveStatus.unsaved
+
+        #expect(EditorFileRailView.dotColour(rowPath: open, selectedPath: open,
+                                             status: unsaved, accent: .blue) != nil)
+        #expect(EditorFileRailView.dotColour(rowPath: other, selectedPath: open,
+                                             status: unsaved, accent: .blue) == nil,
+                "a file that is not open is being marked unsaved")
+        // Nothing open at all: no row is the document, so no row has a dot.
+        #expect(EditorFileRailView.dotColour(rowPath: open, selectedPath: nil,
+                                             status: unsaved, accent: .blue) == nil)
+        // Saved and read-only draw nothing, which is what makes the dot mean something.
+        #expect(EditorFileRailView.dotColour(rowPath: open, selectedPath: open,
+                                             status: .saved, accent: .blue) == nil)
+        #expect(EditorFileRailView.dotColour(rowPath: open, selectedPath: open,
+                                             status: .readOnly, accent: .blue) == nil)
+        // A stop is the warning colour here as it is in the header — one rule, two places.
+        #expect(EditorFileRailView.dotColour(rowPath: open, selectedPath: open,
+                                             status: .stopped("x"), accent: .blue) == .orange)
+    }
+
     // MARK: The split divider
 
     /// **The clamp both the divider and the drag now ask.**

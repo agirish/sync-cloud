@@ -24,6 +24,10 @@ struct EditorFileRailView: View {
     /// `Untitled.md`. The comment on ``cancelNaming()`` promises a row keeps its text; that promise
     /// held for a click elsewhere and not for a tab switch.
     @Binding var typedName: String
+    /// Where the OPEN document stands, so its row in the list can say so too. `nil` when nothing
+    /// is open. Only the open document can be unsaved, so this needs no path of its own — the row
+    /// it belongs to is the selected one.
+    var documentStatus: EditorSaveStatus?
     /// A counter the host bumps on every ⌘N.
     ///
     /// **A signal, not a value.** Pressing ⌘N while the row is already open writes `true` over
@@ -184,13 +188,51 @@ struct EditorFileRailView: View {
             .padding(.top, 4)
     }
 
-    @ViewBuilder
+    /// The colour of a row's leading dot, or `nil` for no dot.
+    ///
+    /// **Only the open row can have one**, which is the whole rule: a rail lists many files and
+    /// exactly one of them is the document, so a dot resolved per row from a document-wide status
+    /// would mark every file in the folder as unsaved. Asked as a function rather than inline so
+    /// that claim is testable — the mistake it guards is invisible in a screenshot of a
+    /// one-file folder.
+    static func dotColour(rowPath: String, selectedPath: String?,
+                          status: EditorSaveStatus?, accent: Color) -> Color? {
+        guard rowPath == selectedPath, let status, status.showsDot else { return nil }
+        return status.isWarning ? .orange : accent
+    }
+
+    /// The width the dot's column always occupies, dot or no dot.
+    ///
+    /// **Reserved rather than inserted**, because this appears and disappears as you type: a dot
+    /// that took its own space would shove every file name in the list sideways on the first
+    /// keystroke and back again two seconds later. BBEdit reserves the same column, which is why
+    /// its list is still while you type into a document.
+    ///
+    /// **The reservation is the UNCONDITIONAL `Circle` below, not this number** — a clear fill
+    /// still takes part in layout, where an `if let` around the whole shape would not. Worth
+    /// stating because the tempting tidy-up is exactly the one that breaks it, and no test here
+    /// can catch it: the rail is hard-framed so its width cannot move, and a 5pt dot is shorter
+    /// than the 12pt name beside it so the row's height does not move either. Measured — both
+    /// mutations were run against a rendered test and neither changed a pixel of the rail's size,
+    /// which is why that test was deleted rather than kept as reassurance.
+    static let dotColumnWidth: CGFloat = 9
+
     private func row(_ entry: EditorRailEntry) -> some View {
         let isSelected = entry.path == selectedPath
-        Button {
+        let dot = Self.dotColour(rowPath: entry.path, selectedPath: selectedPath,
+                                 status: documentStatus, accent: accent)
+        return Button {
             onOpen(entry)
         } label: {
             HStack(spacing: 6) {
+                // The unsaved marker, before the icon — where BBEdit puts it, and where a column of
+                // them reads as a column rather than as punctuation inside the names.
+                Circle()
+                    .fill(dot ?? .clear)
+                    .frame(width: 5, height: 5)
+                    .frame(width: Self.dotColumnWidth, alignment: .leading)
+                    .accessibilityHidden(dot == nil)
+                    .accessibilityLabel("Unsaved")
                 Image(systemName: "doc.text")
                     .scaledFont(.system(size: 11))
                 Text(entry.name)

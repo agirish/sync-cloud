@@ -181,6 +181,7 @@ public struct EditorWorkspaceView: View {
                                accent: accent,
                                isNaming: $isNaming,
                                typedName: $typedName,
+                               documentStatus: status,
                                namingFocus: namingFocus,
                                prefilledName: prefilledName,
                                refusal: refusal,
