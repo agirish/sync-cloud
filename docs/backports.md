@@ -2467,6 +2467,19 @@ from a debounced retry has to record that it was already declined, or it returns
 the timer. Nothing on those lines raises an alert from a retry today, so there is nothing to port —
 recorded because it is the kind of defect that is invisible until somebody adds one.
 
+**The autosave follow-ups, `9d708f4b` and `7338070a` — same verdict, recorded compactly.** The
+header shows pending as well as written (a status that only ever said "saved" is not evidence of
+anything), the rail marks the unsaved file the way BBEdit marks its open documents, and `write` now
+checks the read-back stat it was already taking: the file must be exactly as long as the bytes
+handed to it, so the documented swap-then-stat race becomes a question instead of a buffer marked
+clean against somebody else's file. All editor-only.
+
+**One line in there is worth a maintenance line's attention even so**, because it is not about the
+editor: the pattern of an unconditional shape with a clear fill as a layout RESERVATION. An `if let`
+around it is the tidy-up that silently removes the reservation, and no rendered test on a
+hard-framed container can catch it — both mutations were run and neither moved a pixel. Anywhere a
+marker appears and disappears in a list row, on any line, the same trap is available.
+
 **Two corrections landed alongside it that DO touch shared code**, and both are recorded here
 because a reader scanning for "did anything in this batch reach existing surfaces" would otherwise
 have to read the whole diff:
