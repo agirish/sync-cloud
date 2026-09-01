@@ -281,7 +281,7 @@ extension ContentView {
     /// through `loadIntoEditor` — the buffer is already settled, so re-asking would be a second
     /// prompt to keep in step with the first.
     ///
-    /// Editing always *happens* in the editor workspace. This is the ⌘5 move a user could make by
+    /// Editing always *happens* in the editor workspace. This is the ⌘4 move a user could make by
     /// hand, made for them: one writable surface, so dirty state, undo and the save circuit live in
     /// exactly one place.
     func handOffToEditor(_ path: String) {
@@ -332,7 +332,7 @@ extension ContentView {
     /// The reverse hand-off: Browse, pointed at the open file's folder.
     ///
     /// Deliberately does NOT close the document — you are going to look at where it lives, not to
-    /// put it away, and coming back with ⌘5 should find it exactly as you left it, unsaved edits
+    /// put it away, and coming back with ⌘4 should find it exactly as you left it, unsaved edits
     /// and all.
     func revealInBrowse(_ path: String) {
         let folder = (path as NSString).deletingLastPathComponent
@@ -458,7 +458,7 @@ extension ContentView {
     /// pane and the sidebar that re-roots it span every workspace, so the folder is nearly always
     /// answerable — but "nearly" is not "always": a pane with no source configured has no current
     /// path, and a ⌘N that switched to the editor and opened a naming row over an empty folder name
-    /// would be offering to create a file nowhere. From anywhere else this makes the ⌘5 move first,
+    /// would be offering to create a file nowhere. From anywhere else this makes the ⌘4 move first,
     /// so the file is created in the folder the user was already looking at.
     var shortcutNewTextFile: (() -> Void)? {
         guard !editorFolder.isEmpty else { return nil }

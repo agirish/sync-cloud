@@ -1047,8 +1047,11 @@ and-look-at-it pass.
 
 ## 13. `synccloud` parity for the Organize lenses — medium
 
-**Cited from `ROADMAP.md` 6**, scoped to Organize's five lenses; Storage's and Backup's halves of
-that item stay there, with the rest of the workspace they belong to.
+**Cited from `ROADMAP.md` 6**, scoped to Organize's five *acting* lenses — To File, Duplicates,
+Renames, Restructure and Rules. Storage is a sixth lens since the fold but is deliberately outside
+this item: it produces a report rather than a change, so CLI parity for it means a different verb
+(print an analysis) than the one this item is about (apply what a lens proposes). Its half, and
+Backup's, stay in `ROADMAP.md`.
 
 **Why:** the CLI does `scan`, `sync` and `providers` — the two-pane story, and nothing since. To
 File, Duplicates, Renames, Restructure and Rules are GUI-only, so none of them can be scripted,

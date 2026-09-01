@@ -13,12 +13,30 @@ User-facing changes, newest first. For the full commit history see the
 > the [releases page](https://agirish.github.io/sync-cloud/releases.html) stays on v5.1 until this
 > is cut.
 
-### A fifth workspace: Edit
+### Storage moves into Organize
+
+- **Storage is a section of Organize now, not a workspace of its own.** It is the sixth item on
+  Organize's rail, after Rules, and everything it does is unchanged — the treemap, the ranked lists,
+  the magnitude bars, and the promise that it never moves, deletes, or evicts a file. What changes
+  is where you find it: **⌘3**, then Storage on the rail, instead of a tab of its own. If you quit
+  with Storage open, it reopens exactly there.
+- **The workspace bar is four segments — Browse, Compare, Organize, Edit — and Edit is now ⌘4.**
+  If ⌘5 is in your fingers, that is the one thing to relearn.
+- **All / Largest / Untouched / Reclaim moved into the page**, as a capsule above the list, because
+  the row they used to sit in belongs to Organize's rail.
+- **Storage follows Organize's scope.** Set a scope and it re-analyses that folder rather than
+  filtering the report it already had — a treemap is a picture of a whole, so a filtered one would
+  misstate every proportion in it.
+- **Organize's overview page carries a Storage card**: when the last analysis ran, which folder it
+  covered, and the totals, with Re-analyze beside it. It is a receipt rather than a to-do — Storage
+  never wears a count badge, because a badge means there is something to act on.
+
+### A new workspace: Edit
 
 - **SyncCloud can now change what is inside a file.** Every workspace until now moved files around;
   Edit opens one text file, shows it, and writes it back when you ask. A collapsible file pane on
   the left browses to any folder, a rail beside it lists that folder's text files, and the document
-  sits beside them. ⌘5, or the new segment in the workspace bar.
+  sits beside them. ⌘4, or the new segment in the workspace bar.
 - **Markdown renders in Edit, Preview or Split**, with a divider you can drag. Real Markdown — tables
   and task lists included — laid out in the app's own type at Settings ▸ Text size, not a web view's.
 - **It saves itself.** A couple of seconds after you stop typing, and whenever the document leaves
@@ -46,7 +64,10 @@ User-facing changes, newest first. For the full commit history see the
   Compare pane, the columns view — and brings it here with the rail already pointed at its folder.
 - **Typing has its own undo.** ⌘Z in the editor takes back what you typed and can never reach into a
   file move or a copy, which have their own history and their own Undo button.
-- **The window's minimum width is now 810pt**, up from 760: five workspace labels need the room.
+- **The window's minimum width is back to 760pt.** Edit's arrival raised it to 810 to seat five
+  workspace labels; folding Storage into Organize took the bar back to four, so the raise was handed
+  back in the same release. At 760 the bar keeps its labels at every text size, which it did not
+  manage at either previous floor.
 
 ## v5.1
 

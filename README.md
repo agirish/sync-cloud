@@ -10,17 +10,19 @@
   <img src="docs/assets/screenshots/hero-compare.png" alt="SyncCloud two-pane comparison" width="900">
 </p>
 
-SyncCloud has five workspaces, and opens in **Browse** — the plain file browser: one provider's
+SyncCloud has four workspaces, and opens in **Browse** — the plain file browser: one provider's
 tree, full width, nothing proposed, for the moves you make by hand. A **folder sidebar** runs down
-the left of all five, holding the folders you keep, every account you have signed into, and the
+the left of all four, holding the folders you keep, every account you have signed into, and the
 folders you were last in. **Compare** puts two folders
 side by side and shows exactly what differs — what's missing on each side, what's newer, what
 only *looks* the same — and lets you copy, move, or reconcile items with one click. **Organize**
-points a single provider at a rail of five lenses — **To File**, **Duplicates**, **Renames**,
-**Restructure**, and **Rules** — that file loose documents into the right folders (optionally
-with on-device Apple Intelligence or Claude), find duplicates, fix cloud-hostile filenames, and
-straighten a tree that disagrees with its own habits — reviewing and applying the change, with
-the way back written to disk first. **Storage** is a read-only view of where your space actually goes.
+points a single provider at a rail of six lenses — **To File**, **Duplicates**, **Renames**,
+**Restructure**, **Rules**, and **Storage** — that file loose documents into the right folders
+(optionally with on-device Apple Intelligence or Claude), find duplicates, fix cloud-hostile
+filenames, straighten a tree that disagrees with its own habits, and show where the space actually
+goes — reviewing and applying the change, with the way back written to disk first. Most act on what
+they find; Rules sets the standing instructions; **Storage** only reports, and never moves, deletes,
+or evicts a file.
 **Edit** is the one workspace that changes what is *inside* a file: it opens a text file, renders
 Markdown beside it, and writes it back only when you ask.
 
@@ -93,10 +95,14 @@ One rail, five lenses:
   something by hand.
 
 ### 📊 Storage — see where the space goes
+Organize's sixth lens, and the only one that acts on nothing.
 A read-only **treemap** of where your space actually goes — one ramp running deep to pale in your
 accent hue, ordered by size, so the colour *is* the ranking — plus ranked lists of the largest
 files, long-untouched files, and reclaim candidates, each row carrying a magnitude bar and its
-share of the scan. Strictly read-only: it never moves, deletes, or evicts anything.
+share of the scan, and a capsule above the list to switch between them. Set a scope and it
+re-analyses that folder rather than filtering what it had — a treemap is a picture of a whole.
+Strictly read-only: it never moves, deletes, or evicts anything, which is also why it is the one
+lens that never wears a count badge.
 
 ### ✏️ Edit — write in a text file
 The one workspace that changes what is *inside* a file rather than moving files around. A collapsible

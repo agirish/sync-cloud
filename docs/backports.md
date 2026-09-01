@@ -2480,3 +2480,79 @@ have to read the whole diff:
   floor. On a maintenance line the old sentences are still true, because the old floor is still
   theirs. **Do not port that prose** — it would make their comments describe a window they do not
   have.
+
+## 2026-08-31 — Storage folds into Organize (`<shas after push>`)
+
+Storage stops being a workspace and becomes Organize's sixth rail item. **RECORDED — not owed**,
+per the standing direction (`e2b35dad`).
+
+**Unlike the Edit-workspace row above, this one is genuinely APPLICABLE to `v4.x`, and the reason
+it is still not owed is different.** The first draft of this entry claimed `OrganizeLens` does not
+exist on any maintenance line. That was wrong, and the positive control below is what caught it —
+run it rather than trusting the prose:
+
+```sh
+# Positive control first — the path must be found somewhere, or absence proves nothing.
+git ls-tree -r --name-only origin/main -- Modules/FileExplorer/Sources/FileExplorer/OrganizeLens.swift
+for l in v4.x v3.x v2.x; do
+  echo "$l: $(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/OrganizeLens.swift | wc -l) file(s)"
+done   # measured 2026-08-31: main 1, v4.x 1, v3.x 0, v2.x 0
+```
+
+**What each line actually carries**, measured rather than assumed:
+
+| Line | `OrganizeLens` | Lens cases | `Workspace.storage` | Window floor |
+|---|---|---|---|---|
+| `main` (pre-fold) | yes | 5 | yes, 4th of 5 segments | 810 |
+| `v4.x` | **yes** | **5, identical** | **yes, 4th of 4 segments** | **760** |
+| `v3.x` | no | — | — | 600 |
+| `v2.x` | no | — | — | 600 |
+
+So `v4.x` is the same shape this change was made against: five lenses with Rules already exempt
+from `carriesBadge` and `isScoped`, and a `Workspace.storage` case sitting in the bar. The fold
+would apply there almost verbatim.
+
+**It is still not owed, and the reason is the rule rather than the diff: this is a BREAKING
+change, and `v4.x` never takes one.** Retiring `Workspace.storage` changes a persisted raw value
+and renumbers a ⌘-digit — someone on `v4.x` who quit in Storage would reopen somewhere else, and
+⌘4 would stop meaning what it meant. That is precisely the class of change the maintenance lines
+exist to be free of. It is also a feature move, not a defect fix; nothing here repairs anything
+`v4.x` gets wrong.
+
+**`v3.x` and `v2.x` are a different answer again:** they predate the lens rail entirely, so there
+is no sixth rail item to add. Not applicable rather than not owed.
+
+**Four pieces inside it, and what each one would mean on `v4.x` if the direction ever changed:**
+
+| Piece | Applies to `v4.x`? |
+|---|---|
+| `Workspace.storage` retired + `"Storage": .storage` in `retiredWorkspaceRawValues` | Structurally yes — **breaking**, per above. This is the piece that makes the whole batch ineligible |
+| `OrganizeLens.storage` + the badge/scope split | Yes, and **non-breaking on its own** — it adds a rail item and separates `carriesBadge` from `isScoped`. Would be a coherent partial pick if a Storage lens were ever wanted there *beside* the tab |
+| `StorageSectionBar` (the section capsule) | Only alongside the piece above; on `v4.x` the storage rail still has the header slot to itself, so the capsule would solve a problem that line does not have |
+| `OrganizeOverviewState.receipt` + the overview card | Yes, and non-breaking — but it describes a lens `v4.x` would not have |
+
+**The window floor 810 → 760 is the row to read twice.** `main` returning to 760 makes it *agree
+with `v4.x` by coincidence*, not by anything ported: `v4.x` is at 760 because it has four segments
+and never had a fifth, while `main` is at 760 because it went to 810 for Edit and came back when
+Storage left. The 600 floor on `v3.x`/`v2.x` is untouched and is still its own older gap — see the
+workspace-bar row above. **Do not port the floor prose in either direction**: on `v4.x` the 760
+sentences are true for a different reason, and the derivation `main` now carries names segments
+that line does not have.
+
+**What the maintenance lines therefore cannot do:** `v4.x` can reach Storage, just not from
+Organize — it is a tab, with its own rail, its own header slot, and no scope chip, so a scoped
+storage analysis is not available there. `v3.x`/`v2.x` have no storage lens at all. All of it is a
+navigation and capability gap, not a correctness one.
+
+**One correction landed alongside it that touches shared prose**, recorded because a reader
+scanning for "did anything reach existing surfaces" would otherwise read the whole diff: the
+**window-floor prose was swept 810 → 760 across fourteen files**, two of them (`SettingsLayout`,
+`SettingsView`) where the CONCLUSION flips back — 760 less `hostMargin` is 712, two points less
+than the settings sheet wants, so the width clamp bites again. `v4.x` is at 760 and its settings
+prose already says the clamp bites; nothing to port.
+
+**Also corrected in passing, and equally not owed:** `OrganizePass`'s doc said the file pass
+publishes "three" lenses where the code has said two since risky names became rows inside Renames.
+Prose-only — `answersOneLens` counts `lenses`, so nothing depended on the number. **This one IS a
+one-line prose fix that would apply cleanly to `v4.x`**, whose copy carries the same error; it is
+recorded here rather than picked, per the standing direction.

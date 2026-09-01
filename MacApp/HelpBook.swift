@@ -138,17 +138,16 @@ enum HelpBook {
                 related: ["what-is-synccloud", "choose-folders", "people", "organize-workspace"]
             )),
             Topic(id: "what-is-synccloud", title: "What is SyncCloud?", systemImage: "sparkles", article: Article(
-                intro: "SyncCloud works on your cloud folders through five workspaces — Browse one provider's files, Compare two folders side by side, Organize what's out of place, Storage to see where the space goes, and Edit to write in a text file — without ever removing anything you didn't approve.",
+                intro: "SyncCloud works on your cloud folders through four workspaces — Browse one provider's files, Compare two folders side by side, Organize what's out of place, and Edit to write in a text file — without ever removing anything you didn't approve.",
                 blocks: [
-                    .paragraph("They are five different kinds of place rather than five tasks. Browse shows one tree and proposes nothing, Compare holds two trees side by side, Organize changes one tree on the app's suggestion, Storage reads one tree and changes nothing at all, and Edit changes what is inside a single file."),
+                    .paragraph("They are four different kinds of place rather than four tasks. Browse shows one tree and proposes nothing, Compare holds two trees side by side, Organize is everything the app concludes about one tree, and Edit changes what is inside a single file."),
                     .bullets([
                         "Browse — the plain file browser: one provider's tree at full width, nothing proposed, nothing changed.",
                         "Compare — pick any two cloud folders, or two folders inside the same provider, and scan them. The differences list shows everything that isn't identical, and which way a copy would go.",
-                        "Organize — five sections over a single tree: To File, Duplicates, Renames, Restructure, and Rules.",
-                        "Storage — a treemap of where a folder's bytes are, its largest and longest-untouched files, and the large-and-idle overlap worth reclaiming.",
+                        "Organize — six sections over a single tree: To File, Duplicates, Renames, Restructure, Rules, and Storage. Most act on what they find; Rules sets the standing instructions; Storage only reports where the space goes.",
                         "Edit — open a text file from the folder you are in and write in it. The only place in SyncCloud that changes what is inside a file, and it saves when you ask it to.",
                     ]),
-                    .tip("Nothing is copied, moved, or removed until you ask, and ⌘Z takes back what you just did. ⌘1 through ⌘5 switch workspaces."),
+                    .tip("Nothing is copied, moved, or removed until you ask, and ⌘Z takes back what you just did. ⌘1 through ⌘4 switch workspaces."),
                 ],
                 related: ["setup", "browse-workspace", "editor-workspace", "organize-workspace", "scan"]
             )),
@@ -246,20 +245,6 @@ enum HelpBook {
                 ],
                 related: ["reading-differences", "sync-preferences"]
             )),
-            Topic(id: "storage-lens", title: "See where space goes", systemImage: "chart.pie.fill", article: Article(
-                intro: "Storage maps a folder's biggest areas, ranks its largest and longest-untouched files, and flags large idle ones worth keeping online-only.",
-                blocks: [
-                    .bullets([
-                        "Analyze a folder to get a treemap of where its bytes actually are. It is a single ramp in your accent color ordered by size — the deepest tile is the biggest — so the color is the ranking, with no legend to learn.",
-                        "The ranked lists show the largest files, the ones untouched longest, and the large-and-idle overlap worth reclaiming.",
-                        "The two size-ordered lists draw a magnitude bar beside each size, measured against that section’s own largest file, so a four-fold difference reads as one without comparing digits. Filtering removes rows rather than rescaling the ones left, so the bar keeps meaning the same thing while you search.",
-                        "The oldest-first list has no bar — it would rise and fall against an order it has nothing to do with. Every row of all three carries its share of the scan instead, and a file too small to round reads “<1%” rather than “0%”, which would claim it is not there at all.",
-                        "Reopening Storage shows your last analysis, with its age beside it — re-analyze for current numbers.",
-                    ]),
-                    .tip("Storage never moves, deletes, or evicts anything. “Offload” reveals a file in Finder so you can decide there — the reading is the whole feature."),
-                ],
-                related: ["what-is-synccloud", "tidy-duplicates"]
-            )),
         ]),
         Section(title: "Working with differences", topics: [
             Topic(id: "reading-differences", title: "Reading the list", systemImage: "list.bullet.rectangle", article: Article(
@@ -346,7 +331,7 @@ enum HelpBook {
         ]),
         Section(title: "Organize", topics: [
             Topic(id: "organize-workspace", title: "The Organize workspace", systemImage: "folder.badge.gearshape", article: Article(
-                intro: "Organize is the one workspace that changes a single tree, and every way of changing it is a section in its rail. Five of them, always in the same order — and before you pick one, the overview is what you see.",
+                intro: "Organize is everything the app concludes about a single tree, and each conclusion is a section in its rail. Six of them, always in the same order — and before you pick one, the overview is what you see.",
                 blocks: [
                     .bullets([
                         "To File — loose files, and where each one belongs.",
@@ -519,6 +504,21 @@ enum HelpBook {
                 ],
                 related: ["organize-workspace", "file-loose-items", "intelligence"]
             )),
+            Topic(id: "storage-lens", title: "See where space goes", systemImage: "chart.pie.fill", article: Article(
+                intro: "Storage is Organize's sixth section. It maps a folder's biggest areas, ranks its largest and longest-untouched files, and flags large idle ones worth keeping online-only — and unlike the other five, it only ever reports.",
+                blocks: [
+                    .bullets([
+                        "Analyze a folder to get a treemap of where its bytes actually are. It is a single ramp in your accent color ordered by size — the deepest tile is the biggest — so the color is the ranking, with no legend to learn.",
+                        "The ranked lists show the largest files, the ones untouched longest, and the large-and-idle overlap worth reclaiming. Switch between them — and back to all three — with the capsule above the list.",
+                        "The two size-ordered lists draw a magnitude bar beside each size, measured against that section’s own largest file, so a four-fold difference reads as one without comparing digits. Filtering removes rows rather than rescaling the ones left, so the bar keeps meaning the same thing while you search.",
+                        "The oldest-first list has no bar — it would rise and fall against an order it has nothing to do with. Every row of all three carries its share of the scan instead, and a file too small to round reads “<1%” rather than “0%”, which would claim it is not there at all.",
+                        "Set a scope and Storage re-analyzes that folder rather than filtering what it already had — a treemap is a picture of a whole, so a filtered one would misstate every proportion in it.",
+                        "Reopening Storage shows your last analysis, with when it ran and which folder it describes — re-analyze for current numbers. It is the one section whose results survive quitting.",
+                    ]),
+                    .tip("Storage never moves, deletes, or evicts anything. “Offload” reveals a file in Finder so you can decide there — the reading is the whole feature. That is also why it never wears a count badge: a badge means there is something to act on.",),
+                ],
+                related: ["organize-workspace", "what-is-synccloud", "tidy-duplicates"]
+            )),
         ]),
         Section(title: "Settings and more", topics: [
             // The id stays `providers` — it is a frozen identifier that cross-links and the
@@ -611,7 +611,7 @@ enum HelpBook {
                 intro: "⌘K grows the Go to pill at the right of the toolbar into a field, with its results hanging underneath — so the tree you are navigating stays on screen while you type the name of the folder you want. It reaches anywhere the app can go, including places that aren’t on screen at all, and Go ▸ Go to… is the same field, first in that menu because it’s the only item there that can reach a destination you’re not already near.",
                 blocks: [
                     .bullets([
-                        "Places — the five workspaces, and each of Organize's five sections.",
+                        "Places — the four workspaces, and each of Organize's six sections.",
                         "People — everything belonging to someone on your list.",
                         "Folders — anywhere SyncCloud has surveyed, plus recent and pinned folders. Type a path and it will take you there.",
                         "Sources — point the pane at another cloud account or folder.",
@@ -636,11 +636,11 @@ enum HelpBook {
                         "Hold ⌥ on its own for a moment and every control with a shortcut grows a key badge; let go and they vanish. Press any key, click, or add a second modifier and the badges stay away — so ⌥-click and ⌥-typed characters work exactly as before.",
                         "Because ⌥ is held, the shortcut itself won't fire while the badges are up: look, release, then press.",
                         "The full reference is a window of its own: Window ▸ Keyboard Shortcuts, or ask for it by name in ⌘K.",
-                        "⌘1 – ⌘5 switch workspaces; ⌘→ / ⌘← copy the selected differences, and ⇧ makes it a move.",
+                        "⌘1 – ⌘4 switch workspaces; ⌘→ / ⌘← copy the selected differences, and ⇧ makes it a move.",
                         "Space opens Quick Look; ⌥-click a breadcrumb navigates both panes at once.",
                         "⌘X, ⌘C and ⌘V are the file clipboard, and they reach Finder; ⌘A selects the folder the focused pane is in; ↩ renames the selected row.",
                     ]),
-                    .paragraph("The menu bar carries the rest, a menu per place. File holds New Text File… and New Folder…, the tab items, the verbs that act on the selected row, Delete, and Save at the end — its Ignore in Comparison appears only while you are comparing, because ignoring is a statement about a comparison and Browse and Storage have none. Edit holds the file clipboard — Cut, Copy, Paste and Select All — with Find in Pane… under them. Go holds ⌘K and the per-pane Back and Forward. Compare holds the four transfers plus Review and Verify. Organize holds its five sections, the verbs that aim them at the selected folder, and Undo This Reorganisation, which is the only item there that needs no selection. View holds the five workspaces and the show/hide switches — View ▸ Hidden Files and View ▸ Info Inspector among them."),
+                    .paragraph("The menu bar carries the rest, a menu per place. File holds New Text File… and New Folder…, the tab items, the verbs that act on the selected row, Delete, and Save at the end — its Ignore in Comparison appears only while you are comparing, because ignoring is a statement about a comparison and Browse has none. Edit holds the file clipboard — Cut, Copy, Paste and Select All — with Find in Pane… under them. Go holds ⌘K and the per-pane Back and Forward. Compare holds the four transfers plus Review and Verify. Organize holds its six sections, the verbs that aim them at the selected folder, and Undo This Reorganisation, which is the only item there that needs no selection. View holds the four workspaces and the show/hide switches — View ▸ Hidden Files and View ▸ Info Inspector among them."),
                 ],
                 related: ["command-palette", "copy-move", "clipboard"]
             )),

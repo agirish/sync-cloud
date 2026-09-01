@@ -224,7 +224,6 @@ import Testing
         "SetupArtwork.swift/appeared": .gatedByHand,
         "SetupArtwork.swift/breathe": .gatedByHand,
         "SetupArtwork.swift/drift": .gatedByHand,
-        "LensWorkspaceView.swift/storageSection": .gatedByHand,   // listSettle
         "LensWorkspaceView.swift/railLens": .gatedByHand,
         "LensWorkspaceView.swift/setScope": .gatedByHand,
 

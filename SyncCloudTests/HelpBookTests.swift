@@ -217,7 +217,6 @@ import Testing
             .browse: "browse-workspace",
             .compare: "what-is-synccloud",
             .filing: "organize-workspace",
-            .storage: "storage-lens",
             .editor: "editor-workspace",
         ]
         for workspace in Workspace.allCases {
@@ -269,6 +268,12 @@ import Testing
             .renames: "fix-names",
             .restructure: "restructure-shapes",
             .rules: "automation-rules",
+            // Storage's article already existed — it was a WORKSPACE topic, filed outside this
+            // section. The fold moved it here, and this map is what forced that: the assertion
+            // below requires a lens's topic to live in the Organize section, so a re-homed lens
+            // whose article stayed put fails rather than shipping a rail item documented under a
+            // heading that no longer describes it.
+            .storage: "storage-lens",
         ]
         for lens in OrganizeLens.allCases {
             guard let id = expected[lens] else {

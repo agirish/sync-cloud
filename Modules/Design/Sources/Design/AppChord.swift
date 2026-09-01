@@ -71,7 +71,7 @@ public extension AppChord {
     /// **Nil past nine, rather than trapping.** `Character.init(String)` requires exactly one
     /// grapheme cluster, so a tenth workspace produced a two-character string and crashed — at
     /// MENU-BAR CONSTRUCTION, not at the tenth key press, which is to say the app would not open.
-    /// There are five workspaces today and the tests exercise 1…9, so nothing approaches it; a
+    /// There are four workspaces today and the tests exercise 1…9, so nothing approaches it; a
     /// latent trap on a number the UI is free to grow is worth one optional. A tenth item simply
     /// gets no chord, which is what the platform does too — ⌘0 is not "the tenth".
     static func workspace(_ ordinal: Int) -> AppChord? {

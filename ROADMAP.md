@@ -64,11 +64,19 @@ Every file classifies into exactly one state, from one walk of the tree:
 ### 1b. The Backup lens — the report
 
 **What:** A fifth **workspace** (`Workspace.backup`, with a matching `WorkspaceLensKind.backup` behind it),
-sitting after Storage in the bar. Note the shape this now takes: the two-level *Compare | Tidy* +
+sitting after Edit in the bar. Note the shape this now takes: the two-level *Compare | Tidy* +
 lens picker is gone — `Workspace` collapsed both levels into the flat toolbar bar — so "add a lens"
 and "add a top-level tab" are the same act, and the cost is a bar segment rather than a structural
-change to `ContentView`'s layout modes. Storage remains the precedent for a read-only analytical
-workspace, and the shared 81pt `LensHeaderCard` rung applies unchanged.
+change to `ContentView`'s layout modes. The shared 81pt `LensHeaderCard` rung applies unchanged.
+
+**Storage is no longer the precedent for a read-only analytical *workspace* — it is the precedent
+for a read-only analytical *lens*.** It folded into Organize, which is the change that makes room
+for this one. That reframes the question below: Backup as a workspace has to argue that it is a
+different KIND of place, not merely a different report. The rule Organize now draws is "everything
+the app concludes about a single tree"; Backup concludes something about a tree's *copies
+elsewhere*, which is a genuinely different subject and is the strongest argument for a segment of
+its own. If that argument fails, the fallback is the one Storage just took: a lens inside
+Organize, at no bar cost at all.
 
 **The bar-width consequence, which is the only real cost — and it has since been paid once.**
 The labelled segments approach the window's `minWidth` once the traffic lights and utility pill are
@@ -76,20 +84,32 @@ counted, and `WorkspaceBarMetrics` sheds every label at once (`.full` → `.icon
 exceed it. An added segment moves that threshold further out, so the bar spends more of its time
 icon-only.
 
-**What this paragraph predicted, and what actually happened.** It measured four segments at
+**What this paragraph predicted, and what actually happened — twice.** It measured four segments at
 **708pt** and five at **800** against a 760 floor, and concluded that a fifth means "either an
 icon-only floor again or another raise". A fifth arrived — the Edit workspace, not Backup — and
 the answer was *another raise*, plus one thing this analysis did not have: **deleting the bar's
-group rule**, which handed back 13pt (the rule, its padding, and its own `segmentGap`). Re-measured
-through `WorkspaceBarMetrics.styles` at the default text size with the ⌘K pill compact: four
-segments and a rule needed **720**, five with no rule need **793**, and the floor went to **810**.
-(At Large, 815; at Larger, 837 — both above the floor, so those two sizes still shed.)
+group rule**, which handed back 13pt (the rule, its padding, and its own `segmentGap`). Measured
+through `WorkspaceBarMetrics.styles` at the default text size with the ⌘K pill compact, five
+segments needed **781** and the floor went to **810** (Large 833, Largest 853 — both above the
+floor, so those two sizes shed).
 
-So the cost is real and it is now a *second* raise that Backup would have to argue for: a sixth
-segment lands somewhere near 880 and the floor cannot keep chasing it — the window opens at ~85% of
-the screen, and a floor that is most of a small display has stopped being a floor. That is the thing
-to weigh against Backup being a workspace rather than something reached from Storage. The glyph has
-to carry the whole label at narrow widths, so it must be legible alone rather than decorative.
+**Then Storage folded into Organize and the fifth slot came back.** The bar is four segments again,
+measured at **666.8 / 683.8 / 725.1 / 741.6** for Small / Default / Large / Largest, and the floor
+came back down to **760** in the same commit. Every text size keeps its labels at the floor now,
+which is the best state the bar has ever been in — and the notable side effect is that the
+icon-only rung is currently unreachable by the shipping bar at any legal window width. It is kept,
+not deleted, because this section is what would bring it back.
+
+**So Backup's cost is a return to five, not a push to six.** That is the whole value of the fold to
+this feature: five segments were priced at 781/833/853 with an 810 floor, and "Backup" is a
+slightly narrower word than "Storage" was, so the numbers land at or just under those. Re-measure
+through `WorkspaceBarMetrics.styles` rather than trusting that estimate — but the shape is known,
+and it is a floor RAISE that already has a precedent rather than a second unbudgeted one. The glyph
+has to carry the whole label at narrow widths, so it must be legible alone rather than decorative.
+
+The six-segment wall is unchanged and is still the real limit: a sixth lands near **880**, and the
+floor cannot keep chasing it — the window opens at ~85% of the screen, and a floor that is most of
+a small display has stopped being a floor. Whatever comes after Backup is a lens.
 
 **Folders, not files — the decision the feature lives or dies on.** A home folder holds hundreds of
 thousands of files and listing them answers nothing. Report the **highest folder that is entirely
@@ -523,7 +543,7 @@ scan is the most convincing lie the app could tell. **Every tile carries its own
 a visible state: past a threshold the tile greys and reads *as of 9 days ago* instead of a number.
 
 **One structural note:** Home has no source browser — it reads across every source at once. That
-breaks the invariant that currently holds for all five workspaces ("the left side is always a file
+breaks the invariant that currently holds for all four workspaces ("the left side is always a file
 browser"), so the layout family belongs on `Workspace` itself (`.twoSources` / `.sourceAndLens` /
 `.global`) rather than being decided per view. It also costs a seventh bar segment — see the
 width note in 1b.
