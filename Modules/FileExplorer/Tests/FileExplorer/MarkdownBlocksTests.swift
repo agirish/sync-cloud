@@ -336,4 +336,58 @@ import Foundation
         #expect(MarkdownPreview.drawnDepth(2) == 2, "the clamp is flattening depths it should draw")
         #expect(MarkdownPreview.drawnDepth(0) == 0)
     }
+
+    // MARK: Source lines
+
+    /// The line is what every caller of the outline, the task toggle and the split sync asks for,
+    /// so the first thing worth pinning is that the parser reports one at all — a walk that
+    /// silently answered `nil` everywhere would leave all three features inert and passing.
+    @Test func everyBlockKnowsTheLineItStartsOn() {
+        let parsed = blocks("""
+        # Title
+
+        A paragraph.
+
+        ## Second
+
+        - one
+        - two
+        """)
+        #expect(parsed.map(\.line) == [1, 3, 5, 7, 8],
+                "the walk reported lines \(parsed.map(\.line))")
+    }
+
+    /// Lines are counted in the WHOLE document, not within the construct — a heading after a
+    /// twenty-line fence is on line 22, not line 2. This is the failure a walk that re-parsed
+    /// fragments would produce, and it looks correct in every short fixture.
+    @Test func linesAreCountedFromTheTopOfTheDocument() {
+        let source = "```\n" + String(repeating: "x\n", count: 20) + "```\n\n# Late\n"
+        let parsed = blocks(source)
+        let heading = parsed.first { if case .heading = $0.kind { return true } else { return false } }
+        #expect(heading?.line == 24, "the late heading landed on line \(heading?.line as Int?)")
+    }
+
+    /// A task item's line is the line its checkbox is on, which is what the preview's click has to
+    /// rewrite. Nested items report their own line rather than their parent's.
+    @Test func taskItemsReportTheLineTheirCheckboxIsOn() {
+        let parsed = blocks("""
+        Intro.
+
+        - [ ] first
+        - [x] second
+          - [ ] nested
+        """)
+        let tasks = parsed.compactMap { block -> Int? in
+            guard case .listItem(.task, _) = block.kind else { return nil }
+            return block.line
+        }
+        #expect(tasks == [3, 4, 5], "the task lines came back as \(tasks)")
+    }
+
+    /// Quoted content keeps the line it is written on rather than the quote's opening line — the
+    /// quote recurses into its children and each child carries its own range.
+    @Test func aQuotedBlockReportsItsOwnLineNotTheQuotesFirst() {
+        let parsed = blocks("> one\n>\n> two\n")
+        #expect(parsed.map(\.line) == [1, 3], "quoted blocks reported \(parsed.map(\.line))")
+    }
 }

@@ -56,6 +56,20 @@ struct MarkdownBlock: Equatable, Sendable {
     var indent: Int = 0
     /// How many `>` levels enclose this block. 0 when it is not quoted.
     var quoteDepth: Int = 0
+    /// The **1-based source line** this block starts on, or `nil` when the parser reported no range.
+    ///
+    /// **A line, not a character offset, and that is the cheaper of two correct answers.** Every
+    /// caller asks a question a line answers: scroll the text view to where this heading is, find
+    /// the `[ ]` belonging to this task, keep the preview level with the caret. A character range
+    /// would have to be re-derived into a line for each of them, and — because the buffer is edited
+    /// between parses — would be stale in a way a line number survives: inserting a word does not
+    /// move the line, it moves every offset after it.
+    ///
+    /// `nil` is a real case rather than a defensive default. Blocks the walk synthesises rather
+    /// than reads — a padded table cell, the plain-text fallback for a shape it does not model —
+    /// have no single line to name, and a caller that treats `nil` as "line 1" would scroll
+    /// somewhere it was never told to go.
+    var line: Int?
 
     enum Kind: Equatable, Sendable {
         case heading(level: Int, text: MarkdownText)
@@ -64,12 +78,15 @@ struct MarkdownBlock: Equatable, Sendable {
         case codeBlock(language: String?, code: String)
         case table(header: [MarkdownText], rows: [[MarkdownText]])
         case thematicBreak
+        /// The YAML block the file opened with, held as its raw text. See ``MarkdownFrontMatter``.
+        case frontMatter(String)
     }
 
-    init(_ kind: Kind, indent: Int = 0, quoteDepth: Int = 0) {
+    init(_ kind: Kind, indent: Int = 0, quoteDepth: Int = 0, line: Int? = nil) {
         self.kind = kind
         self.indent = indent
         self.quoteDepth = quoteDepth
+        self.line = line
     }
 }
 
@@ -96,17 +113,36 @@ enum MarkdownBlocks {
     // by wrapping its arguments in PARENTHESES the file does not contain and dropping the styling.
     // The preview was rewriting the user's line. `@media` in an unfenced CSS snippet, `@2x`, and an
     // `@username` at the start of a line all did the same. Nothing in the walk needs the option.
-    let document = Document(parsing: source)
+    // Front matter is taken off the top first — see `MarkdownFrontMatter` for why leaving it in
+    // turns a YAML key into a heading.
+    let split = MarkdownFrontMatter.split(source)
+    let document = Document(parsing: split.body)
         for child in document.children {
             append(child, indent: 0, quoteDepth: 0, into: &blocks)
+        }
+        // **Put back into the FILE's numbering, not the body's.** Every line here was measured
+        // against a string that starts below the front matter, and the outline, the task toggle and
+        // the split sync all name lines in the buffer — so a document with six lines of front
+        // matter would send every one of them six lines too high.
+        if split.bodyStartLine > 1 {
+            let offset = split.bodyStartLine - 1
+            for index in blocks.indices {
+                blocks[index].line = blocks[index].line.map { $0 + offset }
+            }
+        }
+        if let matter = split.frontMatter {
+            blocks.insert(MarkdownBlock(.frontMatter(matter), line: 1), at: 0)
         }
         return blocks
     }
 
     private static func append(_ markup: any Markup, indent: Int, quoteDepth: Int,
                                into blocks: inout [MarkdownBlock]) {
+        // Read once, here, rather than inside `emit` — every arm that emits does so for THIS node,
+        // and an arm that recurses (a quote, a list) passes its children's own ranges down instead.
+        let line = self.line(of: markup)
         func emit(_ kind: MarkdownBlock.Kind) {
-            blocks.append(MarkdownBlock(kind, indent: indent, quoteDepth: quoteDepth))
+            blocks.append(MarkdownBlock(kind, indent: indent, quoteDepth: quoteDepth, line: line))
         }
 
         switch markup {
@@ -170,6 +206,16 @@ enum MarkdownBlocks {
         }
     }
 
+    /// The 1-based line a node begins on, or `nil` when the parser reported no range.
+    ///
+    /// **Not every node has one.** `swift-markdown` populates ranges for what it read out of the
+    /// source, and leaves them empty for nodes it synthesised — which is exactly the set
+    /// ``MarkdownBlock/line`` documents as legitimately `nil`. Asked in one place so the walk never
+    /// grows a second opinion about what an absent range means.
+    static func line(of markup: any Markup) -> Int? {
+        markup.range?.lowerBound.line
+    }
+
     /// A list item: its own line, then anything nested under it one level deeper.
     private static func appendListItem(_ item: ListItem, indent: Int, quoteDepth: Int,
                                        marker: MarkdownListMarker,
@@ -186,7 +232,7 @@ enum MarkdownBlocks {
         }
         let nested = children
         blocks.append(MarkdownBlock(.listItem(marker: marker, text: lead ?? MarkdownText(runs: [])),
-                                    indent: indent, quoteDepth: quoteDepth))
+                                    indent: indent, quoteDepth: quoteDepth, line: line(of: item)))
         for child in nested {
             append(child, indent: indent + 1, quoteDepth: quoteDepth, into: &blocks)
         }
@@ -206,7 +252,7 @@ enum MarkdownBlocks {
             rows.append(cells)
         }
         blocks.append(MarkdownBlock(.table(header: header, rows: rows),
-                                    indent: indent, quoteDepth: quoteDepth))
+                                    indent: indent, quoteDepth: quoteDepth, line: line(of: table)))
     }
 
     // MARK: - Inline

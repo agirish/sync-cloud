@@ -8,12 +8,25 @@ import Design
 /// has spent a lot of effort on all three — and would render the document at a size unrelated to
 /// Settings ▸ Text size.
 ///
-/// Read-only by construction: this draws from the document's text and has no way to write back, so
-/// the buffer stays the single source of truth and toggling modes cannot lose an edit.
+/// **Read-only except for one thing: a task item's checkbox.** Everything else here draws from the
+/// document's text and cannot write back, so the buffer stays the single source of truth and
+/// toggling modes cannot lose an edit. The checkbox is the exception because a checklist you can
+/// read and not tick is a checklist you have to switch modes to use — and it is a safe one: the
+/// click leaves through ``onToggleTask``, which rewrites exactly three characters of exactly one
+/// line through ``MarkdownEdits/toggleTask(onLine:in:)``, and it is withheld entirely on a document
+/// that cannot be saved.
 struct MarkdownPreview: View {
 
     let blocks: [MarkdownBlock]
     let accent: Color
+    /// Which source line the preview should bring into view, or `nil` to leave it where it is.
+    ///
+    /// Carries a token for the reason ``PlainTextEditor/scrollRequest`` does — and in split mode it
+    /// changes constantly, once per line scrolled past on the other side.
+    var scrollRequest: EditorScrollRequest?
+    /// Ticks or unticks the task on a source line, or `nil` when this document must not be edited —
+    /// which is what makes the checkbox a picture rather than a control on a read-only file.
+    var onToggleTask: ((Int) -> Void)?
 
     /// Settings ▸ Text size. Read here rather than relied on ambiently because the `Text`
     /// concatenation in ``styled(_:)`` builds `Text` VALUES, which the `View`-level `.scaledFont`
@@ -21,13 +34,51 @@ struct MarkdownPreview: View {
     @Environment(\.appFontScale) private var fontScale
 
     var body: some View {
+        ScrollViewReader { proxy in
+            scroller
+                // **`initial: false`.** A request that arrives with the view — opening a file from
+                // an outline row — is answered by the `.task` below instead, once the blocks it
+                // names actually exist; scrolling to an id in a `LazyVStack` that has not built a
+                // single row yet is a no-op that looks like the feature being broken every other
+                // time.
+                .onChange(of: scrollRequest) { _, request in scroll(to: request, with: proxy) }
+                .task(id: EditorPreviewScrollKey(request: scrollRequest, count: blocks.count)) {
+                    // One turn, so the rows named below have been built.
+                    await Task.yield()
+                    scroll(to: scrollRequest, with: proxy)
+                }
+        }
+    }
+
+    /// Where a scroll lands, or nothing when the request names a document this preview has not
+    /// rendered yet.
+    private func scroll(to request: EditorScrollRequest?, with proxy: ScrollViewProxy) {
+        guard let request,
+              let index = MarkdownOutline.blockIndex(forLine: request.line, in: blocks) else {
+            return
+        }
+        // **No animation.** In split this fires on every line scrolled past on the other side, and
+        // an animated scroll chasing a scroll wheel lags behind it and then overshoots.
+        proxy.scrollTo(index, anchor: .top)
+    }
+
+    /// What a preview scroll depends on: the request, and whether the blocks it names exist yet.
+    private struct EditorPreviewScrollKey: Equatable {
+        var request: EditorScrollRequest?
+        var count: Int
+    }
+
+    private var scroller: some View {
         ScrollView {
             // **Lazy, because the read cap is 4 MiB.** A plain `VStack` materialises every block
             // on the main actor in one pass — moving the *parse* off it says nothing about the
             // render, and a large document is tens of thousands of blocks.
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
                     view(for: block)
+                        // The scroll target. The index rather than the source line, because a
+                        // block does not have to have one — see ``MarkdownBlock/line``.
+                        .id(index)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -47,7 +98,7 @@ struct MarkdownPreview: View {
     /// detached from the item it belongs to.
     @ViewBuilder
     private func view(for block: MarkdownBlock) -> some View {
-        let content = kindView(block.kind)
+        let content = kindView(block.kind, line: block.line)
         let indent = CGFloat(Self.drawnDepth(block.indent)) * Self.indentStep
         if block.quoteDepth > 0 {
             HStack(alignment: .top, spacing: 10) {
@@ -83,8 +134,41 @@ struct MarkdownPreview: View {
     /// The nesting depth actually drawn for `level`.
     static func drawnDepth(_ level: Int) -> Int { min(max(level, 0), maxNestingDrawn) }
 
+    /// The front matter, folded into one line that opens.
+    ///
+    /// **Folded rather than hidden.** It is part of the file and it is what a lot of tooling reads,
+    /// so a preview that dropped it would be describing a document the file is not — but expanded
+    /// by default it puts six lines of machine-readable keys above the first sentence, every time.
     @ViewBuilder
-    private func kindView(_ kind: MarkdownBlock.Kind) -> some View {
+    private func frontMatterChip(_ matter: String) -> some View {
+        let keys = MarkdownFrontMatter.keyCount(in: matter)
+        DisclosureGroup {
+            Text(matter)
+                .scaledFont(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+        } label: {
+            HStack(spacing: 6) {
+                Text("Front matter")
+                    .scaledFont(.system(size: 10, weight: .semibold))
+                // The count is what makes the closed chip worth reading: it says how much is folded
+                // away, so nobody has to open it to find out whether it matters.
+                Text(keys == 1 ? "1 key" : "\(keys) keys")
+                    .scaledFont(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .disclosureGroupStyle(.automatic)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.3)))
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private func kindView(_ kind: MarkdownBlock.Kind, line: Int?) -> some View {
         switch kind {
         case .heading(let level, let text):
             styled(text)
@@ -100,9 +184,12 @@ struct MarkdownPreview: View {
                 .padding(.vertical, 4)
                 .textSelection(.enabled)
 
+        case .frontMatter(let matter):
+            frontMatterChip(matter)
+
         case .listItem(let marker, let text):
             HStack(alignment: .firstTextBaseline, spacing: 7) {
-                markerView(marker)
+                markerView(marker, line: line)
                 styled(text)
                     .scaledFont(.system(size: 13))
                     .lineSpacing(3)
@@ -139,7 +226,7 @@ struct MarkdownPreview: View {
     }
 
     @ViewBuilder
-    private func markerView(_ marker: MarkdownListMarker) -> some View {
+    private func markerView(_ marker: MarkdownListMarker, line: Int?) -> some View {
         switch marker {
         case .bullet:
             Circle()
@@ -154,11 +241,35 @@ struct MarkdownPreview: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
         case .task(let done):
-            Image(systemName: done ? "checkmark.square.fill" : "square")
-                .scaledFont(.system(size: 11))
-                .foregroundStyle(done ? AnyShapeStyle(accent) : AnyShapeStyle(.tertiary))
+            // **A button only when there is a line to rewrite and a document that accepts it.**
+            // Both halves are real: a block the parser gave no range to cannot be found in the
+            // buffer, and a read-only document must not gain a writable control in the one mode
+            // that was never supposed to have any.
+            if let line, let onToggleTask {
+                Button { onToggleTask(line) } label: {
+                    checkbox(done)
+                }
+                .buttonStyle(.plain)
                 .accessibilityLabel(done ? "Done" : "Not done")
+                .accessibilityAddTraits(done ? [.isButton, .isSelected] : .isButton)
+                .accessibilityHint("Ticks this item in the document")
+                .help(done ? "Untick this item" : "Tick this item")
+            } else {
+                checkbox(done)
+                    .accessibilityLabel(done ? "Done" : "Not done")
+            }
         }
+    }
+
+    /// The box itself, drawn the same whether or not it can be clicked — a checklist that looked
+    /// different on a read-only file would read as a rendering bug rather than as a permission.
+    private func checkbox(_ done: Bool) -> some View {
+        Image(systemName: done ? "checkmark.square.fill" : "square")
+            .scaledFont(.system(size: 11))
+            .foregroundStyle(done ? AnyShapeStyle(accent) : AnyShapeStyle(.tertiary))
+            // A 4pt glyph is a hard target for a pointer; the shape gives it a real one without
+            // changing what is drawn.
+            .contentShape(Rectangle().inset(by: -3))
     }
 
     /// A table, scrolling sideways inside its own container rather than widening the document.
