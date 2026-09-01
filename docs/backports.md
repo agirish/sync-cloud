@@ -2481,7 +2481,7 @@ have to read the whole diff:
   theirs. **Do not port that prose** — it would make their comments describe a window they do not
   have.
 
-## 2026-08-31 — Storage folds into Organize (`<shas after push>`)
+## 2026-08-31 — Storage folds into Organize (`66bf9513`, `89910d6a`, `c6eef8fb`, `c0d96eeb`, `14f86c25`, `dc665a7d`)
 
 Storage stops being a workspace and becomes Organize's sixth rail item. **RECORDED — not owed**,
 per the standing direction (`e2b35dad`).
