@@ -1673,12 +1673,7 @@ struct SetupSheet: View {
     /// are on without reading the rail.
     private func stepHeader(_ step: SetupFlow.Step, _ title: String, _ blurb: String) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: step.symbolName)
-                .scaledFont(.system(size: 22))
-                .foregroundStyle(.tint)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(Color.accentColor.opacity(0.12)))
-                .accessibilityHidden(true)
+            SetupStepGlyph(symbol: step.symbolName)
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).scaledFont(.title2.weight(.semibold))
                 Text(blurb)
@@ -1930,5 +1925,54 @@ private struct WrapLayout: Layout {
             x += size.width + spacing
             lineHeight = max(lineHeight, size.height)
         }
+    }
+}
+
+// MARK: - Step glyph
+
+/// A step's mark: its SF Symbol in a tinted disc, at the top of the card.
+///
+/// **This one was drawing outside its disc at the size everybody sees it.** The mark was
+/// `.frame(width: 30, height: 30)` behind a `Circle()`, and two of the five step symbols are wider
+/// than that at 22pt: rendered to a bitmap and diffed against the disc on 2026-08-31, `person.2`
+/// put **15pt² of ink outside the circle** and `folder.badge.gearshape` 13pt², at Default, Large
+/// and Largest alike. `.frame` does not clip, so the shoulder of the second figure simply drew on
+/// the card behind the disc.
+///
+/// **It is not a text-size bug, which is what makes it worth saying out loud.** 22pt is above
+/// ``Design/FontSize/knee``, so the ramp clamps it: the glyph renders at 22pt for Default, Large
+/// *and* Largest, and only shrinks at Small. The disc was wrong at 100% on its own, and no amount
+/// of scaling a 30pt box fixes a glyph that never fitted it. So ``boxSize`` is **34**, which is the
+/// smallest diameter that holds all five symbols clean at all four text sizes — 30 leaves 15pt²
+/// out and 32 still leaves 6pt², measured the same way.
+///
+/// It scales as well, through ``Design/FontSize/scaledBox(_:basePoint:scale:)``, which for a 22pt
+/// glyph means one step: 30.6 at Small and 34 everywhere above it. That is the point of asking the
+/// ramp rather than multiplying — the disc stops exactly where the glyph does, instead of opening
+/// to 46pt around a symbol still drawing at 22.
+struct SetupStepGlyph: View {
+
+    let symbol: String
+
+    @Environment(\.appFontScale) private var scale
+
+    /// The glyph's own point size at the default text size.
+    static let pointSize: CGFloat = 22
+    /// The disc's diameter at the default text size — the smallest that holds every step symbol.
+    static let boxSize: CGFloat = 34
+
+    /// The disc at `scale`, in the same proportion to the glyph as `boxSize` is to `pointSize`.
+    static func box(at scale: CGFloat) -> CGFloat {
+        FontSize.scaledBox(boxSize, basePoint: pointSize, scale: scale)
+    }
+
+    var body: some View {
+        let d = Self.box(at: scale)
+        Image(systemName: symbol)
+            .scaledFont(.system(size: Self.pointSize))
+            .foregroundStyle(.tint)
+            .frame(width: d, height: d)
+            .background(Circle().fill(Color.accentColor.opacity(0.12)))
+            .accessibilityHidden(true)
     }
 }
