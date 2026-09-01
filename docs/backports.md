@@ -2451,6 +2451,22 @@ treatment there should run it rather than inherit this row's answer:
 git grep -n 'hoverAffordance(' origin/v4.x -- '*.swift' | grep '\.inline'   # then read each one
 ```
 
+**Autosave, `dcc0303c` — not owed, and it does not widen the shared surface.** The editor now writes
+two seconds after the typing settles and flushes at every route out; the unsaved-changes prompts it
+replaced were all editor-only. Worth checking rather than assuming, because the change touches
+`SyncCloudApp`'s quit guard, which every line has: what it touches there is the `hasUnsavedDocument`
+input, and that parameter arrived with the Edit workspace and exists on no maintenance line — their
+`quitDecision` still takes two arguments.
+
+```sh
+git show origin/v4.x:MacApp/SyncCloudApp.swift | grep -c hasUnsavedDocument   # expect 0
+```
+
+The one idea in it a maintenance line could want independently is the **latch**: an alert raised
+from a debounced retry has to record that it was already declined, or it returns on every restart of
+the timer. Nothing on those lines raises an alert from a retry today, so there is nothing to port —
+recorded because it is the kind of defect that is invisible until somebody adds one.
+
 **Two corrections landed alongside it that DO touch shared code**, and both are recorded here
 because a reader scanning for "did anything in this batch reach existing surfaces" would otherwise
 have to read the whole diff:
