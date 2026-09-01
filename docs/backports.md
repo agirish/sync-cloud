@@ -2609,6 +2609,45 @@ Prose-only — `answersOneLens` counts `lenses`, so nothing depended on the numb
 one-line prose fix that would apply cleanly to `v4.x`**, whose copy carries the same error; it is
 recorded here rather than picked, per the standing direction.
 
+## 2026-08-31 — the Storage fold's review fixes (`<shas after push>`) — not owed, with one caveat
+
+An adversarial review of the fold above found one shipped bug and one gap. Both are **fixes to code
+that only exists on `main`**, so neither is owed — but the caveat is worth reading, because one of
+them adds API to a type the maintenance lines do have.
+
+**The bug: a scope change left the previous root's report on screen.** `restoreStorageLens` refuses
+while a report is in hand, so the scope trigger the fold added was declined and the chip said one
+folder while the treemap showed another's proportions. Unreachable on any maintenance line — none
+of them has a Storage lens inside Organize, so none has a scope that could contradict one.
+
+**The caveat: `OrganizeAim.storageReportStandsUnder(scope:reportRoot:)` is new public API in
+`Modules/Sync`, and `v4.x` has `OrganizeAim`.** So this is the one piece here that would *compile*
+there. It is still not owed: it is additive, it has no caller on those lines, and a predicate with
+no caller is the shape this repo has learned to distrust (see the tested-rule-with-no-caller
+entries). Named so an audit does not read "Sync gained a function" and assume a gap.
+
+```sh
+# Positive control first — the symbol must be found somewhere, or absence proves nothing.
+git grep -c storageReportStandsUnder origin/main -- Modules/Sync/Sources/Sync/OrganizeScope.swift
+for l in v4.x v3.x v2.x; do
+  echo "$l: $(git grep -c storageReportStandsUnder origin/$l -- Modules/Sync/Sources/Sync/OrganizeScope.swift 2>/dev/null || echo 0)"
+done   # main 1; the maintenance lines 0, and nothing there would call it
+```
+
+| Piece | Applies to a maintenance line? |
+|---|---|
+| The clear-then-restore in `restoreStorageLensIfShowing` | No — `selectedOrganizeLens == .storage` names a lens those lines do not have |
+| `OrganizeAim.storageReportStandsUnder` | Compiles on `v4.x`; **no caller there**, so picking it would add a tested rule nothing reads |
+| The Analyze verb on the overview's stranded line | No — `OrganizeOverview` is v5-only |
+| The receipt card's generic title, the cached formatters, three comment corrections | No — all inside fold-only code |
+
+**`FolderSurveyGroundTruthTests` was red throughout this work and is not related to it.** The person
+axis measures **0.905** against a 0.99 floor, reproduced identically at `origin/main` with none of
+these changes. It is live-profile data rather than code: the re-derive bug that impoverished the
+axis was fixed on 2026-08-29, but the profile on disk still carries what it wrote, and a survey
+refresh rebuilds it from `people.json`. Recorded here because a future audit running the Sync suite
+will meet it and should not spend time bisecting for it.
+
 ## 2026-08-31 — the mode capsules' glyph boxes did not grow with the text size (`1a1af60f`) — CLOSED, does not apply
 
 `EditorModeBar` and `StorageSectionBar` each drew their SF Symbol as
