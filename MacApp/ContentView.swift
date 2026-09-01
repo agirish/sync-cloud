@@ -66,6 +66,11 @@ struct ContentView: View {
     /// Bumped by ⌘N so the naming row takes focus even when it is already open — a pure signal,
     /// never read for its value.
     @State var editorNamingFocus = 0
+    /// What is typed into the rail's filter, and whether its field is showing. **Here for the
+    /// reason `editorTypedName` is here**: both are things the user typed, and the editor's view is
+    /// rebuilt from nothing by every workspace switch.
+    @State var editorRailFilter = ""
+    @State var editorRailFilterIsExpanded = false
 
     /// Why autosave has stopped writing, or `nil` while it is working.
     ///

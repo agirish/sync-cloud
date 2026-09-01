@@ -153,6 +153,8 @@ extension ContentView {
             splitFraction: $editorSplitFraction,
             isNaming: $editorIsNaming,
             typedName: $editorTypedName,
+            railFilter: $editorRailFilter,
+            railFilterIsExpanded: $editorRailFilterIsExpanded,
             namingFocus: editorNamingFocus,
             undoManager: editorUndoManager,
             stopped: editorAutosaveStop?.caption,

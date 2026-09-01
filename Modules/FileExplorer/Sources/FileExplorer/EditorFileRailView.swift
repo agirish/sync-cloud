@@ -41,6 +41,20 @@ struct EditorFileRailView: View {
     let prefilledName: () -> String
     /// Why the typed name cannot be used, asked as the user types.
     let refusal: (String) -> String?
+    /// What was typed into the rail's filter, and whether the field is showing.
+    ///
+    /// **Both held by the host, for the reason `typedName` is.** This view does not exist while
+    /// another workspace is on screen, so as `@State` a filter would be silently forgotten by a
+    /// trip to Browse and back — with the rail returning to a full list the user did not ask for.
+    @Binding var filter: String
+    @Binding var filterIsExpanded: Bool
+    /// The open document's headings, or empty when it has none — a `.txt`, or Markdown that never
+    /// uses one. Empty means the whole section is absent rather than present and blank.
+    var outline: [MarkdownOutlineEntry] = []
+    /// Which outline row the caret is inside, or `nil` when it is above the first heading.
+    var currentOutlineIndex: Int?
+    /// Sends the reader to a heading's line.
+    var onSelectHeading: (MarkdownOutlineEntry) -> Void = { _ in }
     let onOpen: (EditorRailEntry) -> Void
     /// Commits a name. Returns `false` when the file was not created after all — the caller can
     /// refuse (an unsaved document the user declined to settle), and the row reopens with the typed
@@ -57,21 +71,55 @@ struct EditorFileRailView: View {
     static var width: CGFloat { EditorLayoutMetrics.railWidth }
 
     @FocusState private var nameFieldFocused: Bool
+    @Environment(\.appFontScale) private var fontScale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// How many outline rows are shown before the section scrolls.
+    ///
+    /// **A row count, not a share of the height, and the first draft was the share.** Taking a
+    /// fraction needs the rail's own height, which means a `GeometryReader` — and that has no
+    /// intrinsic size, so wrapping the rail in one collapsed it to 10pt for anything that asks its
+    /// ideal height. `EditorLayoutTests` measures exactly that, and caught it. A constant cap keeps
+    /// the rail sizing itself while still leaving the larger half to the files, which is the whole
+    /// point of capping: you have to open a file before an outline of it means anything.
+    static let outlineRowsBeforeScrolling = 8
+
+    /// The cap in points, at the app's text size — so it holds the same EIGHT rows at every size
+    /// rather than eight at Default and four at Largest.
+    static func outlineCap(scale: CGFloat) -> CGFloat {
+        let row = FontSize.scaledPointSize(11, scale: scale) * 1.35 + 6
+        // Plus the section's own heading and its padding, which are not rows but are in the frame.
+        return CGFloat(outlineRowsBeforeScrolling) * row
+            + FontSize.scaledPointSize(11, scale: scale) * 1.35 + 20
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if isNaming { namingRow }
-            if entries.isEmpty && !isNaming {
-                emptyCaption
+            if filterIsExpanded {
+                ExpandingSearchField(text: $filter, isExpanded: $filterIsExpanded,
+                                     placeholder: "Filter by name")
+                    .scaledFont(.system(size: 11))
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+            }
+            let shown = EditorRail.filtered(entries, matching: filter)
+            if shown.isEmpty && !isNaming {
+                emptyCaption(anyEntries: !entries.isEmpty)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
-                        ForEach(entries) { entry in row(entry) }
+                        ForEach(shown) { entry in row(entry) }
                     }
                     .padding(.horizontal, 6)
                     .padding(.bottom, 8)
                 }
+            }
+            if !outline.isEmpty {
+                Divider().padding(.horizontal, 8)
+                outlineSection
+                    .frame(maxHeight: Self.outlineCap(scale: fontScale))
             }
             Spacer(minLength: 0)
         }
@@ -103,6 +151,26 @@ struct EditorFileRailView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
+            // **Revealed rather than always shown**, the bargain every other search in this app
+            // strikes: the rail is 232pt wide and a permanent field would spend a row of it on a
+            // control most sessions never touch.
+            Button {
+                // `withDesignAnimation`, not a bare `withAnimation` — the reveal is a width change
+                // under the pointer, which is exactly what Reduce Motion turns off. A repo-wide
+                // scan in the Design package holds every site in the app to this.
+                withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) {
+                    filterIsExpanded.toggle()
+                }
+                if !filterIsExpanded { filter = "" }
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.hoverAffordance(filterIsExpanded ? .filled : .glyph, tint: accent))
+            .accessibilityLabel("Filter text files")
+            .help("Filter this list by name")
+            .disabled(entries.isEmpty)
             Button {
                 isNaming = true
             } label: {
@@ -177,10 +245,73 @@ struct EditorFileRailView: View {
         isNaming = false
     }
 
-    private var emptyCaption: some View {
+    /// The open document's headings, under the files they belong beside.
+    ///
+    /// **Under the file list rather than replacing it**, because they answer two halves of one
+    /// question — which file, and where in it — and a rail that swapped between them would make
+    /// opening a second file a two-step operation.
+    private var outlineSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Outline")
+                .scaledFont(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(outline.enumerated()), id: \.element.id) { index, entry in
+                        outlineRow(entry, isCurrent: index == currentOutlineIndex)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 8)
+            }
+        }
+    }
+
+    /// The step each outline level is drawn in by. Half the preview's, because the rail is 232pt
+    /// wide and the words are what matter here.
+    static let outlineIndentStep: CGFloat = 10
+
+    private func outlineRow(_ entry: MarkdownOutlineEntry, isCurrent: Bool) -> some View {
+        Button {
+            onSelectHeading(entry)
+        } label: {
+            HStack(spacing: 0) {
+                Color.clear.frame(width: CGFloat(entry.depth) * Self.outlineIndentStep, height: 1)
+                // **An empty heading keeps its row.** `##` on its own is legal and it is somewhere
+                // in the document you can go; a row with nothing in it would be unclickable-looking,
+                // so it says what it is instead of pretending it is not there.
+                Text(entry.title.isEmpty ? "Untitled heading" : entry.title)
+                    .scaledFont(.system(size: 11,
+                                        weight: isCurrent ? .semibold : .regular))
+                    .foregroundStyle(entry.title.isEmpty ? AnyShapeStyle(.tertiary)
+                                                         : AnyShapeStyle(.primary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .contentShape(Self.rowOutline)
+        }
+        .buttonStyle(.hoverAffordance(isCurrent ? .filled : .row,
+                                      tint: accent, shape: Self.rowShape))
+        .help(entry.title.isEmpty ? "Untitled heading" : entry.title)
+        .accessibilityLabel("Heading level \(entry.level), \(entry.title)")
+        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// - Parameter anyEntries: whether the folder has text files at all. **The two empties are
+    ///   different questions** — a folder with nothing in it, and a filter that matched nothing —
+    ///   and "The + button makes one" is unhelpful advice for the second.
+    private func emptyCaption(anyEntries: Bool) -> some View {
         Text(folderName.isEmpty
              ? "Pick a folder in the sidebar to see the text files in it."
-             : "No text files in this folder. The + button makes one.")
+             : anyEntries
+               ? "No text files here match “\(filter.trimmingCharacters(in: .whitespaces))”."
+               : "No text files in this folder. The + button makes one.")
             .scaledFont(.system(size: 11))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)

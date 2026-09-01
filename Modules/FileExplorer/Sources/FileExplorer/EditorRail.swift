@@ -89,4 +89,20 @@ public enum EditorRail {
         // Finder does rather than the way ASCII does.
         return rows.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
+
+    /// The rows that match what was typed into the rail's filter.
+    ///
+    /// **Substring, case- and diacritic-insensitive, over the name only.** Not the path: every row
+    /// in the rail is in the same folder, so a path match would be a folder-name match that hits
+    /// every row at once or none — a filter that answers "all or nothing" is not a filter.
+    ///
+    /// A filter of only whitespace is no filter. Somebody who has typed a space and stopped is
+    /// mid-thought, and answering "no files" to that is a rail that appears to have emptied itself.
+    static func filtered(_ entries: [EditorRailEntry], matching filter: String) -> [EditorRailEntry] {
+        let needle = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return entries }
+        return entries.filter {
+            $0.name.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
 }

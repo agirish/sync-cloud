@@ -25,7 +25,8 @@ import Design
 
     // MARK: The rail
 
-    private func rail(entries: [EditorRailEntry], naming: Bool = false) -> EditorFileRailView {
+    private func rail(entries: [EditorRailEntry], naming: Bool = false,
+                      outline: [MarkdownOutlineEntry] = []) -> EditorFileRailView {
         EditorFileRailView(
             folderName: "Notes",
             entries: entries,
@@ -35,8 +36,15 @@ import Design
             typedName: .constant(""),
             prefilledName: { "Untitled.md" },
             refusal: { _ in nil },
+            filter: .constant(""),
+            filterIsExpanded: .constant(false),
+            outline: outline,
             onOpen: { _ in },
             onCreate: { _ in true })
+    }
+
+    private func heading(_ title: String, level: Int = 1, line: Int) -> MarkdownOutlineEntry {
+        MarkdownOutlineEntry(line: line, level: level, depth: level - 1, title: title)
     }
 
     private func entry(_ name: String, size: Int = 120) -> EditorRailEntry {
@@ -366,5 +374,83 @@ import Design
         }
         #expect(sizes.first! > 13, "h1 is not larger than body text")
         #expect(sizes.last! >= 11, "h6 has fallen below a readable size")
+    }
+
+    // MARK: The status line
+
+    private func statusLine(_ rung: EditorStatusLine.Rung,
+                            words: Int = 4_218, characters: Int = 24_907) -> EditorStatusLine {
+        EditorStatusLine(
+            facts: EditorDocumentFacts(words: words, characters: characters, lines: 412,
+                                       lineEnding: .crlf, encoding: "UTF-16 LE"),
+            caret: EditorCaret(line: 408, column: 118),
+            forcedRung: rung)
+    }
+
+    /// **The rungs have to be strictly narrower in order, or `ViewThatFits` never reaches them.**
+    ///
+    /// It takes the first candidate that fits, so a "narrower" rung that measures wider than the
+    /// one before it is dead code that no width can select — the failure mode is silent, and the
+    /// strip simply truncates at the size the shedding was written for.
+    @Test func eachStatusRungIsNarrowerThanTheOneBeforeIt() {
+        for scale in scales {
+            let widths = EditorStatusLine.Rung.allCases.map {
+                size(statusLine($0).environment(\.appFontScale, scale)).width
+            }
+            #expect(widths == widths.sorted(by: >),
+                    "at scale \(scale) the rungs measure \(widths), which is not strictly narrowing")
+        }
+    }
+
+    /// The narrowest rung has to fit the narrowest column the layout will ever give it, at every
+    /// text size — otherwise the strip truncates in a window the app itself allows.
+    @Test func theNarrowestStatusRungFitsTheNarrowestDocumentColumn() {
+        for scale in scales {
+            let width = size(statusLine(.caret).environment(\.appFontScale, scale)).width
+            #expect(width <= EditorLayoutMetrics.minDocumentWidth,
+                    "the caret-only rung is \(width)pt against a \(EditorLayoutMetrics.minDocumentWidth)pt column at scale \(scale)")
+        }
+    }
+
+    /// A five-figure count is wider than a one-figure count, so the rung widths above are a
+    /// property of the numbers as well as of the layout. This is the positive control for the two
+    /// tests above: without it they would pass over a strip that rendered no numbers at all.
+    @Test func theStatusLineReallyDrawsItsNumbers() {
+        let small = size(statusLine(.full, words: 1, characters: 4)).width
+        let large = size(statusLine(.full, words: 4_218, characters: 24_907)).width
+        #expect(large > small + 20,
+                "the full rung measured \(small) with tiny numbers and \(large) with large ones")
+    }
+
+    // MARK: The outline section
+
+    /// The section is absent, not empty, when the document has no headings — a `.txt`, or a note
+    /// that never uses one. An empty titled section would be a permanent question in a 232pt rail.
+    @Test func aDocumentWithNoHeadingsDrawsNoOutlineSection() {
+        let bare = size(rail(entries: [entry("one.md")]))
+        let outlined = size(rail(entries: [entry("one.md")],
+                                 outline: [heading("Title", line: 1)]))
+        #expect(outlined.height > bare.height,
+                "the outline section added nothing: \(bare.height) then \(outlined.height)")
+    }
+
+    /// The cap holds the same number of rows at every text size — eight at Default and eight at
+    /// Largest — which is what makes it a cap on the section rather than on the type.
+    @Test func theOutlineCapGrowsWithTheTextSize() {
+        let caps = scales.map { EditorFileRailView.outlineCap(scale: $0) }
+        #expect(caps == caps.sorted(), "the cap does not grow with the text size: \(caps)")
+        #expect(caps.first ?? 0 < caps.last ?? 0, "the cap is flat across the whole range: \(caps)")
+    }
+
+    /// The rail is hard-framed, so the width cannot move; the height is the axis that says the
+    /// outline rows are really drawn rather than reserved.
+    @Test func theOutlineGrowsWithItsRowsUntilTheCap() {
+        let one = size(rail(entries: [entry("one.md")], outline: [heading("A", line: 1)]))
+        let four = size(rail(entries: [entry("one.md")],
+                             outline: (1...4).map { heading("Row \($0)", line: $0) }))
+        #expect(four.height > one.height,
+                "four outline rows measured \(four.height) against one row's \(one.height)")
+        #expect(abs(four.width - EditorLayoutMetrics.railWidth) < 0.51,
+                "the outline widened the rail to \(four.width)")
     }
 }

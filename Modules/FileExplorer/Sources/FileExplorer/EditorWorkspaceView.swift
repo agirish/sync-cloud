@@ -81,6 +81,10 @@ public struct EditorWorkspaceView: View {
     /// did not, which is the pair disagreeing about what the session remembers.
     @Binding var splitFraction: CGFloat
     @Binding var isNaming: Bool
+    /// The rail's filter, and whether its field is showing. Held by the host beside `isNaming` and
+    /// `typedName`, for the same reason — see ``EditorFileRailView/filter``.
+    @Binding var railFilter: String
+    @Binding var railFilterIsExpanded: Bool
     /// The name being typed in the naming row. Held by the host beside `isNaming` — see
     /// ``EditorFileRailView/typedName``.
     @Binding var typedName: String
@@ -117,6 +121,27 @@ public struct EditorWorkspaceView: View {
 
     /// The parsed document, re-derived off the main actor after the typing settles.
     @State private var blocks: [MarkdownBlock] = []
+    /// What the status line says about the buffer, re-derived on the same debounce as the parse.
+    @State private var facts: EditorDocumentFacts = .empty
+    /// The caret's UTF-16 offset, as the text view last reported it.
+    ///
+    /// **The offset is kept and the line/column is derived**, rather than the reverse: converting
+    /// walks the buffer, and this is written on every arrow key. Storing the cheap thing and paying
+    /// for the expensive one on a debounce is the same trade ``EditorDocument/textVersion`` makes.
+    @State private var caretOffset: Int = 0
+    /// The caret in the terms the status line shows, derived from ``caretOffset``.
+    @State private var caret: EditorCaret = EditorCaret(line: 1, column: 1)
+    /// The open document's headings, re-derived beside the blocks they come from.
+    @State private var outline: [MarkdownOutlineEntry] = []
+    /// Where the text view has been asked to put the caret, and where the preview has been asked to
+    /// scroll. **Two requests, because they are asked for by different things**: an outline click
+    /// moves both, and a scroll in split moves only the preview.
+    @State private var editorScrollRequest: EditorScrollRequest?
+    @State private var previewScrollRequest: EditorScrollRequest?
+    /// Bumped on every request, so asking for the same line twice is two requests.
+    @State private var scrollToken: Int = 0
+    /// Bumped by the header's Find button. See ``PlainTextEditor/findRequest``.
+    @State private var findRequest: Int = 0
     /// Live only while the divider is being dragged; the committed value lives with the host.
     @State private var splitDrag: CGFloat?
 
@@ -129,6 +154,8 @@ public struct EditorWorkspaceView: View {
                 splitFraction: Binding<CGFloat>,
                 isNaming: Binding<Bool>,
                 typedName: Binding<String>,
+                railFilter: Binding<String>,
+                railFilterIsExpanded: Binding<Bool>,
                 namingFocus: Int = 0,
                 undoManager: UndoManager,
                 stopped: String? = nil,
@@ -137,6 +164,8 @@ public struct EditorWorkspaceView: View {
                 onOpen: @escaping (EditorRailEntry) -> Void,
                 onCreate: @escaping (String) -> Bool,
                 onRevealInBrowse: @escaping (String) -> Void) {
+        self._railFilter = railFilter
+        self._railFilterIsExpanded = railFilterIsExpanded
         self.document = document
         self.folder = folder
         self.entries = entries
@@ -154,6 +183,13 @@ public struct EditorWorkspaceView: View {
         self.onOpen = onOpen
         self.onCreate = onCreate
         self.onRevealInBrowse = onRevealInBrowse
+    }
+
+    /// The mode actually being drawn — `.edit` on a file with nothing to preview, whatever the
+    /// capsule last remembered. The header asks this rather than `mode` for the reason
+    /// ``EditorMode/resolved(_:isMarkdown:)`` exists.
+    private var resolvedMode: EditorMode {
+        EditorMode.resolved(mode, isMarkdown: document.isMarkdown)
     }
 
     private var folderName: String {
@@ -185,6 +221,12 @@ public struct EditorWorkspaceView: View {
                                namingFocus: namingFocus,
                                prefilledName: prefilledName,
                                refusal: refusal,
+                               filter: $railFilter,
+                               filterIsExpanded: $railFilterIsExpanded,
+                               outline: outline,
+                               currentOutlineIndex: MarkdownOutline.currentEntry(forLine: caret.line,
+                                                                                in: outline),
+                               onSelectHeading: goToHeading,
                                onOpen: onOpen,
                                onCreate: onCreate)
                 .frame(maxHeight: .infinity)
@@ -205,6 +247,13 @@ public struct EditorWorkspaceView: View {
                 Divider()
             }
             body(for: document)
+            // **Not under a refusal.** A document that could not be read has an empty buffer, and
+            // "0 words · 0 characters" under a caption explaining why there is nothing here reads
+            // as a measurement of the file rather than of the nothing that was loaded.
+            if document.path != nil, document.refusal == nil {
+                Divider()
+                EditorStatusLine(facts: facts, caret: caret)
+            }
         }
     }
 
@@ -245,6 +294,20 @@ public struct EditorWorkspaceView: View {
                         }
                     }
                 Spacer(minLength: 0)
+                // **Beside the capsule, not in it.** The capsule chooses which representation you
+                // are looking at; this acts on the one you are in. It is withheld in `.preview`,
+                // where there is no text view to search — the preview is a rendering, and a find
+                // bar over it would be searching a copy of the document rather than the document.
+                if resolvedMode != .preview {
+                    Button { findRequest &+= 1 } label: {
+                        Image(systemName: "magnifyingglass")
+                            .scaledFont(.system(size: 11, weight: .semibold))
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+                    .accessibilityLabel("Find in this document")
+                    .help("Find and replace in this document")
+                }
                 // **Only for files that have something to preview.** `PairContentKind` already
                 // owns which extensions are Markdown; a capsule on a `.txt` would offer two modes
                 // that render the same thing.
@@ -319,7 +382,16 @@ public struct EditorWorkspaceView: View {
             // deliberately late — 150ms plus however long it takes — and `blocks` is only
             // reassigned at the end of it, so without this a second file's name sits above the
             // first file's headings for at least that long.
-            .onChange(of: document.path, initial: true) { _, _ in blocks = [] }
+            .onChange(of: document.path, initial: true) { _, _ in
+                blocks = []
+                // **With the blocks, not after them.** The outline is drawn in the RAIL, beside the
+                // name of the file being opened, so an outline left standing for the couple of
+                // hundred milliseconds before the parse returns lists one file's headings under
+                // another file's name — in the one place both are on screen at once.
+                outline = []
+                editorScrollRequest = nil
+                previewScrollRequest = nil
+            }
             // **The re-render is debounced, and the parse is off the main actor.** Keyed on the
             // document's version counter rather than on its text: `.task(id:)` compares its id
             // every render pass, and comparing a 4 MiB buffer per keystroke to decide whether to
@@ -340,7 +412,47 @@ public struct EditorWorkspaceView: View {
                 }.value
                 guard !Task.isCancelled else { return }
                 blocks = parsed
+                // Derived here rather than in a body pass: it is a walk of every block, and a body
+                // pass happens on every keystroke.
+                outline = MarkdownOutline.entries(from: parsed)
             }
+            // **The status line's own task, on the same debounce and for the same reason.** Word
+            // and character counts walk the whole buffer, so doing it in a body pass would cost a
+            // full scan per keystroke to answer a question nobody reads that fast. Keyed on the
+            // version counter rather than the text, exactly as the parse above is — and NOT on the
+            // caret, which changes far more often and would re-count the words on every arrow key.
+            .task(id: EditorParseKey(version: document.textVersion, path: document.path)) {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                let source = document.text
+                let encoding = document.encodingName
+                let counted = await Task.detached(priority: .utility) {
+                    EditorDocumentFacts.of(source, encoding: encoding)
+                }.value
+                guard !Task.isCancelled else { return }
+                facts = counted
+            }
+            // The caret is its own key, because it moves without the text changing — and the text
+            // changing moves it too, which is why the version is in here as well as the offset.
+            .task(id: EditorCaretKey(version: document.textVersion, path: document.path,
+                                     offset: caretOffset)) {
+                try? await Task.sleep(for: .milliseconds(120))
+                guard !Task.isCancelled else { return }
+                let source = document.text
+                let offset = caretOffset
+                let position = await Task.detached(priority: .userInitiated) {
+                    EditorCaret.at(utf16Offset: offset, in: source)
+                }.value
+                guard !Task.isCancelled else { return }
+                caret = position
+            }
+    }
+
+    /// What re-derives the caret: a new position, OR the text moving under a position that did not.
+    private struct EditorCaretKey: Equatable {
+        var version: Int
+        var path: String?
+        var offset: Int
     }
 
     @ViewBuilder
@@ -381,7 +493,8 @@ public struct EditorWorkspaceView: View {
         case .edit:
             editorSurface
         case .preview:
-            MarkdownPreview(blocks: blocks, accent: accent)
+            MarkdownPreview(blocks: blocks, accent: accent, scrollRequest: previewScrollRequest,
+                            onToggleTask: taskToggle)
         case .split:
             GeometryReader { geo in
                 let width = geo.size.width
@@ -393,7 +506,9 @@ public struct EditorWorkspaceView: View {
                     Divider()
                     // `max(0, …)` because the first layout pass can report a zero width, and
                     // `0 - 0 - 1` is the negative dimension SwiftUI logs and refuses to lay out.
-                    MarkdownPreview(blocks: blocks, accent: accent)
+                    MarkdownPreview(blocks: blocks, accent: accent,
+                                    scrollRequest: previewScrollRequest,
+                                    onToggleTask: taskToggle)
                         .frame(width: max(0, width - editorWidth - 1))
                 }
                 // Compare's divider ergonomics: a 1pt rule with an invisible 12pt grab strip
@@ -412,7 +527,56 @@ public struct EditorWorkspaceView: View {
                         isEditable: !document.isReadOnly,
                         fontScale: fontScale,
                         documentID: document.path,
-                        undoManager: undoManager)
+                        undoManager: undoManager,
+                        onSelectionChange: { caretOffset = $0.location },
+                        scrollRequest: editorScrollRequest,
+                        onVisibleLineChange: followTheText,
+                        findRequest: findRequest,
+                        // Withheld on a file that cannot be written — a Markup menu that greys out
+                        // is a promise the document cannot keep.
+                        offersMarkup: !document.isReadOnly)
+    }
+
+    /// Sends both surfaces to a heading.
+    ///
+    /// **Both, whichever mode is showing.** Only one of them may be mounted, and the request that
+    /// lands on the surface that is not there costs nothing — while resolving which one to send
+    /// would have to know the mode, the Markdown-ness of the file and which half of a split has
+    /// focus, to save exactly one assignment.
+    private func goToHeading(_ entry: MarkdownOutlineEntry) {
+        scrollToken &+= 1
+        let request = EditorScrollRequest(line: entry.line, token: scrollToken)
+        editorScrollRequest = request
+        previewScrollRequest = request
+    }
+
+    /// Ticking a checkbox from the preview, or `nil` when this document must not be written to.
+    ///
+    /// **`nil` rather than a closure that declines**, so the control is never drawn on a read-only
+    /// file: a checkbox that highlights under the pointer and then does nothing is worse than one
+    /// that is plainly a picture.
+    private var taskToggle: ((Int) -> Void)? {
+        guard !document.isReadOnly, document.refusal == nil else { return nil }
+        return { line in
+            // A stale click — the line no longer holds a checkbox — leaves the buffer alone. See
+            // `MarkdownEdits.toggleTask`.
+            guard let rewritten = MarkdownEdits.toggleTask(onLine: line, in: document.text) else {
+                return
+            }
+            document.text = rewritten
+        }
+    }
+
+    /// Keeps the preview level with the text, in split.
+    ///
+    /// **One-way, and only in split.** The text drives and the preview follows: the preview cannot
+    /// scroll the text back, so there is no loop to break — which is what a two-way sync would need
+    /// a suppression flag for, and those are what make scroll syncs judder. In the other two modes
+    /// only one surface is on screen and there is nothing to keep level with.
+    private func followTheText(_ line: Int) {
+        guard mode == .split else { return }
+        scrollToken &+= 1
+        previewScrollRequest = EditorScrollRequest(line: line, token: scrollToken)
     }
 
     /// The name of the row's own coordinate space, which the drag reads positions in.

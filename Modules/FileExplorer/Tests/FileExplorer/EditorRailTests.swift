@@ -133,4 +133,42 @@ import Sync
         #expect(EditorRail.entries(in: "/nowhere/at/all", showsHidden: false,
                                    isCloudOnly: nothingIsCloudOnly).isEmpty)
     }
+
+    // MARK: The filter
+
+    private var three: [EditorRailEntry] {
+        ["Release plan.md", "scratch.txt", "Récipes.md"].map {
+            EditorRailEntry(path: "/n/\($0)", name: $0, size: 10, isCloudOnly: false)
+        }
+    }
+
+    @Test func aFilterMatchesAnywhereInTheNameAndIgnoresCase() {
+        #expect(EditorRail.filtered(three, matching: "plan").map(\.name) == ["Release plan.md"])
+        #expect(EditorRail.filtered(three, matching: "PLAN").map(\.name) == ["Release plan.md"])
+        #expect(EditorRail.filtered(three, matching: ".md").map(\.name).count == 2)
+    }
+
+    /// His folders have accented names in them, and somebody typing `rec` means `Récipes`.
+    @Test func aFilterIgnoresDiacritics() {
+        #expect(EditorRail.filtered(three, matching: "recipes").map(\.name) == ["Récipes.md"])
+    }
+
+    /// Somebody who has typed a space and stopped is mid-thought; answering "no files" to that is a
+    /// rail that appears to have emptied itself.
+    @Test func anEmptyOrBlankFilterIsNoFilter() {
+        #expect(EditorRail.filtered(three, matching: "").count == 3)
+        #expect(EditorRail.filtered(three, matching: "   ").count == 3)
+    }
+
+    @Test func aFilterThatMatchesNothingReturnsNothing() {
+        #expect(EditorRail.filtered(three, matching: "zzz").isEmpty)
+    }
+
+    /// The filter narrows what is drawn and never reorders it — the rail's Finder-like ordering is
+    /// decided in `entries(in:)` and a filter that re-sorted would make the list jump as you type.
+    @Test func theFilterKeepsTheRailsOrder() {
+        let ordered = EditorRail.filtered(three, matching: "e").map(\.name)
+        #expect(ordered == three.filter { $0.name.localizedCaseInsensitiveContains("e") || $0.name.contains("é") }.map(\.name),
+                "the filter reordered the rail: \(ordered)")
+    }
 }
