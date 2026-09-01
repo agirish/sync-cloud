@@ -1365,11 +1365,11 @@ struct ContentView: View {
             restoreStorageLensIfShowing()
             autoRescanLensIfShowing()
         }
-        // A scope change RE-ANALYSES Storage rather than filtering it (Decision B), so the scope is
-        // a trigger for the restore too — the narrower root may have a snapshot of its own, which
-        // the store keys separately. Deliberately narrow: the other lenses treat scope as a filter
-        // over results they already hold, and widening their triggers here would turn a chip into a
-        // rescan for all five.
+        // A scope change RE-SUBJECTS Storage rather than filtering it (Decision B): the report for
+        // the old root is dropped and the new root's snapshot restored if there is one, leaving the
+        // lens's own Analyze button aimed at the scope when there is not. Deliberately narrow: the
+        // other lenses treat scope as a filter over results they already hold, and widening their
+        // triggers here would turn a chip into a rescan for all five.
         .onChange(of: organizeScope?.path) { _, _ in
             restoreStorageLensIfShowing()
         }
@@ -2349,10 +2349,30 @@ struct ContentView: View {
         // one workspace, and for the same reason: since the fold, `selectedWorkspace == .filing` is
         // true on six different pages and only one of them is Storage.
         guard selectedWorkspace == .filing, selectedOrganizeLens == .storage else { return }
-        // **The scope is the subject** (Decision B). Storage honours Organize's scope chip by
-        // re-analysing at the scope root — never by filtering an existing report, because a treemap
-        // is a part-of-whole picture and a subset misstates every proportion in it. So the root
-        // restored is the one currently in force, and `StorageLensStore` keys snapshots by absolute
+        // **A report about somewhere else cannot stand under a declared scope, so it goes.**
+        //
+        // This is the half that makes Decision B true rather than merely intended. `restoreStorage-
+        // Lens` refuses while a report is in hand — that guard is what stops the trigger trio
+        // re-reading the store on every pane move — so without this the scope chip would change the
+        // header and leave the previous root's treemap underneath it: exactly the "restored report
+        // presented under a scope it was not built from" the decision exists to prevent. Clearing
+        // first is what turns the restore below into the re-analysis the design promises, and
+        // `clearStorageLens()` deliberately keeps the stored snapshot, so a scope you come back to
+        // restores instantly instead of walking the tree again.
+        //
+        // **Only under a scope** — `storageReportStandsUnder` answers true when none is set, so
+        // browsing the pane still keeps the report and offers to re-aim, as it always has.
+        //
+        // Not while a build is running: `clearStorageLens()` cancels the task, and a scope change
+        // arriving mid-analysis should not kill work that may already be for the new root. The
+        // narrow cost is that an analysis finishing after a scope change leaves a report for the
+        // old root until the next trigger fires, which any interaction does.
+        if !syncManager.isBuildingStorageLens,
+           !OrganizeAim.storageReportStandsUnder(scope: organizeScope,
+                                                 reportRoot: syncManager.storageLensRoot?.path) {
+            syncManager.clearStorageLens()
+        }
+        // **The scope is the subject** (Decision B). `StorageLensStore` keys snapshots by absolute
         // root path, which is what lets a scoped report and a pane-root report coexist rather than
         // clobber one another. Same fallback `autoRescanLensIfShowing` uses.
         let root = organizeScope?.path ?? lensScanRootExpanded

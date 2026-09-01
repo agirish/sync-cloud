@@ -259,6 +259,30 @@ public enum OrganizeAim {
     /// operation; `resolvingSymlinksInPath` touches the disk, and this runs inside a view body on
     /// every render of the header. A symlinked pane path would read as moved, which is the safe
     /// direction: it offers a re-aim that is a no-op rather than withholding one that is needed.
+    /// Whether a Storage report built at `reportRoot` may stay on screen under `scope`.
+    ///
+    /// **Storage is the one lens whose scope is a re-analysis rather than a filter**, and this is
+    /// the predicate that keeps that promise honest. Every other lens narrows a list it already
+    /// holds, so a scope change is free and the rows on screen stay true. A treemap is a
+    /// part-of-whole picture: subsetting one misstates every proportion in it, so Storage answers a
+    /// scope change by describing the *new* root instead — and until it does, the report in hand is
+    /// about somewhere else.
+    ///
+    /// **`nil` scope answers `true`, deliberately.** With no declared subject the pane's own rules
+    /// apply, which are the ones Storage has always had: the report persists while you browse, the
+    /// header chip names the root it describes, and ``paneMovedAway(paneFolder:scope:scannedRoot:providerRoot:)``
+    /// offers to re-aim. Wandering is not the same as re-declaring, and clearing on every pane move
+    /// would throw away a report the user never asked to lose.
+    ///
+    /// Compared through ``standardized(_:)`` rather than with `==`: the scope is stored normalized
+    /// while `storageLensRoot` is whatever `URL` the analysis was handed, so `~/Documents` and
+    /// `/Users/x/Documents/` are the same root and a raw string compare would clear a report that
+    /// was already correct — re-analysing the tree for nothing.
+    public static func storageReportStandsUnder(scope: OrganizeScope?, reportRoot: String?) -> Bool {
+        guard let scope, let reportRoot, !reportRoot.isEmpty else { return true }
+        return standardized(reportRoot) == standardized(scope.path)
+    }
+
     private static func standardized(_ path: String) -> String {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
     }
