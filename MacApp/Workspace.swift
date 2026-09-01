@@ -3,12 +3,20 @@ import FileExplorer
 
 /// The one top-level selection: which workspace the window is showing.
 ///
-/// Five segments, and they are five different *kinds of place* rather than five tasks:
+/// Four segments, and they are four different *kinds of place* rather than four tasks:
 /// **Browse** shows one tree and proposes nothing, **Compare** holds two trees side by side,
-/// **Storage** reads one tree and changes nothing, **Organize** changes one tree, and **Editor**
-/// changes what is *inside* one file. Everything that moves a file inside a single tree *on the
-/// app's suggestion* is a lens inside Organize (see ``OrganizeLens``) — duplicates and automations
-/// included, which is what took the bar from five segments to three.
+/// **Organize** is everything the app concludes about one tree, and **Editor** changes what is
+/// *inside* one file. Everything the app has to say about a single tree is a lens inside Organize
+/// (see ``OrganizeLens``) — duplicates, automations and now storage included, which is what took
+/// the bar from five segments to four.
+///
+/// **Storage was the fifth, and the boundary that kept it out was the wrong one.** The rule used to
+/// read "Storage reads one tree and changes nothing, Organize changes one tree", which made
+/// *acting* the test for being a lens. Rules had already broken it — configuration, no badge, in no
+/// pass, and a lens all the same — and Storage is the same shape one step further along: a
+/// conclusion about one tree that the app reports rather than acts on. Most lenses act on their
+/// conclusion; Rules writes the standing instructions; **Storage only reports — it never moves,
+/// deletes, or evicts a file.**
 ///
 /// **Editor is the fifth kind because it is the first surface that writes a file's contents.**
 /// Every other workspace moves, copies, trashes or accounts for whole files and never opens one to
@@ -46,8 +54,6 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// Everything that changes one tree. Shown as "Organize"; the raw value is still `Filing`
     /// because that is what is on disk in every install.
     case filing = "Filing"
-    /// Read-only: what is using the space.
-    case storage = "Storage"
     /// One text file, open and writable. The app's only editing surface.
     ///
     /// **The raw value is `Editor` and must never be reworded**, for the same reason `Filing` is
@@ -57,8 +63,11 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// `WorkspaceTests` pins the raw values separately from the titles so a rename of one cannot
     /// quietly take the other with it.
     ///
-    /// Declared LAST, which is what hands it ⌘5: `allCases` is the bar's order and the chords are
-    /// positional (`AppChord.workspace(_:)`, bounded at nine).
+    /// Declared LAST, which is what hands it **⌘4**: `allCases` is the bar's order and the chords
+    /// are positional (`AppChord.workspace(_:)`, bounded at nine). It was ⌘5 until Storage folded
+    /// into Organize and left the bar — nothing here changed to move it, which is the property
+    /// being relied on: the bar badge and the View menu both count `allCases`, so they cannot
+    /// disagree about the number.
     case editor = "Editor"
 
     var id: String { rawValue }
@@ -83,7 +92,7 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// has no way to reach a second folder.
     var supportsFolderSidebar: Bool {
         switch self {
-        case .browse, .filing, .storage, .compare, .editor: return true
+        case .browse, .filing, .compare, .editor: return true
         }
     }
 
@@ -94,7 +103,6 @@ enum Workspace: String, CaseIterable, Identifiable {
         case .browse: return "Browse"
         case .compare: return "Compare"
         case .filing: return "Organize"
-        case .storage: return "Storage"
         // **"Edit", and the menu-bar collision is the known cost.** The app has a top-level Edit
         // menu holding the clipboard, so `View ▸ Edit` names a workspace a few pixels from an
         // `Edit` that means something else entirely. That is a real ambiguity and it was the
@@ -119,7 +127,6 @@ enum Workspace: String, CaseIterable, Identifiable {
         case .browse: return "folder"
         case .compare: return "arrow.left.arrow.right"
         case .filing: return "folder.badge.gearshape"
-        case .storage: return "chart.pie"
         // A sheet with a pencil on it: the one glyph in the bar that is about a file's CONTENTS
         // rather than about files. 15×15 at 12pt medium, so it sits inside `glyphSide` (17) with a
         // point to spare on both axes — checked, because a symbol wider than the frame is clipped
@@ -143,7 +150,6 @@ enum Workspace: String, CaseIterable, Identifiable {
         // lens-less workspace. See `ContentLayout.editorExpanded` / `.editorCollapsed`.
         case .browse, .compare, .editor: return nil
         case .filing: return .filing
-        case .storage: return .storage
         }
     }
 
@@ -161,8 +167,13 @@ enum Workspace: String, CaseIterable, Identifiable {
     /// workspace would land on the overview and quietly lose the request.
     static func destination(for lens: WorkspaceLensKind) -> WorkspaceSelection {
         guard let organizeLens = OrganizeLens(lens) else {
-            // `.storage` is the only lens that is still a workspace of its own.
-            return WorkspaceSelection(workspace: .storage, organizeLens: nil)
+            // **Unreachable today, and kept anyway.** Every `WorkspaceLensKind` bridges to a rail
+            // item since Storage folded in — `.storage` was the last one that did not, and it
+            // landed on a workspace of its own here. `OrganizeLens.init(_:)` stays failable for the
+            // next apparatus added without a rail item, so this needs an answer: Organize's
+            // overview, which is the honest place for "a lens inside Organize that the rail cannot
+            // name". Never `.default` — that would drop a pointed request into Browse.
+            return WorkspaceSelection(workspace: .filing, organizeLens: nil)
         }
         // Every case `OrganizeLens.init(_:)` can answer is a rail item — pinned by
         // `OrganizeLensFoldTests.theBridgeAnswersOnlyRailItems` — so a destination minted here is
@@ -231,6 +242,10 @@ extension Workspace {
         "Rename": .renames,
         "Duplicates": .duplicates,
         "Automations": .rules,
+        // Storage kept its raw value on the way in: `OrganizeLens.storage` is also `"Storage"`, so
+        // someone who quit on the Storage tab reopens on Organize with the Storage rail item
+        // selected — the same place, reached the new way, with no explaining to do.
+        "Storage": .storage,
     ]
 
     /// The raw value `Rename` persisted under, as both a Tidy lens and (briefly) a workspace.
@@ -263,14 +278,19 @@ extension Workspace {
         if let retired = retiredWorkspaceRawValues[lens] {
             return WorkspaceSelection(workspace: .filing, organizeLens: retired)
         }
-        // A lens raw value that is still a workspace: `Filing` and `Storage`. `Differences` is a
-        // *workspace* raw value and must not be read as a lens — that would let someone on Tidy
-        // resolve to Compare through the lens arm.
-        guard let workspace = Workspace(rawValue: lens), workspace != .compare else {
-            return tidyDefault
-        }
-        return WorkspaceSelection(workspace: workspace,
-                                  organizeLens: workspace == .filing ? .toFile : nil)
+        // **One lens raw value is still a workspace: `Filing`.** `Storage` used to be the other,
+        // and it resolved through here to the Storage tab; it is in ``retiredWorkspaceRawValues``
+        // now, so the branch above catches it first and this arm never sees it. That inversion is
+        // the whole of the fold's migration story for the legacy pair.
+        //
+        // **Named explicitly rather than excluding `.compare`.** The old guard was a deny-list of
+        // one, which quietly widened every time a case was added: `Differences` was excluded
+        // because reading a *workspace* raw value as a lens would put someone on Tidy into Compare
+        // — but by the same logic a stored `"Editor"` would have routed to the Editor workspace,
+        // which nothing on Tidy could ever have written. Unreachable in practice, and an allow-list
+        // costs nothing to state.
+        guard lens == Workspace.filing.rawValue else { return tidyDefault }
+        return WorkspaceSelection(workspace: .filing, organizeLens: .toFile)
     }
 
     /// Tidy's own former default lens, which was Duplicates — now Organize's duplicates rail item.

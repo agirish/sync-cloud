@@ -567,16 +567,19 @@ public struct LensWorkspaceView: View {
         withAnimation(listSettle) { railLens = .toFile }
     }
 
-    /// The rail selection, but only while Organize is the workspace.
+    /// The rail selection.
     ///
-    /// Storage is still a workspace of its own, and its `@AppStorage` neighbour keeps whatever
-    /// rail item Organize was last left on. Reading `railLens` unguarded would let that parked
-    /// value pick Storage's apparatus — a lens selection leaking across a workspace boundary.
+    /// **The firewall here is gone, and its retirement is the fold.** This used to read
+    /// `lens == .storage ? nil : railLens`, because Storage was a workspace of its own whose
+    /// `@AppStorage` neighbour kept whatever rail item Organize was last left on — reading
+    /// `railLens` unguarded would have let that parked value pick Storage's apparatus, a lens
+    /// selection leaking across a workspace boundary. There is no boundary to leak across now:
+    /// Storage IS a rail item, and `railLens == .storage` is the selection rather than a stale one.
     private var organizeLens: OrganizeLens? {
         // `resolvedForPresentation` migrates a stored `.names` selection to `.renames` — the
         // lens it folded into. The stored raw value is left alone (nothing to migrate on disk);
         // it simply lands where the findings now live.
-        lens == .storage ? nil : railLens
+        railLens
     }
 
     /// Whether the rail can spell its items out at this width — see ``OrganizeRailMetrics``.
@@ -597,7 +600,7 @@ public struct LensWorkspaceView: View {
     /// The rail's *unselected* state rather than a seventh rail item, so it has no name of its own
     /// and cannot be a tab you forget to visit — it is what you land on.
     private var showingOverview: Bool {
-        lens != .storage && railLens == nil
+        railLens == nil
     }
 
     /// Whether the overview is what the content card is **drawing** — which is not the same
@@ -890,11 +893,10 @@ public struct LensWorkspaceView: View {
         // on every width the card is handed. It is everything row 1's leading half must seat — the
         // rail alone today; anything put back beside it goes through `leadingWidth` too, which is
         // where an uncounted companion control cost the model 21pt once already.
-        // Whichever rail this workspace draws — Storage has its own vocabulary and its own
-        // widths, and the row it sits in is the same row with the same reserve.
-        let railLeading = lens == .storage
-            ? OrganizeRailMetrics.storageLeadingWidth(scale: appFontScale, state: storageRailState)
-            : OrganizeRailMetrics.leadingWidth(scale: appFontScale, state: counts.state)
+        // One rail, one shedding rule. This used to fork on `lens == .storage` for a second rail
+        // with its own vocabulary and its own widths; the fold removed the second rail, and with it
+        // the only reason row 1 had two width models.
+        let railLeading = OrganizeRailMetrics.leadingWidth(scale: appFontScale, state: counts.state)
         return VStack(spacing: 0) {
             // **The shedding rule is measured HERE, on a zero-height probe, and not on the card.**
             //
@@ -1133,26 +1135,18 @@ public struct LensWorkspaceView: View {
         ScrollViewReader { rail in
         ScrollView(.horizontal) {
             HStack(spacing: 6) {
-            // **Promoting Storage's readout here was tried and was worse**, and the rail below is
-            // not that: the readout is prose whose width is a property of the data, so "Documents"
-            // truncated to a bare folder glyph and row 2 went empty. A rail is four fixed-width
-            // places that leave row 2 its folder, total and freshness. The failure is worth keeping
-            // written down, because "put the storage readout on row 1" will look like a good idea
-            // again.
-            if lens == .storage {
-                // **Storage's own rail, in the half the intro button used to hold.** Removing that
-                // button gave Organize's rail 21pt; Storage had none, so it gave Storage an
-                // empty row — a 27pt band with two controls floated right and nothing on its
-                // leading two-thirds, on a card whose height is pinned whatever it holds.
-                //
-                // The page was already three ranked lists under a treemap. The rail turns each into
-                // a place, counts all three (the header used to count two — `stale` had a full
-                // section in the body and no pill above it), and gives Storage the same idiom
-                // Organize has rather than a second one.
-                    storageRail
-                } else {
-                    organizeRail(counts)
-                }
+            // **Promoting Storage's readout here was tried and was worse.** The readout is prose
+            // whose width is a property of the data, so "Documents" truncated to a bare folder
+            // glyph and row 2 went empty. The failure is worth keeping written down, because "put
+            // the storage readout on row 1" will look like a good idea again.
+            //
+            // **One rail, and that is the point of the fold.** This used to fork: Storage drew a
+            // rail of its own here — All, Largest, Untouched, Reclaim — because it was a workspace
+            // and the slot was free. Two rails in one header shedding by different rules is the
+            // configuration `OrganizeRailMetrics` warns about in its own words, and it is gone:
+            // Storage is a rail ITEM now, and its sections moved into the content card as a
+            // capsule (`StorageSectionBar`).
+            organizeRail(counts)
             }
         }
         .scrollBounceBehavior(.basedOnSize)
@@ -1168,67 +1162,17 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// What each of Storage's sections has to say — the one accessor the rail and the width model
-    /// both read, so the two cannot size and draw different rows.
-    private var storageRailState: (StorageSection) -> RailItemState {
-        let report = syncManager.storageLensReport
-        return { section in
-            guard let report else { return .notScanned }
-            let n = section.entries(in: report).count
-            return n > 0 ? .reporting(n) : .clean
-        }
-    }
-
-    /// Storage's rail: All, then its three ranked lists.
-    ///
-    /// Measured at 417.8pt against row 1's whole reserve — the 36pt search toggle, Reanalyze having
-    /// moved to row 2 — so it never sheds at any width this app is used at. It takes ``railStyle``
-    /// anyway, because the one thing worse than a rail that sheds is two rails in one header that
-    /// shed by different rules.
-    @ViewBuilder
-    private var storageRail: some View {
-        let state = storageRailState
-        storageRailItem(nil, state: .configuration)
-        railSeparator
-        ForEach(StorageSection.allCases) { section in
-            storageRailItem(section, state: state(section))
-        }
-    }
-
-    /// One item on Storage's rail. `nil` is All.
-    ///
-    /// **The count is absent before a report, not zero** — the same rule Organize's badge follows.
-    /// A storage lens that has not run cannot claim there are no large files; it can only say it
-    /// has not looked, which is what `.notScanned` draws.
-    private func storageRailItem(_ section: StorageSection?, state: RailItemState) -> some View {
-        let isSelected = storageSection == section
-        return Button {
-            withAnimation(listSettle) { storageSection = section }
-        } label: {
-            RailItemLabel(title: section?.railTitle ?? OrganizeRailMetrics.overviewTitle,
-                          systemImage: section?.railSymbol ?? OrganizeRailMetrics.overviewSymbol,
-                          state: state, isSelected: isSelected,
-                          accent: glassHue.accentColor, style: railStyle)
-        }
-        .buttonStyle(.plain)
-        .chromeHover()
-        .help(section.map { "\($0.title) — \($0.subtitle)." }
-              ?? "Every ranked list, under the treemap.")
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .id(Self.railItemID(storageSection: section))
-    }
-
     /// The scroll handle for one rail item, and the identity `selectedRailItemID` names.
     ///
-    /// **One expression for both rails and for both ends of the lookup**, so a handle and the thing
-    /// that scrolls to it cannot come to mean different items — the failure this repo has already
-    /// paid for once, where a mirror test was written twice and the two copies drifted.
+    /// **One expression for both ends of the lookup**, so a handle and the thing that scrolls to it
+    /// cannot come to mean different items — the failure this repo has already paid for once, where
+    /// a mirror test was written twice and the two copies drifted.
+    ///
+    /// There used to be a second overload for Storage's own rail. That rail is gone: Storage is a
+    /// rail item like the rest, and its sections are a capsule inside the content card, which does
+    /// not scroll horizontally and needs no handle.
     static func railItemID(organizeLens: OrganizeLens?) -> String {
         "rail-organize-\(organizeLens?.id ?? "all")"
-    }
-
-    static func railItemID(storageSection: StorageSection?) -> String {
-        "rail-storage-\(storageSection?.id ?? "all")"
     }
 
     /// The source bar shown above the lens while the rail is collapsed: the provider dropdown (the
@@ -1332,7 +1276,9 @@ public struct LensWorkspaceView: View {
                 // The overview offers no apply-all of its own, deliberately: an "apply" up here
                 // would have to mean one of six different things, and the one it picked would be
                 // the one nobody meant. Each section's own button is one click away.
-                case .none, .duplicates, .restructure, .rules:
+                // Storage joins them: its lens has no apply-all because it has no verb that
+                // touches a file at all — the one action it owns is Re-analyze, on row 2.
+                case .none, .duplicates, .restructure, .rules, .storage:
                     EmptyView()
                 }
             }
@@ -1379,8 +1325,10 @@ public struct LensWorkspaceView: View {
         // claiming to answer about the whole tree while the other four named a subtree. One subject
         // for all six is the entire premise, so it is hoisted here, ahead of the switch.
         //
-        // Storage is excluded because it is a workspace of its own, not a lens inside Organize.
-        if lens != .storage { scopeChip(folderCount: scopeFolders) }
+        // **Every lens now, Storage included** (Decision B). It was excluded here on the grounds
+        // that it was "a workspace of its own, not a lens inside Organize"; it is a lens, and it
+        // honours the chip — by re-analysing at the scope root, never by filtering its report.
+        scopeChip(folderCount: scopeFolders)
         switch effectiveLens {
         case .duplicates:
             if hasResults {
@@ -1461,7 +1409,7 @@ public struct LensWorkspaceView: View {
                 renameBacklogSummary(rows.renames)
             // Duplicates and rules reach `lensSummary` through their own apparatus arms, so they
             // never arrive here; restructure has no readout of its own.
-            case .duplicates, .restructure, .rules:
+            case .duplicates, .restructure, .rules, .storage:
                 EmptyView()
             }
         }
@@ -1593,16 +1541,14 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Which rung the rail should keep in view — the selected one, whichever rail is drawn.
+    /// Which rung the rail should keep in view — the selected one.
     ///
     /// The rail scrolls, and at a narrow column the item you just chose could be the one drawn cut
     /// in half at the search toggle. Nothing said so: `.scrollIndicators(.never)` is deliberate (a
     /// 27pt row cannot spare the height), so the answer is to move the selection into view rather
     /// than to advertise that it is not.
     private var selectedRailItemID: String? {
-        lens == .storage
-            ? Self.railItemID(storageSection: storageSection)
-            : Self.railItemID(organizeLens: organizeLens)
+        Self.railItemID(organizeLens: organizeLens)
     }
 
     /// The hairline between the rail's three groups.
@@ -1714,6 +1660,9 @@ public struct LensWorkspaceView: View {
             case .renames: return renames + names
             case .restructure: return restructure
             case .rules: return rules
+            // Neither counts work: `badge(count:)` discards this for both anyway, since
+            // `carriesBadge` is false. Zero rather than a fatal, so the subscript stays total.
+            case .storage: return 0
             }
         }
 
@@ -1732,10 +1681,12 @@ public struct LensWorkspaceView: View {
         /// What this item has to say, in the vocabulary ``RailItemState`` and
         /// ``OrganizeOverviewState`` share.
         ///
-        /// Rules answers `.configuration` ahead of everything else: it is a set of rules you keep,
-        /// so it neither reports nor goes quiet — both of those describe a scan it never runs.
-        /// That is the same distinction ``OrganizeLens/carriesBadge`` already draws, said in the
-        /// one place the item's whole dress is decided.
+        /// Rules and Storage answer `.configuration` ahead of everything else, and the `guard` is
+        /// the whole implementation: neither reports nor goes quiet, because both of those describe
+        /// a scan that ends in a count meaning "something needs you". Rules never runs one; Storage
+        /// runs one whose answer it has no verb to act on. That is the same distinction
+        /// ``OrganizeLens/carriesBadge`` already draws, said in the one place the item's whole
+        /// dress is decided — which is why folding Storage in needed no line here.
         func state(_ item: OrganizeLens) -> RailItemState {
             guard item.carriesBadge else { return .configuration }
             if let badge = badge(item) { return .reporting(badge) }
@@ -1930,7 +1881,9 @@ public struct LensWorkspaceView: View {
     /// unchanged — N is the rows on screen, M is the list before the *transient* narrowing — only
     /// the definition of "this list" now matches what the header claims above it.
     ///
-    /// Storage is untouched: it is a workspace of its own with no Organize scope.
+    /// Storage is scoped like the rest since the fold; what is untouched is its row-2 tenancy —
+    /// the total/counts pills, Re-analyze and the search toggle sit in the same 81pt rung they
+    /// always did.
     @ViewBuilder
     private func lensTrailing(rows: FilteredRows, counts: RailCounts) -> some View {
         // Same gate the control had on row 1: the filing apparatus, once a scan has finished, and
@@ -2009,7 +1962,9 @@ public struct LensWorkspaceView: View {
             // nothing but risky names still has a row-two action.
             case .renames:
                 return !syncManager.renamePlans.isEmpty || !syncManager.riskyNames.isEmpty
-            case .none, .duplicates, .restructure, .rules: return false
+            // `.storage` is unreachable here — its `searchLens` is `.storage`, so it leaves the
+            // outer switch one arm down. Written out because the arm must exist, not because it runs.
+            case .none, .duplicates, .restructure, .rules, .storage: return false
             }
         case .automations:
             return !syncManager.automationRules.isEmpty
@@ -2039,13 +1994,50 @@ public struct LensWorkspaceView: View {
             .accessibilityLabel("Showing \(shown) of \(total)")
     }
 
+    /// When an analysis ran, in the words the receipt uses.
+    ///
+    /// **A day, not a duration.** "3 days ago" is what a freshness badge says about a scan you are
+    /// deciding whether to re-run; this line is provenance on a report that has no staleness rule
+    /// of its own, and a named day ("Tuesday") is what someone matches against their own memory of
+    /// when they last looked. Older than a week it falls back to a date, because "Tuesday" three
+    /// weeks on is worse than useless.
+    static func receiptDay(_ date: Date, now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        // **Every comparison is against the injected `now`, including today and yesterday.**
+        // `Calendar.isDateInToday` asks the SYSTEM clock, which ignores the parameter entirely —
+        // so with an injected `now` the two nearest cases silently fell through to the weekday
+        // branch and a report analyzed "today" rendered as "Tuesday". The seam existed and was
+        // half-used, which is the worst of both: a test that injects a clock proves nothing about
+        // the branches that do not read it.
+        let start = calendar.startOfDay(for: date)
+        let today = calendar.startOfDay(for: now)
+        let days = calendar.dateComponents([.day], from: start, to: today).day ?? 0
+        if days == 0 { return "today" }
+        if days == 1 { return "yesterday" }
+        if (2...6).contains(days) {
+            let f = DateFormatter()
+            f.dateFormat = "EEEE"
+            return f.string(from: date)
+        }
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return "on " + f.string(from: date)
+    }
+
     @ViewBuilder
     private func lensBody(rows: FilteredRows, counts: RailCounts, scopeFolders: Int?) -> some View {
         Group {
-            if lens == .storage {
-                // Storage, folded in as a read-only lens: it brings its own CONTENT card (its
-                // toolbar card is gone — the shared header above replaced it), so it renders in
-                // place of the lens content card.
+            // **Keyed on the RAIL, not the workspace's apparatus.** This read `lens == .storage`
+            // while Storage was a workspace; the fold makes `lens` always `.filing` inside
+            // Organize, so the same test would now be false on every page and Storage would render
+            // the ordinary lens content card. The fork itself survives unchanged — it was always
+            // between a lens and its content, never between a workspace and its content, which is
+            // exactly why the move cost it nothing.
+            if organizeLens == .storage {
+                // Storage, as a read-only lens: it brings its own CONTENT card (its toolbar card is
+                // gone — the shared header above replaced it), so it renders in place of the lens
+                // content card.
                 StorageLensView(
                     syncManager: syncManager,
                     providerName: providerName,
@@ -2055,7 +2047,7 @@ public struct LensWorkspaceView: View {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                     },
                     onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
-                    section: storageSection
+                    section: $storageSection
                 )
             } else {
                 contentCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
@@ -2259,19 +2251,17 @@ public struct LensWorkspaceView: View {
     /// **Browsing never moves the scope on its own** — this only decides whether to *offer*. It is
     /// the offer that `targetMoved` always was; what changed is that accepting it now re-aims
     /// everything rather than quietly re-rooting one lens.
-    /// Storage is excluded from the scope for the same reason it has no rail: it is a workspace of
-    /// its own, and Organize's subject is not its subject. Reading `scope` unguarded here would let
-    /// an Organize scope decide when Storage offers to re-analyze — the cross-workspace leak
-    /// `organizeLens` already guards against on the lens selection. It passes no `rootFallback`
-    /// either, and for the same reason: "everything" is a claim about Organize's subject, and
-    /// Storage's re-analyze button moves no scope at all.
+    /// **Storage used to be excluded here and is not any more** (Decision B). The exclusion read
+    /// "it is a workspace of its own, and Organize's subject is not its subject"; since the fold
+    /// Organize's subject IS its subject, so the scope decides when Storage offers to re-analyze
+    /// exactly as it does for the other five.
     ///
     /// `rootFallback` is the third rung of ``OrganizeAim/subject(scope:scannedRoot:providerRoot:)``
     /// — see there for why an unscoped, unscanned Organize is answering about the provider root
     /// rather than about nothing.
     private func targetMoved(from scannedRoot: String?, rootFallback: String? = nil) -> Bool {
         OrganizeAim.paneMovedAway(paneFolder: scanTargetFolder,
-                                  scope: lens == .storage ? nil : scope,
+                                  scope: scope,
                                   scannedRoot: scannedRoot,
                                   providerRoot: rootFallback)
     }
@@ -3026,10 +3016,10 @@ public struct LensWorkspaceView: View {
     private var hasStorageReport: Bool { syncManager.storageLensReport != nil }
 
     private var reanalyzeStorageButton: some View {
-        // `reaim` is the plain action here: Storage is a workspace of its own and sets no Organize
-        // scope. Re-analyzing it must not re-aim the six lenses in the workspace next door — and
-        // `movedTitle` keeps the words in step with that: the shared Organize wording (and its
-        // clears-the-scope variant at the provider root) describes a scope this click never moves.
+        // `reaim` is the plain action here, and it stays plain after the fold: Re-analyze rebuilds
+        // Storage's report at the aim it already has. It does not MOVE the scope — accepting the
+        // moved offer re-analyses the folder now focused, which is what the words say, rather than
+        // re-aiming the other five lenses at it as Organize's shared rescan would.
         rescanButton(moved: targetMoved(from: syncManager.storageLensRoot?.path),
                      movedIcon: "chart.pie.fill", disabled: syncManager.isBuildingStorageLens,
                      action: onBuildStorage,
@@ -3832,7 +3822,11 @@ public struct LensWorkspaceView: View {
                 if item == .restructure { syncManager.hasReviewedStructure = true }
                 withAnimation(listSettle) { railLens = item }
             },
-            onRun: runPass
+            onRun: runPass,
+            // Storage's own verb, not `onRun` — it is in no `OrganizePass`, so `rescanControl`
+            // has nothing to mint a button from. Gated exactly as the header's button is.
+            onBuildStorage: onBuildStorage,
+            isBuildingStorage: syncManager.isBuildingStorageLens
         )
     }
 
@@ -3860,10 +3854,11 @@ public struct LensWorkspaceView: View {
     /// **The other two are asserted rather than detected, because their handlers cannot be asked.**
     /// `onFindFilingSuggestions` and `onFindDuplicates` are non-optional with `= {}` defaults, so a
     /// host that omitted one would get a live button over a closure that does nothing, and nothing
-    /// here could tell. Unreachable today — `ContentView` passes both, and Storage is the only
-    /// other caller that omits them while never rendering this screen (`showingOverview` is false
-    /// for `lens == .storage`) — but a new host wiring Organize is the shape that would break it,
-    /// and the fix would be to make those handlers optional too rather than to add a flag here.
+    /// here could tell. Unreachable today — `ContentView` is the only host and passes both — but a
+    /// new host wiring Organize is the shape that would break it, and the fix would be to make those
+    /// handlers optional too rather than to add a flag here. (Storage used to be the second caller,
+    /// omitting both while never rendering this screen; it is a rail item inside the same host now,
+    /// so there is no second caller left to reason about.)
     private var runnablePasses: Set<OrganizePass> {
         var passes: Set<OrganizePass> = [.file, .duplicates]
         if onUpdateFolderMemory != nil { passes.insert(.folderMemory) }
@@ -3999,6 +3994,37 @@ public struct LensWorkspaceView: View {
             .reduce(0) { $0 + $1.reclaimableBytes }
         model.sections = OrganizeLens.allCases.compactMap { item -> OrganizeOverviewSection? in
             switch item {
+            case .storage:
+                // **A receipt, on Storage's own clock.** Every other arm here answers "what did the
+                // current scan find in the current scope"; Storage answers "what did the last
+                // analysis find, and when, and of what" — a report that outlives the session and is
+                // restored at launch. `.receipt` is what lets the card say that instead of
+                // borrowing `.findings` and reading as a backlog nobody can discharge.
+                //
+                // Not scoped-filtered here, deliberately. A scope change RE-ANALYSES Storage
+                // (Decision B), so the report in hand always describes `storageLensRoot` — and
+                // naming that root in the detail line is what makes a restored report honest about
+                // which tree it is about.
+                guard let report = syncManager.storageLensReport else {
+                    return OrganizeOverviewSection(
+                        lens: item,
+                        blurb: "Where the space goes — the largest files, the untouched ones, and what could be reclaimed.",
+                        state: .notScanned,
+                        isScanning: syncManager.isBuildingStorageLens)
+                }
+                let where_ = syncManager.storageLensRoot
+                    .map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? "this folder"
+                let when = syncManager.storageLensLifecycle.completedAt
+                    .map { Self.receiptDay($0) } ?? "previously"
+                return OrganizeOverviewSection(
+                    lens: item,
+                    blurb: "Where the space goes.",
+                    state: .receipt(
+                        headline: "\(FileSyncManager.formatBytes(report.totalBytes)) total · "
+                            + "\(report.largest.count) large · \(report.stale.count) untouched · "
+                            + "\(FileSyncManager.formatBytes(report.reclaimCandidates.reduce(0) { $0 + $1.bytes })) reclaimable",
+                        detail: "Analyzed \(when) · \(where_)"),
+                    isScanning: syncManager.isBuildingStorageLens)
             case .toFile:
                 let scoped = syncManager.filingSuggestions.filter {
                     OrganizeScopeFilter.matches($0, scope: scope)

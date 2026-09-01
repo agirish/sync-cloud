@@ -18,8 +18,6 @@ public enum PaletteRoute: Equatable, Sendable {
     case browse
     /// The Compare workspace — two trees side by side.
     case compare
-    /// The Storage workspace — reads one tree, changes nothing.
-    case storage
     /// The Edit workspace — one open text file, the app's only writable surface.
     ///
     /// Carries no folder, for the reason Browse does not: the editor lists whatever folder the
@@ -407,7 +405,8 @@ public extension PaletteIndex {
 
 // MARK: - Places
 
-/// A destination in the app's own vocabulary: the three other workspaces, and Organize's rail.
+/// A destination in the app's own vocabulary: the three workspaces that are not Organize, and
+/// Organize's rail.
 ///
 /// Spelled out rather than derived from `Workspace`, which lives in `MacApp` — a target that is in
 /// **no SPM package**, so a routing table written there is reachable by no `swift test`. That is not
@@ -416,7 +415,6 @@ public extension PaletteIndex {
 enum PalettePlace: CaseIterable {
     case browse
     case compare
-    case storage
     case editor
     case organizeOverview
     case lens(OrganizeLens)
@@ -430,14 +428,20 @@ enum PalettePlace: CaseIterable {
             // `railItems`, not `allCases`: the folded Names lens is not a place any more, and
             // offering "Organize ▸ Names" beside "Organize ▸ Renames" was two rows for one
             // landing. Its search vocabulary lives on the Renames place now.
-            + OrganizeLens.railItems.map(PalettePlace.lens) + [.storage, .editor]
+            //
+            // **Storage arrives through this map and no longer as a hand-written case**, which is
+            // an improvement and not merely a tidy-up. The hand-written `.storage` place answered
+            // `takesAFolder == false` — it grouped with Browse, Compare and Editor in discarding
+            // scope, because "Storage analyses whatever the pane is on". As a derived lens place it
+            // takes a folder like every other lens, so "storage Legal" now analyses `Legal`
+            // instead of silently ignoring the word.
+            + OrganizeLens.railItems.map(PalettePlace.lens) + [.editor]
     }
 
     var title: String {
         switch self {
         case .browse: return "Browse"
         case .compare: return "Compare"
-        case .storage: return "Storage"
         case .editor: return "Edit"
         case .organizeOverview: return "Organize"
         case .lens(let lens): return "Organize ▸ \(lens.title)"
@@ -457,7 +461,6 @@ enum PalettePlace: CaseIterable {
         // whole distinction Browse exists to carry.
         case .browse: return ["browse", "files", "finder", "folders", "move", "look"]
         case .compare: return ["diff", "differences", "sync", "compare"]
-        case .storage: return ["space", "disk", "size", "storage"]
         // "note" and "write" are what someone reaches for when the thing they want is to put
         // words in a file, which is not a word any other place here answers to.
         case .editor: return ["edit", "editor", "text", "write", "note", "notes", "markdown"]
@@ -468,6 +471,12 @@ enum PalettePlace: CaseIterable {
                                       "folders", "names", "risky", "illegal", "characters"]
         case .lens(.restructure): return ["organize", "restructure", "structure", "shape", "habits"]
         case .lens(.rules): return ["organize", "rules", "automations", "automatic", "learned"]
+        // **The hand-written Storage place's vocabulary, relocated whole.** `space`, `disk` and
+        // `size` are what someone reaches for who wants to know where their storage went, and they
+        // had nowhere else to land once that place was deleted — dropping them would have made the
+        // fold a silent loss of three working queries.
+        case .lens(.storage): return ["organize", "storage", "space", "disk", "size", "large",
+                                      "reclaim", "treemap"]
         }
     }
 
@@ -475,7 +484,6 @@ enum PalettePlace: CaseIterable {
         switch self {
         case .browse: return "folder"
         case .compare: return "arrow.left.arrow.right"
-        case .storage: return "chart.pie"
         case .editor: return "square.and.pencil"
         case .organizeOverview: return "folder.badge.gearshape"
         case .lens(let lens): return lens.symbol
@@ -486,7 +494,6 @@ enum PalettePlace: CaseIterable {
         switch self {
         case .browse: return "Your files, with nothing proposed"
         case .compare: return "Two trees, side by side"
-        case .storage: return "What is using the space"
         case .editor: return "Open a text file and write in it"
         case .organizeOverview: return "Every lens's answer, on one page"
         case .lens(let lens): return lens.help(state: .configuration)
@@ -497,7 +504,6 @@ enum PalettePlace: CaseIterable {
         switch self {
         case .browse: return "place.browse"
         case .compare: return "place.compare"
-        case .storage: return "place.storage"
         case .editor: return "place.editor"
         case .organizeOverview: return "place.organize"
         case .lens(let lens): return "place.organize.\(lens.rawValue)"
@@ -505,14 +511,16 @@ enum PalettePlace: CaseIterable {
     }
 
     /// This place, optionally re-aimed at a folder. Only Organize can carry a scope: Compare has
-    /// two trees, Storage analyses whatever the pane is on, and Browse and Editor have no *subject*
-    /// to re-aim — both show wherever the pane already is, and the existing `.folder` route is how
-    /// the palette moves the pane there.
+    /// two trees, and Browse and Editor have no *subject* to re-aim — both show wherever the pane
+    /// already is, and the existing `.folder` route is how the palette moves the pane there.
+    ///
+    /// **Storage used to be in that list and is not any more.** It was excluded on the grounds that
+    /// it "analyses whatever the pane is on"; as a lens it honours Organize's scope like the rest,
+    /// by re-analysing at the scope root.
     func route(scope: String?) -> PaletteRoute {
         switch self {
         case .browse: return .browse
         case .compare: return .compare
-        case .storage: return .storage
         case .editor: return .editor
         case .organizeOverview: return .organize(lens: nil, scope: scope)
         case .lens(let lens): return .organize(lens: lens, scope: scope)
@@ -522,7 +530,7 @@ enum PalettePlace: CaseIterable {
     /// Whether "<this place> <a folder>" is a request that can be honoured.
     var takesAFolder: Bool {
         switch self {
-        case .browse, .compare, .storage, .editor: return false
+        case .browse, .compare, .editor: return false
         case .organizeOverview, .lens: return true
         }
     }

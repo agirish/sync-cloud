@@ -395,7 +395,7 @@ struct ContentView: View {
     /// window.** macOS clamps a sheet to its host window's content width and the lens workspace is
     /// a fraction of that window (the panes take the rest), so an overlay anchored inside the lens
     /// would get a few hundred points to draw two previews in. Anchored here it clamps against the
-    /// live window: 1080×760 with room, 762×512 at the 810×560 floor. The rest of the wiring is
+    /// live window: 1080×760 with room, 712×512 at the 760×560 floor. The rest of the wiring is
     /// still the lens's — it decides which pairs come here at all.
     @State private var compareFilePair: DuplicateComparePair?
 
@@ -849,26 +849,31 @@ struct ContentView: View {
             // The window's floor, and `.windowResizability(.contentMinSize)` is what makes this
             // frame that floor rather than a suggestion.
             //
-            // **600 → 760 → 810 wide, and each raise was made by the same measurement.** The
+            // **600 → 760 → 810 → 760, and every move was made by the same measurement.** The
             // workspace bar has to keep its labels at the narrowest window the app allows, because
             // a toolbar that does not fit is not truncated — macOS folds it behind an overflow
             // chevron, and the only control for switching workspace disappears with no error.
             //
             // At 600 the bar was icon-only at every text size the moment the window sat at its
-            // minimum. 760 fixed that for four labels, which need 720pt of content width beside a
-            // compact ⌘K pill at the default text size. **Edit is a fifth label and the number
-            // moved to 781** (`WorkspaceBarMetrics` records the ladder; removing the group rule
-            // paid 13pt of the 61 it would otherwise have cost). 810 is that threshold plus ~29pt
-            // of margin — enough that a small change in a label or in the pill does not silently
-            // put the floor back under the line, and still narrow enough that the shedding band
-            // stays a corner of the range rather than most of it.
+            // minimum. 760 fixed that for four labels. **Edit made a fifth and the threshold went
+            // to 781** at the default text size (833 at Large, 853 at Largest), so the floor went
+            // to 810 — which still left the two largest sizes shedding at the floor.
             //
-            // **760 is not enough even with the shorter word**, which is the thing to check before
-            // reverting this: Default needs 781. The rename from "Editor" to "Edit" bought 12pt of
-            // margin, not a smaller window.
+            // **Folding Storage into Organize took the bar back to four labels, and the floor came
+            // back down with it.** Measured through `WorkspaceBarMetrics.styles` with the ⌘K pill
+            // compact: **666.8 / 683.8 / 725.1 / 741.6** at Small / Default / Large / Largest, all
+            // of them under 760. So this is not a return to a previous compromise — it is the first
+            // floor at which the bar keeps its labels at EVERY text size, which neither 760 nor 810
+            // managed before.
             //
-            // Small and Default keep their labels at this floor; Large and Larger still shed, so
-            // the icon-only rung remains live rather than becoming dead code.
+            // The margin to watch is Largest: 741.6 against 760 is **18.4pt**, and that is what a
+            // fifth segment spends first. `ROADMAP.md` §1b prices Backup against exactly this, and
+            // the answer there is that 810 comes back with it.
+            //
+            // **One consequence, recorded rather than fixed:** with four labels fitting at every
+            // size, the bar's icon-only rung is unreachable at any legal window width.
+            // `testTheIconOnlyRungIsOutOfTheShippingBarsReachButStillLive` states that in both
+            // directions and says why it is kept.
             //
             // **A height floor at all**, which is the hole rather than the tightening. With no
             // `minHeight`, the window could be dragged down to the toolbar and nothing else: a
@@ -882,7 +887,7 @@ struct ContentView: View {
             // also clears the 428pt below which `SettingsLayout` stops shrinking its sheet
             // (`floorSize` 380 + `hostMargin` 48) and
             // starts overflowing the window it is centered in.
-            .frame(minWidth: 810, minHeight: 560)
+            .frame(minWidth: 760, minHeight: 560)
             // Resolved in the transform, so the action — and the state write behind it — fires
             // only when the answer changes. See `workspaceBarStyle`. The label widths are measured
             // rather than tabulated because the app scales its own type (Settings ▸ Text size), and
@@ -1337,6 +1342,27 @@ struct ContentView: View {
         .onChange(of: lensScanRootExpanded) { _, _ in
             restoreStorageLensIfShowing()
             autoRescanLensIfShowing()
+        }
+        // **The fourth trigger, added by the Storage fold.** The trio above watches the workspace,
+        // appearance and the scan root — not the rail lens, and until now nothing needed it to: the
+        // two auto-rescanned lenses recompute from published arrays, so arriving at one by clicking
+        // the rail had nothing to kick off. Storage breaks that assumption, because its report is
+        // restored from a store rather than derived from anything on screen — switch the rail to
+        // Storage and, without this, the page stays empty until some other trigger happens to fire.
+        //
+        // Safe to add for the reason the trio documents: whichever arrives first wins and the rest
+        // are no-ops, so a fourth caller cannot start a second scan.
+        .onChange(of: selectedOrganizeLens) { _, _ in
+            restoreStorageLensIfShowing()
+            autoRescanLensIfShowing()
+        }
+        // A scope change RE-ANALYSES Storage rather than filtering it (Decision B), so the scope is
+        // a trigger for the restore too — the narrower root may have a snapshot of its own, which
+        // the store keys separately. Deliberately narrow: the other lenses treat scope as a filter
+        // over results they already hold, and widening their triggers here would turn a chip into a
+        // rescan for all five.
+        .onChange(of: organizeScope?.path) { _, _ in
+            restoreStorageLensIfShowing()
         }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
@@ -2050,7 +2076,7 @@ struct ContentView: View {
     @ViewBuilder
     private var settingsOverlay: some View {
         // The card is sized in points and grows with the Text size setting, but the window's own
-        // minimum is 810×560 — less than the card wants in both axes once `hostMargin` is off it.
+        // minimum is 760×560 — less than the card wants in both axes once `hostMargin` is off it.
         // Hand it the space it actually has so it can clamp itself rather than hang off the edge.
         GeometryReader { proxy in
             ZStack {
@@ -2272,8 +2298,18 @@ struct ContentView: View {
     /// Shows the saved Storage report for the current root, if Storage is what's on screen and
     /// nothing has been analyzed yet. Safe to call from any trigger — see the call sites.
     func restoreStorageLensIfShowing() {
-        guard selectedWorkspace == .storage else { return }
-        let root = lensScanRootExpanded
+        // **Keyed on the LENS now, not the workspace** — the same migration
+        // `autoRescanLensIfShowing` made when duplicates and filing became two rail items inside
+        // one workspace, and for the same reason: since the fold, `selectedWorkspace == .filing` is
+        // true on six different pages and only one of them is Storage.
+        guard selectedWorkspace == .filing, selectedOrganizeLens == .storage else { return }
+        // **The scope is the subject** (Decision B). Storage honours Organize's scope chip by
+        // re-analysing at the scope root — never by filtering an existing report, because a treemap
+        // is a part-of-whole picture and a subset misstates every proportion in it. So the root
+        // restored is the one currently in force, and `StorageLensStore` keys snapshots by absolute
+        // root path, which is what lets a scoped report and a pane-root report coexist rather than
+        // clobber one another. Same fallback `autoRescanLensIfShowing` uses.
+        let root = organizeScope?.path ?? lensScanRootExpanded
         guard !root.isEmpty else { return }
         syncManager.restoreStorageLens(root: URL(fileURLWithPath: root))
     }
@@ -2325,6 +2361,15 @@ struct ContentView: View {
             syncManager.autoRescanFilingIfEligible(
                 folder: URL(fileURLWithPath: target), providerRoot: URL(fileURLWithPath: root),
                 providerName: lensProviderName, nameProvider: lensProviderType)
+        // **Storage is handled by `restoreStorageLensIfShowing`, not here, and the arm is written
+        // out to say so.** Its results are RESTORED rather than recomputed — it is the one lens
+        // whose report survives a launch — and it had a function of its own for that before the
+        // rail existed. Both functions fire from the same four triggers, so calling the restore
+        // here too would be the identical call with the identical argument twice per trigger:
+        // harmless, because the manager declines when a build is running or a report is in hand,
+        // but two paths to one behaviour is how the two come to disagree later.
+        case .storage:
+            break
         // Restructure reads the profile rather than the disk, and rules are configuration —
         // neither goes stale because a folder changed.
         case .restructure, .rules:
@@ -2703,10 +2748,17 @@ struct ContentView: View {
     }
 
     func buildStorageLensAction() {
-        let root = lensScanRootExpanded
+        // The scope is the subject (Decision B) — analysing the pane root while a scope chip is up
+        // would put a whole-tree treemap under a narrowed header. One expression, the same fallback
+        // `autoRescanLensIfShowing` uses.
+        let root = organizeScope?.path ?? lensScanRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("Storage: requested for \(root)")
-        selectedWorkspace = .storage
+        // **Both, since the fold.** Setting the workspace alone would land on Organize's overview
+        // and quietly lose the request — the same failure `Workspace.destination(for:)` exists to
+        // prevent for programmatic callers.
+        selectedWorkspace = .filing
+        selectedOrganizeLens = .storage
         syncManager.startBuildStorageLens(root: URL(fileURLWithPath: root))
     }
 

@@ -345,7 +345,7 @@ import AppKit
     /// **Outside Organize nothing is ticked**, because nothing is showing. The stored key survives
     /// leaving — that is what makes ⌘3 return you where you were — so ticking it from Browse would
     /// be the menu claiming a section is on screen while the window shows a file tree.
-    @Test(arguments: [Workspace.browse, .compare, .storage, .editor])
+    @Test(arguments: [Workspace.browse, .compare, .editor])
     func outsideOrganizeNothingIsTicked(workspace: Workspace) {
         #expect(OrganizeLensSwitch.tick(workspace: workspace, stored: .duplicates) == nil,
                 "\(workspace) ticked a section it is not showing")

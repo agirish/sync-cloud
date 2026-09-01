@@ -250,7 +250,11 @@ import Sync
     /// public enum in another module — compile here and silently do nothing.
     @Test func everyRouteCaseIsHandledWithoutADefaultArm() throws {
         let host = try Self.source("CommandPaletteHost.swift")
-        for arm in ["case .compare:", "case .storage:", "case .editor:",
+        // `case .storage:` is deliberately absent: `PaletteRoute.storage` was deleted when Storage
+        // folded into Organize, and the place is derived from `OrganizeLens.railItems` now — so it
+        // arrives through `case .organize(let lens, let scope):` below, WITH a scope the
+        // hand-written route could never carry.
+        for arm in ["case .compare:", "case .editor:",
                     "case .organize(let lens, let scope):",
                     "case .person(let id):", "case .provider(let id):", "case .folder(let path):",
                     "case .action(let action):", "case .settings(let raw):"] {

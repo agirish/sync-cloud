@@ -157,9 +157,15 @@ import AppKit
         let decoded = TopPaneVisibility.decodeOverrides(migrated)
         #expect(decoded["Tidy"] == nil)
         #expect(decoded["Differences"] == false)
-        #expect(decoded["Storage"] == true)
-        // Rename is not a workspace, so the fan-out must not mint a key for it — an override for
-        // a place that cannot be selected is a row of dead state that would outlive every reader.
+        // **Organize is the only lens workspace left**, so Tidy's value fans out to it alone. This
+        // asserted `decoded["Storage"] == true` while Storage was a workspace with a pane of its
+        // own; since the fold its panes are Organize's panes, and the single key above governs it.
+        #expect(decoded["Filing"] == true)
+        // Neither Rename nor Storage is a workspace, so the fan-out must not mint a key for either
+        // — an override for a place that cannot be selected is a row of dead state that would
+        // outlive every reader. Storage is the newer half of that rule and the easier to miss,
+        // because it WAS a workspace and its key was legitimately written until the fold.
         #expect(decoded[Workspace.retiredRenameRawValue] == nil)
+        #expect(decoded["Storage"] == nil)
     }
 }

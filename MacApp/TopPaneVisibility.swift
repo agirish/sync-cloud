@@ -66,7 +66,7 @@ enum TopPaneVisibility {
     /// still wins, so a user who expands it keeps it expanded.
     static func defaultPanesHidden(for workspace: Workspace) -> Bool {
         switch workspace {
-        case .browse, .compare, .filing, .storage: return false
+        case .browse, .compare, .filing: return false
         case .editor: return true
         }
     }

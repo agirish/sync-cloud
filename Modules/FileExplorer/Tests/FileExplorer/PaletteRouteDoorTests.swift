@@ -36,7 +36,6 @@ import Design
         switch route {
         case .browse: return "browse"
         case .compare: return "compare"
-        case .storage: return "storage"
         case .editor: return "editor"
         case .organize: return "organize"
         case .person: return "person"
@@ -66,7 +65,7 @@ import Design
         switch route {
         case .folder(let path): return path
         case .organize(_, let scope): return scope
-        case .browse, .compare, .storage, .editor, .person, .provider, .action, .settings:
+        case .browse, .compare, .editor, .person, .provider, .action, .settings:
             return nil
         }
     }
@@ -143,7 +142,11 @@ import Design
             }
         }
 
-        var expected: Set<String> = ["browse", "compare", "storage", "organize", "person",
+        // "storage" is gone as a route KIND — `PaletteRoute.storage` was deleted when Storage
+        // became a lens, and the place now arrives as `organize` carrying `lens: .storage`. The
+        // door is still there; it is one of Organize's. `CommandPaletteTests` is where the query
+        // "storage" is followed to that route, including with a folder.
+        var expected: Set<String> = ["browse", "compare", "organize", "person",
                                      "provider", "folder", "settings"]
         for action in PaletteAction.allCases { expected.insert("action.\(action)") }
 

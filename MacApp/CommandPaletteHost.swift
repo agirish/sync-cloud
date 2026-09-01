@@ -250,8 +250,6 @@ extension ContentView {
             workspaceSelection.wrappedValue = .browse
         case .compare:
             workspaceSelection.wrappedValue = .compare
-        case .storage:
-            workspaceSelection.wrappedValue = .storage
         case .editor:
             workspaceSelection.wrappedValue = .editor
         case .organize(let lens, let scope):

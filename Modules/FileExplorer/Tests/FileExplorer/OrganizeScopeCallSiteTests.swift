@@ -219,7 +219,9 @@ import Sync
         let summary = try #require(view.range(of: "private func lensSummary(rows: FilteredRows,"),
                                    "lensSummary is gone — this scan would be vacuous")
         let organizeSummary = try #require(view.range(of: "private func organizeSummary(rows:"))
-        let chipDraw = try #require(view.range(of: "if lens != .storage { scopeChip("),
+        // The guard is gone with the fold — Storage honours the scope chip like the rest — so
+        // this looks for the bare draw. The POSITION is what this test is about and is unchanged.
+        let chipDraw = try #require(view.range(of: "scopeChip(folderCount: scopeFolders)"),
                                     "the scope chip is no longer drawn from lensSummary")
         #expect(chipDraw.lowerBound > summary.lowerBound)
         #expect(chipDraw.lowerBound < organizeSummary.lowerBound,

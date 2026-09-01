@@ -207,8 +207,19 @@ import Foundation
     }
 
     @Test func aVerbWithNoObjectIsJustThePlace() {
-        #expect(Self.first("storage") == .storage)
+        // **"storage" reaches the LENS now, and that is an upgrade rather than a rename.** It used
+        // to resolve to a hand-written `.storage` place whose `takesAFolder` was false — so
+        // "storage Legal" silently dropped the folder. As a derived lens place it carries a scope
+        // like every other lens; the unscoped query still lands in the same page.
+        #expect(Self.first("storage") == .organize(lens: .storage, scope: nil))
         #expect(Self.first("compare") == .compare)
+    }
+
+    /// The half the fold actually bought: Storage takes a folder now.
+    @Test func storageTakesAFolderSinceItBecameALens() {
+        #expect(Self.first("storage legal")
+                == .organize(lens: .storage, scope: "\(Self.root)/Legal"),
+                "\"storage <folder>\" no longer carries the folder — the derived lens place has lost its scope route")
     }
 
     /// A folder the tree does not have must not silently become the bare place — that would answer
@@ -302,7 +313,7 @@ import Foundation
 
     @Test func theEmptyQueryWithNoHistoryStillOffersEveryPlace() {
         let rows = PaletteRouter.rows(query: "   ", index: Self.index())
-        for place in [PaletteRoute.browse, .compare, .storage, .editor,
+        for place in [PaletteRoute.browse, .compare, .editor,
                       .organize(lens: nil, scope: nil)]
             + OrganizeLens.railItems.map({ PaletteRoute.organize(lens: $0, scope: nil) }) {
             #expect(rows.contains { $0.route == place }, "\(place) is unreachable from an empty query")
@@ -331,7 +342,9 @@ import Foundation
     /// has to appear in the list the router walks.
     @Test func everyPlaceIsOfferedByTheHandWrittenAllCases() {
         let offered = Set(PalettePlace.allCases.map(\.id))
-        let expected = Set(([PalettePlace.browse, .compare, .storage, .editor, .organizeOverview]
+        // Storage is no longer hand-written here: it arrives through `railItems` below, which is
+        // what gives it a scope route the hand-written place never had.
+        let expected = Set(([PalettePlace.browse, .compare, .editor, .organizeOverview]
                             + OrganizeLens.railItems.map(PalettePlace.lens)).map(\.id))
         #expect(offered == expected)
         // And the list is what the ROWS come from, so an entry that exists but scores nothing is
@@ -412,7 +425,7 @@ import Foundation
 
     @Test func arrowsWalkOnlyTheChoosableRowsAndWrap() {
         let rows = [PaletteRow(id: "a", group: .places, title: "A", symbol: "x", route: .compare),
-                    PaletteRow(id: "b", group: .places, title: "B", symbol: "x", route: .storage,
+                    PaletteRow(id: "b", group: .places, title: "B", symbol: "x", route: .browse,
                                unavailable: "Nope"),
                     PaletteRow(id: "c", group: .places, title: "C", symbol: "x",
                                route: .organize(lens: nil, scope: nil))]
