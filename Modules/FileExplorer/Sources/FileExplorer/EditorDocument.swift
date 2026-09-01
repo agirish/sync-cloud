@@ -52,6 +52,15 @@ public final class EditorDocument: ObservableObject {
     /// what stops a caller writing a UTF-16 file back as UTF-8.
     private(set) var encoding: BoundedTextRead.TextEncoding?
 
+    /// How the bytes were decoded, in the words the status line shows — or `nil` when nothing
+    /// decodable is open.
+    ///
+    /// **A name, not the encoding.** ``encoding`` stays private so that only this module can name
+    /// one, which is what stops a caller writing a UTF-16 file back as UTF-8; the status line needs
+    /// to *say* what it is, not to have it. Publishing the string rather than the value is what
+    /// keeps those two apart.
+    public var encodingName: String? { encoding?.rawValue }
+
     /// Whether the buffer differs from the file.
     ///
     /// The length check first is a real shortcut rather than a micro-optimisation: this is read
