@@ -37,7 +37,7 @@ User-facing changes, newest first. For the full commit history see the
   Edit opens one text file, shows it, and writes it back when you ask. A collapsible file pane on
   the left browses to any folder, a rail beside it lists that folder's text files, and the document
   sits beside them. ⌘4, or the new segment in the workspace bar.
-- **Markdown renders in Edit, Preview or Split**, with a divider you can drag. Real Markdown — tables
+- **Markdown renders in Source, Preview or Split**, with a divider you can drag. Real Markdown — tables
   and task lists included — laid out in the app's own type at Settings ▸ Text size, not a web view's.
 - **It saves itself.** A couple of seconds after you stop typing, and whenever the document leaves
   the screen — switching workspace, closing the tab, quitting. Every write is staged and swapped in

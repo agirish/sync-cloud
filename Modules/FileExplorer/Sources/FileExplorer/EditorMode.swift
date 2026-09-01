@@ -16,9 +16,21 @@ public enum EditorMode: String, CaseIterable, Sendable {
     case preview
     case split
 
+    /// **`.edit` is labelled "Source", not "Edit".** The case name says what the mode lets you
+    /// do; the label says which representation of the document you are looking at, which is the
+    /// question the other two segments answer and the only one that makes a three-way choice
+    /// coherent. It also settles a collision the capsule could not win: the app already has a
+    /// top-level `Edit` menu AND an `Edit` workspace (see `Workspace.title`, which weighed the
+    /// menu-bar clash and took the cost), so a segment reading "Edit" inside the Edit workspace
+    /// read as `Edit ▸ Edit`. Of the three, this is the one that could move — the menu is an
+    /// AppKit convention and the workspace is a decided argument.
+    ///
+    /// "Source" always has a referent: the capsule is drawn only for Markdown
+    /// (`EditorWorkspaceView`, gated on `document.isMarkdown`), so the word never appears over a
+    /// `.txt` where there is no rendered form for it to be the source OF.
     public var title: String {
         switch self {
-        case .edit: return "Edit"
+        case .edit: return "Source"
         case .preview: return "Preview"
         case .split: return "Split"
         }
@@ -42,7 +54,7 @@ public enum EditorMode: String, CaseIterable, Sendable {
     }
 }
 
-/// The Edit / Preview / Split capsule.
+/// The Source / Preview / Split capsule.
 ///
 /// Mirrors the workspace bar's geometry at rail scale — hand-drawn segments inside a container
 /// capsule, the selected one carrying the accent fill — for the reason the workspace bar is
@@ -51,10 +63,19 @@ public enum EditorMode: String, CaseIterable, Sendable {
 ///
 /// **It sheds its words when the column is narrow**, the same bargain the workspace bar strikes and
 /// for the same reason. Re-measured 2026-08-31 across Small · Default · Large · Largest, the
-/// labelled capsule is **183 · 192 · 220 · 231pt** — against a document column whose guaranteed
+/// labelled capsule is **198 · 208 · 239 · 251pt** — against a document column whose guaranteed
 /// minimum is 260, which leaves no room for the file name it sits beside. Glyph-only it is
 /// **82 · 85 · 95 · 99**, which does. The names survive in the tooltip and the accessibility label,
 /// exactly as the workspace bar's do.
+///
+/// The labelled figures are 15–20pt above what they were when this segment read "Edit"
+/// (183 · 192 · 220 · 231), which is what the longer word costs. It buys a real corner and one
+/// worth knowing about: at the 760pt window floor the words now shed at the **top of the text
+/// range alone** — 135%, three points over a 368pt column — where "Edit" fitted. The glyph rung is
+/// untouched by the rename, so the ceiling that actually constrains this control did not move.
+/// `EditorLayoutTests.theWordsShedAtTheNarrowestWindowOnlyAtTheTopOfTheTextRange` pins that
+/// boundary against the whole selectable range rather than the four named presets, because the
+/// slider stops between them.
 ///
 /// **The glyph figures used to be one number, and that was the bug, not a rounding.** Until the
 /// same date this read "96–110" and the rung actually measured 85 at all four sizes, because the

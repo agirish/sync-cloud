@@ -82,7 +82,7 @@ struct ContentView: View {
     /// The editor's undo stack, owned by the app beside the document. See
     /// ``PlainTextEditor/undoManager`` for why it is not the text view's.
     let editorUndoManager: UndoManager
-    /// Edit / Preview / Split for the open document.
+    /// Source / Preview / Split for the open document.
     ///
     /// **Window state, not a persisted preference.** Which of the three you want is a fact about
     /// the file you are looking at right now; remembering it across launches would open the next

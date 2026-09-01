@@ -72,7 +72,7 @@ public struct EditorWorkspaceView: View {
     /// The label colour on the accent fill — deepened by the host so white text stays legible on
     /// every hue, the same value the workspace bar's selected segment uses.
     let onAccent: Color
-    /// Edit / Preview / Split. Held by the host so it survives the workspace being torn down.
+    /// Source / Preview / Split. Held by the host so it survives the workspace being torn down.
     @Binding var mode: EditorMode
     /// The width the editor takes in `.split`, as a fraction of the column.
     ///

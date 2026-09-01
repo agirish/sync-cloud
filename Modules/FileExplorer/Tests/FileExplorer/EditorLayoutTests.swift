@@ -244,11 +244,10 @@ import Design
     ///
     /// The capsule sits at the trailing end of the editor's header row and the header's other half
     /// is the file name; `minDocumentWidth` is what the split clamp guarantees that column. This is
-    /// the assertion that found the labelled capsule too wide to sit there at any text size — 185pt
+    /// the assertion that found the labelled capsule too wide to sit there at any text size — 208pt
     /// at the default against a 260pt column — which is why the control sheds its words at all.
     @Test func theGlyphRungFitsTheNarrowestDocumentColumnAtEveryTextSize() {
-        // What the header must still be able to show of a file name beside the capsule.
-        let nameAllowance: CGFloat = 120
+        let nameAllowance = Self.nameAllowance
         for scale in scales {
             let width = capsule(.glyphOnly, scale: scale).width
             #expect(width + nameAllowance <= EditorLayoutMetrics.minDocumentWidth,
@@ -258,6 +257,59 @@ import Design
                     \(EditorLayoutMetrics.minDocumentWidth)pt column — under the \(nameAllowance)pt it needs
                     """)
         }
+    }
+
+    /// What the header must still be able to show of a file name beside the capsule.
+    private static let nameAllowance: CGFloat = 120
+
+    /// The document column at the app's 760pt window floor, with the folder sidebar at its own
+    /// 150pt minimum. **Deliberately the conservative reading** — `EditorLayoutMetrics` puts the
+    /// real column at ~391pt there, and anything that clears this clears that, so the test cannot
+    /// pass on an over-generous estimate of the room available.
+    private static var documentWidthAtWindowFloor: CGFloat {
+        760 - 150 - EditorLayoutMetrics.railWidth - 2 * LiquidGlass.cardGutter
+    }
+
+    /// **Where the words survive at the narrowest window the app allows — pinned as a boundary,
+    /// not as a verdict.**
+    ///
+    /// `minDocumentWidth` (260) is the split clamp's floor and the labelled rung has never fitted
+    /// it; that is what the glyph rung above is for. This asks the other question: at the 760pt
+    /// window floor, with the folder sidebar at its own 150pt minimum, does the reader still get
+    /// the words? Not at every text size — so what is pinned is the percent where it turns over.
+    ///
+    /// **Swept over `selectablePercents`, not `allCases`.** The four named presets are what the UI
+    /// offers by name; the slider lands on every step from 90 to 135. A four-row table would have
+    /// reported "Large fits, Largest does not" and left the six steps between them unmeasured.
+    /// Measured 2026-08-31 on this code, the last percent that fits is **130** — so the shed is
+    /// confined to **135 alone**, the top of the range and the `Largest` preset, where the rung is
+    /// 251pt and 251 + 120 = 371 against a 368pt column. Three points over.
+    ///
+    /// That corner is new, and it is what two changes landing together cost: "Edit" became
+    /// "Source" (+15 to +20pt across the range) and the glyph box started scaling with the type
+    /// ramp instead of sitting in a pinned 13×13. **Neither alone crossed it** — with "Edit" at
+    /// 135 the rung was 231, and 231 + 120 = 351 fitted. Above the boundary the names stay
+    /// reachable through the tooltip and the accessibility label, which is the bargain the
+    /// workspace bar strikes too, and only at the narrowest window the app allows.
+    ///
+    /// Pinning the boundary is what makes this fail in BOTH directions: a longer label drags it
+    /// down through the presets, and anything that buys width back pushes it up — and either way
+    /// the failure names the percent rather than only saying "too wide".
+    @Test func theWordsShedAtTheNarrowestWindowOnlyAtTheTopOfTheTextRange() {
+        let column = Self.documentWidthAtWindowFloor
+        let fitting = FontSize.selectablePercents.filter { percent in
+            capsule(.labelled, scale: FontSize(percent: percent).scale).width
+                + Self.nameAllowance <= column
+        }
+        // Contiguous from the bottom, or "the last one that fits" is not a boundary at all.
+        #expect(fitting == Array(FontSize.selectablePercents.prefix(fitting.count)),
+                "the percents that fit are \(fitting) — not a contiguous run, so there is no single boundary")
+        #expect(fitting.last == 130, """
+                the labelled capsule sheds its words above \(fitting.last.map(String.init) ?? "no")% \
+                rather than 130% — at the 760pt window floor the \(column)pt document column takes \
+                the rung plus a \(Self.nameAllowance)pt name up to there. Re-measure and move this \
+                number deliberately; do not widen the allowance to make it go away.
+                """)
     }
 
     /// …and the labelled rung is genuinely wider, or the ladder has nothing to choose between and

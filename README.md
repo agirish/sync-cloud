@@ -107,7 +107,7 @@ lens that never wears a count badge.
 ### ✏️ Edit — write in a text file
 The one workspace that changes what is *inside* a file rather than moving files around. A collapsible
 file pane on the left to browse to any folder, a rail listing that folder's text files, and the open
-document beside it. Markdown renders in **Edit / Preview / Split**, at the app's own text size rather
+document beside it. Markdown renders in **Source / Preview / Split**, at the app's own text size rather
 than a web view's. **⌘N** makes a new file — nothing on disk until you press ↩ — and **⌘S** writes
 it — but you rarely need to: the editor **autosaves** a couple of seconds after you stop typing, and
 whenever the document leaves the screen. A save is staged and swapped like
