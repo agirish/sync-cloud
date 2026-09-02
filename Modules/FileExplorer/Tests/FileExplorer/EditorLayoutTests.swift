@@ -518,4 +518,100 @@ import Design
         #expect(noHeadings.height > noFile.height,
                 "the two empty captions laid out to the same height — \(noHeadings.height) and \(noFile.height) — so at least one of them is not being drawn")
     }
+
+    // MARK: The document header
+
+    private func document(named name: String, text: String = "hello") throws -> EditorDocument {
+        let folder = NSTemporaryDirectory() + "hdr-" + UUID().uuidString
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let path = (folder as NSString).appendingPathComponent(name)
+        try text.write(toFile: path, atomically: true, encoding: .utf8)
+        let document = EditorDocument()
+        _ = EditorFileStore.load(path: path, into: document)
+        return document
+    }
+
+    private func workspace(_ document: EditorDocument) -> EditorWorkspaceView {
+        EditorWorkspaceView(
+            document: document,
+            autosavePolicy: EditorAutosavePolicy(),
+            folder: "/n",
+            entries: [],
+            accent: .blue,
+            onAccent: .white,
+            mode: .constant(.edit),
+            splitFraction: .constant(0.5),
+            isNaming: .constant(false),
+            typedName: .constant(""),
+            railFilter: .constant(""),
+            railFilterIsExpanded: .constant(false),
+            railTab: .constant(.files),
+            railOutlineAnchors: .constant([:]),
+            undoManager: UndoManager(),
+            prefilledName: { "Untitled.md" },
+            refusal: { _ in nil },
+            onOpen: { _ in },
+            onCreate: { _ in true },
+            onRevealInBrowse: { _ in })
+    }
+
+    /// **A `.md` and a `.txt` header must be the same height**, or the document column below them
+    /// starts at two different places depending on which file you opened — which is what it did:
+    /// the mode capsule is the tallest thing in the top row and a plain-text file has no capsule,
+    /// so its header was measurably shorter.
+    @Test func theHeaderIsTheSameHeightForEveryKindOfTextFile() throws {
+        let markdown = try document(named: "note.md")
+        let plain = try document(named: "note.txt")
+        #expect(markdown.isMarkdown, "the fixture is not being seen as Markdown")
+        #expect(!plain.isMarkdown, "the plain-text fixture is being seen as Markdown")
+
+        for scale in scales {
+            let a = size(workspace(markdown).headerContent.environment(\.appFontScale, scale),
+                         width: 520)
+            let b = size(workspace(plain).headerContent.environment(\.appFontScale, scale),
+                         width: 520)
+            #expect(abs(a.height - b.height) < 0.51,
+                    "at scale \(scale) Markdown's header is \(a.height)pt and plain text's is \(b.height)")
+        }
+    }
+
+    /// **The assumption the reservation rests on, and it was unpinned.** The hidden capsule sits
+    /// inside a zero-width frame, so its `ViewThatFits` is proposed no width and picks the NARROWEST
+    /// rung — the glyph-only one. That only reserves the right height because both rungs happen to
+    /// be the same height: measured, 22 · 23 · 27 · 28pt across the four text sizes. Change the
+    /// labelled rung's padding or its font and that stops being true, the reservation quietly
+    /// under-reserves, and the two headers diverge again with nothing failing.
+    @Test func bothCapsuleRungsAreTheSameHeight() {
+        for scale in scales {
+            let labelled = size(EditorModeBar(mode: .constant(.edit), accent: .blue,
+                                              onAccent: .white, forcedRung: .labelled)
+                                .environment(\.appFontScale, scale))
+            let glyph = size(EditorModeBar(mode: .constant(.edit), accent: .blue,
+                                           onAccent: .white, forcedRung: .glyphOnly)
+                             .environment(\.appFontScale, scale))
+            #expect(abs(labelled.height - glyph.height) < 0.51,
+                    "at scale \(scale) the rungs are \(labelled.height)pt and \(glyph.height)pt tall")
+            // The positive control: they differ in WIDTH, which is what the rungs are for.
+            #expect(labelled.width > glyph.width + 10,
+                    "the two rungs measure the same width — the shedding is not happening")
+        }
+    }
+
+    /// The mechanism the fix rests on, pinned on its own: a hidden capsule inside a zero-width
+    /// frame still contributes its HEIGHT. If `.frame(width: 0)` ever flattened the height too, the
+    /// test above would go green only because both headers had lost the reservation together.
+    @Test func aZeroWidthHiddenCapsuleStillReservesItsHeight() {
+        for scale in scales {
+            let visible = size(EditorModeBar(mode: .constant(.edit), accent: .blue, onAccent: .white)
+                                .environment(\.appFontScale, scale))
+            let reserved = size(EditorModeBar(mode: .constant(.edit), accent: .blue, onAccent: .white)
+                                .hidden().frame(width: 0)
+                                .environment(\.appFontScale, scale))
+            #expect(abs(visible.height - reserved.height) < 0.51,
+                    "at scale \(scale) the reservation is \(reserved.height)pt against \(visible.height)")
+            #expect(reserved.width < 0.51,
+                    "the reservation is holding \(reserved.width)pt of width it should not")
+        }
+    }
+
 }

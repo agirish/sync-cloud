@@ -279,7 +279,22 @@ public struct EditorWorkspaceView: View {
         }
     }
 
+    /// The two rows above the document: which file, and where it stands.
+    ///
+    /// **Its own view so a test can measure it.** The heights of the two rows are decided by their
+    /// tallest child — the mode capsule on one, the switch on the other — and both of those change
+    /// with the text size. Asserting that a Markdown header and a plain-text header come out the
+    /// same means measuring them, and measuring them means being able to build one.
     private var header: some View {
+        EditorDocumentHeader { headerContent }
+    }
+
+    /// Internal rather than private, so `EditorLayoutTests` can render the header on its own and
+    /// measure it. The header's height is decided by the tallest thing in each of its two rows, and
+    /// the whole point of the reservation below is that this comes out the same for a Markdown file
+    /// and a plain-text one — which is a claim about a number, so it wants a measurement.
+    @ViewBuilder
+    var headerContent: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 // **Three states, because two of them are the point.**
@@ -333,14 +348,28 @@ public struct EditorWorkspaceView: View {
                 // **Only for files that have something to preview.** `PairContentKind` already
                 // owns which extensions are Markdown; a capsule on a `.txt` would offer two modes
                 // that render the same thing.
+                //
+                // **But its HEIGHT is reserved either way**, which is the same bargain the rail
+                // strikes for its unsaved dot. The capsule is the tallest thing in this row, so a
+                // header without one was measurably shorter — a `.txt` and a `.md` side by side sat
+                // at different heights, and the whole document column below them started at
+                // different places. Reserved by hiding a real capsule rather than by naming a
+                // number: the number would be the capsule's own metrics copied to a second place,
+                // where it could go stale the next time that control's padding moved.
+                //
+                // `.frame(width: 0)` so only the height is reserved. Reserving the width too would
+                // hold a capsule-shaped gap at the end of every plain-text header, and truncate the
+                // file name earlier for nothing.
                 if document.isMarkdown {
                     EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
+                } else {
+                    EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
+                        .hidden()
+                        .frame(width: 0)
                 }
             }
             metaRow
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
     }
 
     /// **What the last segment says, and it is the whole visible account of autosave.**
@@ -835,3 +864,16 @@ struct AutosaveSwitchTrack: View {
     }
 }
 
+/// The padding around the document header, in one place because a test measures what it produces.
+struct EditorDocumentHeader<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    static var horizontalPadding: CGFloat { 14 }
+    static var verticalPadding: CGFloat { 8 }
+
+    var body: some View {
+        content
+            .padding(.horizontal, Self.horizontalPadding)
+            .padding(.vertical, Self.verticalPadding)
+    }
+}
