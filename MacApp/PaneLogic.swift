@@ -469,6 +469,36 @@ enum PaneLogic {
         isSingleSource ? paneHasSelection : hasActionBarSelection
     }
 
+    /// What esc does in a pane, in precedence order.
+    enum EscapeAction: Equatable {
+        /// A comparison pick is armed — see ``ComparePick``.
+        case cancelComparePick
+        case clearSelection
+        /// Not ours: the key bubbles, so dialogs and the rest still see it.
+        case ignore
+    }
+
+    /// **The pick wins, and the selection is still there for a second press.**
+    ///
+    /// A mode indicator that names esc has to mean it, and while a pick is armed the mode is what
+    /// esc is most likely aimed at: the reader may be several folders from the armed row, with a
+    /// selection they are indifferent to. Nothing is lost by the ordering — one more press clears
+    /// the selection, and the pick cannot be restored by any number of presses.
+    ///
+    /// A rule rather than two `if`s at the call site, because the precedence is the whole content
+    /// of it and a call site cannot be asked what it would have done.
+    static func escapeAction(
+        hasComparePick: Bool,
+        isSingleSource: Bool,
+        hasActionBarSelection: Bool,
+        paneHasSelection: Bool
+    ) -> EscapeAction {
+        if hasComparePick { return .cancelComparePick }
+        return escapeClearsSelection(isSingleSource: isSingleSource,
+                                     hasActionBarSelection: hasActionBarSelection,
+                                     paneHasSelection: paneHasSelection)
+            ? .clearSelection : .ignore
+    }
 
     /// Which pane a lens scan/inspect should target. The single-source rail is always the LEFT
     /// pane, so in single-source mode the answer is always "left" — even when a selection lingers in

@@ -917,6 +917,7 @@ struct PaneColumnsView: View {
             // miss most of the app's usage. Resolved by the column for the same reason
             // `riskyReason` is.
             isOnThisMacOnly: delegate.isOnThisMacOnly(forPath: row.info.id),
+            isArmedForCompare: delegate.armedComparePath == row.info.id,
             awaitingDownloadID: awaitingDownloads[node.id]?.requestID,
             // A column's “expanded” is `isOnPath` — the folder you drilled THROUGH is the one whose
             // contents are already on screen, so it is the one whose “N matches” would be telling
@@ -1235,6 +1236,9 @@ struct ColumnRowView: View {
     var riskyReason: String? = nil
     /// See `FileRowView.isOnThisMacOnly`. Resolved by the column, like `riskyReason`.
     var isOnThisMacOnly: Bool = false
+    /// Forwarded to ``FileRowView/isArmedForCompare``. Defaulted for the same reason its
+    /// neighbours are: a caller with no pick context renders the row it always did.
+    var isArmedForCompare: Bool = false
     /// See `FileRowView.awaitingDownloadID`. Threaded through rather than observed here for the
     /// same reason: a per-row subscription for a per-session event.
     var awaitingDownloadID: UUID? = nil
@@ -1250,6 +1254,7 @@ struct ColumnRowView: View {
             FileRowView(node: row.info, isIgnored: isIgnored, diffStatus: diffStatus,
                         containedDiffCount: containedDiffCount, density: density,
                         fonts: fonts, riskyReason: riskyReason, isOnThisMacOnly: isOnThisMacOnly,
+                        isArmedForCompare: isArmedForCompare,
                         awaitingDownloadID: awaitingDownloadID,
                         searchContext: searchContext, isLeftPane: isLeftPane,
                         otherPaneName: otherPaneName, accent: accent,

@@ -429,6 +429,16 @@ struct ContentView: View {
     /// verdict bars, and a shared case would have to be unwrapped at every use anyway.
     @State private var compareDifferencePair: DifferencePair?
 
+    /// The file armed for comparison, waiting for the click that names its counterpart — see
+    /// ``ComparePick``.
+    ///
+    /// **`@State` here rather than a selection anywhere**, which is the whole design: an armed path
+    /// that lived in a pane's selection would be cleared by the very click meant to complete it,
+    /// because `PaneLogic.applySelectionWrite` holds the one-pane-selected invariant. Outside both
+    /// sets, it survives the selection moving, a scroll, and a navigation — the last of which
+    /// finding the counterpart usually requires.
+    @State private var comparePick: ComparePick?
+
     /// Both rungs of the toolbar row, resolved together from the window's width — see
     /// `WorkspaceBarMetrics.styleSet`.
     ///
@@ -1056,6 +1066,20 @@ struct ContentView: View {
         // row — would inherit "follows the panes" from this one and be yanked by a pane click.
         .onChange(of: quickLookURL) { _, url in if url == nil { quickLookFollowsPane = false } }
         .animation(.easeOut(duration: 0.15), value: pendingDestination?.id)
+        // **The pick-mode strip — an overlay of its own, and NOT part of the exclusive chain
+        // above.** Those five are full-window panels that take turns; this one coexists with the
+        // window it describes, because the whole point of the mode is that the panes underneath
+        // stay clickable. It needs no hit-testing rule to manage that: the overlay's content is
+        // the capsule and nothing else, so it intercepts clicks inside its own bounds and the
+        // panes keep every click outside them.
+        .overlay(alignment: .top) {
+            if let pick = comparePick {
+                ComparePickStrip(prompt: pick.prompt, onCancel: { comparePick = nil })
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .designAnimation(.easeOut(duration: 0.15), value: comparePick)
         // The theme is the one Appearance control no view can render on its own: it lives on
         // NSApp, so that the AppKit surfaces (the NSAlert prompts, NSOpenPanel, the About panel,
         // and the separate Activity Log / Sync History windows) follow it too. Applied from the
@@ -3498,13 +3522,25 @@ struct ContentView: View {
         // chain.) Reviewed with ↩ above on 2026-08-21 and deliberately left as-is.
         .onKeyPress(.escape) {
             let paneSelection = isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths
-            guard PaneLogic.escapeClearsSelection(
+            // **The pane, not the root view.** An `onKeyPress` scopes to the subtree that has
+            // focus, and the root is not focusable — a handler there would never see the key. The
+            // pick's esc therefore lives with the selection's, ahead of it; the precedence is
+            // `PaneLogic.escapeAction`.
+            switch PaneLogic.escapeAction(
+                hasComparePick: comparePick != nil,
                 isSingleSource: layoutMode == .singleSource,
                 hasActionBarSelection: !barNodes.isEmpty,
                 paneHasSelection: !paneSelection.isEmpty
-            ) else { return .ignored }
-            clearSelection(isLeft: isLeft)
-            return .handled
+            ) {
+            case .cancelComparePick:
+                comparePick = nil
+                return .handled
+            case .clearSelection:
+                clearSelection(isLeft: isLeft)
+                return .handled
+            case .ignore:
+                return .ignored
+            }
         }
         // The debounce. `.task(id:)` cancels and restarts whenever the key moves, so the sleep below
         // IS the debounce — no timer to own, and a keystroke landing mid-sleep simply replaces the
@@ -3884,6 +3920,30 @@ struct ContentView: View {
                 // `current`, so it is a no-op there and stays silent.
                 syncManager.noteFocusedPane(
                     side, because: "a row was picked in the \(isLeft ? "left" : "right") pane")
+
+                // **A pick completes HERE, because this is the one door both view modes go
+                // through.** Tree selects through a `List` binding and Columns through its own tap
+                // gestures, and they meet at exactly this setter — hooking the click anywhere else
+                // would mean hooking it twice and keeping the two in step for ever.
+                //
+                // Deferred for the reason the sibling pane's clear is: opening the overlay writes
+                // `@State` on this view, and publishing into the window this commit is still in
+                // reloaded the clicked List and dropped the click outright (`aa9d407`). One tick
+                // later the commit has landed and the pair opens over a pane that registered the
+                // selection normally.
+                //
+                // Exactly one path, because a click is one row. A ⌘-click extending to two while a
+                // pick is armed is not "the file to compare with" and leaves the mode standing —
+                // the reader can still click one row, or cancel.
+                if let pick = comparePick, newSelection.count == 1, let path = newSelection.first {
+                    let nodes = isLeft ? syncManager.leftNodes(for: [path])
+                                       : syncManager.rightNodes(for: [path])
+                    if let node = nodes.first {
+                        DispatchQueue.main.async {
+                            resolveComparePick(pick, clicked: node, inLeftPane: isLeft)
+                        }
+                    }
+                }
             }
         )
     }
@@ -3914,6 +3974,33 @@ struct ContentView: View {
             counterpartIsInOtherPane: secondIsInOtherPane,
             clickedPaneIsLeft: clickedPaneIsLeft,
             leftPaneName: paneNames.left, rightPaneName: paneNames.right)
+    }
+
+    /// Arms a file for comparison, replacing any pick already standing.
+    ///
+    /// Replacing rather than refusing: a reader who arms the wrong file and then arms another has
+    /// said what they meant, and a mode that had to be cancelled first would be a mode that
+    /// punishes a correction.
+    func armComparePick(_ node: FileNode, isLeft: Bool) {
+        comparePick = ComparePick(armed: node, armedPaneIsLeft: isLeft)
+    }
+
+    /// Resolves a click made while a pick is armed — see ``ComparePick/outcome(clicking:inLeftPane:leftPaneName:rightPaneName:)``.
+    ///
+    /// The three outcomes are the three ways the mode can end or not: the pair opens and the mode
+    /// is done, the armed row was clicked again and the mode is cancelled, or a folder was clicked
+    /// and the mode stands while the reader keeps looking.
+    func resolveComparePick(_ pick: ComparePick, clicked: FileNode, inLeftPane: Bool) {
+        switch pick.outcome(clicking: clicked, inLeftPane: inLeftPane,
+                            leftPaneName: paneNames.left, rightPaneName: paneNames.right) {
+        case .cancelled:
+            comparePick = nil
+        case .standing:
+            break
+        case .paired(let pair):
+            comparePick = nil
+            compareDifferencePair = pair
+        }
     }
 
     /// The row menu's and the file list's delegate for one pane.
@@ -3961,7 +4048,9 @@ struct ContentView: View {
             onToggleFolderFavorite: { node in toggleFavorite(forPaneFolder: node, isLeft: pane.isLeft) },
             onCompareFilePair: { first, second, secondIsInOtherPane in
                 compareFilePairAction(first, second, secondIsInOtherPane: secondIsInOtherPane,
-                                      clickedPaneIsLeft: pane.isLeft) })
+                                      clickedPaneIsLeft: pane.isLeft) },
+            onArmComparePick: { node in armComparePick(node, isLeft: pane.isLeft) },
+            armedComparePath: comparePick?.armed.id)
     }
 
     @ViewBuilder

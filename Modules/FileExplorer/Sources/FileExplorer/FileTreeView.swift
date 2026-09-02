@@ -985,6 +985,7 @@ public struct FileTreeView: View, Equatable {
             // The second eagerly-rendered delegate answer, resolved the same way and memoized
             // by `HomeOnlyBadgeCache`. Also `row.info`, never `row.node`.
             isOnThisMacOnly: delegate.isOnThisMacOnly(forPath: row.info.id),
+            isArmedForCompare: delegate.armedComparePath == row.info.id,
             awaitingDownloadID: downloads.request(forPath: node.id)?.requestID,
             searchContext: searchContext(for: row),
             isLeftPane: isLeft,
@@ -1192,26 +1193,38 @@ struct FileContextMenu: View {
     /// only a test isolating itself from the other suites passes anything else.
     var downloadChannel: NotificationCenter = .default
 
-    /// The two doors onto the file-pair viewer, both reached from a row.
+    /// The three doors onto the file-pair viewer that a row offers.
     ///
-    /// **A right-click, because the literal ask — "when both panes have a file selected" — is a
-    /// state the app forbids on purpose.** `PaneLogic.applySelectionWrite` clears the other pane on
-    /// every non-empty selection write, so at most one side is ever populated; relaxing that for
-    /// one affordance would reopen everything it exists to prevent. A right-click writes no
-    /// selection, which is exactly why the app's one existing cross-pane affordance — "Copy '…'
-    /// from ⟨pane⟩", directly above — is a context menu too. The empty-write carve-out in
-    /// `applySelectionWrite` names that menu as the reason it exists.
+    /// **"Compare with…" is unconditional, and the other two are shortcuts past it.** Arming needs
+    /// no counterpart to exist yet, so every file row carries it; the two conditional items are
+    /// there for when the counterpart is already picked and a second click would be a step
+    /// backwards. That ordering — always a door, sometimes a faster one — is the fix for the
+    /// failure this file's own doc named and then shipped: an item that is merely absent looks
+    /// identical to one correctly withheld, so a menu with no Compare in it read as a feature that
+    /// did not exist.
     ///
-    /// So: select a file in one pane, right-click a file in the other. And the sibling case IS
-    /// reachable without any of that, because a pane's selection is a `Set` — two files picked in
-    /// ONE tree.
+    /// **Why the conditional pair is right-click-only.** The literal ask — "when both panes have a
+    /// file selected" — is a state the app forbids on purpose:
+    /// `PaneLogic.applySelectionWrite` clears the other pane on every non-empty selection write, so
+    /// at most one side is ever populated. A right-click writes no selection, which is why the
+    /// app's one existing cross-pane affordance — "Copy '…' from ⟨pane⟩", directly above — is a
+    /// context menu too, and why the empty-write carve-out in `applySelectionWrite` names that menu
+    /// as its reason. ``ComparePick`` reaches the same pair without any of that, by keeping the
+    /// armed file outside both selection sets.
     ///
-    /// Every precondition lives in ``PaneComparePairMenu`` rather than here: a Compare item that is
-    /// merely absent looks identical to one correctly withheld, so the rules belong somewhere a
-    /// test can reach without rendering a menu.
+    /// Every precondition lives in ``PaneComparePairMenu`` rather than here, so the rules are
+    /// reachable by a test that renders no menu.
     @ViewBuilder
     private func compareItems(node: FileNode, selectedNodes: [FileNode]) -> some View {
         if delegate.canCompareFilePair {
+            // First and always, for a file: the door that has no precondition to fail.
+            if !node.isDirectory {
+                Button {
+                    delegate.handleArmComparePick(node)
+                } label: {
+                    Label("Compare with…", systemImage: "rectangle.split.2x1")
+                }
+            }
             if let counterpart = PaneComparePairMenu.crossPaneCounterpart(
                 clicked: node, otherTree: otherTree, otherSelection: otherSelection,
                 isSingleSource: isSingleSource) {
@@ -1557,6 +1570,11 @@ struct FileRowView: View {
     /// every caller with no provider context, and every test double, renders exactly the row it
     /// rendered before the badge existed.
     var isOnThisMacOnly: Bool = false
+    /// Whether this row is the file armed for comparison — see ``ComparePick``.
+    ///
+    /// Defaulted so every caller with no pick context, and every test double, renders exactly the
+    /// row it rendered before the marker existed.
+    var isArmedForCompare: Bool = false
     /// The identity of the download request the pane is watching for THIS row; nil when it is not
     /// this row's file (or nothing is being watched). Part of the badge task's `.task(id:)` key, so
     /// the badge re-resolves when the pane arms a watch for this file and again when that watch
@@ -1743,6 +1761,17 @@ struct FileRowView: View {
             // while it is next to them. It also keeps the trailing cluster's carefully reserved
             // widths (see `FileRowAccessories`) out of the question entirely.
             RiskyNameBadge(reason: riskyReason, fonts: fonts)
+            // **Beside the name, for RiskyNameBadge's reason and not in the trailing cluster.**
+            // The cluster reports this file's relationship to somewhere else — is it downloaded,
+            // does it match the other pane — and its widths are reserved with care that
+            // `FileRowAccessories`' own doc says has been got wrong twice. This marker is a
+            // statement about THIS row and this moment ("you armed this one"), so it belongs with
+            // the name and leaves that arithmetic alone.
+            //
+            // **Additive, never replacing a badge.** The location slot is deliberately exclusive —
+            // ☁ wins over ⌂ — so putting the marker there would hide a cloud-only badge for
+            // exactly as long as the pick is armed, trading one fact for another.
+            if isArmedForCompare { ComparePickBadge(fonts: fonts) }
             Spacer()
             if densityMetrics.showsSecondaryDetail, let secondaryText {
                 Text(secondaryText)

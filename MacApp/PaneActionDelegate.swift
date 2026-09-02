@@ -121,6 +121,9 @@ struct PaneActionDelegate: FileActionDelegate {
     /// Defaulted for the same reason the line above is: the delegate's own tests do not exercise
     /// this route and should not have to name it.
     var onCompareFilePair: (FileNode, FileNode, Bool) -> Void = { _, _, _ in }
+    var onArmComparePick: (FileNode) -> Void = { _ in }
+    /// Forwarded from the host's `ComparePick`; nil when no pick is live.
+    var armedComparePath: String?
 
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
@@ -276,6 +279,14 @@ struct PaneActionDelegate: FileActionDelegate {
         // "identical" about nothing.
         guard first.id != second.id else { return }
         onCompareFilePair(first, second, secondIsInOtherPane)
+    }
+
+    func handleArmComparePick(_ node: FileNode) {
+        // Files only, and asserted here as well as in the menu — the shape every handler in this
+        // file uses. Arming a folder would put the window into a mode whose only completion is a
+        // pair the viewer cannot render.
+        guard !node.isDirectory else { return }
+        onArmComparePick(node)
     }
 
     /// A real window is behind this delegate, so the row menu may offer the door.

@@ -614,4 +614,44 @@ import Sync
         #expect(pair.0 == a && pair.1 == b, "the pair came back reordered")
     }
 
+    // MARK: escapeAction — the pick wins, and the selection survives for a second press
+
+    /// **An armed pick takes esc ahead of the selection**, in every state the selection can be in.
+    /// The strip names esc; if a selection could swallow it the indicator would be lying.
+    @Test func anArmedPickTakesEscapeFirst() {
+        for singleSource in [true, false] {
+            for bar in [true, false] {
+                for pane in [true, false] {
+                    #expect(PaneLogic.escapeAction(hasComparePick: true, isSingleSource: singleSource,
+                                                   hasActionBarSelection: bar, paneHasSelection: pane)
+                                == .cancelComparePick,
+                            "esc cleared a selection while a pick was armed (rail=\(singleSource), bar=\(bar), pane=\(pane))")
+                }
+            }
+        }
+    }
+
+    /// And with no pick it is the rule it always was — the delegation is real, not a rewrite.
+    @Test func withNoPickEscapeIsTheSelectionRuleUnchanged() {
+        for singleSource in [true, false] {
+            for bar in [true, false] {
+                for pane in [true, false] {
+                    let expected = PaneLogic.escapeClearsSelection(
+                        isSingleSource: singleSource, hasActionBarSelection: bar,
+                        paneHasSelection: pane) ? PaneLogic.EscapeAction.clearSelection : .ignore
+                    #expect(PaneLogic.escapeAction(hasComparePick: false, isSingleSource: singleSource,
+                                                   hasActionBarSelection: bar, paneHasSelection: pane)
+                                == expected,
+                            "the no-pick path stopped agreeing with escapeClearsSelection (rail=\(singleSource), bar=\(bar), pane=\(pane))")
+                }
+            }
+        }
+        // A positive control for the loop above: it must not be vacuously comparing nil to nil.
+        #expect(PaneLogic.escapeAction(hasComparePick: false, isSingleSource: false,
+                                       hasActionBarSelection: true, paneHasSelection: true)
+                    == .clearSelection)
+        #expect(PaneLogic.escapeAction(hasComparePick: false, isSingleSource: false,
+                                       hasActionBarSelection: false, paneHasSelection: false)
+                    == .ignore)
+    }
 }

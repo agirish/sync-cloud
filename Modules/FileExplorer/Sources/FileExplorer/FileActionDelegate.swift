@@ -171,6 +171,25 @@ public protocol FileActionDelegate: Sendable {
     /// so there `first` does take the left column.
     func handleCompareFilePair(_ first: FileNode, with second: FileNode, secondIsInOtherPane: Bool)
 
+    /// Arms `node` for comparison and puts the window into pick mode — the next file clicked, in
+    /// either pane, becomes its counterpart.
+    ///
+    /// **Offered on every file row, with no precondition**, which is the point and a change from
+    /// the two items above. Those appear only when a counterpart already exists, and
+    /// ``PaneComparePairMenu``'s own doc names the consequence this caused: an item that is merely
+    /// absent looks identical to one correctly withheld, so a menu with no Compare in it reads as
+    /// a feature that does not exist. Arming has no precondition beyond the row being a file, so
+    /// the menu now always has a door — and sometimes a faster one beside it.
+    func handleArmComparePick(_ node: FileNode)
+
+    /// The path currently armed for comparison, or nil when no pick is live — what a row asks to
+    /// decide whether it wears the marker.
+    ///
+    /// **A path, not a flag per row**, because the marker has to survive everything a selection
+    /// does not: the selection moving to the other pane, a scroll, and a navigation away from the
+    /// armed folder and back. Answered from the host's one `ComparePick`, so every row agrees.
+    var armedComparePath: String? { get }
+
     /// Whether this host can open a folder in a new tab. Gated for the same reason the two above
     /// are: a conformer with no pane strip behind it draws nothing rather than a door onto a no-op.
     var canOpenInNewTab: Bool { get }
@@ -276,6 +295,8 @@ extension FileActionDelegate {
     public var canCompareFilePair: Bool { false }
     public func handleCompareFilePair(_ first: FileNode, with second: FileNode,
                                       secondIsInOtherPane: Bool) {}
+    public func handleArmComparePick(_ node: FileNode) {}
+    public var armedComparePath: String? { nil }
 
     /// Same default, same reason, and declared as requirements above for the same one.
     public var canOpenInNewTab: Bool { false }
