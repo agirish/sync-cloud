@@ -443,9 +443,16 @@ struct PlainTextEditor: NSViewRepresentable {
         // `NSRangeException` (`substringWithRange: … out of bounds`) and taking the app down with
         // every unsaved buffer in it when they do not. Keyed on the path rather than on the text,
         // because two files can hold the same bytes.
+        // **The stack is no longer wiped here, and what replaced it is a different manager.**
+        // This used to call `removeAllActions()` whenever the document changed, because
+        // `NSTextView` registers undo by character range and replaying one document's ranges into
+        // another splices or crashes. `EditorUndoStore` now hands this view a stack that belongs to
+        // the document being shown — so the two documents' registrations can never meet, and the
+        // history survives a round trip instead of being thrown away to make it safe. The store
+        // also refuses a stack whose fingerprint no longer fits the buffer, which is the case the
+        // wipe could not distinguish from any other.
         if context.coordinator.documentID != documentID {
             context.coordinator.documentID = documentID
-            undoManager.removeAllActions()
         }
         if view.string != text {
             let selected = view.selectedRange()

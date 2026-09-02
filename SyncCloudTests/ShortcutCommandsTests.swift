@@ -1,5 +1,6 @@
 import AppKit
 import Events
+import FileExplorer
 import SwiftUI
 import Testing
 import Foundation
@@ -582,5 +583,37 @@ import Foundation
         let slack = ShortcutsReferenceView.windowSize.height - height
         #expect(slack <= 60,
                 "the window shows \(slack)pt of empty space below the last row (\(height)pt of rows in \(ShortcutsReferenceView.windowSize.height)pt) — lower windowSize to the rows it actually has")
+    }
+}
+
+/// Whether ⌘Q may write the open document.
+///
+/// **The bug this pins was a write nobody asked for, at the moment it mattered most.** The quit
+/// flush was unconditional — right for the ordinary case, where what ⌘Q catches is the two-second
+/// debounce window — but it also wrote a file whose autosave switch the user had turned OFF, and
+/// it did so BEFORE the unsaved-changes warning, so the question was asked after the answer.
+@MainActor
+@Suite struct QuitFlushPolicyTests {
+
+    @Test func anOrdinaryDocumentIsStillFlushed() {
+        let policy = EditorAutosavePolicy()
+        #expect(SyncCloudAppDelegate.mayFlushOnQuit(path: "/n/a.md", policy: policy))
+    }
+
+    @Test func aDocumentWithAutosaveOffIsNotFlushed() {
+        let policy = EditorAutosavePolicy()
+        policy.setOn(false, for: "/n/a.md")
+        #expect(!SyncCloudAppDelegate.mayFlushOnQuit(path: "/n/a.md", policy: policy),
+                "quitting would write a file the user switched autosave off for")
+        // …and only that file.
+        #expect(SyncCloudAppDelegate.mayFlushOnQuit(path: "/n/b.md", policy: policy))
+    }
+
+    /// Before `ContentView` has adopted a policy there is nobody to ask, and the flush is right in
+    /// the ordinary case — an app that declined to save on quit because a wire was not yet
+    /// connected would be the worse of the two failures.
+    @Test func noPolicyMeansFlush() {
+        #expect(SyncCloudAppDelegate.mayFlushOnQuit(path: "/n/a.md", policy: nil))
+        #expect(SyncCloudAppDelegate.mayFlushOnQuit(path: nil, policy: nil))
     }
 }

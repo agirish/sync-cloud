@@ -145,6 +145,7 @@ extension ContentView {
     var editorWorkspace: some View {
         EditorWorkspaceView(
             document: editorDocument,
+            autosavePolicy: editorAutosavePolicy,
             folder: editorFolder,
             entries: editorRailEntries,
             accent: glassHue.accentColor,
@@ -165,7 +166,8 @@ extension ContentView {
             refusal: { typed in EditorFileStore.refusal(forName: typed, in: editorFolder) },
             onOpen: { entry in openInEditor(path: entry.path) },
             onCreate: { name in createTextFile(named: name) },
-            onRevealInBrowse: { path in revealInBrowse(path) })
+            onRevealInBrowse: { path in revealInBrowse(path) },
+            onAutosaveResumed: { runAutosave() })
         // The rail is re-listed on arrival and whenever the folder or the hidden-files preference
         // moves — `.task(id:)` restarts on either.
         .task(id: EditorRailKey(folder: editorFolder, showsHidden: syncManager.showHiddenFiles)) {
@@ -203,9 +205,17 @@ extension ContentView {
 
     /// Reads a file and puts it on screen. No prompt: callers have already dealt with the buffer.
     func loadIntoEditor(path: String) {
+        // **The outgoing document's undo stack is put away BEFORE the buffer is replaced**, and
+        // this is the only moment its registrations and the text they name are known to agree. See
+        // `EditorUndoStore`.
+        editorUndoStore.remember(text: editorDocument.text)
+        editorUndoStore.forgetMissingFiles()
         // One call, not open-then-hand-over: the encoding a file was read in travels with the text
         // it produced, which is what stops a save transcoding it. See `EditorFileStore.load`.
         let result = EditorFileStore.load(path: path, into: editorDocument)
+        // And the incoming one's is fetched against what was actually loaded — a stack that does
+        // not fit the buffer is dropped rather than handed back.
+        editorUndoStore.activate(path: editorDocument.path, text: editorDocument.text)
         // **The remembered mode is NOT narrowed here**, and that is the fix rather than the
         // omission. `EditorMode.resolved` is a display filter — `EditorWorkspaceView` already
         // applies it on the way into `surfaces(for:)`, so a `.txt` file cannot show a preview
@@ -237,10 +247,14 @@ extension ContentView {
     /// - Returns: `false` when the caller must do nothing at all.
     @discardableResult
     func settleEditorDocument() -> Bool {
-        // A blocked document is asked about BEFORE the flush, because the flush would only refuse
-        // again for the same reason and the alert is where the choice lives.
-        if editorAutosaveStop != nil, editorDocument.isDirty {
-            return confirmLeavingAStoppedDocument()
+        // **Two documents are asked about before the flush rather than flushed.** A blocked one,
+        // because the flush would refuse again for the same reason and the alert is where the
+        // choice lives. And one whose autosave switch is off, because flushing it on the way out is
+        // exactly the write the switch exists to prevent — a switch that held only until you
+        // changed file would not be a switch at all.
+        let withheld = !editorAutosavePolicy.isOn(editorDocument.path)
+        if editorAutosaveStop != nil || withheld, editorDocument.isDirty {
+            return confirmLeavingAnUnwrittenDocument()
         }
         switch EditorAutosave.attempt(editorDocument) {
         case .nothingToDo, .wrote:
@@ -249,20 +263,30 @@ extension ContentView {
         case .blocked(let divergence):
             // It diverged between the last attempt and this one. Same question, asked now.
             editorAutosaveStop = .diverged(divergence)
-            return confirmLeavingAStoppedDocument()
+            return confirmLeavingAnUnwrittenDocument()
         case .failed(let message):
             editorAutosaveStop = .failed(message)
             syncManager.banner = .error("Couldn't save “\(editorDocument.name)” — \(message)")
-            return confirmLeavingAStoppedDocument()
+            return confirmLeavingAnUnwrittenDocument()
         }
     }
 
-    /// The one remaining unsaved-changes question: leaving a document autosave cannot write.
-    private func confirmLeavingAStoppedDocument() -> Bool {
+    /// The unsaved-changes question, for a document autosave is not going to write.
+    ///
+    /// **Two reasons reach it now.** Autosave can be *blocked* — the file changed underneath the
+    /// buffer — or it can be *switched off* for this file. The question is the same either way,
+    /// because the choice is: write over what is there, keep the document open, or lose the typing.
+    /// It was named for the first reason alone when that was the only one.
+    private func confirmLeavingAnUnwrittenDocument() -> Bool {
         switch EditorAlerts.askAboutUnsavedChanges(name: editorDocument.name) {
         case .cancel: return false
         case .discard:
             editorAutosaveStop = nil
+            // **The undo history goes with the discarded typing, and it has to.** The file on disk
+            // now holds text from before those edits while the stack holds registrations made
+            // against the text after them — the exact mismatch `EditorUndoStore` refuses, made
+            // deliberately here rather than left for the fingerprint to catch.
+            if let path = editorDocument.path { editorUndoStore.forget(path) }
             return true
         case .save:
             // "Save" here means "overwrite what is on disk", which is the choice the divergence
@@ -425,6 +449,11 @@ extension ContentView {
     /// stop LATCHES: autosave does nothing further until a write succeeds or the user clears it,
     /// and ⌘S is the way to ask again deliberately.
     func runAutosave() {
+        // **The switch is checked here rather than in the driver**, so the timer still runs and the
+        // document is still asked the ordinary questions — only the write is withheld. Gating the
+        // driver instead would mean a file switched back ON mid-edit waited for the next keystroke
+        // before anything reached disk.
+        guard editorAutosavePolicy.isOn(editorDocument.path) else { return }
         guard editorAutosaveStop == nil else { return }
         switch EditorAutosave.attempt(editorDocument) {
         case .nothingToDo:
@@ -479,7 +508,9 @@ extension ContentView {
         // autosave halted is gone by the time it returns, and leaving the latch set would stop the
         // next keystroke reaching disk for no reason anybody could see.
         editorAutosaveStop = nil
-        editorUndoManager.removeAllActions()
+        // **Forgotten before the load, not cleared after it.** `loadIntoEditor` will ask the store
+        // for this path's stack; dropping it here is what makes that ask return a fresh one.
+        editorUndoStore.forget(path)
         loadIntoEditor(path: path)
         return false
     }

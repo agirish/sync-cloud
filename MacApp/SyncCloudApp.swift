@@ -83,9 +83,19 @@ struct SyncCloudApp: App {
     /// the window, reopen from the Dock, and the typing is still there.
     @StateObject private var editorDocument = EditorDocument()
 
-    /// The editor's undo stack, beside the document it belongs to and outliving the window for the
-    /// same reason. See ``PlainTextEditor/undoManager``.
-    @State private var editorUndoManager = UndoManager()
+    /// One undo stack per document, so ⌘Z survives switching files — beside the document they
+    /// belong to and outliving the window for the same reason. See ``PlainTextEditor/undoManager``
+    /// for why the editor's history is separate from the file engine's, and `EditorUndoStore` for
+    /// the crash the single shared stack was wiped to prevent and how a per-path store closes it
+    /// without the wipe.
+    @StateObject private var editorUndoStore = EditorUndoStore()
+    /// Which files autosave may write, for this run of the app.
+    ///
+    /// **Here rather than in `ContentView`, for the reason the document and the undo stack are
+    /// here**: closing the window rebuilds `ContentView` and everything it owns, and a set that
+    /// died with the window would switch autosave back on for a document still open in it. It is
+    /// deliberately not persisted — see `EditorAutosavePolicy`.
+    @StateObject private var editorAutosavePolicy = EditorAutosavePolicy()
 
     /// Watches for ⌥ held alone, and publishes it to every `.shortcutKeycap(_:)` in the window.
     /// One per app: it installs local `NSEvent` monitors, and a second would double them.
@@ -568,7 +578,9 @@ struct SyncCloudApp: App {
                     showHelp: $showHelp,
                     hasBootstrappedSession: $hasBootstrappedSession,
                     editorDocument: editorDocument,
-                    editorUndoManager: editorUndoManager,
+                    editorUndoManager: editorUndoStore.current,
+                    editorUndoStore: editorUndoStore,
+                    editorAutosavePolicy: editorAutosavePolicy,
                     setupDismissedThisSession: $setupDismissedThisSession,
                     showSetup: $showSetup,
                     duplicateReview: $duplicateReview,
@@ -906,6 +918,29 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Self.sharedEditorDocument = document
     }
 
+    /// Which files autosave may write, for the quit flush to consult.
+    ///
+    /// **Weak and static, adopted beside the document, for the same reasons.** It has to be here
+    /// because `applicationShouldTerminate` is outside the view layer and the flush it performs is
+    /// a write to somebody's file — the one write in the app that happens with nobody looking.
+    static weak var sharedAutosavePolicy: EditorAutosavePolicy?
+
+    func adoptAutosavePolicy(_ policy: EditorAutosavePolicy) {
+        Self.sharedAutosavePolicy = policy
+    }
+
+    /// Whether the quit flush may write the open document.
+    ///
+    /// **A function, split from the plumbing, because it is the decision and not the alert** — the
+    /// same reason `quitDecision` is one. It answers `true` when there is no policy to ask, which
+    /// is the state before `ContentView` has adopted one: the flush is right in the ordinary case
+    /// and an app that refused to save on quit because a wire was not yet connected would be the
+    /// worse failure of the two.
+    static func mayFlushOnQuit(path: String?, policy: EditorAutosavePolicy?) -> Bool {
+        guard let policy else { return true }
+        return policy.isOn(path)
+    }
+
     /// Wires the termination guard to `manager`, keeping the first manager when one is already
     /// wired (both instance and static ref, so the guard works on every quit attempt). SwiftUI
     /// may re-run `App.init`, but `@StateObject` keeps only the first manager alive — re-wiring
@@ -1078,7 +1113,18 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // this line, and that is the one case where quitting really does lose work. So the guard is
         // no longer "is there a buffer" but "is there a buffer that could not be saved", which is a
         // strictly smaller and more truthful question.
-        if let document = Self.sharedEditorDocument {
+        // **Not for a document whose autosave switch is off, and this was a real defect.** The
+        // flush below is unconditional in the ordinary case and should be: what ⌘Q catches is the
+        // two-second debounce window, and writing it is more honest than asking about it. But a
+        // file the user switched OFF is one they have said not to write, and quitting is exactly
+        // when that instruction matters most — the flush wrote it anyway, and did so BEFORE the
+        // unsaved-changes warning, so the question came after the answer.
+        //
+        // Withheld here, the buffer stays dirty, `hasUnsavedDocument` below sees it, and the guard
+        // asks — which is the behaviour the switch exists to restore.
+        let mayFlush = Self.mayFlushOnQuit(path: Self.sharedEditorDocument?.path,
+                                           policy: Self.sharedAutosavePolicy)
+        if let document = Self.sharedEditorDocument, mayFlush {
             switch EditorAutosave.attempt(document) {
             case .wrote:
                 Logger.shared.info("Flushed the editor's document before quitting")
@@ -1090,6 +1136,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             case .nothingToDo:
                 break
             }
+        } else if let document = Self.sharedEditorDocument, document.isDirty {
+            Logger.shared.info(
+                "Did not flush “\(document.name)” before quitting — autosave is off for it")
         }
         let hasUnsavedDocument = Self.sharedEditorDocument?.isDirty ?? false
 

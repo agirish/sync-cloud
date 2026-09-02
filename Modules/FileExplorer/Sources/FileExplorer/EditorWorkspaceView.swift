@@ -64,6 +64,8 @@ public enum EditorLayoutMetrics {
 public struct EditorWorkspaceView: View {
 
     @ObservedObject var document: EditorDocument
+    /// Which files autosave may write. See ``EditorAutosavePolicy``.
+    @ObservedObject var autosavePolicy: EditorAutosavePolicy
 
     /// The folder the sidebar has selected. Empty when there is none.
     let folder: String
@@ -110,6 +112,9 @@ public struct EditorWorkspaceView: View {
     let onCreate: (String) -> Bool
     /// The reverse of "Open in Edit": shows the open file where it lives.
     let onRevealInBrowse: (String) -> Void
+    /// Called when autosave is switched back on for the open document, so the host can write what
+    /// is already pending rather than waiting for the next keystroke.
+    var onAutosaveResumed: () -> Void = {}
 
     @Environment(\.appFontScale) private var fontScale
 
@@ -152,6 +157,7 @@ public struct EditorWorkspaceView: View {
     @State private var splitDrag: CGFloat?
 
     public init(document: EditorDocument,
+                autosavePolicy: EditorAutosavePolicy,
                 folder: String,
                 entries: [EditorRailEntry],
                 accent: Color,
@@ -171,12 +177,14 @@ public struct EditorWorkspaceView: View {
                 refusal: @escaping (String) -> String?,
                 onOpen: @escaping (EditorRailEntry) -> Void,
                 onCreate: @escaping (String) -> Bool,
-                onRevealInBrowse: @escaping (String) -> Void) {
+                onRevealInBrowse: @escaping (String) -> Void,
+                onAutosaveResumed: @escaping () -> Void = {}) {
         self._railFilter = railFilter
         self._railFilterIsExpanded = railFilterIsExpanded
         self._railTab = railTab
         self._railOutlineAnchors = railOutlineAnchors
         self.document = document
+        self.autosavePolicy = autosavePolicy
         self.folder = folder
         self.entries = entries
         self.accent = accent
@@ -193,6 +201,7 @@ public struct EditorWorkspaceView: View {
         self.onOpen = onOpen
         self.onCreate = onCreate
         self.onRevealInBrowse = onRevealInBrowse
+        self.onAutosaveResumed = onAutosaveResumed
     }
 
     /// The mode actually being drawn — `.edit` on a file with nothing to preview, whatever the
@@ -328,10 +337,7 @@ public struct EditorWorkspaceView: View {
                     EditorModeBar(mode: $mode, accent: accent, onAccent: onAccent)
                 }
             }
-            Text(metaLine)
-                .scaledFont(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            metaRow
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -359,23 +365,104 @@ public struct EditorWorkspaceView: View {
         return status.isWarning ? .orange : accent
     }
 
-    /// **What the last segment says, and it is the whole visible account of autosave.**
+    /// The file's own facts — what it is and how big it is.
     ///
-    /// "unsaved" is a real state rather than a courtesy: it is true from the keystroke until the
-    /// debounce elapses and the write returns, which is the window where a crash would cost
-    /// something. Saying "saved" through it would be a claim the app cannot support.
-    ///
-    /// There is still no "saving…" between them. The write is a staged file and a rename on a local
-    /// path and returns inside a frame, so a third state would be a flicker nobody can read — and
-    /// it would suggest a duration the app does not actually spend.
-    ///
-    /// A stop REPLACES the pair rather than joining it: "unsaved · not saving" is the same fact
-    /// twice, and the stop is the half that says what to do about it.
-    private var metaLine: String {
+    /// **The status word is no longer in here.** It moved to its own `Text` in ``metaRow`` so that
+    /// it cannot be the thing truncated away in a narrow column — and the prose that used to sit
+    /// here, about "unsaved" being a real state rather than a courtesy and a stop replacing the
+    /// pair rather than joining it, went with it. It lives on ``EditorSaveStatus``, which is the
+    /// type that actually decides those words.
+    private var fileFacts: String {
         var parts: [String] = [document.isMarkdown ? "Markdown" : "Plain text"]
         if let size = document.stamp?.size { parts.append(FileSyncManager.formatBytes(size)) }
-        parts.append(status.caption)
         return parts.joined(separator: " · ")
+    }
+
+    /// The second row of the header: what the file is, where the buffer stands, and the switch that
+    /// decides whether the two are being kept together.
+    ///
+    /// **Three pieces rather than one string, and the split is load-bearing.** The row is
+    /// `lineLimit(1)` inside a column whose guaranteed minimum is 260pt, so something has to give
+    /// when it is narrow — and the one thing that must never give is the word saying whether the
+    /// work is on disk. The kind and the size take the truncation; the status and the switch keep
+    /// their width.
+    private var metaRow: some View {
+        HStack(spacing: 5) {
+            Text(fileFacts)
+                .layoutPriority(0)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text("·")
+                .layoutPriority(1)
+            Text(status.caption)
+                .layoutPriority(1)
+                .lineLimit(1)
+            if showsAutosaveSwitch {
+                autosaveSwitch.layoutPriority(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .scaledFont(.system(size: 10))
+        .foregroundStyle(.secondary)
+    }
+
+    private var showsAutosaveSwitch: Bool {
+        Self.showsAutosaveSwitch(hasPath: document.path != nil,
+                                 wasRefused: document.refusal != nil,
+                                 isReadOnly: document.isReadOnly)
+    }
+
+    /// **Withheld wherever autosave was never going to write anyway** — nothing open, a refusal, or
+    /// a read-only decode. A switch that changes nothing is worse than no switch.
+    ///
+    /// A function over three booleans rather than a computed property, for the reason
+    /// ``EditorFileRailView/dotColour(rowPath:selectedPath:status:accent:)`` is one: the rule is
+    /// worth asserting, and asserting it through the header means building a whole workspace.
+    static func showsAutosaveSwitch(hasPath: Bool, wasRefused: Bool, isReadOnly: Bool) -> Bool {
+        hasPath && !wasRefused && !isReadOnly
+    }
+
+    /// The autosave switch, beside the word whose meaning it changes.
+    ///
+    /// **A switch, drawn as one** — a track with a knob that slides, the shape everybody already
+    /// reads as "this is on, and I can turn it off". It began as a filled-or-hollow dot beside the
+    /// word, which is the shape of a radio button: something that reports a state rather than one
+    /// that offers to change it.
+    ///
+    /// **Hand-drawn rather than SwiftUI's `Toggle`**, for the reason ``EditorModeBar`` is: a native
+    /// control renders neutral inside this window's glass and ignores `.tint`, so its "on" state
+    /// could never carry the app's accent — and on-ness is the one thing this has to say at a
+    /// glance. It is also 11pt tall beside 10pt text, far below what AppKit's switch will draw at.
+    ///
+    /// **`.plain`, and it is the one control in this header without a hover affordance.** A wash
+    /// behind a switch fights the switch: the thing saying "you can press me" is the knob, and two
+    /// affordances stacked on one control read as a rendering fault rather than as emphasis.
+    @ViewBuilder
+    private var autosaveSwitch: some View {
+        let isOn = autosavePolicy.isOn(document.path)
+        Button {
+            guard let path = document.path else { return }
+            // **Switching it back ON writes what is already waiting.** The debounce is a
+            // `.task(id:)` keyed on the buffer's version, so it does not re-fire when a setting
+            // changes: without this, turning autosave on left the file unwritten until the next
+            // keystroke — the one moment somebody is most entitled to expect it to be saved.
+            if autosavePolicy.toggle(path) { onAutosaveResumed() }
+        } label: {
+            HStack(spacing: 5) {
+                // The label leads, which is where macOS puts it.
+                Text("Autosave")
+                    .scaledFont(.system(size: 10, weight: .medium))
+                    .foregroundStyle(isOn ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                AutosaveSwitchTrack(isOn: isOn, accent: accent)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isOn ? "Autosave is on for this file — click to stop writing it until you save"
+                   : "Autosave is off for this file — click to write it again as you type")
+        .accessibilityLabel("Autosave this file")
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
     }
 
     /// The document column, with the parse attached where it cannot be torn down.
@@ -683,3 +770,68 @@ public struct EditorWorkspaceView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+/// The oval track and its sliding knob — the switch shape, without the button around it.
+///
+/// **Its own view so a test can measure it.** It sits on the header's meta line, which is
+/// `lineLimit(1)` in a column whose guaranteed minimum is 260pt, so a switch that grew faster than
+/// the words beside it would be the thing that pushed the status word out of the row.
+struct AutosaveSwitchTrack: View {
+
+    let isOn: Bool
+    let accent: Color
+
+    @Environment(\.appFontScale) private var scale
+
+    /// The track's height at the default text size, and the point size of the text beside it.
+    ///
+    /// **Scaled through `FontSize.scaledBox`, not a bare multiply**, so the switch follows the same
+    /// ramp as the words — including its knee above 11pt, past which a multiply would have the
+    /// switch outgrowing the line it is on. Same rule as ``CapsuleGlyph``.
+    static let baseHeight: CGFloat = 11
+    static let basePoint: CGFloat = 10
+    /// A shade under 2:1, the proportion AppKit and iOS both draw.
+    static let aspect: CGFloat = 1.85
+    /// The gap between knob and track, at the base size.
+    static let inset: CGFloat = 1.5
+
+    static func height(at scale: CGFloat) -> CGFloat {
+        FontSize.scaledBox(baseHeight, basePoint: basePoint, scale: scale)
+    }
+
+    static func width(at scale: CGFloat) -> CGFloat { height(at: scale) * aspect }
+
+    var body: some View {
+        let height = Self.height(at: scale)
+        let width = Self.width(at: scale)
+        let inset = Self.inset * height / Self.baseHeight
+        let knob = height - inset * 2
+
+        Capsule()
+            .fill(isOn ? AnyShapeStyle(accent) : AnyShapeStyle(.quaternary))
+            .overlay {
+                // The off track needs an edge, or against a light ground it reads as a gap in the
+                // row rather than as a control that is switched off.
+                Capsule().strokeBorder(Color.secondary.opacity(isOn ? 0 : 0.35), lineWidth: 0.5)
+            }
+            .frame(width: width, height: height)
+            .overlay(alignment: .leading) {
+                Circle()
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.28), radius: 0.5, y: 0.5)
+                    .frame(width: knob, height: knob)
+                    .padding(.leading, inset)
+                    // **An offset rather than a change of alignment.** Swapping `.leading` for
+                    // `.trailing` moves the knob by re-laying it out, and a layout change does not
+                    // interpolate; an offset is a value SwiftUI can animate between, so it slides.
+                    .offset(x: isOn ? width - height : 0)
+            }
+            // Through the house helper, so Reduce Motion turns the slide off — a repo-wide scan in
+            // the Design package holds every animated site to it.
+            .designAnimation(.easeInOut(duration: 0.16), value: isOn)
+            // The button around it carries the label, the value and the traits; a second element
+            // here would make VoiceOver stop twice on one control.
+            .accessibilityHidden(true)
+    }
+}
+

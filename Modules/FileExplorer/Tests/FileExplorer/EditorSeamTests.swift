@@ -178,25 +178,54 @@ import Design
     /// never touched — splicing characters out where the old ranges happen to land, or throwing
     /// `NSRangeException` and taking every unsaved buffer down with it. The codebase already knew
     /// two files can hold the same bytes; `EditorParseKey` was invented for it, in those words.
-    @Test func theUndoResetIsKeyedOnTheDocumentAndNotOnTheBuffer() throws {
+    @MainActor
+    @Test func twoFilesHoldingTheSameBytesDoNotShareAnUndoStack() throws {
+        // **This was a source scan, and it no longer has to be.** It guarded a
+        // `removeAllActions()` inside `updateNSView` — the only place the rule could live when one
+        // shared stack was wiped on every file switch, and unreachable behaviourally because
+        // SwiftUI's `Context` cannot be constructed by a test. `EditorUndoStore` moved the rule
+        // into a type that can simply be asked, so the claim is now checked directly.
+        //
+        // The claim itself is unchanged and is why any of this exists: `NSTextView` registers undo
+        // by character RANGE, so a stack shared between two documents replays one file's edits into
+        // another — splicing characters out where the old ranges happen to land, or throwing
+        // `NSRangeException` and taking every unsaved buffer down with it. Two files holding the
+        // same bytes is the case that hid it, because the buffer comparison the old wipe was nested
+        // inside is false exactly then.
+        let store = EditorUndoStore()
+        store.activate(path: "/n/a.md", text: "identical")
+        let first = store.current
+        store.remember(text: "identical")
+
+        store.activate(path: "/n/b.md", text: "identical")
+        #expect(store.current !== first,
+                "two files with identical contents were handed the same undo stack")
+    }
+
+    /// And the wipe must not come back: with a stack per document, `removeAllActions()` on a
+    /// document change would throw away the history this feature exists to keep — silently, and
+    /// only noticeably by switching files and finding ⌘Z empty.
+    @Test func theEditorNoLongerWipesTheStackWhenTheDocumentChanges() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/FileExplorer/PlainTextEditor.swift")
         let source = try #require(try? String(contentsOf: url, encoding: .utf8),
                                   "cannot read PlainTextEditor.swift — this scan would be vacuous")
-        // Positive control: the scan is looking at the right file and found both landmarks.
         try #require(source.contains("func updateNSView"), "the scan is not reading updateNSView")
-        try #require(source.contains("removeAllActions()"), "the scan cannot find the reset at all")
+        try #require(source.contains("context.coordinator.documentID != documentID"),
+                     "the document-identity branch is gone — this scan is checking nothing")
 
-        let reset = try #require(source.range(of: "removeAllActions()"))
-        let guardRange = try #require(source.range(of: "context.coordinator.documentID != documentID"))
-        #expect(guardRange.upperBound < reset.lowerBound,
-                "the undo reset is no longer guarded by the document identity check")
-
-        // …and specifically NOT back inside the buffer comparison, which is where it was.
-        if let echo = source.range(of: "if view.string != text {") {
-            #expect(reset.lowerBound < echo.lowerBound,
-                    "the undo reset sits inside `view.string != text` again — two files holding the same bytes will share an undo stack")
-        }
+        // **Comments are stripped first, or this scan reads the note explaining the removal.** The
+        // doc comment on that branch says what it *used* to call, in backticks, and a plain
+        // `contains` found the prose and reported the code.
+        let code = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in
+                let trimmed = line.drop { $0 == " " }
+                return trimmed.hasPrefix("//") ? "" : line
+            }
+            .joined(separator: "\n")
+        #expect(!code.contains("removeAllActions()"),
+                "the per-document undo history is being wiped on a document change again")
     }
 }

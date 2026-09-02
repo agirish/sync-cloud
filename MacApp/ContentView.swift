@@ -93,9 +93,16 @@ struct ContentView: View {
     /// `enabledProviders` had not published yet. Cleared by the arrival that completes it.
     @State private var launchRefreshPending = false
 
-    /// The editor's undo stack, owned by the app beside the document. See
-    /// ``PlainTextEditor/undoManager`` for why it is not the text view's.
+    /// The undo stack for the document that is open, read from the store — which swaps it as
+    /// documents change. See ``PlainTextEditor/undoManager`` for why it is not the text view's own,
+    /// and `EditorUndoStore` for why there is one per document.
+    ///
+    /// Passed separately from the store so the views below take a plain `UndoManager` and do not
+    /// have to know a store exists.
     let editorUndoManager: UndoManager
+    @ObservedObject var editorUndoStore: EditorUndoStore
+    /// Which files autosave may write. Owned by the app — see `SyncCloudApp`.
+    @ObservedObject var editorAutosavePolicy: EditorAutosavePolicy
     /// Source / Preview / Split for the open document.
     ///
     /// **Window state, not a persisted preference.** Which of the three you want is a fact about
@@ -1100,6 +1107,7 @@ struct ContentView: View {
             // the app that never asks about an unsaved buffer — every other route through the
             // editor prompts.
             SyncCloudAppDelegate.shared?.adoptEditorDocument(editorDocument)
+            SyncCloudAppDelegate.shared?.adoptAutosavePolicy(editorAutosavePolicy)
             let isFirstAppearance = !hasBootstrappedSession
             hasBootstrappedSession = true
             for step in PaneLogic.bootstrapSteps(isFirstAppearance: isFirstAppearance) {
