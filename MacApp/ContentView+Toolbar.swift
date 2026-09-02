@@ -112,9 +112,12 @@ extension ContentView {
     func paneActionBar(isLeft: Bool, selectionNodes: [FileNode]) -> some View {
         let copyTarget = PaneLogic.copyTargetName(activePane: focusedPane, paneNames: paneNames)
         let actionSymbols = PaneLogic.actionBarSymbols(activePane: focusedPane)
+        // Asked ONCE — the button's presence and its action are the same question, and the
+        // handler below acts on this value rather than re-reading the selection.
+        let compareOffer = PaneLogic.compareOffer(for: selectionNodes)
         PaneActionBar(
             summaryText: SelectionSummary.text(for: selectionNodes),
-            showsCompare: selectionNodes.count == 1 && selectionNodes[0].isDirectory,
+            showsCompare: compareOffer != nil,
             copyTitle: copyTarget.map { "Copy to \($0)" } ?? "Copy",
             moveTitle: copyTarget.map { "Move to \($0)" } ?? "Move",
             copySymbol: actionSymbols.copy,
@@ -127,12 +130,22 @@ extension ContentView {
                 "Puts each item where its counterpart belongs in \($0), creating folders as needed"
             },
             onCompare: {
-                guard let folder = selectionNodes.first else { return }
-                // The comparison toolbar's "Compare this folder": both panes ARE visible here, so
-                // the link toggle means what it says and is honored.
-                actionHandler?.focusFolder(folder, isLeft: isLeft,
-                                           leftProviderId: leftProviderId, rightProviderId: rightProviderId,
-                                           suppressLinkedNavigation: false)
+                switch compareOffer {
+                case .folderScan(let folder):
+                    // The comparison toolbar's "Compare this folder": both panes ARE visible here,
+                    // so the link toggle means what it says and is honored.
+                    actionHandler?.focusFolder(folder, isLeft: isLeft,
+                                               leftProviderId: leftProviderId, rightProviderId: rightProviderId,
+                                               suppressLinkedNavigation: false)
+                case .filePair(let first, let second):
+                    // Same pane, so the counterpart is not across the divide and the pair leads
+                    // with the first file — `PaneComparePairMenu.pair` owns that ordering and is
+                    // handed the same two arguments the row menu hands it.
+                    compareFilePairAction(first, second,
+                                          secondIsInOtherPane: false, clickedPaneIsLeft: isLeft)
+                case nil:
+                    break
+                }
             },
             onCopy: {
                 actionHandler?.copyItems(selectionNodes, fromLeft: isLeft,

@@ -560,4 +560,58 @@ import Sync
         #expect(!PaneLogic.escapeClearsSelection(
             isSingleSource: false, hasActionBarSelection: false, paneHasSelection: true))
     }
+
+    // MARK: compareOffer — what the Compare button and ⇧⌘C both read
+
+    private func node(_ path: String, isDirectory: Bool = false) -> FileNode {
+        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: isDirectory)
+    }
+
+    /// The two offers, and that they are the two the selection can actually describe.
+    @Test func aSingleFolderScansAndTwoFilesPair() throws {
+        let folder = node("/root/Contracts", isDirectory: true)
+        #expect(PaneLogic.compareOffer(for: [folder]) == .folderScan(folder))
+
+        let a = node("/root/Lease — Signed.pdf")
+        let b = node("/root/Lease — Countersigned.pdf")
+        #expect(PaneLogic.compareOffer(for: [a, b]) == .filePair(a, b),
+                "two files in one pane are the case that needs no new state — a selection is a Set")
+        // Order follows the selection, because the viewer labels its columns from the pair.
+        #expect(PaneLogic.compareOffer(for: [b, a]) == .filePair(b, a))
+    }
+
+    /// **Everything else is withheld, and each of these was a way to offer a button that could not
+    /// act.** A single file is the arming case (CC15.2) and not a pair; three files have no
+    /// two-column viewer; and a folder mixed with a file is neither comparison.
+    @Test func noOtherSelectionIsOffered() {
+        let file = node("/root/a.pdf")
+        let other = node("/root/b.pdf")
+        let folder = node("/root/Contracts", isDirectory: true)
+
+        #expect(PaneLogic.compareOffer(for: []) == nil, "an empty selection offered a comparison")
+        #expect(PaneLogic.compareOffer(for: [file]) == nil,
+                "one file offered a pair it has no counterpart for")
+        #expect(PaneLogic.compareOffer(for: [file, other, node("/root/c.pdf")]) == nil,
+                "three files offered a two-column viewer")
+        #expect(PaneLogic.compareOffer(for: [folder, file]) == nil,
+                "a folder beside a file offered a comparison that is neither of the two")
+        #expect(PaneLogic.compareOffer(for: [folder, node("/root/More", isDirectory: true)]) == nil,
+                "two folders offered a file pair — the folder case is ONE folder, scanned against the other pane")
+    }
+
+    /// **⇧⌘C reads `filePair`, and a folder must not answer it.** The chord opens the two-column
+    /// viewer; a folder selection is the action bar's two-folder scan and belongs to the button,
+    /// under a name that says so. A `guard let` where `guard case .filePair` was meant would hand
+    /// the pair viewer a directory.
+    @Test func onlyAPairAnswersTheChordsRead() throws {
+        let folder = node("/root/Contracts", isDirectory: true)
+        #expect(PaneLogic.CompareOffer.folderScan(folder).filePair == nil,
+                "a folder scan handed out two files, so ⇧⌘C would open a folder in the pair viewer")
+
+        let a = node("/root/a.pdf"), b = node("/root/b.pdf")
+        let pair = try #require(PaneLogic.CompareOffer.filePair(a, b).filePair,
+                                "a file pair withheld its two files, so ⇧⌘C would never enable")
+        #expect(pair.0 == a && pair.1 == b, "the pair came back reordered")
+    }
+
 }

@@ -244,6 +244,50 @@ enum PaneLogic {
         }
     }
 
+    /// What the action bar's Compare button would do for this selection, or `nil` where it is not
+    /// offered at all.
+    ///
+    /// **One value rather than a Bool beside a handler that re-derives it.** The button's presence
+    /// and the button's action are two readings of one question, and when they were two expressions
+    /// the handler took `selectionNodes.first` on faith — correct only because the predicate
+    /// happened to guarantee it. Answering once means the action cannot be offered for a selection
+    /// it does not know how to act on.
+    ///
+    /// **Two files and one folder are mutually exclusive by construction**, which is what lets one
+    /// word label both. CC1 settled that this surface never calls itself "Compare files", so the
+    /// sidebar's Compare keeps one meaning; the bar's button simply reaches whichever comparison
+    /// the selection describes.
+    enum CompareOffer: Equatable {
+        /// One folder — the two-folder scan the button has always run.
+        case folderScan(FileNode)
+        /// Two files in ONE pane, opening the pair viewer. Reachable with a plain ⌘-click: a
+        /// pane's selection is a `Set`, so this needs no new state and does not touch the
+        /// one-pane-selected invariant that makes the CROSS-pane case hard.
+        case filePair(FileNode, FileNode)
+
+        /// The two files, where this offer is a pair — `nil` for a folder scan.
+        ///
+        /// The read ⇧⌘C wants, as a value rather than a `guard case` at its call site: the menu
+        /// item must stay disabled for a folder selection, and a `guard let` written where a
+        /// `guard case .filePair` was meant would instead run the file-pair viewer on a folder.
+        /// Read off the value, so that claim is testable without a window.
+        var filePair: (FileNode, FileNode)? {
+            if case .filePair(let a, let b) = self { return (a, b) }
+            return nil
+        }
+    }
+
+    /// ``CompareOffer`` for a pane selection. Order within a file pair follows the selection's own
+    /// order, which is the order the rows were resolved in — the viewer labels its columns from
+    /// the pair, so a stable order is all this owes.
+    static func compareOffer(for selection: [FileNode]) -> CompareOffer? {
+        if selection.count == 1, selection[0].isDirectory { return .folderScan(selection[0]) }
+        if selection.count == 2, !selection[0].isDirectory, !selection[1].isDirectory {
+            return .filePair(selection[0], selection[1])
+        }
+        return nil
+    }
+
     /// Reconciles a pane-selection write with the one-pane-selected invariant: setting a
     /// non-empty selection in one pane clears the other pane in the same update, so no
     /// consumer ever observes both panes selected. Setting an empty selection (a deselect,
@@ -424,6 +468,7 @@ enum PaneLogic {
     ) -> Bool {
         isSingleSource ? paneHasSelection : hasActionBarSelection
     }
+
 
     /// Which pane a lens scan/inspect should target. The single-source rail is always the LEFT
     /// pane, so in single-source mode the answer is always "left" — even when a selection lingers in

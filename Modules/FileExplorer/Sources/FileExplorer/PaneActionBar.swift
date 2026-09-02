@@ -21,16 +21,21 @@ import Sync
 /// Deriving the width from a reference *string* rather than a hard-coded number matters: the bar
 /// uses `scaledFont`, so a pt constant would be wrong at every text size but the default.
 ///
-/// One movement is deliberately left in: Compare appears only for a single selected folder, so the
-/// button set genuinely differs between selecting a file and a folder. Reserving a permanent gap
-/// for a button that is usually absent would trade a real change for a phantom one.
+/// One movement is deliberately left in: Compare appears only for a selection it can act on — one
+/// folder (the two-folder scan) or two files (the pair viewer) — so the button set genuinely
+/// differs across selections. Reserving a permanent gap for a button that is often absent would
+/// trade a real change for a phantom one.
 ///
 /// `PaneActionBarStabilityTests` renders the bar across the full summary swing and asserts the
 /// button region is pixel-identical, so this cannot regress quietly.
 public struct PaneActionBar: View {
     /// "12 selected · 340 MB" — see `SelectionSummary.text(for:)`.
     public let summaryText: String
-    /// Compare is offered only for a single selected folder.
+    /// Whether this selection has a comparison to offer at all — one folder, or two files. The
+    /// rule is `PaneLogic.compareOffer(for:)`, which the host also acts on, so the button's
+    /// presence and what it does cannot disagree. One word serves both because they are mutually
+    /// exclusive by construction, and because CC1 settled that this surface never calls itself
+    /// "Compare files" — the sidebar's Compare keeps one meaning.
     public let showsCompare: Bool
     /// Already localised against the other pane's name ("Copy to Dropbox") by the caller, which is
     /// the only place that knows it.
