@@ -614,4 +614,47 @@ import Design
         }
     }
 
+
+    /// **Both header rows reserve the dot's column, which is what gives them one left edge.**
+    ///
+    /// A source scan, and it is the second-best test — but the position of a view inside a rendered
+    /// SwiftUI tree is not reachable from here, so "the title and the subtitle start at the same x"
+    /// cannot be measured the way a size can. What can be checked is the mechanism: two rows both
+    /// asking the same named constant. The failure it guards is somebody widening the dot on the
+    /// title row and leaving the reservation below it alone, which puts the edges back out of step
+    /// with nothing to notice it.
+    ///
+    /// **Comments are stripped first.** A previous scan in this codebase matched the doc comment
+    /// explaining a removal and reported the code as still present.
+    @Test func bothHeaderRowsReserveTheDotColumn() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                  "cannot read EditorWorkspaceView.swift — this scan would be vacuous")
+        let code = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> Substring in line.drop { $0 == " " }.hasPrefix("//") ? "" : line }
+            .joined(separator: "\n")
+
+        try #require(code.contains("static let dotColumnWidth"),
+                     "the shared constant is gone — the two rows can no longer agree by construction")
+        let uses = code.components(separatedBy: "Self.dotColumnWidth").count - 1
+        #expect(uses >= 2,
+                "only \(uses) row(s) reserve the dot column; the header's two left edges will differ")
+    }
+
+    /// The reservation has to be an unconditional shape. An `if` around it contributes nothing to
+    /// layout, which would leave the subtitle flush left while the title stayed indented.
+    @Test func theSubtitlesReservationIsUnconditional() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
+        let source = try #require(try? String(contentsOf: url, encoding: .utf8))
+        let metaRow = try #require(source.range(of: "private var metaRow: some View {"))
+        let end = try #require(source.range(of: "static let dotColumnWidth", range: metaRow.upperBound..<source.endIndex))
+        let body = String(source[metaRow.upperBound..<end.lowerBound])
+        #expect(body.contains("Color.clear"),
+                "the subtitle's reservation is not a drawn shape, so it takes no part in layout")
+    }
 }

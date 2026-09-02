@@ -18,6 +18,13 @@ struct EditorStatusLine: View {
 
     let facts: EditorDocumentFacts
     let caret: EditorCaret
+    /// The file's size on disk, already formatted, or `nil` when nothing has been read.
+    ///
+    /// **Moved down from the header**, where it was the one measurement living apart from the
+    /// others. It belongs with the encoding and the line endings: all three describe the file as it
+    /// sits on disk rather than the buffer being typed into, which is why they share this end of
+    /// the row.
+    var fileSize: String?
     /// Forces a rung, for the tests that measure each one. `nil` picks by width.
     var forcedRung: Rung?
 
@@ -44,7 +51,7 @@ struct EditorStatusLine: View {
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Self.accessibilityLabel(facts: facts, caret: caret))
+        .accessibilityLabel(Self.accessibilityLabel(facts: facts, caret: caret, fileSize: fileSize))
     }
 
     private func strip(_ rung: Rung) -> some View {
@@ -58,6 +65,7 @@ struct EditorStatusLine: View {
             // The file's own facts, right-aligned and last: they are true of the file rather than
             // of what you are doing in it, and they change only when a different file is opened.
             if rung != .caret {
+                if let fileSize { Text(fileSize) }
                 if let encoding = facts.encoding { Text(encoding) }
                 if let ending = facts.lineEnding { Text(ending.rawValue) }
             }
@@ -73,8 +81,10 @@ struct EditorStatusLine: View {
 
     /// One sentence for VoiceOver, because five separate labels in a row is five stops on the way
     /// to the text — and this strip is beside the thing a person came here to read.
-    static func accessibilityLabel(facts: EditorDocumentFacts, caret: EditorCaret) -> String {
+    static func accessibilityLabel(facts: EditorDocumentFacts, caret: EditorCaret,
+                                   fileSize: String? = nil) -> String {
         var parts = [facts.wordsCaption, facts.charactersCaption, caretCaption(caret)]
+        if let fileSize { parts.append(fileSize) }
         if let encoding = facts.encoding { parts.append(encoding) }
         if let ending = facts.lineEnding { parts.append("\(ending.rawValue) line endings") }
         return parts.joined(separator: ", ")

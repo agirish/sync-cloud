@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Design
 @testable import FileExplorer
 
 /// Autosave's decision, against real files.
@@ -153,24 +154,55 @@ import Foundation
 
     // MARK: What the header says
 
-    /// **Every combination of the three inputs, and the two that matter most are the ordinary
-    /// ones.** The header shipped for a few minutes saying "saved" whether or not anything had been
-    /// written — the dot tracked only the stopped state — which is precisely the reassurance a
-    /// person should not have to take on trust. Watching "unsaved" become "saved" is the entire
-    /// visible evidence that autosave is running.
-    @Test func theHeaderDistinguishesPendingFromWrittenFromStopped() {
+    /// **The dot is what separates pending from written, and now it is the ONLY thing that does.**
+    ///
+    /// This test used to assert the opposite half as well — that the two states carry different
+    /// *words* — and that was right while the header ended in a word at all times. It no longer
+    /// does: `saved` was reassurance the header gave whether or not anything had ever been written,
+    /// and `unsaved` labelled a state that resolves itself in about two seconds. Both are silent
+    /// now, so the glanceable difference is the whole difference, and it is worth more than it was.
+    @Test func theDotAloneSeparatesPendingFromWritten() {
         #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: true, stopped: nil) == .unsaved)
         #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: false, stopped: nil) == .saved)
         #expect(EditorSaveStatus.resolve(isReadOnly: true, isDirty: false, stopped: nil) == .readOnly)
 
-        // The two states a person reads to answer "did my typing land": different words AND a
-        // different dot, so neither the glance nor the read can confuse them.
         let pending = EditorSaveStatus.unsaved
         let written = EditorSaveStatus.saved
-        #expect(pending.caption != written.caption)
         #expect(pending.showsDot && !written.showsDot,
                 "pending and written draw the same dot — the only glanceable difference is gone")
+        #expect(pending.word == nil && written.word == nil,
+                "the header is labelling the two states that need no label")
         #expect(!pending.isWarning, "ordinary pending work is being shown as a problem")
+    }
+
+    /// Switching autosave off makes a dirty buffer a different state, because nothing is coming to
+    /// write it: the reader is the one who has to act, so this is the ordinary state that speaks.
+    @Test func aDocumentWithAutosaveOffAsksToBeSaved() {
+        let held = EditorSaveStatus.resolve(isReadOnly: false, isDirty: true, stopped: nil,
+                                            autosaveOff: true)
+        #expect(held == .heldUnsaved)
+        #expect(held.showsDot, "held work draws no dot")
+        #expect(!held.isWarning, "a deliberate setting is being shown as a failure")
+        #expect(held.word?.hasPrefix("unsaved") == true, "the word read \(held.word ?? "nothing")")
+        #expect(held.word?.contains(AppChord.saveDocument.display) == true,
+                "the word does not name the key that settles it: \(held.word ?? "nothing")")
+
+        // Switched off but with nothing pending is still simply saved — there is nothing owed.
+        #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: false, stopped: nil,
+                                         autosaveOff: true) == .saved)
+    }
+
+    /// **A word only where it changes what the reader must do**, which is two of these six.
+    @Test func onlyTheStatesThatNeedWordsHaveThem() {
+        let silent: [EditorSaveStatus] = [.saved, .unsaved]
+        let speaking: [EditorSaveStatus] = [.heldUnsaved, .readOnly,
+                                            .stopped("not saving — changed on disk")]
+        for state in silent {
+            #expect(state.word == nil, "\(state) says \(state.word ?? "") and should say nothing")
+        }
+        for state in speaking {
+            #expect(state.word?.isEmpty == false, "\(state) says nothing and should speak")
+        }
     }
 
     /// A stop outranks dirtiness, and read-only outranks both. A stopped document is dirty by
@@ -179,11 +211,14 @@ import Foundation
         let stopped = EditorSaveStatus.resolve(isReadOnly: false, isDirty: true,
                                                stopped: "not saving — changed on disk")
         #expect(stopped == .stopped("not saving — changed on disk"))
-        #expect(stopped.caption == "not saving — changed on disk")
+        #expect(stopped.word == "not saving — changed on disk")
         #expect(stopped.showsDot && stopped.isWarning,
                 "a stopped document does not warn — it looks exactly like ordinary pending work")
         // Read-only wins even over a stop: nothing can be written, so nothing is pending.
         #expect(EditorSaveStatus.resolve(isReadOnly: true, isDirty: true, stopped: "x") == .readOnly)
+        // A stop outranks the switch too: it is the more specific reason nothing is being written.
+        #expect(EditorSaveStatus.resolve(isReadOnly: false, isDirty: true, stopped: "x",
+                                         autosaveOff: true) == .stopped("x"))
     }
 
     /// **The guard that says the bytes really landed.**

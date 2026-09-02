@@ -274,7 +274,8 @@ public struct EditorWorkspaceView: View {
             // as a measurement of the file rather than of the nothing that was loaded.
             if document.path != nil, document.refusal == nil {
                 Divider()
-                EditorStatusLine(facts: facts, caret: caret)
+                EditorStatusLine(facts: facts, caret: caret,
+                                 fileSize: document.stamp.map { FileSyncManager.formatBytes($0.size) })
             }
         }
     }
@@ -313,6 +314,10 @@ public struct EditorWorkspaceView: View {
                 Circle()
                     .fill(dotColour ?? .clear)
                     .frame(width: 6, height: 6)
+                    // **A column, not just a dot** — and the same width is reserved on the row
+                    // below. The title used to start one dot-and-a-gap further right than the line
+                    // under it, so the header's two rows had two different left edges.
+                    .frame(width: Self.dotColumnWidth, alignment: .leading)
                     .opacity(dotColour == nil ? 0 : 1)
                     .accessibilityHidden(dotColour == nil)
                     .accessibilityLabel(status.isWarning ? "Not saving" : "Not saved yet")
@@ -385,7 +390,8 @@ public struct EditorWorkspaceView: View {
     /// The one resolution of "where does this document stand", used by the dot and the words alike.
     private var status: EditorSaveStatus {
         EditorSaveStatus.resolve(isReadOnly: document.isReadOnly,
-                                 isDirty: document.isDirty, stopped: stopped)
+                                 isDirty: document.isDirty, stopped: stopped,
+                                 autosaveOff: !autosavePolicy.isOn(document.path))
     }
 
     /// Which colour the dot wears, or `nil` for no dot at all.
@@ -394,46 +400,56 @@ public struct EditorWorkspaceView: View {
         return status.isWarning ? .orange : accent
     }
 
-    /// The file's own facts — what it is and how big it is.
+    /// What kind of file this is, and nothing else.
     ///
-    /// **The status word is no longer in here.** It moved to its own `Text` in ``metaRow`` so that
-    /// it cannot be the thing truncated away in a narrow column — and the prose that used to sit
-    /// here, about "unsaved" being a real state rather than a courtesy and a stop replacing the
-    /// pair rather than joining it, went with it. It lives on ``EditorSaveStatus``, which is the
-    /// type that actually decides those words.
-    private var fileFacts: String {
-        var parts: [String] = [document.isMarkdown ? "Markdown" : "Plain text"]
-        if let size = document.stamp?.size { parts.append(FileSyncManager.formatBytes(size)) }
-        return parts.joined(separator: " · ")
+    /// **The size left, and so did the status word.** Size is a measurement, and every other
+    /// measurement of this file — its counts, its encoding, its line endings — is in the status
+    /// line under the document; keeping one of them up here meant the header grew as the file did.
+    /// The word left because it now appears only in the states that need it, see
+    /// ``EditorSaveStatus/word``.
+    ///
+    /// The kind stays because it is the one thing in this row that is not a number, and it is
+    /// genuinely unobvious on a `.markdown`, a `.text`, or a file with no extension at all.
+    private var kindName: String {
+        document.isMarkdown ? "Markdown" : "Plain text"
     }
 
-    /// The second row of the header: what the file is, where the buffer stands, and the switch that
-    /// decides whether the two are being kept together.
-    ///
-    /// **Three pieces rather than one string, and the split is load-bearing.** The row is
-    /// `lineLimit(1)` inside a column whose guaranteed minimum is 260pt, so something has to give
-    /// when it is narrow — and the one thing that must never give is the word saying whether the
-    /// work is on disk. The kind and the size take the truncation; the status and the switch keep
-    /// their width.
     private var metaRow: some View {
-        HStack(spacing: 5) {
-            Text(fileFacts)
-                .layoutPriority(0)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Text("·")
-                .layoutPriority(1)
-            Text(status.caption)
+        HStack(spacing: 6) {
+            // The reservation that gives this row the title's left edge. An unconditional clear
+            // rectangle, because a conditional one takes no part in layout at all.
+            Color.clear
+                .frame(width: Self.dotColumnWidth, height: 1)
+            Text(kindName)
                 .layoutPriority(1)
                 .lineLimit(1)
             if showsAutosaveSwitch {
-                autosaveSwitch.layoutPriority(1)
+                Text("·").foregroundStyle(.tertiary)
+                autosaveSwitch
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            // **The far end, so the left never moves.** The word is the only thing in this row
+            // whose width changes — `unsaved — ⌘S`, `not saving`, a stop's own sentence — and on
+            // the left it would shove the switch sideways every time the state changed. Here it
+            // grows into the gap instead. The cost is distance from the switch it qualifies, which
+            // is the trade this layout was picked for.
+            if let word = status.word {
+                Text(word)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(status.isWarning ? AnyShapeStyle(.orange)
+                                                      : AnyShapeStyle(.primary))
+            }
         }
         .scaledFont(.system(size: 10))
         .foregroundStyle(.secondary)
     }
+
+    /// The reserved width of the dot's column, shared by both rows of the header.
+    ///
+    /// Named once for the reason ``EditorFileRailView/dotColumnWidth`` is: two rows agreeing on a
+    /// left edge by both writing `10` are two rows that will one day disagree.
+    static let dotColumnWidth: CGFloat = 10
 
     private var showsAutosaveSwitch: Bool {
         Self.showsAutosaveSwitch(hasPath: document.path != nil,
