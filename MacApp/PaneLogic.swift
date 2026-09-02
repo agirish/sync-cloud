@@ -264,6 +264,32 @@ enum PaneLogic {
         /// pane's selection is a `Set`, so this needs no new state and does not touch the
         /// one-pane-selected invariant that makes the CROSS-pane case hard.
         case filePair(FileNode, FileNode)
+        /// ONE file — arm it, and the next file clicked in either pane completes the pair.
+        ///
+        /// **This is the case that makes the button reachable at all**, and it was missing from the
+        /// first cut. That one offered Compare for two files selected together, on the reasoning
+        /// that a pane's selection is a `Set` so two is a state the app already reaches. Reported
+        /// from the running app: it does not, in the Columns view most people are in — so the
+        /// button was offered for a selection nobody could make, which is a button that is never
+        /// there.
+        ///
+        /// Arming needs one file, which is the selection every click already produces. It also
+        /// reaches the case two-file selection NEVER can: the counterpart in the OTHER pane. The
+        /// one-pane-selected invariant clears the opposite side on every non-empty write, so
+        /// "select one here and one there" is not a state that exists — and the armed path lives
+        /// outside both sets precisely so it does not have to be.
+        case armPick(FileNode)
+
+        /// What the action bar's button says.
+        ///
+        /// **Arming says so, because it is not the whole act.** "Compare" over a single file
+        /// promises a comparison this click cannot deliver — there is no second file yet — and the
+        /// ellipsis is the app's existing word for "this asks you for something next", which the
+        /// row menu's own "Compare with…" already uses for the identical gesture.
+        var buttonTitle: String {
+            if case .armPick = self { return "Compare with…" }
+            return "Compare"
+        }
 
         /// The two files, where this offer is a pair — `nil` for a folder scan.
         ///
@@ -282,6 +308,7 @@ enum PaneLogic {
     /// the pair, so a stable order is all this owes.
     static func compareOffer(for selection: [FileNode]) -> CompareOffer? {
         if selection.count == 1, selection[0].isDirectory { return .folderScan(selection[0]) }
+        if selection.count == 1 { return .armPick(selection[0]) }
         if selection.count == 2, !selection[0].isDirectory, !selection[1].isDirectory {
             return .filePair(selection[0], selection[1])
         }

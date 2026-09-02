@@ -37,6 +37,10 @@ public struct PaneActionBar: View {
     /// exclusive by construction, and because CC1 settled that this surface never calls itself
     /// "Compare files" — the sidebar's Compare keeps one meaning.
     public let showsCompare: Bool
+    /// What the Compare button says — "Compare" for a comparison this click completes, "Compare
+    /// with…" where it arms a pick and asks for the second file. Supplied by the host, which owns
+    /// the rule (`PaneLogic.CompareOffer.buttonTitle`), so the label and the action cannot drift.
+    public var compareTitle: String = "Compare"
     /// Already localised against the other pane's name ("Copy to Dropbox") by the caller, which is
     /// the only place that knows it.
     public let copyTitle: String
@@ -65,13 +69,15 @@ public struct PaneActionBar: View {
     /// is never displayed — only measured.
     static let summaryWidthReference = "888 selected · 888.8 MB"
 
-    public init(summaryText: String, showsCompare: Bool, copyTitle: String, moveTitle: String,
+    public init(summaryText: String, showsCompare: Bool, compareTitle: String = "Compare",
+                copyTitle: String, moveTitle: String,
                 copySymbol: String, moveSymbol: String, transferHelp: String? = nil,
                 onCompare: @escaping () -> Void, onCopy: @escaping () -> Void,
                 onMove: @escaping () -> Void, onDelete: @escaping () -> Void,
                 onClear: @escaping () -> Void) {
         self.summaryText = summaryText
         self.showsCompare = showsCompare
+        self.compareTitle = compareTitle
         self.copyTitle = copyTitle
         self.moveTitle = moveTitle
         self.copySymbol = copySymbol
@@ -118,7 +124,7 @@ public struct PaneActionBar: View {
                 .accessibilityLabel(summaryText)
 
             if showsCompare {
-                actionBarButton("Compare", systemImage: PaneGlyph.compare, accent: accent, action: onCompare)
+                actionBarButton(compareTitle, systemImage: PaneGlyph.compare, accent: accent, action: onCompare)
             }
             actionBarButton(copyTitle, systemImage: copySymbol, accent: accent, help: transferHelp, action: onCopy)
             actionBarButton(moveTitle, systemImage: moveSymbol, accent: accent, help: transferHelp, action: onMove)

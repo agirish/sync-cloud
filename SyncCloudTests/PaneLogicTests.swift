@@ -567,6 +567,28 @@ import Sync
         FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: isDirectory)
     }
 
+    /// **One file arms a pick — the case that makes the button reachable.**
+    ///
+    /// Reported from the running app: the two-file offer was never seen, because ⌘-clicking two
+    /// rows is not something the Columns view actually does. One file is the selection every click
+    /// produces, and arming is also the ONLY route to a counterpart in the other pane — a selection
+    /// there clears this one, so "one selected on each side" is not a state that exists.
+    @Test func oneFileArmsAPickAndSaysSoOnTheButton() throws {
+        let file = node("/root/Lease — Signed.pdf")
+        let offer = try #require(PaneLogic.compareOffer(for: [file]))
+        #expect(offer == .armPick(file), "a single file offered no comparison at all")
+        #expect(offer.buttonTitle == "Compare with…",
+                "the button promised a comparison this click cannot finish — there is no second file yet")
+    }
+
+    /// And the completing cases keep the plain word, because they complete.
+    @Test func aFolderOrAPairSaysPlainCompare() {
+        let folder = node("/root/Contracts", isDirectory: true)
+        #expect(PaneLogic.CompareOffer.folderScan(folder).buttonTitle == "Compare")
+        #expect(PaneLogic.CompareOffer.filePair(node("/root/a.pdf"), node("/root/b.pdf")).buttonTitle
+                    == "Compare")
+    }
+
     /// The two offers, and that they are the two the selection can actually describe.
     @Test func aSingleFolderScansAndTwoFilesPair() throws {
         let folder = node("/root/Contracts", isDirectory: true)
@@ -589,8 +611,7 @@ import Sync
         let folder = node("/root/Contracts", isDirectory: true)
 
         #expect(PaneLogic.compareOffer(for: []) == nil, "an empty selection offered a comparison")
-        #expect(PaneLogic.compareOffer(for: [file]) == nil,
-                "one file offered a pair it has no counterpart for")
+        // One file is NOT withheld any more — it arms a pick; see the test above.
         #expect(PaneLogic.compareOffer(for: [file, other, node("/root/c.pdf")]) == nil,
                 "three files offered a two-column viewer")
         #expect(PaneLogic.compareOffer(for: [folder, file]) == nil,
@@ -607,6 +628,9 @@ import Sync
         let folder = node("/root/Contracts", isDirectory: true)
         #expect(PaneLogic.CompareOffer.folderScan(folder).filePair == nil,
                 "a folder scan handed out two files, so ⇧⌘C would open a folder in the pair viewer")
+
+        #expect(PaneLogic.CompareOffer.armPick(node("/root/a.pdf")).filePair == nil,
+                "an armed pick handed out a pair, so ⇧⌘C would open a viewer on one file twice")
 
         let a = node("/root/a.pdf"), b = node("/root/b.pdf")
         let pair = try #require(PaneLogic.CompareOffer.filePair(a, b).filePair,

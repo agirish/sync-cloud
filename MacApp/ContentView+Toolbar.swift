@@ -118,6 +118,7 @@ extension ContentView {
         PaneActionBar(
             summaryText: SelectionSummary.text(for: selectionNodes),
             showsCompare: compareOffer != nil,
+            compareTitle: compareOffer?.buttonTitle ?? "Compare",
             copyTitle: copyTarget.map { "Copy to \($0)" } ?? "Copy",
             moveTitle: copyTarget.map { "Move to \($0)" } ?? "Move",
             copySymbol: actionSymbols.copy,
@@ -137,6 +138,11 @@ extension ContentView {
                     actionHandler?.focusFolder(folder, isLeft: isLeft,
                                                leftProviderId: leftProviderId, rightProviderId: rightProviderId,
                                                suppressLinkedNavigation: false)
+                case .armPick(let file):
+                    // One file: arm it and let the next click name the counterpart — the only
+                    // route that reaches the other pane, since a selection there would clear this
+                    // one.
+                    armComparePick(file, isLeft: isLeft)
                 case .filePair(let first, let second):
                     // Same pane, so the counterpart is not across the divide and the pair leads
                     // with the first file — `PaneComparePairMenu.pair` owns that ordering and is

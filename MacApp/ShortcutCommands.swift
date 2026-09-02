@@ -950,10 +950,21 @@ extension ContentView {
     /// seen from the menu.
     var shortcutCompareTwoFiles: (() -> Void)? {
         let isLeft = shortcutTargetIsLeft
-        guard let (first, second) =
-                PaneLogic.compareOffer(for: paneSelectionNodes(isLeft: isLeft))?.filePair else { return nil }
-        return { compareFilePairAction(first, second,
-                                       secondIsInOtherPane: false, clickedPaneIsLeft: isLeft) }
+        switch PaneLogic.compareOffer(for: paneSelectionNodes(isLeft: isLeft)) {
+        case .filePair(let first, let second):
+            return { compareFilePairAction(first, second,
+                                           secondIsInOtherPane: false, clickedPaneIsLeft: isLeft) }
+        case .armPick(let file):
+            // **⇧⌘C arms too, for the action bar's reason.** A chord offered only for two files
+            // selected together is a chord for a selection the Columns view does not make, and it
+            // could never reach a counterpart in the other pane at all.
+            return { armComparePick(file, isLeft: isLeft) }
+        case .folderScan, nil:
+            // A folder is the bar's two-folder scan and belongs to the button, under a name that
+            // says so — running it from an item reading "Compare Two Files" would be the menu
+            // lying about what it does.
+            return nil
+        }
     }
 
     var shortcutSelectAll: (() -> Void)? {

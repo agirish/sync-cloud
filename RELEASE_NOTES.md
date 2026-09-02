@@ -78,12 +78,15 @@ User-facing changes, newest first. For the full commit history see the
 
 ### Comparing two files is findable now
 
-- **⇧⌘C compares the two files you have selected**, and the same verb is on the Compare menu and in
-  the ⌘/ reference. Every way into the file-pair viewer used to be a right-click, which meant that
-  if you did not already know it existed you would not find it.
-- **The Compare button in the action bar takes two files,** not just one folder. Two files
-  ⌘-clicked in one pane is a state the app already reached; the button simply now offers the
-  comparison it describes.
+- **Select a file and the action bar offers "Compare with…"** — press it, then click the file to
+  compare against, in either pane and in any folder. One selected file is what every click already
+  gives you, and it is the only route that reaches a counterpart in the OTHER pane: selecting there
+  would clear the selection here, so "one on each side" is not a state that exists.
+- **⇧⌘C does the same from the keyboard**, and the verb is on the Compare menu and in the ⌘/
+  reference too. Every way into the file-pair viewer used to be a right-click, which meant that if
+  you did not already know it existed you would not find it.
+- **Two files selected together still compare in one press**, where you can select two — the button
+  reads plain "Compare" then, because that click finishes the job.
 - **"Compare with…" is on every file's right-click menu, always.** Pick it, then click the other
   file — in either pane, in any folder, after navigating as far as you like. The mode stands until
   you complete it, press esc, or click the armed file again; a strip across the top says which file
