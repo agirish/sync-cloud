@@ -3103,3 +3103,32 @@ Quick Look shows what is already there. Worth writing down so a future surface t
 linked content inherits the reasoning rather than rediscovering it in somebody's iCloud quota.
 
 Recorded rather than picked, per the standing direction.
+
+## 2026-09-01 (evening) — the editor's safety net, and a header that stopped shifting
+
+`9f5f5595`, `41d15098`, `0848932a`. Per-file autosave, one undo stack per document, a header that
+is the same height for every kind of text file, and the record of why there is no Show Invisibles.
+
+**Nothing is owed. Every file is `main`-only or is `main`-only in the part that changed** — no
+maintenance line has an editor, established three entries above and still true.
+
+The one file worth naming is `MacApp/SyncCloudApp.swift`, which all four lines carry:
+`applicationShouldTerminate` exists on every one of them. What changed there is the quit flush
+learning to ask whether autosave is switched off for the open document — and `v4.x`, `v3.x` and
+`v2.x` have no editor to flush, no `EditorAutosave`, and no policy to ask. The lines around the
+change are not even present there.
+
+### The defect worth knowing about even though it cannot travel
+
+The quit flush wrote the open document **unconditionally**, which was right while autosave was
+unconditional and became wrong the moment one file could opt out: ⌘Q wrote a file the user had
+switched off, and wrote it BEFORE the unsaved-changes warning, so the question was asked after the
+answer. Found by an adversarial review of the batch rather than by a test, and now covered by
+`QuitFlushPolicyTests`.
+
+**The transferable shape: a flush that predates a switch does not learn about the switch.** Any
+unconditional write on a shutdown path is worth re-reading the day something gains permission to
+say "not this one" — the write is correct in the ordinary case, which is exactly why nobody looks
+at it again.
+
+Recorded rather than picked, per the standing direction.
