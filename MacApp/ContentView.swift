@@ -3615,22 +3615,6 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContentView: some View {
         VStack(spacing: 0) {
-            // **The pick-mode bar TAKES SPACE, and the first cut's overlay is why it has to.**
-            //
-            // It was `.overlay(alignment: .top)` on the window root, which floats above everything
-            // — including the panes' own tab strips and both breadcrumb rows. On a real window it
-            // drew straight across them: the prompt, the tab titles and the right pane's crumbs
-            // superimposed, none of them readable. A mode indicator is chrome, not a badge, and
-            // chrome drawn over the controls beneath it is worse than no indicator at all.
-            //
-            // Here it is a row, in the one wrapper every workspace's content passes through — so
-            // Browse's single pane and Edit get it on the same terms as Compare's two, and nothing
-            // can be drawn over.
-            if let pick = comparePick {
-                ComparePickStrip(fileName: pick.armedName, onCancel: { comparePick = nil })
-                    .padding(.bottom, 6)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
             HStack(spacing: 0) {
                 verticalSplit
                 if showInspector {
@@ -3638,6 +3622,29 @@ struct ContentView: View {
                     infoInspector
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
+            }
+            // **The pick-mode bar TAKES SPACE, and it belongs at the BOTTOM.** Two corrections,
+            // both from seeing it run.
+            //
+            // It began as `.overlay(alignment: .top)` on the window root, which floats above
+            // everything — including the panes' own tab strips and both breadcrumb rows. On a real
+            // window it drew straight across them, the prompt and the tab titles and the right
+            // pane's crumbs superimposed and none of them readable. A mode indicator is chrome,
+            // not a badge; chrome drawn over the controls beneath it is worse than no indicator.
+            // So it became a row, which nothing can be drawn over.
+            //
+            // **At the top it was a row nobody looked at.** The gesture that arms it is a click in
+            // the action bar at the FOOT of the pane, and the answer to it appeared at the head of
+            // the window, the full height of the panes away from where the eye already was. Here
+            // it sits directly under the panes, a few points from where the bar floats — the same
+            // corner of the window the reader is already working in.
+            //
+            // Still the one wrapper every workspace's content passes through, so Browse's single
+            // pane and Edit get it on the same terms as Compare's two.
+            if let pick = comparePick {
+                ComparePickStrip(fileName: pick.armedName, onCancel: { comparePick = nil })
+                    .padding(.top, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .designAnimation(.easeOut(duration: 0.15), value: comparePick)
