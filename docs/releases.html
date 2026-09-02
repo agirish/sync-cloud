@@ -165,6 +165,22 @@
         <li><span class="ic">&#8617;</span><span><b>Typing has its own undo.</b> <code>&#8984;Z</code> in the editor takes back what you typed and can never reach into a file move or a copy, which keep their own history and their own Undo button.</span></li>
       </ul>
     </div>
+    <div class="grp">
+      <h3>Comparing two files is findable now</h3>
+      <ul class="flist">
+        <li><span class="ic">&#8984;</span><span><b>&#8679;&#8984;C compares the two files you have selected,</b> and the same verb is on the Compare menu and in the &#8984;/ reference. Every way into the file-pair viewer used to be a right-click, which meant that if you did not already know it existed you would not find it.</span></li>
+        <li><span class="ic">&#9707;</span><span><b>The Compare button in the action bar takes two files,</b> not just one folder. Two files &#8984;-clicked in one pane is a state the app already reached; the button simply now offers the comparison it describes.</span></li>
+        <li><span class="ic">&#128269;</span><span><b>&#8220;Compare with&#8230;&#8221; is on every file&#8217;s right-click menu, always.</b> Pick it, then click the other file &#8212; in either pane, in any folder, after navigating as far as you like. The mode stands until you complete it, press esc, or click the armed file again; a strip across the top says which file is waiting and the armed row wears a mark.</span></li>
+        <li><span class="ic">&#8596;</span><span><b>The cross-pane comparison works with a left-click now.</b> It always worked with a right-click and only a right-click &#8212; a left-click in the other pane silently discarded the file you had lined up, because selecting in one pane clears the other. The armed file no longer lives in a selection, so the click that used to lose it is the one that completes it.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Two scans of one page, lined up</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9635;</span><span><b>The pixel difference aligns the two pages before comparing them, best effort.</b> Two scans of the same sheet, fed in a degree apart, used to glow all over and the view said so. It now estimates the skew and offset between them, corrects it, and captions what it corrected.</span></li>
+        <li><span class="ic">&#9878;</span><span><b>It refuses more readily than it aligns.</b> The estimate is judged on the sharpness of its match, not on how much error it removed: two genuinely different pages always have a <i>best</i> candidate, and scoring by improvement alone accepted them. Where the match is not sharp the pages are compared as they are and the original caveat stands, so the view never claims an alignment it did not achieve.</span></li>
+      </ul>
+    </div>
   </article>
 
   <!-- v5.1 -->

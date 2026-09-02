@@ -76,6 +76,37 @@ User-facing changes, newest first. For the full commit history see the
   back in the same release. At 760 the bar keeps its labels at every text size, which it did not
   manage at either previous floor.
 
+### Comparing two files is findable now
+
+- **⇧⌘C compares the two files you have selected**, and the same verb is on the Compare menu and in
+  the ⌘/ reference. Every way into the file-pair viewer used to be a right-click, which meant that
+  if you did not already know it existed you would not find it.
+- **The Compare button in the action bar takes two files,** not just one folder. Two files
+  ⌘-clicked in one pane is a state the app already reached; the button simply now offers the
+  comparison it describes.
+- **"Compare with…" is on every file's right-click menu, always.** Pick it, then click the other
+  file — in either pane, in any folder, after navigating as far as you like. The mode stands until
+  you complete it, press esc, or click the armed file again; a strip across the top says which file
+  is waiting and the armed row wears a mark.
+- **The cross-pane comparison works with a left-click now.** It always worked with a right-click and
+  only a right-click — a left-click in the other pane silently discarded the file you had lined up,
+  because selecting in one pane clears the other. The armed file no longer lives in a selection, so
+  the click that used to lose it is the one that completes it.
+
+### Two scans of one page, lined up
+
+- **The pixel difference aligns the two pages before comparing them, best effort.** Two scans of the
+  same sheet, fed in a degree apart, used to glow all over and the view said so. It now estimates
+  the skew and offset between them, corrects it, and captions what it corrected — "aligned before
+  comparing — a 1.00° skew and an offset corrected, best effort".
+- **It refuses more readily than it aligns.** The estimate is judged on the sharpness of its match,
+  not on how much error it removed: two genuinely different pages always have a *best* candidate,
+  and scoring by improvement alone accepted them. Where the match is not sharp the pages are
+  compared as they are and the original caveat stands, so the view never claims an alignment it did
+  not achieve.
+- Only the page you are looking at is aligned. The strip's dots answer "did anything change", which
+  a skew does not change the answer to.
+
 ## v5.1
 
 ### Duplicates
