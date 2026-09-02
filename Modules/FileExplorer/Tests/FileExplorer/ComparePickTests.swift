@@ -84,10 +84,19 @@ import Sync
 
     // MARK: What the reader sees
 
-    /// The prompt names the armed file, because by the time the counterpart is found the reader may
-    /// be several folders away from it.
-    @Test func thePromptNamesTheArmedFile() {
-        #expect(pick().prompt.contains("Lease — Signed.pdf"))
+    /// The indicator is handed the NAME, not a finished sentence.
+    ///
+    /// **Because the name is the part that has to truncate.** Real filenames run long — the one
+    /// this was found on was "Irrigation system check 10-10-2024 ( Clock C ) readvised new
+    /// templet.3-18.pdf" — and a sentence with the name buried inside it truncates the sentence
+    /// too, taking the instruction with it. The strip bounds the name alone and composes the words
+    /// around it.
+    @Test func theIndicatorIsGivenTheNameAloneToBound() {
+        #expect(pick().armedName == "Lease — Signed.pdf")
+        let long = ComparePick(armed: node("/left/Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf"),
+                               armedPaneIsLeft: true)
+        #expect(long.armedName == "Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf",
+                "the name arrived pre-shortened — truncation belongs to the view, which knows the width")
     }
 
     /// The row marker is keyed on the armed path, so it survives the selection moving away, a

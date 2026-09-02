@@ -31,12 +31,13 @@ public struct ComparePick: Equatable, Sendable {
         self.armedPaneIsLeft = armedPaneIsLeft
     }
 
-    /// What the mode indicator says while this pick is live.
+    /// The armed file's name, which is what the mode indicator shows.
     ///
-    /// Names the armed file, because the reader may have navigated a long way from it by the time
-    /// they find the other one — "Click the file to compare with…" naming nothing would be a mode
-    /// indicator that cannot tell you what mode you are in.
-    public var prompt: String { "Click the file to compare with “\(armed.name)”" }
+    /// **The NAME, not a finished sentence.** The indicator has to truncate it — real filenames run
+    /// to "Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf" — and a
+    /// sentence with the name buried inside it truncates the sentence too, taking the instruction
+    /// with it. The strip composes the words around this and bounds this alone.
+    public var armedName: String { armed.name }
 
     /// What a click resolves to while a pick is armed.
     public enum Outcome: Equatable {

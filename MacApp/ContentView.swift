@@ -1066,20 +1066,6 @@ struct ContentView: View {
         // row — would inherit "follows the panes" from this one and be yanked by a pane click.
         .onChange(of: quickLookURL) { _, url in if url == nil { quickLookFollowsPane = false } }
         .animation(.easeOut(duration: 0.15), value: pendingDestination?.id)
-        // **The pick-mode strip — an overlay of its own, and NOT part of the exclusive chain
-        // above.** Those five are full-window panels that take turns; this one coexists with the
-        // window it describes, because the whole point of the mode is that the panes underneath
-        // stay clickable. It needs no hit-testing rule to manage that: the overlay's content is
-        // the capsule and nothing else, so it intercepts clicks inside its own bounds and the
-        // panes keep every click outside them.
-        .overlay(alignment: .top) {
-            if let pick = comparePick {
-                ComparePickStrip(prompt: pick.prompt, onCancel: { comparePick = nil })
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .designAnimation(.easeOut(duration: 0.15), value: comparePick)
         // The theme is the one Appearance control no view can render on its own: it lives on
         // NSApp, so that the AppKit surfaces (the NSAlert prompts, NSOpenPanel, the About panel,
         // and the separate Activity Log / Sync History windows) follow it too. Applied from the
@@ -3628,14 +3614,33 @@ struct ContentView: View {
 
     @ViewBuilder
     private var mainContentView: some View {
-        HStack(spacing: 0) {
-            verticalSplit
-            if showInspector {
-                inspectorResizeHandle
-                infoInspector
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+        VStack(spacing: 0) {
+            // **The pick-mode bar TAKES SPACE, and the first cut's overlay is why it has to.**
+            //
+            // It was `.overlay(alignment: .top)` on the window root, which floats above everything
+            // — including the panes' own tab strips and both breadcrumb rows. On a real window it
+            // drew straight across them: the prompt, the tab titles and the right pane's crumbs
+            // superimposed, none of them readable. A mode indicator is chrome, not a badge, and
+            // chrome drawn over the controls beneath it is worse than no indicator at all.
+            //
+            // Here it is a row, in the one wrapper every workspace's content passes through — so
+            // Browse's single pane and Edit get it on the same terms as Compare's two, and nothing
+            // can be drawn over.
+            if let pick = comparePick {
+                ComparePickStrip(fileName: pick.armedName, onCancel: { comparePick = nil })
+                    .padding(.bottom, 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            HStack(spacing: 0) {
+                verticalSplit
+                if showInspector {
+                    inspectorResizeHandle
+                    infoInspector
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
+        .designAnimation(.easeOut(duration: 0.15), value: comparePick)
         // The window-edge half of every gap. Each card insets itself by the other half, so a
         // card-to-edge gap and a card-to-card gap both come to `cardGutter`. Applied once,
         // here, and nowhere else — per-container padding is what made the gaps uneven before.
