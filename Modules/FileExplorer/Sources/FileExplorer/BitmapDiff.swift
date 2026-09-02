@@ -40,6 +40,14 @@ struct BitmapDiffResult: Equatable {
     /// mismatched pair is not the same claim as one from a matched pair, and a viewer that says
     /// nothing invites it to be read as one.
     let sizesDiffer: Bool
+    /// The alignment applied before comparing, or nil where none was — see ``PageRegistration``.
+    ///
+    /// **Disclosed for `sizesDiffer`'s reason, and more urgently.** A rescale changes what "0.4%
+    /// differ" means; a de-skew changes it further, and a reader told two scans line up when the
+    /// app quietly rotated one of them has been told something false about their documents. Nil
+    /// covers both "not attempted" and "attempted and refused", which read the same on screen: the
+    /// pages were compared as they are.
+    var registration: PageRegistration? = nil
 
     var isIdentical: Bool { changedFraction == 0 }
 }
@@ -225,6 +233,72 @@ enum BitmapDiff {
         let buffer = data.bindMemory(to: UInt8.self, capacity: stride * height)
         return Raster(bytes: Array(UnsafeBufferPointer(start: buffer, count: stride * height)),
                       bytesPerRow: stride)
+    }
+
+    /// One image as the coarse luminance grid ``PageRegistrationEstimator`` searches over.
+    ///
+    /// Drawn through the same white-ground normalisation the comparison uses, so a page with alpha
+    /// is registered as it looks on paper — and so the estimator and the diff cannot disagree about
+    /// what the page IS.
+    static func grid(_ image: CGImage, width: Int) -> PageRegistrationEstimator.Grid? {
+        guard image.width > 0, image.height > 0, width > 0 else { return nil }
+        let height = max(1, Int((Double(width) * Double(image.height) / Double(image.width)).rounded()))
+        guard let raster = normalized(image, width: width, height: height) else { return nil }
+        var samples = [Double](repeating: 1, count: width * height)
+        for y in 0..<height {
+            let row = y * raster.bytesPerRow
+            for x in 0..<width {
+                let i = row + x * 4
+                // Rec. 601 luma. The estimator correlates structure, not colour, and a single
+                // channel is a quarter of the work — the sweep is the expensive stage.
+                let l = 0.299 * Double(raster.bytes[i]) + 0.587 * Double(raster.bytes[i + 1])
+                      + 0.114 * Double(raster.bytes[i + 2])
+                samples[y * width + x] = l / 255
+            }
+        }
+        return PageRegistrationEstimator.Grid(width: width, height: height, samples: samples)
+    }
+
+    /// `image` rotated and shifted by `registration`, in its own pixel coordinates.
+    ///
+    /// The rotation is about the image centre, matching the estimator's own convention, and the
+    /// ground is white for `normalized`'s reason: the corners a rotation exposes are paper, not
+    /// whatever the buffer was born holding, and black corners would be reported as a difference
+    /// the size of the skew.
+    static func warped(_ image: CGImage, by registration: PageRegistration) -> CGImage? {
+        let width = image.width, height = image.height
+        guard let ctx = context(width: width, height: height) else { return nil }
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        ctx.interpolationQuality = .high
+        ctx.translateBy(x: CGFloat(registration.dx), y: CGFloat(-registration.dy))
+        ctx.translateBy(x: CGFloat(width) / 2, y: CGFloat(height) / 2)
+        ctx.rotate(by: CGFloat(-registration.degrees * .pi / 180))
+        ctx.translateBy(x: -CGFloat(width) / 2, y: -CGFloat(height) / 2)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return ctx.makeImage()
+    }
+
+    /// ``compare(_:_:)`` with a best-effort de-skew first — CC14.4.
+    ///
+    /// **The alignment is attempted, then judged, then either applied or dropped.** A transform the
+    /// estimator is not confident about is discarded and the pages are compared as they are, which
+    /// is exactly what this did before the feature existed. The result says which happened; nothing
+    /// downstream may assume alignment from the fact that it was tried.
+    static func compareAligning(_ left: CGImage, _ right: CGImage) -> BitmapDiffResult? {
+        guard let a = grid(left, width: PageRegistrationEstimator.gridWidth),
+              let b = grid(right, width: PageRegistrationEstimator.gridWidth),
+              a.width == b.width, a.height == b.height else {
+            return compare(left, right)
+        }
+        let scale = Double(right.width) / Double(a.width)
+        let registration = PageRegistrationEstimator.estimate(a, b, scale: scale)
+        guard registration.isUsable, let aligned = warped(right, by: registration) else {
+            return compare(left, right)
+        }
+        guard var result = compare(left, aligned) else { return compare(left, right) }
+        result.registration = registration
+        return result
     }
 
     /// `bytesPerRow: 0` — CoreGraphics picks the stride, and every reader of the buffer reads it

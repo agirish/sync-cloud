@@ -233,6 +233,11 @@ struct FilePairCompareView<Verdict: View>: View {
     /// Whether the current page's rasters are still coming or are never going to. A pane with no
     /// image and no answer here spins for the life of the surface — see ``PairRenderOutcome``.
     @State private var renderOutcome: PairRenderOutcome = .rendering
+    /// The alignment applied to the page on screen, or nil where none was — CC14.4.
+    ///
+    /// Per-page and per-render, cleared with the rasters, because it describes ONE comparison. A
+    /// value surviving into the next page would caption that page with the previous one's skew.
+    @State private var pageRegistration: PageRegistration?
     @State private var textDiff: TextPairDiff?
     @State private var textNotes: [String] = []
     /// Guards a diff that lands after the pair moved on — the raster path's token, for a race the
@@ -698,7 +703,11 @@ struct FilePairCompareView<Verdict: View>: View {
                     .frame(maxWidth: 160)
                     .accessibilityLabel("Onion blend")
             }
-            if let caveat = activeMode.caveat {
+            // **The mode's standing caveat says "with no alignment", and CC14.4 makes that
+            // sometimes false.** When a de-skew was applied the caveat is replaced rather than
+            // joined: two sentences, one saying the pages were not aligned and one saying they
+            // were, is worse than either.
+            if let caveat = alignmentCaveat ?? activeMode.caveat {
                 Text(caveat)
                     .scaledFont(.system(size: 10.5))
                     .foregroundStyle(.secondary)
@@ -727,6 +736,22 @@ struct FilePairCompareView<Verdict: View>: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+
+    /// What replaces the mode's "no alignment" caveat when a de-skew WAS applied — CC14.4.
+    ///
+    /// **"Best effort" is in the sentence because it is the truth about the method.** The estimate
+    /// is a coarse correlation over a 256-pixel grid, good for the scanner skew it was built for
+    /// and nothing like a registration pass; a reader told only "aligned" would reasonably read
+    /// the remaining glow as content. Nil where nothing was applied, which is both "not attempted"
+    /// and "attempted and refused" — the pages were compared as they are, and the mode's own
+    /// caveat says so.
+    ///
+    /// Gated on the page being resolved for `sizeCaveat`'s reason: a caption printed over a
+    /// pending render describes the previous page.
+    private var alignmentCaveat: String? {
+        guard activeMode == .difference, pageStates[page]?.isResolved == true else { return nil }
+        return pageRegistration?.caption
     }
 
     /// Disclosed rather than hidden: a rescaled comparison resamples, so its figure is a weaker
@@ -1122,6 +1147,7 @@ struct FilePairCompareView<Verdict: View>: View {
     private func clearRasters() {
         rasterToken = UUID()
         rasters = (nil, nil)
+        pageRegistration = nil
         pageComparison = PageComparison()
     }
 
@@ -1179,9 +1205,16 @@ struct FilePairCompareView<Verdict: View>: View {
         // arithmetic that has no business on the actor that draws the window.
         let comparison = await Task.detached(priority: .utility) { () -> (SendableImage?, BitmapDiffResult?) in
             (BitmapDiff.differenceImage(l.cgImage, r.cgImage).map(SendableImage.init),
-             BitmapDiff.compare(l.cgImage, r.cgImage))
+             // **Aligned here, and only here.** De-skewing costs ~130ms a page (measured, Release),
+             // against ~190ms to render one — affordable once for the page being looked at, and
+             // not affordable for `pageDiffState`'s walk, which the ↑/↓ search runs over
+             // twenty-five pages at a time. The strip's dots answer "did anything change", which a
+             // skew does not change the answer to; the difference view answers "where", which it
+             // does.
+             BitmapDiff.compareAligning(l.cgImage, r.cgImage))
         }.value
         guard rasterToken == token else { return }
+        pageRegistration = comparison.1?.registration
         pageComparison = PageComparison(image: comparison.0?.cgImage,
                                         regions: comparison.1?.changedRects ?? [])
         pageStates[page] = resolvedPairing.isComparable(at: page)
