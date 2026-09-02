@@ -28,4 +28,22 @@ public enum EditorTextSettings {
     /// a red line under a word; it changes nothing. They were one setting and are now two.
     public static let checksSpellingKey = "editorChecksSpelling"
     public static let checksSpellingDefault = false
+
+    // MARK: - There is deliberately no "Show Invisibles"
+    //
+    // **It was specified, costed and dropped on 2026-09-01, and the reason is worth keeping so it
+    // is not attempted again as an oversight.** `NSTextView` exposes no invisibles API at all —
+    // only `NSLayoutManager.showsInvisibleCharacters` does. That is TextKit 1's, and this editor
+    // runs on TextKit 2: measured, `view.textLayoutManager` is non-nil until `view.layoutManager`
+    // is READ, and non-nil no longer afterwards. Merely reaching for the property drops the view
+    // onto the TextKit 1 compatibility path for the rest of its life.
+    //
+    // Since the setting would be remembered, anyone who left it on would run the editor on the
+    // older engine permanently — including on the large files where TextKit 2's viewport-based
+    // layout is what keeps the 4 MiB cap in `BoundedTextRead` comfortable. Trailing whitespace is
+    // the only invisible that changes what Markdown MEANS, and two spaces at the end of a line is a
+    // narrow thing to spend a layout engine on.
+    //
+    // Drawing them by hand over TextKit 2 remains open, and is the only route that costs nobody
+    // anything. See `reading-layoutmanager-downgrades-textkit`.
 }
