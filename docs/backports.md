@@ -3160,3 +3160,55 @@ overview's receipts, a lens's summary row. None is being changed here — the ru
 the next one written starts from it rather than from "always show the state".
 
 Recorded rather than picked, per the standing direction.
+
+---
+
+## 2026-09-02 — Reaching the file-pair viewer (CC15.1–.4), and aligning two scans (CC14.4)
+
+**RECORDED — not owed, and the tree says so in one command.** Every one of these repairs a way into
+the file-pair viewer, or the viewer's own pixel comparison, and none of that machinery exists off
+`main`.
+
+**The positive control matters more than usual here**, because two of the files this batch touches
+ARE on the maintenance lines — `PaneActionBar.swift` on all three and `AppChord.swift` on `v4.x` —
+so a scan that only looked for changed filenames would report a gap that is not there:
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s ' "$l"
+  for f in CompareCopiesSheet BitmapDiff PaneComparePairMenu; do
+    git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/$f.swift >/dev/null 2>&1 \
+      && printf '%s:present ' "$f" || printf '%s:absent ' "$f"
+  done; echo
+done   # main prints three present; every maintenance line prints three absent
+```
+
+Checked 2026-09-02: `CompareCopiesSheet`, `BitmapDiff` and `PaneComparePairMenu` are absent as files
+from `v4.x`, `v3.x` and `v2.x`. `PaneActionBar` is present on all three and `AppChord` on `v4.x`.
+
+| Piece | Depends on | Status |
+|---|---|---|
+| CC15.1 — `PaneLogic.compareOffer`, Compare offered for two files | the file-pair viewer | RECORDED — not owed, see below |
+| CC15.3 — `AppChord.compareTwoFiles` (⇧⌘C), Compare menu item, ⌘/ row | the file-pair viewer | RECORDED — not owed |
+| CC15.2 — `ComparePick`, the strip, the row marker, `PaneLogic.escapeAction` | the file-pair viewer | RECORDED — not owed |
+| CC15.4 — "Compare with…" on every file row | `ComparePick` | RECORDED — not owed |
+| CC14.4 — `PageRegistration`, `BitmapDiff.compareAligning` | `BitmapDiff` | RECORDED — not owed |
+
+**CC15.1 is the one worth a sentence, because its file IS over there.** `PaneActionBar` exists on
+all three lines and its Compare button behaves as it always did: offered for one selected folder,
+running the two-folder scan. That is not a bug there. The defect CC15.1 fixes is a button that
+could not act on a selection it was offered for — and it is offered for two files only where a
+viewer exists to open them, which is `main` alone. Widening the predicate on a maintenance line
+would create the dead button rather than remove one.
+
+**CC14.4 carries a rule any future port must copy whole**, recorded because it is the half that
+looks optional. The alignment is gated on the SHARPNESS of the correlation peak, not on how much
+error the alignment removed. Scoring by improvement was tried first and measured: a real 0.5° skew
+scored 0.183 while two deliberately unrelated pages scored 0.152 and 0.160 — overlapping
+populations, so no threshold on that number can accept the first and refuse the others. A port that
+keeps the estimator and simplifies the confidence has kept the part that works and dropped the part
+that makes it safe: with the gate removed, two unrelated pages align by 2° and their changed
+fraction FALLS from 0.195 to 0.161, which is nonsense wearing the appearance of agreement.
+
+**Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). This row is the record a
+future audit needs, not a to-do.
