@@ -3132,3 +3132,31 @@ say "not this one" — the write is correct in the ordinary case, which is exact
 at it again.
 
 Recorded rather than picked, per the standing direction.
+
+## 2026-09-02 — the document header, rebuilt
+
+`2aab8749`. The editor's header second row becomes the file's kind and the Autosave switch; the
+size joins the counts, encoding and line endings in the status line; and the save-state word appears
+only in the states that need one.
+
+**Nothing is owed.** `EditorSaveStatus`, `EditorStatusLine` and `EditorWorkspaceView` are `main`-only
+— no maintenance line has an editor, established across the four entries above. `HelpBook`'s
+`editor-workspace` topic is `main`-only too, so the reworded bullets have nowhere to go.
+
+### The rule worth carrying forward, which is not about backporting
+
+**A status word is worth its space only where it changes what the reader must do.** The header used
+to end in one at all times — `saved` while nothing was happening, `unsaved` for the two seconds
+after a keystroke — which labelled the two states that need no label and made the two that do look
+like more of the same. Six states, and two of them speak.
+
+`saved` in particular was reassurance the header gave whether or not anything had ever been
+written; the codebase already knew this, in the comment that restored the dot after a session had
+removed it, and the word survived that reasoning by a year. **When a surface says the same thing in
+two notations, the one that costs nothing to be wrong is the one to drop.**
+
+This shape generalises to any status line in the app: the pane's own footers, the Organize
+overview's receipts, a lens's summary row. None is being changed here — the rule is recorded so
+the next one written starts from it rather than from "always show the state".
+
+Recorded rather than picked, per the standing direction.
