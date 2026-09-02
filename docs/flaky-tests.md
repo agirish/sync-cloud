@@ -693,6 +693,23 @@ seam that lets it hold A inside the walk until the assertions have run — inste
 wall clock. Worth doing when someone is next in this file; worth knowing about before blaming a
 commit for it.
 
+**Seen again at `ee66565e` (2026-09-02), and this one carries the cheapest discriminator yet.** Same
+three assertions, same order. The commit touched `Modules/FileExplorer` and `MacApp` only — and the
+decisive check is not that, but this: **`git rev-parse <base>:Modules/Sync` and
+`git rev-parse <sha>:Modules/Sync` were the SAME TREE HASH.** The base had gone green an hour
+earlier. Identical sources, green then red, so the change cannot be the cause and no local
+reproduction is needed to say so:
+
+```sh
+[ "$(git rev-parse <base>:Modules/Sync)" = "$(git rev-parse <sha>:Modules/Sync)" ] \
+  && echo "identical — this commit cannot have caused a Sync failure"
+```
+
+Use that first whenever a red lands in a package the commit does not touch: it is one command, it is
+proof rather than inference, and it costs none of the reruns the paragraph above warns are the only
+real evidence otherwise. A rerun of the same SHA then went green, with the machine quiet (loadavg
+3.04, runner idle) — the fourth time this test has answered a rerun that way.
+
 #### Seen: `ScanSupersedenceTests.testCancellingScanAbortsTheDiskWalkPromptly`, 2026-08-11
 
 A full `Modules/Sync` run went red on **two** tests at once, immediately after a full
