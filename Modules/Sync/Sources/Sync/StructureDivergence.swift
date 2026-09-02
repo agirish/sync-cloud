@@ -250,10 +250,25 @@ public enum StructureDivergence {
     static let axisKeys: Set<String> = ["year", "fiscalYear", "person", "jurisdiction"]
 
     /// Every divergent family in a profile, in path order.
+    ///
+    /// Builds the sibling map itself. `StructureDetectors.run` has already built one and passes it
+    /// to the other detectors, so it calls the overload below rather than paying for a second.
     public static func findings(in profile: FolderProfile) -> [StructureFinding] {
-        families(in: profile)
+        findings(in: profile, childrenByParent: families(in: profile))
+    }
+
+    /// Every divergent family in a profile, in path order, against a sibling map the caller
+    /// already has.
+    ///
+    /// **The map is the same relation the prefix walk it replaces expressed** — see
+    /// ``vocabulary(of:in:childrenByParent:)`` for the equivalence argument and the one shape of
+    /// path key where they would part company.
+    public static func findings(in profile: FolderProfile,
+                                childrenByParent: [String: [String]]) -> [StructureFinding] {
+        childrenByParent
             .sorted { $0.key < $1.key }
-            .compactMap { finding(family: $0.key, children: $0.value, in: profile) }
+            .compactMap { finding(family: $0.key, children: $0.value, in: profile,
+                                  childrenByParent: childrenByParent) }
     }
 
     /// Parent path → its immediate children, both relative to the profile root.
@@ -269,7 +284,8 @@ public enum StructureDivergence {
 
     /// One family's verdict, or `nil` when it agrees with itself.
     static func finding(family: String, children: [String],
-                        in profile: FolderProfile) -> StructureFinding? {
+                        in profile: FolderProfile,
+                        childrenByParent: [String: [String]]) -> StructureFinding? {
         // A family needs enough members for two groups of two to be possible at all.
         guard children.count >= AgreementRule.minimumSchemes * AgreementRule.minimumMembers else {
             return nil
@@ -280,7 +296,7 @@ public enum StructureDivergence {
         // dropped, because "no shape of its own" is a fact about the family the card must state.
         var shapeless: [String] = []
         let vocabularies = children.reduce(into: [(name: String, words: Set<String>)]()) { acc, child in
-            let words = vocabulary(of: child, in: profile)
+            let words = vocabulary(of: child, in: profile, childrenByParent: childrenByParent)
             let name = (child as NSString).lastPathComponent
             guard !words.isEmpty else {
                 shapeless.append(name)
@@ -316,14 +332,49 @@ public enum StructureDivergence {
     }
 
     /// A folder's role vocabulary: its children's names, with the axis-valued ones dropped.
+    ///
+    /// Builds the sibling map itself, which is a full pass over the profile — use the overload
+    /// below from anywhere that already holds one. This shape stays for the tests that read one
+    /// folder's vocabulary in isolation.
     static func vocabulary(of path: String, in profile: FolderProfile) -> Set<String> {
+        vocabulary(of: path, in: profile, childrenByParent: families(in: profile))
+    }
+
+    /// A folder's role vocabulary, against a sibling map the caller already has.
+    ///
+    /// **This is the whole detector sweep's cost centre.** The prefix walk this replaces scanned
+    /// *every* folder in the profile once per child of every family with four or more members —
+    /// O(folders²), 1.6 s of Organize's 1.9 s first-visit stall on a 5,020-folder profile. The map
+    /// is built once per run and this reads one bucket.
+    ///
+    /// ## Why the two agree
+    ///
+    /// The walk selected `childPath.hasPrefix(path + "/")` with no further `/` in the remainder —
+    /// the immediate-children relation. ``families(in:)`` keys on `deletingLastPathComponent`,
+    /// which is that same relation for every path that has no trailing slash, no empty component
+    /// and no `.` component: `deletingLastPathComponent` *normalises*, so `"A/B/"` and `"A//B"`
+    /// both land in bucket `A` while the walk excluded them from `A` (their remainders contain a
+    /// `/`). The `hasPrefix`/remainder test is therefore **kept** below rather than replaced by
+    /// `lastPathComponent`: it costs one prefix compare per sibling and makes the new set a subset
+    /// of the old one by construction, for any input.
+    ///
+    /// The other direction — a child the walk found that the map does not hold — needs `path`
+    /// itself to carry a trailing slash (`"A/"` buckets its children under `A`, not `A/`), and
+    /// that path could not be a family member in the first place: ``families(in:)`` would file
+    /// `"A/"` itself under the empty parent, which it skips. Checked against the live
+    /// 5,020-folder profile on 2026-09-02: zero keys with a trailing slash, a `//` or a `.`
+    /// component, and the two relations agree for all 5,020 parents.
+    static func vocabulary(of path: String, in profile: FolderProfile,
+                           childrenByParent: [String: [String]]) -> Set<String> {
         var words: Set<String> = []
         let prefix = path + "/"
         let parent = profile.folders[path]
-        for (childPath, entry) in profile.folders where childPath.hasPrefix(prefix) {
+        for childPath in childrenByParent[path] ?? [] {
+            guard childPath.hasPrefix(prefix) else { continue }
             let relative = String(childPath.dropFirst(prefix.count))
             // Immediate children only — a grandchild is the *child's* vocabulary, not this one's.
-            guard !relative.contains("/") else { continue }
+            guard !relative.isEmpty, !relative.contains("/") else { continue }
+            guard let entry = profile.folders[childPath] else { continue }
             guard !isAxisValued(path: childPath, name: relative, entry: entry, parent: parent) else {
                 continue
             }

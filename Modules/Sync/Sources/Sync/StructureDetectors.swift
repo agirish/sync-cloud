@@ -41,8 +41,11 @@ public struct StructureReport: Equatable, Sendable {
 public enum StructureDetectors {
 
     public static func run(in profile: FolderProfile) -> StructureReport {
+        // Built once and handed to every detector, the shape detector included. It used to build
+        // its own second copy AND, through `vocabulary`, re-walk the whole profile per child of
+        // every family — O(folders²), and 1.6 s of Organize's 1.9 s first-visit stall.
         let children = StructureDivergence.families(in: profile)
-        var findings = StructureDivergence.findings(in: profile)
+        var findings = StructureDivergence.findings(in: profile, childrenByParent: children)
         findings += StructureBacklog.findings(in: profile, childrenByParent: children)
         findings += StructureShadowAxis.findings(in: profile, childrenByParent: children)
         findings += StructureEchoName.findings(in: profile, childrenByParent: children)

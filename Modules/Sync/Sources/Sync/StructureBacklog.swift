@@ -45,7 +45,8 @@ enum StructureBacklog {
 
             out.append(StructureFinding(
                 kind: .backlog, family: family, subject: newest.path,
-                detail: .backlog(scaffold: scaffold(for: shaped.map(\.path), in: profile),
+                detail: .backlog(scaffold: scaffold(for: shaped.map(\.path), in: profile,
+                                                    childrenByParent: childrenByParent),
                                  looseFiles: entry.fileCount)))
         }
         return out
@@ -61,9 +62,11 @@ enum StructureBacklog {
     /// ``StructureDivergence/vocabulary(of:in:)`` lowercases for comparison, and a scaffold of
     /// `claims/` on a tree that spells it `Claims/` would be a new divergence created by the tool
     /// that exists to remove them.
-    static func scaffold(for shapedPaths: [String], in profile: FolderProfile) -> [String] {
+    static func scaffold(for shapedPaths: [String], in profile: FolderProfile,
+                         childrenByParent: [String: [String]]) -> [String] {
         let vocabularies = shapedPaths.compactMap { path -> (name: String, words: Set<String>)? in
-            let words = StructureDivergence.vocabulary(of: path, in: profile)
+            let words = StructureDivergence.vocabulary(of: path, in: profile,
+                                                       childrenByParent: childrenByParent)
             guard !words.isEmpty else { return nil }
             return ((path as NSString).lastPathComponent, words)
         }
@@ -78,20 +81,24 @@ enum StructureBacklog {
               })
         else { return [] }
         let shared = current.dropFirst().reduce(current[0].words) { $0.intersection($1.words) }
-        return displayNames(of: recentPath, in: profile)
+        return displayNames(of: recentPath, in: profile, childrenByParent: childrenByParent)
             .filter { shared.contains($0.lowercased()) }
             .sorted()
     }
 
     /// A folder's non-axis child names as they are spelled on disk — the display-cased twin of
-    /// ``StructureDivergence/vocabulary(of:in:)``.
-    static func displayNames(of path: String, in profile: FolderProfile) -> [String] {
+    /// ``StructureDivergence/vocabulary(of:in:childrenByParent:)``, and it reads the same sibling
+    /// map for the same reason: it walked every folder in the profile per call.
+    static func displayNames(of path: String, in profile: FolderProfile,
+                             childrenByParent: [String: [String]]) -> [String] {
         var names: [String] = []
         let prefix = path + "/"
         let parent = profile.folders[path]
-        for (childPath, entry) in profile.folders where childPath.hasPrefix(prefix) {
+        for childPath in childrenByParent[path] ?? [] {
+            guard childPath.hasPrefix(prefix) else { continue }
             let relative = String(childPath.dropFirst(prefix.count))
-            guard !relative.contains("/") else { continue }
+            guard !relative.isEmpty, !relative.contains("/") else { continue }
+            guard let entry = profile.folders[childPath] else { continue }
             guard !StructureDivergence.isAxisValued(path: childPath, name: relative, entry: entry,
                                                     parent: parent) else { continue }
             names.append(relative)

@@ -376,3 +376,89 @@ import Foundation
                 "the lens read a field only a hand-built profile carries")
     }
 }
+
+/// The sibling map replaced a full walk of the profile per folder — the cost centre behind
+/// Organize's first-visit stall. What is pinned here is that it selects the **same children**.
+///
+/// `vocabulary` used to scan every folder in the profile and keep the ones whose path started with
+/// `path + "/"` and had no further `/`. It now reads one bucket of the map
+/// ``StructureDivergence/families(in:)`` builds, which keys on `deletingLastPathComponent`. Those
+/// are the same relation for ordinary paths and **not** for a few shapes NSString normalises —
+/// `"A/B/"` and `"A//C"` both bucket under `A` while the walk excluded them — which is why the
+/// remainder test stayed in the new code. This suite is the check that it did.
+@Suite struct StructureSiblingMapEquivalenceTests {
+
+    /// The rule as it was written before the map: a pass over the whole profile per call.
+    private static func byFullWalk(of path: String, in profile: FolderProfile) -> Set<String> {
+        var words: Set<String> = []
+        let prefix = path + "/"
+        let parent = profile.folders[path]
+        for (childPath, entry) in profile.folders where childPath.hasPrefix(prefix) {
+            let relative = String(childPath.dropFirst(prefix.count))
+            guard !relative.contains("/") else { continue }
+            guard !StructureDivergence.isAxisValued(path: childPath, name: relative, entry: entry,
+                                                    parent: parent) else { continue }
+            words.insert(relative.lowercased())
+        }
+        return words
+    }
+
+    private static func profile(_ paths: [String],
+                                axes: [String: [String: String]] = [:]) -> FolderProfile {
+        var folders: [String: FolderProfileEntry] = [:]
+        for path in paths {
+            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
+                                               acceptsNewFiles: true, fileCount: 1,
+                                               subfolderCount: 0, axes: axes[path] ?? [:])
+        }
+        return FolderProfile(profileId: "test", root: "/root", folders: folders, personTokens: [])
+    }
+
+    /// Every folder in a profile, both ways — including the path shapes where the two relations
+    /// would part company if the remainder test were dropped for `lastPathComponent`.
+    @Test func theMapSelectsExactlyTheChildrenTheWalkDid() {
+        let awkward = Self.profile([
+            // Ordinary.
+            "A", "A/B", "A/B/C", "A/D",
+            // A trailing slash: `deletingLastPathComponent` buckets this under `A`; the walk saw
+            // the remainder `"B2/"`, which contains a `/`, and dropped it.
+            "A/B2/",
+            // A doubled separator: buckets under `A` too; the walk saw the remainder `"/C2"`.
+            "A//C2",
+            // A dot component, which NSString does NOT normalise — both agree it is not A's child.
+            "A/./E",
+            // A year, an inbox and a person axis, so the axis rules are exercised on both sides.
+            "Y", "Y/2023", "Y/Forms", "Y/TODO", "Y/Mom",
+        ], axes: ["Y/Mom": ["person": "Muktha"]])
+
+        let childrenByParent = StructureDivergence.families(in: awkward)
+        var nonEmpty = 0
+        for path in awkward.folders.keys.sorted() {
+            let walked = Self.byFullWalk(of: path, in: awkward)
+            let mapped = StructureDivergence.vocabulary(of: path, in: awkward,
+                                                        childrenByParent: childrenByParent)
+            #expect(walked == mapped, "\(path): walk \(walked.sorted()) vs map \(mapped.sorted())")
+            if !walked.isEmpty { nonEmpty += 1 }
+        }
+        // A positive control: two empty sets compare equal, and a `vocabulary` that always
+        // returned `[]` would pass every assertion above.
+        #expect(nonEmpty >= 2, "the fixture has folders with a real vocabulary")
+        #expect(Self.byFullWalk(of: "A", in: awkward) == ["b", "d"],
+                "the trailing-slash and doubled-separator keys are NOT A's children, both ways")
+        #expect(StructureDivergence.vocabulary(of: "Y", in: awkward,
+                                               childrenByParent: childrenByParent) == ["forms"],
+                "the year, the inbox and the person axis all drop, as before")
+    }
+
+    /// The convenience overload — the one the tests above and any isolated caller use — builds the
+    /// map itself and must answer identically to the threaded one.
+    @Test func theOverloadThatBuildsItsOwnMapAgrees() {
+        let p = Self.profile(["A", "A/B", "A/C", "A/B/D"])
+        let map = StructureDivergence.families(in: p)
+        for path in p.folders.keys {
+            #expect(StructureDivergence.vocabulary(of: path, in: p)
+                    == StructureDivergence.vocabulary(of: path, in: p, childrenByParent: map))
+        }
+        #expect(StructureDivergence.vocabulary(of: "A", in: p) == ["b", "c"])
+    }
+}

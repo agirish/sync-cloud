@@ -494,7 +494,14 @@ public class FileSyncManager: ObservableObject {
     /// `duplicateScanLifecycle.status` directly, so that one idle spelling is the only one.
     @Published public internal(set) var duplicateScanLifecycle = ScanLifecycle()
     /// Duplicate/related groups from the most recent Find Duplicates scan of one provider.
-    @Published public var duplicateGroups: [DuplicateGroup] = []
+    @Published public var duplicateGroups: [DuplicateGroup] = [] {
+        didSet { duplicateGroupsGeneration &+= 1 }
+    }
+
+    /// Bumped on every write to ``duplicateGroups`` — a wholesale scan result, a merge's removal,
+    /// an element rewrite. Read by ``visibleStructureFindings``' memo key, which must not hash the
+    /// groups themselves on a render path. See ``VisibleFindingsKey``.
+    private var duplicateGroupsGeneration: UInt64 = 0
     /// The absolute root the current `duplicateGroups` were scanned from — captured at scan time so
     /// breadcrumbs stay correct even if the user navigates elsewhere afterward.
     public var duplicateScanRoot: String? {
@@ -828,9 +835,60 @@ public class FileSyncManager: ObservableObject {
     /// any of this existed.
     public var filingFolderProfile: FolderProfile? {
         didSet {
+            // Bumped BEFORE the caches are dropped, so an in-flight warm-up started for the
+            // previous profile can see that it has been superseded and decline to install.
+            filingFolderProfileGeneration &+= 1
             invalidateFilingRouterIndex()
             rebuildPersonIdentityIndex()
             cachedStructureReport = nil
+            warmStructureReport()
+        }
+    }
+
+    /// Bumped on every write to ``filingFolderProfile`` — the cache key both structure memos read,
+    /// and the token the off-actor warm-up presents before it installs anything.
+    ///
+    /// A counter rather than the profile itself: `FolderProfile` is a 5,020-entry dictionary on the
+    /// real tree, and comparing one per render to decide whether a cache is live would cost more
+    /// than the cache saves. `&+=` because wrap-around is not a correctness question here — two
+    /// *consecutive* values are what anything compares, and a run of 2⁶⁴ profile writes is not a
+    /// thing.
+    private var filingFolderProfileGeneration: UInt64 = 0
+
+    /// The warm-up computing ``structureReport`` off the main actor for the current profile, or nil.
+    /// Cancelled and replaced when the profile changes again.
+    private var structureWarmUpTask: Task<Void, Never>?
+
+    /// Computes the detector sweep off the main actor and installs it in the cache, so the first
+    /// Organize render after a survey lands finds it already there.
+    ///
+    /// **The synchronous path in ``structureReport`` remains the answer, not a fallback that can be
+    /// wrong**: a render arriving before this finishes computes the report itself, caches it, and
+    /// this task then installs an identical value for the same profile. Nothing here is published —
+    /// installing a cache entry does not change any answer, and a publish would cost a render.
+    ///
+    /// Three properties the guards buy:
+    /// - **No stale install.** The generation is captured before the hop and re-checked on the main
+    ///   actor; a warm-up for a profile that has since been replaced returns without touching the
+    ///   cache. Cancellation is a fast path, not the guarantee — the token is.
+    /// - **No retain past the manager's life.** `[weak self]` on both the detached body and the
+    ///   main-actor hop, so a manager torn down mid-sweep is not held open by it.
+    /// - **No deadlock.** The detached body touches nothing actor-isolated: `FolderProfile` and
+    ///   `StructureReport` are both `Sendable` value types, and the only hop back is the install.
+    private func warmStructureReport() {
+        structureWarmUpTask?.cancel()
+        guard let profile = filingFolderProfile else {
+            structureWarmUpTask = nil
+            return
+        }
+        let generation = filingFolderProfileGeneration
+        structureWarmUpTask = Task.detached(priority: .utility) { [weak self] in
+            let report = StructureDetectors.run(in: profile)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.filingFolderProfileGeneration == generation else { return }
+                self.cachedStructureReport = report
+            }
         }
     }
 
@@ -838,9 +896,15 @@ public class FileSyncManager: ObservableObject {
     /// once per profile.
     ///
     /// **Cached, because the caller is a view body.** The detectors walk every folder in the
-    /// profile (3,013 of them on the real tree) to build each family's vocabulary, and Organize's
-    /// overview asks for this on every render. Recomputing there would put an O(folders²)-ish sweep
-    /// on the main actor behind a scroll.
+    /// profile (5,020 of them on the real tree as of 2026-09-02) to build each family's
+    /// vocabulary, and Organize's overview asks for this on every render.
+    ///
+    /// **And warmed off the main actor** — see ``warmStructureReport()``. The sweep is no longer
+    /// the 1.6 s it was (`vocabulary` re-walked the whole profile per child of every family until
+    /// 2026-09-02), but it is not free either: `synccloud restructure --json`, which is a profile
+    /// decode plus one sweep, went 1.78 s → 0.15 s on that tree. What is left is small enough to
+    /// pay on a render that arrives first, and still not worth paying behind a tab switch when a
+    /// warm-up can have paid it already.
     ///
     /// The cache is keyed on nothing but the profile's own identity: `filingFolderProfile`'s
     /// `didSet` drops it, which is the only way the answer can change — the detectors read the
@@ -1099,12 +1163,61 @@ public class FileSyncManager: ObservableObject {
             || surveyed.hasPrefix(scanRoot.hasSuffix("/") ? scanRoot : scanRoot + "/")
     }
 
+    /// Everything the three inputs to ``visibleStructureFindings`` can contribute to its answer,
+    /// in one comparable value — the memo's key.
+    ///
+    /// **Every field is here because the answer moves when it moves**, and the two that are not
+    /// counters are the two that are cheap to compare outright:
+    /// - `profile` — ``filingFolderProfileGeneration``, which stands for the whole
+    ///   `filingFolderProfile` (and therefore for `structureReport`, and for the folder universe
+    ///   and file counts §5.9 reads).
+    /// - `duplicateGroups` — a `didSet` counter on the array. `duplicateGroups` is rewritten
+    ///   wholesale by a scan and mutated element-wise by a merge, a fold and a keeper change; a
+    ///   `didSet` on the stored property sees all of them, where a count or a scan flag would miss
+    ///   the element writes. Hashing the groups per render is the thing being avoided.
+    /// - `coversSurvey` — ``duplicateScanCoversSurvey``, which gates §5.9's findings on the scan
+    ///   root and can flip with no change to the groups at all (a scan of a different root).
+    /// - `store` and `suppressed` — the store's identity *and* its suppression set, compared by
+    ///   value. The set is the user's "never suggest this again" list: single digits in practice,
+    ///   so comparing it outright is cheaper than the render it guards, and it cannot go stale the
+    ///   way a counter on a separate object could if a store were swapped in carrying the same
+    ///   count. Both, because a different store with an equal set is still a different store.
+    private struct VisibleFindingsKey: Equatable {
+        let profile: UInt64
+        let duplicateGroups: UInt64
+        let coversSurvey: Bool
+        let store: ObjectIdentifier?
+        let suppressed: Set<RestructureKey>
+    }
+
+    private var cachedVisibleStructureFindings: (key: VisibleFindingsKey, value: [StructureFinding])?
+
     public var visibleStructureFindings: [StructureFinding] {
+        let key = VisibleFindingsKey(
+            profile: filingFolderProfileGeneration,
+            duplicateGroups: duplicateGroupsGeneration,
+            coversSurvey: duplicateScanCoversSurvey,
+            store: restructureStore.map(ObjectIdentifier.init),
+            suppressed: restructureStore?.suppressed ?? [])
+        if let cached = cachedVisibleStructureFindings, cached.key == key { return cached.value }
+        let value = computeVisibleStructureFindings(store: restructureStore)
+        cachedVisibleStructureFindings = (key, value)
+        return value
+    }
+
+    /// The uncached answer.
+    ///
+    /// **Memoised at this layer, not only under it** (proposal from the 09-02 perf review): the
+    /// report below is already cached, but this rebuilt §5.9's findings over every duplicate group,
+    /// re-sorted and re-deduped the whole list through `grouped`, and re-filtered the suppressions
+    /// on *every access* — and Organize reads it two to four times per render, the window root
+    /// twice more.
+    private func computeVisibleStructureFindings(store: RestructureStore?) -> [StructureFinding] {
         // Through `grouped`, not appended raw: §5.2's rule is that one folder's rows sit
         // together, and the taxonomy findings joining the list after the report was grouped
         // would strand a folder's second observation at the bottom.
         let all = StructureDetectors.grouped(structureFindings + duplicatedTaxonomyFindings)
-        guard let store = restructureStore else { return all }
+        guard let store else { return all }
         return all.filter { !store.isSuppressed(RestructureKey($0)) }
     }
 
