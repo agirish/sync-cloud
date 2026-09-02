@@ -52,6 +52,7 @@ import Foundation
         #expect(AppChord.verifyDifferences.display == "⇧⌘V")
         #expect(AppChord.differencesList.display == "⌘D")
         #expect(AppChord.foldAllDifferences.display == "⇧⌘F")
+        #expect(AppChord.compareTwoFiles.display == "⇧⌘C")
         #expect(AppChord.workspace(1)?.display == "⌘1")
         #expect(AppChord.workspace(5)?.display == "⌘5")
         // **Past nine there is no chord, and asking for one must not take the app down.**

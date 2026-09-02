@@ -722,6 +722,7 @@ struct SyncCloudApp: App {
                 // the reader came to this menu holding. Review and Verify act on the whole
                 // comparison, so they sit below the divider as the bulk pair they are.
                 TransferCommands()          // ⌘← ⌘→ ⇧⌘← ⇧⌘→
+                CompareTwoFilesCommand()    // ⇧⌘C — also acts on the selection, so it joins them
                 Divider()
                 ReviewDifferencesCommand()  // ⇧⌘R
                 VerifyDifferencesCommand()  // ⇧⌘V

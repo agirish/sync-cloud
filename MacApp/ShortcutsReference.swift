@@ -94,6 +94,9 @@ enum ShortcutsReference {
             Item(keys: "⌘ ⌫", action: "Delete the selected items, after confirming"),
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
+            // Directly under the gesture that creates its precondition: two files ⌘-clicked in one
+            // pane is the whole enabling condition, and the row above is where a reader learns it.
+            Item(keys: "⇧⌘ C", action: "Compare the two selected files side by side"),
             Item(keys: "⌥-click a breadcrumb", action: "Navigate both panes to that folder"),
         ]),
         // **Its own group rather than two rows in Panes**, which was the cheaper option and the
@@ -226,7 +229,18 @@ struct ShortcutsReferenceView: View {
     /// it, so the tall column did not grow. The sixth time this file has been measured, the second
     /// time rows were added without the window moving, and the same lesson both times — the number
     /// comes from rendering it, never from adding up rows.
-    static let windowSize = CGSize(width: 880, height: 760)
+    ///
+    /// **760 → 800 when ⇧⌘C arrived** (CC15.3 — compare two selected files). The seventh move, and
+    /// the first where a single row cost the full ~36pt rather than being absorbed by a re-break:
+    /// it landed in *Panes*, under the ⌘-click row that creates its precondition, and Panes is
+    /// already the taller column, so `balancedSplit` had nothing to give. Content **measured
+    /// 779pt** against a 760pt window — caught by the test for the seventh time, and again by
+    /// nothing else. 800 leaves **21pt**, below the 33–37pt band the middle raises settled into
+    /// and above the 12pt that was judged too tight in the v4.4 note. Two things make 21 the right
+    /// number rather than 815: this row cannot be trimmed (it documents a chord that exists, the
+    /// standing rule here), and the group it joined is the one a re-break would move next, so
+    /// buying margin now would likely be spending it twice. Measured, not guessed.
+    static let windowSize = CGSize(width: 880, height: 800)
 
     var body: some View {
         ScrollView {

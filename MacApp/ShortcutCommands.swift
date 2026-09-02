@@ -224,6 +224,10 @@ private struct RescanPanesKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct CompareTwoFilesKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 private struct NewFolderInFocusedPaneKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -452,6 +456,15 @@ extension FocusedValues {
         set { self[PaneGoForwardKey.self] = newValue }
     }
 
+    /// Opens the pair viewer on the focused pane's two selected files. `nil` when the selection
+    /// is not exactly two files — see `PaneLogic.compareOffer(for:)`, which is the same rule the
+    /// action bar's Compare button reads, so the menu item and the button cannot disagree about
+    /// when comparing is possible.
+    var compareTwoFiles: (() -> Void)? {
+        get { self[CompareTwoFilesKey.self] }
+        set { self[CompareTwoFilesKey.self] = newValue }
+    }
+
     /// The pane bar's scan action — global, both trees. `nil` while a scan is running, matching
     /// the rung's own `.disabled(isRefreshing)`.
     var rescanPanes: (() -> Void)? {
@@ -675,6 +688,9 @@ struct ShortcutValuePublisher: ViewModifier {
     let organizeLens: OrganizeLensSwitch?
     let organizeVerbs: OrganizeVerbs?
     let paneRowVerbs: PaneRowVerbs?
+    /// ⇧⌘C — the focused pane's two selected files, opened as a pair. `nil` for any other
+    /// selection, which is what disables the menu item rather than letting it act on a guess.
+    let compareTwoFiles: (() -> Void)?
 
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
@@ -719,6 +735,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveOrganizeLens: OrganizeLensSwitch? { suspended ? nil : organizeLens }
     var effectiveOrganizeVerbs: OrganizeVerbs? { suspended ? nil : organizeVerbs }
     var effectivePaneRowVerbs: PaneRowVerbs? { suspended ? nil : paneRowVerbs }
+    var effectiveCompareTwoFiles: (() -> Void)? { suspended ? nil : compareTwoFiles }
 
     /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
     /// `effectiveCloseTab` still nils with the rest (a suspended ⌘W closes no tab); what this adds
@@ -745,6 +762,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.commandPalette, effectiveCommandPalette)     // ⌘K
             .focusedSceneValue(\.beginPaneSearch, effectiveBeginPaneSearch)   // ⌘F
             .focusedSceneValue(\.selectAllInPane, effectiveSelectAll)          // ⌘A
+            .focusedSceneValue(\.compareTwoFiles, effectiveCompareTwoFiles)    // ⇧⌘C
             .focusedSceneValue(\.clipboardActions, effectiveClipboard)         // ⌘X / ⌘C / ⌘V
             .focusedSceneValue(\.newTab, effectiveNewTab)                     // ⌘T
             // ⌘W — three states, not two: `.suspended` is what the silenced value publishes, so the
@@ -789,6 +807,7 @@ extension ContentView {
             organizeLens: shortcutOrganizeLens,
             organizeVerbs: shortcutOrganizeVerbs,
             paneRowVerbs: shortcutPaneRowVerbs,
+            compareTwoFiles: shortcutCompareTwoFiles,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
             // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind
@@ -917,6 +936,26 @@ extension ContentView {
     ///
     /// Columns resolves through the deepest open column, the same target `beginNewFolder` uses, so
     /// ⌘A and ⇧⌘N cannot disagree about which folder the pane is "in".
+    /// ⇧⌘C — the focused pane's two selected files, opened as a pair.
+    ///
+    /// **The same rule the action bar's Compare button reads.** `PaneLogic.compareOffer(for:)`
+    /// answers what this selection can be compared as, so the menu item and the button are two
+    /// doors onto one predicate rather than two predicates that agree today. A folder selection
+    /// answers `.folderScan`, which belongs to the button and not to this chord — the menu item
+    /// stays disabled for it rather than quietly running the two-folder scan under a name that
+    /// says "two files".
+    ///
+    /// `nil` rather than a no-op closure, because a published closure is an ENABLED menu item:
+    /// returning one that does nothing is the shape [[a-tested-rule-with-no-caller]] warns about,
+    /// seen from the menu.
+    var shortcutCompareTwoFiles: (() -> Void)? {
+        let isLeft = shortcutTargetIsLeft
+        guard let (first, second) =
+                PaneLogic.compareOffer(for: paneSelectionNodes(isLeft: isLeft))?.filePair else { return nil }
+        return { compareFilePairAction(first, second,
+                                       secondIsInOtherPane: false, clickedPaneIsLeft: isLeft) }
+    }
+
     var shortcutSelectAll: (() -> Void)? {
         guard SelectAllScope.appliesToPane(surface: syncManager.lastSelectionSurface) else { return nil }
         let isLeft = shortcutTargetIsLeft
@@ -1750,6 +1789,22 @@ struct FoldAllDifferencesCommand: View {
         }
         .keyboardShortcut(AppChord.foldAllDifferences.key, modifiers: AppChord.foldAllDifferences.modifiers)
         .disabled(fold == nil)
+    }
+}
+
+/// Compare ▸ Compare Two Files — ⇧⌘C.
+///
+/// **The feature's first door that is not a context menu.** Every other way into the pair viewer
+/// is a right-click, and `AppChord`'s transfer family already carries the post-mortem for that
+/// shape: four working verbs nobody could find. One `Button` here also buys the ⌘/ reference row
+/// and the palette entry, because both render from the registry.
+struct CompareTwoFilesCommand: View {
+    @FocusedValue(\.compareTwoFiles) private var compare
+
+    var body: some View {
+        Button("Compare Two Files") { compare?() }
+            .keyboardShortcut(AppChord.compareTwoFiles.key, modifiers: AppChord.compareTwoFiles.modifiers)
+            .disabled(compare == nil)
     }
 }
 

@@ -222,6 +222,11 @@ public extension AppChord {
     /// of finding anything. With no ⌥-chords registered, nothing fires through the reveal at
     /// all — the documented look-release-press contract, restored.
     static let foldAllDifferences = AppChord("f", [.shift, .command])
+    /// ⇧⌘C — compare two files. **Free, and checked rather than assumed**: `copy` binds the
+    /// unshifted ⌘C and nothing binds the shifted form. The app has no text formatting, so it does
+    /// not collide with the system's Show Colors either. It is the shifted partner of a verb the
+    /// reader already knows, in a menu that already holds the other Compare verbs.
+    static let compareTwoFiles = AppChord("c", [.shift, .command])
 
     /// **Every fixed chord declared as an `AppChord`, once.**
     ///
@@ -249,7 +254,7 @@ public extension AppChord {
         folderSidebar, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
         newTab, closeTab, nextTab, previousTab, tabBar,
-        reviewDifferences, verifyDifferences, differencesList, foldAllDifferences,
+        reviewDifferences, verifyDifferences, differencesList, foldAllDifferences, compareTwoFiles,
         copyToLeft, copyToRight, moveToLeft, moveToRight,
     ]
 }

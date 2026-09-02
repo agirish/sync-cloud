@@ -50,6 +50,7 @@ import Foundation
                                        rename: {}, chooseDestination: { _ in },
                                        ignore: PaneRowVerbs.IgnoreToggle(title: "Ignore in Comparison",
                                                                          run: {})),
+            compareTwoFiles: {},
             suspended: suspended
         )
     }
@@ -184,6 +185,7 @@ import Foundation
         #expect(publisher.effectiveOrganizeLens == nil)
         #expect(publisher.effectiveOrganizeVerbs == nil)
         #expect(publisher.effectivePaneRowVerbs == nil)
+        #expect(publisher.effectiveCompareTwoFiles == nil)
     }
 
     /// ...and the guard the test above depends on: unsuspended, the same loaded publisher passes
@@ -217,6 +219,7 @@ import Foundation
         #expect(publisher.effectiveOrganizeLens != nil)
         #expect(publisher.effectiveOrganizeVerbs != nil)
         #expect(publisher.effectivePaneRowVerbs != nil)
+        #expect(publisher.effectiveCompareTwoFiles != nil)
     }
 
     /// **Every `effective…` the publisher exposes is named in BOTH lists above.**
