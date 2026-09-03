@@ -411,15 +411,23 @@ import Testing
     /// **The positive control on the refusal.** A test that only ever sees "refused" cannot tell a
     /// working cap from one wired to `true`, and a test that only ever sees "allowed" cannot tell
     /// it from `false` — so the same shape of input is run at both sides of the budget.
+    ///
+    /// **The allowed end moved from 5,000 lines to 20,000, and that is the point of it.** This
+    /// pre-filter used to be the binding limit of the two — it refused two 7,100-line files with
+    /// nothing in common, which the walk behind it now finishes in 0.23s — because its threshold
+    /// was chosen against a slower diff and never rescaled when the diff got faster. It is now four
+    /// times ``TextPairDiff/maxDiffWork``, which is the measured ratio between what this estimates
+    /// and what the walk then spends on exactly this family of input (see
+    /// `theEstimateRunsAtFourTimesTheWalkOnTheFamilyItGuards`).
     @Test func anEntirelyRewrittenFileIsAllowedUntilItIsBigEnoughToRefuse() {
         func rewrite(lines: Int) -> (left: [String], right: [String]) {
             ((0..<lines).map { "alpha \($0)" }, (0..<lines).map { "beta \($0)" })
         }
-        // 5,000 lines rewritten end to end — ~10⁸, the diff someone genuinely wants.
-        let small = rewrite(lines: 5_000)
+        // 20,000 lines rewritten end to end — 1.75s of walk, measured, and a diff someone wants.
+        let small = rewrite(lines: 20_000)
         #expect(TextPairDiff.refusalNote(left: small.left, right: small.right) == nil)
-        // 20,000 — the same shape, past the budget.
-        let large = rewrite(lines: 20_000)
+        // 40,000 — the same shape, past what the walk behind this could afford to finish.
+        let large = rewrite(lines: 40_000)
         #expect(TextPairDiff.refusalNote(left: large.left, right: large.right) != nil)
     }
 

@@ -1045,10 +1045,16 @@ extension FileSyncManager {
     /// The live group holding both paths, or nil. Every copy is compared by absolute path — the
     /// spelling `removeResolvedDuplicateCopy` matches on — because that is the identity that
     /// survives a rescan.
+    ///
+    /// **Scanned rather than gathered into a `Set`.** This is read at draw time by the Compare
+    /// overlay — which re-derives everything by path on every render, deliberately — and building a
+    /// set of every copy's path in every group, for two membership questions, is the whole scan's
+    /// worth of allocation per frame. A group holds a handful of copies; two linear passes over
+    /// them allocate nothing.
     public func liveGroup(holding copyPath: String, and keeperPath: String) -> DuplicateGroup? {
         duplicateGroups.first { group in
-            let paths = Set(group.copies.map(\.path))
-            return paths.contains(copyPath) && paths.contains(keeperPath)
+            group.copies.contains { $0.path == copyPath }
+                && group.copies.contains { $0.path == keeperPath }
         }
     }
 
@@ -2387,10 +2393,26 @@ extension FileSyncManager {
         return result
     }
 
-    public nonisolated static func formatBytes(_ n: Int) -> String {
+    /// **Built once, and reached under a lock.** This is called from `body` — the compare surface's
+    /// facts strip states two sizes and was allocating and configuring two formatters on every
+    /// render of it — and `ByteCountFormatter` is not cheap to build.
+    ///
+    /// The lock rather than a trust in thread safety: `formatBytes` is `nonisolated` and is called
+    /// from wherever a size is shown, and Apple documents thread safety for `DateFormatter` and
+    /// `NumberFormatter` without saying anything about this one. An uncontended `NSLock` is a
+    /// rounding error against the allocation it replaces. (`FileSizeFormat.byteCount` solves the
+    /// same problem the other way, by being `@MainActor`, which this cannot be.)
+    private nonisolated(unsafe) static let byteFormatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.countStyle = .file
         f.allowsNonnumericFormatting = false
-        return f.string(fromByteCount: Int64(max(0, n)))
+        return f
+    }()
+    private nonisolated static let byteFormatterLock = NSLock()
+
+    public nonisolated static func formatBytes(_ n: Int) -> String {
+        byteFormatterLock.lock()
+        defer { byteFormatterLock.unlock() }
+        return byteFormatter.string(fromByteCount: Int64(max(0, n)))
     }
 }

@@ -29,6 +29,47 @@ struct VisualPairModeView: View {
     @Binding var swipeFraction: Double
     @Binding var onionOpacity: Double
 
+    /// The divider's position WHILE it is being dragged.
+    ///
+    /// **The committed fraction lives in the surface, and this is the frame-by-frame one.** A drag
+    /// that wrote straight to the binding re-ran the whole compare surface's body on every pointer
+    /// event — its facts strip, its mode bar, its verdict — for a line that only this view draws.
+    /// Written back on release, so the position still survives a mode switch, which is why it is
+    /// held up there in the first place (the same reason the PDF zoom is).
+    @State private var liveSwipeFraction: Double?
+
+    /// The rasters wrapped for drawing, rebuilt only when a raster actually arrives.
+    ///
+    /// **`Image(nsImage: NSImage(cgImage:size:))` in a `body` is a new wrapper per render**, and
+    /// this body re-runs on every frame of a divider drag and on every publish of the manager the
+    /// host observes. The `CGImage`s themselves are immutable and shared; only the wrapper was
+    /// being rebuilt, and only their identity decides when it has to be.
+    @State private var wrapped: (left: NSImage?, right: NSImage?, difference: NSImage?) = (nil, nil, nil)
+
+    /// Which three rasters ``wrapped`` was built from. Identity, not equality: a `CGImage` is
+    /// immutable, so the same object is the same picture.
+    private struct RasterIdentity: Equatable {
+        var left: ObjectIdentifier?
+        var right: ObjectIdentifier?
+        var difference: ObjectIdentifier?
+    }
+
+    private var rasterIdentity: RasterIdentity {
+        RasterIdentity(left: left.map(ObjectIdentifier.init),
+                       right: right.map(ObjectIdentifier.init),
+                       difference: difference.map(ObjectIdentifier.init))
+    }
+
+    private func rewrap() {
+        func wrap(_ image: CGImage?) -> NSImage? {
+            image.map { NSImage(cgImage: $0, size: CGSize(width: $0.width, height: $0.height)) }
+        }
+        wrapped = (wrap(left), wrap(right), wrap(difference))
+    }
+
+    /// The divider's position as drawn: the live drag if there is one, else what was committed.
+    private var shownSwipeFraction: Double { liveSwipeFraction ?? swipeFraction }
+
     var body: some View {
         GeometryReader { proxy in
             ZStack {
@@ -48,6 +89,7 @@ struct VisualPairModeView: View {
             }
             .contentShape(Rectangle())
         }
+        .onChange(of: rasterIdentity, initial: true) { _, _ in rewrap() }
     }
 
     // MARK: Swipe
@@ -61,23 +103,27 @@ struct VisualPairModeView: View {
             page(left, side: .left)
             page(right, side: .right)
                 .mask(alignment: .leading) {
-                    Rectangle().frame(width: max(0, size.width * swipeFraction))
+                    Rectangle().frame(width: max(0, size.width * shownSwipeFraction))
                 }
             Rectangle()
                 .fill(Color.accentColor)
                 .frame(width: 1)
-                .position(x: size.width * swipeFraction, y: size.height / 2)
+                .position(x: size.width * shownSwipeFraction, y: size.height / 2)
                 .allowsHitTesting(false)
         }
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
+                    liveSwipeFraction = min(1, max(0, value.location.x / max(1, size.width)))
+                }
+                .onEnded { value in
                     swipeFraction = min(1, max(0, value.location.x / max(1, size.width)))
+                    liveSwipeFraction = nil
                 }
         )
         .accessibilityElement()
         .accessibilityLabel("Swipe compare")
-        .accessibilityValue("\(Int(swipeFraction * 100))% of the right copy shown")
+        .accessibilityValue("\(Int(shownSwipeFraction * 100))% of the right copy shown")
         .accessibilityAdjustableAction { direction in
             let step = 0.05
             switch direction {
@@ -106,9 +152,9 @@ struct VisualPairModeView: View {
     private func differenceView(in available: CGSize) -> some View {
         ZStack {
             Color.black
-            if let difference {
+            if let difference, let drawable = wrapped.difference {
                 let size = CGSize(width: difference.width, height: difference.height)
-                Image(nsImage: NSImage(cgImage: difference, size: size))
+                Image(nsImage: drawable)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                 // **The callouts are laid out against the same fitted rect the image gets**,
@@ -147,9 +193,8 @@ struct VisualPairModeView: View {
 
     @ViewBuilder
     private func page(_ image: CGImage?, side: PairSide) -> some View {
-        if let image {
-            Image(nsImage: NSImage(cgImage: image,
-                                   size: CGSize(width: image.width, height: image.height)))
+        if image != nil, let drawable = side == .left ? wrapped.left : wrapped.right {
+            Image(nsImage: drawable)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -194,7 +239,7 @@ struct VisualPairModeView: View {
 /// file. An earlier design gave `.pending` a grey dot; the number alone turned out to be the
 /// honest resting state, and a dot appearing is then a real event. `PageDiffState.dot` is where
 /// that rule lives.
-struct PageStrip: View {
+struct PageStrip: View, Equatable {
 
     let pairing: PagePairing
     let states: [Int: PageDiffState]
@@ -212,7 +257,10 @@ struct PageStrip: View {
                 .foregroundStyle(.tertiary)
                 .fixedSize()
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 3) {
+                // **Lazy, because the strip is one chip per PAGE.** A 300-page report built 300
+                // buttons — each with its own label, capsule and help string — on every render of
+                // the surface, for the dozen the scroll view can show.
+                LazyHStack(spacing: 3) {
                     // `Array(0..<n)`, not `0..<n`: SwiftUI's range `ForEach` is the CONSTANT-range
                     // initializer, and a strip whose length changes when the page counts land
                     // would be re-identifying a range it promised would not move.
@@ -287,6 +335,19 @@ struct PageStrip: View {
         case .oneSided: return .blue
         case .unrenderable: return .red.opacity(0.6)
         }
+    }
+
+    /// Compared on everything it DRAWS, so `.equatable()` can hold a redraw off.
+    ///
+    /// **The closure is the one member left out, and it has to be.** A `(Int) -> Void` is not
+    /// comparable at all, and this one is `{ page = $0 }` written at the single call site — it
+    /// closes over a `@State` projection that does not move. Everything the strip renders from is
+    /// above it, so a difference the reader could see is a difference this reports.
+    /// `nonisolated`, because `Equatable` is: a `View` is `@MainActor`, and every member read here
+    /// is an immutable `let` of a Sendable type, which is what makes that safe to say.
+    nonisolated static func == (lhs: PageStrip, rhs: PageStrip) -> Bool {
+        lhs.pairing == rhs.pairing && lhs.states == rhs.states && lhs.current == rhs.current
+            && lhs.accent == rhs.accent && lhs.isSearching == rhs.isSearching
     }
 
     /// The dot's meaning in words — the whole vocabulary in one place, so the colour and the

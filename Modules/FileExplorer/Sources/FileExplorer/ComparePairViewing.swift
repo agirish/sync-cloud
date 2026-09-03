@@ -301,3 +301,30 @@ enum PageDiffState: Equatable {
         return result.isIdentical ? .same : .changed(fraction: result.changedFraction)
     }
 }
+
+// MARK: - Reusing a page comparison across a mode change
+
+/// Whether the page comparison already in hand answers what the mode on screen is asking.
+///
+/// **A value, because a key alone gets this wrong in one direction.** The compare surface keys its
+/// render task on the mode, so a mode change re-runs it; what the comparison depends on is the
+/// PAGE, plus one extra question — whether the de-skew was applied. Keying on both and comparing
+/// for equality would recompute in both directions, and the direction that matters is the one that
+/// goes DOWN: leaving the difference mode for swipe on a page whose comparison was aligned would
+/// throw a stronger answer away and replace it with a weaker one, and the strip's dot for that page
+/// would visibly change colour under a mode press that changed nothing about the pages.
+///
+/// So: same page, and either what is held is already aligned or this mode does not want alignment.
+enum PageComparisonReuse {
+
+    /// - Parameters:
+    ///   - held: the decode the comparison in hand was made from, or nil when there is none.
+    ///   - decode: the decode on screen now.
+    ///   - heldAligned: whether the comparison in hand had the de-skew applied.
+    ///   - wantsAligned: whether the mode on screen wants it.
+    static func isEnough(held: String?, decode: String,
+                         heldAligned: Bool, wantsAligned: Bool) -> Bool {
+        guard let held, held == decode else { return false }
+        return heldAligned || !wantsAligned
+    }
+}

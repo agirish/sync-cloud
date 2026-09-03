@@ -145,7 +145,7 @@ struct TextPairDiffView: View {
             .scaledFont(.system(size: 11.5, design: .monospaced))
             .textSelection(.enabled)
         } else if let text {
-            Text(text.isEmpty ? " " : text)
+            Text(Self.rendered(text))
                 .scaledFont(.system(size: 11.5, design: .monospaced))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
@@ -156,6 +156,39 @@ struct TextPairDiffView: View {
                 .scaledFont(.system(size: 11.5, design: .monospaced))
                 .foregroundStyle(.quaternary)
         }
+    }
+
+    // MARK: How much of a line is drawn
+
+    /// The most characters one side of one row will lay out.
+    ///
+    /// **A row whose word pass was refused is drawn whole, and "whole" has no upper bound.** The
+    /// budget in ``TextPairDiff/maxIntraLineWork`` declines to compare a 4 MiB single-line file word
+    /// by word — minified JavaScript, JSON saved on one line, a log whose writer never flushed —
+    /// and then hands the row's text straight to a `Text` with `.textSelection(.enabled)` on it.
+    /// Refusing the diff and then laying out millions of glyphs in a lazy cell spends the cost the
+    /// refusal was there to avoid, in the layout engine instead of in the diff.
+    ///
+    /// 4,000 characters is far more than any line a person reads and about forty screen-widths of
+    /// the pane, so nothing an ordinary diff draws is touched.
+    static let maxRenderedCharacters = 4_000
+
+    /// The line as the pane will draw it: itself, or its head with a note saying what was left off.
+    ///
+    /// **How much is left off is stated, rather than an ellipsis left to imply it.** A truncated
+    /// line that only trails off reads as the end of the file's line; a reader comparing two copies
+    /// has to be able to tell that there is more, and roughly how much.
+    ///
+    /// **Measured in BYTES, and asked of `utf8`, because that count is free.** `String.count` walks
+    /// the whole string for grapheme breaks — on the 4 MiB line this exists for, that is the cost
+    /// being avoided, paid once per render of the row instead of once per diff.
+    static func rendered(_ text: String) -> String {
+        guard text.utf8.count > maxRenderedCharacters else { return text.isEmpty ? " " : text }
+        let head = String(text.prefix(maxRenderedCharacters))
+        let rest = text.utf8.count - head.utf8.count
+        guard rest > 0 else { return head }
+        let size = FileSizeFormat.byteCount.string(fromByteCount: Int64(rest))
+        return head + "… (\(size) more on this line)"
     }
 
     // MARK: Tints

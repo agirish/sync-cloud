@@ -179,6 +179,57 @@ struct FilePairCompareView<Verdict: View>: View {
     /// only this view has) are where they stopped matching.
     @ViewBuilder var verdict: (ComparePairFacts) -> Verdict
 
+    /// The pair's viewer kind. **Both sides must agree, or the pair is `.other`** — a versions
+    /// group can hold `Report.pdf` beside `Report.docx`, and a PDF viewer given a Word document
+    /// shows a blank pane rather than saying it cannot page it.
+    ///
+    /// **Stored, and resolved once in `init`, because it was a computed property read fifteen to
+    /// twenty times per render.** Each read is two `PairContentKind.classify` calls — a `UTType`
+    /// lookup and, for anything ImageIO does not name outright, a walk of its conformances — and
+    /// the body re-runs on every publish of the manager the host observes and on every pointer
+    /// event of the swipe divider. The answer is a function of two `let` paths and cannot change
+    /// while this value exists.
+    private let kind: PairContentKind
+
+    /// Spelled out rather than left to the memberwise initializer, only so ``kind`` can be resolved
+    /// once. Every parameter, its order and its default is the memberwise one this replaced.
+    init(left: DuplicateCopy, right: DuplicateCopy, title: String, subtitle: String,
+         claimHeadline: String?, offersVerify: Bool, keeperPath: String?,
+         allowsKeeperChoice: Bool, notice: String?, scanRoot: String?, providerName: String?,
+         hue: LiquidGlassHue, availableSize: CGSize,
+         onChooseKeeper: @escaping (String) -> Void = { _ in },
+         onClose: @escaping () -> Void,
+         probe: @escaping @Sendable (String) async -> ColumnPreviewSource = {
+             await ColumnPreviewProbe.read(path: $0).source
+         },
+         hash: @escaping @Sendable (String) async -> FileContentVerifier.HashOutcome = {
+             await FileContentVerifier.hashOutcome(filePath: $0, cache: ContentHashCache.shared)
+         },
+         initialMode: ComparePairMode? = nil,
+         @ViewBuilder verdict: @escaping (ComparePairFacts) -> Verdict) {
+        self.left = left
+        self.right = right
+        self.title = title
+        self.subtitle = subtitle
+        self.claimHeadline = claimHeadline
+        self.offersVerify = offersVerify
+        self.keeperPath = keeperPath
+        self.allowsKeeperChoice = allowsKeeperChoice
+        self.notice = notice
+        self.scanRoot = scanRoot
+        self.providerName = providerName
+        self.hue = hue
+        self.availableSize = availableSize
+        self.onChooseKeeper = onChooseKeeper
+        self.onClose = onClose
+        self.probe = probe
+        self.hash = hash
+        self.initialMode = initialMode
+        self.verdict = verdict
+        let leftKind = PairContentKind.classify(path: left.path)
+        self.kind = leftKind == PairContentKind.classify(path: right.path) ? leftKind : .other
+    }
+
     @State private var sources: [String: ColumnPreviewSource] = [:]
     @State private var verify: ComparePairVerify = .idle
     @State private var mode: ComparePairMode = .sideBySide
@@ -209,6 +260,14 @@ struct FilePairCompareView<Verdict: View>: View {
     /// Whether a ↑/↓ search is walking pages right now, so the strip can say so rather than
     /// looking like a key that did nothing on a document whose next difference is far away.
     @State private var pageSearching = false
+    /// The ↑/↓ page walk in flight, held so it can be CANCELLED rather than only ignored.
+    ///
+    /// **The token alone leaves the WORK running.** The walk renders up to
+    /// ``PageDifferenceStepper/renderBudget`` page pairs, two PDFKit serial-lane turns each, and
+    /// checking only the token means a superseded search goes on opening documents on the lane a
+    /// running scan shares — with nothing on screen waiting for any of it. The token stays: it is
+    /// what stops a stale verdict landing. This is what stops the work.
+    @State private var pageSearchTask: Task<Void, Never>?
     @State private var pageStates: [Int: PageDiffState] = [:]
     @State private var swipeFraction: Double = 0.5
     @State private var onionOpacity: Double = 0.5
@@ -230,6 +289,14 @@ struct FilePairCompareView<Verdict: View>: View {
     /// Guards a raster that arrives after the user has paged on — the same token shape the verify
     /// uses, for the same reason.
     @State private var rasterToken = UUID()
+    /// Which pair, page and side the rasters in hand are OF, or nil when there are none — see
+    /// ``decodeKey``. What lets a mode change reuse a decode instead of redoing it.
+    @State private var heldRasterKey: String?
+    /// Which decode ``pageComparison`` was made from, or nil when nothing has been compared.
+    @State private var heldComparisonKey: String?
+    /// Whether that comparison had the de-skew applied — see ``PageComparisonReuse``, which is what
+    /// stops a mode press replacing an aligned verdict with a weaker one.
+    @State private var heldComparisonAligned = false
     /// Whether the current page's rasters are still coming or are never going to. A pane with no
     /// image and no answer here spins for the life of the surface — see ``PairRenderOutcome``.
     @State private var renderOutcome: PairRenderOutcome = .rendering
@@ -240,6 +307,19 @@ struct FilePairCompareView<Verdict: View>: View {
     @State private var pageRegistration: PageRegistration?
     @State private var textDiff: TextPairDiff?
     @State private var textNotes: [String] = []
+    /// The pair the held diff is ABOUT, or nil when there is none.
+    ///
+    /// **What makes the diff survive a mode toggle.** The task that computes it used to be keyed on
+    /// the mode as well as the pair, and its guard cleared `textDiff` on the way out — so every
+    /// `1`→`2` press re-read both files (up to 8 MB), re-split them into lines and re-ran the whole
+    /// walk. The comment justifying that keying is about LAZINESS — a pair never switched to Diff
+    /// costs nothing — and laziness needs no eviction. This is the memo that separates the two.
+    @State private var textDiffPairKey: String?
+    /// The pass in flight, held so it can be CANCELLED — by a pair change, and by the surface
+    /// closing. `.task(id:)` cancels the task that awaits, which a `Task.detached` inside it never
+    /// hears; the handle is the only way to reach the walk itself, which asks `Task.isCancelled` on
+    /// every step of its outer loop.
+    @State private var textDiffTask: Task<TextDiffResult, Never>?
     /// Guards a diff that lands after the pair moved on — the raster path's token, for a race the
     /// text path is MORE exposed to: two detached Myers passes have no ordering between them, so a
     /// slow pair's diff can resume after a fast pair's has already been drawn.
@@ -298,14 +378,6 @@ struct FilePairCompareView<Verdict: View>: View {
         ComparePairFacts.pages(for: kind, pairing: pairing)
     }
 
-    /// The pair's viewer kind. **Both sides must agree, or the pair is `.other`** — a versions
-    /// group can hold `Report.pdf` beside `Report.docx`, and a PDF viewer given a Word document
-    /// shows a blank pane rather than saying it cannot page it.
-    private var kind: PairContentKind {
-        let leftKind = PairContentKind.classify(path: left.path)
-        return leftKind == PairContentKind.classify(path: right.path) ? leftKind : .other
-    }
-
     private var modes: [ComparePairMode] { ComparePairMode.available(for: kind) }
 
     /// The mode to DRAW in — the chosen one, unless this pair does not offer it.
@@ -322,18 +394,27 @@ struct FilePairCompareView<Verdict: View>: View {
     private var resolvedPairing: PagePairing { pairing ?? PagePairing(leftPages: 0, rightPages: 0) }
 
     var body: some View {
-        VStack(spacing: 0) {
+        // **Built once and handed to both readers.** `facts` is a computed property that allocates
+        // its rows — and, through `FileSyncManager.formatBytes`, used to allocate two
+        // `ByteCountFormatter`s each time — and the body read it three times: once for each column
+        // of the strip and once for the verdict bar. One value cannot disagree with itself either,
+        // which is the reason the bar is handed the viewer's facts rather than re-deriving them.
+        let facts = self.facts
+        return VStack(spacing: 0) {
             header
             Divider()
             if let notice { noticeBar(notice) }
-            claimAndFacts
+            claimAndFacts(facts)
             Divider()
             if modes.count > 1 { modeBar }
             panes
             if kind == .pdf, resolvedPairing.stripLength > 1 {
                 Divider()
+                // `.equatable()`, because the surface's body re-runs on every publish of the
+                // manager the host observes and the strip is one view per page.
                 PageStrip(pairing: resolvedPairing, states: pageStates, current: page,
                           accent: accent, isSearching: pageSearching) { page = $0 }
+                    .equatable()
                     .padding(.horizontal, 16).padding(.vertical, 8)
             }
             Divider()
@@ -351,6 +432,14 @@ struct FilePairCompareView<Verdict: View>: View {
         .onAppear {
             focused = true
             if let initialMode { mode = initialMode }
+        }
+        // **Work does not outlive the surface.** Both of these are `Task.detached`/`Task` handles
+        // that no `.task(id:)` can reach: closing the card used to leave a line diff walking two
+        // 4 MB files and a page search with up to fifty PDF opens still queued on the serial lane,
+        // for an answer nothing would ever draw.
+        .onDisappear {
+            textDiffTask?.cancel()
+            pageSearchTask?.cancel()
         }
         // **Both sides are classified at the ROOT, not inside a pane.** The probe used to live in
         // the per-side preview, which only the side-by-side fallback mounts — so opening the
@@ -458,6 +547,14 @@ struct FilePairCompareView<Verdict: View>: View {
             page = 0
             textDiff = nil
             textNotes = []
+            textDiffPairKey = nil
+            // **Not cancelled here, deliberately.** The two tasks re-key on the same render, and
+            // SwiftUI does not promise which starts first: cancelling from this one can land on a
+            // walk the OTHER has just started for the NEW pair, which would leave the diff pane
+            // empty with nothing to re-trigger it. `refreshTextDiff` cancels the previous walk as
+            // it starts the next, which is the one ordering that cannot go wrong — and a walk left
+            // running is bounded by `TextPairDiff.maxDiffWork` and lands nowhere, because the key
+            // it was started for is checked again before anything is written.
             focusedRegion = nil
             verify = .idle
             // **Rotated, not just cleared — the one token the pair change has to move itself.**
@@ -471,6 +568,7 @@ struct FilePairCompareView<Verdict: View>: View {
             clearRasters()
             renderOutcome = .rendering
             pageSearchToken = UUID()
+            pageSearchTask?.cancel()
             pageSearching = false
             // A zoom is about the document the reader was reading, not about this one — a new pair
             // opens fitted, the way it would if the surface had just been opened on it.
@@ -496,11 +594,15 @@ struct FilePairCompareView<Verdict: View>: View {
         // the verdicts it already wrote stay in the strip, so nothing it learned is thrown away.
         .onChange(of: activeMode) { _, _ in
             pageSearchToken = UUID()
+            pageSearchTask?.cancel()
             pageSearching = false
         }
         // Re-read only when the pair changes or the diff is actually being looked at — a text
         // pair the user never switches to Diff costs nothing.
-        .task(id: "\(pairKey)|\(activeMode.rawValue)") { await refreshTextDiff() }
+        // Re-read when the pair changes, and on the FIRST entry into the diff. A text pair the
+        // reader never switches to Diff costs nothing; one they switch away from and back keeps
+        // what it already has — see `textDiffPairKey`.
+        .task(id: "\(pairKey)|\(activeMode == .textDiff)") { await refreshTextDiff() }
         // ↑/↓ step between what CHANGED, in whichever unit the mode is made of: text regions in
         // the diff — a twelve-line replacement is one thing that happened, and twelve presses to
         // get past it is twelve too many — and differing PAGES in a visual mode, where ⇞/⇟ already
@@ -592,7 +694,7 @@ struct FilePairCompareView<Verdict: View>: View {
     // MARK: Claim + facts strip
 
     @ViewBuilder
-    private var claimAndFacts: some View {
+    private func claimAndFacts(_ facts: ComparePairFacts) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             // **Verify sits beside the claim it re-checks, not at the far edge.** Pushed right by
             // a `Spacer` it was a control floating alone 900pt from the sentence that gives it
@@ -615,7 +717,7 @@ struct FilePairCompareView<Verdict: View>: View {
                     .foregroundStyle(verify == .differed ? Color.orange : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            factsGrid
+            factsGrid(facts)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -644,14 +746,15 @@ struct FilePairCompareView<Verdict: View>: View {
     ///
     /// The labels repeat, and that is the cost. At 9pt tertiary they are a gutter rather than
     /// content, and what is bought is that a value never sits over the wrong pane.
-    private var factsGrid: some View {
+    private func factsGrid(_ facts: ComparePairFacts) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            factsBlock(\.left)
-            factsBlock(\.right)
+            factsBlock(facts, \.left)
+            factsBlock(facts, \.right)
         }
     }
 
-    private func factsBlock(_ side: KeyPath<ComparePairFacts.Row, String>) -> some View {
+    private func factsBlock(_ facts: ComparePairFacts,
+                            _ side: KeyPath<ComparePairFacts.Row, String>) -> some View {
         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
             ForEach(facts.rows) { row in
                 GridRow {
@@ -831,60 +934,94 @@ struct FilePairCompareView<Verdict: View>: View {
     /// started: a large pair's diff can resume after a small pair's has been drawn and overwrite
     /// it, leaving one pair's changes under another pair's name until the mode is left and
     /// re-entered. The token is taken before the hop and re-read after it.
+    /// One pass's answer. A CANCELLED pass is a fourth state and lands nowhere: it knows nothing
+    /// about the pair, so writing its empty notes would replace a real answer with silence.
+    private struct TextDiffResult {
+        var diff: TextPairDiff?
+        var notes: [String] = []
+        var cancelled = false
+    }
+
     private func refreshTextDiff() async {
-        let token = UUID()
-        textDiffToken = token
-        guard kind == .text, activeMode == .textDiff else {
-            // Cleared, not merely skipped: a diff left standing here is the PREVIOUS pair's, and
+        // **Not the diff's mode: nothing is cleared and nothing is read.** Leaving `.textDiff` used
+        // to evict the diff, so coming back re-read both files and re-walked them. The pane simply
+        // does not draw while another mode is up.
+        guard activeMode == .textDiff else { return }
+        guard kind == .text else {
+            // A pair that is not text has no diff, and anything held here is the PREVIOUS pair's —
             // `textDiffPane` renders whatever is in it the moment the mode comes back. The focus
-            // goes with it — a position into regions that no longer exist.
+            // goes with it: a position into regions that no longer exist.
             textDiff = nil
             textNotes = []
             focusedRegion = nil
+            textDiffPairKey = nil
             return
         }
+        // Already answered for these two files. The mode has been left and re-entered, which is
+        // not a reason to read 8 MB again.
+        guard textDiffPairKey != pairKey else { return }
+        // The pair this pass is ABOUT, read once. The view can be handed a new pair while the walk
+        // is in flight, and `pairKey` at the far end of the await would then name the wrong two
+        // files — which is exactly what the memo would go on to claim.
+        let key = pairKey
+        let token = UUID()
+        textDiffToken = token
+        textDiffTask?.cancel()
         let leftPath = left.path, rightPath = right.path
-        let result = await Task.detached(priority: .userInitiated) {
-            () -> (TextPairDiff?, [String]) in
+        let task = Task.detached(priority: .userInitiated) { () -> TextDiffResult in
             let left = BoundedTextRead.read(path: leftPath)
             let right = BoundedTextRead.read(path: rightPath)
             var notes: [String] = []
             guard let leftText = left.string, let rightText = right.string else {
                 if let caption = left.caption { notes.append("Left: \(caption)") }
                 if let caption = right.caption { notes.append("Right: \(caption)") }
-                return (nil, notes)
+                return TextDiffResult(diff: nil, notes: notes)
             }
             notes += BoundedTextRead.readingNotes(left: left, right: right)
             let leftLines = BoundedTextRead.lines(leftText)
             let rightLines = BoundedTextRead.lines(rightText)
-            // **Refused before it starts, because it cannot be stopped once it has.** The pass
-            // below is one `CollectionDifference` call, so the token guard further down discards a
-            // superseded result while the work runs on regardless. See
-            // ``TextPairDiff/maxEstimatedCost``.
+            // The cheap pre-filter: two enormous files with nothing in common are refused in one
+            // linear pass, before a line of either is interned. See ``TextPairDiff/refusalNote``.
             if let refusal = TextPairDiff.refusalNote(left: leftLines, right: rightLines) {
                 notes.append(refusal)
-                return (nil, notes)
+                return TextDiffResult(diff: nil, notes: notes)
             }
-            let diff = TextPairDiff.make(left: leftLines, right: rightLines)
-            // Rows the intra-line budget could not pay for are marked whole, and say so — see
-            // ``TextPairDiff/maxEstimatedIntraLineCost``.
-            if let note = TextPairDiff.coarseNote(rows: diff.coarseRows) { notes.append(note) }
-            return (diff, notes)
-        }.value
-        guard textDiffToken == token else { return }
+            // **The walk is bounded and it stops when this task is cancelled**, which is what the
+            // handle above exists for: closing the surface now ends the work rather than only
+            // discarding what it produces. See ``TextPairDiff/maxDiffWork``.
+            switch TextPairDiff.bounded(left: leftLines, right: rightLines,
+                                        isCancelled: { Task.isCancelled }) {
+            case .cancelled:
+                return TextDiffResult(diff: nil, cancelled: true)
+            case .tooDifferent:
+                // The same finding, in the same words, as the pre-filter's — the estimate is a
+                // lower bound, so this is the one that catches a reordered file.
+                notes.append(TextPairDiff.refusalCaption)
+                return TextDiffResult(diff: nil, notes: notes)
+            case .diffed(let diff):
+                // Rows the intra-line budget could not pay for are marked whole, and say so — see
+                // ``TextPairDiff/maxIntraLineWork``.
+                if let note = TextPairDiff.coarseNote(rows: diff.coarseRows) { notes.append(note) }
+                return TextDiffResult(diff: diff, notes: notes)
+            }
+        }
+        textDiffTask = task
+        let result = await task.value
+        guard textDiffToken == token, key == pairKey, !result.cancelled else { return }
         // Logged where the result LANDS, so a superseded pass says nothing: the note the reader is
         // given is the one written down. A refusal is the whole answer, which is why it is a
         // warning; a coarse row is a diff that arrived with less in it than usual.
-        if result.0 == nil, !result.1.isEmpty {
+        if result.diff == nil, !result.notes.isEmpty {
             Logger.shared.warning(
-                "[compare] no line diff for \(left.path) vs \(right.path): \(result.1.joined(separator: " "))")
-        } else if let diff = result.0, diff.coarseRows > 0 {
+                "[compare] no line diff for \(left.path) vs \(right.path): \(result.notes.joined(separator: " "))")
+        } else if let diff = result.diff, diff.coarseRows > 0 {
             Logger.shared.info(
                 "[compare] \(diff.coarseRows) row(s) too long for the word pass in \(left.path) vs \(right.path)")
         }
-        textDiff = result.0
-        textNotes = result.1
+        textDiff = result.diff
+        textNotes = result.notes
         focusedRegion = nil
+        textDiffPairKey = key
     }
 
     /// Whether both documents actually opened. **A page count of zero is a document that would not
@@ -1047,9 +1184,47 @@ struct FilePairCompareView<Verdict: View>: View {
     /// refresh bails when the sides are not yet classified; without that term nothing re-keys the
     /// task when they are, so the bail was permanent.
     private var rasterKey: String {
-        "\(pairKey)|\(page)|\(kind.rawValue)|\(needsRasters)|\(showsOverlayModes)"
+        "\(decodeKey)|\(showsOverlayModes)|\(wantsAlignedDifference)"
+    }
+
+    /// What the two RASTERS depend on — everything the key above holds except the mode.
+    ///
+    /// **Split out because the mode was making the decode run again.** `rasterKey` carries
+    /// `showsOverlayModes`, so entering or leaving a pixel mode re-keyed the task and
+    /// `refreshRasters` decoded both sides afresh — a fresh `CGImageSourceCreateThumbnailAtIndex`
+    /// per side — before comparing anything. For an image pair the rasters are needed in EVERY
+    /// mode and were already in hand: the whole decode was thrown away and redone to answer a
+    /// question about the comparison.
+    ///
+    /// Held against ``heldRasterKey``, which names the pair, page and side the rasters on hand are
+    /// actually of.
+    private var decodeKey: String {
+        "\(pairKey)|\(page)|\(kind.rawValue)|\(needsRasters)"
             + "|\(bothSidesReadable)|\(resolvedPairing.stripLength)"
     }
+
+    /// Whether the mode on screen is the one that wants the expensive comparison — the de-skew,
+    /// and the difference raster it is drawn against. One property, because it is one mode.
+    ///
+    /// **The difference raster** is a third full-page image and a pass over two more, and swipe and
+    /// onion draw none of it. It was computed for all three overlay modes because they share one
+    /// refresh.
+    ///
+    /// **The de-skew** costs far more — measured at 1600×2070 on an Apple M4, Release, machine
+    /// quiet: the aligned comparison is 588 ms against the plain one's 7.8 ms, and 564 ms of that
+    /// is `PageRegistrationEstimator.estimate` alone — and outside the difference mode nothing reads
+    /// what it produces: `alignmentCaveat` and the callouts are both gated on `.difference`, so in swipe and
+    /// onion the only surviving output was the strip's dot for the visible page.
+    ///
+    /// **And that dot was the odd one out, not the rule.** `comparedState(atPage:)` — the walk that
+    /// fills `pageStates` for every page the ↑/↓ search touches — has always used the plain,
+    /// unaligned `BitmapDiff.compare`; only the visible page went through the aligned path. So a
+    /// document's strip already carries one aligned dot among a row of unaligned ones, and which
+    /// page is the odd one out moves as the reader navigates. Gating the estimator here makes the
+    /// strip uniformly unaligned outside the difference mode: it removes a mixture rather than
+    /// creating one. Inside the difference mode, where the alignment is read and captioned, nothing
+    /// changes.
+    private var wantsAlignedDifference: Bool { activeMode == .difference }
 
     /// Whether the DIFF is being looked at, as opposed to the rasters merely being needed.
     ///
@@ -1089,12 +1264,16 @@ struct FilePairCompareView<Verdict: View>: View {
             page = destination
         case .examine(let candidates, let fallback):
             pageSearching = true
-            Task {
+            pageSearchTask?.cancel()
+            let task = Task {
                 defer { if pageSearchToken == token { pageSearching = false } }
                 for candidate in candidates {
-                    guard pageSearchToken == token else { return }
+                    // Both, and they answer different questions: the token says a NEWER search has
+                    // superseded this one, and cancellation says nobody is waiting for any search
+                    // at all — the surface has closed, or the pair has moved on.
+                    guard pageSearchToken == token, !Task.isCancelled else { return }
                     let state = await comparedState(atPage: candidate)
-                    guard pageSearchToken == token else { return }
+                    guard pageSearchToken == token, !Task.isCancelled else { return }
                     pageStates[candidate] = state
                     if PageDifferenceStepper.isDifference(state) {
                         page = candidate
@@ -1105,6 +1284,7 @@ struct FilePairCompareView<Verdict: View>: View {
                 // `Plan.examine`. Landing there is what stops the press reading as a dead key.
                 if let fallback { page = fallback }
             }
+            pageSearchTask = task
         }
     }
 
@@ -1149,6 +1329,11 @@ struct FilePairCompareView<Verdict: View>: View {
         rasters = (nil, nil)
         pageRegistration = nil
         pageComparison = PageComparison()
+        // The two memos describe what was just dropped, and a memo that outlived its value would
+        // let the next refresh reuse rasters that are no longer there.
+        heldRasterKey = nil
+        heldComparisonKey = nil
+        heldComparisonAligned = false
     }
 
     /// Renders both sides of the current page and diffs them.
@@ -1167,53 +1352,83 @@ struct FilePairCompareView<Verdict: View>: View {
         }
         let token = UUID()
         rasterToken = token
-        renderOutcome = .rendering
-        let leftPage = resolvedPairing.leftIndex(at: page)
-        let rightPage = resolvedPairing.rightIndex(at: page)
-        let kind = self.kind
-        async let leftImage = PagePairRaster.render(path: left.path, kind: kind,
-                                                    page: leftPage,
-                                                    longEdge: PagePairRaster.compareLongEdge)
-        async let rightImage = PagePairRaster.render(path: right.path, kind: kind,
-                                                     page: rightPage,
-                                                     longEdge: PagePairRaster.compareLongEdge)
-        let (l, r) = (await leftImage, await rightImage)
-        // A raster that lands after the user has paged on describes a page nobody is looking at.
-        guard rasterToken == token else { return }
-        rasters = (l?.cgImage, r?.cgImage)
-        guard let l, let r else {
-            pageComparison = PageComparison()
-            pageStates[page] = .unrenderable
-            // **The same finding the strip just recorded, told to the panes.** They knew only that
-            // they had no image, which is what a render still in flight looks like too.
-            renderOutcome = .failed(left: l == nil, right: r == nil)
-            // On the visible page only — the page search renders many and would turn a broken
-            // document into a hundred lines. "It said my file could not be rendered" is the
-            // report this surface will actually generate, and the log held nothing about it.
-            let unread = [l == nil ? left.path : nil, r == nil ? right.path : nil].compactMap { $0 }
-            Logger.shared.warning(
-                "[compare] page \(page + 1) would not render: \(unread.joined(separator: ", "))")
-            return
+        let decodeKey = self.decodeKey
+
+        // **The decode is skipped when the rasters on hand are already of this page.** Only the
+        // MODE changed — see ``decodeKey``.
+        var pair: (left: CGImage, right: CGImage)?
+        if heldRasterKey == decodeKey, let l = rasters.left, let r = rasters.right {
+            pair = (l, r)
+        }
+
+        if pair == nil {
+            renderOutcome = .rendering
+            let leftPage = resolvedPairing.leftIndex(at: page)
+            let rightPage = resolvedPairing.rightIndex(at: page)
+            let kind = self.kind
+            async let leftImage = PagePairRaster.render(path: left.path, kind: kind,
+                                                        page: leftPage,
+                                                        longEdge: PagePairRaster.compareLongEdge)
+            async let rightImage = PagePairRaster.render(path: right.path, kind: kind,
+                                                         page: rightPage,
+                                                         longEdge: PagePairRaster.compareLongEdge)
+            let (l, r) = (await leftImage, await rightImage)
+            // A raster that lands after the user has paged on describes a page nobody is looking at.
+            guard rasterToken == token else { return }
+            rasters = (l?.cgImage, r?.cgImage)
+            heldRasterKey = decodeKey
+            heldComparisonKey = nil
+            guard let l, let r else {
+                pageComparison = PageComparison()
+                pageStates[page] = .unrenderable
+                // **The same finding the strip just recorded, told to the panes.** They knew only
+                // that they had no image, which is what a render still in flight looks like too.
+                renderOutcome = .failed(left: l == nil, right: r == nil)
+                // On the visible page only — the page search renders many and would turn a broken
+                // document into a hundred lines. "It said my file could not be rendered" is the
+                // report this surface will actually generate, and the log held nothing about it.
+                let unread = [l == nil ? left.path : nil,
+                              r == nil ? right.path : nil].compactMap { $0 }
+                Logger.shared.warning(
+                    "[compare] page \(page + 1) would not render: \(unread.joined(separator: ", "))")
+                return
+            }
+            pair = (l.cgImage, r.cgImage)
         }
         renderOutcome = .ready
+        guard let pair else { return }
         guard showsOverlayModes else {
             // The rasters are up (the image viewer draws them); nothing here is being compared.
             pageComparison = PageComparison()
+            heldComparisonKey = nil
             return
         }
+        let wantsAligned = wantsAlignedDifference
+        // **What is held may already be better than what this mode asks for**, and then it stays —
+        // see ``PageComparisonReuse``. Recomputing an unaligned verdict over an aligned one would
+        // change the strip's dot for this page under a mode press that changed nothing about it.
+        guard !PageComparisonReuse.isEnough(held: heldComparisonKey, decode: decodeKey,
+                                            heldAligned: heldComparisonAligned,
+                                            wantsAligned: wantsAligned) else { return }
+        let (l, r) = (SendableImage(pair.left), SendableImage(pair.right))
         // Off the main actor: this is the buffer loop, and on a 1600px page it is milliseconds of
         // arithmetic that has no business on the actor that draws the window.
-        let comparison = await Task.detached(priority: .utility) { () -> (SendableImage?, BitmapDiffResult?) in
-            (BitmapDiff.differenceImage(l.cgImage, r.cgImage).map(SendableImage.init),
-             // **Aligned here, and only here.** De-skewing costs ~130ms a page (measured, Release),
-             // against ~190ms to render one — affordable once for the page being looked at, and
-             // not affordable for `pageDiffState`'s walk, which the ↑/↓ search runs over
-             // twenty-five pages at a time. The strip's dots answer "did anything change", which a
-             // skew does not change the answer to; the difference view answers "where", which it
-             // does.
-             BitmapDiff.compareAligning(l.cgImage, r.cgImage))
+        let comparison = await Task.detached(priority: .utility) {
+            () -> (SendableImage?, BitmapDiffResult?) in
+            // **Aligned only for the mode that reads the alignment**, and the difference raster
+            // comes out of the same call rather than from a second, independent pass over its own
+            // normalised copies of both pages. See ``wantsAlignedDifference`` for why the other two
+            // overlay modes are better off without either.
+            guard wantsAligned else { return (nil, BitmapDiff.compare(l.cgImage, r.cgImage)) }
+            let outcome = BitmapDiff.compareAligning(l.cgImage, r.cgImage,
+                                                     wantsDifferenceImage: true)
+            return (outcome.difference.map(SendableImage.init), outcome.result)
         }.value
         guard rasterToken == token else { return }
+        heldComparisonKey = decodeKey
+        // Nil for an unaligned pass, which is what keeps `alignmentCaveat` from captioning one as
+        // a de-skewed comparison: the caption is read straight off `pageRegistration`.
+        heldComparisonAligned = wantsAligned
         pageRegistration = comparison.1?.registration
         pageComparison = PageComparison(image: comparison.0?.cgImage,
                                         regions: comparison.1?.changedRects ?? [])

@@ -435,6 +435,8 @@ struct ImagePairView: NSViewRepresentable {
         var observers: [NSObjectProtocol] = []
         var scrollViews: [NSScrollView] = []
         var syncSuspended = false
+        /// The two rasters currently on screen, by identity — see `updateNSView`.
+        var shown: [CGImage?] = [nil, nil]
         deinit {
             for observer in observers { NotificationCenter.default.removeObserver(observer) }
         }
@@ -468,11 +470,18 @@ struct ImagePairView: NSViewRepresentable {
         return scroll
     }
 
+    /// **Only what actually changed is assigned.** `updateNSView` runs on every render of the
+    /// surface above it — every publish of the manager the host observes, every pointer event of a
+    /// divider drag — and it used to wrap the same unchanged `CGImage` in a new `NSImage` and
+    /// reassign it each time, which resets the image view and its frame. `CGImage` is immutable,
+    /// so identity is the whole question: the same object is the same picture.
     func updateNSView(_ split: NSSplitView, context: Context) {
         context.coordinator.syncSuspended = syncSuspended
         let images = [left, right]
         for (index, scroll) in context.coordinator.scrollViews.enumerated() {
             guard let imageView = scroll.documentView as? NSImageView else { continue }
+            guard context.coordinator.shown[index] !== images[index] else { continue }
+            context.coordinator.shown[index] = images[index]
             if let image = images[index] {
                 let size = CGSize(width: image.width, height: image.height)
                 imageView.image = NSImage(cgImage: image, size: size)
