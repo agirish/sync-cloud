@@ -48,12 +48,13 @@ struct MarkdownPreview: View {
                 // here is what keeps the app out of the business of deciding which schemes are
                 // acceptable — that is the system's job and it already asks.
                 .environment(\.openURL, OpenURLAction { url in openLink(url) })
-                // **`initial: false`.** A request that arrives with the view — opening a file from
-                // an outline row — is answered by the `.task` below instead, once the blocks it
-                // names actually exist; scrolling to an id in a `LazyVStack` that has not built a
-                // single row yet is a no-op that looks like the feature being broken every other
-                // time.
-                .onChange(of: scrollRequest) { _, request in scroll(to: request, with: proxy) }
+                // **One scroll per request, not two.** An `.onChange(of: scrollRequest)` sat here
+                // as well, and it fired for exactly the requests the `.task` below already answers
+                // — the task's id carries the same request — so every scroll ran twice: once
+                // against rows that may not exist yet, then again a turn later. In split that is
+                // two `scrollTo`s per line scrolled past on the other side. The task is the one
+                // that is correct on its own (it yields first, so the `LazyVStack` rows named
+                // below have been built), so it is the one that stayed.
                 .task(id: EditorPreviewScrollKey(request: scrollRequest, count: blocks.count)) {
                     // One turn, so the rows named below have been built.
                     await Task.yield()
@@ -211,8 +212,12 @@ struct MarkdownPreview: View {
             frontMatterChip(matter)
 
         case .image(let source, let alt):
-            MarkdownImageView(source: MarkdownImageSource.resolve(source, relativeTo: documentFolder),
-                              alt: alt, accent: accent)
+            // **The raw source, resolved inside the image view rather than here.** Resolving is
+            // four filesystem calls — an existence check, a cloud-placeholder check, a symlink
+            // resolve and a stat — and this is a `body`, so it ran once per visible image on every
+            // render pass, which in preview or split is every keystroke. It happens once per image
+            // in a task now. See ``MarkdownImageView``.
+            MarkdownImageView(source: source, folder: documentFolder, alt: alt, accent: accent)
 
         case .listItem(let marker, let text):
             HStack(alignment: .firstTextBaseline, spacing: 7) {
@@ -395,17 +400,29 @@ struct MarkdownPreview: View {
 
 /// One image from the document's own folder, or the reason it is not being drawn.
 ///
-/// **Loaded off the main actor and only when the row is built.** The preview is a `LazyVStack`, so
-/// a note with forty screenshots decodes the two that are on screen — and decoding is the expensive
-/// part, which is why it happens in a `Task` rather than in `body`.
+/// **Resolved AND loaded off the main actor, and only when the row is built.** The preview is a
+/// `LazyVStack`, so a note with forty screenshots touches the two that are on screen.
+///
+/// **Resolving used to happen in the preview's `body`**, which meant `MarkdownImageSource.resolve`
+/// — an existence check, a cloud-placeholder check, a symlink resolve and a `stat`, four filesystem
+/// calls — ran for every visible image on every render pass. In preview or split mode that is every
+/// keystroke. It is a question about a file on disk, so it belongs beside the decode, in the task
+/// that already goes off the main actor for it.
+///
+/// The one visible consequence: a source that cannot be drawn now shows "Loading…" for the frame
+/// before the answer arrives, where before the reason was known by the time anything was drawn.
 struct MarkdownImageView: View {
 
-    let source: MarkdownImageSource
+    /// The raw `![alt](source)` text, unresolved — see the note above.
+    let source: String
+    /// The open document's folder, which is what a relative source resolves against.
+    let folder: String?
     let alt: String
     let accent: Color
 
     @State private var image: NSImage?
-    @State private var failed = false
+    /// Why there is no image, or `nil` while nothing has been decided yet.
+    @State private var refusal: String?
 
     /// The tallest an image is drawn, whatever its own size.
     ///
@@ -416,24 +433,29 @@ struct MarkdownImageView: View {
 
     var body: some View {
         Group {
-            switch source {
-            case .local(let path):
-                if let image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: Self.maxHeight, alignment: .leading)
-                        .clipShape(RoundedRectangle(cornerRadius: Radius.well))
-                        .accessibilityLabel(alt.isEmpty ? "Image" : alt)
-                } else {
-                    placeholder(failed ? "Couldn’t be read as an image." : "Loading…")
-                        .task(id: path) { await load(path) }
-                }
-            case .refused(let reason):
-                placeholder(reason)
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: Self.maxHeight, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.well))
+                    .accessibilityLabel(alt.isEmpty ? "Image" : alt)
+            } else {
+                placeholder(refusal ?? "Loading…")
             }
         }
         .padding(.vertical, 6)
+        // **On the `Group`, not inside the `else` arm.** Hung inside the branch that draws the
+        // placeholder, the task is torn down the instant the image arrives and the branch swaps —
+        // which is harmless while it has finished, and is exactly the kind of arrangement that
+        // stops re-running when the source changes under a drawn image.
+        .task(id: MarkdownImageKey(source: source, folder: folder)) { await load() }
+    }
+
+    /// What a new image is: a different source, or the same source in a different folder.
+    private struct MarkdownImageKey: Equatable {
+        var source: String
+        var folder: String?
     }
 
     /// The alt text and the reason, in the preview's own type — never a broken-image glyph.
@@ -458,14 +480,35 @@ struct MarkdownImageView: View {
         .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.3)))
     }
 
-    private func load(_ path: String) async {
+    /// Resolves the source, then decodes it — both off the main actor.
+    private func load() async {
+        let raw = source
+        let against = folder
+        let resolved = await Task.detached(priority: .userInitiated) {
+            MarkdownImageSource.resolve(raw, relativeTo: against)
+        }.value
+        guard !Task.isCancelled else { return }
+        guard case .local(let path) = resolved else {
+            if case .refused(let reason) = resolved {
+                image = nil
+                refusal = reason
+            }
+            return
+        }
         let loaded = await Task.detached(priority: .userInitiated) {
             // `NSImage(contentsOfFile:)` and not `contentsOf:` — the path has already been resolved
             // and checked; building a URL here only to have AppKit take it apart again invites a
             // second, different opinion about what the path meant.
             NSImage(contentsOfFile: path)
         }.value
-        if let loaded { image = loaded } else { failed = true }
+        guard !Task.isCancelled else { return }
+        if let loaded {
+            image = loaded
+            refusal = nil
+        } else {
+            image = nil
+            refusal = "Couldn’t be read as an image."
+        }
     }
 }
 

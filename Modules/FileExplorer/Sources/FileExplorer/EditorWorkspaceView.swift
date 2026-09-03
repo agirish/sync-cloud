@@ -64,6 +64,13 @@ public enum EditorLayoutMetrics {
 public struct EditorWorkspaceView: View {
 
     @ObservedObject var document: EditorDocument
+    /// The document's characters, observed separately — see ``EditorBuffer``.
+    ///
+    /// **This view is where the split's two halves meet.** The window above renders the file's
+    /// identity and is not told about a keystroke; everything from here down renders the text and
+    /// has to be. So the buffer is observed here, once, and the redraw a keystroke causes stops at
+    /// this view rather than reaching `ContentView.body` and the App scene's `.commands` tree.
+    @ObservedObject var buffer: EditorBuffer
     /// Which files autosave may write. See ``EditorAutosavePolicy``.
     @ObservedObject var autosavePolicy: EditorAutosavePolicy
 
@@ -134,6 +141,10 @@ public struct EditorWorkspaceView: View {
     @State private var blocks: [MarkdownBlock] = []
     /// What the status line says about the buffer, re-derived on the same debounce as the parse.
     @State private var facts: EditorDocumentFacts = .empty
+    /// Where every line of the buffer begins, built beside the counts and for the same reason —
+    /// see ``EditorLineIndex``. The split's scroll sync and the outline's caret both read it
+    /// instead of walking the buffer on the main actor.
+    @State private var lineIndex: EditorLineIndex = .empty
     /// The caret's UTF-16 offset, as the text view last reported it.
     ///
     /// **The offset is kept and the line/column is derived**, rather than the reverse: converting
@@ -184,6 +195,10 @@ public struct EditorWorkspaceView: View {
         self._railTab = railTab
         self._railOutlineAnchors = railOutlineAnchors
         self.document = document
+        // Taken from the document rather than passed in: there is exactly one buffer per document
+        // and it is held for the document's life, so a second parameter would only be a way for a
+        // caller to hand this view the wrong one.
+        self.buffer = document.buffer
         self.autosavePolicy = autosavePolicy
         self.folder = folder
         self.entries = entries
@@ -274,8 +289,8 @@ public struct EditorWorkspaceView: View {
             // as a measurement of the file rather than of the nothing that was loaded.
             if document.path != nil, document.refusal == nil {
                 Divider()
-                EditorStatusLine(facts: facts, caret: caret,
-                                 fileSize: document.stamp.map { FileSyncManager.formatBytes($0.size) })
+                // Formatted when the stamp moved, not here — see ``EditorDocument/sizeCaption``.
+                EditorStatusLine(facts: facts, caret: caret, fileSize: document.sizeCaption)
             }
         }
     }
@@ -545,7 +560,11 @@ public struct EditorWorkspaceView: View {
             // end of it.
             .task(id: EditorParseKey(version: document.textVersion, path: document.path)) {
                 guard document.isMarkdown else {
-                    blocks = []
+                    // **Only when there is something to clear.** This task restarts on every
+                    // keystroke, and on a plain-text file it reached an unconditional write of an
+                    // empty array into `@State` — which SwiftUI treats as a change and answers with
+                    // a body pass, per keystroke, for a value that was already empty.
+                    if !blocks.isEmpty { blocks = [] }
                     return
                 }
                 // Cancelled by the next keystroke, which is the whole mechanism.
@@ -571,11 +590,16 @@ public struct EditorWorkspaceView: View {
                 guard !Task.isCancelled else { return }
                 let source = document.text
                 let encoding = document.encodingName
-                let counted = await Task.detached(priority: .utility) {
-                    EditorDocumentFacts.of(source, encoding: encoding)
+                // **The line table is built in the same detached pass**, because it is the same
+                // walk of the same buffer and the alternative is doing it on the main actor once
+                // per scroll tick. See ``EditorLineIndex`` for what accepts a stale one.
+                let derived = await Task.detached(priority: .utility) {
+                    (facts: EditorDocumentFacts.of(source, encoding: encoding),
+                     lines: EditorLineIndex(text: source))
                 }.value
                 guard !Task.isCancelled else { return }
-                facts = counted
+                facts = derived.facts
+                lineIndex = derived.lines
             }
             // The caret is its own key, because it moves without the text changing — and the text
             // changing moves it too, which is why the version is in here as well as the offset.
@@ -669,15 +693,39 @@ public struct EditorWorkspaceView: View {
         }
     }
 
+    /// Who is told where the text has scrolled to — nobody, outside `.split`.
+    ///
+    /// **The gate, and it is here rather than inside `followTheText`.** Nothing follows the text in
+    /// the other two modes, and what cost was never the closure: it was working out which line was
+    /// on top, which walked the buffer, before anything could decline to use the answer.
+    private var visibleLineReporter: ((Int) -> Void)? {
+        guard Self.followsVisibleLine(mode) else { return nil }
+        return { line in followTheText(line) }
+    }
+
+    /// Whether anything is following where the text has scrolled to.
+    ///
+    /// **A named rule rather than an inline `mode == .split`, because it is the gate.** Only the
+    /// split mounts a preview beside the text; in the other two the answer is computed and thrown
+    /// away, and computing it means finding the topmost visible line for every clip-view bounds
+    /// notification — once per scrolled row, and once per keystroke at the end of a long file.
+    ///
+    /// The **unresolved** mode, deliberately. `EditorMode.resolved` turns `.split` into `.edit` on a
+    /// file with nothing to preview, and this has to agree with ``followTheText``, which asks the
+    /// same unresolved question. Asking different ones is how the two halves of a split end up
+    /// disagreeing about whether they are a split.
+    static func followsVisibleLine(_ mode: EditorMode) -> Bool { mode == .split }
+
     private var editorSurface: some View {
-        PlainTextEditor(text: $document.text,
+        PlainTextEditor(text: $buffer.text,
                         isEditable: !document.isReadOnly,
                         fontScale: fontScale,
                         documentID: document.path,
                         undoManager: undoManager,
                         onSelectionChange: { caretOffset = $0.location },
                         scrollRequest: editorScrollRequest,
-                        onVisibleLineChange: followTheText,
+                        onVisibleLineChange: visibleLineReporter,
+                        lineIndex: lineIndex,
                         findRequest: findRequest,
                         // Withheld on a file that cannot be written — a Markup menu that greys out
                         // is a promise the document cannot keep.

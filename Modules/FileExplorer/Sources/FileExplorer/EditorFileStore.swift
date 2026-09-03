@@ -128,7 +128,7 @@ public enum EditorFileStore {
     }
 
     /// How the file on disk differs from the buffer's idea of it.
-    public enum Divergence: Equatable {
+    public enum Divergence: Equatable, Sendable {
         /// It changed since it was opened.
         case changed
         /// It is not there any more.
@@ -216,9 +216,104 @@ public enum EditorFileStore {
         }
     }
 
+    /// Serialises every write this store makes, and orders them.
+    ///
+    /// **Two writers now exist where there was one.** Autosave writes off the main actor from a
+    /// snapshot; ⌘S, the flush at every route out of a document, and the flush at quit all still
+    /// write synchronously on the main actor. Without a shared order the two can interleave, and
+    /// the failure is silent and one-directional: a background write carrying an older snapshot
+    /// landing *after* a synchronous write of a newer one leaves the older text on disk with
+    /// nothing on screen saying so. At quit there is no later write to put it right.
+    ///
+    /// So a write takes a **ticket**, and the store refuses one that has been overtaken:
+    ///
+    /// - A synchronous write takes its ticket inside the lock, so it is always the newest and
+    ///   always commits. A background write in progress makes it wait, which is correct — it is
+    ///   the newer text and it must land last.
+    /// - A background write takes its ticket on the main actor when it is dispatched. If anything
+    ///   has committed since, its ticket is stale and it writes nothing at all, which is right:
+    ///   what it was carrying is older than what is already there.
+    ///
+    /// The lock is held across the whole write, `F_FULLFSYNC` included. That is tens of
+    /// milliseconds on an internal SSD and more on an external volume — paid by a synchronous
+    /// flush that collides with a background one, which is rare and is the only way to be correct.
+    /// **Ordered per destination, because that is the question.** Two writes to two different files
+    /// cannot overwrite each other, and a global order would make one refuse the other for no
+    /// reason — which in a test process running suites in parallel is a flake, and in the app is a
+    /// save silently declining because something else was written first. The ticket counter is
+    /// global and monotonic so tickets remain comparable; what is remembered per path is only the
+    /// newest one that actually committed there.
+    ///
+    /// The map is never pruned. It holds one small entry per file this store has written for the
+    /// life of the process, and the editor writes one open document at a time.
+    private final class WriteOrder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var issued: UInt64 = 0
+        private var committed: [String: UInt64] = [:]
+
+        /// The ticket a write dispatched now should carry.
+        func issue() -> UInt64 {
+            lock.lock()
+            defer { lock.unlock() }
+            issued &+= 1
+            return issued
+        }
+
+        /// Runs `body` under this destination's write order.
+        ///
+        /// - Parameter ticket: `nil` for a write happening now, which takes a fresh ticket and
+        ///   therefore always wins. A ticket issued earlier commits only if nothing newer has
+        ///   committed to the same destination since.
+        /// - Returns: `nil` when the write was overtaken and nothing was written.
+        func perform<T>(ticket: UInt64?, to path: String, _ body: () throws -> T) rethrows -> T? {
+            lock.lock()
+            defer { lock.unlock() }
+            let mine: UInt64
+            if let ticket {
+                guard ticket > (committed[path] ?? 0) else { return nil }
+                mine = ticket
+            } else {
+                issued &+= 1
+                mine = issued
+            }
+            let result = try body()
+            committed[path] = max(committed[path] ?? 0, mine)
+            return result
+        }
+    }
+
+    private static let writeOrder = WriteOrder()
+
+    /// A ticket for a write that is about to be dispatched off the main actor.
+    ///
+    /// Taken at dispatch rather than inside the write, so that a synchronous write issued *after*
+    /// this one — a ⌘S, a flush, a quit — outranks it. See ``WriteOrder``.
+    static func issueWriteTicket() -> UInt64 { writeOrder.issue() }
+
     @discardableResult
     static func write(_ text: String, toPath path: String,
                       encoding: BoundedTextRead.TextEncoding = .utf8) throws -> Stamp {
+        // A write happening now, so it takes the newest ticket and cannot be refused — which is
+        // what makes the force-unwrap total rather than optimistic.
+        try writeOrder.perform(ticket: nil, to: resolved(path)) {
+            try writeUnordered(text, toPath: path, encoding: encoding)
+        }!
+    }
+
+    /// The same write, carrying a ticket taken earlier — see ``WriteOrder``.
+    ///
+    /// - Returns: `nil` when a newer write has already committed, in which case nothing was
+    ///   written and nothing should be marked saved against it.
+    static func write(_ text: String, toPath path: String,
+                      encoding: BoundedTextRead.TextEncoding,
+                      ticket: UInt64) throws -> Stamp? {
+        try writeOrder.perform(ticket: ticket, to: resolved(path)) {
+            try writeUnordered(text, toPath: path, encoding: encoding)
+        }
+    }
+
+    private static func writeUnordered(_ text: String, toPath path: String,
+                                       encoding: BoundedTextRead.TextEncoding) throws -> Stamp {
         let fileManager = FileManager.default
         let destination = URL(fileURLWithPath: resolved(path))
 

@@ -524,7 +524,9 @@ struct EditorFileRailView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
-                Text(FileSyncManager.formatBytes(entry.size))
+                // Formatted when the rows were listed, off the main actor — see
+                // ``EditorRailEntry/sizeCaption``.
+                Text(entry.sizeCaption)
                     .scaledFont(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }

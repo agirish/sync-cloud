@@ -254,31 +254,56 @@ extension MarkdownEdits {
             }
         }
 
-        var result = text
+        // **The covered lines are rewritten once, into the range that covers them.**
+        //
+        // This used to rebuild the *whole* buffer per selected line —
+        // `result = result.replacingCharacters(in:with:)` inside the loop — which is O(n) per line
+        // and therefore O(n · lines) for the verb. Selecting a 500-line section of a 200 KB note to
+        // quote it copied 100 MB. Nothing outside the covered range can change (every edit is a
+        // line prefix), so the rewrite is assembled from the lines and spliced in once, and the
+        // buffer is copied exactly twice: the pieces out, and the result in.
+        let covered = NSRange(location: lines[0].location,
+                              length: NSMaxRange(lines[lines.count - 1]) - lines[0].location)
+        var rebuilt = ""
         var delta = 0
         var numbered = 0
+        var cursor = covered.location
         for range in lines {
-            let shifted = NSRange(location: range.location + delta, length: range.length)
-            let line = (result as NSString).substring(with: shifted)
+            // The terminator (and any gap) between this line and the last, kept verbatim.
+            if range.location > cursor {
+                rebuilt += ns.substring(with: NSRange(location: cursor,
+                                                      length: range.location - cursor))
+            }
+            cursor = NSMaxRange(range)
+            let line = ns.substring(with: range)
             // A blank line inside a selection keeps its blankness: prefixing it would put a lone
             // `- ` between two paragraphs.
-            guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+            guard !line.trimmingCharacters(in: .whitespaces).isEmpty else {
+                rebuilt += line
+                continue
+            }
             let rewritten = isRemoval ? stripping(prefix, from: line)
                                       : applying(prefix, to: line, at: numbered)
             numbered += 1
-            result = (result as NSString).replacingCharacters(in: shifted, with: rewritten)
-            delta += (rewritten as NSString).length - shifted.length
+            rebuilt += rewritten
+            delta += (rewritten as NSString).length - range.length
         }
-        guard result != text else { return nil }
+        guard (rebuilt as NSString).length != covered.length
+                || rebuilt != ns.substring(with: covered) else { return nil }
+        let result = ns.replacingCharacters(in: covered, with: rebuilt)
         return MarkupEdit(text: result, selection: selectionAfter(selection, delta: delta, in: result))
     }
 
-    private static func stripping(_ prefix: LinePrefix, from line: String) -> String {
+    /// Internal rather than private, so `MarkupPrefixLinesEquivalenceTests` can run the OLD
+    /// `prefixLines` algorithm beside the new one over the same helpers — which is what makes
+    /// "the rewrite is behaviour-preserving" a measurement rather than an argument.
+    static func stripping(_ prefix: LinePrefix, from line: String) -> String {
         guard let match = firstMatch(prefix.pattern, in: line) else { return line }
         return (line as NSString).replacingCharacters(in: match, with: "")
     }
 
-    private static func applying(_ prefix: LinePrefix, to line: String, at index: Int) -> String {
+    /// Internal for the reason ``stripping(_:from:)`` is.
+    static func applying(_ prefix: LinePrefix, to line: String, at index: Int) -> String {
         var body = line
         // Its own kind first, so re-applying at a different level replaces rather than stacks.
         body = stripping(prefix, from: body)
@@ -295,7 +320,7 @@ extension MarkdownEdits {
     /// **The whole run stays selected**, growing or shrinking with it, because the next verb is
     /// usually aimed at the same lines — quote it, then make it a list. A caret left at the end
     /// would mean re-dragging between every pair of verbs.
-    private static func selectionAfter(_ selection: NSRange, delta: Int, in text: String) -> NSRange {
+    static func selectionAfter(_ selection: NSRange, delta: Int, in text: String) -> NSRange {
         let length = (text as NSString).length
         let location = min(max(selection.location, 0), length)
         return NSRange(location: location, length: min(max(selection.length + delta, 0), length - location))
@@ -382,8 +407,35 @@ extension MarkdownEdits {
         return (range, replacement)
     }
 
+    /// The compiled line-prefix patterns, kept because there are only ever six of them.
+    ///
+    /// **Compiled once, not once per line.** `applying(_:to:at:)` asks `firstMatch` up to five
+    /// times for a single line — its own pattern plus the four it replaces — and every ask built a
+    /// fresh `NSRegularExpression` from source. Applying a list verb to a 500-line selection
+    /// compiled 2,500 regular expressions to match strings that are a few characters long.
+    ///
+    /// The patterns are a closed set written in ``LinePrefix``, and none of them depends on
+    /// anything but the verb, so the cache cannot grow without bound and cannot go stale. It is
+    /// `nonisolated(unsafe)` behind a lock rather than main-actor isolated because `MarkdownEdits`
+    /// is a plain namespace these verbs are also applied from off the main actor in tests.
+    private final class RegexCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var compiled: [String: NSRegularExpression] = [:]
+
+        func regex(_ pattern: String) -> NSRegularExpression? {
+            lock.lock()
+            defer { lock.unlock() }
+            if let hit = compiled[pattern] { return hit }
+            guard let built = try? NSRegularExpression(pattern: pattern) else { return nil }
+            compiled[pattern] = built
+            return built
+        }
+    }
+
+    private static let regexCache = RegexCache()
+
     private static func firstMatch(_ pattern: String, in line: String) -> NSRange? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        guard let regex = regexCache.regex(pattern) else { return nil }
         let range = NSRange(location: 0, length: (line as NSString).length)
         return regex.firstMatch(in: line, range: range)?.range
     }

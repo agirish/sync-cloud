@@ -63,6 +63,11 @@ extension ContentView {
         // The folder can change while the walk is out; a late answer for the wrong folder would
         // list somebody else's files under this one's heading.
         guard folder == editorFolder else { return }
+        // **Only when the listing actually changed.** This runs after every autosave — twice a
+        // sentence, for a typist — and writing `@State` unconditionally is a change as far as
+        // SwiftUI is concerned, so an identical list of rows still bought a full body pass. The
+        // rows carry the file's size, so a write that changed the length does still land.
+        guard rows != editorRailEntries else { return }
         editorRailEntries = rows
     }
 
@@ -448,6 +453,24 @@ extension ContentView {
     /// after it was dismissed, and again, and again, for as long as the file stayed diverged. So a
     /// stop LATCHES: autosave does nothing further until a write succeeds or the user clears it,
     /// and ⌘S is the way to ask again deliberately.
+    /// **The write itself happens off the main actor**, which is the whole of this change.
+    ///
+    /// The debounce fires two seconds after the typing pauses — which, for anybody writing in
+    /// bursts, is the moment the typing resumes. What ran there was a `stat` with a symlink
+    /// resolve, an `attributesOfItem`, an O(n) encode, a `Data.write`, an `F_FULLFSYNC` (tens of
+    /// milliseconds on the internal SSD, considerably more on an external or iCloud volume), a
+    /// `replaceItem`, a `removeItem` and a re-`stat`, all of it on the main actor with the caret
+    /// blinking in the same run loop.
+    ///
+    /// **The durability is unchanged, deliberately.** `F_FULLFSYNC` stays on both paths. The reason
+    /// to weaken it to a plain `fsync` would have been the main-actor stall it caused, and that
+    /// reason has just been removed — a flush the user never waits for costs nothing to do
+    /// properly, and these are real cloud folders where a half-written file syncs to every other
+    /// machine.
+    ///
+    /// Everything the outcome leads to — the latch, the alert, the banner — is unchanged and still
+    /// happens on the main actor. What the outcome is *about* changed: it describes the snapshot
+    /// that was written, not the buffer as it stands now. See `EditorAutosave.Snapshot`.
     func runAutosave() {
         // **The switch is checked here rather than in the driver**, so the timer still runs and the
         // document is still asked the ordinary questions — only the write is withheld. Gating the
@@ -455,7 +478,26 @@ extension ContentView {
         // before anything reached disk.
         guard editorAutosavePolicy.isOn(editorDocument.path) else { return }
         guard editorAutosaveStop == nil else { return }
-        switch EditorAutosave.attempt(editorDocument) {
+        // One background write at a time. Two overlapping ones would both spin up an `F_FULLFSYNC`
+        // against the same file to no purpose; the store's write order makes them *safe*, and this
+        // makes them not happen.
+        guard !editorIsWritingInBackground else { return }
+        guard let snapshot = EditorAutosave.snapshot(of: editorDocument) else { return }
+        editorIsWritingInBackground = true
+        // **An unstructured `Task`, not the driver's.** The driver's task is cancelled by the next
+        // keystroke — that cancellation IS the debounce — and a write that has already been
+        // dispatched must finish and commit whatever the typist does next.
+        Task { @MainActor in
+            let outcome = await EditorAutosave.write(snapshot, into: editorDocument)
+            editorIsWritingInBackground = false
+            applyAutosaveOutcome(outcome)
+        }
+    }
+
+    /// What an autosave attempt leads to on screen — identical for the synchronous and the
+    /// background path, which is why it is one function rather than two copies.
+    private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome) {
+        switch outcome {
         case .nothingToDo:
             break
         case .wrote:

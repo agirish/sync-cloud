@@ -101,6 +101,40 @@ import Foundation
         }
     }
 
+    /// **The dirty answer is memoised, so it has to follow both halves of what it is derived from.**
+    ///
+    /// It is read six times in one body pass — the rail's dot, the header's dot, that dot's
+    /// accessibility label, the meta row's word twice, and the autosave driver — and a body pass
+    /// happens on every keystroke, against a buffer that can be 4 MiB. Each read walked it, because
+    /// `text.utf8.count` is only O(1) for a natively-stored string and the one an `NSTextView`
+    /// hands back is bridged from UTF-16 storage. So the answer is computed once per
+    /// (buffer, saved state) pair — and a memo keyed on only one of those two would answer with a
+    /// stale value in the state the other one moved, which is a dot that stays lit after a save or
+    /// goes out while there is still typing to write.
+    @Test func theDirtyAnswerFollowsBothTheBufferAndTheSavedText() {
+        let document = EditorDocument()
+        document.open(.editable(text: "a\n", stamp: stamp(2), encoding: .utf8), at: "/tmp/a.md")
+        #expect(!document.isDirty)          // warms the memo before anything moves
+
+        document.text = "b\n"
+        #expect(document.isDirty, "the answer did not follow the buffer")
+
+        document.markSaved(text: "b\n", stamp: stamp(2))
+        #expect(!document.isDirty, "the answer did not follow a save")
+
+        // A save recorded against a snapshot that is NOT what the buffer now holds — which is what
+        // a background autosave does when a keystroke lands while it is writing.
+        document.text = "c\n"
+        document.markSaved(text: "b\n", stamp: stamp(2))
+        #expect(document.isDirty, "a save of an older snapshot left the buffer reading clean")
+
+        // Same length, different bytes: past the length shortcut and into the comparison.
+        document.markSaved(text: "c\n", stamp: stamp(2))
+        #expect(!document.isDirty)
+        document.text = "d\n"
+        #expect(document.isDirty, "an equal-length change was missed")
+    }
+
     @Test func theNameIsTheFilesOwnRatherThanItsPath() {
         let document = EditorDocument()
         document.open(.editable(text: "", stamp: stamp(0), encoding: .utf8), at: "/a/b/c/september-backlog.md")

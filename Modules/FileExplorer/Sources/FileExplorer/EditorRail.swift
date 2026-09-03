@@ -7,12 +7,21 @@ public struct EditorRailEntry: Identifiable, Equatable, Sendable {
     public var name: String
     public var size: Int
     public var isCloudOnly: Bool
+    /// ``size`` in the words the row shows.
+    ///
+    /// **Stored, because `FileSyncManager.formatBytes` builds a `ByteCountFormatter` per call** and
+    /// the rail asked it once per visible row per body pass — and a body pass happens on every
+    /// keystroke in the document beside it. The rows are built off the main actor by
+    /// ``EditorRail/entries(in:showsHidden:fileManager:isCloudOnly:)``, so that is where the
+    /// formatting is paid, once per row per listing.
+    public var sizeCaption: String
 
     public init(path: String, name: String, size: Int, isCloudOnly: Bool) {
         self.path = path
         self.name = name
         self.size = size
         self.isCloudOnly = isCloudOnly
+        self.sizeCaption = FileSyncManager.formatBytes(size)
     }
 
     public var id: String { path }

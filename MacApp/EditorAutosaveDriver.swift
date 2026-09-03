@@ -18,14 +18,25 @@ import FileExplorer
 /// **The path is in the key as well as the version.** Two documents can hold the same text at the
 /// same version — a fresh file opened at version 0 after another was closed at version 0 — and an
 /// id that could not tell them apart would leave a pending write aimed at the previous file.
+///
+/// **The buffer is observed here and not by `ContentView`, which is the point of it being a
+/// modifier at all.** `ContentView` holds the document as an `@ObservedObject` and the App scene
+/// holds it as a `@StateObject`, so while the text was published from the document a keystroke
+/// re-evaluated the whole window and the whole menu tree to restart one timer. The text now lives
+/// on `EditorBuffer` and this modifier is one of the three things that watch it — a change
+/// re-invokes `body(content:)` here and nothing above it, because `content` is a proxy rather than
+/// a view to rebuild.
 struct EditorAutosaveDriver: ViewModifier {
+    /// Watched for the file's identity and whether it can be saved at all.
     @ObservedObject var document: EditorDocument
+    /// Watched for the version counter the debounce is keyed on — see ``EditorBuffer``.
+    @ObservedObject var buffer: EditorBuffer
     /// How long the typing must settle. Injected so a test does not have to wait two real seconds.
     var quiet: Duration = EditorAutosave.quietInterval
     let write: () -> Void
 
     func body(content: Content) -> some View {
-        content.task(id: EditorAutosave.Key(version: document.textVersion, path: document.path)) {
+        content.task(id: EditorAutosave.Key(version: buffer.textVersion, path: document.path)) {
             // Nothing to schedule for a document that cannot be written — a read-only decode, a
             // refusal, or nothing open. The flushes at every route out ask the same question again.
             guard document.canSave else { return }

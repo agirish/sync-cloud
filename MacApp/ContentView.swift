@@ -89,6 +89,13 @@ struct ContentView: View {
     /// would return two seconds after each dismissal for as long as the file stayed diverged. It is
     /// cleared by a successful write, by discarding the buffer, and by nothing else.
     @State var editorAutosaveStop: EditorAutosaveStop?
+    /// Whether an autosave write is out on a background thread right now.
+    ///
+    /// **Not a lock, and not what makes the write safe** — `EditorFileStore`'s write order does
+    /// that, and it has to, because ⌘S and the quit flush write synchronously and cannot wait for
+    /// anything. This only stops a second background write being dispatched over the first, which
+    /// would be two `F_FULLFSYNC`s against one file for one document's worth of text.
+    @State var editorIsWritingInBackground = false
     /// Whether the launch refresh was asked for and could not start, because a pane named a source
     /// `enabledProviders` had not published yet. Cleared by the arrival that completes it.
     @State private var launchRefreshPending = false
@@ -1309,7 +1316,8 @@ struct ContentView: View {
         .modifier(BrowseTabPersistence(syncManager: syncManager,
                                        leftProviderId: leftProviderId,
                                        rightProviderId: rightProviderId) { saveBrowseTabs(isLeft: $0) })
-        .modifier(EditorAutosaveDriver(document: editorDocument) { runAutosave() })
+        .modifier(EditorAutosaveDriver(document: editorDocument,
+                                       buffer: editorDocument.buffer) { runAutosave() })
         .onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }
         .onChange(of: syncManager.selectedRightPaths) { _, _ in infoPath = nil }
         // The Get-Info override also goes stale when the comparison context changes underneath it:

@@ -68,7 +68,20 @@ struct PlainTextEditor: NSViewRepresentable {
     /// Fired from the clip view's own bounds notification rather than polled: the text view scrolls
     /// for reasons SwiftUI never hears about — a scroll wheel, a trackpad flick, the caret being
     /// dragged past the bottom edge.
-    var onVisibleLineChange: (Int) -> Void = { _ in }
+    ///
+    /// **`nil` when nobody is listening, and that is the gate rather than a check downstream.** Only
+    /// `.split` follows the text; the host used to hand a closure that returned early in the other
+    /// two modes, which meant the line was *computed* on every scroll tick of every mode before
+    /// anything looked at it — and computing it was a walk of the whole buffer. The work is now
+    /// skipped where the answer is not wanted, which is the only place it can honestly be skipped.
+    var onVisibleLineChange: ((Int) -> Void)?
+
+    /// Where every line begins, for the two questions that would otherwise walk the buffer.
+    ///
+    /// Rebuilt off the main actor on the same debounce as the status line's counts, so it can lag a
+    /// burst of typing by a few hundred milliseconds — see ``EditorLineIndex``. The scroll sync
+    /// accepts that; the caret does not, and checks the length before trusting it.
+    var lineIndex: EditorLineIndex = .empty
 
     /// Bumped to open the find bar. A counter for the reason ``scrollRequest`` carries a token:
     /// asking twice is two requests, and the second one is the one made after the bar was closed.
@@ -111,7 +124,8 @@ struct PlainTextEditor: NSViewRepresentable {
         /// Re-assigned on every update pass, like ``text`` — a closure captured once at
         /// construction would go on writing into the view that built it after a re-render.
         var onSelectionChange: (NSRange) -> Void
-        var onVisibleLineChange: (Int) -> Void = { _ in }
+        /// `nil` in every mode but `.split` — see ``PlainTextEditor/onVisibleLineChange``.
+        var onVisibleLineChange: ((Int) -> Void)?
         /// The last request acted on, so the same one is not replayed on every render pass.
         var lastScrollRequest: EditorScrollRequest?
         /// The last find request acted on. `0` is "never asked", which is why the request is a
@@ -120,9 +134,30 @@ struct PlainTextEditor: NSViewRepresentable {
         /// The last line reported upward, so an ordinary scroll does not publish the same number
         /// sixty times a second.
         var lastVisibleLine: Int?
-        /// Kept so the bounds observer — which fires outside a render pass — can do line maths
-        /// without reaching back into SwiftUI for the buffer.
-        var currentText: String = ""
+        /// Where every line begins, so the bounds observer — which fires outside a render pass —
+        /// can do line maths without reaching back into SwiftUI, and without walking the buffer.
+        ///
+        /// This replaced a whole second copy of the text (`currentText`) kept here for the same
+        /// job: a 4 MiB string held alive to answer a question a table of offsets answers, and to
+        /// answer it by walking every grapheme in it.
+        var lineIndex: EditorLineIndex = .empty
+        /// **The string this view was last given, which IS the echo guard.**
+        ///
+        /// It used to be `view.string != text`, and that comparison was the expensive half of every
+        /// render pass. `NSTextView.string` bridges the mutable text storage out as a fresh Swift
+        /// string — a real copy of the whole buffer — and the two sides are then distinct instances
+        /// holding equal contents, so `==` can never take its pointer-identity shortcut and any
+        /// non-ASCII character sends it down Unicode's normalising path. That ran on the keystroke,
+        /// on the caret update after it, on every arrival of facts or blocks or outline, and on
+        /// every scrolled line in split.
+        ///
+        /// Remembering what was pushed removes both halves: `textDidChange` reads `view.string`
+        /// once (it needs it anyway) and records it here, so the ordinary case compares a string
+        /// against itself — the same storage, so the identity shortcut fires and nothing is walked.
+        /// A string that arrives from OUTSIDE the view (a reload from disk, a file switch, an undo
+        /// across documents, the preview ticking a checkbox) still differs from this and still
+        /// reaches the view, which is the half the guard exists for.
+        var pushedText: String = ""
         /// The view these callbacks belong to. Weak: the coordinator outlives a torn-down view, and
         /// a strong reference here would be a retain cycle through the delegate.
         weak var textView: NSTextView?
@@ -161,12 +196,18 @@ struct PlainTextEditor: NSViewRepresentable {
             ) { [weak self, weak textView] _ in
                 guard let self, let textView else { return }
                 MainActor.assumeIsolated {
-                    guard let line = Self.topVisibleLine(of: textView, in: self.currentText) else {
+                    // **Nothing is computed when nothing follows the text.** Only `.split` mounts a
+                    // preview beside this view, and this notification arrives once per scrolled row
+                    // — and, at the end of a long file, once per keystroke, because typing there
+                    // autoscrolls. The `line != lastVisibleLine` dedupe below is downstream of the
+                    // work rather than upstream of it, so it never saved any of it.
+                    guard let report = self.onVisibleLineChange else { return }
+                    guard let line = Self.topVisibleLine(of: textView, using: self.lineIndex) else {
                         return
                     }
                     guard line != self.lastVisibleLine else { return }
                     self.lastVisibleLine = line
-                    self.onVisibleLineChange(line)
+                    report(line)
                 }
             }
         }
@@ -182,23 +223,46 @@ struct PlainTextEditor: NSViewRepresentable {
         ///
         /// Not computed from the scroll offset and a line height either: the view soft-wraps, so
         /// one source line can occupy four rows and there is no height to divide by.
-        static func topVisibleLine(of view: NSTextView, in text: String) -> Int? {
+        ///
+        /// **The offset becomes a line through the table, not through a walk.**
+        /// `EditorCaret.at(utf16Offset:in:)` breaks graphemes from index 0, so on a 4 MiB document
+        /// it walked the whole buffer on the main thread for every scroll tick. `index` is a binary
+        /// search of ``EditorLineIndex`` instead, which answers the same question on the same rules.
+        ///
+        /// **A table that has not caught up yet is accepted here on purpose.** It is rebuilt on the
+        /// status line's 150 ms debounce, so during a burst of typing it can describe the buffer as
+        /// it was a moment ago — and the consequence is that the preview beside the text follows by
+        /// a line for that moment. The alternative is the walk this exists to remove. Exactness is
+        /// required of the caret, not of a scroll, and the caret path checks before it trusts.
+        /// **The upper bound went with the walk, and it was measuring the wrong string anyway.**
+        /// It read `(text as NSString).length` — an O(n) UTF-16 count of the coordinator's copy of
+        /// the buffer, per tick — to reject an offset past the end. The table cannot be indexed out
+        /// of range: ``EditorLineIndex/line(atUTF16Offset:)`` is total, and an offset past the end
+        /// answers "the last line", which is where such a point is. The lower bound stays, because
+        /// `characterIndexForInsertion(at:)` genuinely can answer `NSNotFound`.
+        static func topVisibleLine(of view: NSTextView, using index: EditorLineIndex) -> Int? {
             guard let clip = view.enclosingScrollView?.contentView else { return nil }
             // A point just inside the top-left of what is visible, in the text view's own
             // coordinates — past the container inset, or the answer is the character nearest a
             // point in the margin above the first line.
             let point = NSPoint(x: view.textContainerInset.width + 1,
                                 y: clip.bounds.origin.y + view.textContainerInset.height + 1)
-            let index = view.characterIndexForInsertion(at: point)
-            guard index >= 0, index <= (text as NSString).length else { return nil }
-            return EditorCaret.at(utf16Offset: index, in: text).line
+            let offset = view.characterIndexForInsertion(at: point)
+            guard offset >= 0, offset != NSNotFound else { return nil }
+            return index.line(atUTF16Offset: offset)
         }
 
         func undoManager(for view: NSTextView) -> UndoManager? { undoManager }
 
         func textDidChange(_ notification: Notification) {
             guard let view = notification.object as? NSTextView else { return }
-            text.wrappedValue = view.string
+            // **Read once, then recorded as well as published.** `view.string` copies the whole
+            // buffer out of the text storage, so asking for it twice per keystroke — once here and
+            // once in `updateNSView`'s guard — was the copy paid twice. Recording it is what lets
+            // the render pass that follows compare a string against itself and stop.
+            let string = view.string
+            pushedText = string
+            text.wrappedValue = string
         }
 
         var offersMarkup = true
@@ -364,6 +428,57 @@ struct PlainTextEditor: NSViewRepresentable {
         view.performTextFinderAction(sender)
     }
 
+    /// The echo guard: hands `text` to the view unless the view was already given it.
+    ///
+    /// **Its own function so it can be driven without a SwiftUI `Context`.** The guard is now
+    /// *state* — what the coordinator last handed over — rather than a question about the view's
+    /// own contents, and state that drifts out of step with the view is a silent failure: an
+    /// external write (Reload from Disk, a file switch, an undo across documents) that matches the
+    /// stale record is skipped, and the text on screen and the text in the document quietly
+    /// disagree. That failure is only visible by pushing, typing, and pushing again, which is what
+    /// `PlainTextEditorBridgeTests` does through this.
+    ///
+    /// - Returns: whether the view was actually given a new string.
+    @discardableResult
+    static func pushIfChanged(_ text: String, into view: NSTextView,
+                              coordinator: Coordinator) -> Bool {
+        guard coordinator.pushedText != text else { return false }
+        let selected = view.selectedRange()
+        view.string = text
+        coordinator.pushedText = text
+        // Keep the caret where it was when the change came from outside (a reload, a file switch),
+        // clamped to the new length — and scrolled back into view, since a caret at offset 0 in a
+        // freshly opened file is otherwise left behind a scroller still sitting where the previous
+        // document was.
+        let location = min(selected.location, (text as NSString).length)
+        let range = NSRange(location: location, length: 0)
+        view.setSelectedRange(range)
+        view.scrollRangeToVisible(range)
+        return true
+    }
+
+    /// Where a 1-based line begins, from the table when the table describes THIS buffer and from
+    /// the walk when it does not.
+    ///
+    /// **The staleness check is the whole point, and it is not the same bargain the scroll sync
+    /// makes.** The table is rebuilt on a 150 ms debounce, so a request that arrives in the same
+    /// render pass as the text it names — which is exactly what opening a file straight at a
+    /// heading does — would be answered against the *previous* document's line starts. An offset
+    /// one character out puts the caret at the end of the line before; an offset from another file
+    /// puts it anywhere. So the length is compared first, and a disagreement falls back to
+    /// ``EditorCaret/utf16Offset(ofLine:in:)``, which walks and is always right.
+    ///
+    /// A UTF-16 length is O(n) for a natively-stored Swift string, which is why this is on the
+    /// outline-click path and not on the scroll one: it happens when somebody clicks a heading,
+    /// not sixty times a second.
+    static func utf16Offset(ofLine line: Int, in text: String,
+                            using index: EditorLineIndex) -> Int? {
+        guard index.utf16Length == (text as NSString).length else {
+            return EditorCaret.utf16Offset(ofLine: line, in: text)
+        }
+        return index.utf16Offset(ofLine: line)
+    }
+
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
         MainActor.assumeIsolated { coordinator.stopWatchingScrolling() }
     }
@@ -419,7 +534,10 @@ struct PlainTextEditor: NSViewRepresentable {
         view.string = text
         view.isEditable = isEditable
         Self.applyWrapping(wrapsLines, to: view, in: scroll)
-        context.coordinator.currentText = text
+        // The view now holds exactly this string, so the echo guard starts in step with it.
+        context.coordinator.pushedText = text
+        context.coordinator.lineIndex = lineIndex
+        context.coordinator.onVisibleLineChange = onVisibleLineChange
         context.coordinator.textView = view
         context.coordinator.offersMarkup = offersMarkup
         context.coordinator.watchScrolling(of: scroll, textView: view)
@@ -428,12 +546,20 @@ struct PlainTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? NSTextView else { return }
-        // **`view.string != text` is the whole echo guard, and it has to be.** Typing writes the
-        // binding, which re-renders, which lands here — by which point the view already holds the
-        // string being pushed at it, so this is false and the caret is left alone. An `isPushing`
-        // flag set and cleared inside `textDidChange` looks like the guard and is not: SwiftUI runs
-        // this pass *after* that method has returned, so the flag is always back to false by the
-        // time it would be read.
+        // **The echo guard is `coordinator.pushedText != text`, and it has to be a comparison of
+        // some kind.** Typing writes the binding, which re-renders, which lands here — by which
+        // point the view already holds the string being pushed at it, so the guard is false and the
+        // caret is left alone. An `isPushing` flag set and cleared inside `textDidChange` looks like
+        // the guard and is not: SwiftUI runs this pass *after* that method has returned, so the flag
+        // is always back to false by the time it would be read.
+        //
+        // What changed is which two strings are compared. It used to ask `view.string != text`,
+        // which copies the entire text storage out of AppKit to produce a distinct instance holding
+        // equal contents — so `==` could never take its identity shortcut and had to walk, per
+        // keystroke, per caret move, per arrival of facts or blocks, and per scrolled line in split.
+        // The coordinator now remembers what it last handed the view, and that string and the one
+        // arriving through the binding are the same storage in the ordinary case, so the comparison
+        // ends on a pointer. See ``Coordinator/pushedText``.
         context.coordinator.undoManager = undoManager
         // **The undo stack goes with the DOCUMENT**, and this is the one line standing between the
         // editor and a crash. `NSTextView`'s registrations name character RANGES in the buffer they
@@ -454,18 +580,7 @@ struct PlainTextEditor: NSViewRepresentable {
         if context.coordinator.documentID != documentID {
             context.coordinator.documentID = documentID
         }
-        if view.string != text {
-            let selected = view.selectedRange()
-            view.string = text
-            // Keep the caret where it was when the change came from outside (a reload, a file
-            // switch), clamped to the new length — and scrolled back into view, since a caret at
-            // offset 0 in a freshly opened file is otherwise left behind a scroller still sitting
-            // where the previous document was.
-            let location = min(selected.location, (text as NSString).length)
-            let range = NSRange(location: location, length: 0)
-            view.setSelectedRange(range)
-            view.scrollRangeToVisible(range)
-        }
+        Self.pushIfChanged(text, into: view, coordinator: context.coordinator)
         if view.isEditable != isEditable { view.isEditable = isEditable }
         if view.isContinuousSpellCheckingEnabled != checksSpelling {
             view.isContinuousSpellCheckingEnabled = checksSpelling
@@ -480,7 +595,7 @@ struct PlainTextEditor: NSViewRepresentable {
         context.coordinator.text = $text
         context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.onVisibleLineChange = onVisibleLineChange
-        context.coordinator.currentText = text
+        context.coordinator.lineIndex = lineIndex
         context.coordinator.textView = view
         context.coordinator.offersMarkup = offersMarkup
 
@@ -494,7 +609,8 @@ struct PlainTextEditor: NSViewRepresentable {
         // computed against the previous buffer is an offset into the wrong document.
         if let scrollRequest, scrollRequest != context.coordinator.lastScrollRequest {
             context.coordinator.lastScrollRequest = scrollRequest
-            if let offset = EditorCaret.utf16Offset(ofLine: scrollRequest.line, in: text) {
+            if let offset = Self.utf16Offset(ofLine: scrollRequest.line, in: text,
+                                             using: lineIndex) {
                 let range = NSRange(location: min(offset, (text as NSString).length), length: 0)
                 view.setSelectedRange(range)
                 view.scrollRangeToVisible(range)

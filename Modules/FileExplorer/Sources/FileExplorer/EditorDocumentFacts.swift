@@ -114,6 +114,92 @@ struct EditorCaret: Equatable, Sendable {
     }
 }
 
+/// Where every line of a buffer begins, in UTF-16 offsets.
+///
+/// **Built once off the main actor; asked thousands of times on it.** ``EditorCaret/at(utf16Offset:in:)``
+/// and ``EditorCaret/utf16Offset(ofLine:in:)`` each walk the buffer from index 0, breaking graphemes
+/// as they go. That is the right shape for a one-off question and the wrong shape for the split's
+/// scroll sync, which asks "which line is at the top?" on every clip-view bounds notification — once
+/// per scrolled row, and once per keystroke at the end of a long file, because typing there
+/// autoscrolls. On a 4 MiB document that walk is the whole document, on the main thread, per frame.
+///
+/// So the walk happens once, in the task that already walks the buffer for the status line's counts,
+/// and the answers come out of a binary search.
+///
+/// **Slightly stale is fine for scroll sync and NOT fine for the caret**, which is why
+/// ``utf16Length`` is carried: the table is rebuilt on the same 150 ms debounce as the facts, so
+/// between a keystroke and that rebuild it describes the buffer as it was. A preview that follows
+/// the text by a line or two during a burst of typing is invisible; a caret sent to the wrong
+/// offset by an outline click is the feature being off by one. Callers that need exactness check
+/// the length first and fall back to the exact walk when it disagrees.
+struct EditorLineIndex: Equatable, Sendable {
+
+    /// The UTF-16 offset each 1-based line begins at. Always starts with `0`, so an empty buffer
+    /// still has a line 1 that begins at 0 — which is what ``EditorCaret/utf16Offset(ofLine:in:)``
+    /// answers for the same input.
+    private(set) var lineStarts: [Int]
+    /// The UTF-16 offset each line **terminator** begins at, in order. One shorter than
+    /// ``lineStarts`` by construction.
+    private(set) var terminatorStarts: [Int]
+    /// The length of the text this describes, in UTF-16 units — the staleness check.
+    private(set) var utf16Length: Int
+
+    static let empty = EditorLineIndex(lineStarts: [0], terminatorStarts: [], utf16Length: 0)
+
+    /// Walks `text` once, applying exactly ``EditorCaret``'s rules.
+    ///
+    /// `"\r\n"` is ONE `Character` in Swift, which is what makes three comparisons enough rather
+    /// than a state machine — the same fact ``EditorCaret/at(utf16Offset:in:)`` relies on, and the
+    /// same fact that makes `hasSuffix("\n")` false for a CRLF file.
+    init(text: String) {
+        var starts: [Int] = [0]
+        var terminators: [Int] = []
+        var offset = 0
+        for character in text {
+            let start = offset
+            offset += character.utf16.count
+            if character == "\n" || character == "\r\n" || character == "\r" {
+                terminators.append(start)
+                starts.append(offset)
+            }
+        }
+        self.lineStarts = starts
+        self.terminatorStarts = terminators
+        self.utf16Length = offset
+    }
+
+    private init(lineStarts: [Int], terminatorStarts: [Int], utf16Length: Int) {
+        self.lineStarts = lineStarts
+        self.terminatorStarts = terminatorStarts
+        self.utf16Length = utf16Length
+    }
+
+    /// The 1-based line an offset falls on — the answer ``EditorCaret/at(utf16Offset:in:)`` gives.
+    ///
+    /// **A terminator counts once the offset is past its FIRST unit**, which is what makes this
+    /// agree with the walk on an offset landing between the `\r` and the `\n` of a CRLF: the walk
+    /// consumes the whole two-unit character and lands on the next line, because that is the
+    /// position the caret can actually occupy.
+    func line(atUTF16Offset offset: Int) -> Int {
+        guard offset > 0 else { return 1 }
+        // Lower bound: the number of terminators that begin strictly before `offset`.
+        var low = 0
+        var high = terminatorStarts.count
+        while low < high {
+            let mid = (low + high) / 2
+            if terminatorStarts[mid] < offset { low = mid + 1 } else { high = mid }
+        }
+        return low + 1
+    }
+
+    /// Where a 1-based line begins, or `nil` when the text has no such line — the answer
+    /// ``EditorCaret/utf16Offset(ofLine:in:)`` gives.
+    func utf16Offset(ofLine target: Int) -> Int? {
+        guard target >= 1, target <= lineStarts.count else { return nil }
+        return lineStarts[target - 1]
+    }
+}
+
 /// What the status line says about the open buffer.
 ///
 /// **Derived, never stored.** Every field here is a function of the text and the selection, so
