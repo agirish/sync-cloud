@@ -3280,3 +3280,59 @@ as "the speed batch".
 
 **Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). This row is the record a
 future audit needs, not a to-do.
+
+---
+
+## 2026-09-03 — the v5.2 cut: notes, the version flip, and one front-page correction (`27c71ff3`..`56b6a8d6`)
+
+**Nothing owed, and for once that is a conclusion rather than a default.** Three commits: the
+release-notes coverage and audit (`27c71ff3`), the version cut itself (`84526458`), and a
+correction to `docs/index.html` (`56b6a8d6`). Each is not-owed for a different reason, which is
+why they are listed separately.
+
+### What applies, per line
+
+| Change on `main` | v4.x | v3.x | v2.x | Status |
+|---|---|---|---|---|
+| `RELEASE_NOTES.md` gains the `## v5.2` section | n/a — describes a release these lines do not have | n/a | n/a | CHECKED — not owed |
+| `docs/releases.html` gains the v5.2 article, v5.1 trades `latest` for its theme | n/a — Pages serves `docs/` from `main` | n/a | n/a | CHECKED — not owed |
+| `project.yml` / `Info.plist` → `5.2`, then `5.3-dev` / `503` | per-line by design (`4.7-dev` / `407`) | per-line (`3.2-dev` / `302`) | per-line (`2.10-dev` / `210`) | CHECKED — not owed |
+| `versionMarker` in `SettingsLayoutTests` | tracks that line's own `project.yml` | same | same | CHECKED — not owed |
+| `docs/index.html`: Storage is "a section of Organize", not "A workspace of its own" | **carries the old sentence, and it is TRUE there** | no Storage section at all | no Storage section at all | CHECKED — not owed |
+
+### The one that needed checking rather than asserting
+
+The front-page correction is the only row here that could plausibly have been owed, and the naive
+reason for dismissing it — "`docs/` is `main`-only" — **is wrong as stated**. `docs/index.html` and
+`docs/releases.html` are present on all four lines; what is `main`-only is the *publishing*, since
+Pages serves `docs/` from `main`. So the file being carried is not the question. The question is
+whether the sentence is false where it sits.
+
+```sh
+# stage 1 — the sentence, per line (main must now print 0: it is the fix)
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s sentence=%s ' "$l" \
+    "$(git show origin/$l:docs/index.html 2>/dev/null | grep -c 'A workspace of its own' || true)"
+  printf 'storage-section=%s\n' \
+    "$(git show origin/$l:docs/index.html 2>/dev/null | grep -c 'id="storage"' || true)"
+done   # main 0/1 · v4.x 1/1 · v3.x 0/0 · v2.x 0/0
+
+# stage 2 — is Storage actually a workspace there? The sentence is only wrong where it is not.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s case-storage=%s\n' "$l" \
+    "$(git show origin/$l:MacApp/Workspace.swift 2>/dev/null | grep -c 'case storage' || true)"
+done   # main 0 · v4.x 1 · v3.x 1 · v2.x 0
+```
+
+**`v4.x` carries the sentence and also carries `case storage`, so on that line Storage *is* a
+workspace of its own and the sentence is correct.** Copying `main`'s wording there would introduce
+the defect, not fix it. `v3.x` has `case storage` but its front page has no Storage section to be
+wrong; `v2.x` has neither. The stale-on-`main` sentence was stale only because the fold happened
+on `main`.
+
+Both loops carry `|| true`: **`grep -c` exits 1 on zero**, and without it the first line printing
+`0` kills the loop and the remaining lines are silently never checked — which on the first run here
+made stage 2 look as though it had no output rather than never having run.
+
+**Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). These rows are the record
+a future audit needs, not a to-do.
