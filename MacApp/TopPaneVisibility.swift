@@ -89,6 +89,34 @@ enum TopPaneVisibility {
         return map
     }
 
+    /// **The decoded map, memoised on the string it came from** — what every *read* goes through.
+    ///
+    /// ``decodeOverrides(_:)`` allocates a `JSONDecoder` and parses on each call, and it is on the
+    /// hottest read in the window: `ContentView.panesHiddenForCurrentTab` is consulted by
+    /// `contentLayout`, `folderSidebarIsShowing`, two shortcut gates, the source picker, two
+    /// `.animation` modifiers and an `onChange` — several times per body pass, and the body
+    /// re-evaluates on hover, on a drag frame and on every scan tick.
+    ///
+    /// **Keyed on the raw string, which is the whole of the input.** The map is a pure function of
+    /// it, so a hit is not an approximation of the answer — it *is* the answer, and a write to the
+    /// defaults key changes the string and misses. That is why this is a one-entry memo rather than
+    /// a cache with an invalidation rule to keep in step with the writers: there is nothing to keep
+    /// in step with. `decodeOverrides` stays as it was, uncached and pure, for the migration and
+    /// for the tests that pin the encoding.
+    ///
+    /// Main-actor, because that is where every reader is and a shared `static var` needs an
+    /// isolation; the write path (`togglePanesForCurrentTab`, `presentLensRail`) deliberately does
+    /// not use it — it runs once per click and its result is stale by construction.
+    @MainActor
+    static func overrides(in raw: String) -> [String: Bool] {
+        if let memo = overridesMemo, memo.raw == raw { return memo.map }
+        let map = decodeOverrides(raw)
+        overridesMemo = (raw, map)
+        return map
+    }
+
+    @MainActor private static var overridesMemo: (raw: String, map: [String: Bool])?
+
     /// Encodes the override map back to a defaults string. Sorted keys keep the stored value
     /// stable (no churn when the contents are unchanged) and make the round-trip pinnable.
     static func encodeOverrides(_ map: [String: Bool]) -> String {

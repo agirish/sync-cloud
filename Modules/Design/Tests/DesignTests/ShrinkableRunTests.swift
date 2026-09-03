@@ -82,4 +82,54 @@ import Testing
     @Test func anEmptyRunIsZeroWide() {
         #expect(placed(rowWidth: 600, boxes: []).run == 0)
     }
+
+    /// **The cache re-measures when the content changes**, in the SAME host — which is the only
+    /// place a `Layout` cache can be wrong.
+    ///
+    /// `ShrinkableRun` holds the subviews' natural sizes so a pass measures each subtree once
+    /// instead of twice (`sizeThatFits` and `placeSubviews` each mapped them, and `sizeThatFits` is
+    /// itself asked more than once per pass). Caching is sound only because the sizes are taken at
+    /// `.unspecified` and so do not depend on the proposal — nothing but the subviews themselves
+    /// can change them, and SwiftUI calls `updateCache` exactly then.
+    ///
+    /// A fresh host would prove nothing: it builds a fresh cache, so `makeCache` alone would pass
+    /// it with `updateCache` gutted. The root view is replaced on the host that already laid out,
+    /// so the run has to notice through the update path — the run's width AND the second item's
+    /// origin both move, so a stale cache is caught in the size and in the placement.
+    @Test func theCachedSizesAreRefreshedWhenAnItemChangesWidth() {
+        final class Report { var run: CGFloat = -1; var secondX: CGFloat = -1 }
+        let report = Report()
+
+        func fixture(firstWidth: CGFloat) -> some View {
+            HStack(spacing: 0) {
+                ShrinkableRun(spacing: 8) {
+                    Color.red.frame(width: firstWidth, height: 12)
+                    Color.blue.frame(width: 60, height: 12)
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX }
+                            action: { report.secondX = $0 }
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { report.run = $0 }
+                Spacer(minLength: 0)
+            }
+            .frame(width: 600, height: 40)
+        }
+
+        // Typed, for the reason `threeBoxIdeal` above is: `#expect` type-checks the two
+        // sides independently, so an untyped `50 + 60 + 8` is an `Int` and never equals a CGFloat.
+        let narrowIdeal: CGFloat = 50 + 60 + 8
+        let wideIdeal: CGFloat = 150 + 60 + 8
+
+        let host = NSHostingView(rootView: AnyView(fixture(firstWidth: 50)))
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 40)
+        host.layoutSubtreeIfNeeded()
+        #expect(report.run == narrowIdeal, "the first layout is wrong, so this scan measures nothing")
+        #expect(report.secondX == CGFloat(58))
+
+        host.rootView = AnyView(fixture(firstWidth: 150))
+        host.layoutSubtreeIfNeeded()
+        #expect(report.run == wideIdeal,
+                "the run reported \(report.run) after its first item grew by 100pt — the cached sizes were not refreshed")
+        #expect(report.secondX == CGFloat(158),
+                "the second item drew at \(report.secondX) — placed from cached sizes taken before the first item grew")
+    }
 }

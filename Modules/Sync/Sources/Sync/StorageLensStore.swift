@@ -140,9 +140,105 @@ public enum StorageLensStore {
     /// right for the DISPLAY callers this serves: a missing report costs a re-scan. A caller about
     /// to WRITE must use ``read(from:)``, because for it the two are not the same fact at all.
     public static func load(from url: URL, fileManager: FileManager = .default) -> [StorageLensSnapshot] {
-        if case .loaded(let snapshots) = read(from: url, fileManager: fileManager) { return snapshots }
-        return []
+        // **Memoised against the file's own modification stamp**, which turns a repeated read into
+        // one `stat`.
+        //
+        // The app calls this — through `snapshot(for:from:)` — from six triggers: the workspace
+        // change, appearance, the scan root moving, the rail lens changing, and a scope change.
+        // `restoreStorageLens` refuses once a report is on screen, so the cost was thought bounded;
+        // it is not. When the current root has **no** saved snapshot nothing ever appears, that
+        // guard never engages, and every pane move and every workspace switch re-read the file and
+        // ran two `JSONDecoder` passes over every saved root's report — on the main actor, forever.
+        //
+        // **The stamp is the file, not a guess about it.** Modification date and size, read with
+        // one `attributesOfItem` — the same call `sizeOnDisk` already makes. Writes go through
+        // `write(_:to:)`, which is `.atomic`: the bytes arrive as a fresh file with a fresh
+        // modification date, so a background save invalidates this by construction rather than by
+        // anyone remembering to. That is what makes it a memo and not "a fourth piece of cache
+        // state to keep in step with a background writer", which is what the docstring on
+        // `restoreStorageLens` weighed this against and, at the time, correctly refused.
+        //
+        // An absent file has a stamp too (both halves nil), which is the case that mattered most:
+        // it is exactly the "no snapshot for this root" state that repeated forever.
+        //
+        // The WRITERS deliberately do not come through here — `saveInBackground` and
+        // `clearInBackground` call `read` directly, because for them absent, unreadable and
+        // foreign-schema are three different facts and a memo of "what to display" answers none of
+        // them.
+        let stamp = Stamp(of: url, fileManager: fileManager)
+        if let memoised = decodeMemo.value(for: stamp) { return memoised }
+        var snapshots: [StorageLensSnapshot] = []
+        if case .loaded(let decoded) = read(from: url, fileManager: fileManager) { snapshots = decoded }
+        decodeMemo.store(snapshots, for: stamp)
+        return snapshots
     }
+
+    /// What a file looked like when it was last decoded: which file, and the two attributes an
+    /// atomic replacement always changes. Absent is a stamp of its own — both halves nil — rather
+    /// than an absence of one, so "there is nothing saved" memoises like anything else.
+    struct Stamp: Equatable {
+        let path: String
+        let modified: Date?
+        let size: Int?
+
+        init(of url: URL, fileManager: FileManager) {
+            let attributes = try? fileManager.attributesOfItem(atPath: url.path)
+            self.path = url.path
+            self.modified = attributes?[.modificationDate] as? Date
+            self.size = (attributes?[.size] as? NSNumber)?.intValue
+        }
+    }
+
+    /// The decoded files, each held against its own stamp.
+    ///
+    /// Locked rather than actor-isolated: `load` is called from the main actor in the app and from
+    /// whatever thread a test is on, and giving it an isolation would make every caller `await` a
+    /// function whose whole point is that it is cheap.
+    ///
+    /// **Keyed by path rather than being a single slot**, which the app does not need — it has one
+    /// store URL for the life of the process — but the tests do: they run in parallel over their
+    /// own temporary files, and a one-slot memo would have each `load` evict the others, so a test
+    /// about the memo would pass or fail on which suites happened to be running beside it. Capped,
+    /// because a map with no bound is a leak wearing a cache's clothes; the app never reaches the
+    /// cap, and dropping everything at it is the honest behaviour for a memo — the next read costs
+    /// what it always cost.
+    private final class DecodeMemo: @unchecked Sendable {
+        static let capacity = 16
+
+        private let lock = NSLock()
+        private var entries: [String: (stamp: Stamp, snapshots: [StorageLensSnapshot])] = [:]
+
+        func value(for stamp: Stamp) -> [StorageLensSnapshot]? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let entry = entries[stamp.path], entry.stamp == stamp else { return nil }
+            return entry.snapshots
+        }
+
+        func store(_ snapshots: [StorageLensSnapshot], for stamp: Stamp) {
+            lock.lock()
+            defer { lock.unlock() }
+            if entries.count >= Self.capacity, !entries.keys.contains(stamp.path) { entries.removeAll() }
+            entries[stamp.path] = (stamp, snapshots)
+        }
+
+        func forget(path: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            entries.removeValue(forKey: path)
+        }
+    }
+
+    private static let decodeMemo = DecodeMemo()
+
+    /// Drops one file's memo. For a test that needs to prove the memo is what answered — nothing in
+    /// the app calls it, because nothing in the app needs to: the stamp invalidates on its own.
+    ///
+    /// **One path, not the whole map**, and that is not fastidiousness: swift-testing runs suites
+    /// in parallel, and a clear-everything version let one test's reset land between another test's
+    /// two reads — which turned that second test's memo assertion into a coin flip and let a
+    /// mutation of the memo key survive it.
+    static func forgetDecodeMemo(for url: URL) { decodeMemo.forget(path: url.path) }
 
     /// Says a newer build's file is in the way, once per call, naming what to do about it.
     private static func refuseForeignSchema(_ url: URL, _ schema: Int, action: String) {

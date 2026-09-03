@@ -312,8 +312,11 @@ extension ContentView {
 
     /// The store's rule, wired to the real disk. Separate from `FolderJumpStore.reachable` so the
     /// rule stays testable without one, and `static` for the reason `isMountedFolder` is.
-    static func reachableFolders(recents: [String], pinned: [String],
-                                 under root: String) -> RememberedFolders {
+    /// `nonisolated`, so the one rule is reachable from the sidebar refresh's detached walk as
+    /// well as from ⌘K's main-actor call. It touches nothing but the filesystem — the isolation was
+    /// inferred from `ContentView` being a `View`, never needed.
+    nonisolated static func reachableFolders(recents: [String], pinned: [String],
+                                             under root: String) -> RememberedFolders {
         FolderJumpStore.reachable(recents: recents, pinned: pinned, underRoot: root,
                                   isDirectory: isMountedFolder)
     }
@@ -439,7 +442,7 @@ extension ContentView {
     /// Whether a source's folder is there right now. Expanded first, and required to be a
     /// directory — the app's own validity rule (`SettingsManager`), asked the same way. (This doc
     /// spent two commits attached to `reachableFolders` above, which is not what it describes.)
-    static func isMountedFolder(_ path: String) -> Bool {
+    nonisolated static func isMountedFolder(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
         let expanded = (path as NSString).expandingTildeInPath
         let exists = FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory)

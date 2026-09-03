@@ -81,51 +81,192 @@ extension ContentView {
     /// **Only where there is a sidebar to fill.** The refresh `stat`s every provider root, and its
     /// triggers fire on every workspace: sitting in Compare with the column switched off would
     /// otherwise pay for a walk of eleven roots on every pane move.
+    /// **Coalesced to one refresh per turn, and the disk work is off the main actor.**
+    ///
+    /// Both halves came out of the same measurement. One Edit↔Organize switch fires this **two to
+    /// four times**: `onChange(of: leftRelativePath)` (the lens entry re-homes the rail),
+    /// `onChange(of: selectedWorkspace)`, `onChange(of: panesHiddenForCurrentTab)` (Editor defaults
+    /// to panes-hidden and Organize does not, so that transition really does change it), and
+    /// `FolderJumpStore.shared.objectWillChange` through a `DispatchQueue.main.async`. Every one of
+    /// those was a full pass, and a full pass is a `fileExists` per provider root plus one per
+    /// surviving pin and recent, a `mountedVolumeURLs` with a `resourceValues` read per volume, an
+    /// `isMountedFolder` per standard place and per device and per source root, and a
+    /// `resolvingSymlinksInPath` — an `lstat` per path component — for every place against every
+    /// root. With eleven sources that is upwards of a hundred `stat` chains, done up to four times,
+    /// **synchronously on the main actor**. On healthy local disks it is milliseconds; on a
+    /// sleeping external drive or an unresponsive network mount any single one of them blocks the
+    /// window for as long as the filesystem takes to answer.
+    ///
+    /// - **One per turn**: a ticket is taken here and checked after the hop, so the four triggers
+    ///   that fire together in one main-actor turn produce one walk — the last one's, with the
+    ///   newest inputs. It is checked a second time after the walk returns, so an answer that was
+    ///   overtaken while it was out is dropped rather than drawn over a newer one.
+    /// - **Off the main actor**: everything that touches the disk moves to a detached task, in the
+    ///   shape `ContentView+Editor.swift`'s `refreshEditorRail` already uses. What stays here is
+    ///   what only the main actor can answer — `@AppStorage`, and `FolderJumpStore`, which is
+    ///   `@MainActor` — read BEFORE the hop so the walk is handed values rather than reaching back
+    ///   for them.
+    ///
+    /// **The on-screen guard still comes first**, and every input to it still has a trigger of its
+    /// own (`SidebarRefreshTriggerTests`): the guard drops whatever fires while the column is
+    /// hidden, and nothing re-runs it on the way back. Coalescing does not change that — it only
+    /// decides how many of the surviving calls do work.
     func refreshFolderSidebarRows() {
         guard folderSidebarIsShowing else { return }
+
+        sidebarRefresh.ticket &+= 1
+        let ticket = sidebarRefresh.ticket
+
+        // **Everything the main actor owns, read on it, now.** `FolderJumpStore` is `@MainActor`
+        // and `browseSidebarFavoritePlacesRaw` is this view's `@AppStorage`; neither may be touched
+        // from the walk. These are memory reads — dictionary lookups and an array — so taking them
+        // per call, before the coalescing has settled, costs nothing and keeps the winning call's
+        // inputs the freshest ones.
         let providers = folderSidebarProviders
-        // One `reachable` call per source. Each `stat`s that root once for both of its lists — under
-        // an unreachable network mount every one of those can block, which is why the store answers
-        // both lists in a single pass rather than being asked twice.
-        let sources: [FolderSidebarModel.Source] = providers.compactMap { provider in
-            let root = (provider.rootPath as NSString).expandingTildeInPath
-            guard !root.isEmpty else { return nil }
-            let remembered = Self.reachableFolders(
-                recents: FolderJumpStore.shared.recentPaths(forRoot: root),
-                pinned: FolderJumpStore.shared.pinnedPaths(forRoot: root), under: root)
-            return FolderSidebarModel.Source(root: FolderJumpStore.key(forRoot: root),
-                                             name: provider.displayName,
+        let inputs = FolderSidebarWalkInputs(
+            providers: providers,
+            remembered: providers.compactMap { provider in
+                let root = (provider.rootPath as NSString).expandingTildeInPath
+                guard !root.isEmpty else { return nil }
+                return RememberedSource(root: root, name: provider.displayName,
+                                        recents: FolderJumpStore.shared.recentPaths(forRoot: root),
+                                        pinned: FolderJumpStore.shared.pinnedPaths(forRoot: root))
+            },
+            recents: FolderJumpStore.shared.recentVisitsAcrossRoots(
+                landings: Self.folderSidebarLandings(providers)),
+            favoriteOrder: FolderJumpStore.shared.favoriteOrder,
+            favoritePlaces: folderSidebarFavoritePlaces)
+        // **The volume walk, only when something can have changed it.** See
+        // `knownMountedVolumes` — nil here means "walk it", and the walk happens inside the
+        // detached task below rather than on the way into it.
+        let known = Self.knownMountedVolumes
+
+        Task { @MainActor in
+            // A newer request was taken in this same turn. It will do the work, from newer inputs.
+            guard ticket == sidebarRefresh.ticket else { return }
+            let resolved = await Task.detached(priority: .userInitiated) {
+                Self.resolveFolderSidebarRows(inputs, volumes: known ?? Self.mountedVolumes())
+            }.value
+            // The walk can be overtaken while it is out — a mount, a pin, another switch. A late
+            // answer drawn over a newer one is the stale list this column's whole trigger set
+            // exists to prevent.
+            guard ticket == sidebarRefresh.ticket else { return }
+
+            Self.knownMountedVolumes = resolved.volumes
+            Self.rememberMountedVolumes(resolved.volumes)
+            folderSidebarRows = resolved.rows
+            folderSidebarLocationRows = resolved.locations
+            folderSidebarShortcutRows = resolved.shortcuts
+            // **Every mounted volume you could eject in Finder, source or not.** Keyed by mount
+            // point because a card SyncCloud has not been given still draws a row, and refusing to
+            // eject it for that reason would be an odd rule for a verb about the hardware. The
+            // internal check keeps the startup disk out — `isRemovable` is already false for it, so
+            // this is the belt to that braces.
+            folderSidebarEjectablePaths = Set(resolved.volumes.filter { $0.isRemovable && !$0.isInternal }
+                                                  .map { FolderSidebarView.mountKey($0.path) })
+            // **A NARROWER set, and the difference is a promise the dialog would otherwise break.**
+            // Eject is offered on anything Finder would eject, which includes a network share —
+            // Finder draws one an eject arrow. But a share is not `isLocal`, so unmounting it does
+            // NOT forget its sources (`MountedVolumeMemory.Facts.isDetachable`), and a confirmation
+            // telling the user their source is about to go would be describing something that will
+            // not happen.
+            folderSidebarDetachablePaths = Set(resolved.volumes.filter(\.losesItsSourcesOnUnmount)
+                                                  .map { FolderSidebarView.mountKey($0.path) })
+        }
+    }
+
+    /// One source's remembered lists as the store holds them — read on the main actor, checked
+    /// against the disk off it.
+    struct RememberedSource: Sendable {
+        let root: String
+        let name: String
+        let recents: [String]
+        let pinned: [String]
+    }
+
+    /// Everything a refresh needs that only the main actor can answer, gathered into one value so
+    /// the walk below takes arguments rather than reaching back into the view.
+    struct FolderSidebarWalkInputs: Sendable {
+        let providers: [CloudProvider]
+        let remembered: [RememberedSource]
+        let recents: [RememberedVisit]
+        let favoriteOrder: [String]
+        let favoritePlaces: [String]
+    }
+
+    /// Everything one refresh resolves, plus the volume walk it used — the unmount record needs the
+    /// same list the rows were built from, and re-walking for it is what this whole change exists
+    /// to stop.
+    struct FolderSidebarResolution: Sendable {
+        let rows: [FolderSidebarRow]
+        let locations: [SidebarSourceRow]
+        let shortcuts: [SidebarSourceRow]
+        let volumes: [SidebarSourceModel.Volume]
+    }
+
+    /// **The whole disk-touching half of a refresh, off the main actor.**
+    ///
+    /// `nonisolated` is the point, not an annotation: every `stat` in a refresh is in here or in
+    /// what it calls, and each of them can block for seconds on a sleeping disk or a network mount
+    /// that has stopped answering.
+    nonisolated static func resolveFolderSidebarRows(
+        _ inputs: FolderSidebarWalkInputs,
+        volumes: [SidebarSourceModel.Volume]
+    ) -> FolderSidebarResolution {
+        // One `reachable` call per source. Each `stat`s that root once for both of its lists —
+        // under an unreachable network mount every one of those can block, which is why the store
+        // answers both lists in a single pass rather than being asked twice.
+        let sources: [FolderSidebarModel.Source] = inputs.remembered.map { source in
+            let remembered = Self.reachableFolders(recents: source.recents, pinned: source.pinned,
+                                                   under: source.root)
+            return FolderSidebarModel.Source(root: FolderJumpStore.key(forRoot: source.root),
+                                             name: source.name,
                                              favorites: remembered.pinned,
                                              isAvailable: remembered.rootIsAvailable)
         }
-        folderSidebarRows = FolderSidebarModel.rows(
-            sources: sources,
-            recents: FolderJumpStore.shared.recentVisitsAcrossRoots(
-                landings: Self.folderSidebarLandings(providers)),
-            favoriteOrder: FolderJumpStore.shared.favoriteOrder)
-        // **One walk, threaded.** `mountedVolumeURLs` plus a resource read per volume is not free,
-        // and under an unreachable network mount each of those reads can block — the same reason
-        // the `reachable` call above answers both of its lists in a single pass. Building the rows
-        // and recording the volumes both need it, and asking twice doubled that exposure.
-        let volumes = Self.mountedVolumes()
-        Self.rememberMountedVolumes(volumes)
-        let places = splitFolderSidebarPlaceRows(providers, volumes: volumes)
-        folderSidebarLocationRows = places.locations
-        folderSidebarShortcutRows = places.shortcuts
-        // **Every mounted volume you could eject in Finder, source or not.** Keyed by mount point
-        // because a card SyncCloud has not been given still draws a row, and refusing to eject it
-        // for that reason would be an odd rule for a verb about the hardware. The internal check
-        // keeps the startup disk out — `isRemovable` is already false for it, so this is the belt
-        // to that braces.
-        folderSidebarEjectablePaths = Set(volumes.filter { $0.isRemovable && !$0.isInternal }
-                                              .map { FolderSidebarView.mountKey($0.path) })
-        // **A NARROWER set, and the difference is a promise the dialog would otherwise break.**
-        // Eject is offered on anything Finder would eject, which includes a network share — Finder
-        // draws one an eject arrow. But a share is not `isLocal`, so unmounting it does NOT forget
-        // its sources (`MountedVolumeMemory.Facts.isDetachable`), and a confirmation telling the
-        // user their source is about to go would be describing something that will not happen.
-        folderSidebarDetachablePaths = Set(volumes.filter(\.losesItsSourcesOnUnmount)
-                                              .map { FolderSidebarView.mountKey($0.path) })
+        let places = Self.splitFolderSidebarPlaceRows(inputs.providers, volumes: volumes,
+                                                      favoritePlaces: inputs.favoritePlaces)
+        return FolderSidebarResolution(
+            rows: FolderSidebarModel.rows(sources: sources, recents: inputs.recents,
+                                          favoriteOrder: inputs.favoriteOrder),
+            locations: places.locations,
+            shortcuts: places.shortcuts,
+            volumes: volumes)
+    }
+
+    // MARK: - The mounted volumes, walked once per mount event
+
+    /// **The last volume walk, kept until something can have changed it.**
+    ///
+    /// `mountedVolumeURLs` plus a `resourceValues` read per volume is not free, and under an
+    /// unreachable network mount each of those reads can block — the same reason the `reachable`
+    /// call answers both of its lists in a single pass. The set of mounted volumes changes only
+    /// when macOS says so, and the app already subscribes to all three notifications that say it
+    /// (`didMount`, `willUnmount`, `didUnmount`) plus `didRenameVolume`. So the walk belongs to
+    /// those events, not to every pane move — and a refresh that happens to run while a network
+    /// share is wedged now costs nothing at all for this half.
+    ///
+    /// `nil` means "not walked yet": the launch walk in `onAppear` fills it, and every one of the
+    /// four notification handlers empties it. Invalidating rather than re-walking in the handler is
+    /// deliberate — `willUnmount` fires while the volume is going away, and a synchronous walk at
+    /// that moment is the one most likely to block.
+    @MainActor static var knownMountedVolumes: [SidebarSourceModel.Volume]?
+
+    /// Forgets the cached walk. Called from every notification that can change what is mounted.
+    @MainActor static func forgetMountedVolumes() { knownMountedVolumes = nil }
+
+    /// The mounted volumes as last seen, walking only if nothing has been seen yet.
+    ///
+    /// **For the recorders, which must never be the thing that blocks.** `willUnmount` is the
+    /// sharpest case: it is the last chance to record what a volume WAS, and it arrives while that
+    /// volume is being torn down. The cached answer was taken while the volume was healthy, which
+    /// is the answer that handler wants; the walk is the fallback for a process that has somehow
+    /// not made one yet.
+    @MainActor static func mountedVolumesAsLastSeen() -> [SidebarSourceModel.Volume] {
+        if let known = knownMountedVolumes { return known }
+        let walked = mountedVolumes()
+        knownMountedVolumes = walked
+        return walked
     }
 
     /// **Each source's landing folder**, keyed the way the recents are — what Recents subtracts,
@@ -141,7 +282,7 @@ extension ContentView {
     /// `ContentView` is a `View` with `@State` and cannot be instantiated, and the keying is the
     /// half that silently does nothing when it is wrong — a raw `~/Dropbox` matches no root the
     /// store holds, and the section comes back looking exactly as it did before the fix.
-    static func folderSidebarLandings(_ providers: [CloudProvider]) -> [String: String] {
+    nonisolated static func folderSidebarLandings(_ providers: [CloudProvider]) -> [String: String] {
         // Keyed exactly as the store writes its recents, and as `sources` above is built —
         // `key(forRoot:)` expands the `~` a folder source keeps in its stored path, which is the
         // spelling the two would otherwise never meet on. An empty `openAt` is carried rather than
@@ -178,9 +319,16 @@ extension ContentView {
     /// Building places first inverts it: a place decides its own name, symbol and band, and a
     /// provider whose root is that folder merely lends it an id and makes it `.configured`. Adding
     /// a place as a source can then change what clicking it does, and nothing else.
-    func buildFolderSidebarPlaceRows(_ providers: [CloudProvider],
-                                     volumes: [SidebarSourceModel.Volume]) -> [SidebarSourceRow] {
-        let roots = folderSidebarRoots(providers)
+    ///
+    /// **`nonisolated static`, taking the user's Favorites list rather than reading it.** Every
+    /// `stat` this makes — the Trash probe, one per place, one per source root — plus a
+    /// `resolvingSymlinksInPath` for every place against every root now runs off the main actor, and
+    /// a function that reads `@AppStorage` cannot. The list is read on the main actor by
+    /// `refreshFolderSidebarRows` and handed down, which is the same shape `volumes` already had.
+    nonisolated static func buildFolderSidebarPlaceRows(_ providers: [CloudProvider],
+                                                        volumes: [SidebarSourceModel.Volume],
+                                                        favoritePlaces: [String]) -> [SidebarSourceRow] {
+        let roots = Self.folderSidebarRoots(providers)
         var claimed = Set<String>()
 
         var places: [KnownPlace] = SidebarSourceModel.favoriteShortcuts.map {
@@ -240,7 +388,7 @@ extension ContentView {
                 absolutePath: root, band: .cloud, state: .configured,
                 isAvailable: Self.isMountedFolder(root))
         }
-        return applyFolderSidebarFavoritePlaces(to: rows)
+        return Self.applyFolderSidebarFavoritePlaces(to: rows, favoritePlaces: favoritePlaces)
     }
 
     /// The places the user has in Favorites, decoded.
@@ -286,8 +434,9 @@ extension ContentView {
     /// each is built as a `.device` row and re-banded UP into Favorites here, so taking either out
     /// moves it back to Locations rather than off the column. Nothing special-cases them — the
     /// asymmetry falls out of which band the builder gave the row.
-    func applyFolderSidebarFavoritePlaces(to rows: [SidebarSourceRow]) -> [SidebarSourceRow] {
-        let wanted = Set(folderSidebarFavoritePlaces.map(Self.resolved))
+    nonisolated static func applyFolderSidebarFavoritePlaces(
+        to rows: [SidebarSourceRow], favoritePlaces: [String]) -> [SidebarSourceRow] {
+        let wanted = Set(favoritePlaces.map(Self.resolved))
         return rows.compactMap { row in
             // The Trash is never in Favorites and never offers to be — see `favoriteVerb`.
             guard row.state != .revealOnly else { return row }
@@ -304,10 +453,11 @@ extension ContentView {
     /// the cloud accounts — which all share a band — would have been free to shuffle between
     /// renders. Walking the bands in order and appending keeps every row's relative position
     /// exactly as the builder produced it.
-    func splitFolderSidebarPlaceRows(_ providers: [CloudProvider],
-                                     volumes: [SidebarSourceModel.Volume])
-        -> (locations: [SidebarSourceRow], shortcuts: [SidebarSourceRow]) {
-        let all = buildFolderSidebarPlaceRows(providers, volumes: volumes)
+    nonisolated static func splitFolderSidebarPlaceRows(
+        _ providers: [CloudProvider], volumes: [SidebarSourceModel.Volume],
+        favoritePlaces: [String]) -> (locations: [SidebarSourceRow], shortcuts: [SidebarSourceRow]) {
+        let all = Self.buildFolderSidebarPlaceRows(providers, volumes: volumes,
+                                                   favoritePlaces: favoritePlaces)
         var locations: [SidebarSourceRow] = []
         for band in [SidebarSourceRow.Band.cloud, .device, .trash] {
             locations += all.filter { $0.band == band }
@@ -318,10 +468,10 @@ extension ContentView {
         // undo a reorder the moment a disk was mounted.
         let favorites = Dictionary(all.filter(\.isFavoriteShortcut).map { (Self.resolved($0.absolutePath), $0) },
                                    uniquingKeysWith: { first, _ in first })
-        return (locations, folderSidebarFavoritePlaces.compactMap { favorites[Self.resolved($0)] })
+        return (locations, favoritePlaces.compactMap { favorites[Self.resolved($0)] })
     }
 
-    func folderSidebarRoots(_ providers: [CloudProvider]) -> [(id: String, name: String, path: String)] {
+    nonisolated static func folderSidebarRoots(_ providers: [CloudProvider]) -> [(id: String, name: String, path: String)] {
         providers.map { (id: $0.id, name: $0.displayName,
                          path: ($0.rootPath as NSString).expandingTildeInPath) }
     }
@@ -338,7 +488,7 @@ extension ContentView {
     /// the favorites and source orders are partitioned rather than sorted by an optional rank.
     /// **Takes the walk rather than making one**, so a refresh that also has to record what those
     /// volumes ARE (for the unmount that cannot ask) pays for `mountedVolumeURLs` once.
-    static func deviceEntries(_ volumes: [SidebarSourceModel.Volume])
+    nonisolated static func deviceEntries(_ volumes: [SidebarSourceModel.Volume])
         -> [(name: String, symbol: String, path: String)] {
         let home = SidebarSourceModel.homeEntry
         return [home] + SidebarSourceModel.orderedVolumes(volumes)
@@ -351,7 +501,7 @@ extension ContentView {
     /// partitions, and the read-only system volume that a modern macOS mounts beside the data one.
     /// Anything that fails to answer its resource values is dropped rather than drawn under a
     /// guessed name.
-    static func mountedVolumes() -> [SidebarSourceModel.Volume] {
+    nonisolated static func mountedVolumes() -> [SidebarSourceModel.Volume] {
         let keys: [URLResourceKey] = [.volumeNameKey, .volumeIsRemovableKey, .volumeIsEjectableKey,
                                       .volumeIsInternalKey, .volumeIsBrowsableKey, .volumeIsLocalKey]
         guard let urls = FileManager.default.mountedVolumeURLs(
@@ -378,7 +528,7 @@ extension ContentView {
 
     /// A provider's account, for the qualifier slot — the part of its id that distinguishes two
     /// accounts of the same service. Nil when there is nothing to add.
-    static func accountQualifier(for provider: CloudProvider) -> String? {
+    nonisolated static func accountQualifier(for provider: CloudProvider) -> String? {
         // A folder source's qualifier is where it lives, since two folder sources can share a leaf
         // name as easily as two Drive accounts can share a service name.
         if provider.isLocalFolder {
@@ -401,7 +551,7 @@ extension ContentView {
     /// Symlinks resolved on both sides, which is the whole point of the containment check: under
     /// macOS's Desktop & Documents syncing `~/Desktop` is a link into `com~apple~CloudDocs`, and a
     /// plain string comparison says it has nothing to do with iCloud Drive.
-    static func resolved(_ path: String) -> String {
+    nonisolated static func resolved(_ path: String) -> String {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             .resolvingSymlinksInPath().path
     }

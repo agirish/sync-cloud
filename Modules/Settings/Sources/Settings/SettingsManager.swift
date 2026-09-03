@@ -488,12 +488,29 @@ public class SettingsManager: ObservableObject {
         guard folderSources.contains(where: { $0.id == id }) else { return }
         Logger.shared.info("User removed folder source: \(id)")
         folderSources.removeAll { $0.id == id }
-        userDefaults.removeObject(forKey: "\(Self.nameOverrideKeyPrefix)\(id)")
-        if disabledProviderIds.remove(id) != nil {
-            userDefaults.set(disabledProviderIds.sorted(), forKey: Self.disabledProviderIdsKey)
-        }
+        forgetKeys(ofRemovedSources: [id])
         Task {
             await discoverProviders()
+        }
+    }
+
+    /// **The per-id keys a removed source takes with it**, for one source or for several.
+    ///
+    /// Split out of ``removeFolderSource(id:)`` so ``removeFolderSources(onVolume:)`` can drop a
+    /// whole card's worth in one pass. The `disabledProviderIds` write is hoisted out of the loop
+    /// and made conditional on something actually having been removed, which is the same rule the
+    /// single-source path always had — a set that did not change must not be re-written to
+    /// defaults.
+    private func forgetKeys(ofRemovedSources ids: [String]) {
+        for id in ids {
+            userDefaults.removeObject(forKey: "\(Self.nameOverrideKeyPrefix)\(id)")
+        }
+        var droppedADisabledId = false
+        for id in ids where disabledProviderIds.remove(id) != nil {
+            droppedADisabledId = true
+        }
+        if droppedADisabledId {
+            userDefaults.set(disabledProviderIds.sorted(), forKey: Self.disabledProviderIdsKey)
         }
     }
 
@@ -571,7 +588,26 @@ public class SettingsManager: ObservableObject {
                 ?? id
         }
         Logger.shared.info("Volume \(volume) was unmounted — removing \(ids.count) source(s) on it: \(names.joined(separator: ", "))")
-        for id in ids { removeFolderSource(id: id) }
+        // **Removed as a batch: one array write, one defaults write, ONE discovery.**
+        //
+        // This called `removeFolderSource(id:)` per id, and each of those spawns
+        // `Task { await discoverProviders() }` — a pass that lists the CloudStorage mounting point
+        // and then `stat`s every provider root to recompute `pathValidity`, on network-backed
+        // mounts that can block for seconds. A card holding four sources therefore started four
+        // full discoveries at the moment a volume disappeared, and `discoveryGeneration` only
+        // decides which one gets to *publish*: the other three do all of the work and are thrown
+        // away. Each removal also re-encoded `folderSources` and wrote it to defaults, through the
+        // `didSet`.
+        //
+        // The end state is identical — the same ids gone, the same per-id keys cleared, the same
+        // single published provider list — because a discovery reads `folderSources` when it runs,
+        // not when it was requested, and it runs after this returns.
+        let dropped = Set(ids)
+        folderSources.removeAll { dropped.contains($0.id) }
+        forgetKeys(ofRemovedSources: ids)
+        Task {
+            await discoverProviders()
+        }
         return names
     }
 

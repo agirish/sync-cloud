@@ -110,6 +110,72 @@ import Sync
         #expect(settings.isEnabled(id), "the disabled flag outlived the source it belonged to")
     }
 
+    /// **One discovery for the whole card, not one per source.**
+    ///
+    /// The removal ran `removeFolderSource(id:)` per id, and each of those spawns
+    /// `Task { await discoverProviders() }` — a pass that lists the CloudStorage mounting point and
+    /// then `stat`s every provider root to recompute `pathValidity`, on network-backed mounts that
+    /// can block for seconds. `discoveryGeneration` only decides which pass gets to *publish*, so
+    /// the extra ones did the whole cost and were discarded. Four sources on one card meant four
+    /// full discoveries at the moment a volume disappeared.
+    ///
+    /// Counted through the lister, which each pass calls exactly once — the same instrument
+    /// `SettingsDiscoveryTests` uses to count passes.
+    @MainActor
+    @Test func unmountingACardRunsOneDiscoveryRatherThanOnePerSource() async throws {
+        let defaults = TestDefaults(); defer { defaults.wipe() }
+        let counter = CallCounter()
+        let settings = SettingsManager(autoDiscover: false,
+                                       userDefaults: defaults.defaults,
+                                       overridesDomainName: defaults.suiteName,
+                                       cloudStorageLister: { counter.increment(); return .read([]) },
+                                       pathValidator: { _ in true })
+        for folder in ["/Volumes/CARD", "/Volumes/CARD/DCIM", "/Volumes/CARD/RAW", "/Volumes/CARD/JPG"] {
+            settings.addFolderSource(path: folder)
+        }
+        // The four adds each spawn a discovery of their own; let them all land, then measure only
+        // what the removal costs.
+        let afterAdds = try await Self.countAfter(counter, reaching: 4)
+
+        settings.removeFolderSources(onVolume: "/Volumes/CARD")
+        let afterRemoval = try await Self.countAfter(counter, reaching: afterAdds + 1) - afterAdds
+
+        #expect(settings.folderSources.isEmpty, "the removal did not happen, so the count means nothing")
+        #expect(afterRemoval == 1,
+                "removing four sources on one card ran \(afterRemoval) provider discoveries; each one lists the CloudStorage mount and stats every root")
+    }
+
+    /// The lister count once at least `reaching` discoveries have run AND nothing more has arrived
+    /// for a while.
+    ///
+    /// **It requires the target rather than reporting whatever it saw**, and that is the whole
+    /// design. The first version simply quiet-settled inside a 2s budget: on a busy machine — this
+    /// suite runs in parallel with three other packages on a self-hosted runner that is also the
+    /// development Mac — the four adds had not started when it gave up, so it reported 0, and the
+    /// test then read "four discoveries" for a batch that had in fact run one. A measurement taken
+    /// before the work runs is not a small measurement, it is a wrong one, so this fails loudly
+    /// instead.
+    ///
+    /// Bounded at 20s so a genuinely wedged pass fails the assertion rather than hanging the suite.
+    private static func countAfter(_ counter: CallCounter, reaching target: Int,
+                                   sourceLocation: SourceLocation = #_sourceLocation) async throws -> Int {
+        let deadline = Date().addingTimeInterval(20)
+        while counter.count < target, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        try #require(counter.count >= target,
+                     "only \(counter.count) of \(target) provider discoveries had run after 20s — the machine is too busy for this measurement to mean anything",
+                     sourceLocation: sourceLocation)
+        // Then quiet: nothing more may arrive, or a late pass would be credited to the next phase.
+        var last = -1, quiet = 0
+        while quiet < 40, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            let now = counter.count
+            if now == last { quiet += 1 } else { quiet = 0; last = now }
+        }
+        return counter.count
+    }
+
     @MainActor
     @Test func unmountingAVolumeWithNoSourcesChangesNothing() {
         let defaults = TestDefaults(); defer { defaults.wipe() }

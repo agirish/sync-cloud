@@ -258,8 +258,59 @@ import Sync
                 "the unmount notification is subscribed to but not acted on")
         // The launch walk. `refreshFolderSidebarRows` returns early wherever the column is hidden,
         // so a card already in the reader would otherwise never be recorded at all.
-        #expect(content.contains("Self.rememberMountedVolumes(Self.mountedVolumes())"),
+        //
+        // **Through `mountedVolumesAsLastSeen`, which is the walk and its cache in one.** It was a
+        // bare `mountedVolumes()` here, and the refresh on the very next line walked the same
+        // unchanged set again — two `mountedVolumeURLs` calls plus two `resourceValues` reads per
+        // volume at launch, either of which can block on a network mount. Asserted on the accessor
+        // rather than on the walk so that a future edit reaching past the cache fails here.
+        #expect(content.contains("Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen())"),
                 "nothing records the volumes already mounted at launch")
+        #expect(!content.contains("Self.rememberMountedVolumes(Self.mountedVolumes())"),
+                "a recorder walks the volumes directly again, so launch and each mount pay for two walks")
+    }
+
+    /// **Every notification that changes what is mounted drops the cached walk**, and `willUnmount`
+    /// deliberately does not.
+    ///
+    /// The walk is no longer made per refresh — it belongs to the four events that can change its
+    /// answer. A handler that forgot to invalidate would leave the column drawing a volume that has
+    /// gone, or missing one that arrived, until something else happened to invalidate; nothing
+    /// would fail to compile and no other test would notice.
+    ///
+    /// `willUnmount` is the exception and it is the sharp one: the volume has NOT gone yet, and
+    /// dropping the cache there sends the very next reader — this handler's own record — back to a
+    /// filesystem that is being torn down. That is the walk most likely to block, which is the
+    /// whole reason the cache exists.
+    @Test func everyMountEventDropsTheCachedWalkExceptTheOneThatMustNot() throws {
+        let content = try Self.appSource("ContentView.swift")
+        let host = try Self.appSource("ContentView+FolderSidebar.swift")
+        try #require(host.contains("static func forgetMountedVolumes()"),
+                     "the invalidation is gone — this scan is aimed at nothing")
+
+        for handler in ["didMountNotification", "didUnmountNotification"] {
+            let block = try #require(Self.between("publisher(for: NSWorkspace.\(handler))", "}", in: content),
+                                     "the \(handler) subscription was restructured — this scan reads nothing")
+            #expect(block.contains("Self.forgetMountedVolumes()"),
+                    "\(handler) leaves the cached volume walk in place, so the column keeps a stale set of disks")
+        }
+
+        let willUnmount = try #require(
+            Self.between("publisher(for: NSWorkspace.willUnmountNotification)", "}", in: content),
+            "the willUnmount subscription was restructured — this scan reads nothing")
+        #expect(!willUnmount.contains("Self.forgetMountedVolumes()"),
+                "willUnmount drops the cache while the volume is mid-unmount, sending its own record straight back to the filesystem it is meant to avoid")
+        #expect(willUnmount.contains("Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen()"),
+                "willUnmount no longer records what the volume was — the unmount cannot answer that itself")
+
+        // And the rename, which moves a mount point rather than adding or removing one.
+        #expect(content.contains("FolderJumpStore.shared.followVolumeRename(from: old, to: new)"),
+                "the rename handler was restructured — this scan reads nothing")
+        let rename = try #require(Self.between("FolderJumpStore.shared.followVolumeRename(from: old, to: new)",
+                                               "refreshFolderSidebarRows()", in: content),
+                                  "the rename handler no longer refreshes — this scan reads nothing")
+        #expect(rename.contains("Self.forgetMountedVolumes()"),
+                "a rename leaves the cached walk naming a mount point that no longer exists")
     }
 
     @Test func theUnmountHandlerConsultsTheMemoryBeforeRemovingAnything() throws {

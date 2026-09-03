@@ -102,6 +102,42 @@ import AppKit
         #expect(!TopPaneVisibility.panesHidden(for: .filing, override: decoded[Workspace.filing.rawValue]))
     }
 
+    /// **The memo answers about the string it was handed, not about the last one.**
+    ///
+    /// `overrides(in:)` exists because `panesHiddenForCurrentTab` is read from around three dozen
+    /// sites — `contentLayout`, `folderSidebarIsShowing`, both shortcut gates, `showSourcePicker`,
+    /// two `.animation` modifiers and an `onChange` — several per body pass, each allocating a
+    /// `JSONDecoder` and parsing. It is a one-entry memo, which makes exactly one thing able to go
+    /// wrong: serving a previous string's answer for the current one. That would show up as the
+    /// panes not collapsing when a workspace's override is written, or a stale collapse persisting
+    /// — a stuck layout, with the stored value correct.
+    ///
+    /// Interleaved A → B → A rather than A → B, because a memo that overwrites unconditionally and
+    /// one that keys correctly both pass a single change; only coming BACK to a value distinguishes
+    /// them from a memo that never re-reads.
+    @MainActor
+    @Test func theOverridesMemoFollowsTheStringItIsGiven() {
+        let hidden = TopPaneVisibility.encodeOverrides([Workspace.filing.rawValue: true])
+        let shown = TopPaneVisibility.encodeOverrides([Workspace.filing.rawValue: false])
+        #expect(hidden != shown, "the two fixtures encode identically — this scan compares nothing")
+
+        #expect(TopPaneVisibility.overrides(in: hidden)[Workspace.filing.rawValue] == true)
+        #expect(TopPaneVisibility.overrides(in: shown)[Workspace.filing.rawValue] == false,
+                "the memo served the previous string's map — a written override would never take effect")
+        #expect(TopPaneVisibility.overrides(in: hidden)[Workspace.filing.rawValue] == true,
+                "the memo served the previous string's map on the way back")
+        #expect(TopPaneVisibility.overrides(in: "") == [:],
+                "an emptied key still reads as the last decoded map")
+    }
+
+    /// And it agrees with the uncached decode on every input the decoder has a special answer for,
+    /// so the memo cannot become a second, kinder parser.
+    @MainActor
+    @Test(arguments: ["", "not json", "{\"Duplicates\":123}", "{\"Filing\":true}"])
+    func theMemoAgreesWithTheUncachedDecode(raw: String) {
+        #expect(TopPaneVisibility.overrides(in: raw) == TopPaneVisibility.decodeOverrides(raw))
+    }
+
     @Test func testMalformedAndEmptyOverridesDecodeToEmptyMap() {
         #expect(TopPaneVisibility.decodeOverrides("") == [:])
         #expect(TopPaneVisibility.decodeOverrides("not json") == [:])

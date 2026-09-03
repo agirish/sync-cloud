@@ -392,8 +392,25 @@ extension FileSyncManager {
     ///   `lastLoadedFocusPath` — so a load that inferred "same focus, already loaded, nothing to do"
     ///   would serve pre-operation state after a copy or a delete. The scan still runs, and still
     ///   compares both panes; the untouched one contributes the tree it already holds.
+    ///
+    /// - Parameter comparing: whether the reload is followed by the two-pane comparison. `true`
+    ///   for every caller that has not thought about it, which keeps this the same function it was.
+    ///
+    ///   `false` says the caller knows the comparison would not be *displayed*: the single-source
+    ///   workspaces (Browse, the lenses, Editor) draw one tree and no differences — `FileTreeView`
+    ///   empties the difference index for them outright, so a scan on their behalf produces rows
+    ///   nothing renders. Entering a lens from the workspace bar re-homes the source rail to the
+    ///   provider root, which is a pane move, which is a refresh — and that refresh was walking
+    ///   both providers and diffing them on the way into a workspace that cannot show the answer.
+    ///
+    ///   **A skipped comparison is owed, not cancelled.** The caller that asks for one must arrange
+    ///   for the comparison to be made before anything displays it — the pane focus has moved, so
+    ///   the differences in hand describe a folder the left pane is no longer on, and showing them
+    ///   in Compare would be worse than showing none. `ContentView.comparisonAwaitsRescan` is that
+    ///   arrangement.
     public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider,
-                                    reloading requested: PaneReloadScope = .both) async {
+                                    reloading requested: PaneReloadScope = .both,
+                                    comparing: Bool = true) async {
         // **A narrower refresh must never cancel a wider one down to nothing.**
         //
         // This supersedes whatever is in flight, and before scoping existed that was safe: every
@@ -471,14 +488,16 @@ extension FileSyncManager {
             }
             guard !Task.isCancelled else { return }
             
-            let currentLeftFull = (leftRoot as NSString).appendingPathComponent(leftRelativePath)
-            let currentRightFull = (rightRoot as NSString).appendingPathComponent(rightRelativePath)
-            
-            await scanDirectories(
-                left: left, leftPath: currentLeftFull,
-                right: right, rightPath: currentRightFull
-            )
-            guard !Task.isCancelled else { return }
+            if comparing {
+                let currentLeftFull = (leftRoot as NSString).appendingPathComponent(leftRelativePath)
+                let currentRightFull = (rightRoot as NSString).appendingPathComponent(rightRelativePath)
+
+                await scanDirectories(
+                    left: left, leftPath: currentLeftFull,
+                    right: right, rightPath: currentRightFull
+                )
+                guard !Task.isCancelled else { return }
+            }
             self.scheduleSelectionPrune()
             self.sweepOrphanedTempArtifacts()
         }

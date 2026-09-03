@@ -87,6 +87,87 @@ import Testing
         #expect(StorageLensStore.load(from: url).isEmpty)
     }
 
+    // MARK: The decode memo
+
+    /// **A second read is answered from memory, not from the file.**
+    ///
+    /// `restoreStorageLens` is reached from six triggers, and its "nothing is displayed yet" guard
+    /// is not the bound it looks like: for a root with no saved snapshot nothing is EVER displayed,
+    /// so every pane move and every workspace switch re-read the file and ran two `JSONDecoder`
+    /// passes over every saved root, on the main actor.
+    ///
+    /// Proved by taking read permission away without touching either half of the stamp — the
+    /// modification date and the size are unchanged by a `chmod` — so an answer that still names
+    /// the snapshot can only have come from the memo. The positive control at the end is what makes
+    /// that an argument rather than an assumption: with the memo dropped, the very same call over
+    /// the very same file answers empty.
+    @Test func aSecondLoadIsAnsweredFromTheMemoRatherThanTheFile() throws {
+        let url = try storeURL("memo")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        StorageLensStore.forgetDecodeMemo(for: url)
+        StorageLensStore.saveInBackground(
+            StorageLensSnapshot(root: "/root", report: report(),
+                                completedAt: Date(timeIntervalSince1970: 1_800_000_000)), to: url)
+        StorageLensStore.waitForPendingWrites()
+        #expect(StorageLensStore.load(from: url).count == 1,
+                "the fixture never saved, so nothing below is measuring anything")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        #expect(StorageLensStore.load(from: url).count == 1,
+                "the second read went back to the file — the decode is not memoised, and a root with no snapshot re-reads on every trigger forever")
+
+        StorageLensStore.forgetDecodeMemo(for: url)
+        #expect(StorageLensStore.load(from: url).isEmpty,
+                "the file is still readable, so the check above proved nothing about the memo")
+    }
+
+    /// **A save invalidates it, without anyone having to say so.** The memo is keyed on the file's
+    /// modification date and size, and `write(_:to:)` is atomic — the replacement carries a fresh
+    /// date — so a background save that lands after a read cannot be served the previous contents.
+    ///
+    /// The two payloads differ by one digit, so the file's SIZE is unchanged and only the
+    /// modification date separates them: a memo keyed on path and size alone still fails here,
+    /// which a fixture with obviously different reports would not have caught.
+    @Test func aSaveInvalidatesTheMemoWithoutBeingTold() throws {
+        let url = try storeURL("memo-invalidate")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        StorageLensStore.forgetDecodeMemo(for: url)
+
+        StorageLensStore.saveInBackground(
+            StorageLensSnapshot(root: "/root", report: report(totalBytes: 1), completedAt: at), to: url)
+        StorageLensStore.waitForPendingWrites()
+        #expect(StorageLensStore.load(from: url).first?.report.totalBytes == 1)
+
+        StorageLensStore.saveInBackground(
+            StorageLensSnapshot(root: "/root", report: report(totalBytes: 2), completedAt: at), to: url)
+        StorageLensStore.waitForPendingWrites()
+        #expect(StorageLensStore.load(from: url).first?.report.totalBytes == 2,
+                "the memo outlived the write that replaced the file underneath it")
+    }
+
+    /// And the absent case memoises too — which is the one that mattered. A root nobody has
+    /// analysed leaves nothing on screen, so the "already showing something" guard never engages
+    /// and the read repeats for the life of the session.
+    @Test func anAbsentFileMemoisesAndStillNoticesOneAppearing() throws {
+        let url = try storeURL("memo-absent")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        StorageLensStore.forgetDecodeMemo(for: url)
+
+        #expect(StorageLensStore.load(from: url).isEmpty)
+        #expect(StorageLensStore.load(from: url).isEmpty)
+
+        StorageLensStore.saveInBackground(
+            StorageLensSnapshot(root: "/root", report: report(),
+                                completedAt: Date(timeIntervalSince1970: 1_800_000_000)), to: url)
+        StorageLensStore.waitForPendingWrites()
+        #expect(StorageLensStore.load(from: url).count == 1,
+                "the memo of an ABSENT file outlived the file appearing, so a saved report could never be restored")
+    }
+
     // MARK: Through the manager
 
     @MainActor

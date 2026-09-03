@@ -51,12 +51,22 @@ extension FileSyncManager {
     /// replace results already on screen: a restore is a way to start from something rather than
     /// nothing, never a way to overwrite something newer.
     ///
-    /// Reads the file on each attempt rather than memoizing it. That is a real cost — the app
-    /// calls this whenever the workspace, or the focused root, changes — but a bounded one: the
-    /// store holds at most `maxRoots` snapshots of `topN` rows each, so it is tens of kilobytes,
-    /// and the guards above mean it is only ever reached while nothing is displayed. A memo would
-    /// be a fourth piece of cache state to keep in step with a background writer, which is a worse
-    /// trade than the read it saves.
+    /// **The read is memoised in the store, against the file's own modification stamp** — see
+    /// `StorageLensStore.load(from:)`.
+    ///
+    /// This said the opposite, and the reasoning had one hole: "the guards above mean it is only
+    /// ever reached while nothing is displayed", offered as a bound. It is not a bound. When the
+    /// current root has no saved snapshot, nothing is *ever* displayed, so `storageLensReport == nil`
+    /// stays true and every one of the six triggers — the workspace change, appearance, the scan
+    /// root moving, the rail lens changing, a scope change — re-read the file and ran two
+    /// `JSONDecoder` passes over every saved root's report, on the main actor, for the life of the
+    /// session. That is the common case, not the rare one: it is what a root nobody has analysed
+    /// looks like.
+    ///
+    /// The objection the old note raised — "a fourth piece of cache state to keep in step with a
+    /// background writer" — is answered rather than accepted: the memo is keyed on the file's
+    /// modification date and size, and the background writer writes atomically, so a save
+    /// invalidates it by construction. There is no rule for anyone to remember.
     @discardableResult
     public func restoreStorageLens(root: URL) -> Bool {
         guard let url = storageLensStoreURL,

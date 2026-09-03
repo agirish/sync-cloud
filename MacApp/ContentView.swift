@@ -262,6 +262,55 @@ struct ContentView: View {
     /// rule `MountedVolumeMemory` applies are one rule.
     @State var folderSidebarDetachablePaths: Set<String> = []
     @State var folderSidebarShortcutRows: [SidebarSourceRow] = []
+    /// **A comparison that was skipped and is owed**, set when a refresh runs without its scan and
+    /// cleared by the next one that does. See `settleDeferredComparisonIfNeeded`.
+    ///
+    /// View `@State` rather than manager state because the fact it records is a fact about the
+    /// *workspace* — nothing in `FileSyncManager` knows which workspace is on screen, and the debt
+    /// exists only because a single-source workspace cannot display the answer.
+    @State private var comparisonAwaitsRescan = false
+
+    /// **The two switches the refresh coalescing and the lens-entry skip turn on**, in a box the
+    /// view holds rather than as two `@State` values.
+    ///
+    /// Both are written and read back inside one synchronous stretch — the ticket is bumped and
+    /// then compared across a main-actor hop, and the re-home flag is set, consumed by a
+    /// `PassthroughSubject` delivery, and cleared, all inside a single `presentLensRail` call.
+    /// `@State`'s storage belongs to SwiftUI and the promises it makes are about *rendering*;
+    /// whether a value written and read back within one event handler is the value that comes out
+    /// is not a question this code should have hanging over it. A reference the view holds has no
+    /// such question: the write is a property write and the read after it sees it.
+    ///
+    /// `@State` is still the right holder, of a reference: it gives the box the window's lifetime,
+    /// so a close-and-Dock-reopen that rebuilds `ContentView` gets a fresh one — correct for both
+    /// fields, since neither describes anything that outlives the window.
+    @State var sidebarRefresh = SidebarRefreshState()
+
+    /// The box behind ``ContentView/sidebarRefresh``.
+    final class SidebarRefreshState {
+        /// **The ticket the sidebar refresh coalesces on.** Bumped by every call to
+        /// `refreshFolderSidebarRows`, and checked twice by the one that wins — once after the hop
+        /// to the next main-actor turn, which is what collapses the two-to-four calls a single
+        /// workspace switch fires into one walk, and once after that walk returns, which is what
+        /// stops an answer overtaken while it was out being drawn over a newer one.
+        ///
+        /// `&+=` at the call site rather than `+=`: this is bumped on every pane move for the life
+        /// of the window, and trapping at `Int.max` to protect a comparison that only ever asks "is
+        /// this still the newest" would be a crash standing in for a wrap that changes nothing.
+        var ticket = 0
+
+        /// **Scoped to exactly one call**, the `focusOn` inside `presentLensRail`: set immediately
+        /// before it and cleared immediately after, so the `refreshSubject` handler — which
+        /// `PassthroughSubject` delivers to synchronously, inside that call — can tell the
+        /// lens-entry re-home from every other pane move.
+        ///
+        /// The clear on the far side is not tidiness. `focusOn` no-ops when the pane is already at
+        /// the root, which is the ordinary lens→lens case: nothing is sent, nothing consumes the
+        /// flag, and a flag left standing would silently strip the comparison off the next
+        /// unrelated navigation.
+        var isReHomingForLensEntry = false
+    }
+
     /// A promotion that can still be taken back, until the next one or a workspace change.
     @State var folderSidebarNotice: FolderSidebarNotice?
     /// The sidebar width when the current resize drag began — see `folderSidebarResizeHandle`.
@@ -1111,7 +1160,12 @@ struct ContentView: View {
         .onReceive(syncManager.refreshSubject) { scope in
             // The scope is the subject's, not this view's: only the sender knows whether one pane
             // moved or something changed under both. See `refreshSubject`.
-            refreshAction(reloading: scope)
+            //
+            // Whether to COMPARE is this view's, and only it can answer: the subject carries which
+            // panes moved, never which workspace the move was for. `sidebarRefresh.isReHomingForLensEntry` is
+            // set around `presentLensRail`'s `focusOn` alone, so this is the lens-entry re-home and
+            // nothing else — a navigation, a file operation and a provider switch all still scan.
+            refreshAction(reloading: scope, comparing: !sidebarRefresh.isReHomingForLensEntry)
         }
         .onAppear {
             // Closing and Dock-reopening the single window recreates ContentView, so this
@@ -1375,6 +1429,15 @@ struct ContentView: View {
             clearPersonScope()
             restoreStorageLensIfShowing()
             autoRescanLensIfShowing()
+            // **Compare is the only workspace that displays a comparison, so it is where one that
+            // is owed gets paid.** Entering a lens re-homes the source rail and skips the scan that
+            // move would otherwise trigger; this is the other half of that, and it no-ops whenever
+            // nothing was skipped.
+            //
+            // Here rather than in `workspaceSelection`'s setter for the reason `clearPersonScope`
+            // is: every programmatic switch — `show(_:)`, the duplicate-review handoff — goes
+            // around the binding, and Compare is exactly where those land.
+            if workspace == .compare { settleDeferredComparisonIfNeeded() }
         }
         // The workspace is @AppStorage, so quitting on Storage means the next launch STARTS there
         // and `onChange` never fires — the restore has to be attempted on appearance too, or the
@@ -1683,10 +1746,17 @@ struct ContentView: View {
     /// Whether the current workspace's panes are hidden, honoring any stored override on top of
     /// its default. Computed (not stored) so switching workspace auto-applies its remembered state
     /// with no onChange plumbing.
+    ///
+    /// **Through the memo, not `decodeOverrides` directly.** This is read from around three dozen
+    /// sites — `contentLayout`, `folderSidebarIsShowing`, both shortcut gates, `showSourcePicker`,
+    /// two `.animation` modifiers and an `onChange` — several of them per body pass, and each read
+    /// was allocating a `JSONDecoder` and parsing the stored string. `TopPaneVisibility.overrides`
+    /// answers from a one-entry memo keyed on that string, so a body pass parses it once and only
+    /// a real write to the defaults key re-parses. See that member for why the key is total.
     var panesHiddenForCurrentTab: Bool {
         TopPaneVisibility.panesHidden(
             for: selectedWorkspace,
-            override: TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)[selectedWorkspace.rawValue]
+            override: TopPaneVisibility.overrides(in: topPaneOverridesRaw)[selectedWorkspace.rawValue]
         )
     }
 
@@ -1764,7 +1834,20 @@ struct ContentView: View {
         // as a visible one-click scope ("Inbox (TODO) — N loose files"), and because the scope is
         // sticky across launches it is clicked once rather than re-implied every time the workspace
         // is opened. `filingInboxFolder` still resolves the path for exactly that.
+        //
+        // **Without the comparison that move would otherwise drag behind it.** `focusOn` pushes
+        // history and sends `refreshSubject`, which this view turns into a `refreshTreesAndScan` —
+        // and that scan walks BOTH providers and diffs them, on the way into a workspace that
+        // draws one tree and no differences (`FileTreeView` empties the difference index for every
+        // single-source workspace, so the rows it produces render nowhere). On a real pair that is
+        // a full double walk and about a second, paid on every entry into a lens.
+        //
+        // Set-and-clear around this one call, not a mode: see `SidebarRefreshState.isReHomingForLensEntry` for why
+        // the clear is load-bearing rather than tidy, and `comparisonAwaitsRescan` for how the
+        // skipped comparison is made good before Compare can display it.
+        sidebarRefresh.isReHomingForLensEntry = true
         syncManager.focusOn(relativePath: "", isLeft: true)
+        sidebarRefresh.isReHomingForLensEntry = false
     }
 
     private func applyProviderSelection(preferDistinctPair: Bool) {
@@ -1808,8 +1891,14 @@ struct ContentView: View {
     ///
     /// Saying so is half the fix; the caller completing it when the source arrives is the other
     /// half (see `launchRefreshPending`).
+    /// - Parameter comparing: whether the reload is followed by the two-pane comparison. Defaults
+    ///   to `true`, so every existing caller is unchanged. The one caller that passes `false` is
+    ///   the `refreshSubject` handler while `presentLensRail`'s re-home is in flight — see
+    ///   `comparisonAwaitsRescan`, which is what makes the skipped comparison owed rather than
+    ///   lost.
     @discardableResult
-    private func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both) -> Bool {
+    private func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both,
+                               comparing: Bool = true) -> Bool {
         guard let leftProvider = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
               let rightProvider = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else {
             let missing = [leftProviderId, rightProviderId]
@@ -1819,11 +1908,46 @@ struct ContentView: View {
                 + "\(missing.count == 1 ? "is" : "are") not among the enabled sources yet")
             return false
         }
+        // **Written on the way out, both ways.** A refresh that compares settles the debt whatever
+        // put it there, and one that does not takes it on — so the flag always describes the last
+        // thing that actually happened rather than accumulating.
+        comparisonAwaitsRescan = !comparing
         Task {
             await syncManager.refreshTreesAndScan(left: leftProvider, right: rightProvider,
-                                                  reloading: reloading)
+                                                  reloading: reloading, comparing: comparing)
         }
         return true
+    }
+
+    /// **The comparison a lens entry deferred, made before Compare can display it.**
+    ///
+    /// Entering a lens from the workspace bar re-homes the source rail to the provider root, and
+    /// that pane move is a refresh — which was walking both providers and diffing them on the way
+    /// into a workspace that draws no differences at all (`FileTreeView` empties the difference
+    /// index for every single-source workspace). The scan is skipped there and recorded here.
+    ///
+    /// **Nothing scanned on entering Compare before this, and that is why the debt has to be
+    /// settled.** `presentLensRail` early-returns for Compare (it has no lens), so the differences
+    /// list has always shown whatever the last scan left. Left alone, it would now show a
+    /// comparison of a folder the left pane was moved off — stale rows under correct pane headers,
+    /// which is worse than the "not scanned" card.
+    ///
+    /// `scanDirectories` rather than another `refreshAction`: the trees were loaded by the refresh
+    /// that skipped the comparison, and only the comparison is owed. It walks the two folders
+    /// itself, so it does not depend on that load having finished.
+    ///
+    /// The flag is cleared only once the providers resolve — during bootstrap they may not yet,
+    /// and a debt dropped there would leave Compare on stale rows for the session.
+    private func settleDeferredComparisonIfNeeded() {
+        guard comparisonAwaitsRescan,
+              let leftProvider = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
+              let rightProvider = settings.enabledProviders.first(where: { $0.id == rightProviderId })
+        else { return }
+        comparisonAwaitsRescan = false
+        Task {
+            await syncManager.scanDirectories(left: leftProvider, leftPath: currentLeftPath,
+                                              right: rightProvider, rightPath: currentRightPath)
+        }
     }
 
     /// Swaps the left and right panes entirely — providers, focused folders, selections,
@@ -3768,7 +3892,11 @@ struct ContentView: View {
             // **The launch walk**, and it is NOT redundant with the refresh beside it: that one
             // returns early wherever the column is hidden, and a card already in the reader has to
             // be recorded before it is ejected whether or not the sidebar is on screen.
-            Self.rememberMountedVolumes(Self.mountedVolumes())
+            //
+            // **It is no longer paid twice, though.** It walked the volumes here and the refresh
+            // below walked them again a moment later, on the same unchanged set. This one fills
+            // `knownMountedVolumes`, and the refresh reads it — one walk at launch instead of two.
+            Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen())
             refreshFolderSidebarRows()
         }
         .onChange(of: leftProviderId) { _, _ in refreshFolderSidebarRows() }
@@ -3812,15 +3940,28 @@ struct ContentView: View {
         // inserted while the app runs, and `willUnmount` is the last chance before it goes.
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didMountNotification)) { _ in
-                Self.rememberMountedVolumes(Self.mountedVolumes())
+                // A volume arrived, so the cached walk is out of date by definition — dropped
+                // first, then re-taken by the record below and reused by the refresh after it.
+                Self.forgetMountedVolumes()
+                Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen())
                 refreshFolderSidebarRows()
         }
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.willUnmountNotification)) { _ in
-                Self.rememberMountedVolumes(Self.mountedVolumes())
+                // **From the cached walk, deliberately.** This is the last chance to record what a
+                // volume WAS, and it arrives while that volume is being torn down — a fresh
+                // `mountedVolumeURLs` plus a `resourceValues` read per volume, run synchronously on
+                // the main thread at exactly that moment, is the walk most likely to block. The
+                // cached answer was taken while the volume was healthy, which is the answer this
+                // handler wants; the cache is NOT dropped here, because the volume has not gone
+                // yet and dropping it would send the next reader back to the wedged filesystem.
+                Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen())
         }
         .onReceive(NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didUnmountNotification)) { note in
+                // The volume has gone: the cached walk still lists it, so it is dropped before the
+                // handler's own refresh, which is the thing that re-takes it.
+                Self.forgetMountedVolumes()
                 forgetFolderSidebarSourcesOnUnmount(note)
         }
     }
@@ -3843,6 +3984,8 @@ struct ContentView: View {
         let old = renamed.oldVolumeURL.path, new = renamed.volumeURL.path
         settings.followVolumeRename(from: old, to: new)
         FolderJumpStore.shared.followVolumeRename(from: old, to: new)
+        // A rename moves the mount point, so the cached walk names a path that no longer exists.
+        Self.forgetMountedVolumes()
         refreshFolderSidebarRows()
     }
 
