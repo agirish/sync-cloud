@@ -20,8 +20,8 @@ User-facing changes, newest first. For the full commit history see the
   the magnitude bars, and the promise that it never moves, deletes, or evicts a file. What changes
   is where you find it: **⌘3**, then Storage on the rail, instead of a tab of its own. If you quit
   with Storage open, it reopens exactly there.
-- **The workspace bar is four segments — Browse, Compare, Organize, Edit — and Edit is now ⌘4.**
-  If ⌘5 is in your fingers, that is the one thing to relearn.
+- **⌘4 was Storage and is now Edit.** The bar is still four segments — Browse, Compare, Organize,
+  Edit — so the count has not moved; which four has. That one chord is the thing to relearn.
 - **All / Largest / Untouched / Reclaim moved into the page**, as a capsule above the list, because
   the row they used to sit in belongs to Organize's rail.
 - **Storage follows Organize's scope.** Set a scope and it re-analyses that folder rather than
@@ -71,10 +71,61 @@ User-facing changes, newest first. For the full commit history see the
   Compare pane, the columns view — and brings it here with the rail already pointed at its folder.
 - **Typing has its own undo.** ⌘Z in the editor takes back what you typed and can never reach into a
   file move or a copy, which have their own history and their own Undo button.
-- **The window's minimum width is back to 760pt.** Edit's arrival raised it to 810 to seat five
-  workspace labels; folding Storage into Organize took the bar back to four, so the raise was handed
-  back in the same release. At 760 the bar keeps its labels at every text size, which it did not
-  manage at either previous floor.
+
+### Writing Markdown, and moving around a document
+
+- **The markup verbs are on the right-click menu** — Bold, Italic, Strikethrough, Inline Code,
+  Link…, Heading 1–3 and Body, Bulleted and Numbered List, Task Item, Block Quote, Code Block,
+  Horizontal Rule. They are toggles rather than inserts, so Bold on bold text takes the asterisks
+  off again, and a verb dragged across several lines asks whether *every* line already carries the
+  prefix before it decides to remove one — toggling line by line turns a mixed selection inside out,
+  which is never what dragging across a paragraph meant. Each verb goes in the way typing does, so
+  ⌘Z takes back exactly one of them, and Cut, Copy, Look Up and the spelling submenu stay where the
+  system puts them.
+- **A checkbox in Preview can be ticked from Preview.** Clicking it writes the change into the file.
+  A checkbox written in the middle of a sentence stays prose, which is the same distinction the
+  Markdown parse makes.
+- **⌘F searches the open document, and the Replace row is showing when it opens.** Find, replace,
+  replace-all, next and previous, and a live match count. The chord routes rather than choosing: with
+  the caret in the document it opens the document's bar, and everywhere else it is Find in Pane,
+  unchanged.
+- **A status line under the document** gives words, characters and lines, where the caret is by line
+  and column, the encoding the file was read in, and how its lines are terminated — LF, CRLF, CR, or
+  Mixed where a file holds more than one kind. **Line endings are named, never normalised:** these
+  are cloud folders shared with other machines, and an editor that quietly rewrote a file that
+  arrived from Windows would report the whole of it as modified to every sync client on the account.
+  The strip sheds segments as the column narrows, keeping the caret longest — it is the only one that
+  changes as you work and the only one you cannot get anywhere else.
+- **The rail filters by name**, behind a button rather than a permanent row, because 232pt is too
+  narrow to spend one on a control most sessions never touch. Case- and diacritic-insensitive, and a
+  filter of nothing but whitespace is no filter at all: somebody who has typed a space and stopped is
+  mid-thought, and answering "no files" to that is a rail that appears to have emptied itself.
+- **The file with unsaved changes wears a dot in the rail**, at the leading edge of its row — accent
+  while the write is pending, amber when writing has stopped, nothing when the file matches the
+  buffer. Only the row that is actually open can wear one.
+- **Wrapping and spell checking are yours to set**, on the text view's context menu and remembered
+  across launches. Everything that rewrites text *unasked* — smart quotes, dash substitution, text
+  replacement, autocorrect — stays off with no switch anywhere, because these are real files in real
+  cloud folders and a curly quote in somebody's YAML is a corrupted file. Continuous spell checking
+  rewrites nothing; it draws a red line, which is why it is the one that is offered.
+- **Links open, and local images draw.** A `#heading` link scrolls the preview instead of leaving the
+  app, and a near-miss scrolls nowhere rather than sending you somewhere you did not ask to go. An
+  image already on this disk is drawn; **one that is still in the cloud is refused and says so**,
+  showing the alt text its author wrote — drawing it would materialise it, pulling a file onto your
+  disk and through your connection because you opened a note.
+- **Autosave can be switched off for one file**, on the line under its name — then nothing is written
+  until ⌘S, and the questions you expect on the way out come back for that file. It is session-only
+  by choice: quitting restores autosave everywhere, because a remembered list of files that silently
+  do not save would stay invisible until it cost something.
+- **Undo survives a file switch.** Each document keeps its own history, so coming back to a file you
+  edited earlier can still take back what you did there. A history is thrown away rather than
+  replayed when the file comes back different — reloaded from disk, filed elsewhere by an Organize
+  run, or left with autosave off and abandoned with "Don't Save".
+- **The document header answers two questions and stops.** Which file, and how you are looking at it.
+  The size moved down to the status line beside the other measurements, so the header no longer grows
+  as the file does, and the status word now appears only where it changes what you have to do:
+  `unsaved — ⌘S` when autosave is off for this file, a stop when it has stopped, `read only` when
+  saving is not on offer. The rest of the time the dot beside the filename is the whole answer.
 
 ### Comparing two files is findable now
 
@@ -89,8 +140,9 @@ User-facing changes, newest first. For the full commit history see the
   reads plain "Compare" then, because that click finishes the job.
 - **"Compare with…" is on every file's right-click menu, always.** Pick it, then click the other
   file — in either pane, in any folder, after navigating as far as you like. The mode stands until
-  you complete it, press esc, or click the armed file again; a strip across the top says which file
-  is waiting and the armed row wears a mark.
+  you complete it, press esc, or click the armed file again; a bar across the foot of the window — a
+  few points from the action bar you pressed — says which file is waiting, and the armed row wears a
+  mark.
 - **The cross-pane comparison works with a left-click now.** It always worked with a right-click and
   only a right-click — a left-click in the other pane silently discarded the file you had lined up,
   because selecting in one pane clears the other. The armed file no longer lives in a selection, so
@@ -109,6 +161,45 @@ User-facing changes, newest first. For the full commit history see the
   not achieve.
 - Only the page you are looking at is aligned. The strip's dots answer "did anything change", which
   a skew does not change the answer to.
+
+### Less waiting
+
+- **Switching into Organize was costing a couple of seconds, and now does not.** The structure
+  detectors' vocabulary pass walked every folder in the profile once per child of every family with
+  four or more members — squared in the number of folders — on the main thread, inside a redraw. On a
+  real 5,020-folder profile `synccloud restructure --json` returns byte-identical output before and
+  after and drops from **1.78 s to 0.15 s**. It was never confined to Organize, either: the same
+  answer was read on every window redraw whenever a single folder was selected, so the sweep could
+  stall the app from anywhere in it.
+- **The text diff's cost cap is measured now, not estimated.** The old estimate read *zero* for two
+  files holding the same lines in a different order — a re-sorted CSV, two exports sorted
+  differently, a log interleaved by two writers — so those sailed past the cap into a comparison
+  that could not be stopped: 5,000 lines a side took 0.96 s, 10,000 took 3.86 s, 20,000 took 16.5 s,
+  and a 100,000-line log ran to minutes of a pinned core with no way out. The walk now counts its own
+  steps against a real ceiling and can be cancelled. **Shuffled 15,000 lines a side: 13.89 s becomes
+  1.83 s.** The change loosens as well as tightens — two all-different 20,000-line files are now
+  diffed in 1.75 s where they used to be refused outright — and a pair that is still refused is
+  refused after about 1.9 s, because reaching a ceiling means spending it first.
+- **The compare surface stops redoing work you already waited for.** The text diff was keyed on the
+  display mode, so every toggle between modes re-read both files and diffed them again; entering a
+  pixel mode re-decoded both images before comparing. Neither the diff nor the page walk could be
+  stopped when the surface closed, and a page walk could leave fifty PDF opens queued on the same
+  lane a running scan uses. All of that is keyed, cancelled and cached now.
+- **Changing workspace no longer walks the filesystem several times over.** The folder sidebar
+  refreshed two to four times per switch, each refresh doing its whole disk half synchronously on the
+  main thread — a stat per source root, per pin and per recent, a volume enumeration with a read per
+  volume, a stat per standard place and device. With eleven sources that is a hundred-odd stat chains
+  and a volume walk, repeatedly, for one click. On a local disk it was milliseconds; on a sleeping
+  external drive or a stalled network mount any one of them blocks for seconds — and this app is
+  pointed at Google Drive and Dropbox. The walk is coalesced to one per switch, moved off the main
+  thread, and the volume list is cached between mount, unmount and rename.
+- **Smaller repeats, all on paths you were already using**: the Storage report was re-read and
+  re-decoded on each of six triggers and, where the current folder had no saved report, on every pane
+  move; the pane-override map was parsed from JSON on every one of three dozen reads, several per
+  redraw; and Organize's rail measured every label afresh on each pass instead of asking the cache
+  the rest of the app measures through.
+
+---
 
 ## v5.1
 
