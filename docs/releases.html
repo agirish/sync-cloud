@@ -135,9 +135,9 @@
 
 <div class="timeline">
 
-  <!-- v5.2 (in development) -->
-  <article class="rel draft">
-    <div class="rel-head"><span class="v">v5.2</span><span class="tag draft">In development</span></div>
+  <!-- v5.2 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v5.2</span><span class="tag latest">Latest</span></div>
     <p class="lede"><b>A workspace that writes, and one that moves in.</b> Every workspace until now moved files around; <b>Edit</b> changes what is inside one &#8212; opening a text file, rendering Markdown beside it, and saving itself as you go, every write staged and swapped in atomically and never guessing when the file has changed underneath you. In the same release <b>Storage</b> becomes a section of Organize rather than a tab of its own, which keeps the bar at four segments and hands <code>&#8984;4</code> from Storage to Edit. Underneath both, the sweep that made a switch into Organize cost a couple of seconds is gone, and the text diff will no longer disappear for minutes into a pair of re-sorted files.</p>
     <div class="grp">
       <h3>Storage moves into Organize</h3>
@@ -206,11 +206,12 @@
         <li><span class="ic">&#128193;</span><span><b>Changing workspace no longer walks the filesystem several times over.</b> The folder sidebar refreshed two to four times per switch, each doing its whole disk half synchronously on the main thread. With eleven sources that is a hundred-odd stat chains and a volume walk, repeatedly, for one click &#8212; milliseconds on a local disk, but seconds on a sleeping external drive or a stalled network mount, and this app is pointed at Google Drive and Dropbox. The walk is coalesced to one per switch, moved off the main thread, and the volume list cached between mount, unmount and rename.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v5.1...v5.2">v5.1...v5.2</a></p>
   </article>
 
   <!-- v5.1 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v5.1</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v5.1</span><span class="tag">Compare copies</span></div>
     <p class="lede"><b>Compare copies works on files.</b> A duplicate file group gave each copy a 40pt thumbnail and called that the comparison, while folder groups got a side-by-side review. Any two copies now open in one surface &#8212; the facts both sides carry with whatever differs picked out, two live previews that scroll together for PDFs and images, pixel and text diff modes &#8212; and the verdict acts on the one copy you were looking at rather than the whole group. The same viewer opens on a changed row in the Differences list. Away from duplicates, a move between volumes now spends a retry before clearing its source, so the refusal macOS raises on files you own can no longer turn a move into a deletion.</p>
     <div class="grp">
       <h3>Duplicates</h3>

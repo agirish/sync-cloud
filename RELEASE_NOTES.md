@@ -5,13 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v5.2 — DRAFT, not released
-
-> **Not in v5.1**, which is why it is written up here rather than there: an entry in that section
-> would have announced, on a live page, a workspace the release does not contain. Being written as
-> `main` moves. Nothing here has been tagged and nothing here can be installed yet, and the badge on
-> the [releases page](https://agirish.github.io/sync-cloud/releases.html) stays on v5.1 until this
-> is cut.
+## v5.2
 
 ### Storage moves into Organize
 
