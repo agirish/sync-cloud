@@ -7,7 +7,7 @@ that major's last tag when the next major opens on `main`:
 
 | Branch | Carries | Marker at tip | Breaking changes |
 |---|---|---|---|
-| `main` | the **v5 line** — where the next release is built | `5.2-dev` / `502` | **allowed** |
+| `main` | the **v5 line** — where the next release is built | `5.3-dev` / `503` | **allowed** |
 | `v4.x` | maintenance for the shipped **4.x series** (cut at `v4.6`, 2026-08-28) | `4.7-dev` / `407` | **never** |
 | `v3.x` | maintenance for the shipped **3.x series** (cut at `v3.1`, 2026-08-11) | `3.2-dev` / `302` | **never** |
 | `v2.x` | maintenance for the shipped **2.x series** (cut at `v2.8`, 2026-08-01) | `2.10-dev` / `210` | **never** |
