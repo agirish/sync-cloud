@@ -236,6 +236,74 @@ public struct LensWorkspaceView: View {
     /// itself when the sheet closes.
     @State private var planningFinding: StructureFinding?
 
+    /// **What this body computed last time, and what it computed it from.**
+    ///
+    /// `LensWorkspaceView` is handed about thirty fresh closures by its parent, so nothing about
+    /// it is `Equatable` and SwiftUI re-runs `body` on every publish the manager makes — several
+    /// a second while a scan runs, a landing lands, or a pane is scrolled. Each body pass then
+    /// re-derived the rail's counts (four full scoped passes over the suggestion, duplicate,
+    /// risky-name and rename-plan lists) and the scope's folder count (every folder in the
+    /// profile tested against the scope), for inputs that had not moved.
+    ///
+    /// **The key is the published arrays themselves, and that is the cheap part rather than the
+    /// expensive one.** Swift's `Array ==` short-circuits on storage identity: measured on this
+    /// machine, comparing two 200,000-element arrays that share a buffer is 0.04µs, against 362µs
+    /// for an elementwise compare of equal-but-separate ones. A publish that did not touch the
+    /// list therefore costs a pointer comparison, and one that did rebuilds — which is exactly
+    /// the contract. Keying on something cheaper-looking (a count, a generation guessed at from
+    /// outside the manager) would be keying on less than the answer depends on, and a rail badge
+    /// that is quietly wrong is worse than one that is slowly right.
+    @State private var railMemo = RenderMemo<RailCountsKey, RailCounts>()
+    @State private var scopeFolderMemo = RenderMemo<ScopeFolderKey, Int?>()
+
+    /// Everything ``railCounts`` reads.
+    struct RailCountsKey: Equatable {
+        let suggestions: [FilingSuggestion]
+        let duplicates: [DuplicateGroup]
+        let risky: [RiskyName]
+        let renames: [RenamePlan]
+        let structure: [StructureFinding]
+        let rules: Int
+        let profileRoot: String
+        /// One entry per rail item, in `OrganizeLens.railItems` order — each item asks for its
+        /// OWN applied scope, so one scope value would not be the key.
+        let scopes: [OrganizeScope?]
+        let hasSuggestedFiling: Bool
+        let hasFoundDuplicates: Bool
+        let hasScannedNames: Bool
+        let hasProfile: Bool
+        let filingScanFolder: String?
+        let duplicateScanRoot: String?
+    }
+
+    /// Everything ``scopeFolderCount`` reads.
+    struct ScopeFolderKey: Equatable {
+        let scope: OrganizeScope?
+        let root: String?
+        /// The folder set's identity. `[String: FolderProfileEntry]` is `Equatable`, and a
+        /// dictionary compare short-circuits on shared storage the way an array's does.
+        let folders: [String: FolderProfileEntry]
+    }
+
+    /// One remembered answer and the inputs it was computed from.
+    ///
+    /// A reference type in `@State`: `body` both reads and fills it, and neither is a state
+    /// change, so it cannot invalidate the view it is being read from. No expiry and no size —
+    /// exactly one answer is ever held, and it is replaced the moment its inputs differ.
+    @MainActor
+    final class RenderMemo<Key: Equatable, Value> {
+        private var key: Key?
+        private var value: Value?
+
+        func value(for key: Key, _ make: () -> Value) -> Value {
+            if let stored = value, self.key == key { return stored }
+            let made = make()
+            self.key = key
+            value = made
+            return made
+        }
+    }
+
     /// §5.5's removal step, requested for one ledger record — the candidates are resolved (and
     /// re-probed for emptiness) at request time, so the sheet opens on the truth.
     struct RemovalRequest: Identifiable {
@@ -1496,13 +1564,20 @@ public struct LensWorkspaceView: View {
     /// while Rules is not applying it, and a count that blinked out on one lens would read as the
     /// survey having lost the folder.
     private var scopeFolderCount: Int? {
-        guard let scope = storedScope, let profile = syncManager.filingFolderProfile else { return nil }
-        let root = (profile.root as NSString).expandingTildeInPath
-        let inside = profile.folders.keys.count {
-            let absolute = $0 == "." ? root : (root as NSString).appendingPathComponent($0)
-            return scope.contains(absolute)
+        // Memoised on its inputs — see `scopeFolderMemo`. It walks every folder in the profile
+        // (3,013 on the reference tree, each one a path join and a containment test) and it is
+        // resolved once per body, which runs on every publish this view's manager makes.
+        let profile = syncManager.filingFolderProfile
+        return scopeFolderMemo.value(for: ScopeFolderKey(scope: storedScope, root: profile?.root,
+                                                         folders: profile?.folders ?? [:])) {
+            guard let scope = storedScope, let profile else { return nil }
+            let root = (profile.root as NSString).expandingTildeInPath
+            let inside = profile.folders.keys.count {
+                let absolute = $0 == "." ? root : (root as NSString).appendingPathComponent($0)
+                return scope.contains(absolute)
+            }
+            return inside > 0 ? inside : nil
         }
-        return inside > 0 ? inside : nil
     }
 
     /// Organize's lens rail: six permanent places, each carrying a badge only when it has
@@ -1764,7 +1839,24 @@ public struct LensWorkspaceView: View {
         // They had — `structureFindings` has been feeding the overview and the lens for some time —
         // so the one lens whose badge could have announced a finding never did.
         let profileRoot = syncManager.filingFolderProfile?.root ?? ""
-        return RailCounts(
+        // Memoised on everything below — see `railMemo`. These are five scoped passes over the
+        // manager's published lists, resolved once per body, and body runs on every publish.
+        let key = RailCountsKey(
+            suggestions: syncManager.filingSuggestions,
+            duplicates: syncManager.duplicateGroups,
+            risky: syncManager.riskyNames,
+            renames: syncManager.renamePlans,
+            structure: structureFindings,
+            rules: syncManager.automationRules.count,
+            profileRoot: profileRoot,
+            scopes: OrganizeLens.railItems.map { appliedScope(for: $0) },
+            hasSuggestedFiling: syncManager.hasSuggestedFiling,
+            hasFoundDuplicates: syncManager.hasFoundDuplicates,
+            hasScannedNames: syncManager.hasScannedNames,
+            hasProfile: syncManager.filingFolderProfile != nil,
+            filingScanFolder: syncManager.filingScanFolder,
+            duplicateScanRoot: syncManager.duplicateScanRoot)
+        return railMemo.value(for: key) { RailCounts(
             toFile: syncManager.filingSuggestions.count {
                 OrganizeScopeFilter.matches($0, scope: appliedScope(for: .toFile)) },
             duplicates: syncManager.duplicateGroups.count {
@@ -1809,6 +1901,7 @@ public struct LensWorkspaceView: View {
                 if syncManager.filingFolderProfile != nil { ran.insert(.restructure) }
                 return ran
             }())
+        }
     }
 
     /// Organize's readout while the rename backlog is on screen: what the listed plans would do,
@@ -3434,15 +3527,15 @@ public struct LensWorkspaceView: View {
     }
 
     /// Whether any folder this landing emptied still stands on disk — the removal button's
-    /// licence. Bounded like `scaffoldedSubjects`: a handful of `fileExists` probes per
-    /// applied card.
+    /// licence.
+    ///
+    /// **On the manager, for the reason `scaffoldedSubjects` moved there**: it is a disk probe a
+    /// view body runs, once per applied record per render, and the caching that stops it being
+    /// dozens of `stat`s a second belongs where every caller can reach it. It ran here with the
+    /// whole walk inline — `emptiedFolders(of:)` over every action of every record, and then a
+    /// probe per drained folder — on every redraw of the ledger cards.
     private func anyEmptiedFolderStillStands(of manifest: RestructureManifest) -> Bool {
-        guard let root = syncManager.filingFolderProfile?.root else { return false }
-        let expanded = (root as NSString).expandingTildeInPath
-        return RestructureLedger.emptiedFolders(of: manifest).contains { path in
-            FileManager.default.fileExists(
-                atPath: (expanded as NSString).appendingPathComponent(path))
-        }
+        syncManager.emptiedFoldersStillStanding(of: manifest)
     }
 
     /// Opens the removal sheet on one landing's emptied folders, re-probed at this moment — a

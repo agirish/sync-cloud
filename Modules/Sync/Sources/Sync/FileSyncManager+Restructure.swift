@@ -236,11 +236,16 @@ extension FileSyncManager {
     /// refuses a record without one. So that filter was inert and the two disagreed after a ⌘Z:
     /// the card correctly re-offered the scaffold while the menu item stayed greyed. The disk is
     /// the only thing that knows, so the disk is what both ask.
-    public func scaffoldedSubjects() -> Set<String> {
+    public func scaffoldedSubjects(now: Date = Date()) -> Set<String> {
         guard let root = filingFolderProfile?.root else { return [] }
+        let applied = restructureStore?.applied ?? []
+        let key = RestructureDiskProbeMemo.Key(
+            owner: ObjectIdentifier(self), root: root,
+            ledger: RestructureDiskProbeMemo.signature(of: applied))
+        if let hit = RestructureDiskProbeMemo.scaffolded.value(for: key, now: now) { return hit }
         let expandedRoot = (root as NSString).expandingTildeInPath
         var subjects: Set<String> = []
-        for record in (restructureStore?.applied ?? []) where record.manifest.kind == .backlog {
+        for record in applied where record.manifest.kind == .backlog {
             let created = record.manifest.actions.compactMap(\.dst)
             guard let first = created.first else { continue }
             let anyStanding = created.contains { relative in
@@ -251,6 +256,152 @@ extension FileSyncManager {
                 subjects.insert((first as NSString).deletingLastPathComponent)
             }
         }
+        RestructureDiskProbeMemo.scaffolded.store(subjects, for: key, now: now)
         return subjects
     }
+
+    /// Whether any folder this landing emptied **still stands on disk** — the removal button's
+    /// licence, and the ledger cards' `hasEmptiedFolders`.
+    ///
+    /// Here rather than in the workspace for the reason ``scaffoldedSubjects(now:)`` gives: it is
+    /// a disk probe that a view body runs, once per applied record per render, and it belongs
+    /// where the caching can be shared. `emptiedFolders(of:)` is a pure function of the manifest,
+    /// so on its own the button would outlive its own landing forever.
+    public func emptiedFoldersStillStanding(of manifest: RestructureManifest,
+                                            now: Date = Date()) -> Bool {
+        guard let root = filingFolderProfile?.root else { return false }
+        let key = RestructureDiskProbeMemo.Key(
+            owner: ObjectIdentifier(self), root: root,
+            ledger: RestructureDiskProbeMemo.signature(of: restructureStore?.applied ?? []))
+        if let hit = RestructureDiskProbeMemo.standingEmpties.value(
+            for: key, id: manifest.manifestId, now: now) {
+            return hit
+        }
+        let expanded = (root as NSString).expandingTildeInPath
+        let standing = RestructureLedger.emptiedFolders(of: manifest).contains { path in
+            fileManager.fileExists(atPath: (expanded as NSString).appendingPathComponent(path))
+        }
+        RestructureDiskProbeMemo.standingEmpties.store(standing, for: key,
+                                                       id: manifest.manifestId, now: now)
+        return standing
+    }
+}
+
+/// **The one-entry caches in front of Restructure's two per-render disk probes.**
+///
+/// `scaffoldedSubjects` and `emptiedFoldersStillStanding` both answer a question only the disk can
+/// answer — a ⌘Z or a hand-tidy removes folders without touching the ledger, which is exactly why
+/// they probe rather than read the manifest — and both are called from a SwiftUI `body`, which
+/// re-runs on every publish this manager makes. The lens asked once, the overview asked again, and
+/// the ledger cards asked once per applied record, all for a tree that had not moved.
+///
+/// **Two keys, and they answer different halves of "could this have changed".** The ledger
+/// signature catches every change the app makes through the store — a landing, an undo record, a
+/// re-derive's rekey — and drops the entry at once. The DISK half cannot be keyed on anything, so
+/// it is bounded by time instead: an entry older than ``window`` is not served. A ⌘Z that removes
+/// scaffolded folders therefore corrects the card on the first render after that window rather
+/// than instantly. That is the deliberate trade, and it is a different thing from the defect the
+/// probe exists to prevent, which was a card that stayed wrong **forever** because it read the
+/// ledger instead of the disk.
+///
+/// Keyed on the manager's identity as well, so a second `FileSyncManager` (every test that builds
+/// one) can never be served another's answer. One entry, not a dictionary: there is one manager in
+/// the app, and an unbounded map keyed on object identity would outlive the objects in it.
+@MainActor
+enum RestructureDiskProbeMemo {
+
+    /// How long a probe's answer is served before the disk is asked again.
+    ///
+    /// Short enough that a hand-tidy or a ⌘Z is reflected in the next render a person could
+    /// notice, long enough that a burst of renders — a hover, a scroll, a window resize, any of
+    /// the publishes this manager makes per second — costs one probe rather than dozens.
+    static let window: TimeInterval = 0.5
+
+    struct Key: Equatable {
+        let owner: ObjectIdentifier
+        let root: String
+        /// What the ledger looks like, or which manifest is being asked about.
+        let ledger: String
+    }
+
+    /// The applied ledger reduced to the things these probes read: which records exist, and what
+    /// each one claims to have created or emptied. Cheap to build (one pass over the records'
+    /// ids and counts) and it changes whenever anything the probes care about does.
+    static func signature(of applied: [RestructureStore.AppliedRecord]) -> String {
+        applied.map { "\($0.manifest.manifestId):\($0.manifest.actions.count):"
+            + "\($0.undoneAt ?? "-")" }.joined(separator: "|")
+    }
+
+    /// One remembered answer, valid while the key holds and the window has not run out.
+    ///
+    /// A clock that has gone BACKWARDS (a manual time change, an NTP step) invalidates rather
+    /// than serving forever: `now < at` is not a fresh entry, it is an unknown one.
+    @MainActor
+    final class Entry<Value> {
+        private var key: Key?
+        private var value: Value?
+        private var at: Date?
+
+        func value(for key: Key, now: Date) -> Value? {
+            guard let stored = value, self.key == key, let at,
+                  now.timeIntervalSince(at) >= 0, now.timeIntervalSince(at) < window
+            else { return nil }
+            return stored
+        }
+
+        func store(_ value: Value, for key: Key, now: Date) {
+            self.key = key
+            self.value = value
+            self.at = now
+        }
+
+        /// Drops whatever is held — the seam the tests use to start from a known state.
+        func clear() {
+            key = nil
+            value = nil
+            at = nil
+        }
+    }
+
+    /// The same, for a probe asked about MANY subjects under one key.
+    ///
+    /// The ledger cards ask `emptiedFoldersStillStanding` once per applied record inside a single
+    /// render, so a one-slot cache would be evicted by the next record and never hit. The map is
+    /// dropped whole the moment the key changes or the window runs out — one lifetime for every
+    /// entry in it, because they were all probed against the same tree.
+    @MainActor
+    final class MapEntry<Value> {
+        private var key: Key?
+        private var values: [String: Value] = [:]
+        private var at: Date?
+
+        private func isLive(_ key: Key, _ now: Date) -> Bool {
+            guard self.key == key, let at else { return false }
+            let age = now.timeIntervalSince(at)
+            return age >= 0 && age < window
+        }
+
+        func value(for key: Key, id: String, now: Date) -> Value? {
+            guard isLive(key, now) else { return nil }
+            return values[id]
+        }
+
+        func store(_ value: Value, for key: Key, id: String, now: Date) {
+            if !isLive(key, now) {
+                self.key = key
+                self.at = now
+                values.removeAll(keepingCapacity: true)
+            }
+            values[id] = value
+        }
+
+        func clear() {
+            key = nil
+            values.removeAll()
+            at = nil
+        }
+    }
+
+    static let scaffolded = Entry<Set<String>>()
+    static let standingEmpties = MapEntry<Bool>()
 }

@@ -323,4 +323,82 @@ import Testing
         #expect(try FilingProfileStore.retireSupersededProfiles(protecting: [], in: dir).isEmpty)
         #expect(try Self.ids(in: dir) == ["abhishek", "d2"])
     }
+
+    // MARK: - The provenance probe
+
+    /// **The sweep now reads the header, not the whole profile — and the two must AGREE.**
+    ///
+    /// `retireSupersededProfiles` used to fully decode every candidate (3,013 folder entries,
+    /// each with its axes and its lenient retry) to read one string, on the main actor, in the
+    /// middle of a landing. `provenance(id:in:)` reads only `builtBy`. This is the equivalence
+    /// that makes the swap safe: the two must answer the same for every shape a profile file can
+    /// take, because a disagreement in the *derived* direction is a directory deleted on a
+    /// weaker reading than the old code required.
+    @Test func theProvenanceProbeAgreesWithTheFullDecode() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Self.handBuiltActive(in: dir)
+        try Self.derive("d1", from: "abhishek", in: dir)
+
+        for id in ["abhishek", "d1"] {
+            #expect(FilingProfileStore.provenance(id: id, in: dir)
+                        == FilingProfileStore.profile(id: id, in: dir)?.provenance,
+                    "\(id): the probe and the full decode disagree")
+        }
+
+        // Hand-written shapes the sweep can actually meet, each checked against the full decode.
+        func write(_ id: String, _ json: String) throws {
+            let folder = dir.appendingPathComponent(id)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data(json.utf8).write(to: folder.appendingPathComponent("folder-profile.json"))
+        }
+        // No header at all — the pre-`builtBy` profiles, which are exactly the hand-built ones.
+        try write("no-header", #"{"profileId":"no-header","root":"~"}"#)
+        // A header of the wrong TYPE: costs the file its provenance, never its readability.
+        try write("bad-header", #"{"profileId":"x","builtBy":42,"root":"~"}"#)
+        // Someone else's marker.
+        try write("foreign", #"{"profileId":"x","builtBy":"a hand edit","root":"~"}"#)
+        // The app's own, with the version suffix the prefix match exists to tolerate.
+        try write("ours", #"{"profileId":"x","builtBy":"SyncCloud — folder survey 5.2"}"#)
+        // Not an object at all: unreadable to both, and unreadable is never disposable.
+        try write("array", "[1,2,3]")
+        try write("junk", "not json")
+
+        for id in ["no-header", "bad-header", "foreign", "ours", "array", "junk"] {
+            #expect(FilingProfileStore.provenance(id: id, in: dir)
+                        == FilingProfileStore.profile(id: id, in: dir)?.provenance,
+                    "\(id): the probe and the full decode disagree")
+        }
+        // And the answers themselves, spelled out — an equivalence between two functions that
+        // are both wrong is still an equivalence.
+        #expect(FilingProfileStore.provenance(id: "ours", in: dir) == .derived)
+        #expect(FilingProfileStore.provenance(id: "no-header", in: dir) == .handBuilt)
+        #expect(FilingProfileStore.provenance(id: "bad-header", in: dir) == .handBuilt)
+        #expect(FilingProfileStore.provenance(id: "foreign", in: dir) == .handBuilt)
+        #expect(FilingProfileStore.provenance(id: "array", in: dir) == nil)
+        #expect(FilingProfileStore.provenance(id: "junk", in: dir) == nil)
+        #expect(FilingProfileStore.provenance(id: "absent", in: dir) == nil)
+    }
+
+    /// A profile file that is a JSON object but whose folder list is rubbish stays retirable
+    /// exactly as before — the full decoder salvages it, so the probe must not be stricter.
+    @Test func theProbeIsNoStricterThanTheLenientDecoder() throws {
+        let dir = Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Self.handBuiltActive(in: dir)
+        try Self.derive("d1", from: "abhishek", in: dir)
+        try Self.derive("d2", from: "d1", in: dir)
+        // d1's folder list carries an entry with a role no build knows and one that is not an
+        // object at all — both salvaged by `FolderProfile`'s decoder, neither seen by the probe.
+        let url = FilingProfileStore.profileURL(id: "d1", in: dir)
+        var object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url))
+                                    as? [String: Any])
+        object["folders"] = [["path": "Odd", "role": "a-role-from-the-future"], "nonsense"]
+        try JSONSerialization.data(withJSONObject: object).write(to: url)
+
+        #expect(FilingProfileStore.provenance(id: "d1", in: dir)
+                    == FilingProfileStore.profile(id: "d1", in: dir)?.provenance)
+        #expect(try FilingProfileStore.retireSupersededProfiles(protecting: [], in: dir) == ["d1"])
+    }
 }

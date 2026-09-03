@@ -82,11 +82,18 @@ enum OrganizeRailMetrics {
     static let overviewGlyphWidth: CGFloat = 13
     /// Margin on the overview item, because its label is the one that changes weight with
     /// selection: `RailItemLabel` draws the current item `.semibold` and the rest `.medium`, and
-    /// "All" is unselected in every state except the overview itself. Measured against the render,
-    /// 8pt puts the model 4–6pt over at all four text sizes — over, never under, for the reason
-    /// `theLeadingModelMatchesWhatTheRowDraws` states: a model short of the row it describes lets
-    /// the row overrun before it sheds.
-    static let overviewMargin: CGFloat = 8
+    /// "All" is unselected in every state except the overview itself. Over, never under, for the
+    /// reason `theLeadingModelMatchesWhatTheRowDraws` states: a model short of the row it
+    /// describes lets the row overrun before it sheds.
+    ///
+    /// **6, re-measured when the labels moved onto ``LabelMetrics``.** It was 8, chosen against a
+    /// `labelWidth` that took `NSAttributedString.size()` raw; `LabelMetrics` applies SwiftUI's
+    /// own half-point ceiling to a text run, so every label got up to half a point wider and the
+    /// total slack rose past the 12pt ceiling that test holds. This is the term that exists AS
+    /// slack, so this is where the more faithful measurement is paid for. Measured after the
+    /// change, model over render: **6.8 / 5.0 / 10.25 / 8.95pt** across the four text sizes —
+    /// still over at every one, and the widest is inside the 12pt bar with room.
+    static let overviewMargin: CGFloat = 6
     /// A group separator: the 1pt rule, plus the ONE `itemGap` adding an element to the row costs.
     ///
     /// Not two. The rail is an `HStack(spacing: itemGap)`, so N elements carry N−1 gaps and each
@@ -177,10 +184,22 @@ enum OrganizeRailMetrics {
     /// `.extraLarge` while passing at 0.9 and 1.0. **Ask the type that owns the curve rather than
     /// re-deriving it**: a second copy of this arithmetic is a second thing to update the next time
     /// the ramp is retuned, which is exactly how this broke.
+    /// **Through ``LabelMetrics``, which is the module that already caches this.** The rail is
+    /// measured once per `body` and `body` runs on every publish the manager makes; seven labels
+    /// plus a badge each, measured from scratch, is type metrics recomputed dozens of times a
+    /// second for a row whose words do not change. `LabelMetrics` keeps a bounded cache keyed on
+    /// the string and the resolved `NSFont`, which is exactly this question.
+    ///
+    /// The font is the same one: `ScaledFont.system(size:weight:).nsFont(scale:)` resolves to
+    /// `NSFont.systemFont(ofSize: FontSize.scaledPointSize(11.5, scale:), weight: .semibold)`,
+    /// which is what this built by hand. What it adds is `ceilToHalf` — SwiftUI's own rounding of
+    /// a text run, measured — so the answer moves by at most half a point per label, and moves
+    /// TOWARD what the row draws. `theLeadingModelMatchesWhatTheRowDraws` holds the total against
+    /// the render at every text size and is what would catch it going the other way.
+    @MainActor
     static func labelWidth(_ item: OrganizeLens, scale: CGFloat) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: FontSize.scaledPointSize(11.5, scale: scale),
-                                     weight: .semibold)
-        return (item.title as NSString).size(withAttributes: [.font: font]).width
+        LabelMetrics.width(of: item.title, font: .system(size: 11.5, weight: .semibold),
+                           scale: scale)
     }
 
     /// A badge capsule carrying `count`: the digits at 10pt bold, plus 2×5pt of capsule padding.
@@ -197,11 +216,13 @@ enum OrganizeRailMetrics {
     /// ``RailItemLabel/badgeText(_:)``. Formatting the raw count here would size the rail for
     /// `1,192` while the row painted `1.1k`, and a model measuring a different string from the one
     /// on screen is this type's whole failure mode.
+    @MainActor
     static func badgeWidth(_ count: Int, scale: CGFloat) -> CGFloat {
-        let font = NSFont.monospacedDigitSystemFont(
-            ofSize: FontSize.scaledPointSize(10, scale: scale), weight: .bold)
-        return (RailItemLabel.badgeText(count) as NSString)
-            .size(withAttributes: [.font: font]).width + 10
+        // Cached in `LabelMetrics`, same font: `.monospacedDigit()` on a `ScaledFont` resolves to
+        // `NSFont.monospacedDigitSystemFont(ofSize:weight:)`, which is what this built by hand.
+        LabelMetrics.width(of: RailItemLabel.badgeText(count),
+                           font: ScaledFont.system(size: 10, weight: .bold).monospacedDigit(),
+                           scale: scale) + 10
     }
 
     /// What an item's state costs it on the right of its label: a badge, a dot, or nothing.
@@ -211,6 +232,7 @@ enum OrganizeRailMetrics {
     /// — the unscanned one carries a 4pt dot. A model working from a badge alone can only guess,
     /// and either guess is wrong somewhere: charging every quiet item for the dot over-counted a
     /// clean rail by 30pt, which `theLeadingModelMatchesWhatTheRowDraws` caught at once.
+    @MainActor
     static func stateWidth(_ state: RailItemState, scale: CGFloat) -> CGFloat {
         switch state {
         case .reporting(let count): return badgeGap + badgeWidth(count, scale: scale)
@@ -220,6 +242,7 @@ enum OrganizeRailMetrics {
     }
 
     /// One item, spelled out, in the state it is in.
+    @MainActor
     static func itemWidth(_ item: OrganizeLens, state: RailItemState, scale: CGFloat) -> CGFloat {
         labelWidth(item, scale: scale) + glyphWidth(item, scale: scale) + glyphGap + itemPadding
             + stateWidth(state, scale: scale)
@@ -235,6 +258,7 @@ enum OrganizeRailMetrics {
     ///     `OrganizeLens.railItems` — and so a new lens is counted the day it is added. Counted
     ///     rather than assumed: the rail is at its widest on the day every finding has something to
     ///     report, which is precisely the day it must still fit.
+    @MainActor
     static func fullWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         let items = OrganizeLens.railItems.reduce(CGFloat.zero) {
             $0 + itemWidth($1, state: state($1), scale: scale)
@@ -250,18 +274,19 @@ enum OrganizeRailMetrics {
     ///   and charging it there put the model 13–22pt over its own render at three of the four text
     ///   sizes. A margin is meant to keep a model on the safe side of what it describes, not to be
     ///   a constant copied between two rails that measure differently.
+    @MainActor
     static func overviewItemWidth(scale: CGFloat, margin: CGFloat = overviewMargin) -> CGFloat {
         // Through the ramp's curve, like ``labelWidth(_:scale:)``. `11.5 * scale` is the linear
         // reading the curve deliberately does not take — above the 11pt knee only half the surplus
         // applies — so a raw multiply over-measures at large text and the model sheds early there
         // and nowhere else.
-        let font = NSFont.systemFont(ofSize: FontSize.scaledPointSize(11.5, scale: scale),
-                                     weight: .semibold)
-        return (overviewTitle as NSString).size(withAttributes: [.font: font]).width
+        return LabelMetrics.width(of: overviewTitle, font: .system(size: 11.5, weight: .semibold),
+                                  scale: scale)
             + overviewGlyphWidth * scale + glyphGap + itemPadding + itemGap + margin
     }
 
     /// Width of the rail with every label shed. Badges stay — they are the reason to look.
+    @MainActor
     static func iconOnlyWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         let items = OrganizeLens.railItems.reduce(CGFloat.zero) {
             $0 + glyphWidth($1, scale: scale) + itemPadding + stateWidth(state($1), scale: scale)
@@ -276,11 +301,13 @@ enum OrganizeRailMetrics {
     /// beside it is gone. The seam stays named because the *requirement* is what ``style(contentWidth:leadingWidth:)``
     /// takes, and anything ever added to this half of the row is added here, where it is counted,
     /// rather than beside the rail where the first cut of this type left it uncounted.
+    @MainActor
     static func leadingWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         fullWidth(scale: scale, state: state)
     }
 
     /// The same, with the rail shed — what the row falls back to.
+    @MainActor
     static func shedLeadingWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         iconOnlyWidth(scale: scale, state: state)
     }

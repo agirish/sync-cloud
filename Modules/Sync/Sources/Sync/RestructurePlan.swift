@@ -35,6 +35,12 @@ public struct RestructureManifest: Codable, Equatable, Sendable {
         public var filesCarried: Int?
         /// File moves only — **filled in at apply time, never at plan time** (invariant 5).
         public var bytes: Int?
+        /// **No longer written**, and kept only so ledgers recorded before 2026-09-02 decode.
+        ///
+        /// It held an MD5 of every moved file, up to a 64 MB cap, computed inside the landing —
+        /// which turned a 500-file merge into reading a gigabyte, while the landing flag refuses
+        /// every other scan and file operation. Nothing read it: it was audit-only, and the
+        /// verifier reconciles counts from a different code path rather than comparing digests.
         public var md5: String?
         /// Plan time saw a same-named file already at `dst` — the ledger's *collisions kept*
         /// line before anything runs. Predicted, not final: the tree can change between plan

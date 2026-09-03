@@ -40,6 +40,26 @@ struct RestructurePairMergeSheet: View {
     /// directly above a footer reporting the landing. Holding the manifest keeps the review
     /// showing what actually ran.
     @State private var landedManifest: RestructureManifest?
+    /// The manifest as it stood when Apply was PRESSED, held for the whole landing.
+    ///
+    /// `landedManifest` freezes the review after a success; until then the derivation re-ran on
+    /// every render, and a landing publishes up to ~101 progress ticks — so the pair merge
+    /// re-derived a hundred times against a tree the executor was moving, listing the source and
+    /// the destination from disk each time, on the main actor.
+    @State private var applyingManifest: RestructureManifest?
+    /// The disk view this presentation reads, captured once.
+    ///
+    /// **`memoized()`'s cache lives as long as the view value does** — and the parent builds this
+    /// one inside its `.sheet` content closure, which `LensWorkspaceView` re-runs on every publish
+    /// from the manager it observes. So the cache was minted empty on every render and never once
+    /// hit. Held here for the life of the presentation instead.
+    @State private var treeBox = RestructurePlanSheet.TreeBox()
+
+    /// The tree every derivation in this sheet reads. Keyed on the pair, so a sheet re-presented
+    /// on a different finding cannot inherit the previous one's listings.
+    private var liveTree: RestructureTreeView {
+        treeBox.view(key: "\(kind.rawValue)|\(source)|\(destination)") { tree }
+    }
 
     private enum Outcome: Equatable {
         case exported(String)
@@ -85,8 +105,10 @@ struct RestructurePairMergeSheet: View {
 
     private var derived: Result<RestructureManifest, RestructurePlanner.PlanRefusal> {
         if let landedManifest { return .success(landedManifest) }
+        // Frozen for the duration of a landing, not just after it — see `applyingManifest`.
+        if let applyingManifest { return .success(applyingManifest) }
         return RestructurePlanner.pairMergeManifest(
-            source: source, destination: destination, kind: kind, in: tree,
+            source: source, destination: destination, kind: kind, in: liveTree,
             profileId: profileId, manifestId: manifestId, createdAt: createdAt,
             note: Self.note(source: source, destination: destination))
     }
@@ -392,6 +414,7 @@ struct RestructurePairMergeSheet: View {
         guard !applying, !landed else { return }
         applying = true
         outcome = nil
+        applyingManifest = manifest
         Task { @MainActor in
             let result = await run(manifest)
             applying = false
@@ -400,10 +423,13 @@ struct RestructurePairMergeSheet: View {
                 landed = true
                 // Before the tree moves under the derivation — see `landedManifest`.
                 landedManifest = manifest
+                applyingManifest = nil
                 outcome = .applied(summary)
             case .refused(let refusal):
                 // A refusal here is transient — a scan running, the store mid-write — so the
-                // button stays armed, exactly as the removal sheet's does.
+                // button stays armed, exactly as the removal sheet's does; and the derivation
+                // goes back to reading the tree, because nothing moved.
+                applyingManifest = nil
                 outcome = .failed(refusal)
             }
         }

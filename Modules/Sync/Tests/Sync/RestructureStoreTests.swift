@@ -714,3 +714,181 @@ import Foundation
             .manifest.manifestId == "m1")
     }
 }
+
+/// **The ledger's write path: how often it writes, and in what shape.**
+///
+/// A landing rewrote `restructure.json` five times, each a whole-file encode of an append-only
+/// ledger whose every record carries a manifest AND its inverse with an evidence sentence per
+/// action — and it pretty-printed them, which roughly doubles the bytes. These pin the two fixes
+/// and, more importantly, the ONE thing that must not have moved with them: a record only counts
+/// as on disk when it really is.
+@MainActor
+@Suite final class RestructureLedgerWriteTests {
+
+    private var scratch: [URL] = []
+    deinit { for dir in scratch { try? FileManager.default.removeItem(at: dir) } }
+
+    private func makeDirectory() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("restructure-write-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
+                                                withIntermediateDirectories: true)
+        scratch.append(dir)
+        return dir
+    }
+
+    private func fileURL(_ dir: URL) -> URL {
+        dir.appendingPathComponent("p/restructure.json")
+    }
+
+    private func manifest(id: String) -> RestructureManifest {
+        RestructureManifest(profileId: "p", manifestId: id, createdAt: "t", family: "F",
+                            kind: .shape, actions: [
+                                .init(action: .renameDir, src: "F/a", dst: "F/b"),
+                            ])
+    }
+
+    private func record(id: String) -> RestructureStore.AppliedRecord {
+        RestructureStore.AppliedRecord(manifest: manifest(id: id),
+                                       inverse: manifest(id: id).inverse, at: "t",
+                                       created: 0, skipped: 0,
+                                       appliedUnderProfileId: "prof-a")
+    }
+
+    /// The file's modification date is the only honest witness to "did it write", so writes are
+    /// counted by watching it. A whole-second resolution would not separate two writes in one
+    /// test, so the size is watched too — every mutation here changes the content.
+    private func snapshot(_ dir: URL) throws -> Data { try Data(contentsOf: fileURL(dir)) }
+
+    // MARK: The shape
+
+    /// **Not pretty-printed, still sorted, still readable by the loader.** Sorted keys are what
+    /// make the bytes a function of the state; the whitespace was never part of that.
+    @Test func theLedgerIsWrittenCompactAndSortedAndReadsBack() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.suppress(RestructureKey(kind: .shape, path: "F"))
+        store.recordApplied(record(id: "m1"))
+
+        let text = try String(contentsOf: fileURL(dir), encoding: .utf8)
+        #expect(!text.contains("\n  \""), "the ledger must not be pretty-printed")
+        // `.sortedKeys` at the top level: applied before schemaVersion before suppressed.
+        let keyOrder = ["\"applied\"", "\"schemaVersion\"", "\"suppressed\""]
+            .map { text.range(of: $0)?.lowerBound }
+        #expect(keyOrder.allSatisfy { $0 != nil })
+        #expect(zip(keyOrder, keyOrder.dropFirst()).allSatisfy { $0! < $1! },
+                "keys must still be sorted — the bytes are a function of the state")
+
+        let reopened = RestructureStore(directory: dir, profileId: "p")
+        #expect(!reopened.isUnreadable)
+        #expect(reopened.applied.map(\.manifest.manifestId) == ["m1"])
+        #expect(reopened.isSuppressed(RestructureKey(kind: .shape, path: "F")))
+    }
+
+    /// A file an older build wrote — pretty-printed, same schema — still loads. The format did
+    /// not change; only the whitespace did.
+    @Test func aPrettyPrintedFileFromAnOlderBuildStillLoads() throws {
+        let dir = try makeDirectory()
+        let seed = RestructureStore(directory: dir, profileId: "p")
+        seed.recordApplied(record(id: "m1"))
+        // Re-write the very same content pretty-printed, as the previous build did.
+        let object = try JSONSerialization.jsonObject(with: try snapshot(dir))
+        try JSONSerialization.data(withJSONObject: object,
+                                   options: [.prettyPrinted, .sortedKeys])
+            .write(to: fileURL(dir))
+
+        let reopened = RestructureStore(directory: dir, profileId: "p")
+        #expect(!reopened.isUnreadable)
+        #expect(reopened.applied.map(\.manifest.manifestId) == ["m1"])
+    }
+
+    // MARK: The batch
+
+    /// Mutations inside a batch reach the disk exactly ONCE, at the end.
+    @Test func aBatchWritesOnceAtTheEnd() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordApplied(record(id: "m1"))
+        let before = try snapshot(dir)
+
+        var midBatch: Data?
+        store.batchingSaves {
+            store.updateApplied(manifestId: "m1") { $0.summary = "one" }
+            store.suppress(RestructureKey(kind: .shape, path: "F"))
+            store.recordAnswer("later", for: RestructureKey(kind: .shape, path: "G"))
+            midBatch = try? self.snapshot(dir)
+        }
+        #expect(midBatch == before, "nothing may reach the file while the batch is open")
+
+        let after = try snapshot(dir)
+        #expect(after != before, "the batch must flush at its end")
+        let reopened = RestructureStore(directory: dir, profileId: "p")
+        #expect(reopened.applied.first?.summary == "one")
+        #expect(reopened.isSuppressed(RestructureKey(kind: .shape, path: "F")))
+        #expect(reopened.answer(for: RestructureKey(kind: .shape, path: "G")) == "later")
+    }
+
+    /// **`recordApplied` writes even inside a batch.** Its `true` is the licence to start moving
+    /// files — "the inverse is on disk before the first operation" — so a batched `true` meaning
+    /// "queued" would be that invariant lost in one word.
+    @Test func recordAppliedReachesDiskEvenInsideABatch() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordApplied(record(id: "m1"))
+
+        var wroteDuringBatch = false
+        store.batchingSaves {
+            store.suppress(RestructureKey(kind: .shape, path: "F"))
+            #expect(store.recordApplied(self.record(id: "m2")))
+            // Read the file from a SECOND store: the record must be on disk right now.
+            let peek = RestructureStore(directory: dir, profileId: "p")
+            wroteDuringBatch = peek.applied.map(\.manifest.manifestId) == ["m1", "m2"]
+        }
+        #expect(wroteDuringBatch,
+                "the ledger record must be on disk before the caller is told it may move files")
+    }
+
+    /// A batch that changes nothing writes nothing — an empty flush would rewrite the file for
+    /// no reason, and this store is on a path where every write matters.
+    @Test func anEmptyBatchDoesNotWrite() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordApplied(record(id: "m1"))
+        let before = try FileManager.default.attributesOfItem(atPath: fileURL(dir).path)
+        store.batchingSaves { _ = store.applied.count }
+        let after = try FileManager.default.attributesOfItem(atPath: fileURL(dir).path)
+        #expect((before[.modificationDate] as? Date) == (after[.modificationDate] as? Date))
+    }
+
+    /// Nested batches flush at the OUTERMOST close, not the first one to finish.
+    @Test func nestedBatchesFlushOnceAtTheOutermostClose() throws {
+        let dir = try makeDirectory()
+        let store = RestructureStore(directory: dir, profileId: "p")
+        store.recordApplied(record(id: "m1"))
+        let before = try snapshot(dir)
+
+        var afterInner: Data?
+        store.batchingSaves {
+            store.batchingSaves {
+                store.suppress(RestructureKey(kind: .shape, path: "F"))
+            }
+            afterInner = try? self.snapshot(dir)
+        }
+        #expect(afterInner == before, "the inner close must not flush")
+        #expect(try snapshot(dir) != before)
+    }
+
+    /// A batch over a store that is refusing to write still refuses — the flush goes through the
+    /// same `isUnreadable` gate every save does.
+    @Test func aBatchOverAnUnreadableStoreStillRefuses() throws {
+        let dir = try makeDirectory()
+        try Data("{ not json".utf8).write(to: fileURL(dir))
+        let store = RestructureStore(directory: dir, profileId: "p")
+        #expect(store.isUnreadable)
+        let (_, saved) = store.batchingSaves {
+            store.suppress(RestructureKey(kind: .shape, path: "F"))
+        }
+        #expect(!saved)
+        #expect(try String(contentsOf: fileURL(dir), encoding: .utf8) == "{ not json")
+    }
+}

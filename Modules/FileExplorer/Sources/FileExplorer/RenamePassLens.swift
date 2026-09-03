@@ -37,6 +37,18 @@ struct RenamePassLens: View {
     /// card always shows its renames, and this only un-caps a long one.
     @State private var showingAll: Set<String> = []
 
+    /// The sectioning, remembered between renders.
+    ///
+    /// `RenameCategories.sections` buckets every plan and then **sorts each bucket by path** — up
+    /// to ~1,200 plans on the real backlog — and it ran in `body`, which this lens's host re-runs
+    /// on every publish its manager makes. The key is the plan list itself: Swift's `Array ==`
+    /// short-circuits on storage identity, so a publish that did not touch the backlog costs a
+    /// pointer comparison rather than a sort. `leftAlone` rides along because it walks the same
+    /// list. (`LensWorkspaceView.RenderMemo` is the shared one-slot box; it lives there because
+    /// that is where it was first needed.)
+    @State private var sectionMemo = LensWorkspaceView.RenderMemo<
+        [RenamePlan], (sections: [RenameCategories.Section], leftAlone: [RenamePlan])>()
+
     /// **Two collapsible layers came out of this screen, and nothing replaced them.**
     ///
     /// A card used to sit under a parent-directory row with its own chevron, under a category
@@ -52,8 +64,12 @@ struct RenamePassLens: View {
     /// section's own `Rename all` and each card's `Rename n` remain, and no folder needs a
     /// chevron opened before it can be read.
     var body: some View {
-        let sections = RenameCategories.sections(plans)
-        let leftAlone = RenameCategories.leftAlone(plans)
+        let grouped = sectionMemo.value(for: plans) {
+            (sections: RenameCategories.sections(plans),
+             leftAlone: RenameCategories.leftAlone(plans))
+        }
+        let sections = grouped.sections
+        let leftAlone = grouped.leftAlone
         GeometryReader { geo in
             let columns = LensCardGrid.columns(forWidth: geo.size.width,
                                                minimumCardWidth: Self.minimumCardWidth)

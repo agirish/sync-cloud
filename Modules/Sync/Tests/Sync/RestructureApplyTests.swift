@@ -58,9 +58,65 @@ import Testing
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    /// A real `FileManager` with a hole in it: one path that `fileExists(atPath:)` denies.
+    ///
+    /// The landing's verifier re-lists the touched folders through the manager's OWN file
+    /// manager, so a hole here is a mismatch the verifier must find and report — which is how a
+    /// test can drive the unhappy branch on a tree the executor moves correctly. Everything else
+    /// is passed straight through, including the two-argument existence probe the executor uses
+    /// for directories, so nothing else in the landing behaves differently.
+    final class HidingFileManager: FileManaging, @unchecked Sendable {
+        let hidden: Set<String>
+        private let inner = FileManager.default
+        init(hiding: Set<String>) { hidden = hiding }
+
+        func fileExists(atPath path: String) -> Bool {
+            hidden.contains(where: { path.hasSuffix($0) }) ? false : inner.fileExists(atPath: path)
+        }
+        func fileExists(atPath path: String,
+                        isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+            inner.fileExists(atPath: path, isDirectory: isDirectory)
+        }
+        func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+            try inner.attributesOfItem(atPath: path)
+        }
+        func setAttributes(_ attributes: [FileAttributeKey: Any],
+                           ofItemAtPath path: String) throws {
+            try inner.setAttributes(attributes, ofItemAtPath: path)
+        }
+        func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool,
+                             attributes: [FileAttributeKey: Any]?) throws {
+            try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates,
+                                      attributes: attributes)
+        }
+        func copyItem(at srcURL: URL, to dstURL: URL) throws {
+            try inner.copyItem(at: srcURL, to: dstURL)
+        }
+        func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            try inner.moveItem(at: srcURL, to: dstURL)
+        }
+        func trashItem(at url: URL,
+                       resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            try inner.trashItem(at: url, resultingItemURL: outResultingURL)
+        }
+        func removeItem(at URL: URL) throws { try inner.removeItem(at: URL) }
+        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL,
+                         backupItemName: String) throws -> URL? {
+            try inner.replaceItem(at: destinationURL, withItemAt: stagedURL,
+                                  backupItemName: backupItemName)
+        }
+        func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
+                        options mask: FileManager.DirectoryEnumerationOptions,
+                        errorHandler handler: ((URL, Error) -> Bool)?)
+            -> FileManager.DirectoryEnumerator? {
+            inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask,
+                             errorHandler: handler)
+        }
+    }
+
     /// The flagship-shaped fixture: an era to converge (rename + merge + a seeded collision), a
     /// keep, a refused folder with its reason, and a Singapore folder for the jurisdiction rule.
-    static func makeWorld() async throws -> World {
+    static func makeWorld(fileManager: FileManaging = FileManager.default) async throws -> World {
         let base = try makeCanonicalTempRoot(prefix: "RestructureApply")
         let root = base.appendingPathComponent("Documents")
         try write(root.appendingPathComponent("Tax/2013/Federal Tax/1040.pdf"), "federal 1040")
@@ -117,7 +173,7 @@ import Testing
         try Data(#"{"people": []}"#.utf8).write(
             to: profiles.appendingPathComponent("t/people.json"))
 
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(fileManager: fileManager)
         manager.filingFolderProfile = profile
         manager.filingProfilesDirectory = profiles
         manager.filingProfileDirectoryId = "t"
@@ -190,7 +246,15 @@ import Testing
         })
         #expect(movedAction.collidedInto?.hasPrefix("Tax/2013/Forms/1040") == true)
         #expect(movedAction.bytes == "state 1040".utf8.count)
-        #expect(movedAction.md5?.count == 32)
+        // **No digest, and that is the point.** The apply used to MD5 every moved file (up to
+        // 64 MB each) to fill this field — a gigabyte read for a 500-file merge, inside the
+        // window where the landing flag refuses every other scan — and nothing anywhere read the
+        // result back; this assertion, checking it had 32 characters, was its only consumer. The
+        // field survives on `Action` so ledgers already on disk keep decoding theirs. `bytes`
+        // above is the audit fact that stayed, and it comes free from the `attributesOfItem`
+        // call the move already makes.
+        #expect(movedAction.md5 == nil,
+                "a same-volume move is a rename; the landing must not read the file to hash it")
         #expect(record.summary == outcome.summary)
         #expect(!record.manifest.actions.contains {
             $0.src?.contains("ca-540") == true || $0.src?.contains("Payment/") == true
@@ -770,5 +834,66 @@ import Testing
                 "the household's person never reached the re-derived profile")
         #expect(derived.personAliases["dad"] == "girish",
                 "the alias only people.json knows was dropped — the fallback registry was used")
+    }
+    // MARK: - Step 4's verdict, and step 7's memory
+
+    /// **The verifier's verdict reaches the outcome AND the ledger.**
+    ///
+    /// The verify was two `fileExists` per performed action run synchronously on the main actor —
+    /// 2,000 stats for a thousand-action merge, with the landing sheet on screen — and it now runs
+    /// through the same serial file-operation queue the executor just used. The queue is ordered,
+    /// so it still reads the tree strictly after the moves and strictly before anything else this
+    /// app does to it, and the result is awaited. What no test held was that the verdict ARRIVES:
+    /// the whole call could be replaced with `[]` and every green-path assertion stayed green,
+    /// because a correct landing has nothing to report.
+    ///
+    /// So this drives the unhappy branch — a file manager with a hole where the carried `Refund/`
+    /// lands — and checks the mismatch on the outcome, in the log-bound list, and in the ledger
+    /// record the Applied card reads.
+    @Test func theVerifiersVerdictReachesTheOutcomeAndTheLedger() async throws {
+        let hiding = Self.HidingFileManager(hiding: ["Tax/2013/Forms/Refund"])
+        let world = try await Self.makeWorld(fileManager: hiding)
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+
+        let outcome = await world.manager.applyPlan(
+            world.manifest, now: Date(timeIntervalSince1970: 1_756_500_000))
+
+        #expect(outcome.refusal == nil, "the landing itself must still run")
+        #expect(outcome.foldersMovedWhole == 1, "Refund really was carried")
+        #expect(outcome.verifierMismatches.contains { $0.contains("Tax/2013/Forms/Refund") },
+                "the verifier must name the folder it could not find: \(outcome.verifierMismatches)")
+
+        let store = try #require(world.manager.restructureStore)
+        let record = try #require(store.applied.first {
+            $0.manifest.manifestId == world.manifest.manifestId
+        })
+        #expect(record.verifiedOK == false, "the card's verdict must carry the mismatch")
+        #expect(record.verifierNote?.isEmpty == false)
+        // And the folder really is on disk — the hole is in the probe, not in the tree, so this
+        // is a test of the reporting path rather than of a broken landing.
+        #expect(FileManager.default.fileExists(
+            atPath: world.root.appendingPathComponent("Tax/2013/Forms/Refund").path))
+    }
+
+    /// **The replayed memory is published, not merely written.**
+    ///
+    /// Step 7 — the corpus decode, the key replay, `flatten`, `buildMemory` and the write — moved
+    /// into one detached task, because every part of it ran on the main actor with a landing sheet
+    /// on screen. The publish is the half that has to come back: `filingMemory` is what the filing
+    /// layer routes on, and a landing that wrote the artifact but left the manager on the old
+    /// memory would route against paths that no longer exist.
+    @Test func theReplayedMemoryBecomesTheLiveOne() async throws {
+        let world = try await Self.makeWorld()
+        defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
+        #expect(world.manager.filingMemory == nil, "nothing is published before the landing")
+
+        let outcome = await world.manager.applyPlan(
+            world.manifest, now: Date(timeIntervalSince1970: 1_756_500_000))
+        let newId = try #require(outcome.producedProfileId)
+
+        let memory = try #require(world.manager.filingMemory,
+                                  "the replayed memory never reached the manager")
+        #expect(memory.profileId == newId, "and it is the NEW profile's, not the old one's")
+        #expect(world.manager.filingSurveyedAt != nil)
     }
 }

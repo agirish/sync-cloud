@@ -40,20 +40,49 @@ public enum RestructureRederive {
         }
     }
 
+    /// The rename list with each step's **child prefix built once**.
+    ///
+    /// `mapped` is asked about every folder in the profile (`carryOver`, 3,013 of them) and every
+    /// document in the corpus (`rekeyedCorpus`, ~9,000) — and it built `rename.from + "/"` inside
+    /// that loop, once per path per rename. On a landing with a dozen renames that is a hundred
+    /// thousand throwaway strings on the main actor, for a value that depends only on the rename.
+    /// Same rule, same order, same answers; the concatenation just moved out of the loop.
+    struct RenameSteps {
+        /// `from`, its child prefix, and `to` — the child prefix is what says a path sits BENEATH
+        /// the renamed folder rather than merely sharing its name's letters (`A/BB` is not under
+        /// `A/B`), the same rule ``RestructureStore/rekey(renames:)`` documents.
+        let steps: [(from: String, prefix: String, to: String)]
+
+        init(_ renames: [(from: String, to: String)]) {
+            steps = renames.map { (from: $0.from, prefix: $0.from + "/", to: $0.to) }
+        }
+
+        var isEmpty: Bool { steps.isEmpty }
+
+        /// One path pushed through every step, in order — a later rename may legitimately act on
+        /// the product of an earlier one, which is why this is a fold and not a lookup.
+        func mapped(_ path: String) -> String {
+            var current = path
+            for step in steps {
+                if current == step.from {
+                    current = step.to
+                } else if current.hasPrefix(step.prefix) {
+                    current = step.to + "/" + current.dropFirst(step.prefix.count)
+                }
+            }
+            return current
+        }
+    }
+
     /// One path pushed through the directory renames, in order — prefix-aware, and never touching
     /// a sibling that merely shares a name prefix (`A/BB` is not under `A/B`), the same rule
     /// ``RestructureStore/rekey(renames:)`` documents.
+    ///
+    /// The single-path spelling. A caller mapping MANY paths through the same renames builds a
+    /// ``RenameSteps`` once instead — this is that, for one path.
     public static func mapped(_ path: String, through renames: [(from: String, to: String)])
         -> String {
-        var current = path
-        for rename in renames {
-            if current == rename.from {
-                current = rename.to
-            } else if current.hasPrefix(rename.from + "/") {
-                current = rename.to + "/" + current.dropFirst(rename.from.count + 1)
-            }
-        }
-        return current
+        RenameSteps(renames).mapped(path)
     }
 
     // MARK: - Step 6: the carry-over
@@ -70,7 +99,7 @@ public enum RestructureRederive {
     /// the day it silently stopped existing.
     public static func carryOver(from old: FolderProfile, into fresh: FolderProfile,
                                  through manifest: RestructureManifest) -> FolderProfile {
-        let renames = renameMap(of: manifest)
+        let renames = RenameSteps(renameMap(of: manifest))
         var folders = fresh.folders
         // Two old paths can map onto one fresh path — a stale entry recorded at a rename's
         // destination before that folder was hand-deleted, plus the renamed source itself. The
@@ -79,7 +108,7 @@ public enum RestructureRederive {
         // break lexicographically.
         var carrier: [String: String] = [:]
         for oldPath in old.folders.keys {
-            let newPath = mapped(oldPath, through: renames)
+            let newPath = renames.mapped(oldPath)
             guard let existing = carrier[newPath] else {
                 carrier[newPath] = oldPath
                 continue
@@ -130,7 +159,7 @@ public enum RestructureRederive {
     /// the whole point of the replay (§5.5 step 7).
     public static func rekeyedCorpus(_ corpus: FilingCorpus,
                                      through manifest: RestructureManifest) -> FilingCorpus {
-        let renames = renameMap(of: manifest)
+        let renames = RenameSteps(renameMap(of: manifest))
         let moves = Dictionary(fileMoves(of: manifest),
                                uniquingKeysWith: { _, second in second })
         var rekeyed: [String: FilingCorpusDocument] = [:]
@@ -151,7 +180,7 @@ public enum RestructureRederive {
             movedKeys.insert(newPath)
         }
         for (path, document) in corpus.documents where moves[path] == nil {
-            let newPath = mapped(path, through: renames)
+            let newPath = renames.mapped(path)
             guard !movedKeys.contains(newPath) else { continue }
             rekeyed[newPath] = document
         }

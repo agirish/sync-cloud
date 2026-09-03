@@ -980,6 +980,13 @@ import Design
         // rather than keeping a phantom control in the budget. Over, never under — a model that
         // under-states the leading side is one that lets the row overrun, which is this whole
         // type's failure mode.
+        //
+        // **Re-measured when the labels moved onto `LabelMetrics`** (which caches, and which
+        // applies SwiftUI's own half-point ceiling to a text run): 674.3/667.5, 716.0/711.0,
+        // 808.75/798.5, 846.45/837.5 — slack 6.8 / 5.0 / 10.25 / 8.95, with `overviewMargin`
+        // re-cut from 8 to 6 in the same change. The rounding moved each label up by at most half
+        // a point, which is a more faithful model and a wider total; the margin is where that was
+        // paid for, because it is the term that existed as slack in the first place.
         #expect(model >= drawn,
                 "at \(size.scale)× the rail draws \(drawn)pt but the model budgets \(model)pt — it is \(drawn - model)pt short, so the row will overrun before it sheds")
         // And not wildly over, or the rail sheds its labels on headers that would have seated them.

@@ -1,4 +1,3 @@
-import CryptoKit
 import Events
 import Foundation
 
@@ -244,8 +243,18 @@ extension FileSyncManager {
         // Step 4: verify from a different code path — re-list the touched folders and check the
         // tree against what the performed actions claim, sharing none of the mover's arithmetic.
         restructureApplyProgress = RestructureApplyProgress(stage: .verify)
-        outcome.verifierMismatches = FileSyncManager.verifyRestructureLanding(
-            execution.performed, root: expandedRoot, fm: fm)
+        // **Two `fileExists` per performed action, and they run OFF the main actor.** On a
+        // 1,000-action merge this was 2,000 stats on the actor that draws the window, between
+        // the moves finishing and the checklist ticking over — a visible hang with a progress
+        // sheet on screen. It goes through the same serial file-operation queue the executor
+        // just used, which is also what keeps it honest: the queue is ordered, so the verify
+        // still reads the tree strictly after the moves that made it and strictly before
+        // anything else this app does to it. The verdict is awaited, so every reader below
+        // (the ledger's `verifiedOK`, the log lines, the summary) sees the same answer it did.
+        let performed = execution.performed
+        outcome.verifierMismatches = await enqueueFileOperation {
+            FileSyncManager.verifyRestructureLanding(performed, root: expandedRoot, fm: fm)
+        }
 
         // Every skip and mismatch, one line each — the cards say "named in the log", and the
         // finalize below replaces the stored manifest with the performed subset, so these lines
@@ -299,8 +308,8 @@ extension FileSyncManager {
                 + "session ⌘Z cleared; Undo This Reorganisation is the way back")
         }
 
-        // The manifest as it actually landed: performed actions only, with collision names,
-        // bytes and digests. The inverse is recomputed from THAT — the inverse of the plan would
+        // The manifest as it actually landed: performed actions only, with collision names
+        // and byte counts. The inverse is recomputed from THAT — the inverse of the plan would
         // move files back from names they never landed at.
         var landed = manifest
         landed.actions = execution.performed
@@ -388,12 +397,23 @@ extension FileSyncManager {
                                                          in: profilesDirectory)
         let jurisdictions = RestructureRederive.entryJurisdictions(of: profile)
         let recordedRoot = profile.root
-        let fresh = await Task.detached(priority: .userInitiated) {
-            FolderSurveyBuilder.build(tree: tree, root: recordedRoot, profileId: newId,
-                                      registry: registry, jurisdictionValues: jurisdictions)
+        // **`carryOver` rides along in the same detached hop.** It is a pure function over two
+        // profiles — 3,013 entries rebuilt one struct at a time — and it was the one step between
+        // the detached walk and the write that had no reason to be on the actor drawing the
+        // window. One hop, not two: the builder's result is only ever read by this.
+        let derived = await Task.detached(priority: .userInitiated) {
+            let fresh = FolderSurveyBuilder.build(tree: tree, root: recordedRoot, profileId: newId,
+                                                  registry: registry,
+                                                  jurisdictionValues: jurisdictions)
+            return RestructureRederive.carryOver(from: profile, into: fresh, through: landed)
+                .settingDerivedFrom(oldDirectoryId)
         }.value
-        let derived = RestructureRederive.carryOver(from: profile, into: fresh, through: landed)
-            .settingDerivedFrom(oldDirectoryId)
+        // **The write stays on the main actor, deliberately.** It amends `profiles.json` — the
+        // one artifact here that is SHARED with everything else that can mint a profile — and the
+        // landing flag does not stop a walk that was already under way from writing it. The
+        // expensive half of the step (building `derived`) is off the actor above; moving the
+        // index amendment off it too would trade a hitch for a lost-update race on the file that
+        // decides which profile the app reads.
         do {
             try FilingProfileStore.writeDerivedProfile(derived, replacing: oldDirectoryId,
                                                        in: profilesDirectory, now: now)
@@ -412,26 +432,58 @@ extension FileSyncManager {
         // Step 7: the per-profile artifacts follow the profile into its new directory — copied
         // as they stand, then the corpus keys replayed and the memory rebuilt from them. No page
         // is re-read for a file that only moved.
-        FileSyncManager.carryProfileArtifacts(from: oldDirectoryId, to: newId,
-                                              in: profilesDirectory, fm: fileManager)
-        if let corpus = FilingSurveyStore.corpus(id: oldDirectoryId, in: profilesDirectory) {
-            let rekeyed = RestructureRederive.rekeyedCorpus(corpus, through: landed)
-            let renamed = FilingCorpus(profileId: newId, salt: rekeyed.salt,
-                                       documents: rekeyed.documents,
-                                       surveyedAt: rekeyed.surveyedAt)
-            let flattened = FilingSurvey.flatten(tree)
-            let memory = FilingSurvey.buildMemory(corpus: renamed,
-                                                  folderModified: flattened.folders,
-                                                  profileId: newId)
-            do {
-                try FilingSurveyStore.write(corpus: renamed, memory: memory,
-                                            previousMemory: nil, id: newId,
-                                            in: profilesDirectory, root: recordedRoot, now: now)
-                filingMemory = memory
-                filingSurveyedAt = now
-            } catch {
+        // **All of step 7 in ONE detached hop, and every byte of it lands under `newId`.**
+        //
+        // This ran on the main actor: a `JSONDecoder` pass over ~9,000 corpus documents, the key
+        // replay, `flatten` over the whole walked tree, `buildMemory` (which tokenises every
+        // document stem), and the encode-and-write of both artifacts — with a landing sheet on
+        // screen and `restructureLandingInProgress` refusing every other scan. This module's own
+        // rule says decoding on the main actor is a hitch the user sees; see
+        // `FileSyncManager+FilingRefine.swift`.
+        //
+        // Safe to detach where the profile write above is not, and the reason is the *target*:
+        // every path touched here is inside the freshly minted `\(newId)` directory, which
+        // nothing else in the app knows exists yet, plus read-only reads of the old one. There is
+        // no shared file to lose an update on. The result is awaited, so `filingMemory` is set
+        // before anything below reads it, exactly as it was.
+        let fm = fileManager
+        let replayed: (memory: FilingMemory, failure: String?)? =
+            await Task.detached(priority: .userInitiated) { () -> (FilingMemory, String?)? in
+                FileSyncManager.carryProfileArtifacts(from: oldDirectoryId, to: newId,
+                                                      in: profilesDirectory, fm: fm)
+                guard let corpus = FilingSurveyStore.corpus(id: oldDirectoryId,
+                                                            in: profilesDirectory) else {
+                    return nil
+                }
+                let rekeyed = RestructureRederive.rekeyedCorpus(corpus, through: landed)
+                let renamed = FilingCorpus(profileId: newId, salt: rekeyed.salt,
+                                           documents: rekeyed.documents,
+                                           surveyedAt: rekeyed.surveyedAt)
+                let flattened = FilingSurvey.flatten(tree)
+                let memory = FilingSurvey.buildMemory(corpus: renamed,
+                                                      folderModified: flattened.folders,
+                                                      profileId: newId)
+                do {
+                    try FilingSurveyStore.write(corpus: renamed, memory: memory,
+                                                previousMemory: nil, id: newId,
+                                                in: profilesDirectory, root: recordedRoot,
+                                                now: now)
+                    return (memory, nil)
+                } catch {
+                    return (memory, String(describing: error))
+                }
+            }.value
+        if let replayed {
+            if let failure = replayed.failure {
+                // Logged from the main actor, as it was — `Logger` is the app's, and the sentence
+                // is unchanged so the greppable line does not move.
                 Logger.shared.warning("Restructure re-derive \(ledgerId ?? "(no landing)"): the replayed "
-                    + "corpus could not be written under \(newId): \(error)")
+                    + "corpus could not be written under \(newId): \(failure)")
+            } else {
+                // **Published only when the write succeeded**, which is what the old `do` block
+                // did: a memory in hand that never reached disk must not become the live one.
+                filingMemory = replayed.memory
+                filingSurveyedAt = now
             }
         }
 
@@ -441,21 +493,27 @@ extension FileSyncManager {
         filingFolderProfile = derived
         filingProfileDirectoryId = newId
         let newStore = RestructureStore(directory: profilesDirectory, profileId: newId)
-        newStore.rekey(renames: RestructureRederive.renameMap(of: landed),
-                       context: ledgerId ?? "survey refresh")
-        // The artifact carry copies best-effort, one file at a time — if restructure.json was
-        // the copy that failed, the fresh store loads empty and the update below would no-op
-        // silently, stranding the finalised record (and its inverse) in a directory nothing
-        // reads. The ledger record is not best-effort: write it into the new store directly.
-        if let ledgerId,
-           !newStore.applied.contains(where: { $0.manifest.manifestId == ledgerId }),
-           let finalised = store.applied.first(where: { $0.manifest.manifestId == ledgerId }) {
-            newStore.recordApplied(finalised)
-            Logger.shared.warning("Restructure re-derive \(ledgerId): restructure.json did not "
-                + "carry over; the ledger record was written into \(newId) directly")
-        }
-        if let ledgerId {
-            newStore.updateApplied(manifestId: ledgerId) { $0.producedProfileId = newId }
+        // **One write for the new store's whole tail, not three.** The rekey, the rescue record
+        // and the produced-id update are three mutations of one file, and each used to rewrite
+        // the entire ledger. `recordApplied` inside is the deliberate exception the batch
+        // documents — it always reaches the disk, because its answer is a safety claim.
+        newStore.batchingSaves {
+            newStore.rekey(renames: RestructureRederive.renameMap(of: landed),
+                           context: ledgerId ?? "survey refresh")
+            // The artifact carry copies best-effort, one file at a time — if restructure.json was
+            // the copy that failed, the fresh store loads empty and the update below would no-op
+            // silently, stranding the finalised record (and its inverse) in a directory nothing
+            // reads. The ledger record is not best-effort: write it into the new store directly.
+            if let ledgerId,
+               !newStore.applied.contains(where: { $0.manifest.manifestId == ledgerId }),
+               let finalised = store.applied.first(where: { $0.manifest.manifestId == ledgerId }) {
+                newStore.recordApplied(finalised)
+                Logger.shared.warning("Restructure re-derive \(ledgerId): restructure.json did not "
+                    + "carry over; the ledger record was written into \(newId) directly")
+            }
+            if let ledgerId {
+                newStore.updateApplied(manifestId: ledgerId) { $0.producedProfileId = newId }
+            }
         }
         restructureStore = newStore
         filingPeopleStore = PeopleStore(directory: profilesDirectory, profileId: newId,
@@ -665,8 +723,14 @@ extension FileSyncManager {
         outcome.collisions = execution.collisions
         outcome.removedEmpty = execution.removedEmpty
         outcome.skipped = execution.skipped
-        outcome.verifierMismatches = FileSyncManager.verifyRestructureLanding(
-            execution.performed, root: expandedRoot, fm: fm)
+        // Off the main actor and through the serial queue, for the reason the apply's own
+        // verify documents: two stats per performed action is a main-thread hang on a big
+        // landing, and the queue's order is what keeps "after the moves, before anything
+        // else" true without the call being synchronous.
+        let performed = execution.performed
+        outcome.verifierMismatches = await enqueueFileOperation {
+            FileSyncManager.verifyRestructureLanding(performed, root: expandedRoot, fm: fm)
+        }
         for sentence in execution.skipped {
             Logger.shared.info("Restructure undo \(manifestId) skipped: \(sentence)")
         }
@@ -860,7 +924,7 @@ extension FileSyncManager {
         var collisions = 0
         var removedEmpty = 0
         var skipped: [String] = []
-        /// The actions that ran, with `collidedInto`, `bytes` and `md5` filled from the disk.
+        /// The actions that ran, with `collidedInto` and `bytes` filled from the disk.
         var performed: [RestructureManifest.Action] = []
         /// Directory renames — registered for ⌘Z as their OWN batch, before the content moves,
         /// so undo pops the moves first: a file must leave `Forms/` before `Forms/` stops
@@ -900,34 +964,6 @@ extension FileSyncManager {
             if !isDir && !url.lastPathComponent.hasPrefix(".") { files += 1 }
         }
         return sawError ? nil : files
-    }
-
-    /// The audit digest for one moved file — bounded, and never a download trigger. A dataless
-    /// (cloud-only) placeholder is skipped before any byte is read, because opening one forces
-    /// the provider to fetch the whole file mid-landing — a multi-GB stall between the ledger
-    /// write and the finalize, exactly the window where a force-quit mints the
-    /// "never finished recording" record. Files over `cap` are skipped too (streamed hashing
-    /// still holds the landing for their full read), and the digest is audit-only — nothing
-    /// verifies it — so nil loses a nicety, not a safety.
-    nonisolated static func restructureDigest(atPath path: String, size: Int?,
-                                              cap: Int = 64 << 20) -> String? {
-        guard !MaterializationStatus.isCloudOnly(atPath: path) else { return nil }
-        if let size, size > cap { return nil }
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { try? handle.close() }
-        var hasher = Insecure.MD5()
-        do {
-            // A read ERROR is not the end of the file: finalising what came before it would
-            // record a truncated prefix's hash as the file's digest — and a wrong digest
-            // misleads the exact audit the field exists for. nil is the honest shape, the same
-            // one cloud-only and over-cap files already wear.
-            while let chunk = try handle.read(upToCount: 4 << 20), !chunk.isEmpty {
-                hasher.update(data: chunk)
-            }
-        } catch {
-            return nil
-        }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// One directory level's entry names, through the protocol's own enumerator — the listing
@@ -1119,15 +1155,24 @@ extension FileSyncManager {
                     out.collisions += 1
                 }
                 do {
-                    // Bytes and digest are recorded NOW, from the disk (invariant 5) — before
-                    // the move, while the source path is still the one the manifest names.
+                    // The size is recorded NOW, from the disk (invariant 5) — before the move,
+                    // while the source path is still the one the manifest names.
                     // (The re-probe window above is real but bounded: a file APPEARING at the
                     // destination between the probe and the move is replaced by `safeMoveItem`,
                     // which trashes the old copy and logs — recoverable, never silent.)
+                    //
+                    // **No digest. A same-volume move is a rename, and hashing made it a read.**
+                    // `performed.md5` used to be an MD5 of every moved file, up to a 64 MB cap
+                    // each — a gigabyte read for a 500-file merge, inside the window where
+                    // `restructureLandingInProgress` refuses every other scan and file
+                    // operation, to fill a field whose own doc said nothing verifies it. Nothing
+                    // did: outside this line, the only reader in the repo was the test that
+                    // asserted it had 32 characters. The field stays on
+                    // `RestructureManifest.Action` so ledgers already on disk keep decoding
+                    // theirs; new records simply do not carry one. `bytes` is the audit fact
+                    // that survives, and it costs the `attributesOfItem` call already being made.
                     let attributes = try? fm.attributesOfItem(atPath: srcPath)
                     performed.bytes = attributes?[.size] as? Int
-                    performed.md5 = FileSyncManager.restructureDigest(atPath: srcPath,
-                                                                      size: performed.bytes)
                     try FileSyncManager.safeMoveItem(at: URL(fileURLWithPath: srcPath),
                                                     to: destination, fileManager: fm)
                     out.filesMoved += 1

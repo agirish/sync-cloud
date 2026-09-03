@@ -492,6 +492,28 @@ private struct FakeTree {
                 "shallowest only, sorted; a rename drains nothing — it carries")
     }
 
+    /// **The shallowest-only rule, over the shapes the O(n²) filter it replaced could get wrong.**
+    ///
+    /// The old filter compared every drained folder against every other with `hasPrefix`; this
+    /// walks each path's own ancestors instead. Same answers, and these are the cases where a
+    /// careless rewrite differs: a sibling whose NAME is a prefix of another's (`F/Small2` is not
+    /// under `F/Small`), a grandchild whose parent is drained but whose grandparent is not, and a
+    /// chain three deep where only the top survives.
+    @Test func emptiedFoldersDropsOnlyGenuineDescendants() {
+        func drained(_ sources: [String]) -> [String] {
+            RestructureLedger.emptiedFolders(of: RestructureManifest(
+                profileId: "p", manifestId: "m", createdAt: "t", family: "F", kind: .shape,
+                actions: sources.map { .init(action: .moveFile, src: "\($0)/f.pdf", dst: "T/f.pdf") }))
+        }
+        #expect(drained(["F/Small", "F/Small2"]) == ["F/Small", "F/Small2"],
+                "a name that is merely a PREFIX of a sibling's is not underneath it")
+        #expect(drained(["F/A", "F/A/B/C"]) == ["F/A"],
+                "a grandchild goes even when its own parent was never drained")
+        #expect(drained(["F/A", "F/A/B", "F/A/B/C"]) == ["F/A"])
+        #expect(drained(["F/A/B", "F/A/B/C"]) == ["F/A/B"])
+        #expect(drained(["A", "B"]) == ["A", "B"], "top-level folders have no ancestors to lose to")
+    }
+
     // MARK: - Parallel families (§5.4 step 2's pointer)
 
     /// The 6 Aug case itself: H-4's mapping vocabulary is shared by H-1B, and the sheet must say
@@ -815,5 +837,124 @@ private struct FakeTree {
         _ = memo.childFolders("a"); _ = memo.childFolders("a")
         _ = memo.fileCount("a"); _ = memo.fileCount("a")
         #expect(reads == 3, "one read per closure per path, not per call")
+    }
+
+    /// A view that can answer both halves of a directory at once is memoized as ONE listing, not
+    /// three — the sheet asks a mapped source for its folders, its files and its count, and three
+    /// per-closure caches meant three reads of the same directory.
+    @Test func aListingBackedMemoizedViewReadsEachDirectoryOnce() {
+        var reads = 0
+        let counting = RestructureTreeView(listing: { _ in
+            reads += 1
+            return (folders: ["Sub"], files: ["f.pdf"])
+        })
+        let memo = counting.memoized()
+        _ = memo.childFolders("a"); _ = memo.files("a"); _ = memo.fileCount("a")
+        _ = memo.childFolders("a"); _ = memo.files("a"); _ = memo.fileCount("a")
+        #expect(reads == 1, "one read per PATH, whichever half is asked for")
+        _ = memo.files("b")
+        #expect(reads == 2, "a second path is a second read")
+    }
+
+    /// A listing that came back nil is remembered as nil — the miss is as worth caching as the
+    /// hit, and a path outside the tree is asked for repeatedly by `parallelFamilies`.
+    @Test func aListingBackedMemoizedViewCachesTheAbsentAnswerToo() {
+        var reads = 0
+        let counting = RestructureTreeView(listing: { _ in reads += 1; return nil })
+        let memo = counting.memoized()
+        _ = memo.childFolders("a"); _ = memo.files("a"); _ = memo.fileCount("a")
+        #expect(reads == 1)
+        #expect(memo.childFolders("a") == nil)
+        #expect(memo.fileCount("a") == nil)
+    }
+
+    // MARK: - The disk view
+
+    private static func makeDiskTree(_ paths: [String]) throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("planner-disk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for path in paths {
+            let url = root.appendingPathComponent(path)
+            if path.hasSuffix("/") {
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            } else {
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try Data("x".utf8).write(to: url)
+            }
+        }
+        return root
+    }
+
+    /// **The listing splits folders from files the way the per-entry `fileExists` probe did.**
+    /// The probe is gone — directory-ness now comes out of the bulk enumeration's prefetched
+    /// `.isDirectoryKey` — and this is what pins the two answers as the same one.
+    @Test func theDiskViewSeparatesFoldersFromFiles() throws {
+        let root = try Self.makeDiskTree(["F/a.pdf", "F/b.pdf", "F/Sub/c.pdf", "F/Empty/"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let view = RestructureTreeView.fromDisk(root: root)
+        #expect(view.childFolders("F") == ["Empty", "Sub"])
+        #expect(view.files("F") == ["a.pdf", "b.pdf"])
+        #expect(view.fileCount("F") == 2)
+        #expect(view.childFolders("F/Empty") == [])
+        #expect(view.files("F/Empty") == [])
+        #expect(view.childFolders("Nope") == nil, "a path the view has never heard of is nil")
+    }
+
+    /// Dotted names stay out, exactly as the old `!name.hasPrefix(".")` filter kept them out —
+    /// and `.skipsHiddenFiles`, which would ALSO drop an ordinary name carrying the hidden flag,
+    /// is deliberately not what the enumeration asks for.
+    @Test func theDiskViewSkipsDottedNamesAndNothingElse() throws {
+        let root = try Self.makeDiskTree(["F/.DS_Store", "F/.git/config", "F/real.pdf",
+                                          "F/Visible/"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let view = RestructureTreeView.fromDisk(root: root)
+        #expect(view.files("F") == ["real.pdf"])
+        #expect(view.childFolders("F") == ["Visible"])
+    }
+
+    /// **Links are resolved the way the original probe resolved them, and the two APIs disagree.**
+    ///
+    /// Measured on this machine: `URL.resourceValues` does not follow a symbolic link, so a link
+    /// to a DIRECTORY reads `isDirectory == false` and a DANGLING link reads `false` rather than
+    /// throwing — while `fileExists(atPath:isDirectory:)`, which is what this view has always
+    /// asked, follows it and answers folder / folder / does-not-exist. Taking the resource value
+    /// at face value put a linked folder in the files half (a merge then emits `move-file` for a
+    /// directory) and planned a `move-file` for a link pointing at nothing. This is the assertion
+    /// that caught it.
+    @Test func theDiskViewResolvesSymlinksTheWayTheProbeDid() throws {
+        let root = try Self.makeDiskTree(["F/real.pdf", "F/Sub/inner.pdf"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        try fm.createSymbolicLink(at: root.appendingPathComponent("F/broken.pdf"),
+                                  withDestinationURL: root.appendingPathComponent("F/gone.pdf"))
+        try fm.createSymbolicLink(at: root.appendingPathComponent("F/linked.pdf"),
+                                  withDestinationURL: root.appendingPathComponent("F/real.pdf"))
+        try fm.createSymbolicLink(at: root.appendingPathComponent("F/Linked Folder"),
+                                  withDestinationURL: root.appendingPathComponent("F/Sub"))
+        let view = RestructureTreeView.fromDisk(root: root)
+        #expect(view.files("F") == ["linked.pdf", "real.pdf"],
+                "a dangling link is dropped; a link to a file is a file")
+        #expect(view.fileCount("F") == 2)
+        #expect(view.childFolders("F") == ["Linked Folder", "Sub"],
+                "a link to a directory is a FOLDER, as the followed probe said")
+    }
+
+    /// The names the enumeration reports are the names the old path-based listing reported —
+    /// byte for byte, decomposed spellings included. The two Foundation calls are different APIs
+    /// and a normalising difference between them would silently repoint every derived operation.
+    @Test func theDiskViewNamesMatchThePathBasedListing() throws {
+        // A decomposed "é" (e + U+0301) beside a composed one, plus a space and a dash — the
+        // spellings a filed tree actually carries.
+        let names = ["Cafe\u{0301} Receipts", "Caf\u{00E9} Notes", "Form W-2", "A B"]
+        let root = try Self.makeDiskTree(names.map { "F/\($0)/" })
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("F")
+        let old = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .filter { !$0.hasPrefix(".") }.sorted()
+        let view = RestructureTreeView.fromDisk(root: root)
+        #expect(try #require(view.childFolders("F")) == old,
+                "the bulk enumeration must not normalise a name the path listing leaves alone")
     }
 }

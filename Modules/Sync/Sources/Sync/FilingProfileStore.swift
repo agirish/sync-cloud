@@ -619,7 +619,13 @@ extension FilingProfileStore {
             }
             // Unreadable counts as hand-built (see `provenance`), so it is kept: unreadable is
             // not disposable, and this is the one operation where the difference cannot be undone.
-            guard profile(id: id, in: directory)?.provenance == .derived else { continue }
+            //
+            // **The header, not the whole profile.** This used to call `profile(id:in:)`, which
+            // fully decodes the file — 3,013 folder entries, each with its axes and anchors, and
+            // the lenient per-entry retry — to read ONE string, for every candidate, on the main
+            // actor, in the middle of a landing. `ProvenanceProbe` reads the same string and
+            // decides by the same rule.
+            guard provenance(id: id, in: directory) == .derived else { continue }
             do {
                 try fileManager.removeItem(at: url)
                 retired.append(id)
@@ -642,6 +648,40 @@ extension FilingProfileStore {
                                                options: [.sortedKeys, .prettyPrinted])
         try bytes.write(to: indexURL(in: directory), options: .atomic)
         return retired
+    }
+
+    /// Just enough of a profile file to answer ``FolderProfile/provenance`` — the `builtBy`
+    /// header and nothing else.
+    ///
+    /// **It has to succeed on exactly the files ``FolderProfile``'s own decoder succeeds on**, or
+    /// the retire sweep would gain or lose candidates: a file the full decoder rejects reads as
+    /// nil there and is therefore KEPT, and this must not quietly decide such a file is derived.
+    /// Both are satisfied by any JSON object and by nothing else — every field of `FolderProfile`
+    /// is optional or defaulted, and `builtBy` is read through the same `try?` tolerance, so a
+    /// header of the wrong type costs the file its provenance (which reads as hand-built, the
+    /// cautious answer) rather than its readability. That equivalence is what
+    /// `theProvenanceProbeAgreesWithTheFullDecode` pins.
+    private struct ProvenanceProbe: Decodable {
+        let builtBy: String?
+        private enum Key: String, CodingKey { case builtBy }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Key.self)
+            builtBy = try? c.decodeIfPresent(String.self, forKey: .builtBy)
+        }
+    }
+
+    /// Who wrote the profile at `id`, read from its header alone — nil when the file is absent or
+    /// is not something this build can read at all, which is the same silence `profile(id:in:)`
+    /// answers with and means the same thing: **not disposable**.
+    ///
+    /// Internal rather than private so `FilingProfileStoreTests` can hold it against the full
+    /// decode; there is no reason for a caller outside this module to prefer it.
+    static func provenance(id: String, in directory: URL) -> FolderProfile.Provenance? {
+        guard let data = try? Data(contentsOf: profileURL(id: id, in: directory)),
+              let probe = try? JSONDecoder().decode(ProvenanceProbe.self, from: data)
+        else { return nil }
+        return probe.builtBy?.hasPrefix(FolderProfile.derivedBuiltByPrefix) == true
+            ? .derived : .handBuilt
     }
 
     private static func fileExistsAsDirectory(_ url: URL, fileManager: FileManaging) -> Bool {

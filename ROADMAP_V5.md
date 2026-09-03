@@ -556,8 +556,10 @@ mechanically.
    (§5.0's), `mapping` (the rows as edited), `note`. Then `actions`, ordered as they run: `create-dir`
    · `rename-dir` · `move-dir` · `move-file` · `keep` · and, only in the removal step's own manifest,
    `remove-empty-dir`. Each carries `src`, `dst`, `evidence` (its written justification), and where
-   it applies `filesCarried` (renames) or `bytes` and `md5` (file moves — **filled in at apply time**,
-   invariant 5, never at plan time). The ledger is a pure function of `actions`.
+   it applies `filesCarried` (renames) or `bytes` (file moves — **filled in at apply time**,
+   invariant 5, never at plan time). `md5` was a fourth such field and is **no longer written** —
+   see `RestructurePlan.Action.md5` for why, and note old ledgers still carry it. The ledger is a
+   pure function of `actions`.
    **Prefer the rename whenever a mapping is one folder to one folder**: it is atomic, preserves
    file identity and cannot half-finish. The 6 Aug run brought fourteen eras into agreement with
    4 renames carrying 74 files between them — 58, 11, 1 and 4; read from the log on 2026-08-28,
@@ -601,8 +603,9 @@ then moves and merges, then the removal step. All three are in 5.0 (decisions bl
 3. Run the actions through `enqueueFileOperation`, **re-probing every `src` and `dst` immediately
    before each one** (invariant 5): a folder holding a file the manifest never listed is skipped and
    reported, and the rest of the plan runs (invariant 2); a `dst` that has since been taken gets
-   `generateUniqueURL` and a collision line, never an overwrite; `bytes` and `md5` are recorded on
-   each moved file *now*, from the disk.
+   `generateUniqueURL` and a collision line, never an overwrite; `bytes` is recorded on
+   each moved file *now*, from the disk. (`md5` was recorded here too until the digest was
+   dropped — it cost a full read of every moved file and nothing ever verified it.)
 4. **Verify from a different code path** (invariant 6): re-list every touched folder and reconcile
    file counts against what the manifest predicted — a verifier that agrees with the applier because
    it shares its arithmetic has proved nothing. A mismatch is reported on the card and in the log,

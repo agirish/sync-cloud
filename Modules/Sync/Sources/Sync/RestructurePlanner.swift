@@ -56,12 +56,36 @@ public struct RestructureTreeView {
     /// How many files a path holds directly — `filesCarried` on a rename.
     public let fileCount: (String) -> Int?
 
+    /// **One directory, one read** — the seam a view publishes when it can answer both halves of
+    /// a listing at once.
+    ///
+    /// The three closures above are independent by design, and a disk-backed view answered all
+    /// three from the same `contentsOfDirectory` call — so a path asked for its folders, then its
+    /// files, then its count read the same directory three times, and ``memoized()``, keying per
+    /// closure, cached three copies of one listing rather than sharing it. A view that reads both
+    /// halves together publishes that fact here and gets a single shared cache; one that cannot
+    /// (``fromProfile(_:)`` knows counts, not names) leaves this nil and keeps exactly the
+    /// per-closure caching it had.
+    ///
+    /// Internal rather than public: it is an optimisation of this module's own disk view, not a
+    /// shape every caller has to satisfy.
+    let listing: ((String) -> (folders: [String], files: [String])?)?
+
     public init(childFolders: @escaping (String) -> [String]?,
                 files: @escaping (String) -> [String]?,
                 fileCount: @escaping (String) -> Int?) {
         self.childFolders = childFolders
         self.files = files
         self.fileCount = fileCount
+        self.listing = nil
+    }
+
+    /// The single-listing spelling: all three answers derived from one read of a directory.
+    init(listing: @escaping (String) -> (folders: [String], files: [String])?) {
+        self.listing = listing
+        self.childFolders = { listing($0)?.folders }
+        self.files = { listing($0)?.files }
+        self.fileCount = { listing($0)?.files.count }
     }
 
     /// The view the live disk gives: folders, files and counts, read lazily as the planner asks.
@@ -69,39 +93,84 @@ public struct RestructureTreeView {
     /// This is the app's backing — the profile knows the survey's counts, but a plan is derived
     /// against the tree as it stands *now*, and merges need file names the profile never stores.
     /// Hidden entries are skipped, matching what the survey walks.
+    /// **Directory-ness comes out of the enumeration, not out of a `stat` per entry.**
+    ///
+    /// This used to list the names and then ask `fileExists(atPath:isDirectory:)` about every one
+    /// of them — one extra syscall per child, on the main thread, for a family whose members hold
+    /// hundreds of files between them. `contentsOfDirectory(at:includingPropertiesForKeys:)`
+    /// pre-fetches the keys in the same bulk read, so for an ordinary entry the answer is already
+    /// in hand and the probe is gone.
+    ///
+    /// **A symbolic link still pays for its own probe, because the two APIs disagree about
+    /// links and the old answer is the one that has to survive.** Measured: `URL.resourceValues`
+    /// does NOT follow a link — a link to a directory reads `isDirectory == false`, and a
+    /// DANGLING link reads `false` rather than throwing — while `fileExists(atPath:isDirectory:)`
+    /// follows it, so the old listing put a link-to-directory among the **folders** and dropped a
+    /// dangling one entirely. Taking the resource value at face value would have quietly moved a
+    /// linked folder into the files half (a merge would then emit `move-file` for a directory)
+    /// and planned a `move-file` for a link pointing at nothing. So `.isSymbolicLinkKey` is asked
+    /// for too, and the handful of entries it flags go through the original probe verbatim.
+    ///
+    /// **`options: []` and a `.` prefix test, NOT `.skipsHiddenFiles`.** They are different rules:
+    /// the option also drops items carrying the hidden *flag* with an ordinary name, which the
+    /// survey walks and this view has always listed. Matching the survey is the point — see the
+    /// type's own note — so the filter stays a dotted-name test, spelled exactly as before.
     public static func fromDisk(root: URL, fileManager: FileManager = .default)
         -> RestructureTreeView {
-        func entries(_ path: String) -> (folders: [String], files: [String])? {
+        RestructureTreeView(listing: { path in
             let url = root.appendingPathComponent(path)
-            guard let names = try? fileManager.contentsOfDirectory(atPath: url.path) else {
-                return nil
-            }
+            guard let urls = try? fileManager.contentsOfDirectory(
+                at: url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: [])
+            else { return nil }
             var folders: [String] = []
             var files: [String] = []
-            for name in names where !name.hasPrefix(".") {
-                var isDirectory: ObjCBool = false
-                guard fileManager.fileExists(atPath: url.appendingPathComponent(name).path,
-                                             isDirectory: &isDirectory) else { continue }
-                if isDirectory.boolValue {
-                    folders.append(name)
-                } else {
-                    files.append(name)
+            for child in urls {
+                let name = child.lastPathComponent
+                guard !name.hasPrefix(".") else { continue }
+                let values = try? child.resourceValues(forKeys: [.isDirectoryKey,
+                                                                 .isSymbolicLinkKey])
+                if let isDirectory = values?.isDirectory, values?.isSymbolicLink != true {
+                    if isDirectory { folders.append(name) } else { files.append(name) }
+                    continue
                 }
+                // A link, or an entry the volume would not answer for: the original probe, whose
+                // answers are the ones every plan derived so far was built on.
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: child.path, isDirectory: &isDirectory)
+                else { continue }
+                if isDirectory.boolValue { folders.append(name) } else { files.append(name) }
             }
             return (folders.sorted(), files.sorted())
-        }
-        return RestructureTreeView(
-            childFolders: { entries($0)?.folders },
-            files: { entries($0)?.files },
-            fileCount: { entries($0)?.files.count })
+        })
     }
 
     /// The same view with every listing read once and remembered. The plan sheet re-derives the
     /// whole manifest on each edit, and a disk-backed view re-listed every mapped source and
     /// target directory per keystroke in the name field; a plan is re-probed at apply anyway,
-    /// so mid-sheet disk changes were never something the derivation promised to see. The cache
-    /// lives as long as this view value does — one sheet presentation.
+    /// so mid-sheet disk changes were never something the derivation promised to see.
+    ///
+    /// **The cache lives as long as this view VALUE does, which is not the same as one sheet
+    /// presentation** — the sentence that used to stand here. A view built inside a SwiftUI body
+    /// is rebuilt on every render, and with it an empty cache; the sheet holds this in `@State`
+    /// for exactly that reason (`RestructurePlanSheet.diskTree`).
+    ///
+    /// A view that reads both halves of a directory at once (``listing``) caches THAT, so folders,
+    /// files and count come out of one read rather than three. The three-map fallback below is for
+    /// views that cannot — ``fromProfile(_:)`` and the dictionary-backed ones the tests build.
     public func memoized() -> RestructureTreeView {
+        if let listing {
+            final class ListingCache {
+                var entries: [String: (folders: [String], files: [String])?] = [:]
+            }
+            let cache = ListingCache()
+            return RestructureTreeView(listing: { path in
+                if let hit = cache.entries[path] { return hit }
+                let value = listing(path)
+                cache.entries[path] = value
+                return value
+            })
+        }
         final class Cache {
             var folders: [String: [String]?] = [:]
             var files: [String: [String]?] = [:]
@@ -1200,10 +1269,20 @@ public struct RestructureLedger: Equatable, Sendable {
             guard action.movesWholeFolder != true, let src = action.src else { continue }
             drained.insert((src as NSString).deletingLastPathComponent)
         }
+        // **Shallowest-only, by walking each path's ANCESTORS rather than the whole set.**
+        // This used to test every drained folder against every other one — O(n²) string prefix
+        // comparisons, run per applied record per render by the ledger cards' "are its emptied
+        // folders still standing" probe. A path is dropped exactly when some other drained
+        // folder is a proper ancestor of it, and a path has as many ancestors as it has
+        // components, all of which are already in hand: `path.hasPrefix(other + "/")` is true
+        // for precisely the strings this loop visits.
         return drained.filter { path in
-            !drained.contains { other in
-                other != path && path.hasPrefix(other + "/")
+            var parent = (path as NSString).deletingLastPathComponent
+            while !parent.isEmpty {
+                if drained.contains(parent) { return false }
+                parent = (parent as NSString).deletingLastPathComponent
             }
+            return true
         }.sorted()
     }
 

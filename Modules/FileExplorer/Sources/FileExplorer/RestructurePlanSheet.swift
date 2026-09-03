@@ -113,6 +113,59 @@ struct RestructurePlanSheet: View {
     @State private var landedGroup: [(family: String,
                                       result: Result<RestructureManifest,
                                                      RestructurePlanner.PlanRefusal>)]?
+    /// The plan as it stood when **Apply** was pressed, held for the whole landing.
+    ///
+    /// **A landing publishes up to ~101 progress ticks, and every one of them re-rendered this
+    /// sheet.** `landedPlan` is only set on success, so until then `plan` fell through to
+    /// `derived` — which re-ran the whole planner, disk listings and all, against a tree the
+    /// executor was in the middle of MOVING. So the sheet re-planned a hundred times during the
+    /// apply, on the main actor, each time against a half-moved tree, and the review section
+    /// above the progress checklist was describing whatever the derivation made of that.
+    ///
+    /// Frozen here instead, at the moment the button was pressed: the operations on screen are
+    /// the ones being applied, which is what the review claimed all along. Cleared on a refusal
+    /// so an edited mapping re-derives normally; superseded by `landedPlan` on success.
+    @State private var applyingPlan: Result<RestructureManifest,
+                                            RestructurePlanner.PlanRefusal>?
+    @State private var applyingGroup: [(family: String,
+                                        result: Result<RestructureManifest,
+                                                       RestructurePlanner.PlanRefusal>)]?
+    /// The tree view this presentation reads, captured ONCE.
+    ///
+    /// **`memoized()`'s cache lives as long as the view VALUE does, and the parent was building a
+    /// fresh one inside its `.sheet` content closure.** `LensWorkspaceView` observes the whole
+    /// `FileSyncManager`, so every publish re-ran that closure and minted an empty cache — the
+    /// memoisation the sheet was documented to have was, in the app, never once a hit. A box in
+    /// `@State` is what gives it the lifetime its doc always claimed.
+    ///
+    /// Keyed on the subject so a sheet re-presented on a different finding cannot inherit the
+    /// previous one's listings. The profile ROOT is deliberately not in the key: it is the tree's
+    /// own path, which a re-derive does not change (only the profile id does), and the sheet is
+    /// modal over the lens for its whole life.
+    @State private var treeBox = TreeBox()
+
+    /// Holds the memoized tree across renders. A reference type on purpose: `body` reads it, and
+    /// reading (or filling) a box is not a state change, so it cannot invalidate the view it is
+    /// being read from.
+    @MainActor
+    final class TreeBox {
+        private var key: String?
+        private var stored: RestructureTreeView?
+
+        func view(key: String, build: () -> RestructureTreeView) -> RestructureTreeView {
+            if self.key == key, let stored { return stored }
+            let made = build()
+            self.key = key
+            stored = made
+            return made
+        }
+    }
+
+    /// The tree every derivation in this sheet reads — the injected one, held for the life of the
+    /// presentation. See ``treeBox``.
+    private var liveTree: RestructureTreeView {
+        treeBox.view(key: "\(finding.id)|\(family)|\(members.joined(separator: ","))") { tree }
+    }
     @State private var chosenScheme: Int?
     @State private var customName = ""
     /// Narrows the mapping's VIEW, never its rows — see `mappingSection`.
@@ -139,12 +192,12 @@ struct RestructurePlanSheet: View {
         // that re-derived inside it ran the whole planner — disk listings included — once per
         // row per render; 24 rows made that a couple of hundred directory reads per keystroke.
         // Frozen once a landing has happened — see `landedPlan`.
-        let plan = landedPlan ?? derived
+        let plan = landedPlan ?? applyingPlan ?? derived
         // The group's per-family plans, derived once beside `plan` for exactly the reason above:
         // `groupPlans` runs the planner once PER FAMILY, and it was being read from both the
         // review block and the footer — six full planner runs per render on a three-family
         // group, disk listings included, on every keystroke in the mapping filter.
-        let group = landedGroup ?? (planTogether ? groupPlans : [])
+        let group = landedGroup ?? applyingGroup ?? (planTogether ? groupPlans : [])
         return VStack(alignment: .leading, spacing: 14) {
             header
             // The editing surface locks as one piece — scheme radios, custom names, pickers
@@ -165,6 +218,8 @@ struct RestructurePlanSheet: View {
         .frame(width: 620)
         .frame(minHeight: 460)
         .onAppear(perform: seed)
+        // The sibling walk, after the first frame — see `seedGroupPointer`.
+        .task { seedGroupPointer() }
         .onChange(of: rows) {
             // An edit after an export describes a NEW plan; the old outcome sentence would be
             // claiming this one was exported. Guarded on applied as a belt to the editor
@@ -193,21 +248,8 @@ struct RestructurePlanSheet: View {
     private func seed() {
         guard rows.isEmpty else { return }
         let sources = RestructurePlanner.distinctSources(family: family,
-                                                         members: members, in: tree)
+                                                         members: members, in: liveTree)
         allSources = sources
-        // Only for a family mapping. On a seeded pair `family` is the pair's grandparent, so
-        // this compared a folder the sheet is not planning and printed its name in a warning
-        // about "planning together" — a pointer at the wrong thing is worse than none.
-        parallelFamilies = isSeededPair
-            ? []
-            : RestructurePlanner.parallelFamilies(of: family, in: tree)
-        // The subject family FIRST, so the table reads outward from the one being planned.
-        groupTable = parallelFamilies.isEmpty ? nil : RestructurePlanner.familyGroupTable(
-            families: [family] + parallelFamilies.map {
-                ((family as NSString).deletingLastPathComponent as NSString)
-                    .appendingPathComponent($0)
-            },
-            in: tree)
         if let initialRows {
             // The draft's rows, reconciled against the sources as they stand now: a source that
             // appeared since the draft gets a fresh keep row; one that vanished drops off.
@@ -228,6 +270,46 @@ struct RestructurePlanSheet: View {
         let stamp = Self.stamp(Date())
         createdAt = stamp
         manifestId = "plan-\(finding.kind.rawValue)-\(stamp)"
+    }
+
+    /// §5.4 step 2's sibling pointer and proposal O17's group table — **after the first frame,
+    /// not before it.**
+    ///
+    /// This walk lists every sibling of the family AND every member of every sibling: on a parent
+    /// holding twenty families of fifteen members that is a few hundred directory reads. It sat
+    /// in `.onAppear` beside the row seeding, so the sheet did not paint until it finished, and
+    /// what it produces is a pointer and a collapsed table — context, not the thing the sheet is
+    /// for. Run from `.task` it costs the same and is paid where nobody is waiting on it.
+    ///
+    /// **Still on the main actor**, and that is a limitation rather than a choice:
+    /// `RestructureTreeView` is a box of non-`Sendable` closures over a cache with no lock, so
+    /// handing it to a detached task under strict concurrency is not something the type can
+    /// promise. What moved is WHEN, not WHERE.
+    ///
+    /// Guarded on `groupTable == nil && parallelFamilies.isEmpty` so a re-entered `.task` (a
+    /// SwiftUI update can restart one) does not re-walk a tree it has already read; the memoized
+    /// view would serve the listings from its cache anyway, and this saves even that.
+    ///
+    /// **It deliberately does not wait on `seed()`.** Nothing here reads `rows`, and the order in
+    /// which SwiftUI runs `.onAppear` and `.task` is not something to depend on — a guard that
+    /// assumed seeding had happened would silently produce no pointer at all on any build that
+    /// ran them the other way round.
+    private func seedGroupPointer() {
+        guard parallelFamilies.isEmpty, groupTable == nil else { return }
+        // Only for a family mapping. On a seeded pair `family` is the pair's grandparent, so
+        // this compared a folder the sheet is not planning and printed its name in a warning
+        // about "planning together" — a pointer at the wrong thing is worse than none.
+        guard !isSeededPair else { return }
+        let siblings = RestructurePlanner.parallelFamilies(of: family, in: liveTree)
+        guard !siblings.isEmpty else { return }
+        parallelFamilies = siblings
+        // The subject family FIRST, so the table reads outward from the one being planned.
+        groupTable = RestructurePlanner.familyGroupTable(
+            families: [family] + siblings.map {
+                ((family as NSString).deletingLastPathComponent as NSString)
+                    .appendingPathComponent($0)
+            },
+            in: liveTree)
     }
 
     private func orderedTargets(of rows: [RestructureMapping.Row]) -> [String] {
@@ -317,6 +399,43 @@ struct RestructurePlanSheet: View {
         return rows.contains { $0.source != row.source && similarKey($0.source) == key }
     }
 
+    /// The same question asked once for the whole list: the sources that HAVE such a neighbour.
+    ///
+    /// The per-row spelling above is O(rows) and the editor drew it per row — O(rows²) similar-key
+    /// reductions per render, on a family with 24 rows, per keystroke in the filter. One pass
+    /// gives the same answer: a source has a neighbour exactly when its key is shared with at
+    /// least one OTHER distinct source, which is what the per-row test's `$0.source != row.source`
+    /// means. (Two rows carrying the same source is a mapping the derivation refuses —
+    /// `duplicateMappingRows` — so counting distinct sources is not a narrower question.)
+    static func sourcesWithSimilarNeighbour(_ rows: [RestructureMapping.Row]) -> Set<String> {
+        var sourcesByKey: [String: Set<String>] = [:]
+        for row in rows { sourcesByKey[similarKey(row.source), default: []].insert(row.source) }
+        var out: Set<String> = []
+        for (_, sources) in sourcesByKey where sources.count > 1 { out.formUnion(sources) }
+        return out
+    }
+
+    /// "merges into `Forms` in N members", per source name — derived ONCE for the whole plan.
+    ///
+    /// The per-row version walked every action in the manifest to answer for one row: O(actions)
+    /// per visible row per render, which on the flagship family is the whole manifest re-scanned
+    /// two dozen times for every keystroke in the mapping filter. One pass over the actions builds
+    /// every row's answer, by exactly the same rule.
+    static func mergeMembers(in plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>,
+                             family: String) -> [String: Int] {
+        guard case .success(let manifest) = plan else { return [:] }
+        let prefix = family.isEmpty ? "" : family + "/"
+        var members: [String: Set<String>] = [:]
+        for action in manifest.actions {
+            guard action.action == .moveFile || action.action == .moveDir,
+                  let src = action.src, src.hasPrefix(prefix) else { continue }
+            let parts = src.dropFirst(prefix.count).split(separator: "/", maxSplits: 2)
+            guard parts.count >= 2 else { continue }
+            members[String(parts[1]), default: []].insert(String(parts[0]))
+        }
+        return members.mapValues(\.count)
+    }
+
     /// The folder this mapping runs over, as the header names it.
     ///
     /// A family mapping covers many members, so the family path is the subject. A **seeded pair**
@@ -381,8 +500,8 @@ struct RestructurePlanSheet: View {
         // mapping editor goes empty with nothing on screen to explain it or undo it.
         filterText = ""
         let sources = together
-            ? RestructurePlanner.groupSources(families: groupFamilies, in: tree)
-            : RestructurePlanner.distinctSources(family: family, members: members, in: tree)
+            ? RestructurePlanner.groupSources(families: groupFamilies, in: liveTree)
+            : RestructurePlanner.distinctSources(family: family, members: members, in: liveTree)
         let widened = Self.rewidened(rows: rows, to: sources, remembering: targetsBySource)
         targetsBySource = widened.remembered
         allSources = sources
@@ -422,7 +541,7 @@ struct RestructurePlanSheet: View {
                               result: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)] {
         RestructurePlanner.groupManifests(
             families: groupFamilies, mapping: RestructureMapping(rows: rows), kind: finding.kind,
-            in: tree, profileId: profileId, manifestIdPrefix: manifestId, createdAt: createdAt,
+            in: liveTree, profileId: profileId, manifestIdPrefix: manifestId, createdAt: createdAt,
             // The subject family is planned over the members this sheet reviewed, not over
             // whatever is on disk now — otherwise Apply lands operations on a member the
             // exhaustive list above never named.
@@ -601,7 +720,12 @@ struct RestructurePlanSheet: View {
 
     private func mappingSection(
         _ plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Both derived ONCE for the whole list rather than per row — see `mergeMembers` and
+        // `sourcesWithSimilarNeighbour`. Between them these were the two quadratic terms in this
+        // editor, and every keystroke in the filter below re-ran both for every visible row.
+        let members = Self.mergeMembers(in: plan, family: family)
+        let neighboured = Self.sourcesWithSimilarNeighbour(rows)
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 sectionLabel(isSeededPair
                              ? "Mapping — one row per name in this folder, default keep"
@@ -634,7 +758,7 @@ struct RestructurePlanSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach($rows) { $row in
                         if Self.matches(row.source, filter: filterText) {
-                            mappingRow($row, plan: plan)
+                            mappingRow($row, members: members, neighboured: neighboured)
                         }
                     }
                 }
@@ -644,8 +768,7 @@ struct RestructurePlanSheet: View {
     }
 
     private func mappingRow(_ row: Binding<RestructureMapping.Row>,
-                            plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)
-        -> some View {
+                            members: [String: Int], neighboured: Set<String>) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 4) {
                 Text(row.wrappedValue.source)
@@ -653,7 +776,7 @@ struct RestructurePlanSheet: View {
                     .lineLimit(1)
                 // A quiet marker saying WHY this row has the neighbour it has — without it,
                 // adjacency is a reordering the reader cannot account for.
-                if Self.hasSimilarNeighbour(row.wrappedValue, in: rows) {
+                if neighboured.contains(row.wrappedValue.source) {
                     Image(systemName: "link")
                         .scaledFont(.system(size: 8))
                         .foregroundStyle(.tertiary)
@@ -673,7 +796,7 @@ struct RestructurePlanSheet: View {
             .accessibilityLabel("Target for \(row.wrappedValue.source)")
             .scaledFont(.system(size: 11))
             .frame(width: 180)
-            if let margin = margin(for: row.wrappedValue, plan: plan) {
+            if let margin = margin(for: row.wrappedValue, members: members) {
                 // The cost of a choice, visible where it is made (§5.4 step 3).
                 Text(margin)
                     .scaledFont(.system(size: 10))
@@ -925,7 +1048,7 @@ struct RestructurePlanSheet: View {
     private var derived: Result<RestructureManifest, RestructurePlanner.PlanRefusal> {
         RestructurePlanner.manifest(
             family: family, members: members,
-            mapping: RestructureMapping(rows: rows), kind: finding.kind, in: tree,
+            mapping: RestructureMapping(rows: rows), kind: finding.kind, in: liveTree,
             profileId: profileId, manifestId: manifestId, createdAt: createdAt,
             // What the landing gets CALLED. For a seeded pair the family is the pair's
             // grandparent — recording that would head the ledger card "Across the tree" for two
@@ -1004,7 +1127,7 @@ struct RestructurePlanSheet: View {
                 if let exemplar = Self.previewMember(of: manifest, family: family,
                                                     members: members),
                    let preview = RestructurePlanner.preview(member: exemplar, in: manifest,
-                                                            tree: tree) {
+                                                            tree: liveTree) {
                     treePreview(exemplar, preview)
                 }
             case .failure(let refusal):
@@ -1258,6 +1381,9 @@ extension RestructurePlanSheet {
         // clicks; this guard is what actually stops a second eight-step apply racing the first.
         guard !applying, let manifest = try? plan.get() else { return }
         applying = true
+        // Frozen for the DURATION, not just after it — see `applyingPlan`. Without this the
+        // landing's progress ticks re-derived the whole plan against a tree being moved.
+        applyingPlan = .success(manifest)
         Task { @MainActor in
             let result = await run(manifest)
             applying = false
@@ -1266,8 +1392,13 @@ extension RestructurePlanSheet {
                 // Freeze the review on what actually ran, before the next render re-derives
                 // against the tree this landing just changed.
                 landedPlan = .success(manifest)
+                applyingPlan = nil
                 outcome = .applied(summary)
-            case .refused(let refusal): outcome = .failed(refusal)
+            case .refused(let refusal):
+                // Nothing landed, so the sheet goes back to deriving from the mapping — a
+                // refusal is a sentence to read and edit against, not a frozen plan.
+                applyingPlan = nil
+                outcome = .failed(refusal)
             }
         }
     }
@@ -1302,6 +1433,9 @@ extension RestructurePlanSheet {
             .filter { !alreadyLanded.contains($0.1.manifestId) }
         guard !landable.isEmpty else { return }
         applying = true
+        // The group's own freeze, for the reason `applyingPlan` gives: `groupPlans` runs the
+        // planner once PER FAMILY, so a progress tick re-derived every family in the group.
+        applyingGroup = plans
         Task { @MainActor in
             var landed: [String] = []
             var refusal: String?
@@ -1320,6 +1454,7 @@ extension RestructurePlanSheet {
             // partial group apply, where the remaining families still need their reviewed
             // operations on screen for the retry.
             landedGroup = plans
+            applyingGroup = nil
             if let refusal {
                 outcome = .failed(landed.isEmpty
                     ? refusal
@@ -1374,22 +1509,11 @@ extension RestructurePlanSheet {
 
     /// "merges into `Forms` in 3 members" — how many members this row's choice makes a merge in,
     /// read off the live derivation so the margin can never disagree with the review below.
-    private func margin(for row: RestructureMapping.Row,
-                        plan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)
-        -> String? {
+    /// Read off ``mergeMembers(in:family:)``, which is derived once per render — see there for
+    /// what this used to cost per row.
+    private func margin(for row: RestructureMapping.Row, members: [String: Int]) -> String? {
         guard let target = row.target, target != row.source,
-              case .success(let manifest) = plan else { return nil }
-        let memberCount = Set(manifest.actions.compactMap { action -> String? in
-            guard action.action == .moveFile || action.action == .moveDir,
-                  let src = action.src else { return nil }
-            let prefix = family.isEmpty ? "" : family + "/"
-            guard src.hasPrefix(prefix) else { return nil }
-            let rest = src.dropFirst(prefix.count)
-            let parts = rest.split(separator: "/", maxSplits: 2)
-            guard parts.count >= 2, String(parts[1]) == row.source else { return nil }
-            return String(parts[0])
-        }).count
-        guard memberCount > 0 else { return nil }
+              let memberCount = members[row.source], memberCount > 0 else { return nil }
         return "merges into \(target) in \(memberCount) member\(memberCount == 1 ? "" : "s")"
     }
 

@@ -67,6 +67,75 @@ import Testing
         #expect(!RestructurePlanSheet.hasSimilarNeighbour(rows[2], in: rows))
     }
 
+    /// **The whole-list form and the per-row rule are the SAME rule.** The editor drew the link
+    /// marker by asking the per-row question once per row — O(rows²) similar-key reductions per
+    /// render, per keystroke in the filter — and now asks once for the list. If the two ever
+    /// answered differently, the marker would be claiming an adjacency the sort did not make.
+    @Test func theWholeListNeighbourSetAgreesWithThePerRowRule() {
+        let names = ["Payment", "Payments", "Statements", "Form W-2", "Form W2", "Receipts",
+                     "Bus", "Bu", "Taxes", "Tax"]
+        let rows = Self.rows(names)
+        let set = RestructurePlanSheet.sourcesWithSimilarNeighbour(rows)
+        for row in rows {
+            #expect(set.contains(row.source)
+                        == RestructurePlanSheet.hasSimilarNeighbour(row, in: rows),
+                    "\(row.source): the list form and the per-row rule disagree")
+        }
+        // And the answers themselves — an agreement between two functions that are both wrong is
+        // still an agreement. Two pairs the plural fold deliberately does NOT make are in the
+        // fixture: `Bus`/`Bu` (the fold needs a real stem left, so `Bus` does not become `Bu`)
+        // and `Taxes`/`Tax` (`tax` is under the four-character bar, so nothing folds).
+        #expect(set == ["Payment", "Payments", "Form W-2", "Form W2"])
+    }
+
+    @Test func anEmptyOrSingletonListHasNoNeighbours() {
+        #expect(RestructurePlanSheet.sourcesWithSimilarNeighbour([]).isEmpty)
+        #expect(RestructurePlanSheet.sourcesWithSimilarNeighbour(Self.rows(["Only"])).isEmpty)
+    }
+
+    // MARK: The merge margin
+
+    /// **"merges into Forms in 3 members", derived once for the plan rather than once per row.**
+    ///
+    /// The margin used to walk every action in the manifest to answer for one row — the whole
+    /// manifest re-scanned per visible row per render. The table is built in one pass, and these
+    /// are the shapes that pass has to get right: the member is the FIRST path component under
+    /// the family and the source name the second, a `move-dir` counts as well as a `move-file`,
+    /// and one source merging in three members counts three, not three files.
+    @Test func theMergeMarginTableCountsMembersNotFiles() {
+        let manifest = RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: "F", kind: .shape,
+            actions: [
+                .init(action: .moveFile, src: "F/2013/State Tax/a.pdf", dst: "F/2013/Forms/a.pdf"),
+                .init(action: .moveFile, src: "F/2013/State Tax/b.pdf", dst: "F/2013/Forms/b.pdf"),
+                .init(action: .moveFile, src: "F/2014/State Tax/c.pdf", dst: "F/2014/Forms/c.pdf"),
+                .init(action: .moveDir, src: "F/2015/State Tax/Sub", dst: "F/2015/Forms/Sub"),
+                .init(action: .moveFile, src: "F/2013/Payments/d.pdf", dst: "F/2013/Forms/d.pdf"),
+                // Not under the family, and a rename — neither is a merge.
+                .init(action: .moveFile, src: "Other/2013/State Tax/e.pdf", dst: "X/e.pdf"),
+                .init(action: .renameDir, src: "F/2016/State Tax", dst: "F/2016/Forms"),
+                // One component deep: no member/source pair to read.
+                .init(action: .moveFile, src: "F/loose.pdf", dst: "F/2013/Forms/loose.pdf"),
+            ])
+        let table = RestructurePlanSheet.mergeMembers(in: .success(manifest), family: "F")
+        #expect(table["State Tax"] == 3, "three members, two of them from one file each")
+        #expect(table["Payments"] == 1)
+        #expect(table["loose.pdf"] == nil)
+        #expect(table["Forms"] == nil, "a destination is not a source")
+    }
+
+    /// A top-level family has no prefix to strip, and a refused plan has no table at all.
+    @Test func theMergeMarginTableHandlesATopLevelFamilyAndARefusal() {
+        let manifest = RestructureManifest(
+            profileId: "p", manifestId: "m", createdAt: "t", family: "", kind: .shape,
+            actions: [.init(action: .moveFile, src: "2013/State Tax/a.pdf",
+                            dst: "2013/Forms/a.pdf")])
+        #expect(RestructurePlanSheet.mergeMembers(in: .success(manifest), family: "")
+                    == ["State Tax": 1])
+        #expect(RestructurePlanSheet.mergeMembers(in: .failure(.nothingMapped), family: "F")
+                    .isEmpty)
+    }
+
     // MARK: The filter
 
     /// It narrows by the same key the sorting uses, so typing `w2` finds `Form W-2` — the pair

@@ -388,7 +388,10 @@ public final class RestructureStore: ObservableObject {
     @discardableResult
     public func recordApplied(_ record: AppliedRecord) -> Bool {
         applied.append(record)
-        guard save() else {
+        // **`writeFile()`, not `save()`, and that is the whole contract of this method.** An open
+        // `batchingSaves` would make `save()` answer `true` for a record still only in memory,
+        // and the caller reads that answer as "the inverse is on disk — start moving files".
+        guard writeFile() else {
             // The record never reached the disk, so it must not survive in memory either: the
             // caller refuses the landing on `false`, and a phantom in-memory entry would make
             // the RETRY refuse too — through the lands-once guard, with a sentence claiming a
@@ -636,8 +639,52 @@ public final class RestructureStore: ObservableObject {
         carriedKeys = object.filter { !FileOut.modelledKeys.contains($0.key) }
     }
 
+    /// How many `batchingSaves` calls are open. While this is non-zero a mutation marks the state
+    /// dirty instead of rewriting the file; the outermost call writes once at the end.
+    private var batchDepth = 0
+    /// Whether anything asked to be saved while a batch was open.
+    private var batchDirty = false
+
+    /// Runs `body` with the per-mutation writes coalesced into ONE at the end.
+    ///
+    /// **A landing rewrote this file five times.** `recordApplied`, the finalising
+    /// `updateApplied`, the new store's `rekey`, the `producedProfileId` update on each of the two
+    /// stores, and the trend stamp — each a whole-file encode of an append-only ledger where every
+    /// record carries a manifest AND its inverse with an evidence sentence per action. For a
+    /// thousand-action merge that is five encodes of several megabytes, inside the window where
+    /// the landing refuses every other scan.
+    ///
+    /// **``recordApplied(_:)`` is deliberately NOT coalesced**, even inside a batch: its return
+    /// value is the licence to start moving files ("the inverse is on disk before the first
+    /// operation"), and a `true` that meant "queued" would be that invariant lost in one word.
+    /// Everything else in a landing is bookkeeping ABOUT moves that already happened, which is
+    /// exactly what may wait for the end of the batch.
+    ///
+    /// Nesting-safe, and the flush is reported: the outermost call returns whether the write
+    /// reached the disk, or `true` when nothing needed writing.
+    @discardableResult
+    func batchingSaves<T>(_ body: () -> T) -> (value: T, saved: Bool) {
+        batchDepth += 1
+        let value = body()
+        batchDepth -= 1
+        guard batchDepth == 0, batchDirty else { return (value, true) }
+        batchDirty = false
+        return (value, writeFile())
+    }
+
     @discardableResult
     private func save() -> Bool {
+        guard batchDepth == 0 else {
+            batchDirty = true
+            return true
+        }
+        return writeFile()
+    }
+
+    /// The write itself — what `save()` does when no batch is open, and what a batch's flush does
+    /// at its end.
+    @discardableResult
+    private func writeFile() -> Bool {
         guard !isUnreadable else {
             Logger.shared.warning("Refusing to write restructure.json — it exists but could not "
                                   + "be read, so writing this session's state would overwrite the "
@@ -648,7 +695,18 @@ public final class RestructureStore: ObservableObject {
             try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
             let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            // **`.sortedKeys` stays, `.prettyPrinted` goes.** Sorted keys are what make the bytes
+            // a function of the state alone — a file that reshuffles on every write is one nobody
+            // can diff — and that reason does not apply to the whitespace. Pretty-printing an
+            // append-only ledger whose every record carries a manifest and its inverse, with an
+            // evidence sentence per action, roughly doubles the bytes encoded and written on each
+            // of a landing's saves. The file stays valid JSON and every reader is a parser; the
+            // one human who opens it has `jq` and every editor's reformat command.
+            //
+            // Not a format change: `load()` reads it with `JSONSerialization` and `JSONDecoder`,
+            // neither of which can tell, so a file written by an older build reads unchanged and
+            // one written by this build reads in an older one.
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
             let out = FileOut(
                 schemaVersion: Self.currentSchema,
                 suppressed: suppressed.sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
@@ -669,7 +727,7 @@ public final class RestructureStore: ObservableObject {
                var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
                 for (key, value) in carriedKeys where object[key] == nil { object[key] = value }
                 data = try JSONSerialization.data(withJSONObject: object,
-                                                  options: [.prettyPrinted, .sortedKeys,
+                                                  options: [.sortedKeys,
                                                             .withoutEscapingSlashes])
             }
             try data.write(to: fileURL, options: .atomic)

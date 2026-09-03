@@ -436,15 +436,10 @@ struct RestructureLens: View {
     /// footnote that says "Surveyed yesterday". An unparseable stamp renders as itself — a wrong
     /// spelling of the truth beats a pretty invention.
     static func landingPhrase(_ stamp: String, now: Date = Date()) -> String {
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.timeZone = .current
-        parser.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-        guard let date = parser.date(from: stamp) else { return stamp }
-        let clock = DateFormatter()
-        clock.locale = Locale(identifier: "en_US_POSIX")
-        clock.dateFormat = "HH:mm"
-        let time = clock.string(from: date)
+        guard let date = Self.formatter("yyyy-MM-dd'T'HH:mm:ss").date(from: stamp) else {
+            return stamp
+        }
+        let time = Self.formatter("HH:mm").string(from: date)
         let calendar = Calendar.current
         let days = calendar.dateComponents([.day],
                                            from: calendar.startOfDay(for: date),
@@ -568,8 +563,26 @@ struct RestructureLens: View {
         deadWeight.filter { $0.value == weightClass }.map(\.key).sorted()
     }
 
+    /// How many paths a class holds — **counted, never listed.**
+    ///
+    /// The three chips each asked `crowdingPaths(_:).count`, which filtered the ~609-entry
+    /// dead-weight map into an array, mapped it and SORTED it, three times per render, to produce
+    /// a number. Sorting decides what order a list is read in and there is no list here.
+    ///
+    /// `static`, taking the map, so the rule can be asserted against `crowdingPaths`' own count
+    /// without mounting the lens — the two must agree or a chip is labelling a list it does not
+    /// describe.
+    static func crowdingCount(_ deadWeight: [String: DeadWeightClass],
+                              _ weightClass: DeadWeightClass) -> Int {
+        deadWeight.count { $0.value == weightClass }
+    }
+
+    private func crowdingCount(_ weightClass: DeadWeightClass) -> Int {
+        Self.crowdingCount(deadWeight, weightClass)
+    }
+
     private func crowdingChip(_ weightClass: DeadWeightClass) -> some View {
-        let count = crowdingPaths(weightClass).count
+        let count = crowdingCount(weightClass)
         let isSelected = crowdingFilter == weightClass
         return Button {
             crowdingFilter = isSelected ? nil : weightClass
@@ -1638,10 +1651,38 @@ struct RestructureLens: View {
     }
 
     private static func absolute(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "d MMM yyyy"
-        return formatter.string(from: date)
+        Self.formatter("d MMM yyyy").string(from: date)
+    }
+
+    /// The POSIX formatters these cards read stamps with, built once each.
+    ///
+    /// **Two or three `DateFormatter`s were allocated per Applied card per render.**
+    /// `landingPhrase` made a parser and a clock, `absolute` made a third, and every one of them
+    /// is `DateFormatter`'s notoriously expensive setup — repeated for every ledger card on every
+    /// redraw of the lens. The formats are a fixed set of three, so the cache is bounded by
+    /// construction and only ever needs filling.
+    ///
+    /// **The time zone is re-checked rather than pinned.** A fresh formatter picked up the
+    /// system zone on each call; a cached one would keep whichever zone was current when it was
+    /// first built, so a landing stamped this morning would read an hour out after a flight. The
+    /// comparison is cheap and the assignment only happens when the zone has actually moved.
+    /// (DST is not this question — a `TimeZone` handles its own transitions.)
+    private static var formatters: [String: DateFormatter] = [:]
+
+    /// Internal, not private, so `theStampFormattersFollowTheSystemZone` can drive the refresh
+    /// branch directly — the alternative is mutating `NSTimeZone.default`, which is process-wide
+    /// and would race every other suite in the same run.
+    static func formatter(_ format: String) -> DateFormatter {
+        if let cached = formatters[format] {
+            if cached.timeZone != TimeZone.current { cached.timeZone = TimeZone.current }
+            return cached
+        }
+        let made = DateFormatter()
+        made.locale = Locale(identifier: "en_US_POSIX")
+        made.timeZone = TimeZone.current
+        made.dateFormat = format
+        formatters[format] = made
+        return made
     }
 
     private var samplesAccessibility: String {
