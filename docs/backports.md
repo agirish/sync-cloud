@@ -3212,3 +3212,71 @@ fraction FALLS from 0.195 to 0.161, which is nonsense wearing the appearance of 
 
 **Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). This row is the record a
 future audit needs, not a to-do.
+
+---
+
+## 2026-09-02 — the v5 speed batch: five performance commits (`6418032c`..`7555463e`)
+
+**Mixed, and the split is not the one the filenames suggest.** Most of this batch repairs machinery
+that only exists on `main` — the Edit workspace, the file-pair viewer, the Restructure planner — so
+it cannot travel. But **four of the defects it fixes are live on maintenance lines**, one of them
+the headline: the O(folders²) detector walk that cost 1.6 s of a 1.9 s workspace switch is **present
+on `v4.x` today**.
+
+### What applies, per line
+
+| Defect fixed on `main` | v4.x | v3.x | v2.x | Status |
+|---|---|---|---|---|
+| `StructureDivergence.vocabulary` scans the whole profile per child — O(folders²) | **carries it** | file absent | file absent | RECORDED — not owed |
+| Entering a lens re-homes the pane and runs a two-provider comparison no single-source workspace draws | **carries it** | no `presentLensRail` | no `presentLensRail` | RECORDED — not owed |
+| `TopPaneVisibility.decodeOverrides` allocates a `JSONDecoder` on every read of the hot path | **carries it** | **carries it** | **carries it** | RECORDED — not owed |
+| `StorageLensStore` re-reads and re-decodes every saved report on each restore trigger | **carries it** | **carries it** | file absent | RECORDED — not owed |
+| Bounded line diff, compare-sheet lifetimes, page de-skew gating | — | — | — | CLOSED, does not apply |
+| Editor keystroke fan-out, line-start table, detached autosave | — | — | — | CLOSED, does not apply |
+| Restructure plan-sheet cache, landing digest, ledger writes | — | — | — | CLOSED, does not apply |
+| Sidebar refresh coalescing and off-actor volume walk | no volume walk in its refresh | file absent | file absent | CLOSED, does not apply |
+| `ShrinkableRun` layout cache; `SettingsManager` volume-source batching | file absent | file absent | absent | CLOSED, does not apply |
+
+### The checks, with their positive controls
+
+```sh
+# stage 1 — is the FILE there? (main must print present, or the path is wrong)
+for l in main v4.x v3.x v2.x; do
+  git show origin/$l:Modules/Sync/Sources/Sync/StructureDivergence.swift >/dev/null 2>&1 \
+    && echo "$l present" || echo "$l absent"
+done   # main present · v4.x present · v3.x absent · v2.x absent
+
+# stage 2 — is the SHAPE there? main must now print 0, having been fixed
+for l in main v4.x; do
+  printf '%s ' "$l"
+  git show origin/$l:Modules/Sync/Sources/Sync/StructureDivergence.swift \
+    | grep -c 'for (childPath, entry) in profile.folders'
+done   # main 0 · v4.x 1  — v4.x still does the full-profile scan per child
+```
+
+**Two of these probes were wrong the first time, in the two ways this file warns about, so the
+patterns above are the corrected ones.**
+
+The first was the trap in "How to check one thing", arriving from the other side: probing for the
+new memo with `overrides(in:` returned *absent on `main`* — where it demonstrably exists — because
+the source spells it `overrides(in raw: String)`. The positive control is what caught it. Had `main`
+not been in the loop, "absent on every maintenance line" would have been recorded as a finding
+about those lines when it was a finding about the pattern. Probe `overridesMemo` instead.
+
+The second was looser: grepping `FileSyncManager+Scanning.swift` for `comparing` reported a hit on
+all four lines, which reads as "they already have the flag". They do not — the hit is the log line
+*"Internal scan #N comparing X and Y"*, which has been there for years. The parameter
+`comparing: Bool = true` is `main`-only. **A word that appears in prose is not a probe for a symbol
+of the same name.**
+
+### The one worth a sentence if the direction ever changes
+
+`v4.x` carries the detector walk and would benefit most from it — the fix is ~30 lines threading a
+map the runner already builds, and it is provably behaviour-preserving: `synccloud restructure
+--json` over the real 5,020-folder profile is byte-identical before and after, at 1.78 s → 0.15 s.
+The other three are smaller and each is self-contained. None of the four depends on anything else
+in this batch, which is unusual and is the reason they are worth listing separately rather than
+as "the speed batch".
+
+**Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). This row is the record a
+future audit needs, not a to-do.
