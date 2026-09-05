@@ -410,6 +410,31 @@ import Sync
         #expect(landed.held,
                 "both rows should reach the selection binding (\(landed.pumps) pumps, got \(box.selection))")
     }
+
+    /// **The same claim for COLUMNS, which is the default view mode and had no coverage.**
+    ///
+    /// Reported from the running app: selecting a second file is not possible. The rule that ⌘- and
+    /// ⇧-clicks belong to the List is pinned by `ColumnTapSelectionTests`, but only as a predicate —
+    /// nothing asserted that a multi-selection actually reaches the pane's binding through a
+    /// column's own `List`, which is built differently from the tree's: one per open column, its
+    /// binding scoped to that column's rows, `.listStyle(.sidebar)`, and an
+    /// `PaneListSelectionStyler` reaching into the table underneath.
+    @Test("Selecting more than one row still reaches the pane, in Columns")
+    func multiSelectStillReachesTheBindingInColumns() async {
+        let box = Fixture.Box()
+        let window = Fixture.mount(box, viewMode: .columns)
+        _ = await LayoutPumpWait.pump(window, upTo: 5) { !Fixture.tables(window.contentView!).isEmpty }
+
+        let table = Fixture.tables(window.contentView!).first
+        #expect(table != nil, "Columns mounted no table at all — the fixture is not exercising it")
+        #expect(table?.allowsMultipleSelection == true,
+                "the column's List refuses multiple selection, so ⌘-click cannot extend it")
+        table?.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+
+        let landed = await LayoutPumpWait.pump(window, upTo: 5) { box.selection.count == 2 }
+        #expect(landed.held,
+                "both rows should reach the selection binding (\(landed.pumps) pumps, got \(box.selection))")
+    }
 }
 
 /// An APPEARANCE is not a walk.
