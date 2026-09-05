@@ -2062,14 +2062,34 @@ fails without it and nothing changes with it except what a maintainer reads when
 which on a width-dependent row height is the first question they will have. Recorded rather than
 sent, per the standing direction.
 
-## 2026-08-30 — Compare Copies for file pairs (`90e0ac67`, `e2082929`, `51c37256`, `e5508bc6`)
+## 2026-08-30 — Compare Copies for file pairs (`90e0ac67`, `e2082929`, `51c37256`, `e5508bc6`, `ad64b742`)
 
 > **The SHAs above are the second set.** This row first cited `bb27a528`, `8296889a` and
 > `e4d76336` — commits from before the branch was squashed and force-pushed the same day, which no
 > ref on `origin` reaches any more. They resolve to nothing on a fresh clone, in the file a future
 > audit reads to find the work. Cite a SHA only after the push that fixes it, and re-check any SHA
 > written down before a squash.
-
+>
+> **And the check is one command, worth running over this whole file** — it is the tool that would
+> have caught the first set on the day, and nothing else here does.
+>
+> **It must ask all four lines, and the first draft of it asked only `main`.** That version reported
+> fourteen unreachable SHAs; eleven of them were perfectly good commits on `v2.x` and `v3.x`, which
+> is exactly what this file exists to record. A check that cries wolf over the rows it is meant to
+> protect gets switched off, so the loop below tries every line before it complains:
+>
+> ```sh
+> grep -o '`[0-9a-f]\{7,12\}`' docs/backports.md | tr -d '`' | sort -u | while read s; do
+>   git cat-file -e "$s^{commit}" 2>/dev/null || { echo "GONE (not in this clone): $s"; continue; }
+>   for l in main v4.x v3.x v2.x; do
+>     git merge-base --is-ancestor "$s" origin/$l 2>/dev/null && continue 2
+>   done
+>   echo "UNREACHABLE: $s"
+> done
+> ```
+>
+> Three hits are expected and correct: `bb27a528`, `8296889a` and `e4d76336`, quoted two paragraphs
+> above as the erased set. Anything else is a row to fix.
 **RECORDED — not owed**, and unusually this is a feature rather than a defect: the Duplicates card
 offered "Compare copies" only for FOLDER groups (`if group.isDirectory`), so a user comparing two
 files had a 40pt thumbnail per row and nothing else. `main` now ungates it and opens an in-window
