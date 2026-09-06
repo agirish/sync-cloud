@@ -1346,6 +1346,37 @@ and 1/5 under ten `yes` spinners with loadavg peaking at **70**. The same loaded
 section opens with, arriving in a package that has since grown well past the four suites named
 above. **A member whose gate is private to its own suite is still this mechanism.**
 
+**Settled 2026-09-06 — and the reason it had never been budgeted is a one-letter name.**
+`GateFileManager` was not in `threadBlockingGates`; `GatedFileManager` was. The two differ by a `d`,
+the list reads as though it already covers this one, and `everyTestThatBuildsAThreadBlockingGateDeclaresIt`
+matches on those names — so it was passing while both of this suite's gated tests ran unbudgeted.
+The fixture's own doc comment made the same mistake in prose, asserting the parked thread was
+"never the pool: … the executor runs via `enqueueFileOperation`". That clause is the argument for
+the opposite conclusion: `enqueueFileOperation` runs its operation in
+`Task.detached(priority: .userInitiated)`, which **is** the cooperative pool. Both tests now declare
+`.parksAThread`, the fixture is registered, and the test-side wait is `awaitSignal` rather than a
+bespoke copy of it — which also anchors the expiry at the call site instead of at the helper.
+
+Measured the way this section's own Fix section was, with the display held awake and `[ground-truth]`
+reading `RAN` on all 52 runs, under ten `yes` spinners **and** a real `xcodebuild` on the same Mac:
+
+| | Runs | `theFlagIsHeldAcrossALiveLanding` red | Load average |
+|---|---|---|---|
+| Before | 26 | **15** — every one at ~10 s, "the landing never reached its first disk probe" | 50–200 |
+| After | 26 | **0** | 46–155 |
+
+**The load recipe is the finding worth keeping.** Six package runs under ten spinners alone, at
+loadavg up to 92, reproduced **nothing**; adding a real `xcodebuild` in a second worktree took it to
+15 in 26. That is the same methodological point mechanism 17's correction makes from the other side:
+spinners contend for CPU, a compiler contends for the queues and threads this process needs, and
+only the second shape reaches a starvation this deep.
+
+**A name is a weak key, which is the general lesson.** The derived scan
+(`everyThreadBlockingWaitInThisTargetIsAccountedFor`) *did* see this gate's blocking waits and had
+them registered as known — it just cannot know whether a registered line owes a reservation. The
+list-based scan is the one that answers that, and a list matched by name is one typo from a hole
+that reports itself as covered.
+
 ---
 
 ### 11. Five palette tests the fixture dismissed out from under itself — FIXED
@@ -2215,9 +2246,45 @@ main thread competes with. So when validating a main-actor-latency failure, load
 *work of the same shape* — a real build or another test process — rather than with spinners, which
 the triage card's recipe is otherwise right to prefer for CPU-bound timing.
 
-If it recurs often enough to be worth another repair, the fix is not a longer deadline: it is to
-make the trash side wait on something the sampler **signals** rather than on a flag it polls, so the
-wait ends when the observation happens instead of when the clock says it probably has.
+**Repaired 2026-09-06, and the residual is gone rather than widened.** The trash no longer polls
+and no longer waits on the sampling loop at all: it puts one main-actor observation on
+`DispatchQueue.main` — the main actor's own executor, so a block running there reads exactly what
+another main-actor task would — and waits on the semaphore *that observation* signals. The wait now
+ends when the observation happens, and what it depends on is the main queue running one
+already-runnable block, not a `Task.sleep` timer whose wake-up is delivered through the cooperative
+pool.
+
+**Two bounds were live, not one, and the section had only named the first.** Besides the trash's
+10 s deadline, the sampling loop carries a **30 s** deadline of its own, and a loop that has exited
+can acknowledge nothing — so a merge slow enough to outlast it failed the premise by a second route.
+Measured 2026-09-06 under ten `yes` spinners **and** a real `xcodebuild`, 26 full package runs put
+this test at **8–29 s**, once within **1.4 s** of that deadline. After the repair, 26 runs in the
+same band: **15.6–20.5 s**, so the headroom went from 1.4 s to 9.5 s — and, more to the point, the
+premise stopped depending on that deadline at all.
+
+**Proved structurally rather than by the timings**, because the timings only narrow a window:
+setting the sampling loop's deadline to **zero**, so it takes no sample whatever, is a pass in
+0.235 s on the repaired code and a premise failure at **10.275 s** — the wall-clock bound, exactly
+the documented shape — on the pre-repair code at `c2a16d04`.
+
+**The vacuity control was strengthened, not relaxed, which is the constraint this section exists
+to state.** The premise's evidence is now the *reading itself* (`levelDuringTrash`, an optional Int)
+rather than a boolean set beside it: a rendezvous that still signals but has stopped reading
+anything leaves nothing behind and goes red. The old flag survived that mutation, because the
+sampling loop set it next to the sample rather than out of it. Mutation-tested, each restored after:
+
+| Mutation | What went red |
+|---|---|
+| the observation is never enqueued | the expiry flag **and** the premise, at the 10 s bound |
+| it is enqueued and signals, but reads nothing | the premise alone, in 0.24 s — the mutant the old flag survived |
+| the undo group is held open across the trash suspension | the substantive assertion, `level → 1` |
+| the sampling loop's deadline goes to zero | nothing — and that is the repair |
+
+One more thing this uncovered: `SamplerObservedTrash` blocks a **cooperative-pool** thread for the
+length of its rendezvous — the merge reaches that seam through `enqueueFileOperation`, which runs
+its operation in `Task.detached` — and neither the fixture nor its test had ever said so. It carries
+`.parksAThread` now, and the fixture is registered in `ParkBudgetTests.threadBlockingGates`; see
+"Every gate parks at once, on the pool their releases need".
 
 [silent-half]: flaky-triage.md#the-silent-half--read-before-writing-any-absence-assertion
 

@@ -3461,3 +3461,64 @@ done   # main 1/1/1/1 · v4.x 1/1/1/1 · v3.x 1/0/0/1 · v2.x 1/0/0/1  (before t
 (`iCloudRootMoveStamp`) assumes the first one's frozen mapping — `applyAtLaunch` maps iCloud at
 `~/Documents` landing on itself, on purpose — so a pick of the second without the freeze rebases
 iCloud's positions twice on any install that has not yet run the first.
+
+---
+
+## 2026-09-06 — two load-flaky tests repaired, and one gate that was never budgeted — `v4.x` carries half of it
+
+Test-and-fixture only; nothing in `Modules/Sync/Sources` moved. Two repairs and one registry hole,
+and they land on the maintenance lines differently, so the row is split.
+
+```sh
+# stage 1 — is the FILE there? (positive control on main included: both must print 1 there)
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s guard=%s merge=%s budget=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Tests/Sync/RestructureApplyGuardTests.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Tests/Sync/MergeUndoGroupingAndGateTests.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Tests/Sync/ParkBudgetTests.swift | wc -l | tr -d ' ')"
+done   # measured 2026-09-06: main 1/1/1 · v4.x 0/1/1 · v3.x 0/0/0 · v2.x 0/0/0
+
+# stage 2 — is the SHAPE there? The polled rendezvous, and the two registry entries it needs.
+for l in main v4.x; do
+  printf '%-6s polled=%s gateReg=%s trashReg=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Tests/Sync/MergeUndoGroupingAndGateTests.swift | grep -c 'Date().addingTimeInterval(10)' || true)" \
+    "$(git show origin/$l:Modules/Sync/Tests/Sync/ParkBudgetTests.swift | grep -c '"GateFileManager"' || true)" \
+    "$(git show origin/$l:Modules/Sync/Tests/Sync/ParkBudgetTests.swift | grep -c 'SamplerObservedTrash' || true)"
+done   # measured 2026-09-06: main 1/0/0 · v4.x 1/0/0 — identical, before this batch
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The merge rendezvous stops polling** — `SamplerObservedTrash` puts one main-actor observation on `DispatchQueue.main` and waits on the semaphore *that observation* signals, and the premise's evidence becomes the reading itself rather than a flag set beside it | **Applies, identically.** Carries the suite, the polled 10 s rendezvous, and neither registry entry | Neither the suite nor `ParkBudgetTests` | RECORDED — not owed |
+| **`SamplerObservedTrash` is registered as a thread-blocking gate and its test declares `.parksAThread`** | **Applies.** Same fixture, same `Task.detached` seam, no trait | No park budget on these lines at all | RECORDED — not owed |
+| **`GateFileManager` registered, `.parksAThread` on both its tests, `awaitSignal` in place of the bespoke wait** | **No** — `RestructureApplyGuardTests` is `main`-only | No | CLOSED — checked, does not apply |
+| **`docs/flaky-tests.md`**: mechanism 17 marked *Repaired 2026-09-06*, mechanism 10's live instance settled | **Applies.** That line already lacked the 2026-09-01 *correction*, so it now trails by two edits on the same section | Neither line has either section | RECORDED — not owed |
+
+### The half that is genuinely owed in substance, if the direction ever changes
+
+`v4.x` runs the **same** `noUndoGroupIsEverOpenWhileTheMergeIsSuspended`, over the same
+`enqueueFileOperation` → `Task.detached` seam, with the same 10 s wall-clock rendezvous and the same
+30 s sampling-loop deadline — and with no `.parksAThread` on it, exactly as `main` had. The measured
+failure rate here was 0/26 for that test even at loadavg 200, so what that line carries is the
+*latency bet*, not an observed red; the pick is a fixture rewrite in one file plus two lines in
+`ParkBudgetTests`, and it does not touch `Modules/Sync/Sources`.
+
+### What does NOT apply, and the check that says so rather than the assumption
+
+The bigger of the two repairs — the unbudgeted `GateFileManager`, which went from **15 red in 26
+runs to 0 in 26** — is `main`-only, because `RestructureApplyGuardTests` is. That is stage 1's `0`
+for `guard` on every maintenance line, with `main` printing `1` as the positive control; without
+that control a mistyped path would have produced the same three zeroes and read as the same verdict.
+
+### The doc rows are the awkward ones, for the reason the 2026-09-01 row already gives
+
+`docs/flaky-tests.md` is carried on all four lines so a maintainer need not read `main`'s history,
+and the mechanism **numbering is per-line** — cite by title, never by number. `v4.x` now trails on
+this section twice over: it still asserts the 2026-08-23 rendezvous defeats load ("no amount of load
+can shrink it below the floor"), which 2026-09-01 repealed here and 2026-09-06 has now replaced. A
+`v4.x` maintainer reading their own copy is told that this test's load-dependence was settled on
+2026-08-23 and that nothing has been learned since — when in fact the section has been repealed
+once and rewritten once, and the fixture their line runs is the one both edits are about.
+
+**Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). These rows are the record a
+future audit needs, not a to-do.

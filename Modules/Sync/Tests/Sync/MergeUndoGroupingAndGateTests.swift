@@ -31,29 +31,65 @@ import Events
         }
     }
 
-    /// A real `FileManager` whose trash holds the merge suspended until the test's main-actor
-    /// sampler has provably taken a sample during the suspension — the rendezvous that replaced
-    /// the `samples > 20` premise floor (flaky-tests.md, "The control that stops an absence being
-    /// vacuous is itself load-dependent"). The old shape slept a fixed 0.3 s and the sampler
-    /// counted its own wakeups, so the count was `merge_duration / actual_sleep_interval` and the
-    /// denominator was the machine's: under CI load the same merge yielded 19–20 samples against
-    /// a floor of 20, and the premise guard reddened runs in which nothing was wrong.
+    /// A real `FileManager` whose trash holds the merge suspended until a main-actor sample has
+    /// provably been taken during the suspension — the rendezvous that replaced the
+    /// `samples > 20` premise floor (flaky-tests.md, "The control that stops an absence being
+    /// vacuous is itself load-dependent"). The floor was `merge_duration / actual_sleep_interval`
+    /// and the denominator was the machine's: under CI load the same merge yielded 19–20 samples
+    /// against a floor of 20, and the premise guard reddened runs in which nothing was wrong.
     ///
-    /// Here the evidence is event-derived instead: `inTrash` is raised around the trash call, the
-    /// sampler acknowledges seeing it, and the trash does not return until acknowledged — so "a
-    /// sample was taken while the merge was suspended in the stretch the hazard lives across" is
-    /// guaranteed by construction, not bet on scheduler throughput. Bounded by a deadline so a
-    /// wedged sampler fails the test instead of hanging the pool thread; on an idle machine the
-    /// 2 ms sampler acknowledges within one or two 10 ms checks, faster than the old fixed sleep.
+    /// **The rendezvous that replaced it POLLED, which traded a throughput bet for a latency
+    /// one** — the correction that section carries. It raised `inTrash` and slept 10 ms at a time
+    /// until the test's sampling LOOP happened to notice, so the premise still rode on that loop
+    /// getting a main-actor turn inside a 10 s wall-clock bound; and it rode on the loop still
+    /// existing, since the loop carries its own 30 s deadline and can acknowledge nothing once it
+    /// has exited. Both bounds were live: measured 2026-09-06 under ten spinners and a real
+    /// `xcodebuild`, 26 package runs put this test at 8–29 s, once within 1.4 s of that deadline.
+    ///
+    /// **So the trash SIGNALS rather than polling, and it asks for the sample itself.** It puts
+    /// one main-actor observation on the main queue and waits on the semaphore that observation
+    /// signals, so the wait ends when the observation happens instead of when the clock says it
+    /// probably has. What it now depends on is the main queue running one already-runnable block
+    /// — not a `Task.sleep` timer whose wake-up is delivered through the cooperative pool, and
+    /// not the sampling loop being alive. `DispatchQueue.main` IS the main actor's executor, so a
+    /// block running there sees exactly what another main-actor task would, which is the position
+    /// the invariant is stated from; `inTrash` is what stops a late block counting as an in-window
+    /// sample.
+    ///
+    /// Still bounded, so a wedged observer fails the test instead of hanging the thread it blocks,
+    /// and the expiry RECORDS itself the way `ParkGate.releasedByTimeout` does — "never observed"
+    /// and "observed after the window" must not look alike afterwards. **The thread it blocks is a
+    /// cooperative-pool one**: the merge reaches this seam through `enqueueFileOperation`, which
+    /// runs its operation in `Task.detached(priority: .userInitiated)`. Hence `.parksAThread`.
     private final class SamplerObservedTrash: FileManager, @unchecked Sendable {
+        /// Reads the observed quantity FROM the main actor. Installed by the test before the merge
+        /// starts and run from the main queue while this call holds the merge suspended.
+        let readLevel = LockedBox<(@MainActor () -> Int)?>(nil)
         let inTrash = LockedBox<Bool>(false)
-        let sampledDuringTrash = LockedBox<Bool>(false)
+        /// The reading taken inside the suspension, or `nil` if none was — **the evidence IS the
+        /// reading**, not a flag set beside it. A separate "a sample happened" boolean can be left
+        /// true by a block that stopped reading anything, which is the vacuous pass this whole
+        /// rendezvous exists to prevent; with the reading itself as the evidence, a block that
+        /// takes no reading leaves nothing behind and the premise below goes red.
+        let levelDuringTrash = LockedBox<Int?>(nil)
+        /// True if the rendezvous gave up instead of being signalled by its observation.
+        let rendezvousExpired = LockedBox<Bool>(false)
+        private let sampled = DispatchSemaphore(value: 0)
+
         override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
             inTrash.withLock { $0 = true }
             defer { inTrash.withLock { $0 = false } }
-            let deadline = Date().addingTimeInterval(10)
-            while !sampledDuringTrash.withLock({ $0 }) && Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.01)
+            DispatchQueue.main.async { [self] in
+                let reading = MainActor.assumeIsolated { readLevel.withLock { $0 }?() }
+                // `inTrash` is what keeps a block that ran LATE — after the bound below expired
+                // and the trash moved on — from being recorded as an in-window observation.
+                if let reading, inTrash.withLock({ $0 }) {
+                    levelDuringTrash.withLock { $0 = reading }
+                }
+                sampled.signal()
+            }
+            if sampled.wait(timeout: .now() + 10) == .timedOut {
+                rendezvousExpired.withLock { $0 = true }
             }
             try super.trashItem(at: url, resultingItemURL: resultingItemURL)
         }
@@ -119,7 +155,7 @@ import Events
     /// own per-event group, which opens on the first registration and would read 1 for reasons that
     /// have nothing to do with the hazard.
     @MainActor
-    @Test func noUndoGroupIsEverOpenWhileTheMergeIsSuspended() async throws {
+    @Test(.parksAThread) func noUndoGroupIsEverOpenWhileTheMergeIsSuspended() async throws {
         let base = try makeCanonicalTempRoot(prefix: "MergeGrouping")
         defer { try? FileManager.default.removeItem(at: base) }
         let rName = "Redundant-\(UUID().uuidString)"
@@ -133,6 +169,12 @@ import Events
         undo.groupsByEvent = false
         manager.undoManager = undo
         manager.duplicateGroups = [fixture.group]
+        // Installed before the merge starts: the trash asks for this reading from the main queue
+        // while it holds the merge suspended, and what comes back is the premise's evidence.
+        trash.readLevel.withLock { $0 = { @MainActor in undo.groupingLevel } }
+        // What the sampling loop below accumulates over the whole merge, kept in a box only so the
+        // two observers can share one reading.
+        let maxLevel = LockedBox<Int>(0)
 
         let finished = LockedBox<Bool>(false)
         let merge = Task { @MainActor in
@@ -141,26 +183,27 @@ import Events
             return ok
         }
 
-        // Sample from the main actor for as long as the merge runs. Bounded by a deadline as well
-        // as by the flag, so a wedged merge fails the test instead of hanging it. When a sample
-        // lands while the trash holds the merge suspended, say so — that acknowledgement is what
-        // releases the trash, and it is the premise the old wall-clock sample floor only bet on.
-        var maxLevel = 0
+        // Sample from the main actor for as long as the merge runs, so the invariant is checked
+        // across the WHOLE merge and not only at the one window the trash holds open. Bounded by
+        // a deadline so a wedged merge fails the test instead of hanging it — and nothing rides
+        // on this loop any more: the premise below is signalled by the trash's own observation,
+        // which is why the loop leaving early can no longer cost the test its evidence.
         let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while !finished.withLock({ $0 }) && ContinuousClock.now < deadline {
-            maxLevel = max(maxLevel, undo.groupingLevel)
-            if trash.inTrash.withLock({ $0 }) {
-                trash.sampledDuringTrash.withLock { $0 = true }
-            }
+            maxLevel.withLock { $0 = max($0, undo.groupingLevel) }
             try? await Task.sleep(nanoseconds: 2_000_000)
         }
         let ok = await merge.value
+        let duringTrash = trash.levelDuringTrash.withLock { $0 }
+        let level = max(maxLevel.withLock { $0 }, duringTrash ?? 0)
 
         #expect(ok == true, "the merge did not complete, so the samples below describe nothing")
-        #expect(trash.sampledDuringTrash.withLock { $0 },
-                "no sample was taken while the merge was suspended in its trash operation — a zero reading below proves nothing")
-        #expect(maxLevel == 0,
-                "an undo group was open (level \(maxLevel)) while the merge was suspended — anything else registering an undo in that window nests into the merge's step")
+        #expect(trash.rendezvousExpired.withLock({ $0 }) == false,
+                "the trash gave up waiting for its main-actor observation — whatever is below was not read under the merge's suspension")
+        #expect(duringTrash != nil,
+                "no reading was taken while the merge was suspended in its trash operation — a zero level below proves nothing")
+        #expect(level == 0,
+                "an undo group was open (level \(level)) while the merge was suspended — anything else registering an undo in that window nests into the merge's step")
         // The premise: this run really did suspend in the places the hazard lived — it copied and
         // it trashed.
         #expect(FileManager.default.fileExists(atPath: fixture.keeper.appendingPathComponent("unique0.txt").path))

@@ -179,10 +179,16 @@ import Testing
     /// Every stand-in in this target that holds a seam call by BLOCKING the calling thread. A test
     /// that builds one must declare it, because production reaches those seams from
     /// `Task.detached` and the thread it blocks is a cooperative-pool thread.
+    ///
+    /// **Two were missing until 2026-09-06, and both had unbudgeted tests.** `GateFileManager`
+    /// (`RestructureApplyGuardTests`) is one letter from `GatedFileManager` and read as already
+    /// listed; `SamplerObservedTrash` (`MergeUndoGroupingAndGateTests`) is not gate-shaped by
+    /// name at all — it is a `FileManager` subclass whose trash holds a rendezvous. A name is a
+    /// weak key, which is why the second scan below is derived from the source instead.
     private static let threadBlockingGates = [
         "ParkGate", "FirstStatGate", "FirstOpGate", "FirstAttributesGate",
-        "GatedFileManager", "DestinationStatGate", "BarrierCancelGate",
-        "SlowWalkFileManager", "GatingFileManager",
+        "GatedFileManager", "GateFileManager", "DestinationStatGate", "BarrierCancelGate",
+        "SlowWalkFileManager", "GatingFileManager", "SamplerObservedTrash",
     ]
 
     /// **Rot #1: a new gated test that forgets the trait.** It would pass on its own and go on
@@ -235,12 +241,12 @@ import Testing
                 "Thread.sleep(forTimeInterval: 0.005)",                   // brief: a scheduling nudge
             ],
             "ProgressAccountingTests.swift": ["if gate.wait(timeout: .now() + 10) == .timedOut {"],
-            // GateFileManager parks the landing's OPERATION-QUEUE thread (never the pool: the
-            // gate refuses main, and the executor runs via enqueueFileOperation), and the
-            // test-side wait is bounded and runs on DispatchQueue.global(), which overcommits.
+            // GateFileManager parks the landing's executor thread, which IS a cooperative-pool
+            // one — `enqueueFileOperation` runs its operation in `Task.detached`. Both of its
+            // tests declare `.parksAThread`; the test-side wait is `awaitSignal`, registered
+            // under TestSupport.swift above.
             "RestructureApplyGuardTests.swift": [
                 "if fire { entered.signal(); release.wait() }",
-                "done.resume(returning: gate.entered.wait(timeout: .now() + 10) == .success)",
             ],
             "MergeUndoPromiseTests.swift": ["if release.wait(timeout: .now() + 10) == .timedOut {"],
             "BulkSyncCancellationAndReservationTests.swift": [
@@ -261,7 +267,10 @@ import Testing
             "BulkOperationsTests.swift": ["mockFM.enumeratorDelay = 0.05"],
             "ProgressiveLoadTests.swift": ["mockFM.enumeratorDelay = 0.05", "mockFM.enumeratorDelay = 0.1"],
             "MergeCancelMidCopyTests.swift": ["Thread.sleep(forTimeInterval: 0.005)"],
-            "MergeUndoGroupingAndGateTests.swift": ["Thread.sleep(forTimeInterval: 0.01)"],
+            // `SamplerObservedTrash`'s rendezvous: the trash blocks its pool thread until the
+            // main-actor observation it enqueued signals back. Bounded, records its expiry, and
+            // its test declares `.parksAThread`.
+            "MergeUndoGroupingAndGateTests.swift": ["if sampled.wait(timeout: .now() + 10) == .timedOut {"],
         ]
         var found: [String: Set<String>] = [:]
         for (name, text) in try Self.testSources where name != "ParkBudgetTests.swift" {

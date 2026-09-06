@@ -218,6 +218,14 @@ import Testing
     /// `fileExists` probe on a gate — which holds a live landing open inside step 3, off the
     /// main actor, for as long as the test needs. The gate is entered on the operation queue,
     /// so the landing genuinely cannot finish until `release` is signalled.
+    ///
+    /// **The thread it blocks is a COOPERATIVE-POOL one, so every test that builds one must
+    /// declare `.parksAThread`.** This said "never the pool" until 2026-09-06 and was wrong:
+    /// the landing's executor reaches its `FileManaging` seams through `enqueueFileOperation`,
+    /// which runs the operation in `Task.detached(priority: .userInitiated)` — the pool. The
+    /// name is also one letter from `GatedFileManager`, which is what kept it out of
+    /// `ParkBudgetTests.threadBlockingGates` and left both of its tests unbudgeted; see
+    /// `docs/flaky-tests.md`, "Every gate parks at once, on the pool their releases need".
     private final class GateFileManager: FileManaging, @unchecked Sendable {
         private let inner = FileManager.default
         let entered = DispatchSemaphore(value: 0)
@@ -299,7 +307,7 @@ import Testing
     /// own sentence answers a second entry — the sentence matters, because the operation count
     /// also refuses in this window, with different words; only the flag's sentence goes red
     /// when the assignments are reverted.
-    @Test @MainActor func theFlagIsHeldAcrossALiveLanding() async throws {
+    @Test(.parksAThread) @MainActor func theFlagIsHeldAcrossALiveLanding() async throws {
         let gate = GateFileManager()
         let base = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: base) }
@@ -329,14 +337,10 @@ import Testing
 
         let first = Task { await manager.applyPlan(manifest) }
         // The landing is parked once the executor's first probe reaches the gate — entered on
-        // the operation queue. The bounded semaphore wait runs on a detached pool thread so
-        // the main actor stays free for the landing to reach its own suspension.
-        let arrived = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            DispatchQueue.global().async {
-                done.resume(returning: gate.entered.wait(timeout: .now() + 10) == .success)
-            }
-        }
-        #expect(arrived, "the landing never reached its first disk probe")
+        // the operation queue. `awaitSignal` waits off the main actor, so the main actor stays
+        // free for the landing to reach its own suspension, and reports its own expiry here
+        // rather than letting the test carry on against state it never held.
+        await awaitSignal(gate.entered, "the landing never reached its first disk probe")
         #expect(manager.restructureLandingInProgress)
 
         let second = RestructureManifest(
@@ -502,7 +506,7 @@ import Testing
     /// guard is RE-CHECKED after the inverse's suspension, so a Setup walk completing while
     /// the inverse runs is not silently deactivated by the re-point. The gate parks the
     /// inverse's first probe; the profile moves while it is parked.
-    @Test @MainActor func aProfileSwitchDuringTheInverseStopsTheRepoint() async throws {
+    @Test(.parksAThread) @MainActor func aProfileSwitchDuringTheInverseStopsTheRepoint() async throws {
         let gate = GateFileManager()
         gate.setArmed(false)   // the LANDING runs ungated; only the undo's inverse parks
         let base = try Self.scratch()
@@ -536,12 +540,7 @@ import Testing
 
         gate.setArmed(true)
         let undoTask = Task { await manager.undoReorganisation(manifestId: "race-1") }
-        let arrived = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            DispatchQueue.global().async {
-                done.resume(returning: gate.entered.wait(timeout: .now() + 10) == .success)
-            }
-        }
-        #expect(arrived, "the inverse never reached its first disk probe")
+        await awaitSignal(gate.entered, "the inverse never reached its first disk probe")
         // The Setup walk completes while the inverse is parked: another profile activates.
         manager.filingProfileDirectoryId = "walk-fresh"
         gate.release.signal()
