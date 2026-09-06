@@ -108,10 +108,35 @@ struct PeopleRenderProbe {
         try write(
             VStack(alignment: .leading, spacing: 8) {
                 PeopleList(store: store, profile: profile, memory: memory,
-                           providerRoot: nil, vetoLog: log)
+                           vetoLog: log)
             }
             .padding(16),
             size: CGSize(width: width, height: 0), name: "people-section")
+
+        // One row OPENED — the evidence, the caveat and the buttons that the shut row hides. Two
+        // rows, so the render shows the ordinary detail beside the amber one.
+        try write(
+            VStack(alignment: .leading, spacing: 8) {
+                // An `onShowPerson` so the render carries "Show Their Files" — the app wires
+                // one; a nil here would render the row as tests see it, not as users do.
+                PeopleList(store: store, profile: profile, memory: memory, vetoLog: log,
+                           onShowPerson: { _ in }, initiallyExpanded: ["aditi", "girish-2"])
+            }
+            .padding(16),
+            size: CGSize(width: width, height: 0), name: "people-section-open")
+
+        // The hand-arranged state: the row moved, and the way back under the list. Its own store,
+        // because `move` latches `orderIsCustom` for the life of the one it is called on and every
+        // render above is of a list nobody has arranged.
+        let moved = PeopleStore(people: Self.roster())
+        moved.move(id: "anuraag", up: true)
+        try write(
+            VStack(alignment: .leading, spacing: 8) {
+                PeopleList(store: moved, profile: profile, memory: memory, vetoLog: log,
+                           onShowPerson: { _ in })
+            }
+            .padding(16),
+            size: CGSize(width: width, height: 0), name: "people-section-custom-order")
 
         // The suggestion the learning sweep produces — the surface nobody has looked at yet.
         let suggestion = PersonNameSuggestion(personId: "muktha", form: "Muktha Girish",

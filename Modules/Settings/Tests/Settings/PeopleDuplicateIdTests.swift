@@ -182,7 +182,7 @@ import Testing
         let drawn = renderedInk(
             VStack(alignment: .leading, spacing: 8) {
                 PeopleList(store: store, profile: nil, memory: nil,
-                           providerRoot: nil, vetoLog: vetoLog())
+                           vetoLog: vetoLog())
             }
             .padding(16),
             width: width)
@@ -229,7 +229,7 @@ import Testing
         func pane(_ store: PeopleStore) -> some View {
             VStack(alignment: .leading, spacing: 8) {
                 PeopleList(store: store, profile: nil, memory: nil,
-                           providerRoot: nil, vetoLog: vetoLog())
+                           vetoLog: vetoLog())
             }
             .padding(16)
         }

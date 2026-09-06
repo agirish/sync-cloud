@@ -73,7 +73,7 @@ public struct SettingsView: View {
     /// `people` and `intelligence` are NEW CASES rather than renames of `filing`, and the
     /// distinction matters. `providers` → "Sources" was a relabel: the same tab, reworded, so the
     /// case kept its name and every stored `settingsSelectedTab` stayed valid. This is not that.
-    /// The household roster and the AI engine were *sections* of Organize that became tabs of
+    /// The people roster and the AI engine were *sections* of Organize that became tabs of
     /// their own, so `filing` still exists and still means Organize — it is simply three sections
     /// lighter. Renaming it would have made every stored "filing" resolve to a tab that no longer
     /// holds what the user was last looking at.
@@ -96,7 +96,7 @@ public struct SettingsView: View {
         /// `ReadabilitySettingsTab`.
         case readability
         case providers
-        /// The household the filing rules attribute documents to. Was Organize's last section.
+        /// The people the filing rules attribute documents to. Was Organize's last section.
         case people
         case sync
         /// Shown as "Organize". The case is named for `Workspace.filing`, not for the label, for
@@ -185,7 +185,7 @@ public struct SettingsView: View {
         /// - `providers` grows with the Mac's provider and folder-source lists — its height is a
         ///   property of the machine's data, and its own header comment calls it "the one that
         ///   legitimately keeps scrolling".
-        /// - `people` grows with the household roster (`PeopleList` draws one row per person),
+        /// - `people` grows with the roster (`PeopleList` draws one row per person),
         ///   so its height is the user's data too.
         /// - `filing` grows with the kept-names list (`KeptNamesList` draws one row per kept
         ///   name) — the same shape as `people`, down to the `if let store … else` fixed note,
@@ -257,6 +257,10 @@ public struct SettingsView: View {
     /// Runs the full settings reset (defaults wipe plus the host's re-seeding of live state).
     /// Provided by the host; the Reset control hides when nil.
     private let onResetAllSettings: (() -> Void)?
+    /// Hands a person to the app's gather — "everything that is Aditi's", the same surface ⌘K's
+    /// People rows reach. nil where there is no app behind the sheet (tests, previews), which
+    /// hides the button rather than offering one that does nothing.
+    private let onShowPerson: ((Person) -> Void)?
 
     /// The header search text. While non-empty it takes over the content area with a list of
     /// matching settings across every tab; selecting one jumps to its tab and clears this.
@@ -294,12 +298,14 @@ public struct SettingsView: View {
         onClose: @escaping () -> Void,
         syncManager: FileSyncManager? = nil,
         onResetAllSettings: (() -> Void)? = nil,
+        onShowPerson: ((Person) -> Void)? = nil,
         availableSize: CGSize? = nil
     ) {
         _selectedTab = selection
         self.onClose = onClose
         self.syncManager = syncManager
         self.onResetAllSettings = onResetAllSettings
+        self.onShowPerson = onShowPerson
         self.availableSize = availableSize
     }
 
@@ -365,7 +371,7 @@ public struct SettingsView: View {
             case .providers:
                 ProvidersSettingsTab()
             case .people:
-                PeopleSettingsTab(syncManager: syncManager)
+                PeopleSettingsTab(syncManager: syncManager, onShowPerson: onShowPerson)
             case .sync:
                 SyncSettingsTab(syncManager: syncManager)
             case .filing:
@@ -505,7 +511,16 @@ enum SettingsSearchIndex {
         .init(tab: .people, title: "Add Person…",
               keywords: ["add person", "new person", "add family member", "add someone",
                          "remove person", "delete person", "edit person", "rename person",
-                         "relationship", "brother", "sister", "roster"]),
+                         "relationship", "brother", "sister", "roster",
+                         // The other button on the same row, by the words someone reaches
+                         // for when they want the app to find a name rather than type it.
+                         "look for names", "find names", "suggest names", "name suggestions",
+                         "reorder", "move up", "move down", "order", "show files", "their files"]),
+        // The tester: the one field on the tab that is neither a person nor a readout. Indexed
+        // by what someone wants from it — to see who a document would be filed for.
+        .init(tab: .people, title: "Try a filename",
+              keywords: ["try a filename", "test a filename", "test", "who does this belong to",
+                         "which person", "match", "attribute", "explain"]),
 
         // Sync
         .init(tab: .sync, title: "When a file already exists",
@@ -2332,7 +2347,7 @@ struct DuplicatesSettingsTab: View {
 /// stop offering to rename.
 ///
 /// This tab used to be five subjects — the AI engine, the Claude key and model, the money that
-/// path costs, the kept-name inventory, and the household roster — under one rail row, and the
+/// path costs, the kept-name inventory, and the people roster — under one rail row, and the
 /// tell was its caption: a single paragraph of nine sentences, because one caption had to explain
 /// all five. The engine and its cost are now `IntelligenceSettingsTab`, the roster is
 /// `PeopleSettingsTab`, and what is left here is the pair of settings that describe the job
@@ -2661,7 +2676,7 @@ struct FilingSpendReadout: View {
 
 // MARK: - People
 
-/// The household Organize files for.
+/// Who Organize files for.
 ///
 /// A tab rather than the section it was, because it is a ROSTER and not a preference: it has rows
 /// with their own facts and veto counts, an overview of what the set governs across the tree, a
@@ -2670,30 +2685,32 @@ struct FilingSpendReadout: View {
 /// It also outgrew its host: as Organize's fifth section it sat below a long tab, so the roster
 /// was the part of Settings you had to scroll furthest to reach and the part most likely to need
 /// editing.
+///
+/// The page is ``PeopleList``'s: it lays out its own sections, because the four things on it —
+/// the roster, what was read off the tree, what the roster governs, and the tester — are four
+/// subjects, and one section holding all of them under one caption was the layout the user
+/// called crowded. The tab only decides whether there is an engine to draw them from.
 struct PeopleSettingsTab: View {
     /// Reaches the people store, the folder profile, the filing memory and the veto log — four
     /// engine-side things, which is another sign this was never a settings section. Optional for
     /// the same reason every other tab's is.
     let syncManager: FileSyncManager?
+    /// See `SettingsView.onShowPerson`.
+    var onShowPerson: ((Person) -> Void)? = nil
 
     var body: some View {
         SettingsPage {
-            SettingsSection(
-                caption: "Who your documents belong to — the household Organize files for. It uses these names for two things: keeping one person’s document out of another’s folder, and choosing between folders that differ only by person (School/Aditi beside School/Divit). Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else’s surname. Add each person’s full names as documents print them; that is what makes a shared surname attributable. Nothing here leaves your Mac, and no document text is kept — only the names you add here."
-            ) {
-                if let store = syncManager?.filingPeopleStore,
-                   let vetoLog = syncManager?.filingPersonVetoLog {
-                    PeopleList(store: store,
-                               profile: syncManager?.filingFolderProfile,
-                               memory: syncManager?.filingMemory,
-                               // The tree the profile describes. Absent until a scan has named it,
-                               // which is also when its folder paths mean anything.
-                               providerRoot: syncManager?.filingLastProviderRoot
-                                   .map { URL(fileURLWithPath: $0) },
-                               vetoLog: vetoLog)
-                } else {
-                    // No engine attached (tests, previews) — say so rather than leaving the caption
-                    // over a void, and never offer an Add button that would write nowhere.
+            if let store = syncManager?.filingPeopleStore,
+               let vetoLog = syncManager?.filingPersonVetoLog {
+                PeopleList(store: store,
+                           profile: syncManager?.filingFolderProfile,
+                           memory: syncManager?.filingMemory,
+                           vetoLog: vetoLog,
+                           onShowPerson: onShowPerson)
+            } else {
+                // No engine attached (tests, previews) — say so rather than leaving the caption
+                // over a void, and never offer an Add button that would write nowhere.
+                SettingsSection(caption: PeopleList.purposeCaption) {
                     PeopleList.noStoreNote
                 }
             }
@@ -2762,8 +2779,13 @@ struct KeptNamesList: View {
     }
 }
 
-/// The household Organize files for — one row per person, each editable, each showing what the
-/// engine actually knows about them.
+/// Who Organize files for — one row per person, each editable, each showing what the engine
+/// actually knows about them.
+///
+/// **"People", not "the household".** A family is what this list holds today, and the wording said
+/// so throughout; it is not what the list *is*. The same roster is how a work tree would tell one
+/// colleague's contract from another's, and the eventual answer to both at once is a profile per
+/// tree rather than a label that presumes one of them.
 ///
 /// **A list of names was not enough, and the reason is worth keeping.** The first version printed
 /// six names and nothing else: it did not say what the section was for, what any of it did, or how
@@ -2774,31 +2796,57 @@ struct KeptNamesList: View {
 /// and a warning when every word they answer to is shared with somebody else — the state that makes
 /// adding a full name worth doing.
 ///
+/// **And all of that at once was too much.** With seven people the evidence ran to three lines a
+/// row, every row carried its own Edit and Remove, and the overview, the suggestion queue, the
+/// tester, the buttons and a six-line caption followed in one unbroken column — the user's word
+/// for it was "crowded". So the roster is now a list: one line per person, the counts at the
+/// trailing edge, and the evidence, the caveat and the buttons behind a disclosure, the same shape
+/// the Sources tab gives its providers. The rest of the page is split into sections with titles,
+/// so each thing on it is one thing.
+///
 /// `@ObservedObject` on the store, unlike the value this used to take: the roster is now written
 /// from this view, and a list that did not observe its own edits would need a relaunch to show them.
 struct PeopleList: View {
     @ObservedObject var store: PeopleStore
     let profile: FolderProfile?
     let memory: FilingMemory?
-    /// The provider root the profile's relative paths hang off — needed to read the folders the
-    /// suggestions are learned from. nil hides the action rather than reading the wrong tree.
-    let providerRoot: URL?
     /// What the cross-person rule has refused. Optional: with no engine there is nothing to report,
     /// and an empty log is the ordinary state of a machine that has not filed anything yet.
     @ObservedObject var vetoLog: PersonVetoLog
+    /// See `SettingsView.onShowPerson`. nil hides "Show Their Files" on every row.
+    let onShowPerson: ((Person) -> Void)?
 
     /// Which person is open in the editor. `nil` closes it; a person with an empty id is the
     /// "add" case, the same sheet doing both jobs.
     @State private var editing: Person?
     @State private var confirmingRemoval: Person?
+    /// Ids of the rows the user has opened. Shut is the default and the point — see the type's
+    /// doc. State, not a persisted default, for the reason `ProvidersSettingsTab.expandedIds`
+    /// gives: which row you last opened is not a preference.
+    @State private var expandedIds: Set<String>
     /// Name forms found in the tree that nobody has recorded. Empty until asked for — reading a few
     /// hundred folders is not something to do because a settings tab appeared.
     @State private var suggestions: [PersonNameSuggestion] = []
     @State private var isLooking = false
     @State private var hasLooked = false
 
+    /// `initiallyExpanded` exists so an OPENED row can be rendered: `@State` has no storage off the
+    /// view tree, so a probe cannot click a row, and the detail — three lines and two buttons that
+    /// used to be the whole row — is otherwise a surface nobody has looked at since it moved. The
+    /// app passes nothing; the same seam `PeopleTester.initialText` is.
+    init(store: PeopleStore, profile: FolderProfile?, memory: FilingMemory?,
+         vetoLog: PersonVetoLog, onShowPerson: ((Person) -> Void)? = nil,
+         initiallyExpanded: Set<String> = []) {
+        self.store = store
+        self.profile = profile
+        self.memory = memory
+        self.vetoLog = vetoLog
+        self.onShowPerson = onShowPerson
+        _expandedIds = State(initialValue: initiallyExpanded)
+    }
+
     var body: some View {
-        // Said before the list, because everything below it is a seed rather than the household —
+        // Said before the list, because everything below it is a seed rather than the real list —
         // and because the edits the list offers will not be written while this is true. Without it
         // the refusal in `PeopleStore.save()` is a change that appears to work and does nothing.
         if store.rosterIsUnreadable {
@@ -2806,70 +2854,79 @@ struct PeopleList: View {
         } else if !store.repeatedRosterIds.isEmpty {
             // Its own note rather than a shared "read-only" one: the two refusals mean different
             // things to the person reading them. Above, the list is a guess. Here it is their real
-            // household with a record missing, and the sentence has to name which id so they can go
+            // list with a record missing, and the sentence has to name which id so they can go
             // and find it — the file is the only place the dropped record still exists.
             Self.repeatedIdRosterNote(store.repeatedRosterIds)
         }
-        if store.people.isEmpty {
-            Self.emptyRosterNote
-        } else {
-            ForEach(store.people) { person in
-                PersonRow(facts: facts(for: person), person: person,
-                          preventedCount: vetoLog.count(namedPerson: person.id),
-                          lastPrevented: vetoLog.mostRecent(namedPerson: person.id),
-                          onEdit: { editing = person },
-                          onRemove: { confirmingRemoval = person })
+        peopleSection
+        if !store.people.isEmpty {
+            // The queue sits under the roster, next to the button that fills it, and only once
+            // that button has been pressed: an empty "Names found" section over nothing would be
+            // a question the page asks of itself.
+            if hasLooked || !suggestions.isEmpty {
+                namesFound
             }
-            // What the roster governs across the whole tree, and where it does not reach. Both are
-            // facts about the SET, so neither belongs on a row.
-            PeopleOverviewRow(overview: overview, store: store)
-            ForEach(suggestions) { suggestion in
-                PersonSuggestionRow(suggestion: suggestion,
-                                    personName: store.person(id: suggestion.personId)?.displayName
-                                        ?? suggestion.personId,
-                                    onAccept: {
-                                        store.acceptSuggestion(suggestion)
-                                        suggestions.removeAll { $0.id == suggestion.id }
-                                    },
-                                    onDismiss: {
-                                        store.dismissSuggestion(suggestion)
-                                        suggestions.removeAll { $0.id == suggestion.id }
-                                    })
+            // What the roster governs is a fact about the tree, so it needs one. Without a survey
+            // the overview would only be able to say that nobody has folders, which on an
+            // unsurveyed machine reads as a fault rather than as an absence.
+            if profile != nil {
+                acrossTheTree
             }
-            if hasLooked, suggestions.isEmpty {
-                Label("No new names in your filed documents — every form they use is recorded.",
-                      systemImage: "checkmark.circle")
-                    .scaledFont(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            PeopleTester(registry: store.registry, factsById: allFacts)
+            tester
         }
-        HStack(spacing: 10) {
-            Button {
-                editing = Person(id: "", displayName: "")
-            } label: {
-                Label("Add Person…", systemImage: "plus")
-            }
-            .controlSize(.small)
-            if profile != nil, !store.people.isEmpty {
-                Button(action: look) {
-                    if isLooking {
-                        Text("Reading…")
-                    } else {
-                        Label("Look for names", systemImage: "sparkle.magnifyingglass")
+    }
+
+    // MARK: - The sections
+
+    /// The roster: a header row carrying the two actions, the list, and the caption that says what
+    /// the whole thing is for.
+    private var peopleSection: some View {
+        SettingsSection(caption: Self.purposeCaption + " " + sourceNote) {
+            HStack(spacing: 10) {
+                Text("People")
+                    .scaledFont(.body.weight(.medium))
+                Spacer()
+                if profile != nil, !store.people.isEmpty {
+                    Button(action: look) {
+                        if isLooking {
+                            Text("Reading…")
+                        } else {
+                            Label("Look for Names", systemImage: "sparkle.magnifyingglass")
+                        }
                     }
+                    .controlSize(.small)
+                    .disabled(isLooking)
+                    .help("Reads the file names already in each person's folders and offers any name "
+                          + "form they use that is not recorded yet. Nothing is changed without asking.")
+                }
+                Button {
+                    editing = Person(id: "", displayName: "")
+                } label: {
+                    Label("Add Person…", systemImage: "plus")
                 }
                 .controlSize(.small)
-                .disabled(isLooking)
-                .help("Reads the file names already in each person's folders and offers any name "
-                      + "form they use that is not recorded yet. Nothing is changed without asking.")
             }
-            Spacer()
-            Text(sourceNote)
-                .scaledFont(.subheadline)
-                .foregroundStyle(.secondary)
+            if store.people.isEmpty {
+                Self.emptyRosterNote
+            } else {
+                roster
+                if store.orderIsCustom {
+                    // The way back, and it needs to be visible: moving a row is deliberate and
+                    // easy, and the rule it switches off is one the caption describes but nothing
+                    // else on screen would let you restore. Under the list rather than beside Add
+                    // Person…, because it is about the whole list rather than about a person —
+                    // and because a third button in that row is one the largest text size cannot
+                    // fit. Absent while the order is the default, where it would mean nothing.
+                    HStack {
+                        Spacer()
+                        Button("Use Default Order") { store.useDefaultOrder() }
+                            .controlSize(.small)
+                            .help("Back to relationship order — you, spouse, children, parents, "
+                                  + "siblings, then everyone else")
+                    }
+                }
+            }
         }
-        .padding(.top, 2)
         .sheet(item: $editing) { person in
             PersonEditor(person: person,
                          isNew: person.id.isEmpty,
@@ -2904,6 +2961,96 @@ struct PeopleList: View {
         }
     }
 
+    /// The people, one line each, in a well — a list you read down rather than a stack of
+    /// paragraphs. The separators are inset past the initials disc, so they read as dividing rows
+    /// of one list rather than as rules between sections.
+    private var roster: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(store.people.enumerated()), id: \.element.id) { index, person in
+                if index > 0 {
+                    Divider().padding(.leading, PersonRow.textInset)
+                }
+                PersonRow(facts: facts(for: person), person: person,
+                          preventedCount: vetoLog.count(namedPerson: person.id),
+                          lastPrevented: vetoLog.mostRecent(namedPerson: person.id),
+                          isExpanded: expansionBinding(person.id),
+                          folderRoot: profile.map(Self.lookRoot(for:)),
+                          canMoveUp: store.canMove(id: person.id, up: true),
+                          canMoveDown: store.canMove(id: person.id, up: false),
+                          orderIsCustom: store.orderIsCustom,
+                          onEdit: { editing = person },
+                          onRemove: { confirmingRemoval = person },
+                          onMove: { up in store.move(id: person.id, up: up) },
+                          onUseDefaultOrder: { store.useDefaultOrder() },
+                          onShowFiles: onShowPerson.map { show in { show(person) } })
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 2)
+        .background(.quaternary.opacity(0.6),
+                    in: RoundedRectangle(cornerRadius: Radius.well, style: .continuous))
+    }
+
+    /// What "Look for Names" read off the tree, or the sentence that says it found nothing.
+    private var namesFound: some View {
+        SettingsSection("Names found in your documents",
+                        caption: "Read from the file names already in each person’s folders. Nothing is added without asking, and “Not a name” is remembered.") {
+            if suggestions.isEmpty {
+                Label("No new names — every form your filed documents use is already recorded.",
+                      systemImage: "checkmark.circle")
+                    .scaledFont(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(suggestions) { suggestion in
+                PersonSuggestionRow(suggestion: suggestion,
+                                    personName: store.person(id: suggestion.personId)?.displayName
+                                        ?? suggestion.personId,
+                                    onAccept: {
+                                        store.acceptSuggestion(suggestion)
+                                        suggestions.removeAll { $0.id == suggestion.id }
+                                    },
+                                    onDismiss: {
+                                        store.dismissSuggestion(suggestion)
+                                        suggestions.removeAll { $0.id == suggestion.id }
+                                    })
+            }
+        }
+    }
+
+    /// What the roster governs across the whole tree, and where it does not reach. Both are facts
+    /// about the SET, so neither belongs on a row.
+    private var acrossTheTree: some View {
+        SettingsSection("Across your tree") {
+            PeopleOverviewRow(overview: overview, store: store)
+        }
+    }
+
+    private var tester: some View {
+        SettingsSection("Try a filename",
+                        caption: "See who Organize would say a document belongs to, and what that decides.") {
+            PeopleTester(registry: store.registry, factsById: allFacts)
+        }
+    }
+
+    // MARK: - What the sections draw from
+
+    /// One row's open/closed state. A binding over the shared set rather than per-row `@State`, so
+    /// a row rebuilt when the store republishes — every edit, every accepted suggestion — does not
+    /// snap shut under the pointer.
+    private func expansionBinding(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedIds.contains(id) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedIds.insert(id)
+                } else {
+                    expandedIds.remove(id)
+                }
+            }
+        )
+    }
+
     /// Everything known about one person, computed in `Sync` so the claim this view makes is
     /// testable without a window.
     private func facts(for person: Person) -> PersonFilingFacts {
@@ -2916,10 +3063,11 @@ struct PeopleList: View {
     /// Detached because this is a few hundred directory listings: small, but not small enough to
     /// spend on the actor that is drawing the window.
     private func look() {
-        guard let profile, let root = providerRoot else { return }
+        guard let profile else { return }
         isLooking = true
         let registry = store.registry
         let dismissed = store.dismissedSuggestions
+        let root = Self.lookRoot(for: profile)
         Task {
             let found = await Task.detached(priority: .userInitiated) {
                 PeopleNameScanner.suggestions(registry: registry, profile: profile, root: root,
@@ -2929,6 +3077,25 @@ struct PeopleList: View {
             hasLooked = true
             isLooking = false
         }
+    }
+
+    /// Where "Look for Names" reads: the tree the profile itself describes.
+    ///
+    /// **This used to be the last Filing scan's provider root, and that is why the button went
+    /// dead.** The profile's folder paths are relative to `profile.root` by definition — it is the
+    /// tree the survey walked — but the root handed to the scanner was
+    /// `FileSyncManager.filingLastProviderRoot`, which is set only when a To File scan runs in
+    /// this session and cleared when the provider changes. The button was offered whenever a
+    /// profile was loaded, which it is at every launch, and `look()` then bailed silently on the
+    /// nil root: a click did nothing, logged nothing, and showed nothing, until the user happened
+    /// to run a scan first. `~/sync-cloud.log` bears it out — one `People: read` line on
+    /// 2026-08-09, the day the feature shipped, and none in the four weeks after.
+    ///
+    /// Resolved the way every other reader of the profile resolves it
+    /// (`FileSyncManager+RestructureApply`, `duplicateScanCoversSurvey`): the recorded root with
+    /// its tilde expanded. It depends on nothing that a scan has to have done first.
+    nonisolated static func lookRoot(for profile: FolderProfile) -> URL {
+        URL(fileURLWithPath: (profile.root as NSString).expandingTildeInPath)
     }
 
     /// Keyed tolerantly. `Dictionary(uniqueKeysWithValues:)` traps on a duplicate key, so a
@@ -2953,13 +3120,19 @@ struct PeopleList: View {
 
     private var sourceNote: String {
         store.source == .file
-            ? "Saved in people.json"
-            : "Suggested from your folder names — edit anyone to make it yours"
+            ? "Saved in people.json."
+            : "This list was suggested from your folder names — edit anyone to make it yours."
     }
+
+    /// What the roster is for, in five sentences. The longer version — how longest-first matching
+    /// makes a shared surname attributable, with the worked example — is in Help, where a reader
+    /// who wants it can find it; here it was the tallest thing on the page. The order sentence is
+    /// here because the order is a rule the reader would otherwise have to guess at.
+    static let purposeCaption = "Who your documents belong to — the people Organize files for. It keeps one person’s document out of another’s folder, and chooses between folders that differ only by person (School/Aditi beside School/Divit). A full name is matched before any single word, so add each person’s names as documents print them. The list is in relationship order — you, spouse, children, parents, siblings, then everyone else — until you move someone, after which your order is kept. Nothing here leaves your Mac, and only the names you add are stored."
 
     /// Shown when `people.json` is on disk but unreadable. It names the file and says plainly that
     /// edits will not save — the alternative is a roster that looks ordinary, edits that appear to
-    /// take, and a real household quietly replaced by folder-name guesses.
+    /// take, and a real roster quietly replaced by folder-name guesses.
     static var unreadableRosterNote: some View {
         Label {
             Text("The people file couldn’t be read, so this list is guessed from folder names. Edits won’t be saved. Fix people.json and restart SyncCloud — ~/sync-cloud.log says what went wrong.")
@@ -3003,71 +3176,223 @@ struct PeopleList: View {
     }
 }
 
-/// One person: who they are, what the engine matches them on, and what that is worth in this tree.
+/// One person: who they are on one line, and — once opened — what the engine matches them on,
+/// what that is worth in this tree, and the buttons that change the record.
 ///
-/// The three lines are deliberately ordered by what a reader wants first — identity, then the
-/// evidence, then the caveat. The caveat line is the only tinted one, because a name shared with
-/// somebody else is the single fact on this screen that can change an outcome.
+/// **Shut, the row is the name and the numbers.** The initials disc, the first name, the
+/// relationship, and at the trailing edge how many folders and documents are theirs — the one fact
+/// worth reading across seven rows at once. A caution glyph joins it only for the one state that
+/// can change an outcome (see `caveatLine`), so a row that shows one is the row to open.
+///
+/// **Open, it is the old three lines and the two buttons**, in the same order — identity, then the
+/// evidence, then the caveat — and with the caveat still the only tinted line. Nothing that used to
+/// be on the row is gone; it is a click further away, which is what let the list become a list.
 private struct PersonRow: View {
     @Environment(\.colorScheme) private var colorScheme
     let facts: PersonFilingFacts
     let person: Person
     let preventedCount: Int
     let lastPrevented: PersonVetoEvent?
+    @Binding var isExpanded: Bool
+    /// The tree the person's folders are relative to, for "Show Folder". nil without a survey.
+    let folderRoot: URL?
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    /// Whether the list is in the user's own order — which is when "Use Default Order" is offered.
+    let orderIsCustom: Bool
     let onEdit: () -> Void
     let onRemove: () -> Void
+    /// `true` moves the row up.
+    let onMove: (Bool) -> Void
+    let onUseDefaultOrder: () -> Void
+    /// Hands the person to the app's gather. nil hides the button — see `SettingsView.onShowPerson`.
+    let onShowFiles: (() -> Void)?
+
+    /// Where the text starts, past the disc — the inset the row separators and the opened detail
+    /// share, so the detail reads as belonging to the name above it.
+    static let textInset: CGFloat = PersonInitials.diameter + 10
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                header
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isExpanded ? "Collapse \(person.displayName)"
+                                           : "Expand \(person.displayName)")
+            if isExpanded {
+                detail
+                    .padding(.leading, Self.textInset)
+                    .padding(.bottom, 8)
+            }
+        }
+        // Every action is also a right-click away, for the person who does not think to open the
+        // row first — and because a list whose rows have no menu is a list that looks inert.
+        .contextMenu {
+            Button("Edit…", action: onEdit)
+            Button("Remove…", role: .destructive, action: onRemove)
+            Divider()
+            if let onShowFiles, facts.folderCount > 0 {
+                Button("Show Their Files", action: onShowFiles)
+            }
+            Button("Move Up") { onMove(true) }.disabled(!canMoveUp)
+            Button("Move Down") { onMove(false) }.disabled(!canMoveDown)
+            if orderIsCustom {
+                Button("Use Default Order", action: onUseDefaultOrder)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
             PersonInitials(person: person)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(person.displayName).scaledFont(.callout).fontWeight(.medium)
-                    if let relationship = person.relationship {
-                        Text(relationship).scaledFont(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Text(matchedLine).scaledFont(.subheadline).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !knowledgeLine.isEmpty {
-                    Text(knowledgeLine).scaledFont(.subheadline).foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if preventedCount > 0 {
-                    Text(preventedLine).scaledFont(.subheadline)
-                        .foregroundStyle(SemanticColor.success)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let caveat = caveatLine {
-                    Text(caveat).scaledFont(.subheadline)
-                        .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
-                        .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(person.displayName).scaledFont(.callout).fontWeight(.medium)
+                if let relationship = person.relationship {
+                    Text(relationship).scaledFont(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 8)
-            Button("Edit", action: onEdit).controlSize(.small)
-            Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill").hoverInk()
+            if caveatLine != nil {
+                // The glyph, not the sentence: the sentence is in the detail, and a row that
+                // carried it shut was the row that made every other row look like it should too.
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .scaledFont(.caption)
+                    .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
+                    .accessibilityLabel("Cannot be attributed yet")
             }
-            .buttonStyle(.hoverAffordance(.inline))
-            .help("Remove \(person.displayName) from the household")
-            .accessibilityLabel("Remove \(person.displayName) from the household")
+            if !isExpanded {
+                // Hidden while open, because the detail's second line says the same thing with
+                // the areas appended — one fact, once.
+                Text(countsLine)
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .scaledFont(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                // A bare chevron is a ~7pt target; the row is the target, and the frame keeps the
+                // glyph from drifting as the counts beside it change width.
+                .frame(width: 22, height: 22)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
         .help(tooltip)
     }
 
+    private var detail: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(matchedLine).scaledFont(.subheadline).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !knowledgeLine.isEmpty {
+                Text(knowledgeLine).scaledFont(.subheadline).foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if preventedCount > 0 {
+                Text(preventedLine).scaledFont(.subheadline)
+                    .foregroundStyle(SemanticColor.success)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let caveat = caveatLine {
+                Text(caveat).scaledFont(.subheadline)
+                    .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.caution))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Button("Edit…", action: onEdit)
+                Button("Remove…", action: onRemove)
+                    .help("Remove \(person.displayName) from the list")
+                if facts.folderCount > 0 {
+                    // The two ways to GO to what the numbers above count. The gather is the
+                    // app's own answer — every document that is theirs, across the source — and
+                    // the folder menu is Finder's, one folder at a time, grouped by area because
+                    // a flat menu of two hundred paths is not a menu anyone can use.
+                    if let onShowFiles {
+                        Button(action: onShowFiles) {
+                            Label("Show Their Files", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .help("Gather everything that is \(person.displayName)’s, across the whole source")
+                    }
+                    if folderRoot != nil {
+                        folderMenu
+                    }
+                }
+                Spacer(minLength: 0)
+                Button {
+                    onMove(true)
+                } label: {
+                    Image(systemName: "arrow.up")
+                }
+                .disabled(!canMoveUp)
+                .help("Move \(person.displayName) up")
+                .accessibilityLabel("Move \(person.displayName) up")
+                Button {
+                    onMove(false)
+                } label: {
+                    Image(systemName: "arrow.down")
+                }
+                .disabled(!canMoveDown)
+                .help("Move \(person.displayName) down")
+                .accessibilityLabel("Move \(person.displayName) down")
+            }
+            .controlSize(.small)
+            .padding(.top, 4)
+        }
+    }
+
+    /// The person's folders, one submenu per area, each item revealing that folder in Finder.
+    ///
+    /// Capped per area rather than overall: the cap is there to keep a submenu usable, and an
+    /// overall cap would silently drop whole areas off the end.
+    private var folderMenu: some View {
+        Menu {
+            ForEach(facts.areas, id: \.name) { area in
+                let paths = folders(inArea: area.name)
+                Menu("\(area.name) (\(paths.count))") {
+                    ForEach(paths.prefix(Self.folderMenuCap), id: \.self) { path in
+                        Button(path, action: { reveal(path) })
+                    }
+                    if paths.count > Self.folderMenuCap {
+                        Text("…and \(paths.count - Self.folderMenuCap) more")
+                    }
+                }
+            }
+        } label: {
+            Label("Show Folder", systemImage: "folder")
+        }
+        .help("Reveal one of \(person.displayName)’s folders in Finder")
+    }
+
+    static let folderMenuCap = 40
+
+    /// The person's folders under one area, in the order `PersonFilingFacts` keeps them —
+    /// shallowest first, then by name.
+    private func folders(inArea area: String) -> [String] {
+        facts.folders.filter { $0.split(separator: "/").first.map(String.init) == area }
+    }
+
+    private func reveal(_ relative: String) {
+        guard let folderRoot else { return }
+        let url = folderRoot.appendingPathComponent(relative)
+        Logger.shared.info("People: revealing \(person.displayName)'s folder \(relative) in Finder")
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     /// The shared-word detail, which is real but not a problem — so it lives here rather than on a
-    /// line of its own. Every member of this household shares a word with somebody; a row that said
-    /// so in amber said it seven times out of seven and meant nothing.
+    /// line of its own. Everyone on a family roster shares a word with somebody; a row that said so
+    /// in amber said it seven times out of seven and meant nothing.
     private var tooltip: String {
         var parts = [matchedLine]
         if !facts.uniqueWords.isEmpty {
             parts.append("Theirs alone: " + facts.uniqueWords.joined(separator: ", ") + ".")
         }
         if !facts.sharedWords.isEmpty {
-            parts.append("Shared with the rest of the household: " + facts.sharedSummary + ".")
+            parts.append("Shared with others on this list: " + facts.sharedSummary + ".")
         }
         return parts.joined(separator: " ")
     }
@@ -3079,7 +3404,6 @@ private struct PersonRow: View {
                                    : "Matches " + facts.matchedForms.joined(separator: " · ")
     }
 
-
     /// **The only line here that reports the rule doing something**, rather than describing what is
     /// known. It stays absent at zero: "prevented 0" would be a boast about nothing, and this
     /// section already has enough to read.
@@ -3087,6 +3411,19 @@ private struct PersonRow: View {
         let count = preventedCount == 1 ? "1 document" : "\(preventedCount) documents"
         guard let last = lastPrevented else { return "Kept \(count) out of other folders" }
         return "Kept \(count) out of other folders — last “\(last.fileName)”"
+    }
+
+    /// The shut row's trailing figure: how much of the tree is theirs. Grouped, like every count
+    /// this app prints, and honest at zero — "No folders yet" is the state the overview's inert
+    /// line explains, and a blank would hide which row it meant.
+    private var countsLine: String {
+        guard facts.folderCount > 0 else { return "No folders yet" }
+        var out = facts.folderCount == 1 ? "1 folder" : "\(facts.folderCount.formatted()) folders"
+        if facts.filedDocuments > 0 {
+            out += facts.filedDocuments == 1
+                ? " · 1 document" : " · \(facts.filedDocuments.formatted()) documents"
+        }
+        return out
     }
 
     /// What the record is worth in this tree: how much, and **where**.
@@ -3100,14 +3437,10 @@ private struct PersonRow: View {
     /// reads as a fault rather than as an absence.
     private var knowledgeLine: String {
         guard facts.folderCount > 0 else { return "" }
-        var out = facts.folderCount == 1 ? "1 folder" : "\(facts.folderCount) folders"
-        if facts.filedDocuments > 0 {
-            out += facts.filedDocuments == 1 ? " · 1 document" : " · \(facts.filedDocuments) documents"
-        }
-        guard !facts.areas.isEmpty else { return out }
+        guard !facts.areas.isEmpty else { return countsLine }
         let names = facts.areas.prefix(3).map(\.name)
         let rest = facts.areas.count - names.count
-        return out + " · " + names.joined(separator: ", ") + (rest > 0 ? " +\(rest) more" : "")
+        return countsLine + " · " + names.joined(separator: ", ") + (rest > 0 ? " +\(rest) more" : "")
     }
 
     /// The one line that can change an outcome — and it is shown **only when there is one**.
@@ -3161,11 +3494,13 @@ struct PersonSuggestionRow: View {
 private struct PersonInitials: View {
     let person: Person
 
+    static let diameter: CGFloat = 22
+
     var body: some View {
         Text(initials)
             .scaledFont(.caption2.weight(.semibold))
             .foregroundStyle(.white)
-            .frame(width: 22, height: 22)
+            .frame(width: Self.diameter, height: Self.diameter)
             .background(Circle().fill(tint.gradient))
             .accessibilityHidden(true)
     }
