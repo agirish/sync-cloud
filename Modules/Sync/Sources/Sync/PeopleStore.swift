@@ -1,7 +1,11 @@
 import Events
 import Foundation
 
-/// The household, owned and edited by the app — the one writable filing artifact.
+/// The people a tree files for, owned and edited by the app — the one writable filing artifact.
+///
+/// The prose below still says "household" where it reasons about the FILE, and deliberately: it
+/// is describing what a torn or refused write would cost somebody, and that is a real family on
+/// the tree this was built against. The user-facing vocabulary is "people" — see ``PeopleList``.
 ///
 /// **Deliberately the exception to ``FilingProfileStore``'s read-only rule, and the reason is that
 /// the roster is not survey output.** The folder profile and the filing memory describe a tree, and
@@ -21,6 +25,10 @@ public final class PeopleStore: ObservableObject {
     /// Shown in Settings, because "seeded from your folder names" and "you wrote this" are
     /// different claims about how much the app knows.
     @Published public private(set) var source: PersonRegistry.Source = .profileAxis
+    /// Whether the user has arranged the list by hand. Until they have, the roster is shown and
+    /// saved in ``PeopleOrder``'s relationship order; once they have, the file's order IS the
+    /// order and nothing re-sorts it. Persisted as `"order": "custom"` — absent means default.
+    @Published public private(set) var orderIsCustom = false
 
     /// The compiled matcher. Recompiled on every change rather than cached: building it is a pass
     /// over a handful of names, and a stale matcher would attribute documents through a roster the
@@ -58,7 +66,8 @@ public final class PeopleStore: ObservableObject {
         self.fileManager = fileManager
         let loaded = FilingProfileStore.personRegistry(id: profileId, profile: profile,
                                                        in: directory)
-        people = loaded.people
+        orderIsCustom = Self.orderIsCustom(at: fileURL)
+        people = orderIsCustom ? loaded.people : PeopleOrder.arranged(loaded.people)
         source = loaded.source
         dismissedSuggestions = FilingProfileStore.dismissedNameSuggestions(id: profileId,
                                                                            in: directory)
@@ -71,7 +80,7 @@ public final class PeopleStore: ObservableObject {
             // now does not re-read it. Say so, rather than implying an edit will start working.
             Logger.shared.warning("people.json exists but could not be read — showing the roster "
                                   + "seeded from folder names, and REFUSING to write over the file. "
-                                  + "Fix \(fileURL.path) and relaunch to edit the household again.")
+                                  + "Fix \(fileURL.path) and relaunch to edit the list again.")
         }
         repeatedRosterIds = source == .file ? loaded.repeatedIds : []
         Self.warnAboutRepeatedIds(loaded.repeatedIds, source: source, fileURL: fileURL)
@@ -278,7 +287,9 @@ public final class PeopleStore: ObservableObject {
         self.directory = URL(fileURLWithPath: "/dev/null")
         self.profileId = ""
         self.fileManager = .default
-        self.people = people
+        // Arranged like a loaded roster, so a preview or a test sees the order users do. An
+        // in-memory store has no file to record a custom order in, so it is always the default.
+        self.people = PeopleOrder.arranged(people)
         self.source = .file
     }
 
@@ -364,12 +375,54 @@ public final class PeopleStore: ObservableObject {
 
     public func person(id: String) -> Person? { people.first { $0.id == id } }
 
+    // MARK: - Order
+
+    /// Whether `move(id:up:)` would do anything — the ends of the list refuse.
+    public func canMove(id: String, up: Bool) -> Bool {
+        guard let i = people.firstIndex(where: { $0.id == id }) else { return false }
+        return up ? i > 0 : i < people.count - 1
+    }
+
+    /// Swaps a person with their neighbour, and from then on keeps the list in the user's order.
+    ///
+    /// Returns whether anything moved. A refused move — at either end, or an id the roster does
+    /// not have — leaves the order flag alone too, so a click that did nothing cannot quietly turn
+    /// the default arrangement into a custom one.
+    @discardableResult
+    public func move(id: String, up: Bool) -> Bool {
+        guard canMove(id: id, up: up), let i = people.firstIndex(where: { $0.id == id }) else { return false }
+        people.swapAt(i, up ? i - 1 : i + 1)
+        orderIsCustom = true
+        save()
+        Logger.shared.info("People: moved '\(people[up ? i - 1 : i + 1].displayName)' \(up ? "up" : "down") — "
+                           + "the list is now in the user's own order")
+        return true
+    }
+
+    /// Back to relationship order, and the file stops recording a custom one.
+    public func useDefaultOrder() {
+        orderIsCustom = false
+        sortAndSave()
+        Logger.shared.info("People: list returned to the default order")
+    }
+
+    /// Reads the order flag straight off the file. `PeopleFile` in `FilingProfileStore` does not
+    /// model it — the registry has no use for the order — so the store reads the one key itself,
+    /// the same way it captures the keys it carries.
+    private static func orderIsCustom(at url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        return object["order"] as? String == "custom"
+    }
+
     // MARK: - Persistence
 
     private func sortAndSave() {
-        // Sorted by display name so the file and the list agree, and a diff of `people.json` shows
-        // what changed rather than where a record moved to.
-        people.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        // The default arrangement, so the file and the list agree — unless the user has arranged
+        // the list themselves, in which case their order is the order and an add goes on the end.
+        // (This sorted by display name once; ``PeopleOrder`` says why it stopped.)
+        if !orderIsCustom { people = PeopleOrder.arranged(people) }
         save()
     }
 
@@ -378,6 +431,9 @@ public final class PeopleStore: ObservableObject {
         let people: [Person]
         /// Omitted when empty, so an untouched file stays as short as it was.
         let notNames: [String]?
+        /// `"custom"` once the user has arranged the list; omitted while the order is the default,
+        /// so a file nobody has rearranged does not gain a key.
+        let order: String?
 
         /// Everything this type writes. Anything else in the file belongs to somebody else and is
         /// carried across a save — see ``PeopleStore/carriedKeys``.
@@ -385,7 +441,7 @@ public final class PeopleStore: ObservableObject {
         /// Spelled out rather than derived by encoding an empty value and reading its keys: that
         /// trick omits `notNames` whenever it is nil, so the set would depend on the value it was
         /// derived from and a nil-notNames save would "carry" the app's own key back in.
-        static let modelledKeys: Set<String> = ["schemaVersion", "people", "notNames"]
+        static let modelledKeys: Set<String> = ["schemaVersion", "people", "notNames", "order"]
     }
 
     private func save() {
@@ -427,7 +483,8 @@ public final class PeopleStore: ObservableObject {
             var data = try encoder.encode(
                 PeopleFileOut(schemaVersion: FilingProfileStore.currentSchema, people: people,
                               notNames: dismissedSuggestions.isEmpty ? nil
-                                                                     : dismissedSuggestions.sorted()))
+                                                                     : dismissedSuggestions.sorted(),
+                              order: orderIsCustom ? "custom" : nil))
             if let merged = Self.merging(carriedKeys, perPerson: carriedPersonKeys, into: data) {
                 data = merged
             } else if !carriedKeys.isEmpty || !carriedPersonKeys.isEmpty {

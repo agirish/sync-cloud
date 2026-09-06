@@ -7,7 +7,7 @@ import Foundation
 /// **The file is hand-written as much as it is app-written.** The real roster carries a `_note`
 /// explaining why Anuraag is on it, why listing a full name is what makes a shared surname
 /// attributable, and why `Abhi` and `Shwe` are recorded as name forms rather than nicknames — all
-/// of it prose no survey can regenerate. `PeopleFileOut` writes three keys and the save is a
+/// of it prose no survey can regenerate. `PeopleFileOut` writes four keys (the fourth, `order`, only once the list is hand-arranged) and the save is a
 /// whole-file atomic replace, so before this the first edit in Settings ▸ People deleted every
 /// other key in the file without saying so.
 ///
