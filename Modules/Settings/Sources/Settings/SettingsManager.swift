@@ -194,6 +194,20 @@ public class SettingsManager: ObservableObject {
     /// off-main pass finished *last* would win and could republish stale provider paths that
     /// `path(for:)` then serves to file operations. Same shape as
     /// `FileSyncManager.applyFilters`' filterGeneration.
+    /// The account folders the last successful discovery saw — the answer to "is an unreadable
+    /// CloudStorage root evidence that the accounts are gone?", which it is not.
+    ///
+    /// **Persisted, and it was not before.** In memory only, this started every launch EMPTY, which
+    /// broke both of the things it is for:
+    ///
+    /// - The unreadable-root fallback below could not fall back to anything on the FIRST pass after
+    ///   launch — precisely the pass most likely to meet a CloudStorage root that has not mounted
+    ///   yet — so the shrink it exists to refuse would have been published.
+    /// - And the constructor's seed had no cloud accounts to offer, so a pane restored onto a cloud
+    ///   source found `enabledProviders` without it and skipped its launch refresh, warning every
+    ///   time. That was a guaranteed miss rather than a race lost: the seed passed
+    ///   `cloudStorageFolders: []` by construction, so discovery's speed never came into it. iCloud
+    ///   never tripped it because iCloud is a constant the seed always adds.
     private var lastKnownAccountFolders: [URL] = []
     private var discoveryGeneration = 0
     /// Generation of the most recent discovery pass that published its results.
@@ -231,6 +245,11 @@ public class SettingsManager: ObservableObject {
     /// header's dropdown in different sequences for the same list, which is exactly the drift that
     /// makes a user distrust both. So it lives here and `availableProviders` is published in it.
     private static let sourceOrderKey = "sourceOrder"
+    /// The account folders the last successful discovery found, as absolute paths.
+    ///
+    /// **Persisted so `lastKnownAccountFolders` survives a quit**, which is what makes both of its
+    /// jobs work at launch rather than only mid-session. See there.
+    private static let lastKnownAccountFoldersKey = "lastKnownAccountFolders"
     private static let folderNameRuleKey = "folderNameRuleProvider"
 
     /// The UserDefaults domain the app persists settings to — its bundle identifier, which is what
@@ -722,8 +741,13 @@ public class SettingsManager: ObservableObject {
         // order means "the user has not dragged anything", and `inUserOrder` falls through to
         // discovery order for every id it does not name.
         self.sourceOrder = userDefaults.stringArray(forKey: Self.sourceOrderKey) ?? []
+        // Restored before the seed, so the seed has the accounts to offer — see
+        // `lastKnownAccountFolders`. Paths rather than URLs on disk: a defaults array of strings
+        // reads back identically on every OS, and these are always plain file paths.
+        self.lastKnownAccountFolders = (userDefaults.stringArray(forKey: Self.lastKnownAccountFoldersKey) ?? [])
+            .map { URL(fileURLWithPath: $0) }
         self.availableProviders = Self.inUserOrder(Self.mapProviders(
-            cloudStorageFolders: [],
+            cloudStorageFolders: self.lastKnownAccountFolders,
             iCloudDefaultPath: Self.iCloudDefaultPath,
             folderSources: self.folderSources,
             rootOverride: { rootOverrides[$0] },
@@ -993,6 +1017,10 @@ public class SettingsManager: ObservableObject {
         // carries a fresh path/name override, still publishes.
         if accounts.rootWasReadable {
             lastKnownAccountFolders = accounts.folders
+            // Written on every readable pass, including one that changes nothing: what has to
+            // survive the quit is "what did we last actually see", and a change-guard would skip
+            // exactly the unchanged pass that is the only one a quiet session ever runs.
+            userDefaults.set(accounts.folders.map(\.path), forKey: Self.lastKnownAccountFoldersKey)
         } else {
             Logger.shared.warning(
                 "Provider discovery could not read the CloudStorage folder, so it learned nothing "
