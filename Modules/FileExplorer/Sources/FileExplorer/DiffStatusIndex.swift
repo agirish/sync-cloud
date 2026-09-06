@@ -58,7 +58,12 @@ public struct DiffStatusIndex: Equatable, Sendable {
                     .filter { $0.hasPrefix(root + "/") }
             } else {
                 keys = [Self.sideAlignedPath(
-                    joined: root + "/" + relative,
+                    // Composed through `PathBoundary`, so a difference under a folder the root
+                    // links in from outside (iCloud Drive's `Documents`) keys the node the walk
+                    // actually made, which carries that folder's real spelling. The filesystem
+                    // root normalizes to an empty `root` here, which `join` reads as no root at
+                    // all — that one composes as it always did.
+                    joined: root.isEmpty ? root + "/" + relative : PathBoundary.join(root: root, relative: relative),
                     left: difference.leftItemPath,
                     right: difference.rightItemPath
                 )]

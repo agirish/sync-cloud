@@ -608,22 +608,31 @@ enum FolderJump {
     /// The immediate subfolders of the current folder's PARENT, excluding the current folder — the
     /// lateral hops neither the breadcrumb (up) nor back/forward (back) can reach. Returns an empty
     /// list at the pane root (no in-pane parent) or on any read error. Honors the pane's
-    /// show-hidden-files setting so the jump menu matches what the pane shows. Names sort with the
-    /// same localized-standard order the file panes use. `nonisolated` and pure so it can run off
-    /// the main thread (a large cloud directory would otherwise jank the menu-open).
-    nonisolated static func siblings(rootPath: String, relativePath: String, showHidden: Bool = false, fileManager: FileManager = .default, logError: (@Sendable (String) -> Void)? = nil) -> [JumpLocation] {
+    /// show-hidden-files setting so the jump menu matches what the pane shows — **by the pane's
+    /// own rule, a leading dot**, not `.skipsHiddenFiles`: the flag also drops folders carrying
+    /// `UF_HIDDEN`, which the pane lists, and iCloud Drive's `Desktop` and `Documents` are exactly
+    /// that (hidden links, see `PathBoundary.LinkedFolders`) — so at `iCloud ▸ Documents` the menu
+    /// offered every sibling but Desktop. Names sort with the same localized-standard order the
+    /// file panes use. `nonisolated` and pure so it can run off the main thread (a large cloud
+    /// directory would otherwise jank the menu-open).
+    ///
+    /// The parent is composed through `PathBoundary.join`, which expands a tilde root and takes a
+    /// first component that names a linked folder to where that folder really is — the listing
+    /// below is URL-based, and `contentsOfDirectory(at:)` returns nothing for a path whose last
+    /// component is the link itself.
+    nonisolated static func siblings(rootPath: String, relativePath: String, showHidden: Bool = false, fileManager: FileManager = .default, logError: (@Sendable (String) -> Void)? = nil, links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [JumpLocation] {
         let components = relativePath.split(separator: "/").map(String.init)
         guard let currentName = components.last else { return [] } // "" → root has no in-pane parent
         let parentComponents = components.dropLast()
         let parentRelative = parentComponents.joined(separator: "/")
-        let parentAbsolute = parentComponents.isEmpty ? rootPath : rootPath + "/" + parentRelative
+        let parentAbsolute = PathBoundary.join(root: rootPath, relative: parentRelative, links: links)
 
         let entries: [URL]
         do {
             entries = try fileManager.contentsOfDirectory(
                 at: URL(fileURLWithPath: parentAbsolute),
                 includingPropertiesForKeys: [.isDirectoryKey],
-                options: showHidden ? [] : [.skipsHiddenFiles])
+                options: [])
         } catch {
             // Don't silently read as "no other folders" — a permission/IO failure is worth a
             // breadcrumb.
@@ -643,10 +652,15 @@ enum FolderJump {
             return []
         }
 
+        // A link the parent carries to a folder outside it reports `isDirectory == false` — the
+        // resource read is about the link — and is a folder all the same; the pane lists it as
+        // one (the walk substitutes the target). Known by name, from the same table.
+        let linked = PathBoundary.linkedFolders(atRoot: parentAbsolute, in: links)
         return entries.compactMap { url -> JumpLocation? in
-            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { return nil }
             let name = url.lastPathComponent
-            guard name != currentName else { return nil }
+            guard linked[name] != nil
+                    || (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { return nil }
+            guard name != currentName, showHidden || !name.hasPrefix(".") else { return nil }
             let relative = parentRelative.isEmpty ? name : parentRelative + "/" + name
             return JumpLocation(relativePath: relative, name: name)
         }

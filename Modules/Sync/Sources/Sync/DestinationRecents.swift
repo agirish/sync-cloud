@@ -47,14 +47,17 @@ public enum DestinationRecents {
     public static func record(
         _ path: String,
         providerRoot: String,
-        in defaults: UserDefaults = .standard
+        in defaults: UserDefaults = .standard,
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
     ) {
         let destination = PaneBrowsePath.normalized(path)
         let root = PaneBrowsePath.normalized(providerRoot)
         guard !destination.isEmpty, !root.isEmpty else { return }
         // Only remember destinations inside the provider. The system-panel escape can land
         // anywhere, and this is a per-provider shortcut list, not a bookmark store.
-        guard destination == root || destination.hasPrefix(root + "/") else { return }
+        // `PathBoundary`, not a prefix test: a folder the root links in from outside — iCloud
+        // Drive's `~/Documents` — is inside the provider without being a string prefix of it.
+        guard PathBoundary.contains(destination, under: root, links: links) else { return }
 
         var all = (defaults.dictionary(forKey: defaultsKey) as? [String: [String]]) ?? [:]
         var list = all[root] ?? []

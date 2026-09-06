@@ -1073,7 +1073,10 @@ extension FileSyncManager {
     /// Kept anyway: 1.2x on the pane's slowest phase is worth having, and none of it is on the
     /// main actor. But do not reach for more parallelism here expecting the missing 10x — it was
     /// never there, and the enumeration is the floor.
-    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil, budget: NodeBudget? = nil) async -> [FileNode] {
+    /// - Parameter linkedFolders: the folders macOS links into a root from outside it, listed as
+    ///   the real folders they point at — see `PathBoundary.LinkedFolders`. The machine's own
+    ///   table by default; a fixture passes its own.
+    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil, budget: NodeBudget? = nil, linkedFolders: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder: Sendable {
                 let fileManager: FileManaging
@@ -1125,13 +1128,17 @@ extension FileSyncManager {
 
                 /// `nil` for every unbounded walk; see `FileSyncManager.NodeBudget`.
                 let budget: FileSyncManager.NodeBudget?
+                /// See `buildTree(url:…linkedFolders:)`.
+                let linkedFolders: PathBoundary.LinkedFolders
 
                 init(fileManager: FileManaging, sortOption: SortOption, maxDepth: Int?,
-                     budget: FileSyncManager.NodeBudget?) {
+                     budget: FileSyncManager.NodeBudget?,
+                     linkedFolders: PathBoundary.LinkedFolders) {
                     self.fileManager = fileManager
                     self.sortOption = sortOption
                     self.maxDepth = maxDepth
                     self.budget = budget
+                    self.linkedFolders = linkedFolders
                     let includeTags = sortOption == .tags
                     self.includeTags = includeTags
                     var keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .typeIdentifierKey]
@@ -1229,6 +1236,28 @@ extension FileSyncManager {
                 /// as a bare `[]`, so a permission-denied directory cached as a plain empty node and
                 /// the diff minted phantom actionable "Missing" rows for its (invisible) contents.
                 func childURLs(of dirURL: URL) -> (urls: [URL], listingFailed: Bool) {
+                    let listing = rawChildURLs(of: dirURL)
+                    // **A folder linked into this directory from outside is listed as the folder
+                    // it points at**, not as the link. iCloud Drive's container holds `Desktop`
+                    // and `Documents` as hidden symlinks to `~/Desktop` and `~/Documents`; walked
+                    // as links, every node under them would carry the link-side spelling, which
+                    // no stored absolute path in this app uses, and `enumerator(at:)` refuses to
+                    // traverse a URL whose LAST component is the link (measured — zero entries).
+                    // Substituted here, at the one listing, so `stat` sees a real directory, the
+                    // node's id is the real path, and the walk below it is the walk it always was.
+                    // A table that names nothing for this directory — every directory but one —
+                    // costs one dictionary lookup.
+                    let table = PathBoundary.linkedFolders(atRoot: dirURL.path, in: linkedFolders)
+                    guard !table.isEmpty else { return listing }
+                    return (listing.urls.map { child in
+                        guard let target = table[child.lastPathComponent] else { return child }
+                        return URL(fileURLWithPath: target, isDirectory: true)
+                    }, listing.listingFailed)
+                }
+
+                /// `childURLs(of:)` before the linked-folder substitution — the listing as the
+                /// directory holds it.
+                func rawChildURLs(of dirURL: URL) -> (urls: [URL], listingFailed: Bool) {
                     if let realFm = fileManager as? FileManager {
                         // Fast path: one call prefetches every child's metadata so buildNode's
                         // resourceValues are cache hits. The URL-based API does not traverse a
@@ -1475,7 +1504,8 @@ extension FileSyncManager {
                 }
             }
 
-            let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth, budget: budget)
+            let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth, budget: budget,
+                                      linkedFolders: linkedFolders)
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
 

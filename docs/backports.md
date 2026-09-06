@@ -3418,3 +3418,46 @@ there exactly once. The proposal had read the source, where `SyncHistoryWindowCo
 Moving it beside Activity Log means `.commandsRemoved()` on the third scene, and the measurement in
 `SyncCloudApp.swift` ("do not suppress all three") says that takes the main window's own opener with
 it — `theMainWindowKeepsItsOpener` is the pin. Nothing changed for it in this batch, on any line.
+
+## 2026-09-06 — iCloud rooted at iCloud Drive itself, and an iCloud row in Locations
+
+**`RECORDED — not owed`, all three lines.** Two user-reported gaps, one cause: iCloud's source root
+was `~/Documents`, so the breadcrumb could not go above Documents, and the Documents favorite —
+the same folder as the root — claimed the provider and took its Locations row with it. The root is
+now the iCloud Drive container (`~/Library/Mobile Documents/com~apple~CloudDocs`), landing at
+`Documents`; `PathBoundary.LinkedFolders` carries the two hidden links macOS leaves there
+(`Desktop`, `Documents`) so root-relative paths compose to the real `~/Documents` and `~/Desktop`
+trees and every stored absolute path stays byte-identical; the tree walk lists the two links as the
+real folders; `RootsMigration.moveICloudRoot` moves stored tabs, pins, recents, the Favorites
+order, filing destinations and iCloud-anchored ignore sets down into `Documents` once, and keeps
+`~/Documents` as a root override on a Mac whose iCloud Drive has no such link.
+
+### What applies, per line
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s' "$l"
+  for f in Modules/Sync/Sources/Sync/PathBoundary.swift \
+           Modules/Settings/Sources/Settings/RootsMigration.swift \
+           Modules/Dashboard/Sources/Dashboard/SidebarSources.swift; do
+    printf ' %s=%s' "$(basename $f .swift)" "$(git ls-tree -r --name-only origin/$l -- $f | grep -c . || true)"
+  done
+  printf ' old-root=%s\n' \
+    "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsManager.swift | grep -c '"~/Documents"' || true)"
+done   # main 1/1/1/1 · v4.x 1/1/1/1 · v3.x 1/0/0/1 · v2.x 1/0/0/1  (before this landed)
+```
+
+- **`v4.x`** carries both defects exactly as `main` did: the Locations section (`SidebarSources`,
+  v4.4), the root/landing split and its migration (`RootsMigration`, v4.1), and the `~/Documents`
+  root. The pick is the whole batch — `PathBoundary` link table, walk substitution, discovery
+  default, second migration, sidebar claims, and the four boundary sites converted from prefix
+  math — and it is a **root move with a stored-state migration**, which is the one kind of change
+  the maintenance lines were cut to avoid. Not owed.
+- **`v3.x` and `v2.x`** have no Locations section and no root/landing split: iCloud's single path
+  IS `~/Documents` there and the breadcrumb has nothing above it by design. The defect as reported
+  does not exist on those lines; the feature does not apply. Checked, not owed.
+
+**The one worth a sentence if the direction ever changes:** the second migration
+(`iCloudRootMoveStamp`) assumes the first one's frozen mapping — `applyAtLaunch` maps iCloud at
+`~/Documents` landing on itself, on purpose — so a pick of the second without the freeze rebases
+iCloud's positions twice on any install that has not yet run the first.

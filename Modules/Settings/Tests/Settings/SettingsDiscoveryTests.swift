@@ -94,11 +94,12 @@ private func noOverrides(_ id: String) -> String? { nil }
         #expect(providers[0].displayName == "iCloud")
         #expect(providers[0].imageName == "icloud")
         #expect(providers[0].rootPath == iCloudDefault)
-        // Lands at its own root: iCloud's real Drive root holds only hidden symlinks to the folders
-        // that matter, so `~/Documents` is both the top of this source and where panes open.
-        // See `CloudProvider.rootPath`.
-        #expect(providers[0].openAt == "")
-        #expect(providers[0].landingPath == iCloudDefault)
+        // Lands at Documents by default — the measured default discovery passes in; `""` is what
+        // it passes on a Mac whose iCloud Drive has no Documents. See `CloudProvider.rootPath`.
+        #expect(providers[0].openAt == "Documents")
+        #expect(providers[0].landingPath == iCloudDefault + "/Documents")
+        #expect(SettingsManager.mapProviders(cloudStorageFolders: [], iCloudDefaultPath: iCloudDefault,
+                                             iCloudDefaultOpenAt: "").first?.openAt == "")
         #expect(providers[0].type == .iCloud)
     }
 
@@ -474,7 +475,9 @@ private func noOverrides(_ id: String) -> String? { nil }
         // root — a landing folder is a separate question from the root, and asking it is the point
         // of `landingValidity`. Derived rather than written as a number so the pin stays about
         // "every pass re-checks the disk" rather than about how many sources the fixture has.
-        let statsPerPass = settings.availableProviders.reduce(0) { $0 + ($1.openAt.isEmpty ? 1 : 2) }
+        // Plus one: discovery asks whether iCloud Drive has a `Documents` to land in before it maps
+        // (`SettingsManager.iCloudDefaultOpenAt`), on every pass, for the same reason.
+        let statsPerPass = settings.availableProviders.reduce(0) { $0 + ($1.openAt.isEmpty ? 1 : 2) } + 1
         #expect(validationsAfterFirst >= providersAfterFirst.count)
 
         await settings.discoverProviders()

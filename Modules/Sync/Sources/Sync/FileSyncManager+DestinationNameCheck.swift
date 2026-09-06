@@ -29,14 +29,16 @@ extension FileSyncManager {
     /// The scanned pane provider owning `path`, or nil when the path lies outside both roots.
     nonisolated static func destinationProvider(
         forPath path: String,
-        providers: (left: CloudProvider, right: CloudProvider)?
+        providers: (left: CloudProvider, right: CloudProvider)?,
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
     ) -> CloudProvider? {
         guard let providers else { return nil }
         for provider in [providers.left, providers.right] {
-            var root = (provider.rootPath as NSString).expandingTildeInPath
-            while root.hasSuffix("/") { root.removeLast() }
+            let root = PathBoundary.normalizedRoot(provider.rootPath)
             guard !root.isEmpty else { continue }
-            if path == root || path.hasPrefix(root + "/") { return provider }
+            // Boundary-safe on "/", and aware of the folders a root links in from outside (iCloud
+            // Drive's `~/Documents`), which a prefix test would place outside both panes.
+            if PathBoundary.contains(path, under: root, links: links) { return provider }
         }
         return nil
     }

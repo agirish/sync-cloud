@@ -566,13 +566,23 @@ enum PaneLogic {
     /// case-insensitive by default and so is every iCloud and Dropbox folder on it, so
     /// `/Users/me/documents` and `/Users/me/Documents` are one folder — comparing components with
     /// `==` made the pane silently refuse to follow a path that differed only in case.
-    static func relativePath(of folder: String, under root: String) -> String? {
+    ///
+    /// **A folder the root links in from outside answers through the link's name**: `~/Documents/x`
+    /// under the iCloud Drive container is `Documents/x` (`PathBoundary.LinkedFolders`), tried
+    /// after the component walk fails, with the same case rule below the link.
+    static func relativePath(of folder: String, under root: String,
+                             links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> String? {
         guard folder.hasPrefix("/"), root.hasPrefix("/") else { return nil }
         let folderParts = (folder as NSString).standardizingPath.split(separator: "/").map(String.init)
         let rootParts = (root as NSString).standardizingPath.split(separator: "/").map(String.init)
-        guard folderParts.count >= rootParts.count else { return nil }
-        for (mine, theirs) in zip(folderParts, rootParts) where
-            mine.compare(theirs, options: .caseInsensitive) != .orderedSame {
+        guard folderParts.count >= rootParts.count,
+              zip(folderParts, rootParts).allSatisfy({ $0.compare($1, options: .caseInsensitive) == .orderedSame })
+        else {
+            for (name, target) in PathBoundary.linkedFolders(atRoot: root, in: links) {
+                if let below = relativePath(of: folder, under: target, links: [:]) {
+                    return PathBoundary.joinRelative(name, below)
+                }
+            }
             return nil
         }
         // The folder's own spelling is returned, not the root's — this is a path the app will hand

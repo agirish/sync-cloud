@@ -268,6 +268,13 @@ struct SyncCloudApp: App {
             if let line = RootsMigration.applyAtLaunch(defaults: .standard).logLine {
                 Logger.shared.info(line)
             }
+            // The second move, v5.3: iCloud's root rose from `~/Documents` to the iCloud Drive
+            // container, and its positions move down into `Documents` — after the first, whose
+            // frozen mapping leaves iCloud where it found it. Same readers, same reason it is here
+            // and synchronous; its own stamp.
+            if let line = RootsMigration.moveICloudRoot(defaults: .standard).logLine {
+                Logger.shared.info(line)
+            }
 
             // Main-thread hitch reporting, when the diagnostic flag is set. Installed here rather
             // than from a view so it covers the whole session — including launch, which is where a

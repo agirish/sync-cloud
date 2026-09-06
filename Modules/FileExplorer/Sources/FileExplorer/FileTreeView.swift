@@ -617,8 +617,10 @@ public struct FileTreeView: View, Equatable {
                           index: PaneChildrenIndex) -> PaneBrowsePath? {
         guard selection.count == 1, let path = selection.first else { return nil }
         let root = PaneBrowsePath.normalized(treeRoot)
-        guard path.hasPrefix(root + "/") else { return nil }
-        return PaneBrowsePath(relativePath: String(path.dropFirst(root.count + 1)))
+        // `PathBoundary`, so a row the walk lists under its real spelling — iCloud Drive's
+        // `Documents`, which is `~/Documents` — still reads as inside the root that links it in.
+        guard let relative = PathBoundary.relativize(path, under: root), !relative.isEmpty else { return nil }
+        return PaneBrowsePath(relativePath: relative)
             .pruned(against: index, treeRoot: root)
     }
 

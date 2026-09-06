@@ -167,6 +167,12 @@ public enum RootsMigration {
         var handled: Set<String> = []
         /// Old normalized root → new normalized root, for the two root-keyed stores.
         var rootRemap: [String: String] = [:]
+        /// Old normalized root → the prefix its positions gain, for the same two stores — the
+        /// same values as `prefixes`, keyed the way those stores are. Recorded rather than
+        /// re-derived at rebase time: the v5.3 move's prefix comes from a folder LINKED into the
+        /// new root (`PathBoundary.LinkedFolders`), which no string arithmetic over the pair can
+        /// recover, so `prefix(forRoot:plan:)` reads this first.
+        var prefixByRoot: [String: String] = [:]
         /// Landing folders to persist, for sources whose legacy Location was not the new default.
         var openAtOverrides: [String: String] = [:]
         /// Roots to persist, for the legacy Location that pointed outside its account entirely.
@@ -233,6 +239,7 @@ public enum RootsMigration {
                 continue
             }
             plan.prefixes[provider.id] = prefix
+            plan.prefixByRoot[legacyRoot] = prefix
             // **No two sources can collide on one `rootRemap` key**, so this is an assignment and
             // not a merge. Reaching this line at all means `legacyRoot` relativized under THIS
             // source's account folder, and account folders are siblings — a path inside one is
@@ -469,6 +476,7 @@ public enum RootsMigration {
     /// remapped rather than by id — the two root-keyed stores hold no provider ids at all.
     private static func prefix(forRoot root: String, plan: Plan) -> String? {
         guard let newRoot = plan.rootRemap[root] else { return nil }
+        if let recorded = plan.prefixByRoot[root] { return recorded }
         // `relativize` rather than a lookup by id: it re-derives the prefix from the very pair the
         // remap is made of. Both sides of that pair are `normalizedRoot`ed and so is the value in
         // `prefixes`, which is what makes the two answers the same string rather than merely two
@@ -614,11 +622,185 @@ extension RootsMigration {
         // exactly the folder this source pointed at before the split, which is what a legacy
         // position was measured from. Folder sources are left out of the mapping entirely — they
         // are their own roots and this migration has nothing to say about them.
+        //
+        // **iCloud is mapped as this migration's version discovered it — rooted at `~/Documents`,
+        // landing on itself.** Its root moved again in v5.3 (`moveICloudRoot`); mapped with the
+        // current default this plan would call iCloud a source that moved, and rebase positions
+        // that were never measured from where it now points. A migration is a statement about the
+        // disk at its own version.
         let discovered = SettingsManager.mapProviders(
             cloudStorageFolders: accounts.folders,
-            iCloudDefaultPath: SettingsManager.iCloudDefaultPath
+            iCloudDefaultPath: SettingsManager.legacyICloudRoot,
+            iCloudDefaultOpenAt: ""
         )
         return apply(defaults: defaults, domainName: domainName, accounts: accounts,
                      discovered: discovered, legacyOverrides: legacyOverrides)
+    }
+}
+
+// MARK: - The second move: iCloud up to the iCloud Drive container
+
+extension RootsMigration {
+
+    /// The stamp for the v5.3 move. Its own key, as the note on `stampKey` requires: the first
+    /// move's rebases are not idempotent and its stamp must never be bumped to re-run anything.
+    public static let iCloudRootMoveStampKey = "iCloudRootMoveStamp"
+    static let iCloudRootMoveStamp = 1
+
+    /// What the move decided, in the form the launch log line is built from.
+    public enum ICloudRootMoveOutcome: Equatable, Sendable {
+        /// The stamp was already current.
+        case alreadyDone
+        /// Moved: every position stored relative to `~/Documents` gained `prefix`, and the source
+        /// now starts at the container.
+        case moved(prefix: String, moved: Int, unreadable: [String])
+        /// This Mac's iCloud Drive has no `Documents` link (Desktop & Documents syncing is off), so
+        /// `~/Documents` is not in iCloud at all and the source keeps it as a stored root override
+        /// rather than having its positions moved somewhere they do not resolve.
+        case keptAtDocuments
+        /// Nothing to move — the root is already a stored override, or a legacy Location the first
+        /// migration will pin as one.
+        case leftAlone(reason: String)
+
+        public var logLine: String? {
+            switch self {
+            case .alreadyDone:
+                return nil
+            case .moved(let prefix, let moved, let unreadable):
+                var line = "iCloud root: the iCloud source now starts at iCloud Drive itself and opens "
+                    + "at \(prefix)"
+                line += moved == 0
+                    ? ". There were no stored folder positions to move."
+                    : ", and \(moved) stored folder position\(moved == 1 ? "" : "s") moved down into "
+                        + "\(prefix). Tabs, pins, recents, ignored items and filing destinations all "
+                        + "point at the same folders as before."
+                if !unreadable.isEmpty {
+                    line += " NOT moved, because the stored value could not be read: "
+                        + "\(unreadable.sorted().joined(separator: ", "))."
+                }
+                return line
+            case .keptAtDocuments:
+                return "iCloud root: this Mac's iCloud Drive does not link Documents in (Desktop & "
+                    + "Documents syncing is off), so the iCloud source stays rooted at ~/Documents as a "
+                    + "stored override — Reset in Settings ▸ Sources moves it to iCloud Drive."
+            case .leftAlone(let reason):
+                return "iCloud root: not moved — \(reason)."
+            }
+        }
+    }
+
+    /// The move, worked out before anything is written.
+    struct ICloudRootMovePlan: Equatable {
+        enum Decision: Equatable {
+            case move(prefix: String)
+            case keepOldRootAsOverride
+            case leaveAlone(reason: String)
+        }
+        var decision: Decision
+        var plan: Plan
+    }
+
+    /// Decides the move from what the defaults hold about iCloud and what this Mac's iCloud Drive
+    /// links in.
+    ///
+    /// - Parameters:
+    ///   - oldRoot: where iCloud was rooted, `~/Documents`.
+    ///   - newRoot: the container.
+    ///   - rootOverride: `root_override_iCloud`, if stored — the first migration's answer for a
+    ///     legacy Location pointing somewhere else entirely. The root is not moving; nothing to do.
+    ///   - legacyPathOverride: `path_override_iCloud`, if stored — the same Location before the
+    ///     first migration has settled it (an unreadable CloudStorage defers that migration, not
+    ///     this one). A Location that IS `~/Documents` is no override at all; any other is left for
+    ///     the first migration to pin.
+    ///   - openAtOverride: `openAt_override_iCloud`, if stored — measured from `oldRoot`, so it
+    ///     gains the prefix too. `""` is a real value (the root) and gains it as well.
+    ///   - links: the folders the container links in. No `Documents` among them means `~/Documents`
+    ///     is not in iCloud on this Mac: the old root is kept as an override rather than moved.
+    static func iCloudRootMovePlan(oldRoot: String, newRoot: String,
+                                   rootOverride: String?, legacyPathOverride: String?,
+                                   openAtOverride: String?,
+                                   links: PathBoundary.LinkedFolders) -> ICloudRootMovePlan {
+        let old = normalizedRoot(oldRoot)
+        let new = normalizedRoot(newRoot)
+        var plan = Plan()
+        plan.handled.insert("iCloud")
+        if let rootOverride, !rootOverride.isEmpty {
+            return ICloudRootMovePlan(decision: .leaveAlone(reason: "its root is a stored override"), plan: plan)
+        }
+        if let legacyPathOverride, !legacyPathOverride.isEmpty, normalizedRoot(legacyPathOverride) != old {
+            return ICloudRootMovePlan(decision: .leaveAlone(reason: "its Location was set by hand and "
+                                                            + "stays as the root"), plan: plan)
+        }
+        guard let prefix = PathBoundary.relativize(old, under: new, links: links), !prefix.isEmpty else {
+            plan.rootOverrides["iCloud"] = old
+            // The discovered landing is `Documents` now; under the kept root that would be
+            // `~/Documents/Documents`. Keep whatever the user had, which absent an override was
+            // the root itself.
+            plan.openAtOverrides["iCloud"] = openAtOverride ?? ""
+            return ICloudRootMovePlan(decision: .keepOldRootAsOverride, plan: plan)
+        }
+        plan.prefixes["iCloud"] = prefix
+        plan.rootRemap[old] = new
+        plan.prefixByRoot[old] = prefix
+        if let openAtOverride {
+            plan.openAtOverrides["iCloud"] = PathBoundary.joinRelative(prefix, openAtOverride)
+        } else if prefix != "Documents" {
+            plan.openAtOverrides["iCloud"] = prefix
+        }
+        return ICloudRootMovePlan(decision: .move(prefix: prefix), plan: plan)
+    }
+
+    /// Runs the move. Safe to call repeatedly: the stamp short-circuits every launch after the
+    /// first, and there is no per-source record because iCloud is always discovered — nothing
+    /// about it waits on a mount.
+    ///
+    /// Runs AFTER `applyAtLaunch`, whose frozen mapping leaves iCloud's positions where they were
+    /// (see there); the two never rebase the same store for the same source.
+    @discardableResult
+    public static func moveICloudRoot(
+        defaults: UserDefaults = .standard,
+        domainName: String? = SettingsManager.appSuiteName,
+        oldRoot: String = SettingsManager.legacyICloudRoot,
+        newRoot: String = SettingsManager.iCloudDefaultPath,
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders
+    ) -> ICloudRootMoveOutcome {
+        let stamp = (SettingsManager.scopedValue(forKey: iCloudRootMoveStampKey,
+                                                 in: defaults, domainName: domainName) as? Int) ?? 0
+        guard stamp < iCloudRootMoveStamp else { return .alreadyDone }
+
+        func override(_ prefix: String) -> String? {
+            SettingsManager.overridesByProviderId(in: defaults, domainName: domainName, keyPrefix: prefix)["iCloud"]
+        }
+        let planned = iCloudRootMovePlan(
+            oldRoot: oldRoot, newRoot: newRoot,
+            rootOverride: override(SettingsManager.rootOverrideKeyPrefix),
+            legacyPathOverride: override(SettingsManager.legacyPathOverrideKeyPrefix),
+            openAtOverride: override(SettingsManager.openAtOverrideKeyPrefix),
+            links: links)
+        let plan = planned.plan
+
+        for (id, root) in plan.rootOverrides {
+            defaults.set(root, forKey: SettingsManager.rootOverrideKeyPrefix + id)
+        }
+        for (id, openAt) in plan.openAtOverrides {
+            defaults.set(openAt, forKey: SettingsManager.openAtOverrideKeyPrefix + id)
+        }
+
+        var moved = 0
+        var unreadable: [String] = []
+        if !plan.prefixes.isEmpty {
+            moved += rebaseTabs(defaults: defaults, plan: plan, unreadable: &unreadable)
+            moved += rebaseJumpFolders(defaults: defaults, plan: plan, unreadable: &unreadable)
+            moved += rebaseFavoriteOrder(defaults: defaults, plan: plan)
+            moved += rebaseDestinationRecents(defaults: defaults, plan: plan)
+            moved += rebaseIgnoredItems(defaults: defaults, domainName: domainName, plan: plan)
+        }
+        defaults.set(iCloudRootMoveStamp, forKey: iCloudRootMoveStampKey)
+
+        switch planned.decision {
+        case .move(let prefix): return .moved(prefix: prefix, moved: moved, unreadable: unreadable)
+        case .keepOldRootAsOverride: return .keptAtDocuments
+        case .leaveAlone(let reason): return .leftAlone(reason: reason)
+        }
     }
 }

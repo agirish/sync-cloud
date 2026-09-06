@@ -164,10 +164,21 @@ public enum FileLocation {
     ///
     /// Pure string math. `NSString.pathComponents` and `NSString.path(withComponents:)` do not
     /// reach the filesystem, which `URL(fileURLWithPath:)` — unhinted — does.
-    static func coveredPaths(ofRootPath rootPath: String) -> [String] {
+    ///
+    /// **A folder the root links in from outside is covered ground too**, spelled where it really
+    /// lives: iCloud Drive's `Documents` is `~/Documents`, and a file there is in the cloud however
+    /// its path is spelled. Without this every row of a Documents tree wore ⌂ the moment iCloud's
+    /// root rose to its container — the false reassurance in the other direction. The table is
+    /// `PathBoundary.discoveredLinkedFolders`, read once and constant; a test passes its own.
+    static func coveredPaths(ofRootPath rootPath: String,
+                             links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [String] {
         let normalized = normalize(rootPath)
         guard !normalized.isEmpty, normalized.hasPrefix("/") else { return [] }
         var paths = [normalized]
+        for target in PathBoundary.linkedFolders(atRoot: rootPath, in: links).values.sorted() {
+            let covered = normalize(target)
+            if !paths.contains(covered) { paths.append(covered) }
+        }
         let components = (normalized as NSString).pathComponents
         for index in components.indices.dropLast().reversed()
         where components[index] == "library" && components[index + 1] == "cloudstorage" {

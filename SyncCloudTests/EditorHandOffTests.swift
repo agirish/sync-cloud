@@ -149,3 +149,22 @@ import FileExplorer
         return text
     }
 }
+
+/// The hand-off path rule knows the folders a root links in from outside — iCloud Drive's
+/// `Documents` — and answers through the link's name, keeping its case rule below the link.
+@Suite struct EditorHandOffLinkedFolderTests {
+    static let links: PathBoundary.LinkedFolders = ["/c": ["Documents": "/home/Documents"]]
+
+    @Test func aFolderUnderTheLinkedTargetAnswersThroughTheLinkName() {
+        #expect(PaneLogic.relativePath(of: "/home/Documents/Notes/2026", under: "/c", links: Self.links)
+                == "Documents/Notes/2026")
+        #expect(PaneLogic.relativePath(of: "/home/Documents", under: "/c", links: Self.links) == "Documents")
+        #expect(PaneLogic.relativePath(of: "/home/documents/notes", under: "/c", links: Self.links)
+                == "Documents/notes", "the case rule stopped applying below the link")
+    }
+
+    @Test func aFolderOutsideBothStaysOutside() {
+        #expect(PaneLogic.relativePath(of: "/home/DocumentsArchive/x", under: "/c", links: Self.links) == nil)
+        #expect(PaneLogic.relativePath(of: "/home/Documents/x", under: "/c", links: [:]) == nil)
+    }
+}

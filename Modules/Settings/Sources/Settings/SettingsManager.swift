@@ -262,8 +262,28 @@ public class SettingsManager: ObservableObject {
     /// identifier in the same package.
     nonisolated public static let appSuiteName = "com.abhishekgirish.SyncCloud"
 
-    nonisolated static var iCloudDefaultPath: String {
+    /// iCloud's discovered root: the iCloud Drive container, what Finder shows as "iCloud Drive".
+    /// See `CloudProvider.rootPath` for why it was `~/Documents` until v5.3, and
+    /// `PathBoundary.LinkedFolders` for how `Documents` under it still reaches `~/Documents`.
+    nonisolated public static var iCloudDefaultPath: String {
+        PathBoundary.iCloudDriveContainer
+    }
+
+    /// Where iCloud was rooted before v5.3. `RootsMigration` maps the pre-split world against
+    /// this — a migration is a statement about what was on disk at its version, and moving the
+    /// discovered default under it would have it plan iCloud as a source that moved when, for
+    /// the positions it rebases, it had not — and `moveICloudRoot` moves stored positions from
+    /// here to the container.
+    nonisolated public static var legacyICloudRoot: String {
         (NSString(string: "~/Documents")).expandingTildeInPath
+    }
+
+    /// iCloud's discovered landing folder: `Documents` when the container has one — the link
+    /// Desktop & Documents syncing leaves, or a real folder — and the root itself otherwise.
+    /// Measured rather than assumed so a Mac with the syncing off, where `Documents` is simply
+    /// not in iCloud Drive, opens at what it does have rather than at a folder that is not there.
+    nonisolated static func iCloudDefaultOpenAt(rootPath: String, validator: PathValidator) -> String {
+        validator(PathBoundary.join(root: rootPath, relative: "Documents")) ? "Documents" : ""
     }
 
     /// When true, the Differences pane hides "right is newer" items when right is Google Drive and sizes match (avoids noise from Drive overwriting file dates).
@@ -749,6 +769,8 @@ public class SettingsManager: ObservableObject {
         self.availableProviders = Self.inUserOrder(Self.mapProviders(
             cloudStorageFolders: self.lastKnownAccountFolders,
             iCloudDefaultPath: Self.iCloudDefaultPath,
+            iCloudDefaultOpenAt: Self.iCloudDefaultOpenAt(rootPath: Self.iCloudDefaultPath,
+                                                          validator: self.validatePath),
             folderSources: self.folderSources,
             rootOverride: { rootOverrides[$0] },
             openAtOverride: { openAtOverrides[$0] },
@@ -821,6 +843,8 @@ public class SettingsManager: ObservableObject {
     /// - Parameters:
     ///   - cloudStorageFolders: Account folder URLs found under the CloudStorage root.
     ///   - iCloudDefaultPath: Root used for the always-present iCloud provider absent an override.
+    ///   - iCloudDefaultOpenAt: iCloud's landing folder absent an override — `Documents` on a Mac
+    ///     whose iCloud Drive has one (`iCloudDefaultOpenAt(rootPath:validator:)`), `""` otherwise.
     ///   - folderSources: The plain folders the user added, in the order they were added.
     ///   - rootOverride: Returns a migrated root for a provider id, or nil for the discovered one.
     ///   - openAtOverride: Returns the user's chosen landing folder (root-relative) for a provider
@@ -838,6 +862,7 @@ public class SettingsManager: ObservableObject {
     nonisolated static func mapProviders(
         cloudStorageFolders: [URL],
         iCloudDefaultPath: String,
+        iCloudDefaultOpenAt: String = "Documents",
         folderSources: [FolderSource] = [],
         rootOverride: (String) -> String? = { _ in nil },
         openAtOverride: (String) -> String? = { _ in nil },
@@ -850,15 +875,15 @@ public class SettingsManager: ObservableObject {
             nameOverride(id).flatMap { $0.isEmpty ? nil : $0 } ?? defaultName
         }
 
-        // 1. iCloud is always available. Its root is `~/Documents` and its landing folder is that
-        //    same folder — see `CloudProvider.rootPath` for why the real iCloud Drive root is not
-        //    usable as a source root on a Mac with Desktop & Documents syncing on.
+        // 1. iCloud is always available. Its root is the iCloud Drive container and it lands at
+        //    `Documents` — which, with Desktop & Documents syncing on, is `~/Documents` reached
+        //    through the link macOS leaves in the container (`PathBoundary.LinkedFolders`).
         found.append(CloudProvider(
             id: "iCloud",
             displayName: displayName("iCloud", id: "iCloud"),
             imageName: "icloud",
             rootPath: iCloudDefaultPath,
-            openAt: "",
+            openAt: iCloudDefaultOpenAt,
             type: .iCloud
         ))
 
@@ -992,6 +1017,7 @@ public class SettingsManager: ObservableObject {
             let providers = Self.mapProviders(
                 cloudStorageFolders: folders,
                 iCloudDefaultPath: iCloudPath,
+                iCloudDefaultOpenAt: Self.iCloudDefaultOpenAt(rootPath: iCloudPath, validator: validator),
                 folderSources: sources,
                 rootOverride: { rootOverrides[$0] },
                 openAtOverride: { openAtOverrides[$0] },

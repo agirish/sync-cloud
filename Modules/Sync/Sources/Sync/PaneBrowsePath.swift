@@ -108,11 +108,24 @@ public struct PaneBrowsePath: Equatable, Sendable {
     // MARK: - Resolution against a tree
 
     /// Absolute directory each open column lists, root column first. Always non-empty.
-    public func columnDirectories(treeRoot: String) -> [String] {
+    ///
+    /// **The first column under a root that links a folder in from outside opens where that
+    /// folder really is** — `Documents` under the iCloud Drive container is `~/Documents`, which
+    /// is what the tree walk lists it as (`FileSyncManager.buildTree`) and therefore the key the
+    /// children index holds. Composed lexically, the column would ask the index about a path it
+    /// never indexed and draw nothing. Every deeper component is plain composition, as before; so
+    /// is every root the table does not name. See `PathBoundary.LinkedFolders`.
+    public func columnDirectories(treeRoot: String,
+                                  links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [String] {
         var directory = Self.normalized(treeRoot)
         var directories = [directory]
-        for component in components {
-            directory += "/" + component
+        let linked = PathBoundary.linkedFolders(atRoot: directory, in: links)
+        for (index, component) in components.enumerated() {
+            if index == 0, let target = linked[component] {
+                directory = target
+            } else {
+                directory += "/" + component
+            }
             directories.append(directory)
         }
         return directories
@@ -120,8 +133,9 @@ public struct PaneBrowsePath: Equatable, Sendable {
 
     /// The deepest open directory: the folder New Folder creates into, the folder a paste or a
     /// background drop lands in, and what the pane reports as its current path.
-    public func currentDirectory(treeRoot: String) -> String {
-        columnDirectories(treeRoot: treeRoot)[depth]
+    public func currentDirectory(treeRoot: String,
+                                 links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> String {
+        columnDirectories(treeRoot: treeRoot, links: links)[depth]
     }
 
     /// Drops trailing components that no longer resolve to a directory in `index`.

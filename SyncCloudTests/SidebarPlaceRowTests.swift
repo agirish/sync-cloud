@@ -185,3 +185,61 @@ import Foundation
         }
     }
 }
+
+/// **A place that a source links in from outside reads "in" that source, and the source keeps its
+/// own row.** The case is iCloud Drive with Desktop & Documents syncing on: `~/Documents` is
+/// inside iCloud through the container's `Documents` link, and no arithmetic on the two paths —
+/// resolved or not — says so, because the link points from the container OUT to the real folder.
+///
+/// Built against the real `~/Documents` (the standard places are a constant) and a container that
+/// exists nowhere, with the link table injected — the machine's own table would make the test
+/// depend on whether this Mac syncs its Documents folder.
+@Suite struct LinkedPlaceRowTests {
+
+    static let container = "/nowhere/com~apple~CloudDocs"
+    static let documents = NSHomeDirectory() + "/Documents"
+    static let links: PathBoundary.LinkedFolders = [container: ["Documents": documents]]
+    static let iCloud = CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
+                                      rootPath: container, openAt: "Documents", type: .iCloud)
+
+    static func split(links: PathBoundary.LinkedFolders) -> (locations: [SidebarSourceRow], shortcuts: [SidebarSourceRow]) {
+        ContentView.splitFolderSidebarPlaceRows([iCloud], volumes: [], favoritePlaces: [documents], links: links)
+    }
+
+    @Test func theDocumentsFavoriteIsInsideICloudThroughTheLink() throws {
+        let rows = Self.split(links: Self.links)
+        let documents = try #require(rows.shortcuts.first { $0.name == "Documents" })
+        #expect(documents.state == .inside(sourceId: "iCloud", sourceName: "iCloud"))
+        #expect(documents.detail == "in iCloud")
+        #expect(documents.id == Self.documents, "the place became the source's row rather than a place inside it")
+    }
+
+    /// The row the whole change exists for: Locations carries iCloud, with its own mark, because
+    /// the Documents favorite no longer claims the provider outright.
+    @Test func iCloudKeepsItsLocationsRow() throws {
+        let rows = Self.split(links: Self.links)
+        let icloud = try #require(rows.locations.first { $0.id == "iCloud" })
+        #expect(icloud.band == .cloud)
+        #expect(icloud.symbol == "icloud")
+        #expect(icloud.state == .configured)
+        #expect(icloud.absolutePath == Self.container)
+    }
+
+    /// Without the link, `~/Documents` is nothing to iCloud — the row is the one that promotes.
+    @Test func withoutTheLinkTheFavoriteIsUnowned() throws {
+        let rows = Self.split(links: [:])
+        let documents = try #require(rows.shortcuts.first { $0.name == "Documents" })
+        #expect(documents.state == .unknown)
+        #expect(rows.locations.contains { $0.id == "iCloud" })
+    }
+
+    /// The claims list is the roots plus each linked folder under the same id and name, and a
+    /// provider with no links contributes exactly its root.
+    @Test func theClaimsAreTheRootsPlusTheLinkedFolders() {
+        let dropbox = CloudProvider(id: "Dropbox", displayName: "Dropbox", imageName: "dropbox",
+                                    rootPath: "/d", type: .dropBox)
+        let claims = ContentView.folderSidebarClaims([Self.iCloud, dropbox], links: Self.links)
+        #expect(claims.map(\.path) == [Self.container, Self.documents, "/d"])
+        #expect(claims.map(\.id) == ["iCloud", "iCloud", "Dropbox"])
+    }
+}

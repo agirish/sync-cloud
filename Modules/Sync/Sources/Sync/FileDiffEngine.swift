@@ -262,6 +262,19 @@ public struct FileDiffEngine {
             // directory so its map entry is re-marked unexplored after the walk. Returning true
             // keeps the rest of the walk going: one locked folder must not abort the whole scan.
             let recordUnreadable: (URL, Error) -> Bool = { failedURL, error in
+                // **A link to a directory is not an unreadable directory.** The URL enumerator
+                // tries to enter a symlinked folder, fails with ENOTDIR, and reports it here — and
+                // the descent below then walks the link's real target, so what is inside is known
+                // after all. Recording it made the diff re-mark that folder unexplored at the end
+                // of the walk, and `computeDifferences` then suppressed every Missing row beneath
+                // it: a Compare at the iCloud Drive container, whose `Desktop` and `Documents` are
+                // exactly such links, reported zero differences over both. Dropped from the record
+                // here, at the one place the two branches meet.
+                if fileManager is FileManager,
+                   (try? failedURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true,
+                   (try? failedURL.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    return true
+                }
                 unreadableCount += 1
                 if unreadableSamples.count < maxIndividuallyLogged {
                     unreadableSamples.append("Error enumerating \(failedURL): \(error)")

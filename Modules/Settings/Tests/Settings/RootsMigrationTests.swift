@@ -17,12 +17,14 @@ struct RootsMigrationTests {
 
     static let cloudStorage = "/Users/u/Library/CloudStorage"
 
-    /// The providers as discovery produces them, with no `openAt` override applied — the input the
-    /// migration is specified against.
+    /// The providers as discovery produced them AT THIS MIGRATION'S VERSION, with no `openAt`
+    /// override applied — the input the migration is specified against. iCloud rooted at
+    /// `~/Documents` and landing on itself, which is what `applyAtLaunch` freezes; see there.
     static func discovered(_ accountFolders: [String] = ["OneDrive-Personal", "Dropbox"]) -> [CloudProvider] {
         SettingsManager.mapProviders(
             cloudStorageFolders: accountFolders.map { URL(fileURLWithPath: "\(cloudStorage)/\($0)") },
-            iCloudDefaultPath: "/Users/u/Documents")
+            iCloudDefaultPath: "/Users/u/Documents",
+            iCloudDefaultOpenAt: "")
     }
 
     static func accounts(_ accountFolders: [String] = ["OneDrive-Personal", "Dropbox"]) -> CloudStorageAccounts {

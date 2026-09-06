@@ -14,16 +14,20 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
     /// true root per account, so an editable one is only a way to misconfigure it. A folder source
     /// is its own root.
     ///
-    /// iCloud is the exception, and deliberately: its real root
-    /// (`~/Library/Mobile Documents/com~apple~CloudDocs`) holds only the app folders, because with
-    /// Desktop & Documents syncing on, macOS keeps the real trees at `~/Documents` and `~/Desktop`
-    /// and leaves **hidden symlinks** behind in their place. Measured on this machine: the two
-    /// links carry `UF_HIDDEN` (so every `.skipsHiddenFiles` listing drops them) and report
-    /// `isDirectory == false` (so they are not drillable) — and this app skips symlinks wherever it
-    /// scans, on purpose (`StorageLens`: "no phantom tile / double-count for a link";
-    /// `DuplicateFinder`, `FolderSurveyBuilder` likewise). Rooting iCloud there would show two
-    /// folders out of four and scan a fraction of the user's files while claiming to scan the
-    /// cloud. `~/Documents` is the honest root until a synthetic one is built.
+    /// iCloud's root is the iCloud Drive container, `~/Library/Mobile Documents/com~apple~CloudDocs`
+    /// — what Finder shows as "iCloud Drive" — and it lands at `Documents`. **It was rooted at
+    /// `~/Documents` until v5.3**, deliberately: with Desktop & Documents syncing on, macOS keeps
+    /// the real trees at `~/Documents` and `~/Desktop` and leaves **hidden symlinks** named
+    /// `Desktop` and `Documents` in the container, and this app walked links as links — so the
+    /// container showed two folders out of four, and everything the app had stored about a file
+    /// in Documents was spelled `~/Documents/…`, which the container's root would not contain.
+    /// Both are answered by `PathBoundary.LinkedFolders`: the walk lists the two links as the
+    /// real folders they point at, and root-relative paths compose through the link's name to
+    /// the real tree — `Documents/Family` on this source IS `~/Documents/Family`, spelled the way
+    /// every stored absolute path already spells it. The old root survives as a `root_override_`
+    /// only on a Mac whose iCloud Drive has no such link, where `~/Documents` is not in the cloud
+    /// at all and moving that source would have moved a user's positions out from under them —
+    /// see `RootsMigration.moveICloudRoot`.
     public var rootPath: String
     /// The folder panes open at by default, **relative to `rootPath`**; `""` is the root itself.
     ///

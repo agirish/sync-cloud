@@ -325,10 +325,18 @@ extension ContentView {
     /// `resolvingSymlinksInPath` for every place against every root now runs off the main actor, and
     /// a function that reads `@AppStorage` cannot. The list is read on the main actor by
     /// `refreshFolderSidebarRows` and handed down, which is the same shape `volumes` already had.
+    /// - Parameter links: the folders a source root links in from outside — iCloud Drive's
+    ///   `Desktop` and `Documents` (`PathBoundary.LinkedFolders`). The machine's own table by
+    ///   default; a test passes its own. It widens what a source CONTAINS (so `~/Documents` reads
+    ///   "in iCloud" and clicking it navigates there) without widening what a source IS: only a
+    ///   root proper claims a place as `.configured`, which is what keeps the iCloud row in
+    ///   Locations — a Documents favorite that claimed the provider outright took its row away.
     nonisolated static func buildFolderSidebarPlaceRows(_ providers: [CloudProvider],
                                                         volumes: [SidebarSourceModel.Volume],
-                                                        favoritePlaces: [String]) -> [SidebarSourceRow] {
+                                                        favoritePlaces: [String],
+                                                        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> [SidebarSourceRow] {
         let roots = Self.folderSidebarRoots(providers)
+        let claims = Self.folderSidebarClaims(providers, links: links)
         var claimed = Set<String>()
 
         var places: [KnownPlace] = SidebarSourceModel.favoriteShortcuts.map {
@@ -355,7 +363,7 @@ extension ContentView {
                                         band: .trash, state: .revealOnly, isAvailable: true)
             }
             let container = owner == nil
-                ? SidebarSourceModel.owningSource(of: place.path, among: roots, resolve: Self.resolved)
+                ? SidebarSourceModel.owningSource(of: place.path, among: claims, resolve: Self.resolved)
                 : nil
             return SidebarSourceRow(
                 id: owner?.id ?? place.path,
@@ -455,9 +463,10 @@ extension ContentView {
     /// exactly as the builder produced it.
     nonisolated static func splitFolderSidebarPlaceRows(
         _ providers: [CloudProvider], volumes: [SidebarSourceModel.Volume],
-        favoritePlaces: [String]) -> (locations: [SidebarSourceRow], shortcuts: [SidebarSourceRow]) {
+        favoritePlaces: [String],
+        links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> (locations: [SidebarSourceRow], shortcuts: [SidebarSourceRow]) {
         let all = Self.buildFolderSidebarPlaceRows(providers, volumes: volumes,
-                                                   favoritePlaces: favoritePlaces)
+                                                   favoritePlaces: favoritePlaces, links: links)
         var locations: [SidebarSourceRow] = []
         for band in [SidebarSourceRow.Band.cloud, .device, .trash] {
             locations += all.filter { $0.band == band }
@@ -474,6 +483,20 @@ extension ContentView {
     nonisolated static func folderSidebarRoots(_ providers: [CloudProvider]) -> [(id: String, name: String, path: String)] {
         providers.map { (id: $0.id, name: $0.displayName,
                          path: ($0.rootPath as NSString).expandingTildeInPath) }
+    }
+
+    /// Every folder a source CONTAINS, for the "in <source>" test: its root, plus each folder the
+    /// root links in from outside, under that source's id and name. `~/Documents` is inside iCloud
+    /// through the container's `Documents` link even though no string arithmetic on the two paths
+    /// says so — and resolving symlinks does not help either, because the link points the other
+    /// way, from the container out to the real folder.
+    nonisolated static func folderSidebarClaims(_ providers: [CloudProvider],
+                                                links: PathBoundary.LinkedFolders) -> [(id: String, name: String, path: String)] {
+        providers.flatMap { provider -> [(id: String, name: String, path: String)] in
+            let root = (provider.rootPath as NSString).expandingTildeInPath
+            let linked = PathBoundary.linkedFolders(atRoot: root, in: links).values.sorted()
+            return ([root] + linked).map { (id: provider.id, name: provider.displayName, path: $0) }
+        }
     }
 
     /// Home, then the mounted volumes — the startup disk first, then everything else by name.
@@ -906,14 +929,13 @@ extension ContentView {
         // The path relative to the owning source's root — `focusOn` takes a relative path, and the
         // shortcut only knows its absolute one. Containment re-checked rather than assumed: the
         // row was built earlier, and a source path edited since would make a blind count-strip
-        // produce a garbage relative path against the new root.
-        guard SidebarSourceModel.contains(resolved, under: root) || SidebarSourceModel.isSameFolder(resolved, root) else {
+        // produce a garbage relative path against the new root. `PathBoundary`, so a folder the
+        // root links in from outside — `~/Documents` under iCloud Drive — relativizes through the
+        // link's name (`Documents`), which a prefix strip on the resolved paths cannot do.
+        guard let relative = PathBoundary.relativize(resolved, under: root) else {
             Logger.shared.warning("Sidebar: \(source.name) is no longer inside \(owner) — its source has moved")
             return
         }
-        let relative = resolved.count > root.count
-            ? String(resolved.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            : ""
         if inNewTab {
             openInNewTab(absolutePath: resolved, isLeft: isLeft)
             return

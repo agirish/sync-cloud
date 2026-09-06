@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Sync
 @testable import Dashboard
 
 /// Coverage for the folder quick-jump store and sibling enumeration behind the pane header's
@@ -196,6 +197,37 @@ import Foundation
         // Excludes the current folder (2026) and the file; keeps the sibling directories, sorted.
         #expect(siblings.map(\.name) == ["2025", "Archive"])
         #expect(siblings.map(\.relativePath) == ["Projects/2025", "Projects/Archive"])
+    }
+
+    /// **A folder the root links in from outside.** Its siblings are listed even though macOS flags
+    /// the link hidden (the pane's rule is a leading dot, and this is now the same rule), and the
+    /// folders INSIDE it list through the link's real target — `contentsOfDirectory(at:)` returns
+    /// nothing for a URL whose last component is the link itself.
+    @Test func siblingsSeeThroughALinkedFolderAndDoNotHideItByFlag() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("fjl-\(UUID().uuidString)")
+        let container = base.appendingPathComponent("container")
+        let real = base.appendingPathComponent("outside").appendingPathComponent("Documents")
+        try fm.createDirectory(at: container.appendingPathComponent("Word"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: real.appendingPathComponent("Family"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: real.appendingPathComponent("Legal"), withIntermediateDirectories: true)
+        let link = container.appendingPathComponent("Documents")
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+        // The flag macOS puts on iCloud Drive's two links, which `.skipsHiddenFiles` would honour.
+        try fm.setAttributes([.extensionHidden: true], ofItemAtPath: link.path)
+        var values = URLResourceValues(); values.isHidden = true
+        var flagged = link; try flagged.setResourceValues(values)
+        defer { try? fm.removeItem(at: base) }
+        let links: PathBoundary.LinkedFolders = [container.path: ["Documents": real.path]]
+
+        // At the root: Word's siblings include the hidden-flagged link, by name.
+        #expect(FolderJump.siblings(rootPath: container.path, relativePath: "Word", links: links).map(\.name)
+                == ["Documents"])
+        // Inside the link: the parent is the real folder, so the listing works and stays relative
+        // to the ROOT through the link's name.
+        let inside = FolderJump.siblings(rootPath: container.path, relativePath: "Documents/Family", links: links)
+        #expect(inside.map(\.name) == ["Legal"])
+        #expect(inside.map(\.relativePath) == ["Documents/Legal"])
     }
 
     @Test func siblingsEmptyAtRootAndOnMissingParent() {

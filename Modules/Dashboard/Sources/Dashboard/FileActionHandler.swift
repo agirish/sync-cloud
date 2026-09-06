@@ -90,12 +90,12 @@ public class FileActionHandler {
 
         let expandedRoot = (rootPath as NSString).expandingTildeInPath
         // Same boundary rule as providerDisplayName(forPath:): the root itself or "root/…",
-        // never a bare string prefix ("/data/foo" must not claim "/data/foobar").
+        // never a bare string prefix ("/data/foo" must not claim "/data/foobar") — and, through
+        // `PathBoundary`, a folder the root links in from outside (iCloud Drive's `Documents`,
+        // listed by the walk as `~/Documents`), which a prefix test would refuse to focus.
         let relPath: String
-        if node.id == expandedRoot {
-            relPath = ""
-        } else if node.id.hasPrefix(expandedRoot + "/") {
-            relPath = String(node.id.dropFirst(expandedRoot.count + 1))
+        if let relative = PathBoundary.relativize(node.id, under: expandedRoot) {
+            relPath = relative
         } else {
             syncManager.present(SyncError(
                 title: "Can't Focus Folder",
@@ -357,7 +357,7 @@ public class FileActionHandler {
         let expanded = (path as NSString).expandingTildeInPath
         for p in settings.availableProviders {
             let root = (p.rootPath as NSString).expandingTildeInPath
-            if expanded == root || expanded.hasPrefix(root + "/") {
+            if PathBoundary.contains(expanded, under: root) {
                 return p.displayName
             }
         }

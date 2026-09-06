@@ -25,6 +25,29 @@ import Foundation
         #expect(!keys.contains { $0.hasPrefix("a/b/link/") })    // …but never descended into (no phantom rows)
     }
 
+    /// The URL enumerator refuses to enter a symlinked folder and reports it as an error; the
+    /// manual descent then walks the target. The folder must come out explored, with its
+    /// contents, or the diff suppresses every Missing row beneath it — which is what a Compare at
+    /// the iCloud Drive container did over its linked `Documents`.
+    @Test func aSymlinkedFolderTheWalkDescendsIsNotMarkedUnexplored() throws {
+        let fm = FileManager.default
+        let root = try makeCanonicalTempRoot(prefix: "DiffSymlinkTests")
+        defer { try? fm.removeItem(at: root) }
+        let container = root.appendingPathComponent("container")
+        let target = root.appendingPathComponent("outside").appendingPathComponent("Documents")
+        try fm.createDirectory(at: container, withIntermediateDirectories: true)
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try "x".write(to: target.appendingPathComponent("note.txt"), atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(at: container.appendingPathComponent("Documents"), withDestinationURL: target)
+
+        let files = try FileDiffEngine.getFilesInDirectory(container)
+        let documents = try #require(files["Documents"])
+        #expect(documents.isDirectory)
+        #expect(!documents.isUnexplored, "the link's descent error was recorded as an unreadable directory")
+        #expect(files["Documents/note.txt"] != nil)
+        #expect(files[""] == nil, "the walk root was marked unexplored")
+    }
+
     @Test func testSameFilesNoDifferences() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
