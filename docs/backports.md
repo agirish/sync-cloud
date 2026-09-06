@@ -3522,3 +3522,69 @@ once and rewritten once, and the fixture their line runs is the one both edits a
 
 **Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). These rows are the record a
 future audit needs, not a to-do.
+
+---
+
+## 2026-09-06 — the People tab: a dead *Look for names*, a relationship order, and reaching the files (`b553f3a9`..`2ff64fd5`)
+
+Three commits on `main`. One is a real user-visible defect, and it is the only row here that would
+matter to somebody on a maintenance line — because it is the only one whose *feature* exists there.
+
+### What applies, per line
+
+| Change | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`b553f3a9` — *Look for names* read the last Filing scan's provider root.** The button is offered whenever a profile is loaded, which is every launch; `look()` then bailed on a nil root and did nothing at all — no read, no log line, not even the "no new names" sentence | **Applies, in full and verbatim.** `guard let profile, let root = providerRoot else { return }` is line 2913 of that line's `SettingsView.swift`, and the button beside it is the same one | **Does not apply — the People tab does not exist on either line.** No `struct PeopleList`, no `PeopleStore.swift`, no `PeopleOverviewRow.swift`, no `PeopleNameScanner` | RECORDED — not owed |
+| **`0664437e` — relationship order plus a hand-arranged one** (`PeopleOrder.swift`, `PeopleStore.move(id:up:)`, `"order": "custom"` in `people.json`) | Applies in the sense that its roster is sorted by display name and could be ordered better. New capability, not a defect | Does not apply — no roster store at all | RECORDED — not owed |
+| **`2ff64fd5` — the tab becomes a list, gains Show Their Files / Show Folder, and stops saying "household"** | Applies. That line's tab is the pre-redesign column, and its Help and setup summary still say "household" | Does not apply — no People tab, and their `HelpBook.swift` has no People section | RECORDED — not owed |
+
+### The checks, with their positive controls
+
+Stage 1 found `SettingsView.swift` and `MacApp/HelpBook.swift` on **all four** lines, which is what
+makes the zeroes below absence rather than a mistyped path — the control this file's own preamble
+asks for, and the reason item 13 is cited there.
+
+```sh
+# stage 1 — the file is on every line, including the two answering "no"
+for L in main v4.x v3.x v2.x; do
+  git ls-tree -r --name-only origin/$L -- Modules/Settings/Sources/Settings/SettingsView.swift | wc -l
+done                                        # 1 1 1 1  ← the positive control
+
+# stage 2 — the SHAPE. `main` prints the fixed form, v4.x the defective one, the rest nothing
+for L in main v4.x v3.x v2.x; do
+  git show origin/$L:Modules/Settings/Sources/Settings/SettingsView.swift |
+    grep -c 'providerRoot: URL?'            # main 0 · v4.x 1 · v3.x 0 · v2.x 0
+done
+for L in main v4.x v3.x v2.x; do
+  git show origin/$L:Modules/Settings/Sources/Settings/SettingsView.swift |
+    grep -c 'struct PeopleList'             # main 1 · v4.x 1 · v3.x 0 · v2.x 0
+done
+```
+
+The two counts together are what separates "this line has the tab and the bug" from "this line has
+neither": `providerRoot` alone reads as *fixed* on `v3.x`, which is the wrong conclusion for a line
+that never had the feature. Count the subject as well as the defect.
+
+### The one that would be worth sending, if the direction ever changes
+
+`b553f3a9` — and it is the smallest of the three. On `v4.x` the whole pick is deleting one stored
+property, dropping one argument at the construction site, and replacing the `guard` with a root
+derived from `profile.root`; it touches no engine file and no other view. What it buys is a button
+that currently does nothing on that line, in the ordinary case (open Settings without having run a
+To File scan first), with no error and nothing logged — the "nothing happened" shape this repo keeps
+finding. `main`'s own log carried exactly one `People: read` line in four weeks, which is the
+measurement, and it is the same code on `v4.x`.
+
+The other two are a redesign and a new capability, and neither is a defect.
+
+### One measurement worth not re-deriving
+
+`URL(fileURLWithPath:)` **expands a leading tilde itself**. The explicit
+`(profile.root as NSString).expandingTildeInPath` in `lookRoot(for:)` is consistency with
+`FileSyncManager+RestructureApply` and `duplicateScanCoversSurvey`, not correctness — removing it is
+an equivalent program, and a mutation test over it comes back green for that reason rather than
+because the test is weak. `PeopleLookRootTests` says so in prose so the next session does not read
+that green as a hole and "fix" a test that is already right.
+
+**Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). These rows are the record a
+future audit needs, not a to-do.
