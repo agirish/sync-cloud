@@ -1,11 +1,16 @@
 import Foundation
+import Design
 
 /// A markup verb: what the reader asked to do to the selection.
 ///
 /// **Toggles, not inserts.** Every one of these that can be undone by repeating it is — pressing
 /// bold on bold text takes the asterisks off. An editor whose Bold only ever adds `**` is one that
 /// requires the keyboard to correct what the menu just did.
-enum MarkupVerb: Equatable, Sendable {
+///
+/// Public since the Markup menu joined the menu bar (roadmap RD1): the app target builds that menu
+/// from ``menuOrder`` — the same list the context menu is built from, so the two cannot disagree
+/// about the verbs or their order — and reaches each verb through ``PlainTextEditor/apply(_:to:)``.
+public enum MarkupVerb: Equatable, Sendable {
     case bold
     case italic
     case strikethrough
@@ -25,7 +30,7 @@ enum MarkupVerb: Equatable, Sendable {
     /// **One flat list, because a menu item carries an `Int` and not an enum.** `NSMenuItem.tag` is
     /// how the click gets back here, so the index in this array IS the identity — which makes the
     /// order load-bearing in a way a menu's usually is not. Appending is safe; reordering is not.
-    static let menuOrder: [MarkupVerb?] = [
+    public static let menuOrder: [MarkupVerb?] = [
         .bold, .italic, .strikethrough, .inlineCode, .link,
         nil,
         .heading(1), .heading(2), .heading(3), .heading(0),
@@ -35,7 +40,27 @@ enum MarkupVerb: Equatable, Sendable {
         .codeBlock, .horizontalRule,
     ]
 
-    var title: String {
+    /// The chord the menu bar registers for this verb, or `nil` for the verbs that are menu-only.
+    ///
+    /// **Only the five inline verbs carry one.** ⌘1…⌘4 are the workspaces, ⌥ is barred (the ⌥-hold
+    /// reveal), and ⌃⌘1/2/3 went to the view modes — so headings and lists have no free chord that
+    /// a Mac user would guess, and a chord nobody guesses is a chord in the ⌘/ reference for nothing.
+    /// Declared on the verb rather than beside the menu item so the context menu (`PlainTextEditor`)
+    /// and the Markup menu draw the same key from one place.
+    public var chord: AppChord? {
+        switch self {
+        case .bold: return .bold
+        case .italic: return .italic
+        case .strikethrough: return .strikethrough
+        case .inlineCode: return .inlineCode
+        case .link: return .link
+        case .heading, .bulletList, .numberedList, .taskItem, .blockQuote, .codeBlock,
+             .horizontalRule:
+            return nil
+        }
+    }
+
+    public var title: String {
         switch self {
         case .bold: return "Bold"
         case .italic: return "Italic"

@@ -22,7 +22,7 @@ import Sync
 /// as current as the rest of the row, and no more. A materializing download is handled separately
 /// and precisely, by `forget(_:)`, because that one the app started and is watching.
 @MainActor
-enum CloudOnlyBadgeCache {
+public enum CloudOnlyBadgeCache {
     /// The one table every pane shares.
     ///
     /// The state lives in a `Table` rather than in statics so a test can exercise the rules on a
@@ -34,7 +34,11 @@ enum CloudOnlyBadgeCache {
     private static let table = Table()
 
     /// The remembered answer for `path`, or nil if it has not been statted since the last republish.
-    static func cached(_ path: String) -> Bool? { table.cached(path) }
+    ///
+    /// Public for File ▸ Download, which is resolved on every `ContentView` body pass and must not
+    /// pay an `lstat` there: a selected row has been drawn, so its badge has already recorded the
+    /// answer here, and the menu item reads that rather than asking the filesystem again.
+    public static func cached(_ path: String) -> Bool? { table.cached(path) }
 
     static func record(_ path: String, isCloudOnly: Bool) {
         table.record(path, isCloudOnly: isCloudOnly)

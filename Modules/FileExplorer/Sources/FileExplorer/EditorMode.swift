@@ -44,6 +44,19 @@ public enum EditorMode: String, CaseIterable, Sendable {
         }
     }
 
+    /// Text ▸ Source / Preview / Split's chord — ⌃⌘1/2/3, in the capsule's own order.
+    ///
+    /// Declared per case rather than derived from `allCases.firstIndex`, so a reordering of the
+    /// enum cannot silently move a chord onto a different mode: `AppChordTests` pins each display,
+    /// and the pin is only worth something if the mapping is written down.
+    public var chord: AppChord {
+        switch self {
+        case .edit: return .editorSourceMode
+        case .preview: return .editorPreviewMode
+        case .split: return .editorSplitMode
+        }
+    }
+
     /// The mode a document should open in, given what the file is.
     ///
     /// **A non-Markdown file is always `.edit`**, and this is the one place that decides it — the

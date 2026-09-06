@@ -1,3 +1,4 @@
+import Events
 import Foundation
 import Sync
 
@@ -25,7 +26,7 @@ import Sync
 /// key depend on the memo's generation — which re-keys EVERY realized row in both panes on every
 /// forget, so one download would re-stat the whole visible list, twice over. Both cost more than a
 /// stale badge on the pane the user is not acting in, and the badge is one republish from correct.
-enum PaneToken: Equatable, Sendable {
+public enum PaneToken: Equatable, Sendable {
     /// The left comparison pane.
     case left
     /// The right comparison pane.
@@ -38,14 +39,16 @@ enum PaneToken: Equatable, Sendable {
     /// would let a pane latch a download it did not start. Appended last, per the case-add rule.
     case compareCopies
 
-    init(isLeft: Bool, isSingleSource: Bool) {
+    /// Public since File ▸ Download: the menu item, in the app target, names the pane whose
+    /// selection it acts on from the same two facts the row menu does.
+    public init(isLeft: Bool, isSingleSource: Bool) {
         self = isSingleSource ? .singleSource : (isLeft ? .left : .right)
     }
 }
 
 /// The payload of a `.cloudDownloadRequested` post: which file, from which pane, and a fresh
 /// identity per request.
-struct CloudDownloadRequest: Equatable, Sendable {
+public struct CloudDownloadRequest: Equatable, Sendable {
     /// Absolute path of the cloud-only file whose download was requested.
     let path: String
     /// The pane whose UI initiated the request — only that pane's rows should watch for the
@@ -80,6 +83,37 @@ struct CloudDownloadRequest: Equatable, Sendable {
         let request = CloudDownloadRequest(path: path, paneToken: paneToken)
         channel.post(name: .cloudDownloadRequested, object: request)
         return request
+    }
+
+    /// The Download verb, whole: ask the system to fetch the placeholder, and — only if it agreed —
+    /// announce the request so the posting pane starts watching for the content to land.
+    ///
+    /// **One body for the row menu and File ▸ Download.** It lived inline in the row menu's button,
+    /// and the menu bar's item would have been a second copy of the try, the two log lines and the
+    /// post — three chances to drift, on the path that decides whether a badge ever clears.
+    ///
+    /// Works cleanly for iCloud, the one provider with a public, non-blocking download API. For
+    /// other File Provider providers `MaterializationStatus.download` throws, the badge correctly
+    /// stays, and the log names Reveal in Finder as the route — which is on both menus already.
+    /// Nothing is posted on that path: a watch for a download nobody started would poll for ten
+    /// seconds and conclude nothing.
+    ///
+    /// - Parameter channel: the channel the POSTING pane listens on. `.default` in the app; a test
+    ///   that mounts a pane hands both sides its own.
+    /// - Returns: whether the download was requested.
+    @MainActor
+    @discardableResult
+    public static func requestDownload(path: String, name: String, from paneToken: PaneToken,
+                                       through channel: NotificationCenter = .default) -> Bool {
+        do {
+            try MaterializationStatus.download(atPath: path)
+            Logger.shared.info("Requested download of cloud-only file: \(path)")
+            post(path: path, from: paneToken, through: channel)
+            return true
+        } catch {
+            Logger.shared.warning("Download unavailable for “\(name)” — reveal it in Finder to download it (\(error.localizedDescription))")
+            return false
+        }
     }
 
     /// The routing decision, extracted so it can be unit-tested: the request carried by

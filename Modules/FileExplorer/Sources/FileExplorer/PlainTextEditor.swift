@@ -274,9 +274,13 @@ struct PlainTextEditor: NSViewRepresentable {
         /// still AppKit's own and keep working; a subclass overriding `menu(for:)` would have to
         /// rebuild them or risk dropping one.
         ///
-        /// **No key equivalents on these items.** The chords they will eventually carry belong to
-        /// menu-bar items that do not exist yet, and a context menu advertising `⌘B` for a chord
-        /// nothing registers would be telling the reader something untrue.
+        /// **The key equivalents are the Markup menu's, read from the verb.** They were blank while
+        /// nothing registered them — a context menu advertising `⌘B` for a chord nothing answered
+        /// would have been telling the reader something untrue — and they are drawn now for the
+        /// opposite reason: the menu bar registers each one (`MarkupVerb.chord`), so a context menu
+        /// that hid them would be the one surface in the app not saying so. AppKit does not
+        /// dispatch keys to a context menu's items; these are a display, and the registration that
+        /// answers the key is the menu bar's.
         func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent,
                       at charIndex: Int) -> NSMenu? {
             guard offersMarkup else {
@@ -284,18 +288,7 @@ struct PlainTextEditor: NSViewRepresentable {
                 insertTextSettings(into: menu, at: 0)
                 return menu
             }
-            let markup = NSMenu(title: "Markup")
-            for (index, verb) in MarkupVerb.menuOrder.enumerated() {
-                guard let verb else {
-                    markup.addItem(.separator())
-                    continue
-                }
-                let item = NSMenuItem(title: verb.title, action: #selector(applyMarkup(_:)),
-                                      keyEquivalent: "")
-                item.target = self
-                item.tag = index
-                markup.addItem(item)
-            }
+            let markup = Self.markupMenu(target: self, action: #selector(applyMarkup(_:)))
             let host = NSMenuItem(title: "Markup", action: nil, keyEquivalent: "")
             host.submenu = markup
             menu.insertItem(host, at: 0)
@@ -353,20 +346,33 @@ struct PlainTextEditor: NSViewRepresentable {
             defaults.set(!current, forKey: EditorTextSettings.checksSpellingKey)
         }
 
+        /// The Markup submenu, built from ``MarkupVerb/menuOrder`` with each verb's chord drawn on
+        /// its item. Static so a test can build it without a text view and read the key
+        /// equivalents back — the claim "the context menu shows the chords the menu bar registers"
+        /// is about these items, and nothing else can see them.
+        static func markupMenu(target: AnyObject?, action: Selector) -> NSMenu {
+            let markup = NSMenu(title: "Markup")
+            for (index, verb) in MarkupVerb.menuOrder.enumerated() {
+                guard let verb else {
+                    markup.addItem(.separator())
+                    continue
+                }
+                let item = NSMenuItem(title: verb.title, action: action,
+                                      keyEquivalent: verb.chord?.appKitKeyEquivalent ?? "")
+                if let chord = verb.chord { item.keyEquivalentModifierMask = chord.appKitModifierMask }
+                item.target = target
+                item.tag = index
+                markup.addItem(item)
+            }
+            return markup
+        }
+
         /// Applies a verb to the view's own selection, as an edit the view can undo.
         @objc func applyMarkup(_ sender: NSMenuItem) {
             guard let view = textView,
                   MarkupVerb.menuOrder.indices.contains(sender.tag),
-                  let verb = MarkupVerb.menuOrder[sender.tag],
-                  let edit = MarkdownEdits.apply(verb, to: view.string,
-                                                 selection: view.selectedRange()) else { return }
-            let change = MarkdownEdits.minimalReplacement(from: view.string, to: edit.text)
-            // **`insertText(_:replacementRange:)`, which is the path typing takes.** It registers
-            // the undo, applies the view's own typing attributes to what it inserts, and posts the
-            // change notification that pushes the new buffer back into the document — three things
-            // a direct `textStorage` splice would each have to be made to do by hand.
-            view.insertText(change.text, replacementRange: change.range)
-            view.setSelectedRange(edit.selection)
+                  let verb = MarkupVerb.menuOrder[sender.tag] else { return }
+            PlainTextEditor.apply(verb, to: view)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -403,6 +409,29 @@ struct PlainTextEditor: NSViewRepresentable {
         }
         view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                               height: CGFloat.greatestFiniteMagnitude)
+    }
+
+    /// Applies a markup verb to the view's selection, as ONE edit the view can undo.
+    ///
+    /// **The one implementation, reached from two menus.** The context menu's items land here through
+    /// `Coordinator.applyMarkup`, and the menu bar's Markup items through
+    /// `EditorDocumentSurface.applyMarkup(_:in:)`; a second copy for the menu bar would be a second
+    /// place for the undo grouping or the selection arithmetic to drift.
+    ///
+    /// - Returns: whether the verb applied — `false` when `MarkdownEdits` has nothing to do for
+    ///   this selection, in which case the buffer and the undo stack are untouched.
+    @discardableResult
+    static func apply(_ verb: MarkupVerb, to view: NSTextView) -> Bool {
+        guard let edit = MarkdownEdits.apply(verb, to: view.string,
+                                             selection: view.selectedRange()) else { return false }
+        let change = MarkdownEdits.minimalReplacement(from: view.string, to: edit.text)
+        // **`insertText(_:replacementRange:)`, which is the path typing takes.** It registers
+        // the undo, applies the view's own typing attributes to what it inserts, and posts the
+        // change notification that pushes the new buffer back into the document — three things
+        // a direct `textStorage` splice would each have to be made to do by hand.
+        view.insertText(change.text, replacementRange: change.range)
+        view.setSelectedRange(edit.selection)
+        return true
     }
 
     /// Opens the find bar over the text view, **with its Replace row showing**.

@@ -1301,25 +1301,20 @@ struct FileContextMenu: View {
                 // download path everywhere.
                 if !singleNode.isDirectory, MaterializationStatus.isCloudOnly(atPath: singleNode.id) {
                     Button {
-                        do {
-                            try MaterializationStatus.download(atPath: singleNode.id)
-                            Logger.shared.info("Requested download of cloud-only file: \(singleNode.id)")
-                            // Tell the row to watch for the content landing so its cloud badge
-                            // clears; on the failure path the badge (correctly) stays. Scoped to
-                            // THIS pane — the twin row the other pane may show for the same path
-                            // must not start a second poll.
-                            //
-                            // And through this pane's own CHANNEL, not `.default`. In the app they
-                            // are the same object, so this changes no shipped behaviour; it makes
-                            // the invariant true rather than incidentally true — a pane and its own
-                            // poster are on one channel, whichever channel that is.
-                            CloudDownloadRequest.post(
-                                path: singleNode.id,
-                                from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
-                                through: downloadChannel)
-                        } catch {
-                            Logger.shared.warning("Download unavailable for “\(singleNode.name)” — reveal it in Finder to download it (\(error.localizedDescription))")
-                        }
+                        // The verb itself is `CloudDownloadRequest.requestDownload`, shared with
+                        // File ▸ Download. On success it tells the row to watch for the content
+                        // landing so its cloud badge clears; on failure the badge (correctly)
+                        // stays. Scoped to THIS pane — the twin row the other pane may show for
+                        // the same path must not start a second poll.
+                        //
+                        // And through this pane's own CHANNEL, not `.default`. In the app they
+                        // are the same object, so this changes no shipped behaviour; it makes
+                        // the invariant true rather than incidentally true — a pane and its own
+                        // poster are on one channel, whichever channel that is.
+                        CloudDownloadRequest.requestDownload(
+                            path: singleNode.id, name: singleNode.name,
+                            from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
+                            through: downloadChannel)
                     } label: {
                         Label("Download", systemImage: "icloud.and.arrow.down")
                     }

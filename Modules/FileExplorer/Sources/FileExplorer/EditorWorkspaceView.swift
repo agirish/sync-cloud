@@ -478,7 +478,10 @@ public struct EditorWorkspaceView: View {
     /// A function over three booleans rather than a computed property, for the reason
     /// ``EditorFileRailView/dotColour(rowPath:selectedPath:status:accent:)`` is one: the rule is
     /// worth asserting, and asserting it through the header means building a whole workspace.
-    static func showsAutosaveSwitch(hasPath: Bool, wasRefused: Bool, isReadOnly: Bool) -> Bool {
+    ///
+    /// Public since Text ▸ Autosave This File joined the menu bar: the menu item and this switch
+    /// are two doors onto one setting, and they have to be withheld by the same rule.
+    public static func showsAutosaveSwitch(hasPath: Bool, wasRefused: Bool, isReadOnly: Bool) -> Bool {
         hasPath && !wasRefused && !isReadOnly
     }
 
