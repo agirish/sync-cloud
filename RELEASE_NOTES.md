@@ -5,6 +5,56 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v5.3 — DRAFT, not released
+
+> What is on `main` since v5.2. It may still change before v5.3 is cut, and nothing here is
+> installable from a release yet.
+
+### Edit gets its menus
+
+- **Two new menus, Text and Markup**, after Organize in the menu bar. Edit's whole menu-bar presence
+  was New Text File… and Save; everything else it could do was a click or a right-click. Both menus
+  grey out unless Edit is on screen with a document open, the way Compare's items follow a
+  comparison. In Preview the Markup verbs and the two find items grey too, because the rendered page
+  has no text to select in.
+- **Text is about the document as a whole.** Source, Preview and Split on **⌃⌘1, ⌃⌘2 and ⌃⌘3**,
+  ticked for the one showing and greyed for a file with nothing to preview; **Find Next ⌘G** and
+  **Use Selection for Find ⌘E**, which the find bar had and nothing answered; the Wrap Lines and
+  Check Spelling While Typing switches; and **Autosave This File**, the header's switch as a menu
+  item — same setting, same tick.
+- **Markup is the right-click menu's verb list, with keys.** Bold **⌘B**, Italic **⌘I**,
+  Strikethrough **⇧⌘X**, Inline Code **⇧⌘K**, Link… **⇧⌘L**, then the headings, lists, quote,
+  code block and rule with no keys — ⌘1 through ⌘4 are the workspaces, and nothing this app
+  registers may use ⌥. The right-click menu now shows the same five keys, because they work.
+- **⌘I is Italic in the text and the Info inspector everywhere else.** One key, two jobs, decided
+  by where the caret is when you press it: in the document's own text it wraps the selection in
+  asterisks; in the Go to field, the rename row, a pane's search box, the find bar's own field, or
+  anywhere outside Edit, it shows or hides the inspector as it always has. The five Markup keys
+  follow the same rule — they never edit the document from a field you are typing in.
+
+### Three menu items that were missing
+
+- **View ▸ Text Size ▸ Bigger ⌘+ / Smaller ⌘− / Default Size ⌘0.** The whole app's type, from the
+  keyboard. They step the same stops the Text size slider in Settings ▸ Readability has and nothing
+  between or beyond them, so the keyboard cannot reach a size Settings cannot; at either end the
+  item greys.
+- **File ▸ Download**, for one selected file whose content is still in the cloud. The row's
+  right-click menu had it and the File menu, which carries the rest of the row's verbs, did not. It
+  asks iCloud to fetch the file exactly as the row does, and the cloud badge clears when the content
+  lands; for other providers Reveal in Finder remains the way, as before.
+- **Window ▸ Sync History** was already there — SwiftUI lists every window automatically — and the
+  audit that proposed adding it had read the source rather than the menu. Left as it is: the only
+  way to move it beside Activity Log removes the main window's own entry from that menu, which is
+  measured and pinned.
+
+### The ⌘/ reference grows sideways
+
+- **Three columns instead of two.** Seven rows arrived at once and the two-column window was already
+  as tall as a 13" display allows, so the reference is wider and shorter rather than taller — a
+  reference you scroll is a reference you stop reading. Every chord above has its row.
+
+---
+
 ## v5.2
 
 ### Storage moves into Organize

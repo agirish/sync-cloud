@@ -3356,3 +3356,65 @@ made stage 2 look as though it had no output rather than never having run.
 
 **Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). These rows are the record
 a future audit needs, not a to-do.
+
+---
+
+## 2026-09-06 — the v5.3 menu-bar batch: Text and Markup menus, View ▸ Text Size, File ▸ Download (roadmap RD1 + RD2)
+
+**Nothing owed, and the reason differs by row.** Everything here is a menu item; what the item
+reaches is what decides whether a maintenance line could carry it at all.
+
+### What applies, per line
+
+| Change on `main` | v4.x | v3.x | v2.x | Status |
+|---|---|---|---|---|
+| Text ▸ and Markup ▸ menus, `EditorVerbs`, ⌃⌘1/2/3, ⌘G/⌘E, ⌘B ⇧⌘X ⇧⌘K ⇧⌘L | no Edit workspace — `EditorDocumentSurface.swift` and `MarkupVerbs.swift` absent | absent | absent | CHECKED — not owed |
+| ⌘I routed Italic-or-inspector (`InspectorOrItalic`, `EditorDocumentSurface.caretTextView`) | no editor for the Italic half; ⌘I is the inspector alone, correctly | same | same | CHECKED — not owed |
+| Markup context menu draws the registered chords (`PlainTextEditor.Coordinator.markupMenu`) | no `PlainTextEditor` | absent | absent | CHECKED — not owed |
+| View ▸ Text Size (`FontSize.bigger`/`.smaller`, `TextSizeCommands`) | **`FontSize.swift` present, with `selectablePercents`** — the code would apply | `FontSize.swift` present, no `selectablePercents` — the step rule has nothing to step | same as v3.x | RECORDED — not owed |
+| File ▸ Download (`PaneRowVerbs.download`, `CloudDownloadRequest.requestDownload`) | **`PaneRowVerbs` present** — the menu row would apply; the row verb it shares a body with is there too | no `PaneRowVerbs` (the row verbs have no menu on that line) | same | RECORDED — not owed |
+| ⌘/ reference in three columns (`balancedColumns`) | two-column reference, fewer rows — nothing overflows | same | same | CHECKED — not owed |
+| `AppChord` glyph for the `-` key (`⌘−`), `ShortcutKeycapSpeech` for `+`/`−` | no chord uses either key | same | same | CHECKED — not owed |
+
+### The checks, with their positive controls
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s surface=%s fontsize=%s paneRowVerbs=%s markupVerbs=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorDocumentSurface.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Design/Sources/Design/FontSize.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/ShortcutCommands.swift 2>/dev/null | grep -c 'struct PaneRowVerbs' || true)" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/MarkupVerbs.swift | wc -l | tr -d ' ')"
+done   # main 1/1/2/1 · v4.x 0/1/2/0 · v3.x 0/1/0/0 · v2.x 0/1/0/0
+for l in v4.x v3.x v2.x; do
+  printf '%-6s selectablePercents=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/FontSize.swift | grep -c 'selectablePercents' || true)"
+done   # v4.x 1 · v3.x 0 · v2.x 0
+```
+
+`main` prints 1 in every file column, which is the positive control: the paths are spelled right,
+so the zeros on the other lines are absences and not typos. `grep -c` exits 1 on zero, hence the
+`|| true` — without it the first zero ends the loop.
+
+### The two rows that would apply, and why they still are not sent
+
+**View ▸ Text Size on `v4.x`** is the cleanest pick in this batch: `FontSize.bigger`/`.smaller`
+are two computed properties over a list that line already has, `TextSizeCommands` is one `View`
+reading `@AppStorage`, and the submenu is four lines in `.commands`. It needs the `⌘−` glyph and the
+two speech entries, and its ⌘/ row would push that line's two-column reference — measure before
+believing it fits. **File ▸ Download on `v4.x`** is the same shape as the other row verbs that line
+already carries; its one dependency is `CloudDownloadRequest.requestDownload`, which is the row
+menu's body extracted, so the pick would carry the small `FileTreeView` refactor with it (and
+`CloudOnlyBadgeCache.cached` going public).
+
+**Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). These rows are the record
+a future audit needs, not a to-do.
+
+### Closed on audit, worth not re-deriving
+
+**RD2's "Window ▸ Sync History is missing" is false on the running app.** SwiftUI lists every
+`Window` scene in the Window menu automatically, and `WindowMenuTests` pins that Sync History appears
+there exactly once. The proposal had read the source, where `SyncHistoryWindowCommand` sits unused.
+Moving it beside Activity Log means `.commandsRemoved()` on the third scene, and the measurement in
+`SyncCloudApp.swift` ("do not suppress all three") says that takes the main window's own opener with
+it — `theMainWindowKeepsItsOpener` is the pin. Nothing changed for it in this batch, on any line.
