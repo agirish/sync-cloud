@@ -18,7 +18,9 @@ enum ShortcutsReference {
     /// Where to break `groups` into two columns so their row counts come out closest.
     ///
     /// Counts a header as a row, because it occupies one. Never returns 0 or `count`, so both
-    /// columns hold something even for a degenerate list.
+    /// columns hold something even for a degenerate list. Kept as the two-column case of
+    /// ``balancedColumns(_:count:)`` — the reference draws three now, but the two-way split is what
+    /// its tests pinned and what the general form is checked against.
     static func balancedSplit(_ groups: [Group]) -> Int {
         guard groups.count > 1 else { return groups.count }
         let weights = groups.map { $0.items.count + 1 }
@@ -33,6 +35,48 @@ enum ShortcutsReference {
         }
         return best
     }
+
+    /// `groups` dealt into `count` columns, in order, so the TALLEST column is as short as it can be.
+    ///
+    /// **Three columns since the Text and Markup menus arrived** (roadmap RD1). The reference grew
+    /// by six chords and a text-size row, and two columns had no room left: the window was 800pt
+    /// against a 13" display's usable height, and the rows measured 779. Growing sideways is the
+    /// alternative that keeps the whole reference on screen — a reference you scroll is a
+    /// reference you stop reading — and the roadmap's own recommendation.
+    ///
+    /// Minimises the maximum column weight, a header counting as a row, over every way of cutting
+    /// the ordered list into `count` runs; the group order is the reading order and is never
+    /// reshuffled. Exhaustive rather than greedy, because greedy dealing put General and Panes —
+    /// the two biggest — together in one column and left the third nearly empty. Six groups into
+    /// three columns is ten cuts to compare, so exhaustive costs nothing.
+    static func balancedColumns(_ groups: [Group], count: Int) -> [[Group]] {
+        guard count > 1 else { return groups.isEmpty ? [] : [groups] }
+        // Fewer groups than columns: one per column, and no empty columns after them.
+        guard groups.count > count else { return groups.map { [$0] } }
+        let weights = groups.map { $0.items.count + 1 }
+        var best: [Int] = []
+        var bestTallest = Int.max
+        // Every strictly increasing choice of `count - 1` cut points in 1..<groups.count.
+        func search(_ cuts: [Int], from start: Int) {
+            if cuts.count == count - 1 {
+                let bounds = [0] + cuts + [groups.count]
+                let tallest = (0..<count).map { column in
+                    weights[bounds[column]..<bounds[column + 1]].reduce(0, +)
+                }.max() ?? 0
+                if tallest < bestTallest { bestTallest = tallest; best = cuts }
+                return
+            }
+            for cut in start..<groups.count where groups.count - cut >= count - 1 - cuts.count {
+                search(cuts + [cut], from: cut + 1)
+            }
+        }
+        search([], from: 1)
+        let bounds = [0] + best + [groups.count]
+        return (0..<count).map { Array(groups[bounds[$0]..<bounds[$0 + 1]]) }
+    }
+
+    /// How many columns the window draws. Three — see ``balancedColumns(_:count:)``.
+    static let columnCount = 3
 
     static let groups: [Group] = [
         Group(title: "General", items: [
@@ -52,8 +96,12 @@ enum ShortcutsReference {
             // count above is derived for exactly this reason, and Names folding into Renames took
             // the rail from six to five.)
             Item(keys: "⌘ K", action: "Go to — any place, folder, person, or a typed path"),
-            Item(keys: "⌘ I", action: "Show or hide the Info inspector"),
+            // Routed by where the caret is, like ⌘F: the row has to name both meanings, because
+            // this is the one place a reader is told the chord has two.
+            Item(keys: "⌘ I", action: "Show or hide the Info inspector — in Edit's text, Italic"),
             Item(keys: "⌘ L", action: "Open the Activity Log"),
+            // The slider's own stops, from the keyboard — never a size Settings cannot reach.
+            Item(keys: "⌘ + / ⌘ − / ⌘ 0", action: "Bigger / smaller / default text size, on Settings' steps"),
             Item(keys: "⌘ ,", action: "Open Settings"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
             Item(keys: "⌘ ?", action: "Open SyncCloud Help"),
@@ -105,16 +153,21 @@ enum ShortcutsReference {
         Group(title: "Edit", items: [
             Item(keys: "⌘ N", action: "New text file in Edit's folder"),
             Item(keys: "⌘ S", action: "Save the open document"),
-            // **No row for the markup verbs, and that is not an omission.** They live on the text
-            // view's context menu and carry no chords: the keys they will eventually take belong to
-            // menu-bar items that have not been built, and a reference listing ⌘B for a chord
-            // nothing registers would be the one place in the app that lies about the keyboard.
-            // **No ⌘F row here, and it was tried.** The chord's two destinations are named on its
-            // one row in Panes above; a second row for the editor's half read better and pushed the
-            // reference to 784pt against a 760pt window, which
-            // `theReferenceFitsItsWindowWithoutScrolling` caught. Rows are the budget, not words —
-            // so a fact that fits on an existing row belongs on it.
-            Item(keys: "Right-click", action: "Markup, plus Wrap Lines and spell checking"),
+            // One row for the three modes: they are one control, and rows are the budget here.
+            Item(keys: "⌃⌘ 1 / ⌃⌘ 2 / ⌃⌘ 3", action: "Source / Preview / Split, for a Markdown file"),
+            // **The Markup chords, now that the Markup menu registers them.** This group carried a
+            // note refusing them while nothing answered the keys — a reference listing ⌘B for a
+            // chord nothing registers would be the one place in the app that lies about the
+            // keyboard. ⌘I is routed: the General row above names both meanings, and this one
+            // states the half that applies here.
+            Item(keys: "⌘ B / ⌘ I", action: "Bold / italic, with the caret in the text"),
+            Item(keys: "⇧⌘ X / ⇧⌘ K / ⇧⌘ L", action: "Strikethrough / inline code / link"),
+            // The find bar's own verbs. **No ⌘F row here, and it was tried.** The chord's two
+            // destinations are named on its one row in Panes; a second row for the editor's half
+            // pushed the reference past its window, which `theReferenceFitsItsWindowWithoutScrolling`
+            // caught. A fact that fits on an existing row belongs on it.
+            Item(keys: "⌘ G / ⌘ E", action: "Find next / use the selection for find"),
+            Item(keys: "Right-click", action: "Headings, lists and the rest of Markup — also Wrap Lines and spelling"),
         ]),
         Group(title: "Tabs", items: [
             Item(keys: "⌘ T", action: "New tab, at the folder this pane is showing"),
@@ -240,7 +293,19 @@ struct ShortcutsReferenceView: View {
     /// number rather than 815: this row cannot be trimmed (it documents a chord that exists, the
     /// standing rule here), and the group it joined is the one a re-break would move next, so
     /// buying margin now would likely be spending it twice. Measured, not guessed.
-    static let windowSize = CGSize(width: 880, height: 800)
+    ///
+    /// **Two columns → three, 880×800 → 1240×700, when the Text and Markup menus arrived** (v5.3,
+    /// roadmap RD1). Seven rows joined at once — the three view modes, the five markup chords on two
+    /// rows, the find bar's pair, and a text-size row in General — and two columns could not hold
+    /// them: at 800pt the window was already at a 13" display's usable height, so the reference had
+    /// nowhere to grow but sideways. The eighth move, and the first that changed the SHAPE rather
+    /// than the number: `ShortcutsReference.balancedColumns` deals the groups into three columns of
+    /// the closest weight, in reading order, and the width grew by one column's worth. The height
+    /// came down for the same reason it had gone up — it is what the rows measure, and three
+    /// columns of the same rows are shorter: the content **measured 668pt** at this width (the
+    /// first guess of 640 was caught by the test, as every number above was), so 700 leaves 32pt,
+    /// in the band the earlier raises settled into and under the test's 60pt ceiling on empty space.
+    static let windowSize = CGSize(width: 1240, height: 700)
 
     var body: some View {
         ScrollView {
@@ -262,13 +327,17 @@ struct ShortcutsReferenceView: View {
 /// `theReferenceFitsItsWindowWithoutScrolling` exists to catch, on a window the user cannot
 /// enlarge. Balancing by row count keeps the reading order (General, Panes, Tabs, …) and puts the
 /// break wherever the two columns come out closest, so a sixth group cannot reintroduce it.
+///
+/// **Three columns since v5.3**, dealt by `balancedColumns` — the same balancing, generalised,
+/// after the Edit group grew past what two columns could hold in a window a 13" display can show.
 struct ShortcutsReferenceContent: View {
     var body: some View {
-        let groups = ShortcutsReference.groups
-        let mid = ShortcutsReference.balancedSplit(groups)
+        let columns = ShortcutsReference.balancedColumns(ShortcutsReference.groups,
+                                                         count: ShortcutsReference.columnCount)
         HStack(alignment: .top, spacing: 32) {
-            column(Array(groups[..<mid]))
-            column(Array(groups[mid...]))
+            ForEach(Array(columns.enumerated()), id: \.offset) { _, groups in
+                column(groups)
+            }
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -293,6 +362,17 @@ struct ShortcutsReferenceContent: View {
                 }
             }
         }
+        // **Each column takes its own ideal height, whatever the row beside it proposes.** Without
+        // this, the three-column layout compressed the third column: its top rows rendered on one
+        // line with an ellipsis and the whole column sat 13pt low, while the two-column version
+        // had never shown it. Rendered and read back rather than reasoned about — a standalone
+        // probe reproduced it with the reference's own strings, and the effect scaled with how many
+        // rows sat below (a column holding only Tabs was fine; Tabs over Differences truncated its
+        // first row; all three groups truncated two). The column's `Text`s are flexible in height,
+        // so a proposal short of the ideal shrinks them from the top; pinning the vertical size to
+        // the ideal is what makes a `Text` in this list wrap rather than truncate. Horizontal stays
+        // flexible so the columns still share the width equally.
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
