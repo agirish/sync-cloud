@@ -88,6 +88,28 @@ public struct FontSize: Hashable, Identifiable, Sendable {
         Array(stride(from: minimumPercent, through: maximumPercent, by: step))
     }
 
+    // MARK: - Stepping from the keyboard
+
+    /// The next selectable size up, or `nil` at the top of the range — which is what disables
+    /// View ▸ Text Size ▸ Bigger.
+    ///
+    /// **Through `selectablePercents`, never `percent + step`.** The menu items are the second route
+    /// to this setting after the slider, and the two must agree on where the stops are: the slider
+    /// cannot land between them, and neither may the keyboard. That is also what keeps the keyboard
+    /// inside the range the Settings rail's version line was measured against (see CLAUDE.md, "The
+    /// version line has a width budget") — a stop the slider does not have is a width nobody checked.
+    ///
+    /// A value BETWEEN stops — `init(percent:)` clamps but does not snap, so a stored `102` survives —
+    /// steps to the nearest stop in the direction asked, rather than to `107`.
+    public var bigger: FontSize? {
+        Self.selectablePercents.first { $0 > percent }.map(FontSize.init(percent:))
+    }
+
+    /// The next selectable size down, or `nil` at the bottom — View ▸ Text Size ▸ Smaller's gate.
+    public var smaller: FontSize? {
+        Self.selectablePercents.last { $0 < percent }.map(FontSize.init(percent:))
+    }
+
     // MARK: - Storage
 
     /// UserDefaults key for the selected size. Read via `@AppStorage` by the Settings Appearance

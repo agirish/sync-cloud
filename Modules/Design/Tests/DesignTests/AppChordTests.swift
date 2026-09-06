@@ -53,6 +53,22 @@ import Foundation
         #expect(AppChord.differencesList.display == "⌘D")
         #expect(AppChord.foldAllDifferences.display == "⇧⌘F")
         #expect(AppChord.compareTwoFiles.display == "⇧⌘C")
+        // View ▸ Text Size. The "-" KEY renders as a minus sign, not a hyphen — a keycap reading
+        // "⌘-" beside "⌘+" looks like a typo, and the ⌘/ reference already spells the pair this way.
+        #expect(AppChord.textBigger.display == "⌘+")
+        #expect(AppChord.textSmaller.display == "⌘−")
+        #expect(AppChord.textDefaultSize.display == "⌘0")
+        // The Text and Markup menus (RD1). ⌃⌘ digits, because ⌘1…⌘4 are the workspaces and ⌥ is
+        // barred; the inline verbs take the platform's own letters.
+        #expect(AppChord.editorSourceMode.display == "⌃⌘1")
+        #expect(AppChord.editorPreviewMode.display == "⌃⌘2")
+        #expect(AppChord.editorSplitMode.display == "⌃⌘3")
+        #expect(AppChord.findNext.display == "⌘G")
+        #expect(AppChord.useSelectionForFind.display == "⌘E")
+        #expect(AppChord.bold.display == "⌘B")
+        #expect(AppChord.strikethrough.display == "⇧⌘X")
+        #expect(AppChord.inlineCode.display == "⇧⌘K")
+        #expect(AppChord.link.display == "⇧⌘L")
         #expect(AppChord.workspace(1)?.display == "⌘1")
         #expect(AppChord.workspace(5)?.display == "⌘5")
         // **Past nine there is no chord, and asking for one must not take the app down.**
@@ -114,6 +130,36 @@ import Foundation
         }
         let collisions = seen.filter { $0.value > 1 }.keys.sorted()
         #expect(collisions.isEmpty, "two registered chords share a key equivalent: \(collisions)")
+    }
+
+    /// **⌘I is one chord with two meanings, and the registry holds it once.** Decision B routes
+    /// Italic and the Info inspector on the same key at press time, so `italic` is an alias of
+    /// `infoInspector` rather than a second declaration — a second `static let` on the same key
+    /// would fail `noTwoChordsCollide`, and rightly, because two registrations let AppKit pick.
+    /// Pinned as an identity, not a display: two different chords could render alike.
+    @Test func italicIsTheInspectorsChordNotASecondOne() {
+        #expect(AppChord.italic.key == AppChord.infoInspector.key)
+        #expect(AppChord.italic.modifiers == AppChord.infoInspector.modifiers)
+        #expect(AppChord.italic.display == "⌘I")
+        // …and it is the ONLY member of the inline-verb family sharing a key with anything.
+        let inline = [AppChord.bold, .strikethrough, .inlineCode, .link]
+        for chord in inline {
+            #expect(AppChord.registry.filter {
+                $0.key.character == chord.key.character && $0.modifiers == chord.modifiers
+            }.count == 1, "\(chord.display) is registered by more than one member")
+        }
+    }
+
+    /// AppKit's spelling of a chord, for the one menu built by hand (the editor's Markup context
+    /// menu). Both halves, because a key with the wrong mask is a different chord that draws right.
+    @Test func theAppKitSpellingCarriesTheKeyAndTheWholeMask() {
+        #expect(AppChord.bold.appKitKeyEquivalent == "b")
+        #expect(AppChord.bold.appKitModifierMask == .command)
+        #expect(AppChord.strikethrough.appKitKeyEquivalent == "x")
+        #expect(AppChord.strikethrough.appKitModifierMask == [.shift, .command])
+        #expect(AppChord.editorSourceMode.appKitModifierMask == [.control, .command])
+        // The key, never the display glyph: AppKit wants "-" and draws the minus itself.
+        #expect(AppChord.textSmaller.appKitKeyEquivalent == "-")
     }
 
     /// …and none of them collides with the workspace family, which is generated rather than

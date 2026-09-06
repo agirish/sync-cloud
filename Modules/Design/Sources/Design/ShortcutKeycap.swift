@@ -227,6 +227,10 @@ public enum ShortcutKeycapSpeech {
         (".", "Period"),
         (",", "Comma"),
         ("/", "Slash"),
+        // View ▸ Text Size. The minus is U+2212 — what `AppChord.display` renders for the "-" key —
+        // not the hyphen, which no chord badges.
+        ("+", "Plus"),
+        ("−", "Minus"),
     ]
 
     public static func spoken(_ symbol: String) -> String {

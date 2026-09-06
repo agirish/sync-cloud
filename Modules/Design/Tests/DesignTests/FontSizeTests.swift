@@ -64,6 +64,46 @@ import Testing
             #expect(stops.contains(preset.percent), "\(preset.percent)% is not a slider stop")
         }
     }
+    // MARK: Stepping from the keyboard (View ▸ Text Size)
+
+    /// **The keyboard cannot reach a size the slider cannot.** Every step from every slider stop
+    /// lands on another slider stop — which is the whole claim behind "the version line's width
+    /// budget is safe from the menu": that budget was measured over `selectablePercents`, and this
+    /// is what says the menu stays inside it.
+    @Test func everyStepFromASliderStopLandsOnASliderStop() {
+        let stops = Set(FontSize.selectablePercents)
+        for percent in FontSize.selectablePercents {
+            let size = FontSize(percent: percent)
+            if let up = size.bigger {
+                #expect(stops.contains(up.percent), "\(percent)% stepped up to \(up.percent)%, which is not a stop")
+                #expect(up.percent > percent)
+            }
+            if let down = size.smaller {
+                #expect(stops.contains(down.percent), "\(percent)% stepped down to \(down.percent)%, which is not a stop")
+                #expect(down.percent < percent)
+            }
+        }
+    }
+
+    /// The ends are `nil`, which is what greys the menu item — and only the ends are.
+    @Test func onlyTheEndsOfTheRangeRefuseToStep() {
+        #expect(FontSize(percent: FontSize.maximumPercent).bigger == nil)
+        #expect(FontSize(percent: FontSize.minimumPercent).smaller == nil)
+        #expect(FontSize(percent: FontSize.maximumPercent).smaller != nil)
+        #expect(FontSize(percent: FontSize.minimumPercent).bigger != nil)
+        // The positive control on the step itself: from the default it moves by exactly one stop.
+        #expect(FontSize.medium.bigger?.percent == FontSize.medium.percent + FontSize.step)
+        #expect(FontSize.medium.smaller?.percent == FontSize.medium.percent - FontSize.step)
+    }
+
+    /// A value between stops — `init(percent:)` clamps but does not snap — steps to the NEAREST stop
+    /// in the direction asked, so one press of ⌘+ puts a stray 113 back on the rail at 115 rather
+    /// than inventing 118.
+    @Test func aValueBetweenStopsSnapsToTheNextStop() {
+        #expect(FontSize(percent: 113).bigger?.percent == 115)
+        #expect(FontSize(percent: 113).smaller?.percent == 110)
+    }
+
     // MARK: The stored value changed shape
 
 

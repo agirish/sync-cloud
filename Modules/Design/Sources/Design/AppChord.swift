@@ -44,7 +44,30 @@ public struct AppChord: Sendable {
         // renders as a blank box instead of nothing, which is worse.
         if key == .leftArrow { return "←" }
         if key == .rightArrow { return "→" }
+        // The hyphen-minus is the KEY (`AppChord("-", …)` is what registers), but on a keycap it
+        // reads as a dash — "⌘-" looks like a stray punctuation mark beside "⌘+". The minus sign is
+        // what the platform's own View ▸ Zoom Out draws, and what the ⌘/ reference already spells.
+        if key.character == "-" { return "−" }
         return String(key.character).uppercased()
+    }
+
+    // MARK: AppKit's spelling
+
+    /// The chord as an `NSMenuItem` takes it — `keyEquivalent` and `keyEquivalentModifierMask`.
+    ///
+    /// For a menu built by hand (the editor's Markup context menu) rather than by SwiftUI's
+    /// `.keyboardShortcut`. Deriving both halves here is what lets that menu draw the same chord the
+    /// menu bar registers without a second copy of the key anywhere: `keyEquivalent` is the raw
+    /// character, never `display`, because AppKit wants the key and draws the glyphs itself.
+    public var appKitKeyEquivalent: String { String(key.character) }
+
+    public var appKitModifierMask: NSEvent.ModifierFlags {
+        var mask: NSEvent.ModifierFlags = []
+        if modifiers.contains(.control) { mask.insert(.control) }
+        if modifiers.contains(.option) { mask.insert(.option) }
+        if modifiers.contains(.shift) { mask.insert(.shift) }
+        if modifiers.contains(.command) { mask.insert(.command) }
+        return mask
     }
 }
 
@@ -64,6 +87,52 @@ public extension AppChord {
     /// ⌘K was free: it is not one of macOS's reserved single-window equivalents, and nothing in
     /// this app had claimed it. No ⌥, per the invariant `AppChordTests` guards.
     static let commandPalette = AppChord("k", .command)
+
+    // View ▸ Text Size — the whole app's type, stepped from the keyboard (roadmap RD2).
+    //
+    // **The same detents Settings ▸ Text size offers, and nothing between or beyond them.** These
+    // items step `FontSize.selectablePercents`, the slider's own stops, so the keyboard can never
+    // reach a size the slider cannot — which matters because the Settings rail's version line has
+    // a width budget measured against exactly that range (see CLAUDE.md). `FontSize.stepped` is
+    // the rule, and its tests say so in as many words.
+    //
+    // ⌘+ is the platform's Bigger. AppKit matches a key equivalent of "+" against the "+" that
+    // ⇧= produces, which is how every Mac user types it; the unshifted ⌘= that Safari also accepts
+    // needs a second, hidden menu item, and SwiftUI's `.commands` has no hidden item — the only
+    // alternate it offers is an ⌥ one, which this app cannot register. So ⌘+ alone, displayed as
+    // ⌘+, and the reference says so.
+    static let textBigger = AppChord("+", .command)
+    static let textSmaller = AppChord("-", .command)
+    /// ⌘0 — back to the default size. Not a workspace digit: `workspace(_:)` is 1…9 and
+    /// `noChordCollidesWithAWorkspaceDigit` compares against exactly that set.
+    static let textDefaultSize = AppChord("0", .command)
+
+    // The Text and Markup menus (roadmap RD1). The chords for a document's CONTENTS, all of them
+    // routed on `EditorDocumentSurface` at key-press — never on `TextEditingChord`, which is true
+    // of every field editor and would italicise the ⌘K field.
+
+    /// Text ▸ Source / Preview / Split — ⌃⌘1/2/3. Control, because ⌘1…⌘4 are the workspaces and
+    /// ⌥ is barred; ⌃⌘S (the sidebar) is the only other ⌃⌘ chord, and it is a letter.
+    static let editorSourceMode = AppChord("1", [.control, .command])
+    static let editorPreviewMode = AppChord("2", [.control, .command])
+    static let editorSplitMode = AppChord("3", [.control, .command])
+
+    /// Text ▸ Find Next / Use Selection for Find — the find bar's own two verbs, which AppKit
+    /// binds to nothing until a menu item names them. ⌘G and ⌘E, the platform's own.
+    static let findNext = AppChord("g", .command)
+    static let useSelectionForFind = AppChord("e", .command)
+
+    /// Markup ▸ the five inline verbs that take a chord. Headings and lists stay menu-only.
+    static let bold = AppChord("b", .command)
+    /// **⌘I, and it is `infoInspector`'s chord** — not a second declaration. Decision B (2026-09-01):
+    /// ⌘I is Italic while the caret is in the editor's document and the Info inspector everywhere
+    /// else. One registered chord, two meanings, resolved when the key is pressed — so a computed
+    /// alias rather than a `static let`, which `noTwoChordsCollide` would rightly refuse and the
+    /// registry would count twice. `InspectorOrItalic` in the app target is the rule that picks.
+    static var italic: AppChord { infoInspector }
+    static let strikethrough = AppChord("x", [.shift, .command])
+    static let inlineCode = AppChord("k", [.shift, .command])
+    static let link = AppChord("l", [.shift, .command])
 
     /// ⌘1…⌘9 by the workspace bar's own enumeration order — the caller passes the 1-based
     /// ordinal, so the badge and the registration count the same list.
@@ -256,5 +325,10 @@ public extension AppChord {
         newTab, closeTab, nextTab, previousTab, tabBar,
         reviewDifferences, verifyDifferences, differencesList, foldAllDifferences, compareTwoFiles,
         copyToLeft, copyToRight, moveToLeft, moveToRight,
+        textBigger, textSmaller, textDefaultSize,
+        editorSourceMode, editorPreviewMode, editorSplitMode,
+        findNext, useSelectionForFind,
+        // `italic` is `infoInspector`, already listed above — see its note.
+        bold, strikethrough, inlineCode, link,
     ]
 }
