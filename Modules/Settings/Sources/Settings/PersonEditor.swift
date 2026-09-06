@@ -2,7 +2,7 @@ import Design
 import Sync
 import SwiftUI
 
-/// Add or edit one member of the household.
+/// Add or edit one person on the list.
 ///
 /// **The editor's real job is teaching, not data entry.** Two fields would have been enough to
 /// store a person; what a user cannot guess is *why* the full names matter — that "Aditi Abhishek"
@@ -143,7 +143,7 @@ struct PersonEditor: View {
     /// What this draft would actually match, recomputed as it is typed.
     ///
     /// Built against the **rest of the roster**, so the shared-word warning is true: whether
-    /// "girish" is distinctive is a fact about the household, not about this person, and a preview
+    /// "girish" is distinctive is a fact about the whole list, not about this person, and a preview
     /// that judged them in isolation would say every word was theirs alone.
     private var matchPreview: some View {
         let facts = previewFacts
@@ -271,7 +271,7 @@ struct PersonEditor: View {
         if keyPath == \Person.fullNames { fullNameDraft = "" } else { aliasDraft = "" }
     }
 
-    /// Facts for the draft, judged against the rest of the household.
+    /// Facts for the draft, judged against everyone else on the list.
     private var previewFacts: PersonFilingFacts {
         let me = assembled
         guard !me.displayName.isEmpty else { return .none }
@@ -293,7 +293,7 @@ struct PersonEditor: View {
     /// and this cannot describe the same fact differently, with the consequence appended only when
     /// there is one.
     private func sharedLine(_ facts: PersonFilingFacts) -> String {
-        let head = "Shared with the rest of the household: " + facts.sharedSummary
+        let head = "Shared with others on this list: " + facts.sharedSummary
         return facts.isAttributable
             ? head
             : head + ". Add a full name, or documents naming only these words cannot be attributed."

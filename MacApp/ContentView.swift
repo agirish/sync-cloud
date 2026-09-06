@@ -2321,6 +2321,12 @@ struct ContentView: View {
             onClose: { showSettings = false },
             syncManager: syncManager,
             onResetAllSettings: { resetAllSettingsAction() },
+            // Settings ▸ People's "Show Their Files": the same gather ⌘K's People rows reach,
+            // with the sheet closed first so the answer lands on a pane the user can see.
+            onShowPerson: { person in
+                showSettings = false
+                acceptPersonScope(person)
+            },
             availableSize: available
         )
         .environmentObject(settings)

@@ -30,7 +30,9 @@ struct PeopleTester: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                TextField("Try a filename — Aditi Abhishek - OCI Card.pdf", text: $text)
+                // The section it sits in is titled "Try a filename", so the field shows only the
+                // example — a placeholder that repeated the title read as the title twice.
+                TextField("Aditi Abhishek - OCI Card.pdf", text: $text)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
                 if !text.isEmpty {

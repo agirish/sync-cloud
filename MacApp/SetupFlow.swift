@@ -243,7 +243,7 @@ enum SetupFlow {
         if rosterIsReadOnly {
             return "\(others) listed, but people.json could not be read — fix it in Settings ▸ People"
         }
-        return otherCount == 0 ? "Nobody else on the list yet" : "\(others) in your household"
+        return otherCount == 0 ? "Nobody else on the list yet" : "\(others) on the list"
     }
 
     /// What the Folders step says about a walk that ran but is not in use.

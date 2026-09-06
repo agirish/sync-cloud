@@ -311,9 +311,16 @@ import Testing
     /// under the containment rule above — "On-device" by "Read file contents on-device…",
     /// "Claude (cloud)" by "Use Claude (cloud) to refine suggestions", and "Cost and limits" and
     /// "Saved suggestions" by entries of their own.
+    ///
+    /// People's two are readouts in section clothing: "Across your tree" heads
+    /// `PeopleOverviewRow`, a set of sentences about what the roster governs, and "Names found in
+    /// your documents" heads the queue "Look for Names" fills — offers to accept or refuse, not
+    /// settings. The button that fills it is reached through the "Add Person…" entry's keywords,
+    /// and the tab's third section, "Try a filename", is a real control and has an entry.
     static let unindexedByDesign: Set<String> = [
         "Startup", "Conflicts", "Comparison", "Confirmations", "Logging", "Maintenance",
         "Inbox and rules", "Saved scan data",
+        "Across your tree", "Names found in your documents",
     ]
 
     /// Whether some entry's title and this on-screen label name the same control. Containment runs

@@ -552,14 +552,16 @@ enum HelpBook {
                 related: ["choose-folders", "setup", "appearance"]
             )),
             Topic(id: "people", title: "People and names", systemImage: "person.2", article: Article(
-                intro: "Settings ▸ People is the household Organize works for. It is a short list of names, and it is what lets the app tell one person's document from another's.",
+                intro: "Settings ▸ People is who Organize works for — family, colleagues, anyone your documents name. It is a short list of names, and it is what lets the app tell one person's document from another's.",
                 blocks: [
                     .bullets([
                         "It keeps one person's document out of another's folder.",
                         "It chooses between two folders that differ only by person — School/Aditi beside School/Divit.",
                         "Add each person's full names as documents print them. That is what makes a shared surname attributable to the right person.",
                         "Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else's surname.",
-                        "“Look for names” reads the documents you have already filed and offers the forms it finds, so a name you never thought to type can still be added with one click.",
+                        "“Look for Names” reads the documents you have already filed and offers the forms it finds, so a name you never thought to type can still be added with one click.",
+                        "The list is in relationship order — you, spouse, children, parents, siblings, then everyone else — until you move someone with Move Up or Move Down, after which your order is kept; Use Default Order brings the rule back.",
+                        "Open a person's row for Show Their Files, which gathers everything that is theirs across the whole source, and Show Folder, which reveals any of their folders in Finder.",
                     ]),
                     .paragraph("Setup asks for the list and proposes what a walk of your folders found, but nothing is ever locked in: a name can be added, changed or removed here at any time, and ⌘K's People rows gather everything belonging to whoever is on it."),
                     .tip("Nothing here leaves your Mac, and no document text is kept — only the names you add. A name left off costs nothing but attribution; those documents are sorted by their content instead."),

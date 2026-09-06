@@ -284,7 +284,7 @@ import Testing
     /// plain count the one thing it must not print.
     @Test func theSummaryWillNotCountAHouseholdItCouldNotRead() {
         let honest = SetupFlow.peopleSummary(otherCount: 6, rosterIsReadOnly: false)
-        #expect(honest == "6 others in your household")
+        #expect(honest == "6 others on the list")
 
         let refused = SetupFlow.peopleSummary(otherCount: 6, rosterIsReadOnly: true)
         #expect(refused.contains("could not be read"))
@@ -296,7 +296,7 @@ import Testing
         #expect(SetupFlow.peopleSummary(otherCount: 0, rosterIsReadOnly: false)
                 == "Nobody else on the list yet")
         #expect(SetupFlow.peopleSummary(otherCount: 1, rosterIsReadOnly: false)
-                == "1 other in your household")
+                == "1 other on the list")
     }
 
     // MARK: - Retired vocabulary
