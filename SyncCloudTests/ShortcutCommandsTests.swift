@@ -46,11 +46,14 @@ import Foundation
             organizeVerbs: OrganizeVerbs(organizeFolder: {}, findDuplicates: {},
                                          fixName: {}, keepName: {}, undoReorganisation: {},
                                          planShape: {}, setUpLikeSiblings: {}),
-            paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, revealInFinder: {},
+            paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, download: {}, revealInFinder: {},
                                        rename: {}, chooseDestination: { _ in },
                                        ignore: PaneRowVerbs.IgnoreToggle(title: "Ignore in Comparison",
                                                                          run: {})),
             compareTwoFiles: {},
+            editorVerbs: EditorVerbs(mode: .edit, canPreview: true, setMode: { _ in },
+                                     autosave: EditorVerbs.AutosaveSwitch(isOn: true, toggle: {}),
+                                     canMarkUp: true, canFind: true),
             suspended: suspended
         )
     }
@@ -186,6 +189,9 @@ import Foundation
         #expect(publisher.effectiveOrganizeVerbs == nil)
         #expect(publisher.effectivePaneRowVerbs == nil)
         #expect(publisher.effectiveCompareTwoFiles == nil)
+        // The Text and Markup menus: a mode switch or an autosave toggle under a destination pick
+        // changes the document the pick may be about.
+        #expect(publisher.effectiveEditorVerbs == nil)
     }
 
     /// ...and the guard the test above depends on: unsuspended, the same loaded publisher passes
@@ -220,6 +226,7 @@ import Foundation
         #expect(publisher.effectiveOrganizeVerbs != nil)
         #expect(publisher.effectivePaneRowVerbs != nil)
         #expect(publisher.effectiveCompareTwoFiles != nil)
+        #expect(publisher.effectiveEditorVerbs != nil)
     }
 
     /// **Every `effective…` the publisher exposes is named in BOTH lists above.**
@@ -564,6 +571,38 @@ import Foundation
                                                encoding: .utf8))
         #expect(Self.codeOnly(toolbar).components(separatedBy: ".disabled(pendingDestination != nil)").count - 1 >= 4,
                 "a toolbar control that cannot act during a pick still looks like it can")
+    }
+
+    /// **The three-column deal keeps the reading order and minimises the tallest column.** The
+    /// reference went to three columns for v5.3 because two could not hold the Edit group in a
+    /// window a 13" display can show; this pins the dealing rule the fits-the-window test below
+    /// then measures. Both halves: the real groups come out as three non-empty runs in order, and a
+    /// synthetic list whose greedy deal would be lopsided is balanced instead.
+    @Test func theColumnsAreDealtInOrderAndBalanced() {
+        let groups = ShortcutsReference.groups
+        let columns = ShortcutsReference.balancedColumns(groups, count: ShortcutsReference.columnCount)
+        #expect(columns.count == ShortcutsReference.columnCount)
+        #expect(columns.allSatisfy { !$0.isEmpty }, "a column came out empty")
+        #expect(columns.flatMap { $0 } == groups, "the deal reordered or dropped a group")
+
+        // Weights 10, 10, 2, 2, 2, 2: greedy front-loading would pair the two big groups
+        // (20 | 4 | 4); the balanced deal keeps them apart (10 | 10 | 8).
+        let synthetic = [10, 10, 2, 2, 2, 2].enumerated().map { index, rows in
+            ShortcutsReference.Group(title: "g\(index)", items: (0..<(rows - 1)).map {
+                ShortcutsReference.Item(keys: "k\(index).\($0)", action: "a\(index).\($0)")
+            })
+        }
+        let dealt = ShortcutsReference.balancedColumns(synthetic, count: 3)
+        #expect(dealt.map { $0.map { $0.items.count + 1 }.reduce(0, +) } == [10, 10, 8],
+                "the deal weighed the columns as \(dealt.map { $0.map { $0.items.count + 1 }.reduce(0, +) })")
+        // The two-way form still agrees with its own pin, so the generalisation changed nothing
+        // for the case the older tests were written against.
+        let pair = ShortcutsReference.balancedColumns(groups, count: 2)
+        #expect(pair.first?.count == ShortcutsReference.balancedSplit(groups))
+        // Fewer groups than columns: one per column, never an empty column and never one column
+        // holding everything.
+        let few = ShortcutsReference.balancedColumns(Array(groups.prefix(2)), count: 3)
+        #expect(few.map(\.count) == [1, 1])
     }
 
     @Test(.machinePinned(.layoutMetrics)) func theReferenceFitsItsWindowWithoutScrolling() {

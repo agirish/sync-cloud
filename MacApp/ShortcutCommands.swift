@@ -94,6 +94,10 @@ struct PaneRowVerbs {
     let openInNewTab: (() -> Void)?
     /// A single node of either kind.
     let quickLook: (() -> Void)?
+    /// A single FILE whose content is still on the provider (roadmap RD2). `nil` for a folder, for
+    /// a file already on disk, and for a file whose badge has not been resolved yet — see
+    /// `PaneRowVerbAvailability.resolve`, which is where the cache read is explained.
+    let download: (() -> Void)?
     let revealInFinder: (() -> Void)?
     let rename: (() -> Void)?
     /// The destination picker, for any selection. `true` moves, `false` copies.
@@ -118,29 +122,168 @@ enum PaneRowVerbAvailability {
     struct Answer: Equatable {
         let openInNewTab: Bool
         let singleNodeVerbs: Bool
+        let download: Bool
         let chooseDestination: Bool
         let ignore: Bool
     }
 
-    /// **Download is deliberately absent**, and this is the note that keeps it that way. Its row
-    /// menu action starts a per-pane watch on `downloadChannel` so the cloud badge clears when the
-    /// content lands; a menu item has no pane to scope that to, and firing the download without
-    /// the watch leaves a badge that never clears. The row menu's own comment names Reveal in
-    /// Finder as the reliable download path everywhere, and that IS in the menu.
+    /// **Download joined the menu with the v5.3 batch (roadmap RD2), and the objection that kept it
+    /// out is answered rather than ignored.** The row menu's action starts a per-pane watch so the
+    /// cloud badge clears when the content lands, and a note here used to say a menu item "has no
+    /// pane to scope that to". It does: the selection belongs to the active pane, and
+    /// `shortcutPaneRowVerbs` posts the same `CloudDownloadRequest` the row menu posts, carrying
+    /// that pane's token, on the app's channel — which is the channel the pane is listening on. The
+    /// watch starts exactly as it does from the row.
     ///
-    /// **Get Info is absent too**, for the reason the mockup settled: it wants Finder's ⌘I, which
-    /// is the Info Inspector here, and the inspector already answers it without leaving the window.
-    static func resolve(selectionCount: Int, isDirectory: Bool,
+    /// `isCloudOnly` is read from `CloudOnlyBadgeCache`, never from a fresh `lstat`: this resolver
+    /// runs on every `ContentView` body pass, and a selected row has been drawn, so its badge has
+    /// already recorded the answer. A row whose badge has not resolved yet reads `nil` and the item
+    /// is withheld for that pass — the next pass has it.
+    ///
+    /// **Get Info is absent**, for the reason the mockup settled: it wants Finder's ⌘I, which is
+    /// the Info Inspector here, and the inspector already answers it without leaving the window.
+    static func resolve(selectionCount: Int, isDirectory: Bool, isCloudOnly: Bool,
                         canOpenInNewTab: Bool, isComparing: Bool) -> Answer {
         let single = selectionCount == 1
         return Answer(
             openInNewTab: single && isDirectory && canOpenInNewTab,
             singleNodeVerbs: single,
+            // A folder is never dataless in the sense the flag means, and the row menu gates on
+            // `!isDirectory` too — a menu item offering to download a folder would be a promise
+            // `MaterializationStatus.download` cannot keep.
+            download: single && !isDirectory && isCloudOnly,
             // A destination pick works on a batch; the picker prunes nested nodes downstream
             // (`FileOperations` does it again), so a folder and its child cannot both travel.
             chooseDestination: selectionCount >= 1,
             // Ignoring is a statement about a comparison. On Browse or Storage there is none.
             ignore: selectionCount >= 1 && isComparing)
+    }
+}
+
+/// Text ▸ and Markup ▸ — everything the menu bar can ask of the editor's open document.
+///
+/// **One value, published only while Edit is the workspace and a document is open**; `nil`
+/// otherwise, which greys every item in both menus at once — the way Compare's items follow a
+/// comparison. The two menus are two halves of one question ("what can be done to the document
+/// on screen"), and a value that answers it once cannot answer differently for Bold than for Split.
+///
+/// The verbs that EDIT the buffer are not closures here at all: they go through
+/// `EditorDocumentSurface.applyMarkup`, resolved from the key window's first responder at
+/// key-press, because whether ⌘B means the document depends on where the caret is and a value
+/// published at render time cannot know that. What this carries is the document-level state the
+/// menu ticks (the mode, whether a preview is possible, autosave) and the closures that change it.
+struct EditorVerbs {
+    /// The mode being DRAWN — `.edit` for a file with nothing to preview, whatever the capsule last
+    /// remembered — so the tick agrees with the capsule.
+    let mode: EditorMode
+    /// Whether Preview and Split are on offer. False for a plain-text file, where the capsule is
+    /// hidden and the two items disable rather than offering a preview of nothing.
+    let canPreview: Bool
+    /// Selects a mode. Refuses a mode the file cannot show — see `EditorModeSwitch`.
+    let setMode: (EditorMode) -> Void
+    /// Text ▸ Autosave This File — the header switch's state and its toggle, or `nil` where the
+    /// header withholds the switch (a refusal, a read-only decode), by the same rule.
+    let autosave: AutosaveSwitch?
+    /// Whether the Markup verbs may write. False on a read-only document, where the context menu
+    /// withholds its Markup submenu too — and false in Preview, where no text view is on screen
+    /// for a verb to reach, so every Markup item would be a chord that does nothing.
+    let canMarkUp: Bool
+    /// Whether Find Next and Use Selection for Find have a text view to act on. False in Preview
+    /// for the reason `canMarkUp` is: the preview is a rendering, and there is no find bar over it.
+    let canFind: Bool
+
+    struct AutosaveSwitch {
+        let isOn: Bool
+        let toggle: () -> Void
+    }
+
+    /// Whether the two menus are offered at all, as a pure rule.
+    ///
+    /// **Edit must be the WORKSPACE, not merely the owner of a document.** The document outlives a
+    /// workspace switch (it is held by the app), so a test on the path alone would leave Markup ▸
+    /// Bold live from Browse, aimed at text that is not on screen. A refused document — too large,
+    /// still in the cloud, not text — has nothing to mark up, preview or autosave either.
+    ///
+    /// Extracted for `OrganizeVerbAvailability`'s reason: `ContentView` cannot be built in a test,
+    /// so a rule left inline there is a rule no test can flip.
+    /// `theEditorVerbsAreResolvedThroughTheRule` pins the call site.
+    static func isOffered(workspace: Workspace, hasDocument: Bool, isRefused: Bool) -> Bool {
+        workspace == .editor && hasDocument && !isRefused
+    }
+
+    /// What the verbs that need a TEXT VIEW may do in a given mode: everything but Preview draws
+    /// one. `EditorMode.resolved` has already narrowed the mode for a plain-text file, so this is
+    /// asked of the mode being drawn.
+    static func hasTextView(in mode: EditorMode) -> Bool {
+        mode != .preview
+    }
+}
+
+/// Which mode a menu request may set, as a pure rule.
+///
+/// `EditorMode.resolved(_:isMarkdown:)` already says what a file can DRAW; this asks the
+/// question from the menu's side — may this request be honoured at all — and answers no rather
+/// than silently narrowing a `.preview` to `.edit`, because a menu item that "worked" by doing
+/// something other than what it says is the failure a greyed item exists to prevent.
+enum EditorModeSwitch {
+    static func accepts(_ mode: EditorMode, isMarkdown: Bool) -> Bool {
+        EditorMode.resolved(mode, isMarkdown: isMarkdown) == mode
+    }
+}
+
+/// ⌘I's two meanings, and the rule that picks (decision B, 2026-09-01).
+///
+/// **One chord, resolved at key-press.** `AppChord.italic` IS `AppChord.infoInspector`; both
+/// View ▸ Info Inspector and Markup ▸ Italic register it, so both items show ⌘I and AppKit fires
+/// one of them — the first enabled in menu-bar order, which is View's. **Both handlers route
+/// identically when the KEY fired them**, so the outcome does not depend on which item AppKit
+/// chose: with the caret in the document's text the key means Italic, anywhere else it means the
+/// inspector. Clicked with the mouse, each item does only what its title says — View ▸ Info
+/// Inspector toggles the inspector, Markup ▸ Italic italicises — because a menu item under the
+/// pointer that did something else would be lying, and a click has no ambiguity to resolve.
+///
+/// The caret test is `EditorDocumentSurface.caretTextView` — the caret in the document's text
+/// itself — never `TextEditingChord`, which is true of every field editor and would italicise the
+/// ⌘K field. In the find bar's own field ⌘I is the inspector, by the same rule that makes Bold
+/// refuse there.
+enum InspectorOrItalic {
+    enum Choice: Equatable { case italic, inspector }
+
+    /// Static and injectable so the rule can be tested without a key window: the live form reads
+    /// `NSApp.keyWindow`.
+    @MainActor
+    static func choose(in window: NSWindow?) -> Choice {
+        EditorDocumentSurface.caretTextView(in: window) != nil ? .italic : .inspector
+    }
+
+    /// Whether a menu action was reached by its key equivalent rather than a click.
+    ///
+    /// `NSApp.currentEvent` during a menu action is the event that produced it: the `keyDown` for
+    /// a key equivalent, the mouse-up that ended menu tracking for a click. Decided by the MOUSE
+    /// side, and only by a button event — a click is a press or a release, and nothing else is one.
+    /// Everything else, including `nil` (which no user gesture produces) and a stray `mouseMoved`
+    /// that could be current if the action were ever dispatched a turn late, is treated as the key,
+    /// so the only way to lose decision B's routing is a genuine click. A menu navigated with the
+    /// arrow keys and committed with Return therefore still routes, which is what a keyboard user
+    /// pressing Return on "Italic" with the caret in a search field would least be surprised by.
+    ///
+    /// `aMenuItemsActionRunsSynchronously` pins the premise this rests on: the item's action runs
+    /// inside the dispatch of the event that fired it, so `currentEvent` is that event.
+    static func firedByKey(_ event: NSEvent?) -> Bool {
+        guard let event else { return true }
+        switch event.type {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+             .otherMouseDown, .otherMouseUp:
+            return false
+        default:
+            return true
+        }
+    }
+
+    /// What one of the two ⌘I items should do, given how it was reached and where the caret is.
+    /// Pure, so both call sites read one rule and a test can hold all four cells.
+    static func resolve(item: Choice, firedByKey: Bool, caret: Choice) -> Choice {
+        firedByKey ? caret : item
     }
 }
 
@@ -206,6 +349,10 @@ private struct OrganizeVerbsKey: FocusedValueKey {
 
 private struct PaneRowVerbsKey: FocusedValueKey {
     typealias Value = PaneRowVerbs
+}
+
+private struct EditorVerbsKey: FocusedValueKey {
+    typealias Value = EditorVerbs
 }
 
 private struct WorkspaceSelectionKey: FocusedValueKey {
@@ -592,6 +739,12 @@ extension FocusedValues {
         set { self[PaneRowVerbsKey.self] = newValue }
     }
 
+    /// Text ▸ and Markup ▸ — `nil` unless Edit is the workspace and a document is open.
+    var editorVerbs: EditorVerbs? {
+        get { self[EditorVerbsKey.self] }
+        set { self[EditorVerbsKey.self] = newValue }
+    }
+
     /// View ▸ Tab Bar.
     var tabBarVisible: TabBarSwitch? {
         get { self[TabBarVisibleKey.self] }
@@ -691,6 +844,10 @@ struct ShortcutValuePublisher: ViewModifier {
     /// ⇧⌘C — the focused pane's two selected files, opened as a pair. `nil` for any other
     /// selection, which is what disables the menu item rather than letting it act on a guess.
     let compareTwoFiles: (() -> Void)?
+    /// The Text and Markup menus. `nil` outside Edit or with nothing open; suspended with the rest,
+    /// because a mode switch or an autosave toggle under a destination pick changes the document
+    /// the pick may be about.
+    let editorVerbs: EditorVerbs?
 
     /// True while the destination picker is up. The picker is a full-window overlay that
     /// deliberately blocks the mouse from every control these chords mirror — an in-flight
@@ -736,6 +893,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveOrganizeVerbs: OrganizeVerbs? { suspended ? nil : organizeVerbs }
     var effectivePaneRowVerbs: PaneRowVerbs? { suspended ? nil : paneRowVerbs }
     var effectiveCompareTwoFiles: (() -> Void)? { suspended ? nil : compareTwoFiles }
+    var effectiveEditorVerbs: EditorVerbs? { suspended ? nil : editorVerbs }
 
     /// ⌘W's published value, which is the one that does NOT go silent — see ``CloseTabAction``.
     /// `effectiveCloseTab` still nils with the rest (a suspended ⌘W closes no tab); what this adds
@@ -775,6 +933,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.organizeLens, effectiveOrganizeLens)         // View ▸ Organize ▸ …
             .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
             .focusedSceneValue(\.paneRowVerbs, effectivePaneRowVerbs)         // File ▸ the row menu's verbs
+            .focusedSceneValue(\.editorVerbs, effectiveEditorVerbs)           // Text ▸ / Markup ▸
     }
 }
 
@@ -808,6 +967,7 @@ extension ContentView {
             organizeVerbs: shortcutOrganizeVerbs,
             paneRowVerbs: shortcutPaneRowVerbs,
             compareTwoFiles: shortcutCompareTwoFiles,
+            editorVerbs: shortcutEditorVerbs,
             // Suspended by the palette too, on the destination picker's own argument: it is a
             // full-window overlay whose scrim blocks the mouse from every control these chords
             // mirror, so without this ⌘R rescans underneath it and ⇧⌘. flips the filters behind
@@ -1047,7 +1207,7 @@ extension ContentView {
     /// right-click are one act rather than two similar ones.
     var shortcutPaneRowVerbs: PaneRowVerbs {
         let selection = activeSelectionNodes
-        let none = PaneRowVerbs(openInNewTab: nil, quickLook: nil, revealInFinder: nil,
+        let none = PaneRowVerbs(openInNewTab: nil, quickLook: nil, download: nil, revealInFinder: nil,
                                 rename: nil, chooseDestination: nil, ignore: nil)
         guard actionHandler != nil, let pane = activePane, !selection.isEmpty else { return none }
         let context = paneContext(isLeft: pane == .left)
@@ -1056,15 +1216,25 @@ extension ContentView {
         let can = PaneRowVerbAvailability.resolve(
             selectionCount: selection.count,
             isDirectory: node?.isDirectory ?? false,
+            // The badge's memo, never a fresh stat — see the resolver's note. A folder never asks.
+            isCloudOnly: node.flatMap { $0.isDirectory ? false : CloudOnlyBadgeCache.cached($0.id) } ?? false,
             canOpenInNewTab: delegate.canOpenInNewTab,
             isComparing: layoutMode == .compare)
         // Resolved here, not in the item: the row menu reads the same `isNodeIgnored` to decide
         // which of the two verbs it is offering, and the two must not answer differently.
         let allIgnored = selection.allSatisfy { delegate.isNodeIgnored($0, currentPath: context.currentPath) }
+        // The pane the selection is in, named the way the row menu names it, so the pane's own
+        // download watch accepts the request — see `PaneToken`.
+        let paneToken = PaneToken(isLeft: pane == .left, isSingleSource: layoutMode == .singleSource)
         return PaneRowVerbs(
             openInNewTab: can.openInNewTab ? { node.map { delegate.handleOpenInNewTab($0) } } : nil,
             quickLook: can.singleNodeVerbs
                 ? { node.map { toggleQuickLook(URL(fileURLWithPath: $0.id), followsPane: true) } } : nil,
+            // The row menu's own verb body, through the one shared implementation: the fetch, the
+            // two log lines and the pane-scoped post that starts the badge watch.
+            download: can.download
+                ? { node.map { CloudDownloadRequest.requestDownload(path: $0.id, name: $0.name,
+                                                                    from: paneToken) } } : nil,
             revealInFinder: can.singleNodeVerbs
                 ? { node.map { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: $0.id)]) } } : nil,
             rename: can.singleNodeVerbs ? { node.map { delegate.handleRename($0) } } : nil,
@@ -1675,6 +1845,10 @@ struct PaneRowVerbCommands: View {
             .disabled(verbs?.openInNewTab == nil)
         Button("Quick Look") { verbs?.quickLook?() }
             .disabled(verbs?.quickLook == nil)
+        // Under Quick Look, where the row menu puts it. Enabled only for a single cloud-only file:
+        // for anything else the item greys rather than offering a fetch that cannot happen.
+        Button("Download") { verbs?.download?() }
+            .disabled(verbs?.download == nil)
         Button("Reveal in Finder") { verbs?.revealInFinder?() }
             .disabled(verbs?.revealInFinder == nil)
         Divider()
@@ -1750,13 +1924,219 @@ struct TogglePreviewColumnCommand: View {
     }
 }
 
+/// View ▸ Info Inspector, ⌘I — **and, when the key fired it, Markup ▸ Italic's chord.**
+///
+/// Decision B: ⌘I is Italic while the caret is in the editor's document and the Info inspector
+/// everywhere else. The two items share one registration (`AppChord.italic` is
+/// `AppChord.infoInspector`), and whichever of them AppKit fires for the key resolves through the
+/// same `InspectorOrItalic` rule — see there. Clicked, this item toggles the inspector and nothing
+/// else. The inspector's binding is only written when the inspector is the answer: a `Toggle`
+/// whose `set` italicised would still flip its own tick otherwise.
 struct ToggleInspectorCommand: View {
     @FocusedValue(\.infoInspector) private var infoInspector
 
     var body: some View {
-        Toggle("Info Inspector", isOn: infoInspector ?? .constant(false))
+        Toggle("Info Inspector", isOn: Binding(
+            get: { infoInspector?.wrappedValue ?? false },
+            set: { newValue in
+                let choice = InspectorOrItalic.resolve(
+                    item: .inspector,
+                    firedByKey: InspectorOrItalic.firedByKey(NSApp.currentEvent),
+                    caret: InspectorOrItalic.choose(in: NSApp.keyWindow))
+                switch choice {
+                case .italic: MarkupVerbCommands.apply(.italic)
+                case .inspector: infoInspector?.wrappedValue = newValue
+                }
+            }))
             .keyboardShortcut(AppChord.infoInspector.key, modifiers: AppChord.infoInspector.modifiers)
             .disabled(infoInspector == nil)
+    }
+}
+
+// MARK: The Text and Markup menus
+
+/// Text ▸ Source / Preview / Split — ⌃⌘1/2/3, ticked for the mode being drawn.
+///
+/// `Toggle`s for the tick, like the workspace items. Preview and Split disable on a file with
+/// nothing to preview, mirroring the capsule, which is hidden there; Source stays live and ticked,
+/// because it is what such a file is showing.
+struct EditorModeCommands: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+
+    var body: some View {
+        ForEach(EditorMode.allCases, id: \.self) { mode in
+            Toggle(mode.title, isOn: Binding(
+                get: { verbs?.mode == mode },
+                // Un-ticking the current mode has no meaning — one of the three is always drawn.
+                set: { isOn in if isOn { verbs?.setMode(mode) } }
+            ))
+            .keyboardShortcut(mode.chord.key, modifiers: mode.chord.modifiers)
+            .disabled(verbs == nil || (mode != .edit && verbs?.canPreview != true))
+        }
+    }
+}
+
+/// Text ▸ Find Next ⌘G and Use Selection for Find ⌘E — the find bar's own two verbs.
+///
+/// **Registered because nothing else answers them.** AppKit's text views act on these through menu
+/// items whose action is `performTextFinderAction:`; this app replaces the standard Edit menu, so
+/// until now ⌘G in the editor did nothing. Routed on `EditorDocumentSurface.performFind`, which
+/// takes the walk-up test — Find Next from inside the Find field is the ordinary way to step — and
+/// refuses outside the editor, so ⌘G in a pane searches nothing.
+struct FindNextCommand: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+
+    var body: some View {
+        Button("Find Next") {
+            if !EditorDocumentSurface.performFind(.nextMatch, in: NSApp.keyWindow) {
+                Logger.shared.info("Find Next ignored: the caret is not in the document")
+            }
+        }
+        .keyboardShortcut(AppChord.findNext.key, modifiers: AppChord.findNext.modifiers)
+        .disabled(verbs?.canFind != true)
+    }
+}
+
+struct UseSelectionForFindCommand: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+
+    var body: some View {
+        Button("Use Selection for Find") {
+            if !EditorDocumentSurface.performFind(.setSearchString, in: NSApp.keyWindow) {
+                Logger.shared.info("Use Selection for Find ignored: the caret is not in the document")
+            }
+        }
+        .keyboardShortcut(AppChord.useSelectionForFind.key, modifiers: AppChord.useSelectionForFind.modifiers)
+        .disabled(verbs?.canFind != true)
+    }
+}
+
+/// Text ▸ Wrap Lines and Check Spelling While Typing — the two switches the text view's context
+/// menu already carries, on the same two `UserDefaults` keys.
+///
+/// **Read and written through `@AppStorage` here, not through a published closure**, because that is
+/// what the context menu does too (`PlainTextEditor.Coordinator.toggleWrapping`): every mounted
+/// editor observes the key and re-renders, which is what keeps both halves of a split in step. The
+/// focused value is read only to grey the items outside Edit — a preference about drawing text has
+/// nothing to say where no text is drawn.
+struct EditorTextSettingCommands: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+    @AppStorage(EditorTextSettings.wrapsKey) private var wrapsLines = EditorTextSettings.wrapsDefault
+    @AppStorage(EditorTextSettings.checksSpellingKey) private var checksSpelling = EditorTextSettings.checksSpellingDefault
+
+    var body: some View {
+        Toggle("Wrap Lines", isOn: $wrapsLines)
+            .disabled(verbs == nil)
+        Toggle("Check Spelling While Typing", isOn: $checksSpelling)
+            .disabled(verbs == nil)
+    }
+}
+
+/// Text ▸ Autosave This File — the header's switch, as a menu item. Same state, same toggle,
+/// withheld by the same rule (`EditorWorkspaceView.showsAutosaveSwitch`).
+struct AutosaveThisFileCommand: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+
+    var body: some View {
+        Toggle("Autosave This File", isOn: Binding(
+            get: { verbs?.autosave?.isOn ?? false },
+            set: { _ in verbs?.autosave?.toggle() }
+        ))
+        .disabled(verbs?.autosave == nil)
+    }
+}
+
+/// Markup ▸ the context menu's verbs, in the context menu's order, each still a toggle.
+///
+/// **Built from `MarkupVerb.menuOrder`**, which is the list the context menu is built from, so the
+/// two menus cannot disagree about the verbs or their order; the chords come from `MarkupVerb.chord`,
+/// which is what the context menu draws. Every item is enabled while Edit shows a writable
+/// document, and resolves WHERE the caret is at fire time — a menu item cannot know that when it
+/// renders. Outside the document's text the verb refuses and says so in the log, because a chord
+/// that does nothing and says nothing is this app's own named defect.
+struct MarkupVerbCommands: View {
+    @FocusedValue(\.editorVerbs) private var verbs
+    /// For Italic's other half — see `InspectorOrItalic`. Read here so that if AppKit hands the
+    /// shared ⌘I to THIS item, a caret outside the document still reaches the inspector.
+    @FocusedValue(\.infoInspector) private var infoInspector
+
+    var body: some View {
+        ForEach(Array(MarkupVerb.menuOrder.enumerated()), id: \.offset) { _, verb in
+            if let verb {
+                Button(verb.title) {
+                    if verb == .italic { italic() } else { Self.apply(verb) }
+                }
+                .keyboardShortcut(verb.chord.map { KeyboardShortcut($0.key, modifiers: $0.modifiers) })
+                .disabled(verbs?.canMarkUp != true)
+            } else {
+                Divider()
+            }
+        }
+    }
+
+    /// Markup ▸ Italic: the verb when clicked; when the key fired it, the same rule View ▸ Info
+    /// Inspector applies, so ⌘I outside the document is never dead whichever item AppKit chose.
+    private func italic() {
+        let choice = InspectorOrItalic.resolve(
+            item: .italic,
+            firedByKey: InspectorOrItalic.firedByKey(NSApp.currentEvent),
+            caret: InspectorOrItalic.choose(in: NSApp.keyWindow))
+        switch choice {
+        case .italic: Self.apply(.italic)
+        case .inspector: infoInspector?.wrappedValue.toggle()
+        }
+    }
+
+    /// The verb, aimed at the key window's document — and the refusal, logged. One place, so the
+    /// Italic that arrives through View ▸ Info Inspector's ⌘I says the same thing as the rest.
+    @MainActor
+    static func apply(_ verb: MarkupVerb) {
+        if !EditorDocumentSurface.applyMarkup(verb, in: NSApp.keyWindow) {
+            Logger.shared.info("Markup ▸ \(verb.title) ignored: the caret is not in the document")
+        }
+    }
+}
+
+// MARK: View ▸ Text Size
+
+/// View ▸ Text Size ▸ Bigger ⌘+ / Smaller ⌘− / Default Size ⌘0 (roadmap RD2).
+///
+/// **The whole app's type, from the keyboard, on the slider's own stops.** `FontSize.bigger` and
+/// `.smaller` step `selectablePercents`, so the keyboard cannot reach a size Settings ▸ Text size
+/// cannot — which is what keeps it inside the range the Settings rail's version line was measured
+/// against. At either end the item greys, and Default Size greys at the default.
+///
+/// **`@AppStorage` here, no focused value**: this is a preference every window reads through
+/// `appFontSizeFromSettings`, not a fact about the main window, so the items work from the
+/// Activity Log and the ⌘/ reference too — and, like ⌘, (Settings), stay live under the destination
+/// picker, which is an ambient panel's convention rather than an oversight.
+struct TextSizeMenuCommand: View {
+    var body: some View {
+        Divider()
+        // A submenu, because three items about one setting read as a group and the View menu is
+        // already long.
+        Menu("Text Size") {
+            TextSizeCommands()
+        }
+    }
+}
+
+struct TextSizeCommands: View {
+    @AppStorage(FontSize.defaultsKey) private var percent: Int = FontSize.medium.percent
+
+    private var size: FontSize { FontSize(percent: percent) }
+
+    var body: some View {
+        Button("Bigger") { if let next = size.bigger { percent = next.percent } }
+            .keyboardShortcut(AppChord.textBigger.key, modifiers: AppChord.textBigger.modifiers)
+            .disabled(size.bigger == nil)
+        Button("Smaller") { if let next = size.smaller { percent = next.percent } }
+            .keyboardShortcut(AppChord.textSmaller.key, modifiers: AppChord.textSmaller.modifiers)
+            .disabled(size.smaller == nil)
+        Divider()
+        Button("Default Size") { percent = FontSize.medium.percent }
+            .keyboardShortcut(AppChord.textDefaultSize.key, modifiers: AppChord.textDefaultSize.modifiers)
+            .disabled(size == FontSize.medium)
     }
 }
 
@@ -1897,5 +2277,43 @@ struct VerifyDifferencesCommand: View {
         Button("Verify Differences") { verify?() }
             .keyboardShortcut(AppChord.verifyDifferences.key, modifiers: AppChord.verifyDifferences.modifiers)
             .disabled(verify == nil)
+    }
+}
+
+// MARK: - The Text and Markup menus, as a unit
+
+/// Text ▸ and Markup ▸ — Edit's menus, two of them (decision A, roadmap RD1).
+///
+/// Text is about the document as a whole: how it is shown, how it is searched, how it is drawn, and
+/// whether it saves itself. Markup is the context menu's verb list, in the context menu's order,
+/// each still a toggle. Every item in both is greyed unless Edit is the workspace and a document is
+/// open — `EditorVerbs` — the way Compare's follow a comparison.
+///
+/// **Find… stays in Edit, and Save stays in File.** One action, one menu item: ⌘F is the pane
+/// search everywhere but the document, so it belongs in the menu the platform puts Find in; ⌘S is
+/// File ▸ Save on every Mac. Neither is duplicated here, so no chord is registered twice — the Text
+/// menu's find group is the two verbs the find bar has and nothing else answered.
+///
+/// **A `Commands` value rather than two `CommandMenu`s in the App's `.commands` block**, because
+/// `CommandsBuilder` takes ten children and that block already had ten. Same result in the bar:
+/// `TextMarkupMenuTests.textAndMarkupFollowOrganizeInTheBar` reads the order off the built menu.
+struct EditorMenus: Commands {
+    var body: some Commands {
+        CommandMenu("Text") {
+            EditorModeCommands()         // ⌃⌘1 ⌃⌘2 ⌃⌘3 — Source / Preview / Split, ticked
+            Divider()
+            FindNextCommand()            // ⌘G
+            UseSelectionForFindCommand() // ⌘E
+            Divider()
+            EditorTextSettingCommands()  // Wrap Lines · Check Spelling While Typing, ticked
+            Divider()
+            AutosaveThisFileCommand()    // the header switch, as an item
+        }
+        // The chords are on the five inline verbs only; headings and lists are menu-only, because
+        // ⌘1…⌘4 are the workspaces and ⌥ is barred. ⌘I is shared with View ▸ Info Inspector and
+        // resolved by where the caret is — see `ToggleInspectorCommand`.
+        CommandMenu("Markup") {
+            MarkupVerbCommands()         // ⌘B ⌘I ⇧⌘X ⇧⌘K ⇧⌘L, then the menu-only verbs
+        }
     }
 }

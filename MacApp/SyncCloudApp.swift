@@ -690,9 +690,12 @@ struct SyncCloudApp: App {
                 ToggleTabBarCommand()           // ⇧⌘T
                 ToggleHiddenFilesCommand()      // ⇧⌘.
                 TogglePreviewColumnCommand()    // ⇧⌘P
-                ToggleInspectorCommand()        // ⌘I
+                ToggleInspectorCommand()        // ⌘I — and Italic, when the caret is in Edit's document
                 ToggleDifferencesListCommand()  // ⌘D
                 FoldAllDifferencesCommand()     // ⇧⌘F
+                // The whole app's type, on the slider's own stops (roadmap RD2): a divider and a
+                // Text Size submenu, as one view because this builder was at its ten children.
+                TextSizeMenuCommand()           // ⌘+ ⌘− ⌘0
             }
             // Go ▸ per-pane history, Finder's own menu for Finder's own chords — plus the chord
             // that decides which pane "per-pane" means. `SwitchPaneFocusCommand` sits with them
@@ -741,10 +744,18 @@ struct SyncCloudApp: App {
             // written asserting the two were "distinct", which is what rationalising a collision
             // looks like. Here the word appears once per menu, which is the arrangement View ▸
             // Compare ⌘2 and the Compare menu have had all along without reading as a duplicate.
-            CommandMenu("Organize") {
-                OrganizeLensCommands()      // the five sections, ticked
-                Divider()
-                OrganizeVerbCommands()      // the four row verbs, over the pane selection
+            // **Grouped with the two menus after it because `CommandsBuilder` takes ten children**
+            // and this block had ten before Edit's menus arrived. `Group` changes nothing in the
+            // bar — `textAndMarkupFollowOrganizeInTheBar` reads the order off the built menu.
+            Group {
+                CommandMenu("Organize") {
+                    OrganizeLensCommands()      // the five sections, ticked
+                    Divider()
+                    OrganizeVerbCommands()      // the four row verbs, over the pane selection
+                }
+                // Text ▸ and Markup ▸ — Edit's two menus (decision A, roadmap RD1). Their contents
+                // and the reasoning are on `EditorMenus`.
+                EditorMenus()
             }
             // Replace the whole Help menu. AppKit's default `.help` group is just the
             // `showHelp:` item (and its search field), which — with no registered Help Book —

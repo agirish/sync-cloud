@@ -373,6 +373,46 @@ extension ContentView {
         selectedWorkspace = .browse
     }
 
+    // MARK: - The Text and Markup menus
+
+    /// What Text ▸ and Markup ▸ may do to the open document — `nil` unless Edit is on screen with a
+    /// document in it, which greys both menus at once.
+    ///
+    /// **Edit must be the WORKSPACE, not merely the owner of a document.** The document outlives a
+    /// workspace switch (it is held by the app), so a test on `editorDocument.path` alone would
+    /// leave Markup ▸ Bold live from Browse, aimed at text that is not on screen. Compare's items
+    /// follow a comparison the same way.
+    var shortcutEditorVerbs: EditorVerbs? {
+        guard let path = editorDocument.path,
+              EditorVerbs.isOffered(workspace: selectedWorkspace, hasDocument: true,
+                                    isRefused: editorDocument.refusal != nil) else { return nil }
+        let isMarkdown = editorDocument.isMarkdown
+        // The mode being drawn, so the tick agrees with the capsule on a plain-text file — and so
+        // the verbs that need a text view are withheld in Preview, where none is on screen.
+        let drawn = EditorMode.resolved(editorMode, isMarkdown: isMarkdown)
+        let showsSwitch = EditorWorkspaceView.showsAutosaveSwitch(
+            hasPath: true, wasRefused: false, isReadOnly: editorDocument.isReadOnly)
+        return EditorVerbs(
+            mode: drawn,
+            canPreview: isMarkdown,
+            setMode: { mode in
+                // Refused rather than narrowed: a Preview request on a `.txt` must not "succeed"
+                // by showing Source. The item is disabled for it too; this is the rule under it.
+                guard EditorModeSwitch.accepts(mode, isMarkdown: isMarkdown) else { return }
+                editorMode = mode
+            },
+            // The header's switch and this item are one setting with two doors — same policy,
+            // same toggle, and switching back on writes what is already pending (see
+            // `EditorWorkspaceView.autosaveSwitch`).
+            autosave: showsSwitch
+                ? EditorVerbs.AutosaveSwitch(isOn: editorAutosavePolicy.isOn(path)) {
+                    if editorAutosavePolicy.toggle(path) { runAutosave() }
+                }
+                : nil,
+            canMarkUp: !editorDocument.isReadOnly && EditorVerbs.hasTextView(in: drawn),
+            canFind: EditorVerbs.hasTextView(in: drawn))
+    }
+
     // MARK: - Saving
 
     /// ⌘S. **Present even when the document is clean**, unlike before autosave.

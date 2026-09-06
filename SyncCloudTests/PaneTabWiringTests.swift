@@ -2248,6 +2248,17 @@ import Sync
         // kind that can fire through the ⌥-hold reveal.
         let reopen = try #require(file.items.first { $0.title == "Reopen Closed Tab" })
         #expect(reopen.keyEquivalent.isEmpty, "Reopen Closed Tab has acquired a chord")
+
+        // **Download sits where the row menu puts it — under Quick Look** (roadmap RD2, v5.3). The
+        // row verbs are one group, in the row menu's order, so a reader who knows the right-click
+        // finds the same list here. No chord: nothing conventional is free for it.
+        let quickLook = try #require(titles.firstIndex(of: "Quick Look"))
+        let download = try #require(titles.firstIndex(of: "Download"), "File ▸ Download is gone")
+        let reveal = try #require(titles.firstIndex(of: "Reveal in Finder"))
+        #expect(quickLook + 1 == download && download + 1 == reveal,
+                "the row verbs read \(titles[quickLook...reveal]) — Download belongs between Quick Look and Reveal in Finder")
+        #expect(file.items.first { $0.title == "Download" }?.keyEquivalent.isEmpty == true,
+                "Download has acquired a chord")
     }
 
     /// The View menu's Tab Bar switch, same source: a checkmark item, above the other switches.
