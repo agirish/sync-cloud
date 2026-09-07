@@ -3852,3 +3852,65 @@ zeroes on `v3.x` is an absence rather than a mistyped path.
 pick would not be free even if it were authorised: the grouping change depends on `v4.x`'s own View
 menu being at its ten-child limit, which this audit did not check, and a `ViewBuilder` that silently
 drops an eleventh child is exactly the failure that has no test on that line.
+
+## 2026-09-07 — Help ▸ Reading your documents, and the test that holds its claim
+
+A Help article saying what the app does when it opens a file rather than reading its name, a
+question-mark pointer at it from Settings ▸ Intelligence, and `NoTelemetryTests` — a source scan
+pinning the app's network surface to exactly the three files behind Refine with Claude.
+
+**This row is not like its neighbours, and the difference is worth stating first.** Most rows here
+record a gap a user would have to go looking for. This one records that **three shipping lines read
+their users' documents and say nothing about it** — the readers are all present off `main`, the
+Help book is present off `main`, and no article on any of the three explains what is opened, what is
+kept, or where it goes. That is a gap in what the app *tells people*, not in what it does.
+
+```sh
+# stage 1 — the surfaces. main is the positive control.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s helpbook=%s settings=%s signals=%s organizehelp=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/HelpBook.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Settings/Sources/Settings/SettingsView.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/ContentSignalExtractor.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/OrganizeHelpTopics.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-07: main 1/1/1/1 · v4.x 1/1/1/0 · v3.x 1/1/1/0 · v2.x 1/1/1/0
+
+# stage 2 — the SHAPE. Does the tab the pointer hangs on exist? Does the reader?
+for l in v4.x v3.x v2.x; do
+  printf '%-6s intelligenceTab=%s readContentsKey=%s helpPointerPrecedent=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsView.swift | grep -c 'IntelligenceSettingsTab')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift | grep -c 'readContentsDefaultsKey')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift 2>/dev/null | grep -c 'questionmark.circle')"
+done
+# v4.x: 3 / 2 / 0 — the tab is there, the switch is there, no pointer precedent to copy
+# v3.x: 0 / 2 / 0 — the reader is there; the Intelligence TAB is not, so the switch lives elsewhere
+# v2.x: 0 / 2 / 0 — same
+
+# stage 3 — the network surface differs per line, so the scan's allow-list is NOT portable.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s classifier=%s refiner=%s keycheck=%s | sourceCodeOnly=%s macAppDirectory=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/CloudFilingClassifier.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/CloudMappingRefiner.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Sync/Sources/Sync/AnthropicKeyCheck.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:SyncCloudTests/TestSupport.swift 2>/dev/null | grep -c 'func sourceCodeOnly')" \
+    "$(git show origin/$l:SyncCloudTests/TestSupport.swift 2>/dev/null | grep -c 'func macAppDirectory')"
+done
+# main 1/1/1 · v4.x 1/0/1 · v3.x 1/0/1 · v2.x 1/0/1 — three files on main, TWO on every other line
+# sourceCodeOnly / macAppDirectory: main 1/1 · v4.x 1/1 · v3.x 0/0 · v2.x 0/0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The article** (`HelpBook` topic `on-device-reading`) | Applies in full. `HelpBook.swift` and `ContentSignalExtractor.swift` are both there, so the line reads documents and documents nothing about it. Its Help book already carries one "leaves this Mac" sentence, inside the *setup* topic's tip — a mention, not the page | Applies in substance. Both lines read documents too; neither says "leaves this Mac" anywhere in the book. The article's copy would need editing per line rather than copying: it names To File, Update folder memory and Duplicates, and which of those exist differs | RECORDED — not owed |
+| **The Settings pointer** (`onOpenHelp`, `SettingsHelpTopics`, the `questionmark.circle` beside "Read file contents on-device") | Would apply — `IntelligenceSettingsTab` is there (3 hits) and the switch with it. **But the shape has no precedent on this line**: `RestructureLens.helpPointer`, which `main`'s pointer was copied from, does not exist on `v4.x`, so a pick would be introducing the pattern rather than following it | **Does not apply.** Neither line has an `IntelligenceSettingsTab` at all — the AI settings had not split out yet — so there is no section to hang the pointer on. Where the switch lives on those lines was not established by this audit | RECORDED — not owed (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`NoTelemetryTests`** — the allow-list scan | Would apply, **with its allow-list edited**: `CloudMappingRefiner.swift` does not exist on `v4.x`, so the three-file set is a two-file set and a verbatim pick fails its own "no longer reaches the network" assertion on the missing third. `sourceCodeOnly` and `macAppDirectory` are both present, so the machinery is there | **Prerequisites missing.** Neither line has `sourceCodeOnly` or `macAppDirectory` in `TestSupport.swift`, so the scan has nothing to read source with; both would have to be picked first. Allow-list is a two-file set here too | RECORDED — not owed |
+| **`OnDeviceReadingHelpTopicTests`** — the cross-module pointer pin | Follows whatever the two rows above do; it asserts about a pointer and an article, so it is worth nothing without them | Same | RECORDED — not owed |
+
+**The one measurement worth keeping, whatever happens to the direction.** The claim `main` now makes
+is *scoped* — "the reading opens no network connection", plus the article naming Refine with Claude
+itself — and that scoping is load-bearing rather than cautious. An unscoped "nothing leaves this
+Mac" would be false on **every one of the four lines**: all four carry `CloudFilingClassifier` and
+`AnthropicKeyCheck`, so all four can reach `api.anthropic.com`. Anyone picking this article to a
+maintenance line must carry the last paragraph with it, or the pick ships a claim the code
+contradicts. That is the opposite of the usual backport hazard, where the risk is picking too much.
