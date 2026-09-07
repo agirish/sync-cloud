@@ -50,7 +50,7 @@ public struct FolderSource: Codable, Equatable, Sendable, Identifiable {
 
     /// The name shown when the user hasn't renamed the source: the folder's own name, or
     /// "Home folder" for the home directory itself — whose last path component is the account's
-    /// short name (`abhishek`), which reads as a person, not a place.
+    /// short name (`father`), which reads as a person, not a place.
     public var defaultDisplayName: String {
         Self.defaultDisplayName(forPath: path, volumeName: Self.volumeName(of:))
     }

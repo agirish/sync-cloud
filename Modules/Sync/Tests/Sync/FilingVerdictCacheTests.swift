@@ -178,7 +178,7 @@ private final class CallLog: @unchecked Sendable {
     /// Builds a fixture folder with one loose file that a classifier can place.
     private func fixture(_ name: String) throws -> URL {
         let root = try makeCanonicalTempRoot(prefix: "VerdictScan-\(name)")
-        try write(root.appendingPathComponent("Documents/Family/Divit/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
         return root
     }
@@ -193,8 +193,8 @@ private final class CallLog: @unchecked Sendable {
             log.record(files.map(\.fileName))
             var out: [String: FilingVerdict] = [:]
             for f in files {
-                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",
-                                                confidence: .high, reason: "Divit’s record")
+                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Son",
+                                                confidence: .high, reason: "Son’s record")
             }
             return out
         }
@@ -419,8 +419,8 @@ private final class CallLog: @unchecked Sendable {
                 await MainActor.run { warmAtClassify.record(ignoring.filingVerdictCache != nil) }
             }
             return files.reduce(into: [:]) { out, f in
-                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",
-                                                confidence: .high, reason: "Divit’s record")
+                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Son",
+                                                confidence: .high, reason: "Son’s record")
             }
         }
         await scan(ignoring, downloads, root: root, ignoringCache: true)
@@ -502,8 +502,8 @@ private final class CallLog: @unchecked Sendable {
             withUnsafeCurrentTask { $0?.cancel() }
             var out: [String: FilingVerdict] = [:]
             for f in files {
-                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",
-                                                confidence: .high, reason: "Divit’s record")
+                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Son",
+                                                confidence: .high, reason: "Son’s record")
             }
             return out
         }
@@ -533,7 +533,7 @@ private final class CallLog: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try cacheURL("declined")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("Documents/Family/Divit/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/first.pdf"))
         let downloads = root.appendingPathComponent("Downloads")
 
@@ -593,7 +593,7 @@ private final class CallLog: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try cacheURL("preflight")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try write(root.appendingPathComponent("Documents/Family/Divit/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
         for i in 0..<4 { try write(root.appendingPathComponent("Downloads/scan-\(i).pdf")) }
         let downloads = root.appendingPathComponent("Downloads")
 

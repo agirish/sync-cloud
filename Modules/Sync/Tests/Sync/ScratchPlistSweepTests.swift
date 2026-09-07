@@ -108,7 +108,7 @@ import Foundation
             "WorkspaceTests.garbage-in-new-key.D3BC5A6D-EC81-4AEE-AAD2-C8CD78672D66.plist"))
 
         #expect(!ScratchDefaultsLedger.isScratchSuitePlist("com.apple.finder.plist"))
-        #expect(!ScratchDefaultsLedger.isScratchSuitePlist("com.agirish.SyncCloud.plist"))
+        #expect(!ScratchDefaultsLedger.isScratchSuitePlist("com.example.SyncCloud.plist"))
         // Mixed case is not what Foundation emits, so it is not ours to delete.
         #expect(!ScratchDefaultsLedger.isScratchSuitePlist(
             "SomeTests-27f8084A-D4C7-4067-BB25-2B648F8C4153.plist"))

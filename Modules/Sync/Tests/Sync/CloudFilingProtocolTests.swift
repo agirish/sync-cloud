@@ -11,7 +11,7 @@ import Testing
 
     @Test func requestBodyForcesTheStructuredToolAndCachesTheTaxonomy() throws {
         let files = [file("/root/Downloads/Tesla Policy.pdf", snippet: "GEICO auto insurance"),
-                     file("/root/Downloads/IMG_0007.pdf", snippet: "Pediatric visit summary for Divit")]
+                     file("/root/Downloads/IMG_0007.pdf", snippet: "Pediatric visit summary for Son")]
         let body = CloudFilingProtocol.requestBody(model: "claude-haiku-4-5",
                                                    taxonomyFolders: ["Documents", "Documents/Vehicles"], files: files)
 
@@ -31,7 +31,7 @@ import Testing
         let userText = try #require(messages.first?["content"] as? String)
         #expect(userText.contains("Tesla Policy.pdf"))
         #expect(!userText.contains("GEICO auto insurance"))              // named → excerpt skipped
-        #expect(userText.contains("Pediatric visit summary for Divit"))  // nameless → excerpt kept
+        #expect(userText.contains("Pediatric visit summary for Son"))  // nameless → excerpt kept
         #expect(JSONSerialization.isValidJSONObject(body))
     }
 

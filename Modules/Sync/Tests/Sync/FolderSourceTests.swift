@@ -50,7 +50,7 @@ import Testing
     }
 
     /// The home directory's last component is the account's short name, which reads as a person
-    /// rather than a place — "abhishek" sitting in a list of sources next to "Dropbox".
+    /// rather than a place — "father" sitting in a list of sources next to "Dropbox".
     @Test func defaultDisplayNameNamesTheHomeFolderAsAPlace() {
         #expect(FolderSource(id: "folder:x", path: "~").defaultDisplayName == "Home folder")
         #expect(FolderSource(id: "folder:x", path: NSHomeDirectory()).defaultDisplayName == "Home folder")
