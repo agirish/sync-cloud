@@ -378,7 +378,46 @@ enum HelpBook {
                     ]),
                     .tip("Nothing moves without your say-so, and every move is undoable. Which engines run is up to you — see Settings ▸ Intelligence."),
                 ],
-                related: ["organize-workspace", "automation-rules", "intelligence", "restructure-scaffold"]
+                related: ["organize-workspace", "automation-rules", "intelligence",
+                          "restructure-scaffold", "on-device-reading"]
+            )),
+            // The one article about SyncCloud OPENING a file rather than reading its name — and
+            // the only place the app makes a privacy claim in its own words.
+            //
+            // **Every sentence is checkable against the code, and that is the bar it was written
+            // to.** `ContentSignalExtractor` is PDFKit, Vision and NaturalLanguage and opens no
+            // socket. `FilingSurvey.document(fromPage1:stamp:salt:)` keeps 400 characters, stores
+            // ordinary words as themselves and hashes anything carrying a digit under a salt minted
+            // on this Mac. Exactly three files in the repo reference `URLSession`, and all three
+            // are the Refine path named in the last paragraph — `NoTelemetryTests` is what keeps
+            // that sentence true after somebody adds a fourth.
+            //
+            // **The exception is volunteered rather than left to be found.** An article claiming
+            // "nothing leaves this Mac" over an app that has a Refine button is one a reader stops
+            // believing the moment they meet the button, and then disbelieves the true parts with
+            // it. So the claim is scoped to the reading, and the one thing that is not the reading
+            // is named here in the article's own voice.
+            //
+            // **Two words are unavailable in this file** — `testNoArticleUsesRetiredVocabulary`
+            // bans "tidy" and "filing" — which is why this says "To File" and "Organize's
+            // suggestions" rather than the shorter nouns.
+            Topic(id: "on-device-reading", title: "Reading your documents",
+                  systemImage: "doc.text.magnifyingglass", article: Article(
+                intro: "Some of what Organize knows comes from opening your files and reading a little of them, rather than going on their names alone. All of that happens on this Mac, using the same parts of macOS that draw you a preview — and none of what it reads is sent anywhere.",
+                blocks: [
+                    .paragraph("Three things read a file rather than its name. To File reads a short piece of a loose file whose name says nothing on its own, so it can suggest somewhere to put it. Update folder memory, on Restructure's card, reads the first page of documents that are new or have changed since last time, so the app knows what each of your folders is for. Duplicates reads a document's text, which is how it tells two real copies apart from two files that merely share a name."),
+                    .bullets([
+                        "What can be opened — PDF, plain text and CSV, and JPEG or PNG images. Word, PowerPoint and Excel files are not read at all.",
+                        "How much — a few hundred characters, from the first page. The reading stops as soon as it has enough, and no page after the first is opened for this.",
+                        "What is kept — ordinary words, so a folder can be recognised by what its documents talk about. Anything with a digit in it, an account number or a claim reference, is kept only in scrambled form: the scrambling uses a random key made on this Mac, so two documents can be matched to each other while the number itself cannot be read back, by you or by anybody else.",
+                        "What is not kept — the document. Nothing is copied, and the text that was read is thrown away once the words are out of it.",
+                        "A file that is still in the cloud is left alone rather than fetched. Reading it would pull the whole thing down onto your disk, which is not a thing a scan should decide for you.",
+                    ]),
+                    .paragraph("All of it lives in one folder — ~/Library/Application Support/SyncCloud/profiles — and nothing else holds a copy. Delete that folder and everything the app learned from your documents is gone with it. Reading contents can also be switched off outright, under Settings ▸ Intelligence."),
+                    .tip("Nothing is sent anywhere. The reading opens no network connection at all: no upload, no account, no sign-in, no key. Nothing about your files reaches SyncCloud's developer or anyone else — not their contents, not their names, not how many there are, not that you ran a scan. SyncCloud has no server of its own, collects no usage statistics, and sends no crash reports."),
+                    .paragraph("One feature in the app can reach the internet, and it is not this one. Refine with Claude, in Organize's suggestions, sends your folder names and file names — plus a short excerpt for a file whose name says nothing — to Anthropic's API, using an API key you supply and that stays in your Keychain. It cannot run before you add that key, it never runs unless you press Refine, and it prices each pass before you agree to it. Everything on this page works exactly the same on a Mac that has no key and no internet."),
+                ],
+                related: ["file-loose-items", "intelligence", "staying-safe", "tidy-duplicates"]
             )),
             Topic(id: "tidy-duplicates", title: "Clear out duplicates", systemImage: "doc.on.doc", article: Article(
                 intro: "Duplicates scans one folder's tree for content that repeats under different names or in different places, and offers to trash the extra copies — keeping the best one.",
@@ -619,7 +658,7 @@ enum HelpBook {
                     .bullets([
                         "Names and layout, always — matching a file against what your folders are called and what its own metadata says. No model involved.",
                         "On-device AI (Apple Intelligence) — free, private, and the first pass. Where it isn't available, Organize falls back to names and metadata.",
-                        "Reading file contents on-device — more to go on for a file whose name says nothing.",
+                        "Reading file contents on-device — more to go on for a file whose name says nothing. What gets opened, how much of it is read and what is kept afterwards are all in Reading your documents; none of it leaves this Mac.",
                         "Refine with Claude — the opt-in second pass. Once a scan has results, a Refine button re-asks Claude about them, billed to an API key you supply and kept in the macOS Keychain.",
                         "“Try another” on a single suggestion is the second route that can spend, asking the better model again about that one file. It has no confirmation of its own, on purpose — a dialog on every card would cost more attention than it saves — so it is the one paid click you make without being asked twice.",
                         "“Refine names with Claude”, inside a Restructure plan, is the third — and the only one not about a file. It asks what a family's folders should be called, sending their paths and the candidate names, plus up to five file names per folder if you turn that on, and never a file's contents. What comes back edits your mapping, so nothing from it reaches your folders except through the operations you review.",
@@ -627,7 +666,7 @@ enum HelpBook {
                     .paragraph("The cloud pass never runs on its own. You press Refine, and you see a cost estimate to confirm before each one — it is a bulk action, so it is priced before you agree to it. All three answer to the same two caps: a monthly one, off by default, and a lifetime cap that ships at $5 as a backstop. Reaching either stands the paid work down and leaves the free on-device suggestions in place, and so does a model this build has no price for — silently on screen for a single card, and in the Activity Log either way."),
                     .tip("A file that hasn't been edited, renamed, or moved keeps the suggestion it already had, so scanning the same folder again doesn't ask the model — or pay for it — a second time."),
                 ],
-                related: ["file-loose-items", "automation-rules", "staying-safe"]
+                related: ["file-loose-items", "automation-rules", "staying-safe", "on-device-reading"]
             )),
             Topic(id: "command-palette", title: "Go to anything (⌘K)", systemImage: "magnifyingglass", article: Article(
                 intro: "⌘K grows the Go to pill at the right of the toolbar into a field, with its results hanging underneath — so the tree you are navigating stays on screen while you type the name of the folder you want. It reaches anywhere the app can go, including places that aren’t on screen at all, and Go ▸ Go to… is the same field, first in that menu because it’s the only item there that can reach a destination you’re not already near.",
@@ -684,7 +723,8 @@ enum HelpBook {
                         "Restructure deletes no files, at any stage. It renames, moves and merges folders; the only removal it offers is empty folders, ticked one at a time, to the Trash.",
                     ]),
                 ],
-                related: ["undo-redo", "activity-log", "intelligence", "restructure-apply"]
+                related: ["undo-redo", "activity-log", "intelligence", "restructure-apply",
+                          "on-device-reading"]
             )),
             Topic(id: "activity-log", title: "Activity Log and troubleshooting", systemImage: "clock.arrow.circlepath", article: Article(
                 intro: "Every scan and file operation is logged. If something looks off, the Activity Log is where to look — and what to send if you need help.",
