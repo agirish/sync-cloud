@@ -3679,3 +3679,34 @@ what keeps three rows of zeroes from being a mistyped path.
 says no" row: a maintenance line cannot carry a diff of an editor buffer when it has no editor. The
 row is filed so a later audit does not have to re-derive that from the shape of the feature — and so
 the *reason* is on record as a measurement rather than as an assumption.
+
+## 2026-09-07 — the install skill's branch count
+
+`73c55103`. The sweep step in `.claude/skills/install-sync-cloud/SKILL.md` said `origin` holds three
+lines and its `git ls-remote` comment expected `{main,v2.x,v3.x}` — so the one command in this repo
+that checks the remote for scaffolding would have called `v4.x` the stray. Now four, with the
+sentence pointing at CLAUDE.md's branch table as the source of truth rather than repeating a number,
+and the "fourth branch is scaffolding" line becomes a fifth that names `candidate-tap-deferral`.
+
+**Owed to `v4.x` in the ordinary sense, and deliberately not picked; genuinely not owed to `v3.x` or
+`v2.x`, which carry an OLDER wrong sentence rather than this one.** That distinction is the reason
+this entry exists: a future audit reading "the skill is stale everywhere" would pick the wrong fix
+onto two lines.
+
+```sh
+for l in v4.x v3.x v2.x; do
+  git show origin/$l:.claude/skills/install-sync-cloud/SKILL.md | grep -c 'holds three lines'
+  git show origin/$l:.claude/skills/install-sync-cloud/SKILL.md | grep -o 'only ever held'
+done   # v4.x: 1 and nothing · v3.x and v2.x: 0 and "only ever held"
+```
+
+- **`v4.x` carries the exact sentence corrected here** — one occurrence of "holds three lines". On
+  that line the sentence is *less* wrong than it is on `main`, because `v4.x` is itself one of the
+  four and a session working there has no reason to look for a fifth. Recorded, not picked.
+- **`v3.x` and `v2.x` carry the sentence this one replaced** — "`origin` … only ever held `main`",
+  the version that predates the maintenance lines entirely. Picking `main`'s correction onto them
+  would install a paragraph about `v4.x` into lines cut before it existed, and would leave the
+  `roots` anecdote referring to a sweep those lines never ran.
+- Nothing here is user-facing: the file is tooling for a session, not code the app runs.
+
+Recorded rather than picked, per the standing direction.
