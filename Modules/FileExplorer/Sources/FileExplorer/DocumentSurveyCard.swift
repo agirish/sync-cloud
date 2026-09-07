@@ -240,7 +240,12 @@ struct DocumentSurveyCard: View {
         }
         .frame(height: 5)
         .frame(maxWidth: 260)
-        .animation(.easeOut(duration: 0.2), value: fraction)
+        // **`designAnimation`, not `.animation`.** Every animated change in this app goes through
+        // it so Reduce Motion turns the movement off rather than slowing it down, and
+        // `ReduceMotionCoverageScanTests` scans the whole app for raw sites. A survey's bar is
+        // exactly the sort of continuous motion somebody switches Reduce Motion on to be rid of —
+        // it moves for three hours.
+        .designAnimation(.easeOut(duration: 0.2), value: fraction)
     }
 
     @ViewBuilder
