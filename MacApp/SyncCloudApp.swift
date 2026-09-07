@@ -710,7 +710,8 @@ struct SyncCloudApp: App {
                 // the panes are collapsed — the same rule as the toolbar button, so the two halves
                 // of one control cannot disagree.
                 ToggleFolderSidebarCommand()    // ⌃⌘S
-                ToggleTabBarCommand()           // ⇧⌘T
+                // Tab Bar and Status Bar, as one child — this builder is at its ten. See the type.
+                PaneChromeCommands()            // ⇧⌘T, and Status Bar with no chord
                 ToggleHiddenFilesCommand()      // ⇧⌘.
                 TogglePreviewColumnCommand()    // ⇧⌘P
                 ToggleInspectorCommand()        // ⌘I — and Italic, when the caret is in Edit's document

@@ -455,6 +455,10 @@ private struct FolderSidebarVisibleKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+private struct StatusBarVisibleKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 /// View ▸ Tab Bar's state, which a `Binding<Bool>` cannot carry.
 ///
 /// The switch has THREE states, not two: off, on, and **on-because-a-second-tab-is-open** — where
@@ -786,6 +790,17 @@ extension FocusedValues {
         set { self[TabBarVisibleKey.self] = newValue }
     }
 
+    /// What **View ▸ Status Bar** reads. `nil` on every workspace that does not draw the bar —
+    /// which is every workspace but Browse; see `shortcutStatusBar`.
+    ///
+    /// A plain `Binding<Bool>` rather than `TabBarSwitch`: nothing ever forces the status bar on,
+    /// so the switch has the two states a binding can carry. (The tab bar's third state exists
+    /// because a strip holding a second tab must not be hideable.)
+    var statusBarVisible: Binding<Bool>? {
+        get { self[StatusBarVisibleKey.self] }
+        set { self[StatusBarVisibleKey.self] = newValue }
+    }
+
     /// What **View ▸ Sidebar** reads. `nil` wherever the column cannot be drawn at all — see
     /// `shortcutFolderSidebar`, which is the one place that decides it — and a plain
     /// `Binding<Bool>` rather than `TabBarSwitch` because nothing ever forces it on.
@@ -882,6 +897,8 @@ struct ShortcutValuePublisher: ViewModifier {
     /// `nil` wherever the column cannot be drawn — see `shortcutFolderSidebar`, which is the one
     /// place that decides it.
     let folderSidebar: Binding<Bool>?
+    /// `nil` wherever the bar is not drawn — see `shortcutStatusBar`.
+    let statusBar: Binding<Bool>?
     let organizeLens: OrganizeLensSwitch?
     let organizeVerbs: OrganizeVerbs?
     let paneRowVerbs: PaneRowVerbs?
@@ -936,6 +953,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveReopenClosedTab: (() -> Void)? { suspended ? nil : reopenClosedTab }
     var effectiveTabBar: TabBarSwitch? { suspended ? nil : tabBar }
     var effectiveFolderSidebar: Binding<Bool>? { suspended ? nil : folderSidebar }
+    var effectiveStatusBar: Binding<Bool>? { suspended ? nil : statusBar }
     var effectiveOrganizeLens: OrganizeLensSwitch? { suspended ? nil : organizeLens }
     var effectiveOrganizeVerbs: OrganizeVerbs? { suspended ? nil : organizeVerbs }
     var effectivePaneRowVerbs: PaneRowVerbs? { suspended ? nil : paneRowVerbs }
@@ -980,6 +998,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.reopenClosedTab, effectiveReopenClosedTab)   // File ▸ Reopen Closed Tab
             .focusedSceneValue(\.tabBarVisible, effectiveTabBar)              // ⇧⌘T
             .focusedSceneValue(\.folderSidebarVisible, effectiveFolderSidebar) // View ▸ Sidebar, ⌃⌘S
+            .focusedSceneValue(\.statusBarVisible, effectiveStatusBar)         // View ▸ Status Bar
             .focusedSceneValue(\.organizeLens, effectiveOrganizeLens)         // View ▸ Organize ▸ …
             .focusedSceneValue(\.organizeVerbs, effectiveOrganizeVerbs)       // File ▸ Organize's verbs
             .focusedSceneValue(\.paneRowVerbs, effectivePaneRowVerbs)         // File ▸ the row menu's verbs
@@ -1016,6 +1035,7 @@ extension ContentView {
             reopenClosedTab: shortcutReopenClosedTab,
             tabBar: shortcutTabBar,
             folderSidebar: shortcutFolderSidebar,
+            statusBar: shortcutStatusBar,
             organizeLens: shortcutOrganizeLens,
             organizeVerbs: shortcutOrganizeVerbs,
             paneRowVerbs: shortcutPaneRowVerbs,
@@ -1126,6 +1146,22 @@ extension ContentView {
     /// The condition is `PaneTabStripVisibility.forcesTabBarSwitch`, which is defined as the
     /// visibility rule with the switch's own term removed — so the two cannot drift again. Inlining
     /// the disjunction here is what let them drift the first time.
+    /// View ▸ Status Bar — **live on Browse and nowhere else**, which is the bar's own scope
+    /// stated once (see `PaneStatusBar` for why it is Browse-only).
+    ///
+    /// `nil` rather than a live binding on the other workspaces, following the folder sidebar's
+    /// rule for the same reason: a ticked switch on Compare would describe a strip that surface
+    /// does not draw, and un-ticking it there would change something the user cannot see. The
+    /// preference itself stays app-wide — this gates the *item*, not the key.
+    ///
+    /// Unlike the sidebar's, this asks nothing about the panes being collapsed: Browse cannot
+    /// collapse its pane (there is no spine to collapse into — see `paneColumn`'s `onCollapse`),
+    /// so the bar is on screen for exactly as long as Browse is.
+    var shortcutStatusBar: Binding<Bool>? {
+        guard selectedWorkspace == .browse else { return nil }
+        return Binding(get: { statusBarVisible }, set: { statusBarVisible = $0 })
+    }
+
     var shortcutTabBar: TabBarSwitch {
         let isLeft = shortcutTabTargetIsLeft
         let forced = PaneTabStripVisibility.forcesTabBarSwitch(
@@ -2015,6 +2051,33 @@ struct ToggleTabBarCommand: View {
         // Ticked AND disabled while a second tab is open: the switch must never hide a strip whose
         // tabs would then be unreachable.
         .disabled(tabBar == nil || tabBar?.isForced == true)
+    }
+}
+
+/// A noun with a tick, like the Tab Bar above it. **No chord**: ⌘/ is Finder's Show Status Bar,
+/// but this app already spends its unmodified-⌘ punctuation elsewhere, and the two conventional
+/// alternatives both carry ⌥ — the one kind of chord that fires through the ⌥-hold reveal, which
+/// `AppChordTests` holds the whole app to. The item is one row under a menu people open anyway.
+struct ToggleStatusBarCommand: View {
+    @FocusedValue(\.statusBarVisible) private var statusBar
+
+    var body: some View {
+        Toggle("Status Bar", isOn: Binding(
+            get: { statusBar?.wrappedValue ?? false },
+            set: { statusBar?.wrappedValue = $0 }
+        ))
+        .disabled(statusBar == nil)
+    }
+}
+
+/// The two switches that add or remove a strip of pane chrome — **one child, because the View
+/// menu's builder was at its ten.** The same accommodation `PaneNavigationCommands` and
+/// `TextSizeMenuCommand` make, and grouped on the same argument they are: these two are adjacent
+/// in the menu and answer the same question about the same pane.
+struct PaneChromeCommands: View {
+    var body: some View {
+        ToggleTabBarCommand()       // ⇧⌘T
+        ToggleStatusBarCommand()    // no chord — see the type
     }
 }
 

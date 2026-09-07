@@ -1,6 +1,7 @@
 import SwiftUI
 import Dashboard
 import Design
+import FileExplorer
 import Sync
 
 /// The custom pane split layout, extracted from ContentView.swift for size: the horizontal
@@ -308,9 +309,40 @@ extension ContentView {
                 folderSidebarResizeHandle(displayedWidth: browseSidebarWidth)
             }
             VStack(spacing: 0) {
-                paneColumn(isLeft: true)
-                    .panesRegionFrame(surfaceStyle, level: glassLevel)
-                    .frame(maxHeight: .infinity)
+                // **The pane and its status bar are one region.**
+                //
+                // The bar is a foot on the column, not a sibling of it, and in `.unified` that
+                // distinction is visible: `panesRegionFrame` clips and insets by `cardInset` there,
+                // so a bar outside it would sit flush to the window edge under a pane that is
+                // inset — and outside the hairline that is drawing the region's own outline. In
+                // `.cards` the modifier is a no-op and each child insets itself, so wrapping
+                // changes nothing and the bar keeps the card it gives itself.
+                //
+                // **Under the pane, above the gather.** The bar describes the pane's tree, so it
+                // belongs to the column rather than to whatever a search has stacked below it —
+                // and a gather opening must not push a line about the file list underneath a list
+                // of somebody's documents.
+                //
+                // **Outside `paneColumn`, deliberately**, which is the whole of the Browse-only
+                // decision: that function is the ONE pane Browse, both Compare panes and the
+                // Organize/Storage rail are all built from, so a bar added inside it would appear
+                // on four surfaces and the v4.2 deferral is about exactly the surface where that
+                // is wrong. See `PaneStatusBar`.
+                //
+                // The wrapper is unconditional, so it does not itself move `paneColumn` in the
+                // view tree when the switch flips — the same "one structure" rule this function's
+                // own note states for the gather. No animation on the switch either: the pane
+                // takes the room back through `maxHeight: .infinity`, and a 15pt row sliding in
+                // and out under a 40,000-row list relayouts the list to show a caption about it.
+                VStack(spacing: 0) {
+                    paneColumn(isLeft: true)
+                        .frame(maxHeight: .infinity)
+                    if statusBarVisible {
+                        browseStatusBar
+                    }
+                }
+                .panesRegionFrame(surfaceStyle, level: glassLevel)
+                .frame(maxHeight: .infinity)
                 verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction,
                                       maxFraction: maxFraction)
                     .frame(height: dividerHeight)
@@ -324,6 +356,30 @@ extension ContentView {
             .coordinateSpace(.named(Self.verticalStackSpace))
         }
         .frame(width: geo.size.width, height: geo.size.height)
+    }
+
+    /// Browse's status bar, composed from the left pane — the only pane Browse has.
+    ///
+    /// **The selection is resolved here rather than carried down from `paneColumn`.** That
+    /// function resolves its own (`ownNodes`) for the header's Delete rung, but it is a different
+    /// view built in a different call, and threading a value out of it would mean giving Browse a
+    /// path through the shared pane builder that the other three surfaces do not take. The
+    /// resolution goes through `FileSyncManager`'s path→node index, so it is O(selection) rather
+    /// than the ~40k-node walk `DetailsSelectionSummary` documents at length.
+    ///
+    /// The cloud clause reads the badge memo, never the filesystem: a selected row has been drawn,
+    /// so `CloudOnlyBadgeCache` already holds its answer — the same read File ▸ Download makes,
+    /// and no new syscall on a path that runs every render.
+    @ViewBuilder
+    var browseStatusBar: some View {
+        BrowseStatusBar(
+            itemCount: syncManager.leftItemCount,
+            tree: syncManager.leftPaneTree,
+            selection: PaneStatusFacts.Selection.make(nodes: paneSelectionNodes(isLeft: true),
+                                                      isCloudOnly: CloudOnlyBadgeCache.cached),
+            readAt: syncManager.leftTreeReadAt)
+            .contentSurface(hue: glassHue, tint: surfaceTint)
+            .paneCardIfNeeded(surfaceStyle, level: glassLevel, accentBorder: paneCardAccent(isLeft: true))
     }
 
     /// **The sidebar's drag handle**, and the seam between it and the pane.

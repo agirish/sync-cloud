@@ -217,6 +217,16 @@ struct ContentView: View {
     /// "do I want a tab bar" is a question about the app, not about one of three surfaces that all
     /// draw the same pane.
     @AppStorage("browseTabBarVisible") var tabBarVisible: Bool = false
+    /// View ▸ Status Bar. **On by default**, unlike the tab bar above it — the strip states facts
+    /// the window has nowhere else to put (how many items are here at all, how much of the tree
+    /// lives in the cloud), where a tab bar restates a folder name the header already shows. It
+    /// costs one 10pt row and the roadmap's brief asks for it on.
+    ///
+    /// App-wide rather than per pane, for the reason the tab bar's key gives: "do I want a status
+    /// bar" is a question about the app. It reaches only Browse today (see `PaneStatusBar`), which
+    /// is a fact about where the bar is *drawn*, not about what the preference means — so a
+    /// Compare bar arriving later would read this same key rather than minting a second one.
+    @AppStorage("browseStatusBarVisible") var statusBarVisible: Bool = true
     /// The folder sidebar's column. **On by default**: the store has always held the pinned and
     /// recent lists and nothing but a menu ever showed them, so shipping this off would have left
     /// the item exactly as discoverable as the menu it replaced.
