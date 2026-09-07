@@ -488,7 +488,7 @@ enum FolderSurveyGroundTruth {
                 // Every consumer of `axes["person"]` — `FilingRouter`, `FilingEngine`,
                 // `PeopleOverview`, `PersonFiles` — reads it through
                 // `PersonRegistry.person(forAxisValue:)`, and that matcher tokenizes through
-                // `PersonRegistry.words`, which lowercases. So `Aditi` and `aditi` are the same
+                // `PersonRegistry.words`, which lowercases. So `Daughter` and `daughter` are the same
                 // person to every line of code that acts on this value, and a raw `==` here was
                 // asserting something the app does not believe.
                 //
@@ -496,8 +496,8 @@ enum FolderSurveyGroundTruth {
                 // disagreed and every one of them was case alone** — 0.905 against a 0.99 floor,
                 // with the roster complete and the attributions correct. The spelling differs by
                 // the registry's PROVENANCE, not by the survey rules: a profile built from
-                // `people.json` carries display names (`Aditi`), one built from the profile's own
-                // tokens carries ids (`aditi`), and both are correct. This suite exists to check
+                // `people.json` carries display names (`Daughter`), one built from the profile's own
+                // tokens carries ids (`daughter`), and both are correct. This suite exists to check
                 // the RULES, so a provenance difference must not read as a rules failure — it sent
                 // one session to the edge of rebuilding a live profile, which would have cost 2309
                 // folders of filing memory to repair nothing.

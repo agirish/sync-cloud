@@ -113,7 +113,7 @@ enum OnDeviceFilingClassifier {
     "Immigration/Visa/US" and "Immigration/Visa/US/H-1B Visa/2024-2026" and the document is an H-1B \
     visa issued in that period, the answer is the second.
     • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
-    parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla") — and say so by \
+    parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Car Two") — and say so by \
     setting createsNewFolder to true. Copying a path from the list means createsNewFolder is false. \
     Never append the file's own name, or any file name, as a folder.
     • Reason about meaning, people's names, and document type — not just matching words.

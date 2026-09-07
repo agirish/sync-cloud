@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Most of the rename backlog needs no model call, because the provider put the date in the name on
 /// the way out: `9829custbill07182023.pdf`, `20240128-statements-8857.pdf`,
-/// `STMTCMB100_20201101_5203_Girish.PDF`, `ATTBill_1897_Feb2022.pdf`, `DetailedBillApr2025.pdf`.
+/// `STMTCMB100_20201101_5203_Elder.PDF`, `ATTBill_1897_Feb2022.pdf`, `DetailedBillApr2025.pdf`.
 /// This mines it, purely, with no disk and no clock.
 ///
 /// ## It says no far more often than it says yes, and that is the design
@@ -253,10 +253,10 @@ public enum FileNameDate {
         /// Whether `name` ends `run` at a word boundary, or is the whole run.
         ///
         /// The first draft asked only that the month start with a capital, which is unconditionally
-        /// true inside an ALL-CAPS run — so `KUMAR` was still March, `RAJAN` still January, `MAPR`
+        /// true inside an ALL-CAPS run — so `KUMAR` was still March, `RAJAN` still January, `NAPR`
         /// still April: every example the rule was written to stop, surviving in upper case. (1,749
         /// files on the real tree carry an all-caps run of four or more characters, three of them
-        /// the token `MAPR`.) The second asked for a lowercase character *before* the month, which
+        /// a vendor token ending `APR`.) The second asked for a lowercase character *before* the month, which
         /// fixed those and took `HDFCApr`, `AMEXApr` and `IRSMar` with them — an acronym in front of
         /// a title-cased month is a boundary a reader has no trouble seeing.
         ///

@@ -5,7 +5,7 @@ import Foundation
 /// **Held back until the evidence was content, and built only on content.** Matching siblings by
 /// child names is dominated by correct parallels on this tree (Vanguard's two IRAs, four Chase
 /// accounts foldered by year) — identical sibling structure is usually a sign of health. What
-/// separates the real case (`Work/Archive/MapR/Compensation/Forms/` against
+/// separates the real case (`Work/Archive/Acme/Compensation/Forms/` against
 /// `Finance/US/Income Tax/2016/Forms/`) is that **the same documents sit in both**, and the PDF
 /// content fingerprint's `.sameText` pass is the evidence: two folders are duplicated taxonomy
 /// when a material share of their contents are `.sameText` partners of each other, never merely

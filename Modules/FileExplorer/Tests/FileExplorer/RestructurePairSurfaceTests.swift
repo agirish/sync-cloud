@@ -135,7 +135,7 @@ import Testing
         let manifest = RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "Work",
             kind: .looseBesideContainer,
-            actions: [.init(action: .moveDir, src: "Work/Badge", dst: "Work/MapR/Badge")])
+            actions: [.init(action: .moveDir, src: "Work/Badge", dst: "Work/Acme/Badge")])
         #expect(RestructurePairMergeSheet.applyTitle(manifest: manifest, applying: false)
                     == "Apply 1 operation")
         // `keep` rows are the signature block. The card beside this button counts with
@@ -164,8 +164,8 @@ import Testing
                                                 destination: "Finance/TODO/IRS")
                     == "Merge IRS into its parent")
         #expect(RestructurePairMergeSheet.title(source: "Work/Badge",
-                                                destination: "Work/MapR/Badge")
-                    == "Merge Badge into MapR/Badge")
+                                                destination: "Work/Acme/Badge")
+                    == "Merge Badge into Acme/Badge")
         #expect(RestructurePairMergeSheet.title(source: "Health/TODO/Dental",
                                                 destination: "Health/Dental")
                     == "Merge Dental into Health/Dental")

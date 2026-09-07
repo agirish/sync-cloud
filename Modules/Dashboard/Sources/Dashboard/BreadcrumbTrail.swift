@@ -54,11 +54,11 @@ public enum BreadcrumbTrail {
     }
 
     /// Display name for a pane's root crumb: **the source's own name** — "iCloud", "OneDrive
-    /// (HPE)", whatever the user renamed it to — falling back to the root folder's last component,
+    /// (EMP)", whatever the user renamed it to — falling back to the root folder's last component,
     /// and to `"Root"` for a path with no usable component.
     ///
     /// Naming the crumb after the folder was right only while a source *was* a folder. Once roots
-    /// widened to the account itself, the last component became `OneDrive-HewlettPackardEnterprise`
+    /// widened to the account itself, the last component became `OneDrive-AcmeCorporationWorldwide`
     /// — an id, not a name — and before that it was `Documents` for every source on the machine,
     /// so the one crumb that identifies which cloud you are looking at said the same word in every
     /// pane. The source's display name is the thing the user recognises, it is what the source

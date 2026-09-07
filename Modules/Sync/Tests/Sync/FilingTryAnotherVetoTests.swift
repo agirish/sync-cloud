@@ -6,8 +6,8 @@ import Testing
 ///
 /// The scan and the refine both run their verdicts through `FilingEngine.applyVerdicts`, where the
 /// cross-person rule lives. A re-ask resolved its verdict straight through `destination(from:)` and
-/// put the result on the card — so the model could answer `Immigration/OCI/Divit` for a document
-/// named for Aditi and nothing would stop it. That is the error the rule was written for, on the
+/// put the result on the card — so the model could answer `Immigration/OCI/Son` for a document
+/// named for Daughter and nothing would stop it. That is the error the rule was written for, on the
 /// click most likely to produce it: the user is asking the model to think again about a file it has
 /// already been wrong about once.
 ///
@@ -18,40 +18,40 @@ import Testing
     static let root = "/root"
 
     static let household = PersonRegistry(people: [
-        Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-        Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+        Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+        Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
     ])
 
-    /// A profile whose person axis says `Immigration/OCI/Divit` is Divit's.
+    /// A profile whose person axis says `Immigration/OCI/Son` is Son's.
     static func profile() -> FolderProfile {
         let entries = [
-            FolderProfileEntry(path: "Immigration/OCI/Divit", role: .destination, naming: nil,
+            FolderProfileEntry(path: "Immigration/OCI/Son", role: .destination, naming: nil,
                                anchors: [], acceptsNewFiles: nil, fileCount: 3, subfolderCount: 0,
-                               axes: ["person": "Divit"]),
-            FolderProfileEntry(path: "Immigration/OCI/Aditi", role: .destination, naming: nil,
+                               axes: ["person": "Son"]),
+            FolderProfileEntry(path: "Immigration/OCI/Daughter", role: .destination, naming: nil,
                                anchors: [], acceptsNewFiles: nil, fileCount: 3, subfolderCount: 0,
-                               axes: ["person": "Aditi"]),
+                               axes: ["person": "Daughter"]),
         ]
         return FolderProfile(profileId: "t", root: "~",
                              folders: Dictionary(entries.map { ($0.path, $0) },
                                                  uniquingKeysWith: { a, _ in a }),
-                             personTokens: ["aditi", "divit"])
+                             personTokens: ["daughter", "son"])
     }
 
     // MARK: The rule
 
     @Test func aDocumentNamedForOnePersonIsRefusedAnothersFolder() throws {
         let veto = try #require(FilingEngine.personVeto(
-            fileName: "Aditi OCI.pdf", destination: "\(Self.root)/Immigration/OCI/Divit",
+            fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Immigration/OCI/Son",
             providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
             identity: nil, pageSample: nil))
         let reported = try #require(veto.reported, "the refusal carries no report to show the user")
-        #expect(reported.namedPerson == "aditi")
-        #expect(reported.proposedPerson == "divit")
-        #expect(reported.destination == "Immigration/OCI/Divit")
+        #expect(reported.namedPerson == "daughter")
+        #expect(reported.proposedPerson == "son")
+        #expect(reported.destination == "Immigration/OCI/Son")
     }
 
-    /// **The reported failure, reproduced.** `Aditi OCI.pdf` into a folder Divit owns — reached
+    /// **The reported failure, reproduced.** `Daughter OCI.pdf` into a folder Son owns — reached
     /// through a segment that does not exist yet.
     ///
     /// The rule opened with an EXACT dictionary lookup of the destination in `profile.folders`, and
@@ -65,38 +65,38 @@ import Testing
     /// profile, which is why the structural bypass in the rule's own opening guard had no test.
     @Test func aNewFolderInsideAnothersPersonFolderIsStillRefused() throws {
         // Not a key in the profile — the whole point. Its PARENT is.
-        let destination = "\(Self.root)/Immigration/OCI/Divit/Application"
-        #expect(Self.profile().folders["Immigration/OCI/Divit/Application"] == nil,
+        let destination = "\(Self.root)/Immigration/OCI/Son/Application"
+        #expect(Self.profile().folders["Immigration/OCI/Son/Application"] == nil,
                 "the fixture stopped exercising a new folder — this test would pass on the old lookup")
 
         let veto = try #require(FilingEngine.personVeto(
-            fileName: "Aditi OCI.pdf", destination: destination,
+            fileName: "Daughter OCI.pdf", destination: destination,
             providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
             identity: nil, pageSample: nil))
         let reported = try #require(veto.reported)
-        #expect(reported.namedPerson == "aditi")
-        #expect(reported.proposedPerson == "divit")
+        #expect(reported.namedPerson == "daughter")
+        #expect(reported.proposedPerson == "son")
         // Reported as the destination the user was actually offered, not as the ancestor the rule
         // resolved the person from — the sentence is about where the file was going.
-        #expect(reported.destination == "Immigration/OCI/Divit/Application")
+        #expect(reported.destination == "Immigration/OCI/Son/Application")
     }
 
     /// Depth is not a loophole: several new segments deep still resolves to the owning ancestor.
     @Test func aDeeplyNewPathStillResolvesToTheOwningAncestor() throws {
         let veto = try #require(FilingEngine.personVeto(
-            fileName: "Aditi OCI.pdf",
-            destination: "\(Self.root)/Immigration/OCI/Divit/Application/2026/Scans",
+            fileName: "Daughter OCI.pdf",
+            destination: "\(Self.root)/Immigration/OCI/Son/Application/2026/Scans",
             providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
             identity: nil, pageSample: nil))
-        #expect(veto.reported?.proposedPerson == "divit")
+        #expect(veto.reported?.proposedPerson == "son")
     }
 
     /// And the walk stops at the NEAREST owner rather than the outermost: a new folder under
-    /// Aditi's own folder is hers, even though Divit's sits alongside it under a shared parent.
+    /// Daughter's own folder is hers, even though Son's sits alongside it under a shared parent.
     @Test func theNearestOwningAncestorWinsSoTheRightPersonIsStillAllowed() {
         #expect(FilingEngine.personVeto(
-            fileName: "Aditi OCI.pdf",
-            destination: "\(Self.root)/Immigration/OCI/Aditi/Application",
+            fileName: "Daughter OCI.pdf",
+            destination: "\(Self.root)/Immigration/OCI/Daughter/Application",
             providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
             identity: nil, pageSample: nil) == nil)
     }
@@ -105,7 +105,7 @@ import Testing
     /// CONTRADICTION, and there is nothing here to contradict.
     @Test func aNewFolderWithNoOwningAncestorIsAllowed() {
         #expect(FilingEngine.personVeto(
-            fileName: "Aditi OCI.pdf", destination: "\(Self.root)/Immigration/Passports/New",
+            fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Immigration/Passports/New",
             providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
             identity: nil, pageSample: nil) == nil)
     }
@@ -114,11 +114,11 @@ import Testing
     /// is allowed, and so is a folder with no person axis at all.
     @Test func theRightPersonsFolderAndAnUnownedFolderAreAllowed() {
         #expect(FilingEngine.personVeto(
-            fileName: "Aditi OCI.pdf", destination: "\(Self.root)/Immigration/OCI/Aditi",
+            fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Immigration/OCI/Daughter",
             providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
             identity: nil, pageSample: nil) == nil)
         #expect(FilingEngine.personVeto(
-            fileName: "Aditi OCI.pdf", destination: "\(Self.root)/Legal/Immigration",
+            fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Legal/Immigration",
             providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
             identity: nil, pageSample: nil) == nil)
     }
@@ -126,7 +126,7 @@ import Testing
     /// A document naming nobody is not protected by this rule and must not be blocked by it.
     @Test func aDocumentNamingNobodyIsNotRefused() {
         #expect(FilingEngine.personVeto(
-            fileName: "Scan 2026-08-02.pdf", destination: "\(Self.root)/Immigration/OCI/Divit",
+            fileName: "Scan 2026-08-02.pdf", destination: "\(Self.root)/Immigration/OCI/Son",
             providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
             identity: nil, pageSample: nil) == nil)
     }
@@ -134,7 +134,7 @@ import Testing
     /// With no registry the axis falls back to token comparison, which still protects.
     @Test func anUnresolvableAxisKeepsTheTokenProtection() throws {
         let veto = try #require(FilingEngine.personVeto(
-            fileName: "Aditi OCI.pdf", destination: "\(Self.root)/Immigration/OCI/Divit",
+            fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Immigration/OCI/Son",
             providerRoot: Self.root, profile: Self.profile(), registry: nil,
             identity: nil, pageSample: nil))
         #expect(veto.reported == nil, "a token-only refusal has no names to report")

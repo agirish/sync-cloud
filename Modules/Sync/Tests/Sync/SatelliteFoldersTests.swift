@@ -17,7 +17,7 @@ import Testing
     /// The reported case, at its real shape: four payslips copied into an H-1B petition packet whose
     /// originals are ten files in the salary-statement folder for the same year.
     private func payslipTree() -> DocumentIdentityIndex {
-        let home = "Work/HPE/Compensation/Salary Statements/2026/"
+        let home = "Work/EMP/Compensation/Salary Statements/2026/"
         let stash = "Immigration/Authorization/H-1B/2026-2029/Petition/Supporting Documents/pay_statements/"
         var fps = (1...10).map { record(home + "\($0). doc.pdf", "pay\($0)") }
         fps += (1...4).map { record(stash + "Payslip_\($0).pdf", "pay\($0)") }
@@ -105,7 +105,7 @@ import Testing
     @Test("The petition's copy stash is a satellite of the salary folder")
     func findsTheReportedCase() {
         let stash = "Immigration/Authorization/H-1B/2026-2029/Petition/Supporting Documents/pay_statements"
-        let home = "Work/HPE/Compensation/Salary Statements/2026"
+        let home = "Work/EMP/Compensation/Salary Statements/2026"
         let found = homes(payslipTree())
         #expect(found[stash] == [home])
         // **Directional.** The home is not also a satellite of the stash, which is the entire point
@@ -163,7 +163,7 @@ import Testing
     @Test("The home outranks its copy stash, and the stash stays on the card")
     func demotesTheSatellite() {
         let stash = "Immigration/Authorization/H-1B/2026-2029/Petition/Supporting Documents/pay_statements"
-        let home = "Work/HPE/Compensation/Salary Statements/2026"
+        let home = "Work/EMP/Compensation/Salary Statements/2026"
         // A memory in which the stash genuinely scores higher — which is what the real one does,
         // because it learned the anchor `payslip` from the filenames the copies were saved under.
         let memory = FilingMemory(profileId: "t", salt: "s", folders: [
@@ -199,7 +199,7 @@ import Testing
         // The home is named by the relation but is not a destination here, so nothing displaces the
         // satellite and it remains the answer — a document really can belong in a petition packet.
         let index = FilingRouter.makeIndex(destinations: [stash], profile: nil, memory: memory,
-                                           satelliteHomes: [stash: ["Work/HPE/Salary"]])
+                                           satelliteHomes: [stash: ["Work/EMP/Salary"]])
         let r = FilingRouter.rank(fileName: "Payslip.pdf", contentSnippet: "payslip", index: index)
         #expect(r.best?.relativePath == stash)
     }
@@ -211,7 +211,7 @@ import Testing
         // back. Measured: asked where `Payslip_2026-06-15.pdf` belonged, the backend answered the
         // petition stash at High confidence.
         let stash = "Immigration/Petition/pay_statements"
-        let home = "Work/HPE/Salary Statements/2026"
+        let home = "Work/EMP/Salary Statements/2026"
         let suggestion = FilingSuggestion(
             filePath: "/P/TODO/Payslip.pdf", fileName: "Payslip.pdf", size: 1,
             modificationDate: nil,
@@ -225,7 +225,7 @@ import Testing
         // makes the control leg pass for the wrong reason.
         let existing: Set<String> = [
             "Immigration", "Immigration/Petition", stash,
-            "Work", "Work/HPE", "Work/HPE/Salary Statements", home,
+            "Work", "Work/EMP", "Work/EMP/Salary Statements", home,
         ]
         func applied(satellites: [String: Set<String>]) -> String? {
             FilingEngine.applyVerdicts(["/P/TODO/Payslip.pdf": verdict], to: [suggestion],

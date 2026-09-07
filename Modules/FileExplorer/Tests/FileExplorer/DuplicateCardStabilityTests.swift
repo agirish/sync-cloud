@@ -136,14 +136,14 @@ import Testing
     @MainActor
     @Test func aVeryLongFileNameDoesNotGrowTheCard() {
         // 90 characters — comfortably wider than the 460pt card, and the shape of the real one
-        // ("Passport Old - Shweta - All Pages (Jul 2020) - Compressed.pdf").
-        let long = String(repeating: "Passport Old - Shweta - All Pages ", count: 3) + ".pdf"
+        // ("Passport Old - Mother - All Pages (Jul 2020) - Compressed.pdf").
+        let long = String(repeating: "Passport Old - Mother - All Pages ", count: 3) + ".pdf"
         #expect(long.count > 90, "a positive control: this name really is too long for the card")
 
         func height(name: String) -> CGFloat {
             var reported: CGFloat = -1
-            let g = group([copy("/Docs/Passport/Shweta/Archive/\(name)", name: name, keeper: true),
-                           copy("/Docs/Passport/Shweta/Old/\(name)", name: name)])
+            let g = group([copy("/Docs/Passport/Mother/Archive/\(name)", name: name, keeper: true),
+                           copy("/Docs/Passport/Mother/Old/\(name)", name: name)])
             let card = DuplicateGroupCard(
                 group: g, isExpanded: true, providerName: "iCloud", scanRoot: "/Docs",
                 densityMetrics: ListDensity.comfortable.metrics,
@@ -176,11 +176,11 @@ import Testing
     @MainActor
     @Test func theRowHeaderOverflowsAGridColumnAndTheStackedOneDoesNot() {
         let offered: CGFloat = 220
-        let group = group([copy("/a/Passport - Shweta - All Pages.pdf",
-                                name: "Passport - Shweta - All Pages.pdf", size: 26_300_000,
+        let group = group([copy("/a/Passport - Mother - All Pages.pdf",
+                                name: "Passport - Mother - All Pages.pdf", size: 26_300_000,
                                 keeper: true),
-                           copy("/b/Passport - Shweta - All Pages (Jul 2020).pdf",
-                                name: "Passport - Shweta - All Pages (Jul 2020).pdf",
+                           copy("/b/Passport - Mother - All Pages (Jul 2020).pdf",
+                                name: "Passport - Mother - All Pages (Jul 2020).pdf",
                                 size: 26_300_000)])
 
         func drawnWidth(_ layout: DuplicateCardHeaderLayout,
@@ -252,7 +252,7 @@ import Testing
     /// time, each defensible on its own, until nobody reads any of them.
     @Test func everyNoteStaysInsideItsLengthBudget() {
         // The name that actually appears on his cards, not a five-character stand-in.
-        let realistic = "Passport Old - Shweta - All Pages (Jul 2020) - Compressed.pdf"
+        let realistic = "Passport Old - Mother - All Pages (Jul 2020) - Compressed.pdf"
         #expect(realistic.count > 55, "a positive control: this is the length that went over")
         for matchType: DuplicateMatchType in [.identical, .versions, .sameText,
                                               .overlapping(sharedFraction: 0.72)] {

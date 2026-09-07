@@ -55,7 +55,7 @@ import Testing
     /// fixture with an empty roster measures the empty state — which is exactly how the Organize
     /// tab's fit guard passed for a release while real users scrolled, and it got there the same
     /// way: by handing the view a nil dependency.
-    static let realisticRoster = ["Abhishek", "Shweta", "Aditi", "Divit", "Muktha", "Girish", "Anuraag"]
+    static let realisticRoster = ["Father", "Mother", "Daughter", "Son", "Granny", "Elder", "Uncle"]
 
     private func roster() throws -> PeopleStore {
         let dir = FileManager.default.temporaryDirectory
@@ -63,7 +63,7 @@ import Testing
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let store = PeopleStore(directory: dir, profileId: "fit", profile: nil)
         for name in Self.realisticRoster {
-            store.add(displayName: name, relationship: name == "Abhishek" ? "me" : "family")
+            store.add(displayName: name, relationship: name == "Father" ? "me" : "family")
         }
         return store
     }
@@ -170,7 +170,7 @@ import Testing
 
     /// Places enough to make the Folders step the tallest it honestly gets.
     ///
-    /// **Five, because that is what the reference tree proposes**: `US`, `IN`, `HPE`, `IT` and
+    /// **Five, because that is what the reference tree proposes**: `US`, `IN`, `EMP`, `IT` and
     /// `PRD` — two real and three inventions, which is the whole reason the step exists. A fixture
     /// with none measures a step with no chips in it.
     /// Household names enough to make the People step the tallest it honestly gets.
@@ -179,18 +179,18 @@ import Testing
     /// fixture with none measures a step with no chips in it, which is the trap the roster taught
     /// me once already.
     static let realisticPeople: [PersonCandidate] = [
-        PersonCandidate(name: "Muktha", parents: ["Family"], folderCount: 5, householdParents: 2),
-        PersonCandidate(name: "Shweta", parents: ["Family"], folderCount: 28, householdParents: 1),
-        PersonCandidate(name: "Aditi", parents: ["Family"], folderCount: 12, householdParents: 1),
-        PersonCandidate(name: "Divit", parents: ["Family"], folderCount: 12, householdParents: 1),
-        PersonCandidate(name: "Anuraag", parents: ["Family"], folderCount: 5, householdParents: 1),
-        PersonCandidate(name: "Girish", parents: ["Family"], folderCount: 5, householdParents: 1),
+        PersonCandidate(name: "Granny", parents: ["Family"], folderCount: 5, householdParents: 2),
+        PersonCandidate(name: "Mother", parents: ["Family"], folderCount: 28, householdParents: 1),
+        PersonCandidate(name: "Daughter", parents: ["Family"], folderCount: 12, householdParents: 1),
+        PersonCandidate(name: "Son", parents: ["Family"], folderCount: 12, householdParents: 1),
+        PersonCandidate(name: "Uncle", parents: ["Family"], folderCount: 5, householdParents: 1),
+        PersonCandidate(name: "Elder", parents: ["Family"], folderCount: 5, householdParents: 1),
     ]
 
     static let realisticPlaces: [JurisdictionCandidate] = [
         JurisdictionCandidate(value: "US", parents: ["Finance", "Legal", "School"], folderCount: 214),
         JurisdictionCandidate(value: "IN", parents: ["Finance", "Immigration"], folderCount: 168),
-        JurisdictionCandidate(value: "HPE", parents: ["Work"], folderCount: 61),
+        JurisdictionCandidate(value: "EMP", parents: ["Work"], folderCount: 61),
         JurisdictionCandidate(value: "IT", parents: ["Work/Payslips"], folderCount: 12),
         JurisdictionCandidate(value: "PRD", parents: ["Work/Releases"], folderCount: 9),
     ]

@@ -10,8 +10,8 @@ import Foundation
 /// **Deliberately the exception to ``FilingProfileStore``'s read-only rule, and the reason is that
 /// the roster is not survey output.** The folder profile and the filing memory describe a tree, and
 /// a half-finished scan writing either back would be worse than not having it. Who the people *are*
-/// is not derived from anything — a survey can see that a folder is called `Shweta`, but not that
-/// documents print "Shweta Ravindra Dani", and certainly not that Anuraag is a brother. Only the
+/// is not derived from anything — a survey can see that a folder is called `Mother`, but not that
+/// documents print "Mother Inlaw Maiden", and certainly not which of them are siblings. Only the
 /// user knows that, so only the user can write it, and there has to be somewhere for them to.
 ///
 /// Writes are whole-file and atomic: the roster is seven records, a rewrite costs nothing, and a
@@ -216,8 +216,8 @@ public final class PeopleStore: ObservableObject {
     /// back does not throw them away.
     ///
     /// **The file is hand-written as much as it is app-written, and the prose in it is the part
-    /// worth keeping.** `_note` on the real roster explains why Anuraag is on it, why listing a
-    /// full name is what makes a shared surname attributable, and why `Abhi` and `Shwe` are
+    /// worth keeping.** `_note` on the real roster explains why Uncle is on it, why listing a
+    /// full name is what makes a shared surname attributable, and why `Fath` and `Shwe` are
     /// recorded — none of which the app can regenerate. Before this, the first edit made in
     /// Settings ▸ People silently deleted all of it, because ``PeopleFileOut`` writes exactly three
     /// keys and a whole-file atomic write replaces everything else with nothing.

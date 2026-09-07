@@ -5,7 +5,7 @@ import SwiftUI
 /// Add or edit one person on the list.
 ///
 /// **The editor's real job is teaching, not data entry.** Two fields would have been enough to
-/// store a person; what a user cannot guess is *why* the full names matter — that "Aditi Abhishek"
+/// store a person; what a user cannot guess is *why* the full names matter — that "Daughter Father"
 /// resolves to one person only because the phrase is listed, and that without it a shared surname
 /// makes two people out of one document. So the sheet shows, live, what the draft would match and
 /// which of its words are that person's alone. Editing a name and watching "shared with 3 others"
@@ -101,7 +101,7 @@ struct PersonEditor: View {
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
             }
-            Text("The first name is what your folders are called — `School/\(draft.displayName.isEmpty ? "Aditi" : draft.displayName)`. The relationship is a label for you; it changes nothing about filing.")
+            Text("The first name is what your folders are called — `School/\(draft.displayName.isEmpty ? "Daughter" : draft.displayName)`. The relationship is a label for you; it changes nothing about filing.")
                 .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -111,7 +111,7 @@ struct PersonEditor: View {
     private var fullNamesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             eyebrow("Full names on documents")
-            Text("Every form a document might print. **This is the field that does the work**: a full name is matched before any single word, so “Aditi Abhishek” names Aditi alone even though “Abhishek” is someone else here.")
+            Text("Every form a document might print. **This is the field that does the work**: a full name is matched before any single word, so “Daughter Father” names Daughter alone even though “Father” is someone else here.")
                 .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -127,7 +127,7 @@ struct PersonEditor: View {
     private var aliasesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             eyebrow("Also called")
-            Text("What you call them in a filename when you do not use their name — “Mom”, “Dad”. These resolve to the same person, so `Mom - passport.pdf` belongs in Muktha's folder.")
+            Text("What you call them in a filename when you do not use their name — “Mom”, “Dad”. These resolve to the same person, so `Mom - passport.pdf` belongs in Granny's folder.")
                 .scaledFont(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -143,7 +143,7 @@ struct PersonEditor: View {
     /// What this draft would actually match, recomputed as it is typed.
     ///
     /// Built against the **rest of the roster**, so the shared-word warning is true: whether
-    /// "girish" is distinctive is a fact about the whole list, not about this person, and a preview
+    /// "elder" is distinctive is a fact about the whole list, not about this person, and a preview
     /// that judged them in isolation would say every word was theirs alone.
     private var matchPreview: some View {
         let facts = previewFacts

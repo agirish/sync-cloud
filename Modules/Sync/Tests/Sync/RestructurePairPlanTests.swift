@@ -79,9 +79,9 @@ import Foundation
         // container's own files.
         let loose = Self.finding(
             kind: .looseBesideContainer, family: "Work", subject: "Work/Badge",
-            detail: .looseBesideContainer(container: "Work/MapR"))
+            detail: .looseBesideContainer(container: "Work/Acme"))
         #expect(RestructurePlanRouting.route(for: loose)
-                    == .pairMerge(source: "Work/Badge", destination: "Work/MapR/Badge"))
+                    == .pairMerge(source: "Work/Badge", destination: "Work/Acme/Badge"))
     }
 
     @Test func shapeKeepsItsWholeFamilyRouteAndTheReportOnlyKindsGetNone() {
@@ -102,7 +102,7 @@ import Foundation
         #expect(RestructurePlanRouting.route(for: loose) == nil)
 
         let taxonomy = Self.finding(
-            kind: .duplicatedTaxonomy, family: "Work/MapR", subject: "Work/MapR/Forms",
+            kind: .duplicatedTaxonomy, family: "Work/Acme", subject: "Work/Acme/Forms",
             detail: .duplicatedTaxonomy(counterpart: "Tax/2016/Forms", matchedDocuments: 5))
         #expect(RestructurePlanRouting.route(for: taxonomy) == nil,
                 "its pair is only trustworthy once a duplicate scan has measured it")
@@ -127,19 +127,19 @@ import Foundation
     /// what makes the ledger able to say how many files travelled.
     @Test func anAbsentDestinationIsOneWholeMove() throws {
         let tree = Self.view([
-            "Work": (["Badge", "MapR"], []),
+            "Work": (["Badge", "Acme"], []),
             "Work/Badge": ([], ["badge.pdf", "photo.jpg"]),
-            "Work/MapR": (["Offer Letter"], []),
-            "Work/MapR/Offer Letter": ([], ["offer.pdf"]),
+            "Work/Acme": (["Offer Letter"], []),
+            "Work/Acme/Offer Letter": ([], ["offer.pdf"]),
         ])
         let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/MapR/Badge", kind: .looseBesideContainer,
+            source: "Work/Badge", destination: "Work/Acme/Badge", kind: .looseBesideContainer,
             in: tree, profileId: "p", manifestId: "m", createdAt: "t").get())
         #expect(manifest.actions.count == 1)
         let action = try #require(manifest.actions.first)
         #expect(action.action == .moveDir)
         #expect(action.src == "Work/Badge")
-        #expect(action.dst == "Work/MapR/Badge")
+        #expect(action.dst == "Work/Acme/Badge")
         #expect(action.filesCarried == 2)
         #expect(manifest.family == "Work")
         #expect(manifest.kind == .looseBesideContainer)
@@ -239,9 +239,9 @@ import Foundation
     /// happily. Two sides of one function must not disagree about whether a missing source is a
     /// plan.
     @Test func aVanishedSourceIsRefusedOnBothBranches() {
-        let tree = Self.view(["Work": (["MapR"], []), "Work/MapR": ([], [])])
+        let tree = Self.view(["Work": (["Acme"], []), "Work/Acme": ([], [])])
         #expect(RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/MapR/Badge",
+            source: "Work/Badge", destination: "Work/Acme/Badge",
             kind: .looseBesideContainer, in: tree,
             profileId: "p", manifestId: "m", createdAt: "t")
                     == .failure(.unknownFiles(source: "Work/Badge")))
@@ -251,11 +251,11 @@ import Foundation
     /// PARENT and both would otherwise assume the plan is draining it.
     @Test func onlyTheWholeMoveBranchMarksItself() throws {
         let relocation = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/MapR/Badge",
+            source: "Work/Badge", destination: "Work/Acme/Badge",
             kind: .looseBesideContainer,
-            in: Self.view(["Work": (["Badge", "MapR"], []),
+            in: Self.view(["Work": (["Badge", "Acme"], []),
                            "Work/Badge": ([], ["badge.pdf"]),
-                           "Work/MapR": ([], [])]),
+                           "Work/Acme": ([], [])]),
             profileId: "p", manifestId: "m", createdAt: "t").get())
         #expect(relocation.actions.allSatisfy { $0.movesWholeFolder == true })
 
@@ -273,11 +273,11 @@ import Foundation
     /// landing was.
     @Test func theRelocationFlagRidesOnTheInverse() throws {
         let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/MapR/Badge",
+            source: "Work/Badge", destination: "Work/Acme/Badge",
             kind: .looseBesideContainer,
-            in: Self.view(["Work": (["Badge", "MapR"], []),
+            in: Self.view(["Work": (["Badge", "Acme"], []),
                            "Work/Badge": ([], ["badge.pdf"]),
-                           "Work/MapR": ([], [])]),
+                           "Work/Acme": ([], [])]),
             profileId: "p", manifestId: "m", createdAt: "t").get())
         #expect(manifest.inverse.actions.allSatisfy { $0.movesWholeFolder == true })
     }
@@ -324,15 +324,15 @@ import Foundation
     /// merge has to satisfy the same involution law the mapped planner's manifests do.
     @Test func aPairMergeInvertsLikeAnyOtherManifest() throws {
         let tree = Self.view([
-            "Work": (["Badge", "MapR"], []),
+            "Work": (["Badge", "Acme"], []),
             "Work/Badge": ([], ["badge.pdf"]),
-            "Work/MapR": ([], []),
+            "Work/Acme": ([], []),
         ])
         let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/MapR/Badge", kind: .looseBesideContainer,
+            source: "Work/Badge", destination: "Work/Acme/Badge", kind: .looseBesideContainer,
             in: tree, profileId: "p", manifestId: "m", createdAt: "t").get())
         #expect(manifest.inverse.inverse == manifest)
-        #expect(manifest.inverse.actions.first?.src == "Work/MapR/Badge")
+        #expect(manifest.inverse.actions.first?.src == "Work/Acme/Badge")
         #expect(manifest.inverse.actions.first?.dst == "Work/Badge")
     }
 }

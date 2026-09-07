@@ -823,16 +823,16 @@ import Testing
         #expect(world.manager.filingFolderProfile?.personAliases.isEmpty == true,
                 "the fixture's profile axis must carry no aliases, or this proves nothing")
 
-        try Data(#"{"people": [{"id": "girish", "displayName": "Girish", "aliases": ["Dad"]}]}"#.utf8)
+        try Data(#"{"people": [{"id": "elder", "displayName": "Elder", "aliases": ["Dad"]}]}"#.utf8)
             .write(to: world.profiles.appendingPathComponent("\(active)/people.json"))
 
         #expect(await world.manager.refreshDerivedProfile(
             now: Date(timeIntervalSince1970: 1_756_501_000)).refusal == nil)
 
         let derived = try #require(world.manager.filingFolderProfile)
-        #expect(derived.personTokens.contains("girish"),
+        #expect(derived.personTokens.contains("elder"),
                 "the household's person never reached the re-derived profile")
-        #expect(derived.personAliases["dad"] == "girish",
+        #expect(derived.personAliases["dad"] == "elder",
                 "the alias only people.json knows was dropped — the fallback registry was used")
     }
     // MARK: - Step 4's verdict, and step 7's memory

@@ -112,9 +112,9 @@ public enum FilingProfileStore {
     /// profile's own person axis.
     ///
     /// The seed is not a degraded mode: it carries the alias map the profile already records, so
-    /// even a tree with no `people.json` gets `Mom` and `Muktha` resolved to one person. What the
+    /// even a tree with no `people.json` gets `Mom` and `Granny` resolved to one person. What the
     /// file adds is what a survey cannot know — the *full names* documents print, which is what
-    /// makes "Aditi Abhishek" attributable to Aditi rather than to two people.
+    /// makes "Daughter Father" attributable to Daughter rather than to two people.
     /// `profile` is optional so a roster can be read on a machine with no survey at all — the file
     /// is the user's, and it does not stop being readable because nothing has scanned their tree.
     public static func personRegistry(id: String, profile: FolderProfile?, in directory: URL) -> PersonRegistry {
@@ -864,7 +864,7 @@ extension FilingProfileStore {
         // **"Active" means it names a profile that is really there.** An id pointing at a profile
         // that does not exist is a dangling pointer, not an answer, and treating it as one left the
         // bootstrap permanently dead while reporting success: a hand-edit as small as a trailing
-        // space (`"abhishek "`) makes every read load nothing, and this refused to re-point for
+        // space (`"father "`) makes every read load nothing, and this refused to re-point for
         // ever after. Re-pointing away from a name that resolves to no file cannot lose anything,
         // and re-pointing away from one that resolves is exactly what must never happen.
         //
@@ -905,7 +905,7 @@ extension FilingProfileStore {
             // name, and an absent field reads as unknown while a guessed one reads as a fact" —
             // is right about a FIRST profile and wrong about a re-derivation, which is a new
             // survey of a tree that has already been identified. Written as it was, one press of
-            // "Update the survey" turned a row reading `Abhishek / iCloud Drive (Desktop &
+            // "Update the survey" turned a row reading `Father / iCloud Drive (Desktop &
             // Documents sync) / 12280 files` into a nameless one, and every press after that
             // inherited the nothing. Copying from the row being superseded keeps a fact a fact:
             // the source is the previous active profile's own entry, never a construction.
@@ -960,7 +960,7 @@ extension FilingProfileStore {
         }
 
         /// The `axes.person` shape ``FolderProfile``'s decoder reads: a `values` list plus the
-        /// alias pairs, which are what let `Family/Mom` and `Muktha` resolve to one person.
+        /// alias pairs, which are what let `Family/Mom` and `Granny` resolve to one person.
         struct PersonAxisBox: Encodable {
             let values: [String]
             let aliases: [String: String]

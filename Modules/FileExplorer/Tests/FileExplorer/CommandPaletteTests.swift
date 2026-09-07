@@ -23,12 +23,12 @@ import Foundation
     static let root = "/Users/x/Documents"
 
     static var people: [Person] {
-        [Person(id: "p.aditi", displayName: "Aditi", relationship: "daughter",
-                fullNames: ["Aditi Girish"], aliases: []),
-         Person(id: "p.girish", displayName: "Girish", relationship: "father",
-                fullNames: ["Girish Krishnamurthy"], aliases: ["Dad"]),
-         Person(id: "p.muktha", displayName: "Muktha", relationship: "mother",
-                fullNames: ["Muktha Girish"], aliases: ["Mom"])]
+        [Person(id: "p.daughter", displayName: "Daughter", relationship: "daughter",
+                fullNames: ["Daughter Elder"], aliases: []),
+         Person(id: "p.elder", displayName: "Elder", relationship: "father",
+                fullNames: ["Elder Forebear"], aliases: ["Dad"]),
+         Person(id: "p.granny", displayName: "Granny", relationship: "mother",
+                fullNames: ["Granny Elder"], aliases: ["Mom"])]
     }
 
     static func index(folders: [String] = ["Finance", "Finance/US", "Finance/US/Income Tax",
@@ -230,25 +230,25 @@ import Foundation
                 "a folder that does not exist was invented as a scope")
     }
 
-    // MARK: People — "aditi's files"
+    // MARK: People — "daughter's files"
 
     @Test func aPossessiveQueryRoutesToThatPersonsGather() {
-        #expect(Self.routes("aditi's files").contains(.person(id: "p.aditi")))
-        #expect(Self.routes("aditi").contains(.person(id: "p.aditi")))
+        #expect(Self.routes("daughter's files").contains(.person(id: "p.daughter")))
+        #expect(Self.routes("daughter").contains(.person(id: "p.daughter")))
     }
 
     /// **Exactly one, or nobody** — delegated to `PersonSearchOffer` precisely so the palette and
-    /// the pane search cannot answer the same question differently. "girish krishnamurthy muktha"
+    /// the pane search cannot answer the same question differently. "elder forebear granny"
     /// names a couple, and picking one of them is the over-attribution these names invite.
     @Test func aQueryNamingTwoPeopleOffersNeither() {
-        let rows = PaletteRouter.rows(query: "girish krishnamurthy muktha", index: Self.index())
+        let rows = PaletteRouter.rows(query: "elder forebear granny", index: Self.index())
         #expect(!rows.contains { if case .person = $0.route { return true } else { return false } })
     }
 
     /// A roster can outlive the survey it was built beside. The row stays and says why — an offer
     /// whose accept does nothing is the "nothing happened" this family of features exists to remove.
     @Test func aPersonRowWithNoSurveyIsShownDisabledWithItsReason() {
-        let rows = PaletteRouter.rows(query: "aditi", index: Self.index(hasSurvey: false))
+        let rows = PaletteRouter.rows(query: "daughter", index: Self.index(hasSurvey: false))
         let person = rows.first { if case .person = $0.route { return true } else { return false } }
         #expect(person != nil, "the person row was hidden rather than disabled")
         #expect(person?.isAvailable == false)
@@ -385,7 +385,7 @@ import Foundation
     }
 
     @Test func noRegistryMeansNoPersonRowsAndNoCrash() {
-        let rows = PaletteRouter.rows(query: "aditi", index: Self.index(hasRegistry: false))
+        let rows = PaletteRouter.rows(query: "daughter", index: Self.index(hasRegistry: false))
         #expect(!rows.contains { if case .person = $0.route { return true } else { return false } })
     }
 

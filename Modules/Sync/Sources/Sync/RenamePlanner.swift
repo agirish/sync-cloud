@@ -2,11 +2,11 @@ import Foundation
 
 /// What a folder gives one slot to — **one month, or one dated document.**
 ///
-/// The distinction is the whole of the `ordinal-day` support. `Work/HPE/Compensation/Salary
+/// The distinction is the whole of the `ordinal-day` support. `Work/EMP/Compensation/Salary
 /// Statements/2026` is paid twice a month, so `01. Jan 15 2026.pdf` and `02. Jan 31 2026.pdf` are
 /// two slots inside January; a planner whose slot is the month sees them as one file's worth of
 /// January and a second file colliding with it. Twenty-four folders in the surveyed tree are keyed
-/// this way — every `Salary Statements` year, MapR's `Payslips`, and Kaiser's claims and
+/// this way — every `Salary Statements` year, Acme's `Payslips`, and Kaiser's claims and
 /// explanations of benefits — and until this existed the rename pass declined all of them.
 ///
 /// ``SlotGranularity/month`` is what every other folder gets, and it is exactly the old behaviour:

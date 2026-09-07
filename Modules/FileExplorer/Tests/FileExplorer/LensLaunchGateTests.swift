@@ -42,7 +42,7 @@ import Design
     /// — which would make every test in this suite pass with the launch gate deleted.
     /// `restructureHasFindingsBeforeAnythingIsAsked` is what holds this fixture to its job.
     static func profile() -> FolderProfile {
-        let family = "Family/Aditi/Events"
+        let family = "Family/Daughter/Events"
         let shapes: [(String, [String])] = [
             ("Naming Ceremony", ["Photos", "Invitations"]),
             ("Birthday", ["Photos", "Invitations"]),

@@ -17,12 +17,12 @@ public struct FolderProfile: Sendable, Equatable {
     /// The tree this profile describes, as written in the file (e.g. `~/Documents`).
     public let root: String
     public let folders: [String: FolderProfileEntry]
-    /// Values of the person axis, lowercased — `abhishek`, `shweta`, … plus the aliases the tree
-    /// uses for the same people (`Family/Mom` is Immigration's `Muktha`).
+    /// Values of the person axis, lowercased — `father`, `mother`, … plus the aliases the tree
+    /// uses for the same people (`Family/Mom` is Immigration's `Granny`).
     public let personTokens: Set<String>
     /// Which of those tokens are the *same person*, lowercased alias → canonical (`mom` →
-    /// `muktha`). This used to be flattened into ``personTokens`` and discarded, after which
-    /// nothing could answer "is `mom` the same person as `muktha`?" — only "is this token some
+    /// `granny`). This used to be flattened into ``personTokens`` and discarded, after which
+    /// nothing could answer "is `mom` the same person as `granny`?" — only "is this token some
     /// person?". ``PersonRegistry/seeded(from:)`` is what reads it.
     public let personAliases: [String: String]
 
@@ -337,9 +337,9 @@ extension FolderProfile: Decodable {
         if let axes = try? c.decodeIfPresent([String: AxisBox].self, forKey: .axes),
            let person = axes["person"] {
             for v in person.values ?? [] { people.insert(v.lowercased()) }
-            // `Family/Mom` and Immigration's `Muktha` are the same person; the tree names her both
+            // `Family/Mom` and Immigration's `Granny` are the same person; the tree names her both
             // ways, so both tokens have to route — and the *pairing* has to survive, or a file
-            // named `Mom` reads as a contradiction against a folder whose axis says `muktha`.
+            // named `Mom` reads as a contradiction against a folder whose axis says `granny`.
             for (alias, canonical) in person.aliases ?? [:] {
                 people.insert(alias.lowercased())
                 people.insert(canonical.lowercased())

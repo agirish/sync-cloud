@@ -2723,14 +2723,14 @@ struct ContentView: View {
                 //
                 // `Task.isCancelled` — this gather was superseded or cleared. A cancel that lands
                 // *after* the sweep has already returned raises no error at all, so the `catch`
-                // below never sees it. The case that needs this: accept Aditi, clear, accept Aditi
+                // below never sees it. The case that needs this: accept Daughter, clear, accept Daughter
                 // again. The first sweep finishes in the window before its cancel is observed, and
                 // the slot is now the *second* gather's — same person, still `.gathering`, so
                 // `awaits` says yes and the dead task writes into the live one's slot.
                 //
                 // `awaits` — the slot must still be waiting for this person at all. It is the
-                // invariant that actually protects the pixels, and it is what stops Aditi's answer
-                // landing under Girish's name.
+                // invariant that actually protects the pixels, and it is what stops Daughter's answer
+                // landing under Elder's name.
                 guard !Task.isCancelled, PersonScope.awaits(person, in: personScope) else {
                     // Routine coalescing, so debug — but not silence. The "User asked…" line above
                     // opens a walk of every surveyed document and the "Gathered N file(s)…" line

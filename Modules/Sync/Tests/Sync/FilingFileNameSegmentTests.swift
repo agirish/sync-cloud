@@ -3,7 +3,7 @@ import Testing
 @testable import Sync
 
 /// `FilingEngine.looksLikeAFileName` — the rule that strips a trailing *document* off a verdict's
-/// destination, so `Immigration/OCI/Divit/eOCI.pdf` files into `Immigration/OCI/Divit`.
+/// destination, so `Immigration/OCI/Son/eOCI.pdf` files into `Immigration/OCI/Son`.
 ///
 /// It had no test. Its condition was `$0.isASCII && $0.isLetter || $0.isNumber`, which Swift reads
 /// as `($0.isASCII && $0.isLetter) || $0.isNumber` — so `isNumber` was asked without the ASCII
@@ -56,7 +56,7 @@ import Testing
     /// The consequence at the level the resolver works: a destination ending in a real document
     /// loses it, one ending in a non-ASCII-digit folder keeps it.
     @Test func theResolverStripsOnlyRealFileNames() throws {
-        let existing: Set<String> = ["Immigration", "Immigration/OCI", "Immigration/OCI/Divit",
+        let existing: Set<String> = ["Immigration", "Immigration/OCI", "Immigration/OCI/Son",
                                      "Taxes", "Taxes.٢٠٢٥"]
         func resolved(_ path: String) throws -> String {
             let verdict = FilingVerdict(relativePath: path, confidence: .high, reason: "t",
@@ -65,7 +65,7 @@ import Testing
                                                              existingRelative: existing))
             return FilingEngine.relative(dest.path, under: "/root")
         }
-        #expect(try resolved("Immigration/OCI/Divit/eOCI.pdf") == "Immigration/OCI/Divit")
+        #expect(try resolved("Immigration/OCI/Son/eOCI.pdf") == "Immigration/OCI/Son")
         #expect(try resolved("Taxes.٢٠٢٥") == "Taxes.٢٠٢٥",
                 "a folder whose name ends in non-ASCII digits was stripped as if it were a document")
     }

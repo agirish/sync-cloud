@@ -395,7 +395,7 @@ public enum StructureDivergence {
     /// the folder that owns it.
     ///
     /// Comparing against the parent's value is also what makes the *alias* case work without an
-    /// alias map here: `Family/Mom` carries `person: Muktha` under a `Family` that carries no
+    /// alias map here: `Family/Mom` carries `person: Granny` under a `Family` that carries no
     /// person axis, so it introduced one even though its name matches neither the value nor a year.
     ///
     /// The bare-year and inbox tests stay as the fallback for a profile that records no axes at

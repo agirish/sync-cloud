@@ -326,10 +326,10 @@ import Foundation
             Set(findings.filter { $0.kind == kind }.map(\.subject))
         }
         #expect(subjects(.looseBesideContainer)
-            == ["School/US/Divit/City Pre-K", "Work/HPE/Products/Cray PE"])
+            == ["School/US/Son/City Pre-K", "Work/EMP/Products/Nova PE"])
         #expect(subjects(.shadowAxis).contains("Finance/US/Income Tax/IRS Docs - 2023"))
         #expect(subjects(.backlog).contains("Health/Dental/2025"))
-        #expect(subjects(.backlog).contains("Work/HPE/Compensation/Benefits/2026"))
+        #expect(subjects(.backlog).contains("Work/EMP/Compensation/Benefits/2026"))
         #expect(subjects(.looseAboveSeries).contains("Finance/US/Investments/Fidelity/Statements"))
         #expect(subjects(.echoName).contains("Finance/US/Income Tax/2023/Forms/Form W2"))
         // The degenerate Finance/US/TODO/IRS/IRS is parent/child echo's observation, not

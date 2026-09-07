@@ -252,7 +252,7 @@ import Testing
     /// `FolderSource.defaultDisplayName` rather than a second rule of its own.
     ///
     /// The two roots this guard exists for are the two that rule was written for. Its own
-    /// last-component answer called the home folder “abhishek” — a person, in a sentence about a
+    /// last-component answer called the home folder “father” — a person, in a sentence about a
     /// folder — and the startup disk “/”, which is a path separator, not a name. Both are the
     /// prompt's most likely subjects: they are the trees big enough to trip the probe.
     @Test func theHomeFolderIsNamedAsAPlaceNotAsAnAccount() {

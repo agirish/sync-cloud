@@ -76,11 +76,11 @@ import Testing
     /// would withhold — duplicated taxonomy has a finding and no plan surface.
     @Test func planFollowsTheSameRoutingTheCardDoes() {
         let taxonomy = StructureFinding(
-            kind: .duplicatedTaxonomy, family: "Work/MapR", subject: "Work/MapR/Forms",
+            kind: .duplicatedTaxonomy, family: "Work/Acme", subject: "Work/Acme/Forms",
             detail: .duplicatedTaxonomy(counterpart: "Tax/2016/Forms", matchedDocuments: 5))
         #expect(!RestructureVerbResolver.offers(.plan, taxonomy))
         #expect(RestructureVerbResolver.finding(
-            forFolder: "\(Self.root)/Work/MapR/Forms", root: Self.root,
+            forFolder: "\(Self.root)/Work/Acme/Forms", root: Self.root,
             in: [taxonomy], verb: .plan) == nil)
 
         let echo = StructureFinding(

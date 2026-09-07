@@ -566,7 +566,7 @@ extension ContentView {
                 .trimmingCharacters(in: CharacterSet(charactersIn: " -_."))
             return trimmed.isEmpty ? nil : trimmed
         }
-        // `agirish.hpe@gmail.com` reads as `agirish.hpe` — the local part is what tells three Drive
+        // `someone.work@gmail.com` reads as `someone.work` — the local part is what tells three Drive
         // accounts apart, and the domain is the same on all three.
         return String(id[id.startIndex..<at])
     }

@@ -11,8 +11,8 @@ import Testing
 @MainActor
 @Suite struct PersonVetoLogTests {
 
-    static func event(named: String, proposed: String = "aditi", file: String = "Passport.pdf",
-                      destination: String = "School/Aditi",
+    static func event(named: String, proposed: String = "daughter", file: String = "Passport.pdf",
+                      destination: String = "School/Daughter",
                       at: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> PersonVetoEvent {
         PersonVetoEvent(namedPerson: named, proposedPerson: proposed, fileName: file,
                         destination: destination, at: at)
@@ -30,8 +30,8 @@ import Testing
         defer { wipeDefaultsSuite(suite) }
         let log = Self.store(suite)
 
-        log.record(Self.event(named: "muktha", file: "First.pdf"))
-        log.record(Self.event(named: "muktha", file: "Second.pdf"))
+        log.record(Self.event(named: "granny", file: "First.pdf"))
+        log.record(Self.event(named: "granny", file: "Second.pdf"))
 
         #expect(log.events.map(\.fileName) == ["Second.pdf", "First.pdf"])
     }
@@ -44,12 +44,12 @@ import Testing
         defer { wipeDefaultsSuite(suite) }
         let log = Self.store(suite)
 
-        log.record(Self.event(named: "muktha", proposed: "aditi"))
-        log.record(Self.event(named: "muktha", proposed: "abhishek"))
-        log.record(Self.event(named: "aditi", proposed: "muktha"))
+        log.record(Self.event(named: "granny", proposed: "daughter"))
+        log.record(Self.event(named: "granny", proposed: "father"))
+        log.record(Self.event(named: "daughter", proposed: "granny"))
 
-        #expect(log.count(namedPerson: "muktha") == 2)
-        #expect(log.count(namedPerson: "aditi") == 1)
+        #expect(log.count(namedPerson: "granny") == 2)
+        #expect(log.count(namedPerson: "daughter") == 1)
         #expect(log.count(namedPerson: "nobody") == 0)
     }
 
@@ -58,11 +58,11 @@ import Testing
         defer { wipeDefaultsSuite(suite) }
         let log = Self.store(suite)
 
-        log.record(Self.event(named: "muktha", file: "Older.pdf"))
-        log.record(Self.event(named: "aditi", file: "Someone else's.pdf"))
-        log.record(Self.event(named: "muktha", file: "Newer.pdf"))
+        log.record(Self.event(named: "granny", file: "Older.pdf"))
+        log.record(Self.event(named: "daughter", file: "Someone else's.pdf"))
+        log.record(Self.event(named: "granny", file: "Newer.pdf"))
 
-        #expect(try #require(log.mostRecent(namedPerson: "muktha")).fileName == "Newer.pdf")
+        #expect(try #require(log.mostRecent(namedPerson: "granny")).fileName == "Newer.pdf")
         #expect(log.mostRecent(namedPerson: "nobody") == nil)
     }
 
@@ -74,7 +74,7 @@ import Testing
         let log = Self.store(suite)
 
         for i in 0..<(PersonVetoLog.capacity + 10) {
-            log.record(Self.event(named: "muktha", file: "\(i).pdf"))
+            log.record(Self.event(named: "granny", file: "\(i).pdf"))
         }
 
         #expect(log.events.count == PersonVetoLog.capacity)
@@ -92,14 +92,14 @@ import Testing
         defer { wipeDefaultsSuite(suite) }
 
         let first = Self.store(suite)
-        first.record(Self.event(named: "muktha", file: "Passport.pdf", destination: "School/Aditi"))
+        first.record(Self.event(named: "granny", file: "Passport.pdf", destination: "School/Daughter"))
 
         let relaunched = Self.store(suite)
-        #expect(relaunched.count(namedPerson: "muktha") == 1)
-        let event = try #require(relaunched.mostRecent(namedPerson: "muktha"))
+        #expect(relaunched.count(namedPerson: "granny") == 1)
+        let event = try #require(relaunched.mostRecent(namedPerson: "granny"))
         #expect(event.fileName == "Passport.pdf")
-        #expect(event.destination == "School/Aditi")
-        #expect(event.proposedPerson == "aditi")
+        #expect(event.destination == "School/Daughter")
+        #expect(event.proposedPerson == "daughter")
         #expect(event.at == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
@@ -111,8 +111,8 @@ import Testing
         defer { wipeDefaultsSuite(suite) }
         let defaults = UserDefaults(suiteName: suite)!
         let stored = """
-            [{"namedPerson":"muktha","proposedPerson":"aditi","fileName":"Muktha Girish Passport.pdf",\
-            "destination":"School/Aditi","at":747248400}]
+            [{"namedPerson":"granny","proposedPerson":"daughter","fileName":"Granny Elder Passport.pdf",\
+            "destination":"School/Daughter","at":747248400}]
             """
         defaults.set(Data(stored.utf8), forKey: PersonVetoLog.defaultsKey)
 
@@ -120,11 +120,11 @@ import Testing
 
         let event = try #require(log.events.first)
         #expect(log.events.count == 1)
-        #expect(event.namedPerson == "muktha")
-        #expect(event.proposedPerson == "aditi")
-        #expect(event.fileName == "Muktha Girish Passport.pdf")
-        #expect(event.destination == "School/Aditi")
-        #expect(log.count(namedPerson: "muktha") == 1)
+        #expect(event.namedPerson == "granny")
+        #expect(event.proposedPerson == "daughter")
+        #expect(event.fileName == "Granny Elder Passport.pdf")
+        #expect(event.destination == "School/Daughter")
+        #expect(log.count(namedPerson: "granny") == 1)
     }
 
     /// A stored value this build cannot read empties the log rather than taking the launch with it.
@@ -143,7 +143,7 @@ import Testing
         let suite = "PersonVetoLogTests-\(UUID().uuidString)"
         defer { wipeDefaultsSuite(suite) }
         let log = Self.store(suite)
-        log.record(Self.event(named: "muktha"))
+        log.record(Self.event(named: "granny"))
 
         log.clear()
 
@@ -173,7 +173,7 @@ import Testing
         let log = PersonVetoLog(userDefaults: defaults)
         #expect(log.events.isEmpty, "fixture: an unreadable value shows as no refusals")
 
-        log.record(Self.event(named: "muktha", file: "Passport.pdf"))
+        log.record(Self.event(named: "granny", file: "Passport.pdf"))
 
         #expect(defaults.data(forKey: PersonVetoLog.defaultsKey) == theirs,
                 "the refusal overwrote a stored log this build never read")
@@ -189,10 +189,10 @@ import Testing
         defaults.set(Data("not our shape at all".utf8), forKey: PersonVetoLog.defaultsKey)
 
         let log = PersonVetoLog(userDefaults: defaults)
-        log.record(Self.event(named: "muktha", file: "Passport.pdf"))
+        log.record(Self.event(named: "granny", file: "Passport.pdf"))
 
         #expect(log.events.count == 1)
-        #expect(log.count(namedPerson: "muktha") == 1)
+        #expect(log.count(namedPerson: "granny") == 1)
     }
 
     /// The other direction, so the guard cannot become "never persist": with NOTHING stored — the
@@ -204,7 +204,7 @@ import Testing
         #expect(defaults.data(forKey: PersonVetoLog.defaultsKey) == nil, "fixture: nothing stored")
 
         let log = PersonVetoLog(userDefaults: defaults)
-        log.record(Self.event(named: "muktha", file: "Passport.pdf"))
+        log.record(Self.event(named: "granny", file: "Passport.pdf"))
 
         let stored = try #require(defaults.data(forKey: PersonVetoLog.defaultsKey),
                                   "an absent log was treated as unreadable and never persisted")
@@ -220,11 +220,11 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: suite))
 
         let first = PersonVetoLog(userDefaults: defaults)
-        first.record(Self.event(named: "muktha", file: "First.pdf"))
+        first.record(Self.event(named: "granny", file: "First.pdf"))
 
         let second = PersonVetoLog(userDefaults: defaults)          // the relaunch
         #expect(second.events.map(\.fileName) == ["First.pdf"])
-        second.record(Self.event(named: "muktha", file: "Second.pdf"))
+        second.record(Self.event(named: "granny", file: "Second.pdf"))
 
         let third = PersonVetoLog(userDefaults: defaults)
         #expect(third.events.map(\.fileName) == ["Second.pdf", "First.pdf"],

@@ -104,7 +104,7 @@ import Foundation
         let one = RestructureLedger(of: RestructureManifest(
             profileId: "p", manifestId: "m", createdAt: "t", family: "Work",
             kind: .looseBesideContainer,
-            actions: [.init(action: .moveDir, src: "Work/Badge", dst: "Work/MapR/Badge",
+            actions: [.init(action: .moveDir, src: "Work/Badge", dst: "Work/Acme/Badge",
                             movesWholeFolder: true)]))
         #expect(one.summary.contains("1 folder carried whole"))
         #expect(!one.summary.contains("1 folders"))

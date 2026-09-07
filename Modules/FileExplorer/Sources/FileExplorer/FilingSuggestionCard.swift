@@ -39,7 +39,7 @@ struct FilingSuggestionCard: View {
     /// The name typed over a PROPOSED new folder, empty while it is untouched.
     ///
     /// A new folder is the one destination the card offers that does not exist yet, so its name is
-    /// the model's suggestion rather than the user's own vocabulary — `Divit/eOCI.pdf` is only the
+    /// the model's suggestion rather than the user's own vocabulary — `Son/eOCI.pdf` is only the
     /// most vivid example. Editing it before accepting costs a text field; not being able to means
     /// filing into a name you did not choose, then renaming the folder in Finder afterwards.
     /// The name typed into "Create as", for the destination currently on the card.
@@ -296,7 +296,7 @@ struct FilingSuggestionCard: View {
         }
     }
 
-    /// "already filed in Work › HPE › … › 2026" — the tree already holds this exact document.
+    /// "already filed in Work › EMP › … › 2026" — the tree already holds this exact document.
     ///
     /// By CONTENT, not by name or bytes: the PDF text fingerprint pairs two downloads of one
     /// statement that share no byte hash because the provider re-stamped the second. The wording

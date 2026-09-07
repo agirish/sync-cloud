@@ -1609,7 +1609,7 @@ import Design
         // On the overview, and not on a lens, deliberately: `hasRowTwoActions` gates the whole
         // trailing group and its `.none` arm is the one that returned false for every state.
         let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
-                         lens: nil, providerRoot: "/root", scanTarget: "/root/Family/Aditi")
+                         lens: nil, providerRoot: "/root", scanTarget: "/root/Family/Daughter")
         let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
         #expect(counts(band).ink > 100,
                 "the overview's trailing band painted nothing with the pane in a subfolder — there is no way to point Organize at what you are browsing")
@@ -1618,15 +1618,15 @@ import Design
     @Test("…and stands down on To File, where the setup card is already asking", .machinePinned(.pixelSampling))
     func theMovedButtonYieldsToTheIntroCard() throws {
         // The over-reach in the first cut of this fix. Ungating the moved branch everywhere put
-        // `Organize "Aditi"` in the header while To File's pre-scan card underneath it said "File
-        // loose files in Aditi" with its own Start button — two invitations naming one folder, and
+        // `Organize "Daughter"` in the header while To File's pre-scan card underneath it said "File
+        // loose files in Daughter" with its own Start button — two invitations naming one folder, and
         // only one of them moves the scope.
         //
         // Same manager and same pane as `theMovedButtonDrawsBeforeAnyScan`; the *only* difference
         // is which rail item is selected, so a band that inks here is the duplicate CTA and nothing
         // else.
         let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
-                         lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Aditi")
+                         lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Daughter")
         let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
         #expect(counts(band).ink < 20,
                 "To File drew a header control before its first scan — the setup card below it is already the invitation, naming the same folder")
@@ -1640,7 +1640,7 @@ import Design
         // from a lens with nothing else offering to aim Organize, which is the original bug in a
         // narrower room.
         let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
-                         lens: .renames, providerRoot: "/root", scanTarget: "/root/Family/Aditi")
+                         lens: .renames, providerRoot: "/root", scanTarget: "/root/Family/Daughter")
         let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
         #expect(counts(band).ink > 100,
                 "Renames lost the moved button — the stand-down is keyed on the scan flag rather than on To File")
@@ -1662,11 +1662,11 @@ import Design
         // full invitation, after a clean one it draws a plain empty state.
         let toFile = try #require(strip(
             mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
-                  lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Aditi"),
+                  lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Daughter"),
             Self.contentZone))
         let scanned = try #require(strip(
             mount(Self.manager(queue: 0, names: 0, hasScanned: true, scanFolder: nil),
-                  lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Aditi"),
+                  lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Daughter"),
             Self.contentZone))
         let (intro, blank) = (counts(toFile).ink, counts(scanned).ink)
         #expect(intro > blank + 500, """

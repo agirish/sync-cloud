@@ -32,7 +32,7 @@ public struct FilingCandidateFile: Sendable, Equatable, Identifiable {
 
 /// A backend's verdict for one file.
 public struct FilingVerdict: Sendable, Equatable {
-    /// Destination folder as a path **relative to the provider root** (e.g. "Documents/Family/Divit").
+    /// Destination folder as a path **relative to the provider root** (e.g. "Documents/Family/Son").
     /// May name an existing folder or propose a new sub-path under an existing parent. Empty ⇒ the
     /// backend had no confident home (the file keeps its heuristic suggestion, if any).
     public let relativePath: String
@@ -44,8 +44,8 @@ public struct FilingVerdict: Sendable, Equatable {
     /// a genuinely new destination gets proposed — and until this existed, "a path not on the list"
     /// was the only expression of it. So a deliberate proposal and an invented path segment were
     /// the same signal, and nothing downstream could tell them apart. Asked where
-    /// `Divit - eOCI.pdf` belonged, the on-device model answered
-    /// `Immigration/OCI/Divit/eOCI.pdf` — splitting the FILE'S OWN NAME into a folder and a child,
+    /// `Son - eOCI.pdf` belonged, the on-device model answered
+    /// `Immigration/OCI/Son/eOCI.pdf` — splitting the FILE'S OWN NAME into a folder and a child,
     /// while its reason called the result an "existing folder … containing the eOCI.pdf file". It
     /// could not have known that file exists: the folder list it is shown holds directories only,
     /// and this PDF has no text layer, so there was no excerpt either. Both halves of the sentence

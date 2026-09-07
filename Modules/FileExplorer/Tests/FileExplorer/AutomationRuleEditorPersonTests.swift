@@ -26,8 +26,8 @@ import Sync
 @Suite struct AutomationRuleEditorPersonTests {
 
     private static let household = [
-        Person(id: "shweta", displayName: "Shweta", relationship: "wife"),
-        Person(id: "aditi", displayName: "Aditi", relationship: "daughter"),
+        Person(id: "mother", displayName: "Mother", relationship: "wife"),
+        Person(id: "daughter", displayName: "Daughter", relationship: "daughter"),
     ]
 
     // MARK: What a user may add
@@ -78,7 +78,7 @@ import Sync
     /// The empty-roster case is asserted against the populated one, so what is measured is the
     /// clause and not the fact that `personIs` is in the list generally.
     @Test func aPersonRowKeepsItsTypeInThePickerWithNoRoster() {
-        let row = AutomationCondition.personIs("aditi")
+        let row = AutomationCondition.personIs("daughter")
         #expect(AutomationRuleEditor.pickerTypes(for: row, hasPeople: true).contains(.personIs),
                 "a person row cannot show its own type even with a roster — the harness is wrong")
         #expect(AutomationRuleEditor.pickerTypes(for: row, hasPeople: false).contains(.personIs),
@@ -100,7 +100,7 @@ import Sync
     /// (an addable row, on a machine with a roster) goes through the same clause every time the
     /// picker is built.
     @Test func thePickerNeverOffersATypeTwice() {
-        for condition: AutomationCondition in [.personIs("aditi"), .kindIs(.pdf),
+        for condition: AutomationCondition in [.personIs("daughter"), .kindIs(.pdf),
                                                .nameMatches("*.pdf"),
                                                .unrecognized(name: "x", payload: Data())] {
             for hasPeople in [true, false] {
@@ -128,7 +128,7 @@ import Sync
                 "a fresh person row arrives pointing at \(fresh) — a rule about somebody the user never picked")
         #expect(!fresh.isComplete,
                 "an unfilled person row is complete, so Save would accept a rule naming nobody")
-        #expect(AutomationCondition.personIs("aditi").isComplete,
+        #expect(AutomationCondition.personIs("daughter").isComplete,
                 "a person row is incomplete even with somebody chosen — the gate above is not about the empty id")
     }
 

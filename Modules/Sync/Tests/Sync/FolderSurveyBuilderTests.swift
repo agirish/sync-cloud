@@ -15,8 +15,8 @@ private func dir(_ name: String, _ children: [FileNode] = []) -> FileNode {
 /// A two-person household with a shared surname, so the "exactly one person" rule has something
 /// real to abstain on.
 private let household = PersonRegistry(people: [
-    Person(id: "shweta", displayName: "Shweta", fullNames: ["Shweta Dani"], aliases: []),
-    Person(id: "muktha", displayName: "Muktha", fullNames: ["Muktha Girish"], aliases: ["Mom"]),
+    Person(id: "mother", displayName: "Mother", fullNames: ["Mother Maiden"], aliases: []),
+    Person(id: "granny", displayName: "Granny", fullNames: ["Granny Elder"], aliases: ["Mom"]),
 ])
 
 private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"],
@@ -91,7 +91,7 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
             dir("TODO", [file("b.pdf")]),                                        // inbox
             dir("Archive", [file("c.pdf")]),                                     // archive
             dir("2019", [file("d.pdf")]),                                        // year-bucket
-            dir("Muktha", [file("e.pdf")]),                                      // person-bucket
+            dir("Granny", [file("e.pdf")]),                                      // person-bucket
             dir("Only", [dir("Child", [file("f.pdf")])]),                        // pass-through
             dir("Many", [dir("A", [file("g.pdf")]), dir("B", [file("h.pdf")])]), // container
         ])
@@ -100,15 +100,15 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         #expect(profile.folders["TODO"]?.role == .inbox)
         #expect(profile.folders["Archive"]?.role == .archive)
         #expect(profile.folders["2019"]?.role == .yearBucket)
-        #expect(profile.folders["Muktha"]?.role == .personBucket)
+        #expect(profile.folders["Granny"]?.role == .personBucket)
         #expect(profile.folders["Only"]?.role == .passThrough)
         #expect(profile.folders["Many"]?.role == .container)
     }
 
     /// The measured ordering: an empty inbox is `empty`, not `inbox`.
     @Test func emptinessOutranksEveryOtherRole() {
-        let profile = build([dir("TODO"), dir("Archive"), dir("2019"), dir("Muktha")])
-        for name in ["TODO", "Archive", "2019", "Muktha"] {
+        let profile = build([dir("TODO"), dir("Archive"), dir("2019"), dir("Granny")])
+        for name in ["TODO", "Archive", "2019", "Granny"] {
             #expect(profile.folders[name]?.role == .empty, "\(name) holds nothing")
         }
     }
@@ -141,20 +141,20 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
     /// A folder that merely *mentions* a person is a destination; only an exact roster name is a
     /// person bucket. The pair is the point — either fixture alone passes under either rule.
     @Test func personBucketNeedsTheWholeNameAndNothingElse() {
-        let profile = build([dir("Muktha", [file("a.pdf")]),
+        let profile = build([dir("Granny", [file("a.pdf")]),
                              dir("Mom", [file("b.pdf")]),
-                             dir("Credit 1892 (Muktha)", [file("c.pdf")]),
-                             dir("Muktha 2024", [file("d.pdf")])])
-        #expect(profile.folders["Muktha"]?.role == .personBucket)
+                             dir("Credit 1892 (Granny)", [file("c.pdf")]),
+                             dir("Granny 2024", [file("d.pdf")])])
+        #expect(profile.folders["Granny"]?.role == .personBucket)
         #expect(profile.folders["Mom"]?.role == .personBucket, "an alias is a name form too")
-        #expect(profile.folders["Credit 1892 (Muktha)"]?.role == .destination)
-        #expect(profile.folders["Muktha 2024"]?.role == .destination)
+        #expect(profile.folders["Credit 1892 (Granny)"]?.role == .destination)
+        #expect(profile.folders["Granny 2024"]?.role == .destination)
     }
 
     @Test func withoutARosterNothingIsAPersonBucket() {
-        let profile = build([dir("Muktha", [file("a.pdf")])], registry: nil)
-        #expect(profile.folders["Muktha"]?.role == .destination)
-        #expect(profile.folders["Muktha"]?.axes["person"] == nil)
+        let profile = build([dir("Granny", [file("a.pdf")])], registry: nil)
+        #expect(profile.folders["Granny"]?.role == .destination)
+        #expect(profile.folders["Granny"]?.axes["person"] == nil)
     }
 
     // MARK: - acceptsNewFiles
@@ -349,31 +349,31 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
     }
 
     /// The abstention rule, with the fixture built so abstaining and answering differ: the parent
-    /// names Shweta, the child names two people, and the child must keep the parent's answer rather
+    /// names Mother, the child names two people, and the child must keep the parent's answer rather
     /// than picking one of its own.
     @Test func aFolderNamingTwoPeopleNamesNobodyNew() {
-        let profile = build([dir("Shweta", [
-            dir("Shweta Dani and Muktha Girish", [file("a.pdf")]),
-            dir("Muktha", [file("b.pdf")]),
+        let profile = build([dir("Mother", [
+            dir("Mother Maiden and Granny Elder", [file("a.pdf")]),
+            dir("Granny", [file("b.pdf")]),
             dir("Receipts", [file("c.pdf")]),
         ])])
-        #expect(profile.folders["Shweta"]?.axes["person"] == "Shweta")
-        #expect(profile.folders["Shweta/Muktha"]?.axes["person"] == "Muktha", "deeper wins")
-        #expect(profile.folders["Shweta/Receipts"]?.axes["person"] == "Shweta", "and propagates")
-        #expect(profile.folders["Shweta/Shweta Dani and Muktha Girish"]?.axes["person"] == "Shweta",
+        #expect(profile.folders["Mother"]?.axes["person"] == "Mother")
+        #expect(profile.folders["Mother/Granny"]?.axes["person"] == "Granny", "deeper wins")
+        #expect(profile.folders["Mother/Receipts"]?.axes["person"] == "Mother", "and propagates")
+        #expect(profile.folders["Mother/Mother Maiden and Granny Elder"]?.axes["person"] == "Mother",
                 "two names is not evidence for either — the parent's answer stands")
     }
 
     @Test func thePersonAxisIsSpelledTheWayTheRosterSpellsIt() {
         let profile = build([dir("Mom", [file("a.pdf")])])
-        #expect(profile.folders["Mom"]?.axes["person"] == "Muktha")
+        #expect(profile.folders["Mom"]?.axes["person"] == "Granny")
     }
 
     @Test func theProfileCarriesTheRosterTokensAndAliases() {
         let profile = build([dir("Papers", [file("a.pdf")])])
-        #expect(profile.personTokens.contains("muktha"))
+        #expect(profile.personTokens.contains("granny"))
         #expect(profile.personTokens.contains("mom"))
-        #expect(profile.personAliases["mom"] == "muktha")
+        #expect(profile.personAliases["mom"] == "granny")
     }
 
     // MARK: - The two year keys are one axis
@@ -468,13 +468,13 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
     /// two now agree about which of the two records answers for that id.
     @Test func aDuplicatedPersonIdSurveysRatherThanTrapping() {
         let duplicated = PersonRegistry(people: [
-            Person(id: "muktha", displayName: "Muktha", fullNames: [], aliases: []),
-            Person(id: "muktha", displayName: "Muktha Girish", fullNames: [], aliases: ["Mom"]),
+            Person(id: "granny", displayName: "Granny", fullNames: [], aliases: []),
+            Person(id: "granny", displayName: "Granny Elder", fullNames: [], aliases: ["Mom"]),
         ])
         let profile = build([dir("Mom", [file("a.pdf")]), dir("Finance", [file("b.pdf")])],
                             registry: duplicated)
         #expect(profile.folders.count == 3)                     // root, Mom, Finance
-        #expect(profile.folders["Mom"]?.axes["person"] == "Muktha Girish")
+        #expect(profile.folders["Mom"]?.axes["person"] == "Granny Elder")
         #expect(profile.folders["Finance"]?.axes["person"] == nil,
                 "a folder naming nobody must not inherit a person")
     }
@@ -498,17 +498,17 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
     /// halves of the same registry.
     @Test func aDuplicatedIdResolvesOnlyTheRecordTheRegistryKept() {
         let duplicated = PersonRegistry(people: [
-            Person(id: "m", displayName: "Muktha", fullNames: [], aliases: []),
+            Person(id: "m", displayName: "Granny", fullNames: [], aliases: []),
             Person(id: "m", displayName: "Mukti", fullNames: [], aliases: ["Mom"]),
         ])
         // The premise: the collapse really happened, so the assertions below are about one person.
         #expect(duplicated.people.map(\.displayName) == ["Mukti"])
         #expect(duplicated.repeatedIds == ["m"], "the registry did not report the repeat it repaired")
 
-        let profile = build([dir("Muktha", [file("a.pdf")]), dir("Mukti", [file("b.pdf")]),
+        let profile = build([dir("Granny", [file("a.pdf")]), dir("Mukti", [file("b.pdf")]),
                              dir("Receipts", [file("c.pdf")])], registry: duplicated)
 
-        let dropped = profile.folders["Muktha"]
+        let dropped = profile.folders["Granny"]
         #expect(dropped?.role != .personBucket,
                 "a folder named only for the DROPPED record is still read as somebody's bucket")
         #expect(dropped?.axes["person"] == nil)
@@ -553,9 +553,9 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
     /// registry matches on. Spelled out separately, a new form source reaches one and not the other,
     /// and a folder starts matching for the person axis while failing to count as a person bucket.
     @Test func aPersonBucketIsRecognisedByEveryFormTheRegistryMatches() {
-        let profile = build([dir("Shweta Dani", [file("a.pdf")]), dir("Mom", [file("b.pdf")]),
+        let profile = build([dir("Mother Maiden", [file("a.pdf")]), dir("Mom", [file("b.pdf")]),
                              dir("Receipts", [file("c.pdf")])])
-        #expect(profile.folders["Shweta Dani"]?.role == .personBucket, "a full name is a form")
+        #expect(profile.folders["Mother Maiden"]?.role == .personBucket, "a full name is a form")
         #expect(profile.folders["Mom"]?.role == .personBucket, "an alias is a form")
         #expect(profile.folders["Receipts"]?.role == .destination,
                 "a folder naming nobody must not be a person bucket")

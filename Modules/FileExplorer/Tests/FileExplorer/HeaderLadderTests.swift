@@ -93,7 +93,7 @@ struct HeaderLadderTests {
     private static let paneNamePairs: [(String, String)] = [
         ("Left", "Right"),
         ("iCloud Drive", "Dropbox"),
-        ("OneDrive — Personal", "Google Drive — abhishek@example.com"),
+        ("OneDrive — Personal", "Google Drive — someone@example.com"),
     ]
 
     /// A view whose state is the header's defaults. `@State` reads its initial value when the row is

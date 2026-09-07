@@ -972,7 +972,7 @@ struct SetupSheet: View {
 
     /// The provider's name without the account in it.
     ///
-    /// **The account is what makes these truncate.** `Google Drive (abhishek.girish@gmail.com)` is
+    /// **The account is what makes these truncate.** `Google Drive (someone.example@gmail.com)` is
     /// 41 characters and clipped mid-address in a row that also holds a badge, a primary control and
     /// a switch — and the clipped half is the only part that tells two Drive accounts apart. The
     /// name goes on the first line and the account leads the second, where it has the width.
@@ -989,7 +989,7 @@ struct SetupSheet: View {
     /// id is a UUID that says nothing to anyone, so the folder *is* the path.
     ///
     /// Showing both was worse than either. `OneDrive` over
-    /// `HewlettPackardEnterp…dEnterprise/Documents` says one thing twice and truncates in the
+    /// `AcmeCorporationWorl…onWorldwide/Documents` says one thing twice and truncates in the
     /// middle of both halves; the full path is on the row's tooltip, where it costs nothing.
     private func sourceDetail(_ provider: CloudProvider) -> String {
         if provider.isLocalFolder { return shortPath(provider.rootPath) }
@@ -1396,7 +1396,7 @@ struct SetupSheet: View {
     ///
     /// **Nothing is pre-ticked**, and that is measured rather than cautious: used as-is the rule
     /// agrees with the hand-built profile on 83.2% of folders, and every point of the gap is an
-    /// invention — `HPE` is an employer, `IT` a department, `PRD` a product stage. Handed only the
+    /// invention — `EMP` is an employer, `IT` a department, `PRD` a product stage. Handed only the
     /// confirmed values the same code is right about 100%. The whole error is in the guessing.
     private func placeChip(_ candidate: JurisdictionCandidate) -> some View {
         let isOn = confirmedPlaces.contains(candidate.value)

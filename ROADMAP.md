@@ -711,7 +711,7 @@ that the names finding does not need, each a defect if built by analogy:
 **The hard part is silence, and it is a detector design problem.** 247 folder names appear under
 more than one parent and 105 span different top-level areas, and **almost all of them are correct**:
 `Statements/`, `Reference/` and `Transcripts/` are role folders that are supposed to recur, and
-`Abhishek/` in fourteen places is the person axis working as designed. A detector that flags
+`Father/` in fourteen places is the person axis working as designed. A detector that flags
 repeated names produces hundreds of false positives and gets switched off in a day. So the detector
 never compares names globally — it compares siblings inside one family (one parent, one role) under
 two rules:
@@ -761,7 +761,7 @@ format. Five things it changed here, each of which the design had wrong or missi
   one folder to one folder.
 - **An empty folder is not uniformly debt.** A prune scoped to the branch rather than to what the
   move emptied removed two folders it should not have — `Supporting Documents/Resume` and
-  `Supporting Docs/HPE/Payslips`, both already empty and both *category* names. An empty **date
+  `Supporting Docs/EMP/Payslips`, both already empty and both *category* names. An empty **date
   bucket** is debt; an empty **category** is a destination waiting for its next file. So the 76
   empties are split by the shape of the name and never offered as one number, and the removal step is
   scoped to folders the plan itself emptied.
@@ -770,14 +770,14 @@ format. Five things it changed here, each of which the design had wrong or missi
   they land in a different family and are never compared with the years they belong to. Same class as
   the inbox that is not called `TODO`.
 
-**One detector is deliberately absent.** *Duplicated taxonomy* — `Work/Archive/MapR/Compensation/`
+**One detector is deliberately absent.** *Duplicated taxonomy* — `Work/Archive/Acme/Compensation/`
 holding both `Forms/` and `Income Tax/`, each with the same three form folders — must not ship on
 name evidence. Tested against the tree, matching siblings by child names is dominated by correct
 parallels: Vanguard's Roth and Traditional IRAs, four Chase accounts each foldered by year,
-`PFL - Shweta` beside `SDI - Shweta`. **Identical sibling structure is usually a sign of health.**
-What separates MapR is that the same documents sit in both, so this is a content claim — and item 18
+`PFL - Mother` beside `SDI - Mother`. **Identical sibling structure is usually a sign of health.**
+What separates Acme is that the same documents sit in both, so this is a content claim — and item 18
 has now shipped the evidence it needs. The `.sameText` pass groups both halves of the `Form 1095-C`
-pair across `Work/Archive/MapR/Compensation/Forms/` and `Finance/US/Income Tax/2016/Forms/`, which
+pair across `Work/Archive/Acme/Compensation/Forms/` and `Finance/US/Income Tax/2016/Forms/`, which
 is exactly the overlap this detector was waiting for; what remains is reading those groups as a
 statement about the two *folders* rather than about the two files.
 
@@ -847,24 +847,24 @@ ones it might.
 
 ## 22. People: file by *whose* document it is
 
-**Why:** Six people file into this tree — Abhishek, Shweta, their children Aditi and Divit, and
-his parents Muktha and Girish — and each files the same way: a folder named for them under
+**Why:** Six people file into this tree — Father, Mother, their children Daughter and Son, and
+his parents Granny and Elder — and each files the same way: a folder named for them under
 whatever the category is. The engine has known *that* people exist since the filing profile
-shipped, but only as `personTokens`, a flat lowercased bag in which `Mom` and `Muktha` were
+shipped, but only as `personTokens`, a flat lowercased bag in which `Mom` and `Granny` were
 unrelated strings. Three defects followed from that, and **phase 1 (below) has shipped**:
 
-- The alias map (`Mom` → `Muktha`) was read from `folder-profile.json` and **discarded at decode**,
-  so the cross-person veto read `Mom - passport.pdf` against a folder whose axis says `Muktha` as a
+- The alias map (`Mom` → `Granny`) was read from `folder-profile.json` and **discarded at decode**,
+  so the cross-person veto read `Mom - passport.pdf` against a folder whose axis says `Granny` as a
   *contradiction* and refused the correct folder.
-- A token intersection reads **`Aditi Abhishek`** — the daughter's full name — as naming her father
-  too, because `abhishek` is his given name and her surname. `girish` is worse: Dad's given name,
-  Mom's surname, and Abhishek's surname all at once.
+- A token intersection reads **`Daughter Father`** — the daughter's full name — as naming her father
+  too, because `father` is his given name and her surname. `elder` is worse: Dad's given name,
+  Mom's surname, and Father's surname all at once.
 - The veto read the **filename only**, so a scan named `Scan 2026-08-02.pdf` had no protection at
   all, and the refine pass — the one that reaches the cloud model — never applied the veto.
 
 **What shipped (phase 1).** `PersonRegistry` holds a roster of `Person` records and matches
-**phrase-first, longest wins, consuming the span**: in "Aditi Abhishek" the surname is spent on
-Aditi and never doubles as evidence for Abhishek. Strong (unique) versus shared tokens are
+**phrase-first, longest wins, consuming the span**: in "Daughter Father" the surname is spent on
+Daughter and never doubles as evidence for Father. Strong (unique) versus shared tokens are
 **computed from the roster**, so adding a seventh person re-derives the split. The registry loads
 from `profiles/<id>/people.json`, or is seeded from the profile's person axis when that file is
 absent — the seed alone fixes the alias misfire. Both the veto and the router's person-axis score
@@ -887,12 +887,12 @@ shared with whom.
   on the roster is surfaced with an Add button, from the survey's own `axes.person` values.
 
   **The suggestion rule is narrow on purpose, and the measurement is why.** Recurring word runs in
-  a person's folders are almost all noise (`Credit Report Shweta`, 9 files); vetoing broad words —
+  a person's folders are almost all noise (`Credit Report Mother`, 9 files); vetoing broad words —
   the rule proposer's fix — is *backwards* here, because a family surname is broad precisely because
-  the family is everywhere (`girish` is carried by 161 folders) while `oci` is narrow. So a run is
+  the family is everywhere (`elder` is carried by 161 folders) while `oci` is narrow. So a run is
   offered only when every word in it is already somebody's name and it leads with what the household
   calls *this* person. Measured on the real tree: **0 suggestions** with the roster complete, and
-  "Muktha Girish" (7 files) the moment her record lacks it. Discovering an entirely new word — a
+  "Granny Elder" (7 files) the moment her record lacks it. Discovering an entirely new word — a
   spouse's surname nobody has typed — still takes a person, and the section says so.
 - ~~**`personIs(<person>)` as a rule condition**~~ — **shipped**, together with the `{person}`
   destination token that was the point of it: `Immigration/OCI/{person}` files each family member's
@@ -905,16 +905,16 @@ shared with whom.
   the query names exactly one of them (`PersonSearchOffer`); ↩ takes it and the find becomes a
   *gather*, ⇧↩ keeps the plain substring search, and a query naming nobody leaves the find exactly
   as it was. The answer is grouped by evidence: **in her folders**, from the person axis walked up
-  from each document (`PersonFiles.person(forPath:)` — nearest ancestor wins, so `OCI/Shweta/Aditi`
-  is Aditi's), and **hers, filed elsewhere**, the candidate misfilings no browse produces.
+  from each document (`PersonFiles.person(forPath:)` — nearest ancestor wins, so `OCI/Mother/Daughter`
+  is Daughter's), and **hers, filed elsewhere**, the candidate misfilings no browse produces.
 
   **The corpus set the attribution rule.** Accepting any name match gave Dad **204** files elsewhere
-  against 3 in his own folders, because `girish` is his given name, his wife's surname and both
-  sons'; requiring a phrase or a token unique to him takes that to **10**, and Abhishek — whose
+  against 3 in his own folders, because `elder` is his given name, his wife's surname and both
+  sons'; requiring a phrase or a token unique to him takes that to **10**, and Father — whose
   unique set is empty — from 290 to 111. That gate sits beside `attribute(fileName:pageSample:)`
   rather than inside it: the filing path checks a shared word against the destination's own person
   axis, so its veto has counter-evidence, and **browsing has none**. The offer rule is deliberately
-  looser than the attribution rule — `girish` names one person, so typing your father's name must
+  looser than the attribution rule — `elder` names one person, so typing your father's name must
   offer him even though it cannot claim a file on its own.
 - ~~**The page-text channel and the review queue**~~ — **shipped.** The rows stage 1 suppressed now
   arrive as questions rather than vanishing: a shared word in the filename, or page 1 naming
@@ -951,7 +951,7 @@ shared with whom.
   ownership. Requiring the page to name **exactly one person** takes it to **635** and keeps the case
   the channel exists for — her disability claim, his bank KYC form, scans whose own names say
   nothing. So page evidence only ever *queues*; it never claims a document the way a filename can.
-  Note what that gate is not: `dani` is unique to Shweta and passes the strength gate easily, and it
+  Note what that gate is not: `maiden` is unique to Mother and passes the strength gate easily, and it
   was on all 2,011 rows. Strength asks whether a word could mean somebody else; this asks whether the
   document is about one person or a household.
 
@@ -971,15 +971,15 @@ shared with whom.
   written back verbatim rather than guessed at, and the shape is pinned against literal JSON.
 - **Person buckets that do not exist yet** — a *create the sibling* proposal, from the parent's
   evidence, the way a cold year bucket is already handled.
-- **A person block in the classifier brief**, so a backend reads "Shweta R Dani" as Shweta too.
+- **A person block in the classifier brief**, so a backend reads "Mother I Maiden" as Mother too.
 
 **Measured, and not where I expected.** Every filed document is a labelled example, so both rules
 were replayed over the 1,375 corpus documents whose folder carries a person axis. The obvious
 metric — *false vetoes*, refusing the folder a document actually lives in — is **unchanged at 3**,
-and all three are `Family/Aditi/Events/Baby Shower/`: documents named for the parents inside the
-child's event folder, which no name intelligence resolves because the folder is Aditi's for a
+and all three are `Family/Daughter/Events/Baby Shower/`: documents named for the parents inside the
+child's event folder, which no name intelligence resolves because the folder is Daughter's for a
 reason the filename cannot state. What the registry fixes is **over-attribution: 36 → 0**.
-`Muktha Girish - Resume.pdf` names one person and the token rule reported two, because `girish` is
+`Granny Elder - Resume.pdf` names one person and the token rule reported two, because `elder` is
 her surname and his given name. Each of those 36 is a document the veto would have let into the
 wrong person's folder — the protection failing *open*, which is the failure invisible in use — and
 36 files scoring against a family member they have nothing to do with. `RealFilingProfileTests`

@@ -5,8 +5,8 @@ import Foundation
 /// What `people.json` keeps when the app writes it back.
 ///
 /// **The file is hand-written as much as it is app-written.** The real roster carries a `_note`
-/// explaining why Anuraag is on it, why listing a full name is what makes a shared surname
-/// attributable, and why `Abhi` and `Shwe` are recorded as name forms rather than nicknames — all
+/// explaining why Uncle is on it, why listing a full name is what makes a shared surname
+/// attributable, and why `Fath` and `Shwe` are recorded as name forms rather than nicknames — all
 /// of it prose no survey can regenerate. `PeopleFileOut` writes four keys (the fourth, `order`, only once the list is hand-arranged) and the save is a
 /// whole-file atomic replace, so before this the first edit in Settings ▸ People deleted every
 /// other key in the file without saying so.
@@ -37,10 +37,10 @@ import Foundation
     private static let handWritten = """
         {
           "schemaVersion": 1,
-          "_note": "Anuraag is on this roster because the tree already files for him.",
+          "_note": "Uncle is on this roster because the tree already files for him.",
           "somethingANewerBuildWrote": { "kind": "whatever", "n": 3 },
           "people": [
-            { "id": "abhishek", "displayName": "Abhishek", "fullNames": ["Abhishek Girish"] }
+            { "id": "father", "displayName": "Father", "fullNames": ["Father Elder"] }
           ]
         }
         """
@@ -50,9 +50,9 @@ import Foundation
         {
           "schemaVersion": 1,
           "people": [
-            { "id": "abhishek", "displayName": "Abhishek", "fullNames": ["Abhishek Girish"],
-              "nickname": "Abhi", "_why": "the tree files under his full name" },
-            { "id": "muktha", "displayName": "Muktha" }
+            { "id": "father", "displayName": "Father", "fullNames": ["Father Elder"],
+              "nickname": "Fath", "_why": "the tree files under his full name" },
+            { "id": "granny", "displayName": "Granny" }
           ]
         }
         """
@@ -65,11 +65,11 @@ import Foundation
         try write(Self.handWritten, to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Shweta")            // any edit at all rewrites the whole file
+        store.add(displayName: "Mother")            // any edit at all rewrites the whole file
 
         let saved = try read(dir)
         #expect(saved["_note"] as? String
-                == "Anuraag is on this roster because the tree already files for him.",
+                == "Uncle is on this roster because the tree already files for him.",
                 "the note the user wrote was dropped by an edit made in the app")
         let carried = saved["somethingANewerBuildWrote"] as? [String: Any]
         #expect(carried?["kind"] as? String == "whatever")
@@ -85,12 +85,12 @@ import Foundation
         try write(Self.handWritten, to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Shweta")
+        store.add(displayName: "Mother")
 
         let saved = try read(dir)
         let people = try #require(saved["people"] as? [[String: Any]])
         #expect(people.count == 2)
-        #expect(Set(people.compactMap { $0["id"] as? String }) == ["abhishek", "shweta"])
+        #expect(Set(people.compactMap { $0["id"] as? String }) == ["father", "mother"])
         #expect(saved["schemaVersion"] as? Int == FilingProfileStore.currentSchema)
     }
 
@@ -106,7 +106,7 @@ import Foundation
         try write(Self.handWritten, to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.remove(id: "abhishek")
+        store.remove(id: "father")
 
         let people = try #require(try read(dir)["people"] as? [[String: Any]])
         #expect(people.isEmpty, "the removal was undone by the file's own earlier contents")
@@ -119,7 +119,7 @@ import Foundation
         try write(Self.handWritten, to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.dismissSuggestion(PersonNameSuggestion(personId: "abhishek", form: "Abhi Girish",
+        store.dismissSuggestion(PersonNameSuggestion(personId: "father", form: "Fath Elder",
                                                      occurrences: 2, exampleFile: "x.pdf"))
         let saved = try read(dir)
         #expect((saved["notNames"] as? [String])?.isEmpty == false)
@@ -137,7 +137,7 @@ import Foundation
         // load-time warning (the init warns exactly when this flag is set), and the save lands.
         #expect(store.rosterIsUnreadable == false,
                 "an absent file was mistaken for one that exists but cannot be read")
-        store.add(displayName: "Aditi")
+        store.add(displayName: "Daughter")
 
         let saved = try read(dir)
         #expect(Set(saved.keys) == ["schemaVersion", "people"],
@@ -153,7 +153,7 @@ import Foundation
         try write("this is not json {{{", to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Divit")
+        store.add(displayName: "Son")
 
         let saved = try read(dir)
         #expect((saved["people"] as? [[String: Any]])?.count == 1)
@@ -174,9 +174,9 @@ import Foundation
         let broken = """
             {
               "schemaVersion": 1,
-              "_note": "why Anuraag is on this roster",
+              "_note": "why Uncle is on this roster",
               "people": [
-                { "id": "abhishek", "displayName": "Abhishek", "fullNames": "Abhishek Girish" }
+                { "id": "father", "displayName": "Father", "fullNames": "Father Elder" }
               ]
             }
             """
@@ -185,7 +185,7 @@ import Foundation
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         #expect(store.rosterIsUnreadable, "an undecodable roster must be known to be undecodable")
-        store.add(displayName: "Shweta")
+        store.add(displayName: "Mother")
 
         let after = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
         #expect(after == before, "the household was overwritten by a roster the app guessed")
@@ -200,13 +200,13 @@ import Foundation
         try write("""
             {
               "schemaVersion": 99,
-              "people": [{ "id": "abhishek", "displayName": "Abhishek", "somethingNew": true }]
+              "people": [{ "id": "father", "displayName": "Father", "somethingNew": true }]
             }
             """, to: dir)
         let before = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Shweta")
+        store.add(displayName: "Mother")
 
         let after = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
         #expect(after == before, "a newer build's file was downgraded by this one")
@@ -241,12 +241,12 @@ import Foundation
         try write("""
             {
               "schemaVersion": 1,
-              "_note": "why Anuraag is on this roster",
+              "_note": "why Uncle is on this roster",
               "people": [
-                { "id": "girish", "displayName": "Girish", "relationship": "father",
-                  "fullNames": ["Girish Krishnamurthy"], "aliases": ["Dad"] },
-                { "id": "girish", "displayName": "Girish K", "fullNames": ["Girish Kumar"] },
-                { "id": "muktha", "displayName": "Muktha" }
+                { "id": "elder", "displayName": "Elder", "relationship": "father",
+                  "fullNames": ["Elder Forebear"], "aliases": ["Dad"] },
+                { "id": "elder", "displayName": "Elder F", "fullNames": ["Elder Kumar"] },
+                { "id": "granny", "displayName": "Granny" }
               ]
             }
             """, to: dir)
@@ -258,10 +258,10 @@ import Foundation
         #expect(store.rosterIsUnreadable == false,
                 "a repeated id is valid JSON — if this reads as unreadable the test proves nothing")
         #expect(store.people.count == 2, "the repeat was not collapsed, so no record is at risk")
-        #expect(store.repeatedRosterIds == ["girish"], "the store does not know the roster repeats an id")
+        #expect(store.repeatedRosterIds == ["elder"], "the store does not know the roster repeats an id")
 
         // An edit to somebody else entirely — the trigger does not have to touch the duplicate.
-        store.add(displayName: "Shweta")
+        store.add(displayName: "Mother")
 
         let after = try Data(contentsOf: dir.appendingPathComponent("p/people.json"))
         #expect(after == before, "the duplicated person's first record was deleted from people.json")
@@ -291,7 +291,7 @@ import Foundation
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         #expect(store.rosterIsUnreadable,
                 "a file that exists but cannot be opened holds a household this session cannot see")
-        store.add(displayName: "Shweta")
+        store.add(displayName: "Mother")
 
         try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
         let after = try Data(contentsOf: url)
@@ -313,7 +313,7 @@ import Foundation
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         #expect(store.rosterIsUnreadable,
                 "a link whose target is missing is not the same as no roster at all")
-        store.add(displayName: "Shweta")
+        store.add(displayName: "Mother")
 
         let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)
         #expect(dest == target, "the symlink was replaced by a plain file the app wrote")
@@ -328,12 +328,12 @@ import Foundation
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         #expect(store.rosterIsUnreadable == false)
-        store.add(displayName: "Shweta")
+        store.add(displayName: "Mother")
 
         let saved = try read(dir)
         let names = (saved["people"] as? [[String: Any]])?.compactMap { $0["displayName"] as? String }
-        #expect(names?.sorted() == ["Abhishek", "Shweta"], "the edit must still be written")
-        #expect(saved["_note"] as? String == "Anuraag is on this roster because the tree already files for him.")
+        #expect(names?.sorted() == ["Father", "Mother"], "the edit must still be written")
+        #expect(saved["_note"] as? String == "Uncle is on this roster because the tree already files for him.")
     }
 
     // MARK: - The same failure inside a person record
@@ -341,7 +341,7 @@ import Foundation
     /// **A key written ON a person is destroyed by the first edit to ANYBODY.**
     ///
     /// `carriedKeys` reads the top-level object and filters it against `PeopleFileOut.modelledKeys`
-    /// — so `_note` beside `people` survives, and `nickname` on Abhishek does not. `Person` models
+    /// — so `_note` beside `people` survives, and `nickname` on Father does not. `Person` models
     /// exactly five keys and `init(from:)` ignores the rest, so the record re-encodes without them
     /// and the whole-file write puts that on disk. Nothing fails: the file is well-formed and looks
     /// complete, which is why this needed a test rather than a bug report.
@@ -351,17 +351,17 @@ import Foundation
         try write(Self.handWrittenPerPerson, to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Shweta")            // an edit to somebody else entirely
+        store.add(displayName: "Mother")            // an edit to somebody else entirely
 
         let people = try #require(try read(dir)["people"] as? [[String: Any]])
-        let abhishek = try #require(people.first { $0["id"] as? String == "abhishek" })
-        #expect(abhishek["nickname"] as? String == "Abhi",
+        let father = try #require(people.first { $0["id"] as? String == "father" })
+        #expect(father["nickname"] as? String == "Fath",
                 "a key written on a person was deleted by an edit to a different person")
-        #expect(abhishek["_why"] as? String == "the tree files under his full name",
+        #expect(father["_why"] as? String == "the tree files under his full name",
                 "prose on a person is the same kind of thing as prose beside them")
         // And the modelled fields still round-trip, so the merge did not replace the record.
-        #expect(abhishek["displayName"] as? String == "Abhishek")
-        #expect(abhishek["fullNames"] as? [String] == ["Abhishek Girish"])
+        #expect(father["displayName"] as? String == "Father")
+        #expect(father["fullNames"] as? [String] == ["Father Elder"])
     }
 
     /// A person with no extras gains none, and the new person is written normally — the merge must
@@ -372,13 +372,13 @@ import Foundation
         try write(Self.handWrittenPerPerson, to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Shweta")
+        store.add(displayName: "Mother")
 
         let people = try #require(try read(dir)["people"] as? [[String: Any]])
-        let muktha = try #require(people.first { $0["id"] as? String == "muktha" })
-        #expect(Set(muktha.keys) == ["id", "displayName"])
-        let shweta = try #require(people.first { $0["displayName"] as? String == "Shweta" })
-        #expect(Set(shweta.keys) == ["id", "displayName"])
+        let granny = try #require(people.first { $0["id"] as? String == "granny" })
+        #expect(Set(granny.keys) == ["id", "displayName"])
+        let mother = try #require(people.first { $0["displayName"] as? String == "Mother" })
+        #expect(Set(mother.keys) == ["id", "displayName"])
     }
 
     /// **Deleting a person takes their carried keys with them.**
@@ -393,12 +393,12 @@ import Foundation
         try write(Self.handWrittenPerPerson, to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.remove(id: "abhishek")
+        store.remove(id: "father")
 
         let people = try #require(try read(dir)["people"] as? [[String: Any]])
-        #expect(!people.contains { $0["id"] as? String == "abhishek" },
+        #expect(!people.contains { $0["id"] as? String == "father" },
                 "the deleted person came back through the carry")
-        #expect(people.contains { $0["id"] as? String == "muktha" })
+        #expect(people.contains { $0["id"] as? String == "granny" })
     }
 
     /// A field this build DOES model is this build's to write, even if the file had it too —
@@ -410,14 +410,14 @@ import Foundation
         try write(Self.handWrittenPerPerson, to: dir)
 
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        let person = try #require(store.person(id: "abhishek"))
-        store.update(Person(id: person.id, displayName: "Abhishek G",
+        let person = try #require(store.person(id: "father"))
+        store.update(Person(id: person.id, displayName: "Father G",
                             relationship: person.relationship,
                             fullNames: person.fullNames, aliases: person.aliases))
 
         let people = try #require(try read(dir)["people"] as? [[String: Any]])
-        let abhishek = try #require(people.first { $0["id"] as? String == "abhishek" })
-        #expect(abhishek["displayName"] as? String == "Abhishek G")
-        #expect(abhishek["nickname"] as? String == "Abhi", "the rename dropped the carried key")
+        let father = try #require(people.first { $0["id"] as? String == "father" })
+        #expect(father["displayName"] as? String == "Father G")
+        #expect(father["nickname"] as? String == "Fath", "the rename dropped the carried key")
     }
 }

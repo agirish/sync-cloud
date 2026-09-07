@@ -585,7 +585,7 @@ public struct DestinationPicker: View {
     /// The chosen folder as a breadcrumb, matching the pane headers rather than a raw path.
     ///
     /// A single truncated path line was the first cut, and head-truncation cut it mid-component —
-    /// "…ocuments/Family/Ajji & Tata" reads as a broken string, not a location. Components let the
+    /// "…ocuments/Family/Grandparents" reads as a broken string, not a location. Components let the
     /// leading ones drop cleanly and keep the folder you actually chose, which is the end.
     private var destinationCrumbs: some View {
         let components = DestinationBrowser.crumbs(for: highlighted, under: root,

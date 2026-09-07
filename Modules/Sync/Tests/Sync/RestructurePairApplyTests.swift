@@ -46,11 +46,11 @@ import Testing
     /// every single time, on every tree, while the sheet reported a successful landing.
     @Test func aWholeFolderMoveLandsPastItsUninvolvedSiblings() throws {
         let root = try Self.makeTree(["Work/Badge/badge.pdf",
-                                      "Work/MapR/Offer Letter/offer.pdf",
+                                      "Work/Acme/Offer Letter/offer.pdf",
                                       "Work/Payslips/2024.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
         let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/MapR/Badge",
+            source: "Work/Badge", destination: "Work/Acme/Badge",
             kind: .looseBesideContainer, in: Self.view(of: root),
             profileId: "p", manifestId: "m", createdAt: "t").get())
 
@@ -60,7 +60,7 @@ import Testing
                 "the siblings this plan never touches are not a reason to refuse it")
         #expect(execution.foldersMovedWhole == 1)
         #expect(execution.performed.count == 1)
-        #expect(Self.exists(root, "Work/MapR/Badge/badge.pdf"))
+        #expect(Self.exists(root, "Work/Acme/Badge/badge.pdf"))
         #expect(!Self.exists(root, "Work/Badge"))
         #expect(Self.exists(root, "Work/Payslips/2024.pdf"), "the sibling is untouched")
     }
@@ -90,13 +90,13 @@ import Testing
     }
 
     /// A relocation empties nothing. Reading the drained folder off the action's path made this
-    /// the source's PARENT, so the landing's card offered `Work/` — which still held `MapR` —
+    /// the source's PARENT, so the landing's card offered `Work/` — which still held `Acme` —
     /// as a folder to move to the Trash.
     @Test func aWholeFolderMoveReportsNoEmptiedFolders() throws {
-        let root = try Self.makeTree(["Work/Badge/badge.pdf", "Work/MapR/Offer Letter/offer.pdf"])
+        let root = try Self.makeTree(["Work/Badge/badge.pdf", "Work/Acme/Offer Letter/offer.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
         let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/MapR/Badge",
+            source: "Work/Badge", destination: "Work/Acme/Badge",
             kind: .looseBesideContainer, in: Self.view(of: root),
             profileId: "p", manifestId: "m", createdAt: "t").get())
 
@@ -153,11 +153,11 @@ import Testing
 
     /// Whatever route derived it, the stored inverse has to put the tree back byte for byte.
     @Test func aRelocationIsReversedByItsOwnInverse() throws {
-        let root = try Self.makeTree(["Work/Badge/badge.pdf", "Work/MapR/Offer Letter/offer.pdf"])
+        let root = try Self.makeTree(["Work/Badge/badge.pdf", "Work/Acme/Offer Letter/offer.pdf"])
         defer { try? FileManager.default.removeItem(at: root) }
         let before = Self.treeList(root)
         let manifest = try #require(try RestructurePlanner.pairMergeManifest(
-            source: "Work/Badge", destination: "Work/MapR/Badge",
+            source: "Work/Badge", destination: "Work/Acme/Badge",
             kind: .looseBesideContainer, in: Self.view(of: root),
             profileId: "p", manifestId: "m", createdAt: "t").get())
 

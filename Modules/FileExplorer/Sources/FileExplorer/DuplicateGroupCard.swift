@@ -332,7 +332,7 @@ struct DuplicateGroupCard: View {
     /// which is the gesture the tiles already looked like they offered.
     ///
     /// **The name gets a line of its own.** It used to be the last crumb of the breadcrumb,
-    /// highlighted — so "Passport Old – Shweta – All Pages (Jul 2020) – Compressed.pdf" wrapped
+    /// highlighted — so "Passport Old – Mother – All Pages (Jul 2020) – Compressed.pdf" wrapped
     /// that cell onto two and three lines and pushed the path off the row. A name and a location
     /// are two facts; they read as two lines.
     /// **The whole row is the picker where a choice exists**, not just the preview in it.
@@ -835,7 +835,7 @@ enum DuplicateCardHeaderLayout: Equatable {
     /// name is allowed to truncate, so that width is reached with almost no room left for the
     /// name. Losing the badge dropped that bare fit from 364 to 264, the scan's old upper bound
     /// demanded the constant hug it, and following it to 280 put 370pt tiles on the one-line
-    /// header — where `Passport - Shweta - All Pages.pdf` and `Passport - Abhishek - All
+    /// header — where `Passport - Mother - All Pages.pdf` and `Passport - Father - All
     /// Pages.pdf` both render as `Passpor…ages.pdf`. Not an overflow, and nothing a fit
     /// measurement can see: two different files reading as one string.
     ///
@@ -853,7 +853,7 @@ enum DuplicateCardHeaderLayout: Equatable {
     /// point where the row merely stops overflowing.
     ///
     /// A budget rather than a measurement, because what it protects is content-dependent: the row
-    /// stays honest for `Tax 2025` at any width and truncates `Passport - Shweta - All Pages.pdf`
+    /// stays honest for `Tax 2025` at any width and truncates `Passport - Mother - All Pages.pdf`
     /// even at 560. 100pt is where a middle-truncated document name keeps enough of both ends to
     /// tell two of them apart, which is the whole job of the name in this list.
     static let rowHeaderNameBudget: CGFloat = 100
@@ -863,7 +863,7 @@ enum DuplicateCardHeaderLayout: Equatable {
     ///
     /// A narrow card has no room for the one-liner. An expanded card has plenty, and still could
     /// not show a name: the row header spends the width after the name on a subtitle and two
-    /// figure columns, so "Passport Old - Shweta - All Pages (Jul 2020) - Compressed.pdf" arrived
+    /// figure columns, so "Passport Old - Mother - All Pages (Jul 2020) - Compressed.pdf" arrived
     /// as "Passport Old - Sh…) - Compressed.pdf". His report. The facts below the title are the
     /// same facts; they just stop competing with it for the line.
     ///

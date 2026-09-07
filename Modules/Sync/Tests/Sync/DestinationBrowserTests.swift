@@ -8,16 +8,16 @@ import Foundation
 
     /// A provider at `/p` with two same-named leaves, which is the case the trail exists for:
     ///
-    ///     /p/Health/Medical/Kaiser/Divit
-    ///     /p/School/Divit
+    ///     /p/Health/Medical/Kaiser/Son
+    ///     /p/School/Son
     ///     /p/Health/Prescriptions
     ///     /p/.hidden
     ///     /p/loose.txt
     private func fixture() throws -> MockFileManager {
         let fm = MockFileManager()
         for dir in ["/p", "/p/Health", "/p/Health/Medical", "/p/Health/Medical/Kaiser",
-                    "/p/Health/Medical/Kaiser/Divit", "/p/Health/Prescriptions",
-                    "/p/School", "/p/School/Divit", "/p/.hidden"] {
+                    "/p/Health/Medical/Kaiser/Son", "/p/Health/Prescriptions",
+                    "/p/School", "/p/School/Son", "/p/.hidden"] {
             try fm.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
         }
         fm.virtualDisk["/p/loose.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
@@ -45,7 +45,7 @@ import Foundation
     /// A path with nothing under it is empty, not an error — the picker renders "Empty" for it.
     @Test func testLeafFolderListsNothing() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.listSubfolders(of: "/p/School/Divit", fileManager: fm).folders.isEmpty)
+        #expect(DestinationBrowser.listSubfolders(of: "/p/School/Son", fileManager: fm).folders.isEmpty)
     }
 
     /// An empty root would otherwise resolve against the process working directory.
@@ -68,7 +68,7 @@ import Foundation
         #expect(unreadable.emptyMessage == "Can’t be read")
 
         // A folder that genuinely holds no subfolders, from the same fixture and the same call.
-        let leaf = DestinationBrowser.listSubfolders(of: "/p/School/Divit", fileManager: fm)
+        let leaf = DestinationBrowser.listSubfolders(of: "/p/School/Son", fileManager: fm)
         #expect(leaf.outcome == .listed)
         #expect(leaf.emptyMessage == "Empty")
 
@@ -140,18 +140,18 @@ import Foundation
 
         // The same tree, readable, with a cap doing the stopping instead.
         let readable = try fixture()
-        let capped = DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: readable)
+        let capped = DestinationBrowser.search("son", under: "/p", limit: 1, fileManager: readable)
         #expect(capped.stoppedEarly)
         #expect(!capped.skippedUnreadableDirectory, "every directory here was read")
 
         // …and both at once, which neither of the above can stand in for. The blocked folder has
         // to sit where the walk MEETS it before the cap trips: breadth-first with `limit: 1`,
-        // `/p/Health` is listed (and refused) in the same pass that finds `/p/School/Divit`.
+        // `/p/Health` is listed (and refused) in the same pass that finds `/p/School/Son`.
         // Blocking `/p/Health/Medical` instead would leave the walk returning a level too early
         // to have noticed, which is how this arm first passed with only one of the two facts set.
         let blockedHigh = try fixture()
         blockedHigh.unlistableDirectories = ["/p/Health"]
-        let both = DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: blockedHigh)
+        let both = DestinationBrowser.search("son", under: "/p", limit: 1, fileManager: blockedHigh)
         #expect(both.stoppedEarly)
         #expect(both.skippedUnreadableDirectory)
     }
@@ -188,20 +188,20 @@ import Foundation
     @Test func testTheEmptyMessageNamesWhichKindOfNothingItIs() throws {
         func message(stoppedEarly: Bool, skipped: Bool) -> String {
             DestinationSearchOutcome(matches: [], stoppedEarly: stoppedEarly,
-                                     skippedUnreadableDirectory: skipped).emptyMessage(query: "Divit")
+                                     skippedUnreadableDirectory: skipped).emptyMessage(query: "Son")
         }
         let complete = message(stoppedEarly: false, skipped: false)
         let capped = message(stoppedEarly: true, skipped: false)
         let withheld = message(stoppedEarly: false, skipped: true)
         let both = message(stoppedEarly: true, skipped: true)
 
-        #expect(complete == "No folders match “Divit”")
+        #expect(complete == "No folders match “Son”")
         #expect(Set([complete, capped, withheld, both]).count == 4,
                 "each cause has to reach its own sentence, not share one")
         // Only the complete walk may make the flat claim; the other three have not earned it.
         for (name, text) in [("capped", capped), ("withheld", withheld), ("both", both)] {
             #expect(text != complete, "\(name) reused the complete walk's wording")
-            #expect(text.contains("Divit"), "\(name) dropped the query from its sentence")
+            #expect(text.contains("Son"), "\(name) dropped the query from its sentence")
         }
         #expect(withheld.contains("read"), "the withheld case has to say what happened: \(withheld)")
     }
@@ -435,11 +435,11 @@ import Foundation
 
     // MARK: - Search
 
-    /// Both `Divit` folders are found, from different depths.
+    /// Both `Son` folders are found, from different depths.
     @Test func testSearchFindsMatchesAtEveryDepth() throws {
         let fm = try fixture()
-        let paths = Set(DestinationBrowser.search("divit", under: "/p", fileManager: fm).matches.map(\.path))
-        #expect(paths == ["/p/Health/Medical/Kaiser/Divit", "/p/School/Divit"])
+        let paths = Set(DestinationBrowser.search("son", under: "/p", fileManager: fm).matches.map(\.path))
+        #expect(paths == ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"])
     }
 
     /// Case-insensitive and substring, so three characters reach a long folder name.
@@ -452,15 +452,15 @@ import Foundation
     /// holds the shallowest matches rather than whichever branch happened to be walked first.
     @Test func testSearchIsBreadthFirst() throws {
         let fm = try fixture()
-        let first = DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: fm)
-        #expect(first.matches.map(\.path) == ["/p/School/Divit"], "School/Divit is two levels up from Kaiser/Divit")
+        let first = DestinationBrowser.search("son", under: "/p", limit: 1, fileManager: fm)
+        #expect(first.matches.map(\.path) == ["/p/School/Son"], "School/Son is two levels up from Kaiser/Son")
     }
 
     /// The depth cap stops the walk before the deep match.
     @Test func testSearchRespectsMaxDepth() throws {
         let fm = try fixture()
-        let shallow = DestinationBrowser.search("divit", under: "/p", maxDepth: 2, fileManager: fm)
-        #expect(shallow.matches.map(\.path) == ["/p/School/Divit"])
+        let shallow = DestinationBrowser.search("son", under: "/p", maxDepth: 2, fileManager: fm)
+        #expect(shallow.matches.map(\.path) == ["/p/School/Son"])
     }
 
     /// An empty or whitespace query matches nothing rather than everything — the picker shows the
@@ -476,45 +476,45 @@ import Foundation
     /// Recents lead, in their own order.
     @Test func testRecentsRankFirstInTheirOwnOrder() {
         let matches = [
-            DestinationFolder(path: "/p/School/Divit"),
-            DestinationFolder(path: "/p/Health/Medical/Kaiser/Divit"),
+            DestinationFolder(path: "/p/School/Son"),
+            DestinationFolder(path: "/p/Health/Medical/Kaiser/Son"),
         ]
         let ranked = DestinationBrowser.ranked(
             matches,
-            recents: ["/p/Health/Medical/Kaiser/Divit", "/p/School/Divit"],
-            query: "divit",
+            recents: ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"],
+            query: "son",
             under: "/p"
         )
-        #expect(ranked.map(\.path) == ["/p/Health/Medical/Kaiser/Divit", "/p/School/Divit"])
+        #expect(ranked.map(\.path) == ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"])
     }
 
     /// With no recency to go on, an exact name beats a mere substring.
     @Test func testExactNameBeatsSubstring() {
         let matches = [
-            DestinationFolder(path: "/p/Divitations"),
-            DestinationFolder(path: "/p/Divit"),
+            DestinationFolder(path: "/p/Sonations"),
+            DestinationFolder(path: "/p/Son"),
         ]
-        let ranked = DestinationBrowser.ranked(matches, recents: [], query: "divit", under: "/p")
-        #expect(ranked.map(\.name) == ["Divit", "Divitations"])
+        let ranked = DestinationBrowser.ranked(matches, recents: [], query: "son", under: "/p")
+        #expect(ranked.map(\.name) == ["Son", "Sonations"])
     }
 
     /// Equal on name, the shallower folder wins.
     @Test func testShallowerBeatsDeeper() {
         let matches = [
-            DestinationFolder(path: "/p/Health/Medical/Kaiser/Divit"),
-            DestinationFolder(path: "/p/School/Divit"),
+            DestinationFolder(path: "/p/Health/Medical/Kaiser/Son"),
+            DestinationFolder(path: "/p/School/Son"),
         ]
-        let ranked = DestinationBrowser.ranked(matches, recents: [], query: "divit", under: "/p")
-        #expect(ranked.map(\.path) == ["/p/School/Divit", "/p/Health/Medical/Kaiser/Divit"])
+        let ranked = DestinationBrowser.ranked(matches, recents: [], query: "son", under: "/p")
+        #expect(ranked.map(\.path) == ["/p/School/Son", "/p/Health/Medical/Kaiser/Son"])
     }
 
     /// A recent that is NOT among the matches must not be injected into the results.
     @Test func testRankingNeverAddsFolders() {
-        let matches = [DestinationFolder(path: "/p/School/Divit")]
+        let matches = [DestinationFolder(path: "/p/School/Son")]
         let ranked = DestinationBrowser.ranked(
-            matches, recents: ["/p/Health/Prescriptions"], query: "divit", under: "/p"
+            matches, recents: ["/p/Health/Prescriptions"], query: "son", under: "/p"
         )
-        #expect(ranked.map(\.path) == ["/p/School/Divit"])
+        #expect(ranked.map(\.path) == ["/p/School/Son"])
     }
 
     // MARK: - Trail
@@ -522,9 +522,9 @@ import Foundation
     /// The trail names the provider folder and every level between it and the match, so two
     /// same-named folders read differently.
     @Test func testTrailDistinguishesSameNamedFolders() {
-        #expect(DestinationBrowser.trail(of: "/p/Health/Medical/Kaiser/Divit", under: "/p")
+        #expect(DestinationBrowser.trail(of: "/p/Health/Medical/Kaiser/Son", under: "/p")
                 == ["p", "Health", "Medical", "Kaiser"])
-        #expect(DestinationBrowser.trail(of: "/p/School/Divit", under: "/p") == ["p", "School"])
+        #expect(DestinationBrowser.trail(of: "/p/School/Son", under: "/p") == ["p", "School"])
     }
 
     /// A folder directly under the root trails just the root.
@@ -678,9 +678,9 @@ import Foundation
     @Test func testAFolderNameCollidesToo() throws {
         let fm = try fixture()
         let colliding = DestinationBrowser.collidingNames(
-            movingFrom: ["/p/School/Divit"], into: "/p/Health/Medical/Kaiser", fileManager: fm
+            movingFrom: ["/p/School/Son"], into: "/p/Health/Medical/Kaiser", fileManager: fm
         )
-        #expect(colliding == ["Divit"])
+        #expect(colliding == ["Son"])
     }
 
     /// Every name free means no preview to show.
@@ -717,7 +717,7 @@ import Foundation
         let fm = try fixture()
         let colliding = DestinationBrowser.collidingNames(
             movingFrom: ["/p/Health/x.pdf", "/p/School/x.pdf", "/p/Health/Medical/x.pdf"],
-            into: "/p/School/Divit",
+            into: "/p/School/Son",
             fileManager: fm
         )
         #expect(colliding == ["x.pdf"])
@@ -800,7 +800,7 @@ import Foundation
         let fm = try fixture()
         var listings = 0
         fm.onEnumerate = { _ in listings += 1 }
-        let found = DestinationBrowser.search("divit", under: "/p", fileManager: fm,
+        let found = DestinationBrowser.search("son", under: "/p", fileManager: fm,
                                               isCancelled: { true })
         #expect(found.matches.isEmpty)
         #expect(listings == 0, "cancelled before the first directory was even read")
@@ -812,7 +812,7 @@ import Foundation
     /// picker would permanently caveat results it fully searched.
     @Test func testAnExhaustiveSearchIsNotTruncated() throws {
         let fm = try fixture()
-        let outcome = DestinationBrowser.search("divit", under: "/p", fileManager: fm)
+        let outcome = DestinationBrowser.search("son", under: "/p", fileManager: fm)
         #expect(outcome.matches.count == 2)
         #expect(!outcome.stoppedEarly && !outcome.skippedUnreadableDirectory)
     }
@@ -821,11 +821,11 @@ import Foundation
     /// reads as the complete one is how "the folder isn't there" becomes a wrong conclusion.
     @Test func testEveryCapReportsTruncation() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.search("divit", under: "/p", limit: 1, fileManager: fm).stoppedEarly,
+        #expect(DestinationBrowser.search("son", under: "/p", limit: 1, fileManager: fm).stoppedEarly,
                 "match limit")
-        #expect(DestinationBrowser.search("divit", under: "/p", maxDepth: 2, fileManager: fm).stoppedEarly,
-                "depth ceiling — Kaiser/Divit is below it")
-        #expect(DestinationBrowser.search("divit", under: "/p", maxListings: 1, fileManager: fm).stoppedEarly,
+        #expect(DestinationBrowser.search("son", under: "/p", maxDepth: 2, fileManager: fm).stoppedEarly,
+                "depth ceiling — Kaiser/Son is below it")
+        #expect(DestinationBrowser.search("son", under: "/p", maxListings: 1, fileManager: fm).stoppedEarly,
                 "listing budget")
     }
 
@@ -840,8 +840,8 @@ import Foundation
     /// …and an uncancelled walk is unaffected, so the hook cannot silently disable search.
     @Test func testSearchIsUnaffectedWhenNotCancelled() throws {
         let fm = try fixture()
-        let found = DestinationBrowser.search("divit", under: "/p", fileManager: fm,
+        let found = DestinationBrowser.search("son", under: "/p", fileManager: fm,
                                               isCancelled: { false })
-        #expect(Set(found.matches.map(\.path)) == ["/p/Health/Medical/Kaiser/Divit", "/p/School/Divit"])
+        #expect(Set(found.matches.map(\.path)) == ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"])
     }
 }

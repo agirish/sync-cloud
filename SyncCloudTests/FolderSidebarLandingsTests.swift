@@ -24,10 +24,10 @@ import Foundation
     @Test func everySourceContributesItsLandingUnderTheStoresKey() {
         let landings = ContentView.folderSidebarLandings([
             provider("dropbox", root: "/Users/x/Library/CloudStorage/Dropbox", openAt: "Documents"),
-            provider("drive-hpe", root: "/Users/x/Library/CloudStorage/GoogleDrive-hpe", openAt: "My Drive"),
+            provider("drive-emp", root: "/Users/x/Library/CloudStorage/GoogleDrive-emp", openAt: "My Drive"),
         ])
         #expect(landings["/Users/x/Library/CloudStorage/Dropbox"] == "Documents")
-        #expect(landings["/Users/x/Library/CloudStorage/GoogleDrive-hpe"] == "My Drive")
+        #expect(landings["/Users/x/Library/CloudStorage/GoogleDrive-emp"] == "My Drive")
     }
 
     /// **The keying, which is the half that fails silently.** A folder source keeps the `~` in its

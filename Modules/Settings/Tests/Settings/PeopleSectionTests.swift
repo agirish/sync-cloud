@@ -29,12 +29,12 @@ import Testing
     /// The real household, which is the fixture worth testing against: three of these people share
     /// a surname with a fourth's given name.
     static func household() -> [Person] {
-        [Person(id: "abhishek", displayName: "Abhishek", relationship: "me",
-                fullNames: ["Abhishek Girish"]),
-         Person(id: "aditi", displayName: "Aditi", relationship: "daughter",
-                fullNames: ["Aditi Abhishek"]),
-         Person(id: "muktha", displayName: "Muktha", relationship: "mother",
-                fullNames: ["Muktha Girish"], aliases: ["Mom"])]
+        [Person(id: "father", displayName: "Father", relationship: "me",
+                fullNames: ["Father Elder"]),
+         Person(id: "daughter", displayName: "Daughter", relationship: "daughter",
+                fullNames: ["Daughter Father"]),
+         Person(id: "granny", displayName: "Granny", relationship: "mother",
+                fullNames: ["Granny Elder"], aliases: ["Mom"])]
     }
 
     private func scratchDirectory() -> URL {
@@ -52,13 +52,13 @@ import Testing
         let store = PeopleStore(directory: dir, profileId: "t", profile: nil)
         #expect(store.people.isEmpty)
 
-        store.add(displayName: "Divit", relationship: "son", fullNames: ["Divit Abhishek"])
+        store.add(displayName: "Son", relationship: "son", fullNames: ["Son Father"])
 
         let reopened = PeopleStore(directory: dir, profileId: "t", profile: nil)
-        let divit = try #require(reopened.people.first)
-        #expect(divit.id == "divit")
-        #expect(divit.relationship == "son")
-        #expect(divit.fullNames == ["Divit Abhishek"])
+        let son = try #require(reopened.people.first)
+        #expect(son.id == "son")
+        #expect(son.relationship == "son")
+        #expect(son.fullNames == ["Son Father"])
         #expect(reopened.source == .file)
     }
 
@@ -68,39 +68,39 @@ import Testing
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "t", profile: nil)
-        let added = try #require(store.add(displayName: "Shweta", fullNames: ["Shweta Dani"]))
+        let added = try #require(store.add(displayName: "Mother", fullNames: ["Mother Maiden"]))
 
         var edited = added
-        edited.displayName = "Shweta D."
-        edited.fullNames.append("Shweta Ravindra Dani")
+        edited.displayName = "Mother D."
+        edited.fullNames.append("Mother Inlaw Maiden")
         store.update(edited)
 
         let reopened = PeopleStore(directory: dir, profileId: "t", profile: nil)
-        let shweta = try #require(reopened.people.first)
-        #expect(shweta.id == added.id, "the id moved — every folder recorded as hers is now orphaned")
-        #expect(shweta.displayName == "Shweta D.")
-        #expect(shweta.fullNames.count == 2)
+        let mother = try #require(reopened.people.first)
+        #expect(mother.id == added.id, "the id moved — every folder recorded as hers is now orphaned")
+        #expect(mother.displayName == "Mother D.")
+        #expect(mother.fullNames.count == 2)
     }
 
     @Test func removingAPersonTakesThemOutOfTheRosterAndTheFile() {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "t", profile: nil)
-        store.add(displayName: "Aditi")
-        store.add(displayName: "Divit")
-        store.remove(id: "aditi")
+        store.add(displayName: "Daughter")
+        store.add(displayName: "Son")
+        store.remove(id: "daughter")
 
-        #expect(store.people.map(\.id) == ["divit"])
-        #expect(PeopleStore(directory: dir, profileId: "t", profile: nil).people.map(\.id) == ["divit"])
+        #expect(store.people.map(\.id) == ["son"])
+        #expect(PeopleStore(directory: dir, profileId: "t", profile: nil).people.map(\.id) == ["son"])
     }
 
     /// Two people can share a first name, and the second must not overwrite the first's folders by
     /// silently taking their id.
     @Test func twoPeopleWithTheSameNameGetDistinctIds() {
         let store = PeopleStore(people: [])
-        store.add(displayName: "Anuraag")
-        store.add(displayName: "Anuraag")
-        #expect(store.people.map(\.id) == ["anuraag", "anuraag-2"])
+        store.add(displayName: "Uncle")
+        store.add(displayName: "Uncle")
+        #expect(store.people.map(\.id) == ["uncle", "uncle-2"])
     }
 
     /// Blank and duplicate entries are refused rather than stored — a roster with `""` in its
@@ -108,10 +108,10 @@ import Testing
     @Test func blanksAndDuplicatesAreCleanedAway() throws {
         let store = PeopleStore(people: [])
         #expect(store.add(displayName: "   ") == nil)
-        let p = try #require(store.add(displayName: "  Aditi  ",
-                                       fullNames: ["Aditi Abhishek", "  ", "aditi abhishek"]))
-        #expect(p.displayName == "Aditi")
-        #expect(p.fullNames == ["Aditi Abhishek"])
+        let p = try #require(store.add(displayName: "  Daughter  ",
+                                       fullNames: ["Daughter Father", "  ", "daughter father"]))
+        #expect(p.displayName == "Daughter")
+        #expect(p.fullNames == ["Daughter Father"])
     }
 
     /// **A seeded roster is not the user's until they touch it**, and the file is what records
@@ -120,13 +120,13 @@ import Testing
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let profile = FolderProfile(profileId: "t", root: "~", folders: [:],
-                                    personTokens: ["aditi", "mom", "muktha"],
-                                    personAliases: ["mom": "muktha"])
+                                    personTokens: ["daughter", "mom", "granny"],
+                                    personAliases: ["mom": "granny"])
         let store = PeopleStore(directory: dir, profileId: "t", profile: profile)
         #expect(store.source == .profileAxis)
         #expect(!FileManager.default.fileExists(atPath: store.fileURL.path))
 
-        store.add(displayName: "Divit")
+        store.add(displayName: "Son")
         #expect(store.source == .file)
         #expect(FileManager.default.fileExists(atPath: store.fileURL.path))
     }
@@ -135,8 +135,8 @@ import Testing
     /// household the user has already corrected.
     @Test func theRegistryFollowsAnEdit() {
         let store = PeopleStore(people: Self.household())
-        #expect(store.registry.detect(in: "Mom - passport.pdf") == ["muktha"])
-        store.remove(id: "muktha")
+        #expect(store.registry.detect(in: "Mom - passport.pdf") == ["granny"])
+        store.remove(id: "granny")
         #expect(store.registry.detect(in: "Mom - passport.pdf").isEmpty)
     }
 
@@ -145,30 +145,30 @@ import Testing
     /// Every number the row prints comes from here, so this is where they are pinned.
     @Test func theFactsDescribeWhatTheEngineWillDo() throws {
         let registry = PersonRegistry(people: Self.household())
-        let entry = FolderProfileEntry(path: "Immigration/OCI/Aditi", role: .personBucket,
+        let entry = FolderProfileEntry(path: "Immigration/OCI/Daughter", role: .personBucket,
                                        naming: nil, anchors: [], acceptsNewFiles: nil,
-                                       fileCount: 2, subfolderCount: 0, axes: ["person": "Aditi"])
+                                       fileCount: 2, subfolderCount: 0, axes: ["person": "Daughter"])
         let profile = FolderProfile(profileId: "t", root: "~",
-                                    folders: ["Immigration/OCI/Aditi": entry],
-                                    personTokens: ["aditi"])
+                                    folders: ["Immigration/OCI/Daughter": entry],
+                                    personTokens: ["daughter"])
         let memory = FilingMemory(profileId: "t", salt: "s", folders: [
-            "Immigration/OCI/Aditi": FilingMemoryEntry(docs: 4, anchors: [], idHashes: []),
+            "Immigration/OCI/Daughter": FilingMemoryEntry(docs: 4, anchors: [], idHashes: []),
         ])
-        let aditi = try #require(registry.people.first { $0.id == "aditi" })
-        let facts = PersonFilingFacts.make(for: aditi, registry: registry,
+        let daughter = try #require(registry.people.first { $0.id == "daughter" })
+        let facts = PersonFilingFacts.make(for: daughter, registry: registry,
                                            profile: profile, memory: memory)
 
-        #expect(facts.folders == ["Immigration/OCI/Aditi"])
+        #expect(facts.folders == ["Immigration/OCI/Daughter"])
         #expect(facts.filedDocuments == 4)
-        #expect(facts.uniqueWords == ["aditi"])
-        #expect(facts.sharedWords.map(\.word) == ["abhishek"])
+        #expect(facts.uniqueWords == ["daughter"])
+        #expect(facts.sharedWords.map(\.word) == ["father"])
         #expect(facts.sharedWords.first?.othersSharing == 1)
         // Longest first — the order they are TRIED in, which is what makes the line an explanation
         // rather than a list.
-        #expect(facts.matchedForms == ["Aditi Abhishek", "Aditi"])
+        #expect(facts.matchedForms == ["Daughter Father", "Daughter"])
     }
 
-    /// An alias resolves the folder to its owner, so `Family/Mom` counts toward Muktha. Without the
+    /// An alias resolves the folder to its owner, so `Family/Mom` counts toward Granny. Without the
     /// alias map this row would report zero folders for her — the visible face of the bug the
     /// registry was built to fix.
     @Test func anAliasedFolderCountsTowardItsOwner() throws {
@@ -177,17 +177,17 @@ import Testing
                                        anchors: [], acceptsNewFiles: nil, fileCount: 3,
                                        subfolderCount: 0, axes: ["person": "Mom"])
         let profile = FolderProfile(profileId: "t", root: "~", folders: ["Family/Mom": entry],
-                                    personTokens: ["mom", "muktha"])
-        let muktha = try #require(registry.people.first { $0.id == "muktha" })
-        let facts = PersonFilingFacts.make(for: muktha, registry: registry,
+                                    personTokens: ["mom", "granny"])
+        let granny = try #require(registry.people.first { $0.id == "granny" })
+        let facts = PersonFilingFacts.make(for: granny, registry: registry,
                                            profile: profile, memory: nil)
         #expect(facts.folders == ["Family/Mom"])
     }
 
     /// **A full name attributes a person who has no distinctive word of their own.**
     ///
-    /// Abhishek shares both his words: `abhishek` is three other people's surname and `girish` is
-    /// three others' too. He is nonetheless perfectly attributable, because "Abhishek Girish" is
+    /// Father shares both his words: `father` is three other people's surname and `elder` is
+    /// three others' too. He is nonetheless perfectly attributable, because "Father Elder" is
     /// matched as a phrase — so the row must not tell him to add a full name he already has.
     ///
     /// This is pinned because the first version of the section judged on unique words alone and
@@ -195,16 +195,16 @@ import Testing
     /// mutation reverting the fix went unnoticed until this test existed.
     @Test func aFullNameMakesSomeoneAttributableWithoutAUniqueWord() throws {
         let registry = PersonRegistry(people: Self.household())
-        let abhishek = try #require(registry.people.first { $0.id == "abhishek" })
-        let facts = PersonFilingFacts.make(for: abhishek, registry: registry,
+        let father = try #require(registry.people.first { $0.id == "father" })
+        let facts = PersonFilingFacts.make(for: father, registry: registry,
                                            profile: nil, memory: nil)
         #expect(!facts.hasAnyUniqueWord, "fixture drifted — he is supposed to share every word")
-        #expect(facts.isAttributable, "“Abhishek Girish” names him; the row would nag him to add it")
+        #expect(facts.isAttributable, "“Father Elder” names him; the row would nag him to add it")
 
         // And the state the caution IS for: one shared word, no full name, nothing to match on.
         let stranded = PersonRegistry(people: Self.household()
-                                      + [Person(id: "girish-2", displayName: "Girish")])
-        let other = try #require(stranded.people.first { $0.id == "girish-2" })
+                                      + [Person(id: "elder-2", displayName: "Elder")])
+        let other = try #require(stranded.people.first { $0.id == "elder-2" })
         let strandedFacts = PersonFilingFacts.make(for: other, registry: stranded,
                                                    profile: nil, memory: nil)
         #expect(!strandedFacts.isAttributable)
@@ -213,8 +213,8 @@ import Testing
     /// On a machine with no survey the facts are honestly empty rather than wrong.
     @Test func withNoProfileTheFactsReportNoFolders() throws {
         let registry = PersonRegistry(people: Self.household())
-        let aditi = try #require(registry.people.first { $0.id == "aditi" })
-        let facts = PersonFilingFacts.make(for: aditi, registry: registry, profile: nil, memory: nil)
+        let daughter = try #require(registry.people.first { $0.id == "daughter" })
+        let facts = PersonFilingFacts.make(for: daughter, registry: registry, profile: nil, memory: nil)
         #expect(facts.folders.isEmpty)
         #expect(facts.filedDocuments == 0)
         #expect(!facts.matchedForms.isEmpty, "names are known even when nothing has been surveyed")
@@ -225,7 +225,7 @@ import Testing
     /// A name is the only requirement — everything else is evidence, and a person with none is
     /// still worth recording.
     @Test func onlyANameIsRequiredToSave() {
-        #expect(PersonEditor.canSave(displayName: "Aditi"))
+        #expect(PersonEditor.canSave(displayName: "Daughter"))
         #expect(!PersonEditor.canSave(displayName: ""))
         #expect(!PersonEditor.canSave(displayName: "   "))
     }
@@ -237,17 +237,17 @@ import Testing
     /// outside a rendered view, so the obvious version of this test read back the initial value and
     /// passed with the rule deleted.
     @Test func aPendingNameIsKeptWhenSaveIsPressed() {
-        let person = Person(id: "aditi", displayName: "Aditi")
-        let folded = PersonEditor.folding(person, pendingFullName: "Aditi Abhishek",
+        let person = Person(id: "daughter", displayName: "Daughter")
+        let folded = PersonEditor.folding(person, pendingFullName: "Daughter Father",
                                           pendingAlias: "  ")
-        #expect(folded.fullNames == ["Aditi Abhishek"])
+        #expect(folded.fullNames == ["Daughter Father"])
         #expect(folded.aliases.isEmpty)
 
         // Committing it first and then pressing Save must not store it twice.
         var committed = person
-        committed.fullNames = ["Aditi Abhishek"]
-        #expect(PersonEditor.folding(committed, pendingFullName: "aditi abhishek",
-                                     pendingAlias: "").fullNames == ["Aditi Abhishek"])
+        committed.fullNames = ["Daughter Father"]
+        #expect(PersonEditor.folding(committed, pendingFullName: "daughter father",
+                                     pendingAlias: "").fullNames == ["Daughter Father"])
     }
 
     // MARK: - The unreadable-roster warning is actually on screen

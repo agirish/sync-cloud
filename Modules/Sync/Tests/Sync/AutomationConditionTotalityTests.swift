@@ -27,7 +27,7 @@ import Testing
         // A judgement, not an oversight: see the note on `requiresContent`. A person is almost
         // always named in the filename, and forcing a text extraction per person rule would
         // spend seconds a scan to catch the minority case.
-        .personIs("aditi"),
+        .personIs("daughter"),
         // Never `isComplete`, so in production this is never asked — but it still has to answer.
         .unrecognized(name: "fromAFutureBuild", payload: Data("{}".utf8)),
     ]

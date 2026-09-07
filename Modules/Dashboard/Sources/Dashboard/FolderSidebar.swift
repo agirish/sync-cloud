@@ -29,7 +29,7 @@ public struct FolderSidebarRow: Identifiable, Equatable, Sendable {
     /// `FolderJumpStore.key(forRoot:)`. Both sections span every source since v4.4, so the row can
     /// no longer inherit its root from the column — a click has to know which source to act on.
     public let root: String
-    /// The source's display name, for the badge — `iCloud`, `Dropbox`, `Drive · hpe`.
+    /// The source's display name, for the badge — `iCloud`, `Dropbox`, `Drive · emp`.
     ///
     /// `nil` when only one source contributes rows, which is the first-run case and the case for
     /// anyone with a single account: a badge repeating the same word down the whole column is noise
@@ -51,8 +51,8 @@ public struct FolderSidebarRow: Identifiable, Equatable, Sendable {
     /// **Always `nil` on a recent, since 2026-08-27.** Recents is the section where the second line
     /// was redundant in practice rather than in theory: a recent's qualifier is its parent, and its
     /// parent is a top-level folder often enough that the line came out reading the same word as
-    /// the source badge already on the row's other end — `Documents` over `OneDrive (HPE)` with
-    /// `OneDrive (HPE)` beside it, four times down one column. A recent is a place you were minutes
+    /// the source badge already on the row's other end — `Documents` over `OneDrive (EMP)` with
+    /// `OneDrive (EMP)` beside it, four times down one column. A recent is a place you were minutes
     /// ago and recognise; a favorite is a place you chose once and may not. The whole path is still
     /// in the tooltip, on both.
     public let detail: String?

@@ -257,7 +257,7 @@ public struct SettingsView: View {
     /// Runs the full settings reset (defaults wipe plus the host's re-seeding of live state).
     /// Provided by the host; the Reset control hides when nil.
     private let onResetAllSettings: (() -> Void)?
-    /// Hands a person to the app's gather — "everything that is Aditi's", the same surface ⌘K's
+    /// Hands a person to the app's gather — "everything that is Daughter's", the same surface ⌘K's
     /// People rows reach. nil where there is no app behind the sheet (tests, previews), which
     /// hides the button rather than offering one that does nothing.
     private let onShowPerson: ((Person) -> Void)?
@@ -3128,7 +3128,7 @@ struct PeopleList: View {
     /// makes a shared surname attributable, with the worked example — is in Help, where a reader
     /// who wants it can find it; here it was the tallest thing on the page. The order sentence is
     /// here because the order is a rule the reader would otherwise have to guess at.
-    static let purposeCaption = "Who your documents belong to — the people Organize files for. It keeps one person’s document out of another’s folder, and chooses between folders that differ only by person (School/Aditi beside School/Divit). A full name is matched before any single word, so add each person’s names as documents print them. The list is in relationship order — you, spouse, children, parents, siblings, then everyone else — until you move someone, after which your order is kept. Nothing here leaves your Mac, and only the names you add are stored."
+    static let purposeCaption = "Who your documents belong to — the people Organize files for. It keeps one person’s document out of another’s folder, and chooses between folders that differ only by person (School/Daughter beside School/Son). A full name is matched before any single word, so add each person’s names as documents print them. The list is in relationship order — you, spouse, children, parents, siblings, then everyone else — until you move someone, after which your order is kept. Nothing here leaves your Mac, and only the names you add are stored."
 
     /// Shown when `people.json` is on disk but unreadable. It names the file and says plainly that
     /// edits will not save — the alternative is a roster that looks ordinary, edits that appear to
@@ -3507,7 +3507,7 @@ private struct PersonInitials: View {
 
     /// Two letters of the **display name**, not initials of the full name.
     ///
-    /// `AG` for Abhishek Girish and `AG` for Anuraag Girish is two identical discs in one list —
+    /// `AG` for Father Elder and `AG` for Uncle Elder is two identical discs in one list —
     /// rendered and seen. The display name is what the row is headed by and what the folders are
     /// called, so `Ab` and `An` track what the reader is actually looking at.
     private var initials: String {

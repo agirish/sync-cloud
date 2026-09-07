@@ -145,11 +145,11 @@ import Foundation
         // is the ONLY thing that can say so. Without reading `axes`, `Immigration/OCI` below reads
         // as two siblings with completely different vocabularies.
         let p = Self.profile(
-            ["Immigration/OCI/Aditi", "Immigration/OCI/Aditi/Divit",
-             "Immigration/OCI/Shweta", "Immigration/OCI/Shweta/Abhishek"],
-            axes: ["Immigration/OCI/Aditi/Divit": ["person": "Divit"],
-                   "Immigration/OCI/Shweta/Abhishek": ["person": "Abhishek"]])
-        #expect(StructureDivergence.vocabulary(of: "Immigration/OCI/Aditi", in: p).isEmpty)
+            ["Immigration/OCI/Daughter", "Immigration/OCI/Daughter/Son",
+             "Immigration/OCI/Mother", "Immigration/OCI/Mother/Father"],
+            axes: ["Immigration/OCI/Daughter/Son": ["person": "Son"],
+                   "Immigration/OCI/Mother/Father": ["person": "Father"]])
+        #expect(StructureDivergence.vocabulary(of: "Immigration/OCI/Daughter", in: p).isEmpty)
         #expect(StructureDivergence.findings(in: p).isEmpty)
     }
 
@@ -429,7 +429,7 @@ import Foundation
             "A/./E",
             // A year, an inbox and a person axis, so the axis rules are exercised on both sides.
             "Y", "Y/2023", "Y/Forms", "Y/TODO", "Y/Mom",
-        ], axes: ["Y/Mom": ["person": "Muktha"]])
+        ], axes: ["Y/Mom": ["person": "Granny"]])
 
         let childrenByParent = StructureDivergence.families(in: awkward)
         var nonEmpty = 0

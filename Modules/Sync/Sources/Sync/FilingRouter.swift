@@ -344,7 +344,7 @@ public enum FilingRouter {
 
         let people = nameTokens.intersection(index.personTokens)
         // Person identity, phrase-first — asked of the raw strings, not the token sets, because
-        // "Aditi Abhishek" must spend its surname on Aditi and a Set has already lost the order
+        // "Daughter Father" must spend its surname on Daughter and a Set has already lost the order
         // that makes that possible. Detected once per file; the body is included so a scan whose
         // *page* names its person routes between sibling person buckets the same way a well-named
         // file does.
@@ -366,15 +366,15 @@ public enum FilingRouter {
             // The axis, where the registry resolves it: a match is confirmation, and a
             // *contradiction* — the document names people and this folder's person is not among
             // them — is the strongest negative signal name evidence has. Sibling person buckets
-            // differ by exactly this, so it is what routes `Divit … Report Card.pdf` to
-            // `School/Divit` over a sibling holding identical documents. Multi-person documents
+            // differ by exactly this, so it is what routes `Son … Report Card.pdf` to
+            // `School/Son` over a sibling holding identical documents. Multi-person documents
             // are safe by construction: no penalty for anyone the document actually names.
             //
             // **Computed before the early-outs below, and counted as a reason to score the folder
             // at all.** Those guards drop any folder the file name does not touch, which is
             // precisely the case this signal exists for: `Scan 2026-08-02.pdf` shares no token
-            // with `School/Divit`, so the folder was dropped before the person was ever consulted
-            // and a page naming Divit routed to his sister.
+            // with `School/Son`, so the folder was dropped before the person was ever consulted
+            // and a page naming Son routed to his sister.
             var personDelta = 0.0
             if let fp = index.folderPerson[folder], !detectedPeople.isEmpty {
                 personDelta = detectedPeople.contains(fp) ? 1.0 : -3.0
@@ -637,16 +637,16 @@ public extension FilingRouter {
     ///
     /// **Only between a folder and its own ancestor or descendant**, and that scoping is the whole
     /// reason this is safe. A folder and its subfolder share their vocabulary by construction, so
-    /// content cannot separate them — `Immigration/OCI/Divit` scored 1.388 and
-    /// `Immigration/OCI/Divit/Application` 1.374 for `Divit OCI Photo.jpg`, a 1% gap — while the
+    /// content cannot separate them — `Immigration/OCI/Son` scored 1.388 and
+    /// `Immigration/OCI/Son/Application` 1.374 for `Son OCI Photo.jpg`, a 1% gap — while the
     /// file names in them say it plainly: `Application/` already holds
-    /// `Divit OCI Photo - 4up print sheet.jpg` and `Divit OCI.jpg`. Between UNRELATED folders the
+    /// `Son OCI Photo - 4up print sheet.jpg` and `Son OCI.jpg`. Between UNRELATED folders the
     /// same bonus is noise, and measurably so: applied to the whole shortlist it moved held-out
     /// top-1 by +0.2 points while the tune split moved −0.4, a disagreement in sign. Scoped to one
     /// branch both splits are flat (±0.1) and the case above is fixed.
     ///
-    /// **Coverage of the incoming name, not Jaccard.** `Divit OCI Photo - 4up print sheet` covers
-    /// all of `Divit OCI Photo`; `Divit OCI.pdf` in the parent covers two thirds. Jaccard scores
+    /// **Coverage of the incoming name, not Jaccard.** `Son OCI Photo - 4up print sheet` covers
+    /// all of `Son OCI Photo`; `Son OCI.pdf` in the parent covers two thirds. Jaccard scores
     /// those identically (0.67 each) and picks the wrong folder.
     ///
     /// `namesInFolder` is injected because this module does not touch the filesystem — see

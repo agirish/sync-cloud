@@ -208,10 +208,10 @@ import Testing
     /// silence, or the warning would be noise on every launch.
     @MainActor
     @Test func aRepeatedPersonIdIsWarnedAboutOnceAtLoad() async throws {
-        let dup = "shweta-\(Self.token())"
+        let dup = "mother-\(Self.token())"
         let (dir, id) = try Self.roster("""
-            {"id": "\(dup)", "displayName": "Shweta", "fullNames": ["Shweta Dani"]},
-            {"id": "\(dup)", "displayName": "Shweta", "fullNames": ["Shweta R Dani"]}
+            {"id": "\(dup)", "displayName": "Mother", "fullNames": ["Mother Maiden"]},
+            {"id": "\(dup)", "displayName": "Mother", "fullNames": ["Mother I Maiden"]}
             """)
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -222,7 +222,7 @@ import Testing
         // version of the warning did exactly that and went silent; `PersonRegistry.repeatedIds`
         // reads the raw list instead.
         #expect(store.people.count == 1, "the fixture roster did not load, or the repeat survived it")
-        #expect(store.people.first?.fullNames == ["Shweta R Dani"],
+        #expect(store.people.first?.fullNames == ["Mother I Maiden"],
                 "the collapse kept the wrong record, so the line below would name the wrong loss")
 
         // **The LOAD warning specifically.** `PeopleStore.save()` now refuses a roster that repeats
@@ -252,8 +252,8 @@ import Testing
     @Test func anOrdinaryRosterLoadsWithoutAWarning() async throws {
         let mark = Self.token()
         let (dir, id) = try Self.roster("""
-            {"id": "shweta-\(mark)", "displayName": "Shweta"},
-            {"id": "abhishek-\(mark)", "displayName": "Abhishek"}
+            {"id": "mother-\(mark)", "displayName": "Mother"},
+            {"id": "father-\(mark)", "displayName": "Father"}
             """)
         defer { try? FileManager.default.removeItem(at: dir) }
 

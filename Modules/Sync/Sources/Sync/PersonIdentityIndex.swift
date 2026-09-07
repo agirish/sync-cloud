@@ -5,7 +5,7 @@ import Foundation
 ///
 /// **This is the only way a scan with no readable name gets attributed at all.** A passport scan
 /// called `Scan 2026-08-02.pdf` whose text is an image says nothing; but the passport *number* on
-/// page 1 has been filed into Muktha's folder eleven times before, and nobody else's. That is a
+/// page 1 has been filed into Granny's folder eleven times before, and nobody else's. That is a
 /// stronger claim than any word in the document, and it is already recorded — ``FilingMemory``
 /// stores each folder's identifiers as salted hashes, which is what makes this cheap and what keeps
 /// the numbers themselves out of memory.
@@ -13,7 +13,7 @@ import Foundation
 /// **Only identifiers posted to exactly ONE person survive.** A number two people's folders have
 /// both received is a household account, not a personal one, and attributing on it would file a
 /// joint statement into whichever person happened to sort first. Measured on the real tree: of
-/// Muktha's 28 identifiers, 15 are hers alone; Abhishek has 193 of 235.
+/// Granny's 28 identifiers, 15 are hers alone; Father has 193 of 235.
 public struct PersonIdentityIndex: Sendable, Equatable {
     /// Hashed identifier → the one person whose folders have received it.
     let owner: [String: String]
@@ -69,12 +69,12 @@ public struct PersonIdentityIndex: Sendable, Equatable {
         // **The user's "no" un-teaches the identifier, and it has to happen HERE — before the
         // single-owner filter — or it does nothing at all.**
         //
-        // A misfile does not merely add a wrong owner; it usually SILENCES the identifier. Muktha's
-        // passport number sits in eleven of her folders and, once the scan lands in `School/Aditi`,
-        // in one of Aditi's — so the hash is claimed by two people, `people.count == 1` is false,
+        // A misfile does not merely add a wrong owner; it usually SILENCES the identifier. Granny's
+        // passport number sits in eleven of her folders and, once the scan lands in `School/Daughter`,
+        // in one of Daughter's — so the hash is claimed by two people, `people.count == 1` is false,
         // and it is dropped. The number that identified her best now identifies nobody.
         //
-        // Withdrawing Aditi's claim first therefore does two things with one line: it stops the
+        // Withdrawing Daughter's claim first therefore does two things with one line: it stops the
         // wrong attribution, and it hands the identifier back to its real owner. Filtering the
         // finished `owner` map instead could only ever do the first, and in this — the common —
         // shape there would have been nothing there to filter.

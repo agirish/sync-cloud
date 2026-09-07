@@ -126,9 +126,9 @@ import Foundation
         let finding = StructureFinding(
             kind: .duplicatedTaxonomy, family: "Archive",
             subject: "Archive/Forms",
-            detail: .duplicatedTaxonomy(counterpart: "Work/MapR/Forms", matchedDocuments: 5))
+            detail: .duplicatedTaxonomy(counterpart: "Work/Acme/Forms", matchedDocuments: 5))
         let suffix = RestructureReporting.detailSuffix(RestructureReporting.finding(for: finding))
-        #expect(suffix == " — 5 documents also in Work/MapR/Forms")
+        #expect(suffix == " — 5 documents also in Work/Acme/Forms")
         #expect(!suffix.contains("echoes"))
     }
 }

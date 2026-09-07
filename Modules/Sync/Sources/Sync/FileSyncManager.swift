@@ -1224,7 +1224,7 @@ public class FileSyncManager: ObservableObject {
     /// Records a cross-person refusal, resolving the ids to the names a person would recognise.
     ///
     /// The engine reports registry **ids** because that is what it reasons with; nobody wants to
-    /// read `girish-2` in a sentence about their father, so the display names are looked up here,
+    /// read `elder-2` in a sentence about their father, so the display names are looked up here,
     /// once, at the point the event becomes something a human will see.
     func recordPersonVeto(_ refusal: PersonVetoRefusal) {
         guard let log = filingPersonVetoLog else { return }
@@ -1305,7 +1305,7 @@ public class FileSyncManager: ObservableObject {
     /// the one *inside* `folder-profile.json`, and `FilingArtifacts.attach` deliberately does not
     /// build anything from it — see `FilingProfileStore.active`, which warns when it disagrees
     /// with the folder and lets the folder win. A profile folder `work/` whose json says
-    /// `"profileId": "abhishek"` therefore digested `abhishek/`, a directory holding none of the
+    /// `"profileId": "father"` therefore digested `father/`, a directory holding none of the
     /// three artifacts, and `fingerprint` answers `""` for that.
     ///
     /// `""` is not nil, so both cache gates (`FileSyncManager+Filing`,

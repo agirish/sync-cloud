@@ -55,10 +55,10 @@ import Testing
     /// every other field, so "last wins" is a visible choice rather than a coincidence.
     private static let duplicated = """
     {"schemaVersion": 1, "people": [
-      {"id": "girish", "displayName": "Girish", "relationship": "father",
-       "fullNames": ["Girish Krishnamurthy"], "aliases": ["Dad"]},
-      {"id": "girish", "displayName": "Girish K", "relationship": "father-in-law",
-       "fullNames": ["Girish Kumar"]}]}
+      {"id": "elder", "displayName": "Elder", "relationship": "father",
+       "fullNames": ["Elder Forebear"], "aliases": ["Dad"]},
+      {"id": "elder", "displayName": "Elder F", "relationship": "father-in-law",
+       "fullNames": ["Elder Kumar"]}]}
     """
 
     private func scratchDirectory() -> URL {
@@ -162,11 +162,11 @@ import Testing
         let store = try storeOverFile(Self.duplicated, in: dir)
 
         #expect(store.source == .file, "the file did not decode — this fixture is not a roster at all")
-        #expect(store.people.map(\.id) == ["girish"],
+        #expect(store.people.map(\.id) == ["elder"],
                 "the repeated id reached the store uncollapsed — `ForEach` would draw one row twice")
-        #expect(store.people.map(\.displayName) == ["Girish K"],
+        #expect(store.people.map(\.displayName) == ["Elder F"],
                 "the FIRST entry won, or the two were merged; the file's last block is the survivor")
-        #expect(store.person(id: "girish")?.relationship == "father-in-law",
+        #expect(store.person(id: "elder")?.relationship == "father-in-law",
                 "`person(id:)` still answers with the losing record")
         #expect(!store.rosterIsUnreadable, "a repeated id is valid JSON — it must not read as corrupt")
     }
@@ -214,12 +214,12 @@ import Testing
     @Test func aRepeatedIdDrawsTheSurvivingRecordAndSaysEditsAreHeld() throws {
         let dir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        // The roster the duplicated one collapses TO: the file's last `girish` block, alone. Same
+        // The roster the duplicated one collapses TO: the file's last `elder` block, alone. Same
         // bytes the survivor carries, so the rows below must draw identically.
         let equivalent = try storeOverFile("""
         {"schemaVersion": 1, "people": [
-          {"id": "girish", "displayName": "Girish K", "relationship": "father-in-law",
-           "fullNames": ["Girish Kumar"]}]}
+          {"id": "elder", "displayName": "Elder F", "relationship": "father-in-law",
+           "fullNames": ["Elder Kumar"]}]}
         """, in: dir)
         let dupDir = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dupDir) }
@@ -235,7 +235,7 @@ import Testing
         }
         // The premise: one store is holding back its edits and the other is not, so the difference
         // measured below is the note and nothing else.
-        #expect(duplicated.repeatedRosterIds == ["girish"])
+        #expect(duplicated.repeatedRosterIds == ["elder"])
         #expect(equivalent.repeatedRosterIds.isEmpty)
 
         let one = renderedInk(pane(equivalent), width: width)

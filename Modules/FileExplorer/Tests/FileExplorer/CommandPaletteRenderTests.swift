@@ -42,11 +42,11 @@ import Design
             providerRoot: root,
             folders: ["Finance", "Finance/US", "Finance/US/Income Tax", "Legal", "Medical"],
             recentFolders: ["Legal"], pinnedFolders: ["Finance/US"],
-            people: [Person(id: "p.aditi", displayName: "Aditi", relationship: "daughter",
-                            fullNames: ["Aditi Girish"])],
-            registry: PersonRegistry(people: [Person(id: "p.aditi", displayName: "Aditi",
+            people: [Person(id: "p.daughter", displayName: "Daughter", relationship: "daughter",
+                            fullNames: ["Daughter Elder"])],
+            registry: PersonRegistry(people: [Person(id: "p.daughter", displayName: "Daughter",
                                                      relationship: "daughter",
-                                                     fullNames: ["Aditi Girish"])]),
+                                                     fullNames: ["Daughter Elder"])]),
             isScanning: false, hasSurvey: true)
     }
 

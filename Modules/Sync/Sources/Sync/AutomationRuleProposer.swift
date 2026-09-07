@@ -199,7 +199,7 @@ public enum AutomationRuleProposer {
                                        destinationTemplate: variant.destinationTemplate ?? template)
             guard AutomationEvaluator.matches(probe, facts, now: now) else { return false }
             // A variant that redirects has to RESOLVE too, and to the folder the example actually
-            // went to. `{person}` reproducing `Immigration/OCI/Aditi` is the claim being made; if
+            // went to. `{person}` reproducing `Immigration/OCI/Daughter` is the claim being made; if
             // it resolved anywhere else the offer would quietly re-file the example.
             guard let redirected = variant.destinationTemplate else { return true }
             guard case .resolved(let path) = AutomationEvaluator.resolveDestination(
@@ -585,13 +585,13 @@ public enum AutomationRuleProposer {
     /// person's, and the document says so.
     ///
     /// **Two offers, and the second is the point of the whole feature.** The first keys the rule on
-    /// the person (`is Aditi's document` + the topic word), which is worth having because
-    /// `mentionsAll(["aditi"])` is not the same claim — `abhishek` is one person's given name and
+    /// the person (`is Daughter's document` + the topic word), which is worth having because
+    /// `mentionsAll(["daughter"])` is not the same claim — `father` is one person's given name and
     /// three others' surname, so a word-keyed person rule is wrong for most of this household and
     /// merely lucky for the rest.
     ///
     /// The second replaces the person's own folder with `{person}` and drops the person condition
-    /// entirely: `Immigration/OCI/Aditi` becomes `Immigration/OCI/{person}`, so one rule files
+    /// entirely: `Immigration/OCI/Daughter` becomes `Immigration/OCI/{person}`, so one rule files
     /// **everybody's** OCI card into their own folder. That is the generalisation the roadmap
     /// promised — one rule, seven people — and it is only safe to offer because the token resolves
     /// to `.unresolved` rather than guessing when a document names nobody or names two.
@@ -601,13 +601,13 @@ public enum AutomationRuleProposer {
               // The document has to be about exactly one person — two people name no single folder.
               facts.personIds.count == 1, let personId = facts.personIds.first,
               let person = registry.people.first(where: { $0.id == personId }),
-              // …and the folder has to be THEIRS. Filing Aditi's document into a shared folder
+              // …and the folder has to be THEIRS. Filing Daughter's document into a shared folder
               // teaches nothing about people; it is an ordinary topic rule.
               index.folderPerson[dest] == personId else { return [] }
 
         // The topic, from the ranked keys — but never the person's own name, which the condition
-        // now expresses properly. Without this the offer reads "is Aditi's document and mentions
-        // 'aditi'", which is the word-keyed rule wearing a costume.
+        // now expresses properly. Without this the offer reads "is Daughter's document and mentions
+        // 'daughter'", which is the word-keyed rule wearing a costume.
         let personWords = Set(PersonRegistry.words(person.displayName)
                               + person.fullNames.flatMap { PersonRegistry.words($0) }
                               + person.aliases.flatMap { PersonRegistry.words($0) })
@@ -622,7 +622,7 @@ public enum AutomationRuleProposer {
                                chipLabel: person.displayName))
         }
 
-        // The fan-out. Only when the folder is named for the person — `Immigration/OCI/Aditi` — so
+        // The fan-out. Only when the folder is named for the person — `Immigration/OCI/Daughter` — so
         // the substitution reproduces the path it was learned from rather than inventing one.
         let last = (dest as NSString).lastPathComponent
         if PersonRegistry.words(last) == PersonRegistry.words(person.displayName), let topic {

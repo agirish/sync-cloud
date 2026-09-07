@@ -154,8 +154,8 @@ import Testing
         let classified: [String: DeadWeightClass] = [
             "Travel/2019": .empty,
             "Finance/IN/SBI NRE/2013-2014": .empty,
-            "Work/HPE/Offer Letter": .singleFileLeaf,
-            "Work/MapR": .passThrough,
+            "Work/EMP/Offer Letter": .singleFileLeaf,
+            "Work/Acme": .passThrough,
         ]
         #expect(LensWorkspaceView.standingEmptyPaths(in: classified)
                     == ["Finance/IN/SBI NRE/2013-2014", "Travel/2019"],
@@ -212,7 +212,7 @@ import Testing
                 findings: [], hasProfile: true, folderCount: 3013,
                 deadWeight: ["Travel/2019": .empty,
                              "Finance/IN/SBI NRE/2013-2014": .empty,
-                             "Work/HPE/Offer Letter": .singleFileLeaf],
+                             "Work/EMP/Offer Letter": .singleFileLeaf],
                 accent: .blue, onReveal: { _ in }, hasReviewed: true,
                 onRemoveStandingEmpties: remover,
                 // The button lives under the EXPANDED empty list, and the filter is state a chip

@@ -2,7 +2,7 @@ import SwiftUI
 import Design
 import Sync
 
-/// Everything that is one person's, grouped by why — the answer to "all of Aditi's files".
+/// Everything that is one person's, grouped by why — the answer to "all of Daughter's files".
 ///
 /// **A find dims the tree to show where something sits; this gathers.** That is the whole reason
 /// it is a different surface from the pane search that opens it: the question is not "where is
@@ -256,7 +256,7 @@ public struct PersonView: View {
                         .chromeHover()
                     // **The two answers are drawn as a pair, and as controls.** Rendered first as
                     // plain accent-and-grey text runs beside Reveal, the row read as three links of
-                    // which the *answers* were the least prominent — "Not Aditi’s" in the same grey
+                    // which the *answers* were the least prominent — "Not Daughter’s" in the same grey
                     // as "Reveal" made the refusal look like a tertiary action rather than half of
                     // the question being asked. Filled and outlined capsules make the choice look
                     // like a choice.
@@ -303,7 +303,7 @@ public struct PersonView: View {
     /// What the row says the evidence is.
     ///
     /// Spelled out per reason rather than as one sentence with holes in it: "only the shared word
-    /// *abhishek* — 3 others answer to it" and "page 1 reads *Muktha Girish*" are different claims,
+    /// *father* — 3 others answer to it" and "page 1 reads *Granny Elder*" are different claims,
     /// and a row that blurred them would be asking the user to judge evidence it had misdescribed.
     static func caption(for file: PersonFile, displayName: String) -> String {
         switch file.reason {

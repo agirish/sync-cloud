@@ -714,18 +714,18 @@ public enum PaletteRouter {
         }
     }
 
-    // MARK: People — "aditi's files"
+    // MARK: People — "daughter's files"
 
     /// The person a query names, if it names exactly one.
     ///
     /// **Delegated to ``PersonSearchOffer``, and that is not laziness.** The registry's matcher is
-    /// phrase-first and longest-wins — "Aditi Abhishek" resolves to Aditi alone, and a query naming
+    /// phrase-first and longest-wins — "Daughter Father" resolves to Daughter alone, and a query naming
     /// two people resolves to neither, because picking one arbitrarily is the over-attribution this
     /// household's names invite. A second matcher here would disagree with the pane search's offer
     /// on exactly the names that are hard, and the two would then answer the same question
     /// differently depending on which field you typed into.
     ///
-    /// "aditi's files" works without any possessive handling of its own: `PersonRegistry.words`
+    /// "daughter's files" works without any possessive handling of its own: `PersonRegistry.words`
     /// splits on non-alphanumerics, so the apostrophe and the trailing noun fall out of the phrase
     /// match. That is worth stating because the temptation is to add a stripper, and a second
     /// tokenizer is exactly what the paragraph above rules out.

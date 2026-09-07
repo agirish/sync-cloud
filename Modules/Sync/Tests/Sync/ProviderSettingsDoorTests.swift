@@ -44,7 +44,7 @@ import Sync
     /// web page.
     @Test func oneDriveAndDropboxOfferNothing() {
         #expect(provider(id: "OneDrive-Personal", type: .oneDrive).settingsDoor == nil)
-        #expect(provider(id: "OneDrive-HewlettPackardEnterprise", type: .oneDrive).settingsDoor == nil)
+        #expect(provider(id: "OneDrive-AcmeCorporationWorldwide", type: .oneDrive).settingsDoor == nil)
         #expect(provider(type: .dropBox).settingsDoor == nil)
     }
 

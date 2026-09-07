@@ -14,15 +14,15 @@ import Foundation
     @Test func rowsSharingANameAreQualifiedByTheirAccount() {
         let out = SidebarSourceModel.qualifiers(
             names: ["iCloud Drive", "Dropbox", "Drive", "Drive", "Drive"],
-            qualifiers: [nil, nil, "personal", "preserve", "hpe"])
-        #expect(out == [nil, nil, "personal", "preserve", "hpe"])
+            qualifiers: [nil, nil, "personal", "preserve", "emp"])
+        #expect(out == [nil, nil, "personal", "preserve", "emp"])
     }
 
     /// And the other direction, which is what keeps the column from growing a second line on every
     /// row: a name nothing else shares is left alone even when a qualifier is available.
     @Test func aNameNothingSharesIsNotQualified() {
         let out = SidebarSourceModel.qualifiers(names: ["Dropbox", "iCloud Drive"],
-                                                qualifiers: ["personal", "abhishek"])
+                                                qualifiers: ["personal", "father"])
         #expect(out == [nil, nil])
     }
 
@@ -31,8 +31,8 @@ import Foundation
     @Test func collisionsAreCountedPerNameNotAcrossTheList() {
         let out = SidebarSourceModel.qualifiers(
             names: ["Drive", "Drive", "OneDrive", "Dropbox"],
-            qualifiers: ["hpe", "personal", "work", "main"])
-        #expect(out == ["hpe", "personal", nil, nil])
+            qualifiers: ["emp", "personal", "work", "main"])
+        #expect(out == ["emp", "personal", nil, nil])
     }
 
     /// A collision with nothing to say about it stays unqualified rather than drawing an empty

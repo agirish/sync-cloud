@@ -1167,7 +1167,7 @@ enum PaneTabChips {
     /// qualifier to both would add width and say nothing.
     ///
     /// The separator is an em dash rather than a parenthesis because the chip middle-truncates: the
-    /// tail survives, so `My Drive — Google Drive (HPE)` degrades to something still carrying the
+    /// tail survives, so `My Drive — Google Drive (EMP)` degrades to something still carrying the
     /// account, while a leading qualifier would be the half that got eaten.
     static func disambiguatedTitles(_ drafts: [Draft]) -> [String] {
         var titles = drafts.map(\.title)

@@ -46,7 +46,7 @@ enum StructureLooseFiles {
     }
 
     /// **Loose beside a container**: a leaf whose name restates a container sibling's and adds to
-    /// it — `Home/ATT Bill` beside `Home/ATT/`, `Products/Cray PE` beside `Cray/` — token
+    /// it — `Home/ATT Bill` beside `Home/ATT/`, `Products/Nova PE` beside `Nova/` — token
     /// subset, not string prefix, so `City Pre-K` finds `Pre-K`.
     ///
     /// Three guards, each killing a measured junk class (reference tree, 2026-08-28):

@@ -56,6 +56,7 @@ import Foundation
     /// current" sentence made executable**: the shipped shape detector returns exactly one finding
     /// on the real tree, and a second one appearing (or that one vanishing) on a re-lift is a
     /// change someone has to explain, not a count to update in passing.
+
     @Test func theReferenceTreeHoldsExactlyOneShapeFinding() throws {
         let profile = try Self.profile(named: "restructure-reference-tree")
         #expect(profile.folders.count == 3013)

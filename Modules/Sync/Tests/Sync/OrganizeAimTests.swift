@@ -13,7 +13,7 @@ import Foundation
 
     static let root = "/Users/x/Documents"
     static let legal = "/Users/x/Documents/Legal"
-    static let aditi = "/Users/x/Documents/Family/Aditi"
+    static let daughter = "/Users/x/Documents/Family/Daughter"
 
     static func scope(_ path: String) -> OrganizeScope {
         OrganizeScope(path: path, providerRoot: root)!
@@ -24,13 +24,13 @@ import Foundation
     @Test func theScopeOutranksTheScannedRootAndTheProviderRoot() {
         // All three set, all three different: only an answer of `legal` can come from rung 1.
         #expect(OrganizeAim.subject(scope: Self.scope(Self.legal),
-                                    scannedRoot: Self.aditi,
+                                    scannedRoot: Self.daughter,
                                     providerRoot: Self.root) == Self.legal)
     }
 
     @Test func theScannedRootOutranksTheProviderRoot() {
-        #expect(OrganizeAim.subject(scope: nil, scannedRoot: Self.aditi,
-                                    providerRoot: Self.root) == Self.aditi)
+        #expect(OrganizeAim.subject(scope: nil, scannedRoot: Self.daughter,
+                                    providerRoot: Self.root) == Self.daughter)
     }
 
     @Test func theProviderRootIsTheSubjectWhenNothingIsScopedOrScanned() {
@@ -56,7 +56,7 @@ import Foundation
         // The reported defect, at the level the rule owns it: nothing scanned, nothing scoped, the
         // pane in a subfolder. The offer has to be available or there is no way to aim Organize
         // from its own header.
-        #expect(OrganizeAim.paneMovedAway(paneFolder: Self.aditi, scope: nil, scannedRoot: nil,
+        #expect(OrganizeAim.paneMovedAway(paneFolder: Self.daughter, scope: nil, scannedRoot: nil,
                                           providerRoot: Self.root))
     }
 
@@ -69,7 +69,7 @@ import Foundation
 
     @Test func aPaneInsideTheScopeHasNotMoved() {
         #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.legal, scope: Self.scope(Self.legal),
-                                           scannedRoot: Self.aditi, providerRoot: Self.root))
+                                           scannedRoot: Self.daughter, providerRoot: Self.root))
     }
 
     @Test func aPaneAtTheRootHasMovedWhenAScopeIsSet() {
@@ -80,8 +80,8 @@ import Foundation
     }
 
     @Test func aPaneMatchingTheScannedRootHasNotMoved() {
-        #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.aditi, scope: nil,
-                                           scannedRoot: Self.aditi, providerRoot: Self.root))
+        #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.daughter, scope: nil,
+                                           scannedRoot: Self.daughter, providerRoot: Self.root))
     }
 
     @Test func noPaneFolderIsNeverMoved() {
@@ -94,7 +94,7 @@ import Foundation
     @Test func noSubjectAtAllIsNeverMoved() {
         // No provider configured: there is nothing to have moved away from, and an offer to point
         // Organize at a folder inside no tree is an offer to do nothing.
-        #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.aditi, scope: nil, scannedRoot: nil,
+        #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.daughter, scope: nil, scannedRoot: nil,
                                            providerRoot: nil))
     }
 

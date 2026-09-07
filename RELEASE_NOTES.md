@@ -975,10 +975,10 @@ On the v4 line, so it **requires macOS 26** — coming from 3.x or 2.x, read the
 - **The Folders step walks your tree and writes the profile.** Names and counts only — seconds
   rather than the hours a document survey needs, and it takes effect without a relaunch.
 - **It proposes the place names it found, and nothing starts ticked.** Mined from folder names,
-  so every mistake it makes is an invention: HPE is an employer, PRD a product stage. Each chip
+  so every mistake it makes is an invention: EMP is an employer, PRD a product stage. Each chip
   says how many folders it would affect.
 - **It proposes the household too, from the one folder that says what its children are.**
-  Family/Aditi is a person because Family said so. It over-proposes deliberately — a name you
+  Family/Daughter is a person because Family said so. It over-proposes deliberately — a name you
   must think of unprompted costs more than one you refuse with a click.
 - **Answers are kept when there is nowhere yet to put them.** You and People have nowhere to
   write until the walk mints a profile. Both rows say so, and are applied to the roster when it
@@ -1377,7 +1377,7 @@ On the v3 line, so it **requires macOS 26** — coming from 2.x, read the v3.0 s
   by what a document was about and could not ask whose it was. A household keeps each person's
   name forms, their aliases, and how they are related.
 - **Names are matched phrase-first, longest wins, and a match is consumed.** In a real family
-  one word is several people. In “Aditi Abhishek” the surname is spent on Aditi and never
+  one word is several people. In “Daughter Father” the surname is spent on Daughter and never
   doubles as evidence for her father — without which every shared surname is evidence for
   everyone carrying it.
 - **People is its own place in Settings, and a row with folders behind it says what it buys** —
@@ -1385,10 +1385,10 @@ On the v3 line, so it **requires macOS 26** — coming from 2.x, read the v3.0 s
   filed in them. You can add, edit and remove people; edits take effect without a relaunch.
 - **The editor teaches while you type**, showing live what the draft would match
   and which words are that person's alone — judged against the rest of the roster,
-  because whether "girish" is distinctive is a fact about the household rather than
+  because whether "elder" is distinctive is a fact about the household rather than
   about one person.
-- **A rule can say whose document it is.** *is Aditi's document* rather than
-  *mentions "aditi"* — not the same claim, and for a real family usually the wrong
+- **A rule can say whose document it is.** *is Daughter's document* rather than
+  *mentions "daughter"* — not the same claim, and for a real family usually the wrong
   one. It keys on the person, so it survives a rename and starts matching a new
   name variant the moment you add one.
 - **`{person}` as a destination.** `Immigration/OCI/{person}` files each person's card into
@@ -1405,7 +1405,7 @@ On the v3 line, so it **requires macOS 26** — coming from 2.x, read the v3.0 s
   and the page, because an account number is the strongest evidence in an
   unlabelled document and the most surprising thing to be filed by.
 - **Search resolves a person.** Type a name into ⌘F and a row appears beneath the field —
-  “Aditi — everything that is theirs”, ⌘↩ to take it. The find itself is untouched.
+  “Daughter — everything that is theirs”, ⌘↩ to take it. The find itself is untouched.
 
 ### Filing that reads your tree
 

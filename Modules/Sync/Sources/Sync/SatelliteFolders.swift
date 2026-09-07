@@ -101,7 +101,7 @@ public struct DocumentIdentityIndex: Sendable {
 ///
 /// **The distinction the router cannot make from content**, and that is not a shortcoming of the
 /// weights. `Immigration/…/Petition/Supporting Documents/pay_statements` holds four copies of
-/// payslips whose originals are in `Work/HPE/Compensation/Salary Statements/2026`; the two folders
+/// payslips whose originals are in `Work/EMP/Compensation/Salary Statements/2026`; the two folders
 /// say the same words because they hold the same documents. Measured on the real tree, the raw
 /// content evidence for a fifth payslip is 76.49 for the copy against 70.69 for the home — and the
 /// entire 5.80 difference is the anchor `payslip`, which the copies' folder learned from the
@@ -132,7 +132,7 @@ public enum SatelliteFolders {
     /// nicety: without it the biggest folder in a family is routinely an **inbox**, and the
     /// relation reads backwards. On this tree it made satellites of
     /// `Finance/US/Credit Accounts/Chase/Credit 2809/2024` (inside `Chase/TODO`, 47 documents),
-    /// `Work/HPE/Compensation/401(k)` (inside `Fidelity/TODO - 2023`) and five more — every one of
+    /// `Work/EMP/Compensation/401(k)` (inside `Fidelity/TODO - 2023`) and five more — every one of
     /// them a real home being demoted in favour of the pile it was filed out of.
     public static func homesBySatellite(in index: DocumentIdentityIndex,
                                         accepts: (String) -> Bool) -> [String: Set<String>] {

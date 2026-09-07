@@ -746,31 +746,31 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func classifierVerdictDrivesTheSuggestion() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Family/Divit/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/Physician's Report - Divit.pdf"))
+        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Downloads/Physician's Report - Son.pdf"))
 
         let manager = FileSyncManager()
-        // A stand-in for the on-device model: it "reasons" Divit → Family/Divit.
+        // A stand-in for the on-device model: it "reasons" Son → Family/Son.
         manager.filingClassifier = { context, files, _ in
-            #expect(context.taxonomyFolders.contains("Documents/Family/Divit"))  // the real taxonomy
+            #expect(context.taxonomyFolders.contains("Documents/Family/Son"))  // the real taxonomy
             // With no profile loaded, destinations is the taxonomy unchanged — the seam widened
             // without changing what a backend sees on a machine that has never been surveyed.
             #expect(context.destinations == context.taxonomyFolders)
             #expect(context.profile == nil)
             var out: [String: FilingVerdict] = [:]
-            for f in files where f.fileName.contains("Divit") {
-                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",
-                                                confidence: .high, reason: "Divit’s medical record")
+            for f in files where f.fileName.contains("Son") {
+                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Son",
+                                                confidence: .high, reason: "Son’s medical record")
             }
             return out
         }
 
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
 
-        let s = manager.filingSuggestions.first { $0.fileName.contains("Divit") }
-        #expect(s?.best?.path == root.appendingPathComponent("Documents/Family/Divit").path)
+        let s = manager.filingSuggestions.first { $0.fileName.contains("Son") }
+        #expect(s?.best?.path == root.appendingPathComponent("Documents/Family/Son").path)
         #expect(s?.best?.fromAI == true)
-        #expect(s?.best?.reasons.first == "Divit’s medical record")
+        #expect(s?.best?.reasons.first == "Son’s medical record")
     }
 
     @MainActor

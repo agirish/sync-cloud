@@ -84,7 +84,7 @@ extension FileSyncManager {
     ///     else beside it.
     ///   - jurisdictionValues: the place names the user confirmed. Handed in rather than mined,
     ///     because the mining is only 83.2% right and every point of the gap is an invention —
-    ///     `HPE`, `IT` and `PRD` are an employer, a department and a product stage. See
+    ///     `EMP`, `IT` and `PRD` are an employer, a department and a product stage. See
     ///     ``JurisdictionCandidates``.
     ///   - registry: the household, for the person axis and the `person-bucket` role. Nil is fine
     ///     and means both are simply absent; no folder is misattributed for want of a roster.
@@ -182,7 +182,7 @@ extension FileSyncManager {
     /// **A separate call from the derivation, and it walks again rather than holding the tree.** The
     /// proposals have to be *confirmed* before a profile is built — used as-is the rule agrees with
     /// the hand-built profile on 83.2% of folders, and every point of that gap is an invention
-    /// (`HPE` is an employer, `IT` a department, `PRD` a product stage) — so the user sees the list
+    /// (`EMP` is an employer, `IT` a department, `PRD` a product stage) — so the user sees the list
     /// between the two calls. A walk is seconds and a 3,000-folder tree held across a user decision
     /// is state that can go stale while they think; walking twice is the cheaper mistake.
     public func proposePlaces(root: URL) async -> [JurisdictionCandidate] {

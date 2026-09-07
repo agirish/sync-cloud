@@ -35,12 +35,12 @@ import Testing
                        reclaimableBytes: 0)
     }
 
-    /// The MapR case, in shape: three same-text pairs spanning the two branches, and the smaller
+    /// The Acme case, in shape: three same-text pairs spanning the two branches, and the smaller
     /// folder's share clears the bar — one finding, counterpart and count on the detail.
     @Test func threeSharedDocumentsAcrossTwoBranchesFire() {
-        let profile = Self.profile(["Work/MapR/Forms": 4, "Finance/Tax/2016/Forms": 6])
+        let profile = Self.profile(["Work/Acme/Forms": 4, "Finance/Tax/2016/Forms": 6])
         let groups = ["1095-C.pdf", "W-2.pdf", "1040.pdf"].map { name in
-            Self.sameTextGroup(["Work/MapR/Forms/\(name)", "Finance/Tax/2016/Forms/\(name)"])
+            Self.sameTextGroup(["Work/Acme/Forms/\(name)", "Finance/Tax/2016/Forms/\(name)"])
         }
         let findings = StructureDuplicatedTaxonomy.findings(groups: groups, in: profile)
         #expect(findings.count == 1)
@@ -48,7 +48,7 @@ import Testing
         #expect(finding.kind == .duplicatedTaxonomy)
         #expect(finding.subject == "Finance/Tax/2016/Forms",
                 "subject is the lexicographically first of the pair — a stable identity")
-        #expect(finding.detail == .duplicatedTaxonomy(counterpart: "Work/MapR/Forms",
+        #expect(finding.detail == .duplicatedTaxonomy(counterpart: "Work/Acme/Forms",
                                                       matchedDocuments: 3))
         #expect(finding.id == "duplicatedTaxonomy|Finance/Tax/2016/Forms")
     }
@@ -108,12 +108,12 @@ import Testing
     /// both pairs `subject = A`. Each pair takes whichever of its folders is still free; both
     /// are real paths, so reveal and suppression keep working.
     @Test func aFolderPairedWithTwoCounterpartsKeepsUniqueIds() {
-        let profile = Self.profile(["Archive/Forms": 6, "Work/MapR/Forms": 4,
+        let profile = Self.profile(["Archive/Forms": 6, "Work/Acme/Forms": 4,
                                     "Finance/Tax/Forms": 4])
         var groups: [DuplicateGroup] = []
         for name in ["a.pdf", "b.pdf", "c.pdf"] {
             groups.append(Self.sameTextGroup(["Archive/Forms/\(name)",
-                                              "Work/MapR/Forms/\(name)"]))
+                                              "Work/Acme/Forms/\(name)"]))
             groups.append(Self.sameTextGroup(["Archive/Forms/x-\(name)",
                                               "Finance/Tax/Forms/x-\(name)"]))
         }

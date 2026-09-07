@@ -35,11 +35,11 @@ import Foundation
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/iCloud": [visit("Health/Dental", 100)],
                       "/Dropbox": [visit("Shared Docs", 40)],
-                      "/Drive-hpe": [visit("Work/Q3 Review", 80)],
+                      "/Drive-emp": [visit("Work/Q3 Review", 80)],
                       "/Local": [visit("Downloads", 10)]],
             favorites: [:], limit: 8)
         #expect(out.map(\.relativePath) == ["Health/Dental", "Work/Q3 Review", "Shared Docs", "Downloads"])
-        #expect(out.map(\.root) == ["/iCloud", "/Drive-hpe", "/Dropbox", "/Local"])
+        #expect(out.map(\.root) == ["/iCloud", "/Drive-emp", "/Dropbox", "/Local"])
     }
 
     /// **The migration case, and the reason `visitedAt` is optional rather than defaulted.**
@@ -133,10 +133,10 @@ import Foundation
     @Test func aSourcesLandingFolderIsNotAlsoARecent() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/Dropbox": [visit("Documents", 100)],
-                      "/Drive-hpe": [visit("My Drive", 90)],
+                      "/Drive-emp": [visit("My Drive", 90)],
                       "/iCloud": [visit("Finance/US", 80)]],
             favorites: [:],
-            landings: ["/Dropbox": "Documents", "/Drive-hpe": "My Drive", "/iCloud": ""],
+            landings: ["/Dropbox": "Documents", "/Drive-emp": "My Drive", "/iCloud": ""],
             limit: 8)
         #expect(out.map(\.relativePath) == ["Finance/US"])
     }

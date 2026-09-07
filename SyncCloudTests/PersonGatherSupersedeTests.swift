@@ -7,8 +7,8 @@ import Sync
 ///
 /// The gather walks every surveyed document — 10,171 on the real tree — behind a 4.9 MB corpus
 /// read, so a second ⌘↩ arrives while the first is still going. Nothing held the first task, so
-/// nothing cancelled it, and whichever finished last wrote the slot: accept Aditi, change your
-/// mind, accept Girish, and the answer on screen could be Aditi's under Girish's name.
+/// nothing cancelled it, and whichever finished last wrote the slot: accept Daughter, change your
+/// mind, accept Elder, and the answer on screen could be Daughter's under Elder's name.
 ///
 /// Two decisions guard that, and they are opposite ends of the same window. ``shouldStart`` is
 /// asked when the second accept arrives; ``awaits`` is asked when a sweep finishes and wants to
@@ -24,11 +24,11 @@ import Sync
 /// below plus review, not on a test. What is covered is every decision the composition makes.
 @Suite struct PersonGatherSupersedeTests {
 
-    private static let aditi = Person(id: "aditi", displayName: "Aditi",
-                                      fullNames: ["Aditi Abhishek"])
-    private static let girish = Person(id: "girish", displayName: "Girish",
-                                       fullNames: ["Girish Krishnamurthy"])
-    private static let answer = PersonFileSet(personId: "aditi", ownFolders: [], elsewhere: [])
+    private static let daughter = Person(id: "daughter", displayName: "Daughter",
+                                      fullNames: ["Daughter Father"])
+    private static let elder = Person(id: "elder", displayName: "Elder",
+                                       fullNames: ["Elder Forebear"])
+    private static let answer = PersonFileSet(personId: "daughter", ownFolders: [], elsewhere: [])
 
     private typealias Scope = ContentView.PersonScope
 
@@ -37,22 +37,22 @@ import Sync
     @Test func repeatingTheSameAcceptMidSweepDoesNotRestartIt() {
         // The one case that must NOT start: it is the same question, and restarting throws away
         // a sweep already partway through the corpus.
-        let running = Scope(person: Self.aditi, phase: .gathering)
-        #expect(!Scope.shouldStart(Self.aditi, given: running))
+        let running = Scope(person: Self.daughter, phase: .gathering)
+        #expect(!Scope.shouldStart(Self.daughter, given: running))
     }
 
     @Test func everyOtherAcceptStarts() {
         // Each of these is a different question from what the slot holds, so each must start —
         // and they are listed separately because a `shouldStart` that answered `false` more
         // broadly would leave ⌘↩ doing nothing at all, which is the bug this feature is fixing.
-        #expect(Scope.shouldStart(Self.aditi, given: nil),
+        #expect(Scope.shouldStart(Self.daughter, given: nil),
                 "an accept with an empty slot did not start a gather")
-        #expect(Scope.shouldStart(Self.girish, given: Scope(person: Self.aditi, phase: .gathering)),
+        #expect(Scope.shouldStart(Self.elder, given: Scope(person: Self.daughter, phase: .gathering)),
                 "switching person mid-sweep did not start the new gather")
-        #expect(Scope.shouldStart(Self.aditi, given: Scope(person: Self.aditi,
+        #expect(Scope.shouldStart(Self.daughter, given: Scope(person: Self.daughter,
                                                           phase: .ready(Self.answer))),
                 "re-asking after the answer landed did not re-gather")
-        #expect(Scope.shouldStart(Self.aditi, given: Scope(person: Self.aditi,
+        #expect(Scope.shouldStart(Self.daughter, given: Scope(person: Self.daughter,
                                                           phase: .failed("no survey"))),
                 "retrying after a failure did not start a gather — the failure would be permanent")
     }
@@ -60,33 +60,33 @@ import Sync
     // MARK: Writing the answer
 
     @Test func aSupersededSweepMayNotWriteItsAnswer() {
-        // **The race, stated.** Aditi's sweep finishes after Girish's accept has taken the slot.
+        // **The race, stated.** Daughter's sweep finishes after Elder's accept has taken the slot.
         // Cancellation usually stops it first, but a sweep that had already left the loop when
-        // the cancel landed still reaches this check — and without it, Aditi's files appear
-        // under Girish's name.
-        let slot = Scope(person: Self.girish, phase: .gathering)
-        #expect(!Scope.awaits(Self.aditi, in: slot))
+        // the cancel landed still reaches this check — and without it, Daughter's files appear
+        // under Elder's name.
+        let slot = Scope(person: Self.elder, phase: .gathering)
+        #expect(!Scope.awaits(Self.daughter, in: slot))
     }
 
     @Test func aClearedSlotTakesNoAnswer() {
         // Esc or the ✕ during the sweep: the answer arriving afterwards must not re-open the
         // view the user just dismissed.
-        #expect(!Scope.awaits(Self.aditi, in: nil))
+        #expect(!Scope.awaits(Self.daughter, in: nil))
     }
 
     @Test func aSlotThatAlreadyHasAnAnswerTakesNoOther() {
         // Belt to the cancellation's braces: two sweeps for the SAME person (possible only if
         // a cancel is dropped) must not overwrite each other. `.gathering` is the only phase
         // that is waiting for anything.
-        let done = Scope(person: Self.aditi, phase: .ready(Self.answer))
-        #expect(!Scope.awaits(Self.aditi, in: done))
+        let done = Scope(person: Self.daughter, phase: .ready(Self.answer))
+        #expect(!Scope.awaits(Self.daughter, in: done))
     }
 
     @Test func theSweepThatOwnsTheSlotDoesWrite() {
         // Non-vacuity: without this, a broken `awaits` returning false always would pass every
         // assertion above and no gather would ever paint an answer.
-        let mine = Scope(person: Self.aditi, phase: .gathering)
-        #expect(Scope.awaits(Self.aditi, in: mine))
+        let mine = Scope(person: Self.daughter, phase: .gathering)
+        #expect(Scope.awaits(Self.daughter, in: mine))
     }
 
     // MARK: The off-actor half — corpus read + sweep
@@ -121,7 +121,7 @@ import Sync
         if withCorpus {
             let corpus = FilingCorpus(profileId: "t", salt: "s", documents: Dictionary(
                 uniqueKeysWithValues: (0..<corpusDocuments).map {
-                    ("Family/Aditi/doc-\($0).pdf",
+                    ("Family/Daughter/doc-\($0).pdf",
                      FilingCorpusDocument(size: 1, modified: 0, anchors: [], idHashes: []))
                 }))
             try JSONEncoder().encode(corpus)
@@ -132,15 +132,15 @@ import Sync
 
     private static func folderProfile() -> FolderProfile {
         FolderProfile(profileId: "t", root: "/root", folders: [
-            "Family/Aditi": FolderProfileEntry(
-                path: "Family/Aditi", role: nil, naming: nil, anchors: [], acceptsNewFiles: true,
-                fileCount: 1, subfolderCount: 0, axes: ["person": "Aditi"]),
+            "Family/Daughter": FolderProfileEntry(
+                path: "Family/Daughter", role: nil, naming: nil, anchors: [], acceptsNewFiles: true,
+                fileCount: 1, subfolderCount: 0, axes: ["person": "Daughter"]),
         ], personTokens: [])
     }
 
     private static var registry: PersonRegistry {
-        PersonRegistry(people: [Person(id: "aditi", displayName: "Aditi",
-                                       fullNames: ["Aditi Abhishek"])])
+        PersonRegistry(people: [Person(id: "daughter", displayName: "Daughter",
+                                       fullNames: ["Daughter Father"])])
     }
 
     // MARK: The scope is cleared by every workspace switch, not only the bar's
@@ -288,7 +288,7 @@ import Sync
         // path would silently become a confident "0 hers".
         try await Self.withProfileDirectory(withCorpus: false) { root in
             let missing = try await ContentView.gatherOffMainActor(
-                personId: "aditi", profileId: "t", directory: root,
+                personId: "daughter", profileId: "t", directory: root,
                 profile: Self.folderProfile(), registry: Self.registry)
             #expect(missing == nil, "a missing corpus produced an answer instead of nil")
         }
@@ -297,7 +297,7 @@ import Sync
         // the wrong reason (any broken read would also return nil).
         try await Self.withProfileDirectory(withCorpus: true) { present in
             let found = try await ContentView.gatherOffMainActor(
-                personId: "aditi", profileId: "t", directory: present,
+                personId: "daughter", profileId: "t", directory: present,
                 profile: Self.folderProfile(), registry: Self.registry)
             #expect(found?.total == Self.corpusDocuments,
                     "the corpus read or the sweep is not reaching the documents")
@@ -323,7 +323,7 @@ import Sync
                     try? await Task.sleep(nanoseconds: 1_000_000)
                 }
                 return try await ContentView.gatherOffMainActor(
-                    personId: "aditi", profileId: "t", directory: root,
+                    personId: "daughter", profileId: "t", directory: root,
                     profile: profile, registry: registry)
             }
             task.cancel()

@@ -23,7 +23,7 @@ public enum PeopleNameScanner {
             let url = root.appendingPathComponent(relative)
             guard let names = try? fileManager.contentsOfDirectory(atPath: url.path) else { continue }
             // Directory entries only — a subfolder's NAME is not a document's name, and including
-            // it would let a folder called "Muktha Girish" vouch for itself.
+            // it would let a folder called "Granny Elder" vouch for itself.
             let files = names.filter { name in
                 var isDirectory: ObjCBool = false
                 let child = url.appendingPathComponent(name).path

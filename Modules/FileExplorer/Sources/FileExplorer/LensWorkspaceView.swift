@@ -4970,7 +4970,7 @@ public struct LensWorkspaceView: View {
         rule.conditions = variant.conditions
         // A phrasing can redirect — the `{person}` fan-out files each person's copy into their own
         // folder rather than the one this example went to. Taking only the conditions would save a
-        // rule that says "everyone's OCI card" and files all of them into Aditi's folder.
+        // rule that says "everyone's OCI card" and files all of them into Daughter's folder.
         rule.destinationTemplate = variant.destinationTemplate ?? offer.proposal.destinationTemplate
         syncManager.upsertAutomationRule(rule)
         syncManager.banner = .success("Rule saved — files matching “\(rule.name)” go to \(rule.destinationTemplate)")

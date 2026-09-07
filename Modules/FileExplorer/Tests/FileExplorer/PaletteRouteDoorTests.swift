@@ -50,8 +50,8 @@ import Design
         }
     }
 
-    static let people = [Person(id: "p.aditi", displayName: "Aditi", relationship: "daughter",
-                                fullNames: ["Aditi Girish"])]
+    static let people = [Person(id: "p.daughter", displayName: "Daughter", relationship: "daughter",
+                                fullNames: ["Daughter Elder"])]
 
     /// The path a route resolves under the provider root, or nil for a route that names none.
     ///
@@ -132,7 +132,7 @@ import Design
     /// the failure names it.
     @Test func everyRouteKindIsStillReachableFromSomeQuery() {
         let index = Self.index()
-        let queries = ["", "browse", "compare", "storage", "organize", "aditi", "icloud",
+        let queries = ["", "browse", "compare", "storage", "organize", "daughter", "icloud",
                        "legal", "rescan", "new folder", "choose", "find", "settings",
                        "shortcuts", "activity"]
         var reached = Set<String>()

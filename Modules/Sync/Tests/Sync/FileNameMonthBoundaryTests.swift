@@ -46,9 +46,9 @@ import Testing
 
     /// **The upper-case half.** These are the cases that separate "starts with a capital" from a
     /// real boundary: inside an all-caps run every character is a capital, so the first rule read
-    /// all of these as months. `MAPR` is a vendor token that is actually on this tree.
+    /// all of these as months. `NAPR` is a vendor-shaped token: an all-caps run ending in `APR`.
     @Test func anAllCapsRunIsNotAMonthHoweverItEnds() {
-        for run in ["KUMAR", "RAJAN", "CODEC", "MAPR", "MAPRDB", "BILLAPR", "BILLSEPTEMBER"] {
+        for run in ["KUMAR", "RAJAN", "CODEC", "NAPR", "NAPRDB", "BILLAPR", "BILLSEPTEMBER"] {
             #expect(FileNameDate.monthSuffix(run) == nil, "“\(run)” was read as a month")
         }
     }
@@ -67,7 +67,7 @@ import Testing
     @Test func anAllCapsNameAndAYearMineNoDate() {
         #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("SANJAY KUMAR 2023")) == nil,
                 "an all-caps surname and a year still mine a date out of nothing")
-        #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("MAPR export 2024")) == nil,
+        #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("ACME export 2024")) == nil,
                 "a vendor token and a year still mine a date out of nothing")
     }
 

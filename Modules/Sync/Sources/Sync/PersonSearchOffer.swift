@@ -12,12 +12,12 @@ public enum PersonSearchOffer {
     /// The one person this query names, or `nil`.
     ///
     /// **Exactly one, or nothing.** A query that resolves to two people is not a person scope —
-    /// "girish krishnamurthy muktha" names a couple, and picking one of them arbitrarily is the
+    /// "elder forebear granny" names a couple, and picking one of them arbitrarily is the
     /// over-attribution this household's names invite. The matcher already refuses to guess: it is
-    /// phrase-first and longest-wins, so "Aditi Abhishek" resolves to Aditi alone and spends the
+    /// phrase-first and longest-wins, so "Daughter Father" resolves to Daughter alone and spends the
     /// surname doing it.
     ///
-    /// A bare shared word is *not* excluded here, and that is deliberate. `girish` resolves to one
+    /// A bare shared word is *not* excluded here, and that is deliberate. `elder` resolves to one
     /// person — Dad, whose first name it is — so the offer appears and is correct; what the shared
     /// word cannot do is *attribute a file* on its own, which is a different question answered in
     /// ``PersonFiles``. Refusing the offer too would mean typing your father's name and being told
@@ -26,7 +26,7 @@ public enum PersonSearchOffer {
     /// **One rule, and it is the only one this type owns.** A first cut also trimmed the query and
     /// refused anything under two characters; mutation-testing showed neither guard could fail a
     /// test, because `PersonRegistry.words` already tokenizes — it discards whitespace and skips
-    /// words shorter than two characters, which is why "Shweta R Dani" does not make `R` a name.
+    /// words shorter than two characters, which is why "Mother I Maiden" does not make `R` a name.
     /// Two owners for one rule is how they drift apart, so these defer to the tokenizer and this
     /// keeps the part that is genuinely its own: how many people a query may name.
     public static func person(matching query: String, registry: PersonRegistry) -> Person? {

@@ -2633,7 +2633,7 @@ recorded here rather than picked, per the standing direction.
 
 `thePersonAndLifecycleAxesAgree` compared `axes["person"]` with a raw `==`. Every consumer of that
 value resolves it through `PersonRegistry.person(forAxisValue:)`, whose matcher lowercases, so
-`Aditi` and `aditi` are one person to the app and two to the test. On the live tree that was **477
+`Daughter` and `daughter` are one person to the app and two to the test. On the live tree that was **477
 of 5019 folders, all of them case alone** — 0.905 against a 0.99 floor, with the roster complete and
 every attribution correct.
 

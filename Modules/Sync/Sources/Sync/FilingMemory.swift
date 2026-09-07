@@ -5,7 +5,7 @@ import Foundation
 ///
 /// The companion to ``FolderProfile``, and the distinction is the point: the profile records what a
 /// folder *is*, mined from names, while this records what it has *been given*, mined from page 1.
-/// Names are frequently useless — a tree holds fourteen payslips called `Nov 30 Paycheck HPE.pdf`
+/// Names are frequently useless — a tree holds fourteen payslips called `Nov 30 Paycheck EMP.pdf`
 /// belonging with files called `Payslip_2025-11-28.pdf`, and screenshots carrying nothing but a case
 /// number that only an already-filed confirmation can attribute. Measured over 9,558 filed documents
 /// choosing one of ~2,950 folders, adding this to the profile takes top-1 routing from 28.9% to

@@ -1702,7 +1702,7 @@ struct RestructureLens: View {
     private var samples: some View {
         LensSetupSampleRow {
             VStack(alignment: .leading, spacing: 5) {
-                Text("Family/Aditi/Events")
+                Text("Family/Daughter/Events")
                     .scaledFont(.system(size: 11.5, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.head)

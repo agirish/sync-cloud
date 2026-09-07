@@ -21,12 +21,12 @@ import Events
             {
               "at": "Shared/Inbox/Scan 2026-03-14.pdf",
               "fingerprint": "pdf-text-1:9f2c",
-              "person": "aditi",
+              "person": "daughter",
               "verdict": "confirmed"
             },
             {
-              "path": "Financial/Abhishek - Family insurance card.pdf",
-              "person": "shweta",
+              "path": "Financial/Father - Family insurance card.pdf",
+              "person": "mother",
               "verdict": "rejected"
             }
           ]
@@ -37,15 +37,15 @@ import Events
         let file = try JSONDecoder().decode(PersonTagFile.self,
                                             from: Data(Self.literal.utf8))
         #expect(file.tags.count == 2)
-        let aditi = try #require(file.tags.first { $0.personId == "aditi" })
-        #expect(aditi.key == .fingerprint("pdf-text-1:9f2c"))
-        #expect(aditi.verdict == .confirmed)
-        #expect(aditi.recordedPath == "Shared/Inbox/Scan 2026-03-14.pdf")
-        let shweta = try #require(file.tags.first { $0.personId == "shweta" })
-        #expect(shweta.key == .path("Financial/Abhishek - Family insurance card.pdf"))
-        #expect(shweta.verdict == .rejected)
+        let daughter = try #require(file.tags.first { $0.personId == "daughter" })
+        #expect(daughter.key == .fingerprint("pdf-text-1:9f2c"))
+        #expect(daughter.verdict == .confirmed)
+        #expect(daughter.recordedPath == "Shared/Inbox/Scan 2026-03-14.pdf")
+        let mother = try #require(file.tags.first { $0.personId == "mother" })
+        #expect(mother.key == .path("Financial/Father - Family insurance card.pdf"))
+        #expect(mother.verdict == .rejected)
         // A path-keyed tag names its file in the key, so it needs no separate `at` to be readable.
-        #expect(shweta.recordedPath == "Financial/Abhishek - Family insurance card.pdf")
+        #expect(mother.recordedPath == "Financial/Father - Family insurance card.pdf")
     }
 
     /// What this build writes is what this build reads — asserted against the literal above rather
@@ -56,9 +56,9 @@ import Events
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(decoded)
         let text = String(decoding: data, as: UTF8.self)
-        for fragment in ["\"person\" : \"aditi\"", "\"verdict\" : \"confirmed\"",
+        for fragment in ["\"person\" : \"daughter\"", "\"verdict\" : \"confirmed\"",
                          "\"fingerprint\" : \"pdf-text-1:9f2c\"",
-                         "\"path\" : \"Financial/Abhishek - Family insurance card.pdf\"",
+                         "\"path\" : \"Financial/Father - Family insurance card.pdf\"",
                          "\"schemaVersion\" : 1"] {
             #expect(text.contains(fragment), "missing \(fragment) in\n\(text)")
         }
@@ -77,15 +77,15 @@ import Events
             {
               "schemaVersion": 1,
               "tags": [
-                { "path": "a.pdf", "person": "aditi", "verdict": "confirmed" },
-                { "path": "b.pdf", "person": "aditi", "verdict": "maybe", "confidence": 0.4 },
-                { "path": "c.pdf", "person": "divit", "verdict": "rejected" }
+                { "path": "a.pdf", "person": "daughter", "verdict": "confirmed" },
+                { "path": "b.pdf", "person": "daughter", "verdict": "maybe", "confidence": 0.4 },
+                { "path": "c.pdf", "person": "son", "verdict": "rejected" }
               ]
             }
             """
         let file = try JSONDecoder().decode(PersonTagFile.self, from: Data(fromTheFuture.utf8))
         #expect(file.tags.count == 3, "an unknown verdict must not cost the tags around it")
-        #expect(file.tags.map(\.personId) == ["aditi", "aditi", "divit"])
+        #expect(file.tags.map(\.personId) == ["daughter", "daughter", "son"])
         #expect(file.tags[1].verdict == .unrecognized("maybe"))
         #expect(file.tags[1].verdict.isActionable == false,
                 "an unknown verdict must never be acted on — guessing it means yes is a wrong answer")
@@ -97,15 +97,15 @@ import Events
         let broken = """
             {
               "tags": [
-                { "person": "aditi", "verdict": "confirmed" },
-                { "path": "b.pdf", "person": "divit", "verdict": "confirmed" },
+                { "person": "daughter", "verdict": "confirmed" },
+                { "path": "b.pdf", "person": "son", "verdict": "confirmed" },
                 "not even an object",
-                { "path": "c.pdf", "person": "muktha", "verdict": "rejected" }
+                { "path": "c.pdf", "person": "granny", "verdict": "rejected" }
               ]
             }
             """
         let file = try JSONDecoder().decode(PersonTagFile.self, from: Data(broken.utf8))
-        #expect(file.tags.map(\.personId) == ["divit", "muktha"],
+        #expect(file.tags.map(\.personId) == ["son", "granny"],
                 "the two readable tags after the broken ones must survive")
     }
 
@@ -119,14 +119,14 @@ import Events
         let broken = """
             {
               "tags": [
-                { "path": "b.pdf", "person": "divit", "verdict": "confirmed" },
+                { "path": "b.pdf", "person": "son", "verdict": "confirmed" },
                 "not even an object",
-                { "person": "aditi", "verdict": "confirmed" }
+                { "person": "daughter", "verdict": "confirmed" }
               ]
             }
             """
         let file = try JSONDecoder().decode(PersonTagFile.self, from: Data(broken.utf8))
-        #expect(file.tags.map(\.personId) == ["divit"])
+        #expect(file.tags.map(\.personId) == ["son"])
         // The string AND the object with neither key — both unreadable, both kept.
         #expect(file.unreadable.count == 2, "an unreadable entry was dropped; got \(file.unreadable)")
         #expect(file.unreadable.contains(.string("not even an object")))
@@ -144,7 +144,7 @@ import Events
             {
               "schemaVersion": 7,
               "tags": [
-                { "at": "b.pdf", "person": "aditi", "verdict": "confirmed", "shape": "from-the-future" }
+                { "at": "b.pdf", "person": "daughter", "verdict": "confirmed", "shape": "from-the-future" }
               ]
             }
             """.utf8).write(to: url)
@@ -153,15 +153,15 @@ import Events
         #expect(store.tags.isEmpty, "the entry has no key this build understands")
 
         // Any write rewrites the whole file — the moment the entry would be lost.
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(reread.tags.map(\.personId) == ["divit"])
+        #expect(reread.tags.map(\.personId) == ["son"])
         #expect(reread.unreadable.count == 1, "the unreadable entry was destroyed by the save")
         // Verbatim: every field it arrived with, including the one this build has no case for.
         if case .object(let o) = reread.unreadable[0] {
             #expect(o["shape"] == .string("from-the-future"))
-            #expect(o["person"] == .string("aditi"))
+            #expect(o["person"] == .string("daughter"))
         } else {
             Issue.record("carried entry changed shape: \(reread.unreadable[0])")
         }
@@ -183,11 +183,11 @@ import Events
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         // Recorded durably, by fingerprint, at a known path.
-        store.record(personId: "aditi", key: .fingerprint("fp-1"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "daughter", key: .fingerprint("fp-1"), verdict: .confirmed, path: "a.pdf")
         #expect(store.tags.count == 1)
 
         // The caller has the path — which is all the People queue ever has for a row.
-        store.clear(personId: "aditi", key: .path("a.pdf"), path: "a.pdf")
+        store.clear(personId: "daughter", key: .path("a.pdf"), path: "a.pdf")
         #expect(store.tags.isEmpty, "the verdict survived a withdrawal aimed at the same document")
     }
 
@@ -195,10 +195,10 @@ import Events
     @MainActor @Test func clearingLeavesAnotherPersonsVerdictAlone() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        store.record(personId: "aditi", key: .fingerprint("fp-1"), verdict: .confirmed, path: "a.pdf")
-        store.record(personId: "divit", key: .fingerprint("fp-1"), verdict: .rejected, path: "a.pdf")
-        store.clear(personId: "aditi", key: .path("a.pdf"), path: "a.pdf")
-        #expect(store.tags.map(\.personId) == ["divit"])
+        store.record(personId: "daughter", key: .fingerprint("fp-1"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .fingerprint("fp-1"), verdict: .rejected, path: "a.pdf")
+        store.clear(personId: "daughter", key: .path("a.pdf"), path: "a.pdf")
+        #expect(store.tags.map(\.personId) == ["son"])
     }
 
     /// **The verbatim round-trip.** An unrecognized verdict read from a newer build has to go back
@@ -215,7 +215,7 @@ import Events
             {
               "schemaVersion": 1,
               "tags": [
-                { "at": "b.pdf", "fingerprint": "fp-b", "person": "aditi", "verdict": "maybe" }
+                { "at": "b.pdf", "fingerprint": "fp-b", "person": "daughter", "verdict": "maybe" }
               ]
             }
             """.utf8).write(to: url)
@@ -223,11 +223,11 @@ import Events
         let store = PersonTagStore(directory: dir, profileId: "p")
         #expect(store.tags.isEmpty, "an unactionable verdict is carried, not offered as a verdict")
         // Any write at all rewrites the whole file — which is the moment a carried tag would be lost.
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
         #expect(reread.tags.count == 2, "the carried tag must still be in the file")
-        let carried = try #require(reread.tags.first { $0.personId == "aditi" })
+        let carried = try #require(reread.tags.first { $0.personId == "daughter" })
         #expect(carried.verdict == .unrecognized("maybe"))
         #expect(carried.key == .fingerprint("fp-b"))
         #expect(carried.recordedPath == "b.pdf")
@@ -247,8 +247,8 @@ import Events
     @MainActor @Test func aSecondVerdictReplacesTheFirst() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
-        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "daughter", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        store.record(personId: "daughter", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
         #expect(store.tags.count == 1)
         #expect(store.tags[0].verdict == .confirmed)
     }
@@ -257,21 +257,21 @@ import Events
     @MainActor @Test func verdictsAreKeyedPerPersonAsWellAsPerDocument() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        store.record(personId: "daughter", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
         #expect(store.tags.count == 2)
         let index = store.index
-        #expect(index.verdict(personId: "aditi", path: "a.pdf") == .confirmed)
-        #expect(index.verdict(personId: "divit", path: "a.pdf") == .rejected)
-        #expect(index.verdict(personId: "shweta", path: "a.pdf") == nil)
+        #expect(index.verdict(personId: "daughter", path: "a.pdf") == .confirmed)
+        #expect(index.verdict(personId: "son", path: "a.pdf") == .rejected)
+        #expect(index.verdict(personId: "mother", path: "a.pdf") == nil)
     }
 
     @MainActor @Test func aVerdictSurvivesReopeningTheStore() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        store.record(personId: "aditi", key: .fingerprint("fp"), verdict: .rejected, path: "a.pdf")
+        store.record(personId: "daughter", key: .fingerprint("fp"), verdict: .rejected, path: "a.pdf")
         let reopened = PersonTagStore(directory: dir, profileId: "p")
-        #expect(reopened.index.verdict(personId: "aditi", path: "a.pdf", fingerprint: "fp")
+        #expect(reopened.index.verdict(personId: "daughter", path: "a.pdf", fingerprint: "fp")
                 == .rejected)
     }
 
@@ -280,10 +280,10 @@ import Events
     @MainActor @Test func clearingAVerdictPutsTheRowBack() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
-        store.clear(personId: "aditi", key: .path("a.pdf"))
+        store.record(personId: "daughter", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        store.clear(personId: "daughter", key: .path("a.pdf"))
         #expect(store.tags.isEmpty)
-        #expect(store.index.verdict(personId: "aditi", path: "a.pdf") == nil)
+        #expect(store.index.verdict(personId: "daughter", path: "a.pdf") == nil)
     }
 
     // MARK: - Finding a verdict again
@@ -297,24 +297,24 @@ import Events
     /// anything has fingerprinted the tree.
     @Test func aFingerprintKeyedVerdictIsFoundByPathWhenNoDigestIsInHand() {
         let index = PersonTagIndex(tags: [
-            PersonTag(personId: "aditi", key: .fingerprint("fp"), verdict: .rejected,
+            PersonTag(personId: "daughter", key: .fingerprint("fp"), verdict: .rejected,
                       recordedPath: "Shared/Inbox/Scan.pdf")
         ])
-        #expect(index.verdict(personId: "aditi", path: "Shared/Inbox/Scan.pdf") == .rejected)
-        #expect(index.verdict(personId: "aditi", path: "Moved/Scan.pdf", fingerprint: "fp")
+        #expect(index.verdict(personId: "daughter", path: "Shared/Inbox/Scan.pdf") == .rejected)
+        #expect(index.verdict(personId: "daughter", path: "Moved/Scan.pdf", fingerprint: "fp")
                 == .rejected,
                 "the digest is the durable key — the file moving must not lose the verdict")
-        #expect(index.verdict(personId: "aditi", path: "Other/Unrelated.pdf") == nil)
+        #expect(index.verdict(personId: "daughter", path: "Other/Unrelated.pdf") == nil)
     }
 
     /// An unrecognized verdict is carried in the file but never answers a question.
     @Test func anUnknownVerdictIsNotAnAnswer() {
         let index = PersonTagIndex(tags: [
-            PersonTag(personId: "aditi", key: .path("a.pdf"), verdict: .unrecognized("maybe"),
+            PersonTag(personId: "daughter", key: .path("a.pdf"), verdict: .unrecognized("maybe"),
                       recordedPath: "a.pdf")
         ])
-        #expect(index.verdict(personId: "aditi", path: "a.pdf") == nil)
-        #expect(index.confirmedPaths(for: "aditi").isEmpty)
+        #expect(index.verdict(personId: "daughter", path: "a.pdf") == nil)
+        #expect(index.confirmedPaths(for: "daughter").isEmpty)
     }
 
     // MARK: One document, one verdict — whichever key each judgement happened to use
@@ -336,14 +336,14 @@ import Events
         defer { try? FileManager.default.removeItem(at: dir) }
 
         // Judged while the file was evicted, so the key fell back to the path…
-        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "daughter", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
         // …then judged again once it could be read, so the key is the fingerprint.
-        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .rejected, path: "a.pdf")
+        store.record(personId: "daughter", key: .fingerprint("d1"), verdict: .rejected, path: "a.pdf")
 
         #expect(store.tags.count == 1,
                 "two tags for one document: \(store.tags.map { "\($0.key)=\($0.verdict)" })")
         let index = PersonTagIndex(tags: store.tags)
-        #expect(index.verdict(personId: "aditi", path: "a.pdf") == .rejected,
+        #expect(index.verdict(personId: "daughter", path: "a.pdf") == .rejected,
                 "the withdrawn confirmation still wins the lookup the gather actually makes")
     }
 
@@ -355,12 +355,12 @@ import Events
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
-        #expect(PersonTagIndex(tags: store.tags).confirmedPaths(for: "aditi") == ["a.pdf"],
+        store.record(personId: "daughter", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
+        #expect(PersonTagIndex(tags: store.tags).confirmedPaths(for: "daughter") == ["a.pdf"],
                 "the fixture never confirmed anything")
 
-        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
-        #expect(PersonTagIndex(tags: store.tags).confirmedPaths(for: "aditi").isEmpty,
+        store.record(personId: "daughter", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        #expect(PersonTagIndex(tags: store.tags).confirmedPaths(for: "daughter").isEmpty,
                 "a rejected document is still listed as confirmed, so the gather re-lists it as theirs")
     }
 
@@ -370,16 +370,16 @@ import Events
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
-        store.record(personId: "aditi", key: .fingerprint("d2"), verdict: .confirmed, path: "b.pdf")
-        store.record(personId: "divit", key: .fingerprint("d3"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "daughter", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "daughter", key: .fingerprint("d2"), verdict: .confirmed, path: "b.pdf")
+        store.record(personId: "son", key: .fingerprint("d3"), verdict: .confirmed, path: "a.pdf")
 
-        store.record(personId: "aditi", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
+        store.record(personId: "daughter", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
 
         #expect(store.tags.count == 3, "the sweep took a tag it had no business taking")
         let index = PersonTagIndex(tags: store.tags)
-        #expect(index.verdict(personId: "aditi", path: "b.pdf") == .confirmed)
-        #expect(index.verdict(personId: "divit", path: "a.pdf") == .confirmed)
+        #expect(index.verdict(personId: "daughter", path: "b.pdf") == .confirmed)
+        #expect(index.verdict(personId: "son", path: "a.pdf") == .confirmed)
     }
 
     /// **Re-answering a document that has since moved takes.**
@@ -393,17 +393,17 @@ import Events
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed,
-                     path: "Family/Aditi/OCI.pdf")
+        store.record(personId: "daughter", key: .fingerprint("d1"), verdict: .confirmed,
+                     path: "Family/Daughter/OCI.pdf")
         // Organize files it; the user answers the re-opened question the same way.
-        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed,
-                     path: "Immigration/OCI/Aditi/OCI.pdf")
+        store.record(personId: "daughter", key: .fingerprint("d1"), verdict: .confirmed,
+                     path: "Immigration/OCI/Daughter/OCI.pdf")
 
         #expect(store.tags.count == 1, "the re-answer appended a second tag")
         let index = PersonTagIndex(tags: store.tags)
-        #expect(index.verdict(personId: "aditi", path: "Immigration/OCI/Aditi/OCI.pdf") == .confirmed,
+        #expect(index.verdict(personId: "daughter", path: "Immigration/OCI/Daughter/OCI.pdf") == .confirmed,
                 "the answer did not follow the document to where it now lives")
-        #expect(index.confirmedPaths(for: "aditi") == ["Immigration/OCI/Aditi/OCI.pdf"],
+        #expect(index.confirmedPaths(for: "daughter") == ["Immigration/OCI/Daughter/OCI.pdf"],
                 "the confirmed set still names the old path")
     }
 
@@ -412,9 +412,9 @@ import Events
     @MainActor @Test func reAnsweringTheSameDocumentIdenticallyIsANoOp() throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "daughter", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
         let before = try #require(try? Data(contentsOf: dir.appendingPathComponent("p/person-tags.json")))
-        store.record(personId: "aditi", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "daughter", key: .fingerprint("d1"), verdict: .confirmed, path: "a.pdf")
         let after = try #require(try? Data(contentsOf: dir.appendingPathComponent("p/person-tags.json")))
         #expect(before == after, "an identical re-answer rewrote the file")
     }
@@ -430,16 +430,16 @@ import Events
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        store.record(personId: "aditi", key: .fingerprint("first"), verdict: .confirmed, path: "Inbox/Scan.pdf")
+        store.record(personId: "daughter", key: .fingerprint("first"), verdict: .confirmed, path: "Inbox/Scan.pdf")
         // A different document now occupies the same path, and is judged the other way.
-        store.record(personId: "aditi", key: .fingerprint("second"), verdict: .rejected, path: "Inbox/Scan.pdf")
+        store.record(personId: "daughter", key: .fingerprint("second"), verdict: .rejected, path: "Inbox/Scan.pdf")
 
         #expect(store.tags.count == 2,
                 "a second document at the same path discarded the first document's verdict")
         let index = PersonTagIndex(tags: store.tags)
-        #expect(index.verdict(personId: "aditi", path: "x", fingerprint: "first") == .confirmed,
+        #expect(index.verdict(personId: "daughter", path: "x", fingerprint: "first") == .confirmed,
                 "the earlier document's answer was lost when its old path was re-used")
-        #expect(index.verdict(personId: "aditi", path: "x", fingerprint: "second") == .rejected)
+        #expect(index.verdict(personId: "daughter", path: "x", fingerprint: "second") == .rejected)
     }
 }
 
@@ -475,7 +475,7 @@ import Events
         let store = PersonTagStore(directory: dir, profileId: "p")
         #expect(store.tags.isEmpty)
 
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         // The bytes are still recoverable — beside the live file, not under it.
         let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
@@ -483,7 +483,7 @@ import Events
                 "the unreadable file was destroyed by the next verdict")
         // ...and the app kept working: the new verdict is on disk and readable.
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(reread.tags.map(\.personId) == ["divit"])
+        #expect(reread.tags.map(\.personId) == ["son"])
     }
 
     /// The set-aside copy is written once, not re-written on every later save — a second verdict
@@ -496,8 +496,8 @@ import Events
         try corrupt.write(to: url)
 
         let store = PersonTagStore(directory: dir, profileId: "p")
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
-        store.record(personId: "aditi", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "daughter", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
 
         // One episode, one set-aside — the second save neither rewrites it nor adds another.
         let kept = setAsides(in: dir)
@@ -531,7 +531,7 @@ import Events
 
         let store = PersonTagStore(directory: dir, profileId: "p")
         #expect(store.tags.isEmpty)
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         // The set-aside keeps the mode with the bytes; open it up to compare them.
         let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
@@ -540,7 +540,7 @@ import Events
                 "the verdicts were overwritten because a failed read was mistaken for no file")
         // ...and the app kept working: the new verdict is on disk and readable.
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(reread.tags.map(\.personId) == ["divit"])
+        #expect(reread.tags.map(\.personId) == ["son"])
     }
 
     /// The same hole through the other door: the store path symlinked somewhere that does not
@@ -555,14 +555,14 @@ import Events
                                                    withDestinationURL: URL(fileURLWithPath: target))
 
         let store = PersonTagStore(directory: dir, profileId: "p")
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         // The link survives, moved aside — still pointing where the user aimed it.
         let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
         let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: kept.path)
         #expect(dest == target, "the symlink was destroyed instead of being set aside")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(reread.tags.map(\.personId) == ["divit"])
+        #expect(reread.tags.map(\.personId) == ["son"])
     }
 
     /// **A failed set-aside must stay armed, or the guard lasts exactly one verdict.** The catch
@@ -582,25 +582,25 @@ import Events
         #expect(store.tags.isEmpty)
 
         // Save 1: the move fails. Nothing may land on the user's file.
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
         #expect(FileManager.default.contents(atPath: url.path) == corrupt,
                 "a failed set-aside let the write land on the unreadable file")
 
         // Save 2, the move still failing: the refusal must repeat — this is the observable form
         // of "the flag is still armed". Under the cleared-up-front flag this is the save that
         // overwrote.
-        store.record(personId: "aditi", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
+        store.record(personId: "daughter", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
         #expect(FileManager.default.contents(atPath: url.path) == corrupt,
                 "one failed set-aside disarmed the guard, and the next verdict overwrote the file")
 
         // The obstruction clears: save 3 sets the ORIGINAL bytes aside and writes fresh —
         // carrying every verdict recorded while they could live only in memory.
-        store.record(personId: "muktha", key: .path("c.pdf"), verdict: .confirmed, path: "c.pdf")
+        store.record(personId: "granny", key: .path("c.pdf"), verdict: .confirmed, path: "c.pdf")
         let kept = try #require(setAsides(in: dir).first, "no set-aside was written")
         #expect(FileManager.default.contents(atPath: kept.path) == corrupt,
                 "the set-aside does not hold the user's original bytes")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(reread.tags.map(\.personId).sorted() == ["aditi", "divit", "muktha"],
+        #expect(reread.tags.map(\.personId).sorted() == ["daughter", "granny", "son"],
                 "a verdict recorded while the set-aside was failing was lost")
     }
 
@@ -619,14 +619,14 @@ import Events
         try corrupt.write(to: url)
 
         let store = PersonTagStore(directory: dir, profileId: "p")
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         #expect(FileManager.default.contents(atPath: legacy.path) == earlier,
                 "the earlier episode's set-aside was destroyed by this one")
         let keptBytes = setAsides(in: dir).compactMap { FileManager.default.contents(atPath: $0.path) }
         #expect(keptBytes.contains(corrupt), "the leftover blocked this episode's set-aside")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(reread.tags.map(\.personId) == ["divit"])
+        #expect(reread.tags.map(\.personId) == ["son"])
     }
 
     /// The pathological same-instant case: two episodes composing their kept name from the same
@@ -693,20 +693,20 @@ import Events
         let episode1 = Data("{ episode one — the only copy of these bytes".utf8)
         try episode1.write(to: url)
         let store1 = PersonTagStore(directory: dir, profileId: "p")
-        store1.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store1.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         // Episode 2: the fresh file corrupts too, and a later session rescues again.
         let episode2 = Data("{ episode two — corrupted again".utf8)
         try episode2.write(to: url)
         let store2 = PersonTagStore(directory: dir, profileId: "p")
-        store2.record(personId: "aditi", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
+        store2.record(personId: "daughter", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
 
         let keptBytes = setAsides(in: dir).compactMap { FileManager.default.contents(atPath: $0.path) }
         #expect(keptBytes.contains(episode1),
                 "episode 2's set-aside destroyed the only copy of episode 1's rescue")
         #expect(keptBytes.contains(episode2), "episode 2's own bytes were not set aside")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(reread.tags.map(\.personId) == ["aditi"])
+        #expect(reread.tags.map(\.personId) == ["daughter"])
     }
 
     /// **A failed set-aside move must not have removed anything first.** The single-slot era
@@ -729,7 +729,7 @@ import Events
         let fm = MoveBlockedFileManager()
         fm.movesToRefuse = 1
         let store = PersonTagStore(directory: dir, profileId: "p", fileManager: fm)
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         #expect(FileManager.default.contents(atPath: kept.path) == earlier,
                 "a move that failed for a reason other than collision cost the earlier set-aside")
@@ -751,15 +751,15 @@ import Events
         let store = PersonTagStore(directory: dir, profileId: "p")   // the guard arms
         try FileManager.default.removeItem(at: url)                  // the user deletes the file
 
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(reread.tags.map(\.personId) == ["divit"],
+        #expect(reread.tags.map(\.personId) == ["son"],
                 "the save was refused although there was nothing left to set aside")
 
         // ...and it stays healed: the next save is ordinary, not another refusal.
-        store.record(personId: "aditi", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
+        store.record(personId: "daughter", key: .path("b.pdf"), verdict: .rejected, path: "b.pdf")
         let again = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(again.tags.map(\.personId).sorted() == ["aditi", "divit"],
+        #expect(again.tags.map(\.personId).sorted() == ["daughter", "son"],
                 "the guard stayed armed after the source was gone, and the next save was refused")
     }
 
@@ -777,11 +777,11 @@ import Events
         fm.movesToRefuse = 99                                       // persistence never recovers
         let store = PersonTagStore(directory: dir, profileId: "p", fileManager: fm)
         let path = "honesty-\(UUID().uuidString).pdf"
-        store.record(personId: "divit", key: .path(path), verdict: .confirmed, path: path)
+        store.record(personId: "son", key: .path(path), verdict: .confirmed, path: path)
 
         await Logger.shared.debug("person-tag honesty flush marker").value
         let entry = try #require(Logger.shared.entries.last {
-            $0.message.hasPrefix("People: \(path) is divit's")
+            $0.message.hasPrefix("People: \(path) is son's")
         }, "the verdict line was not logged at all")
         #expect(entry.message.contains("NOT saved"),
                 "a refused save logged a success-looking verdict line: \(entry.message)")
@@ -795,11 +795,11 @@ import Events
 
         let store = PersonTagStore(directory: dir, profileId: "p")
         let path = "honesty-\(UUID().uuidString).pdf"
-        store.record(personId: "divit", key: .path(path), verdict: .confirmed, path: path)
+        store.record(personId: "son", key: .path(path), verdict: .confirmed, path: path)
 
         await Logger.shared.debug("person-tag honesty flush marker".description).value
         let entry = try #require(Logger.shared.entries.last {
-            $0.message.hasPrefix("People: \(path) is divit's")
+            $0.message.hasPrefix("People: \(path) is son's")
         })
         #expect(!entry.message.contains("NOT saved"),
                 "a landed save was reported as refused: \(entry.message)")
@@ -814,12 +814,12 @@ import Events
         let url = dir.appendingPathComponent("p/person-tags.json")
 
         let store = PersonTagStore(directory: dir, profileId: "p")
-        store.record(personId: "divit", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
+        store.record(personId: "son", key: .path("a.pdf"), verdict: .confirmed, path: "a.pdf")
 
         #expect(setAsides(in: dir).isEmpty,
                 "an absent file was mistaken for one that exists but cannot be read")
         let reread = try JSONDecoder().decode(PersonTagFile.self, from: try Data(contentsOf: url))
-        #expect(reread.tags.map(\.personId) == ["divit"])
+        #expect(reread.tags.map(\.personId) == ["son"])
     }
 
     /// **`clear` claimed persistence it may not have had — the same lie `record` was just fixed
@@ -836,8 +836,8 @@ import Events
         fm.movesToRefuse = 99                                       // persistence never recovers
         let store = PersonTagStore(directory: dir, profileId: "p", fileManager: fm)
         let path = "withdrawal-\(UUID().uuidString).pdf"
-        store.record(personId: "divit", key: .path(path), verdict: .confirmed, path: path)
-        store.clear(personId: "divit", key: .path(path))
+        store.record(personId: "son", key: .path(path), verdict: .confirmed, path: path)
+        store.clear(personId: "son", key: .path(path))
         #expect(store.tags.isEmpty, "the withdrawal did not take effect in memory")
 
         await Logger.shared.debug("person-tag withdrawal flush marker").value
@@ -856,8 +856,8 @@ import Events
 
         let store = PersonTagStore(directory: dir, profileId: "p")
         let path = "withdrawal-\(UUID().uuidString).pdf"
-        store.record(personId: "divit", key: .path(path), verdict: .confirmed, path: path)
-        store.clear(personId: "divit", key: .path(path))
+        store.record(personId: "son", key: .path(path), verdict: .confirmed, path: path)
+        store.clear(personId: "son", key: .path(path))
 
         await Logger.shared.debug("person-tag withdrawal flush marker").value
         let entry = try #require(Logger.shared.entries.last {

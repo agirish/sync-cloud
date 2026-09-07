@@ -51,20 +51,20 @@ import Design
         (folder: path, files: (0..<n).map { PersonFile(path: "\(path)/f\($0).pdf", evidence: .ownFolder) })
     }
 
-    private static var aditi: PersonFileSet {
-        PersonFileSet(personId: "aditi",
-                      ownFolders: [folder("Family/Aditi", 112), folder("Immigration/OCI/Aditi", 24)],
+    private static var daughter: PersonFileSet {
+        PersonFileSet(personId: "daughter",
+                      ownFolders: [folder("Family/Daughter", 112), folder("Immigration/OCI/Daughter", 24)],
                       elsewhere: [
-                        PersonFile(path: "Shared/Inbox/Aditi Abhishek - OCI Card.pdf",
-                                   evidence: .namedInFile, matchedForm: "Aditi Abhishek")])
+                        PersonFile(path: "Shared/Inbox/Daughter Father - OCI Card.pdf",
+                                   evidence: .namedInFile, matchedForm: "Daughter Father")])
     }
 
-    private func mount(_ set: PersonFileSet, name: String = "Aditi",
+    private func mount(_ set: PersonFileSet, name: String = "Daughter",
                        scheme: ColorScheme = .light) -> NSHostingView<AnyView> {
         mount(phase: .ready(set), name: name, scheme: scheme)
     }
 
-    private func mount(phase: PersonGatherPhase, name: String = "Aditi",
+    private func mount(phase: PersonGatherPhase, name: String = "Daughter",
                        scheme: ColorScheme = .light) -> NSHostingView<AnyView> {
         let subject = PersonView(displayName: name, phase: phase, accent: .accentColor,
                                  onOpenFolder: { _ in }, onReveal: { _ in }, onClear: {})
@@ -126,7 +126,7 @@ import Design
         // Both themes, because a foreground that vanishes into its own background is invisible to
         // every geometry assertion and to a light-only render.
         for scheme in [ColorScheme.light, .dark] {
-            let host = mount(Self.aditi, scheme: scheme)
+            let host = mount(Self.daughter, scheme: scheme)
             #expect(ink(host, Self.headerZone) > 200, "the header is empty in \(scheme)")
             #expect(ink(host, Self.foldersZone) > 600, "the folder group is empty in \(scheme)")
             #expect(ink(host, Self.elsewhereZone) > 400, "the elsewhere group is empty in \(scheme)")
@@ -138,10 +138,10 @@ import Design
         // The payoff group is the reason to open this view, so its absence has to be real absence
         // rather than an empty heading — and its presence has to be what changes, not the folders
         // above it, which are identical in both fixtures.
-        let withNone = PersonFileSet(personId: "aditi", ownFolders: Self.aditi.ownFolders,
+        let withNone = PersonFileSet(personId: "daughter", ownFolders: Self.daughter.ownFolders,
                                      elsewhere: [])
         let bare = mount(withNone)
-        let full = mount(Self.aditi)
+        let full = mount(Self.daughter)
         #expect(ink(bare, Self.elsewhereZone) < 100,
                 "the elsewhere group painted with nothing in it — an empty heading is a claim")
         #expect(ink(full, Self.elsewhereZone) > 400)
@@ -167,7 +167,7 @@ import Design
         // The header capsule is an answer, so mid-sweep there must be none — "0 files" would be
         // a wrong answer, not a pending one. An empty READY set is the fixture that isolates it:
         // same name, same ✕, and the capsule is the only thing that can differ.
-        let empty = PersonFileSet(personId: "aditi", ownFolders: [], elsewhere: [])
+        let empty = PersonFileSet(personId: "daughter", ownFolders: [], elsewhere: [])
         #expect(differingPixels(mount(phase: .gathering), mount(empty), Self.headerZone) > 20,
                 "the header paints the same with and without an answer — the count capsule is showing mid-sweep")
     }
@@ -193,9 +193,9 @@ import Design
 
     @Test("A person with nothing gets an answer, not a blank panel", .machinePinned(.pixelSampling))
     func theEmptyStateSaysSo() {
-        let empty = PersonFileSet(personId: "divit", ownFolders: [], elsewhere: [])
-        let host = mount(empty, name: "Divit")
-        // Something is said — "Nothing filed under Divit." — and the groups are gone.
+        let empty = PersonFileSet(personId: "son", ownFolders: [], elsewhere: [])
+        let host = mount(empty, name: "Son")
+        // Something is said — "Nothing filed under Son." — and the groups are gone.
         #expect(ink(host, Self.foldersZone) > 150, "an empty result painted nothing at all")
         #expect(ink(host, Self.headerZone) > 200, "the header lost its name and count")
     }
@@ -210,8 +210,8 @@ import Design
         // counting only the visible rows passed it. Making the visible half identical is what
         // leaves the total as the only thing that can move the pixels.
         let visible = (0..<8).map { Self.folder("Area/\($0)", 10) }
-        let short = PersonFileSet(personId: "aditi", ownFolders: visible, elsewhere: [])
-        let long = PersonFileSet(personId: "aditi",
+        let short = PersonFileSet(personId: "daughter", ownFolders: visible, elsewhere: [])
+        let long = PersonFileSet(personId: "daughter",
                                  ownFolders: visible + (0..<5).map { Self.folder("Extra/\($0)", 1) },
                                  elsewhere: [])
         #expect(differingPixels(mount(long), mount(short), Self.headerZone) > 20,
@@ -247,26 +247,26 @@ import Design
     /// The elsewhere group's last row ends at y≈225.
     private static let elsewhereOnlyZone = CGRect(x: 0, y: 155, width: 760, height: 80)
 
-    static var aditiWithReview: PersonFileSet {
-        PersonFileSet(personId: "aditi",
-                      ownFolders: [folder("Family/Aditi", 112), folder("Immigration/OCI/Aditi", 24)],
+    static var daughterWithReview: PersonFileSet {
+        PersonFileSet(personId: "daughter",
+                      ownFolders: [folder("Family/Daughter", 112), folder("Immigration/OCI/Daughter", 24)],
                       elsewhere: [
-                        PersonFile(path: "Shared/Inbox/Aditi Abhishek - OCI Card.pdf",
-                                   evidence: .namedInFile, matchedForm: "Aditi Abhishek")],
+                        PersonFile(path: "Shared/Inbox/Daughter Father - OCI Card.pdf",
+                                   evidence: .namedInFile, matchedForm: "Daughter Father")],
                       review: [
                         PersonFile(path: "Shared/Inbox/Scan 2026-03-14.pdf",
-                                   evidence: .namedOnPage, matchedForm: "Aditi Abhishek",
-                                   reason: .namedOnPageOnly(form: "Aditi Abhishek")),
-                        PersonFile(path: "Financial/Abhishek - Family insurance card.pdf",
-                                   evidence: .namedInFile, matchedForm: "Abhishek",
-                                   reason: .sharedWordInName(word: "abhishek", sharedWith: 3)),
+                                   evidence: .namedOnPage, matchedForm: "Daughter Father",
+                                   reason: .namedOnPageOnly(form: "Daughter Father")),
+                        PersonFile(path: "Financial/Father - Family insurance card.pdf",
+                                   evidence: .namedInFile, matchedForm: "Father",
+                                   reason: .sharedWordInName(word: "father", sharedWith: 3)),
                       ])
     }
 
     @Test("The review group paints, in both themes", .machinePinned(.pixelSampling))
     func theReviewGroupPaints() {
         for scheme in [ColorScheme.light, .dark] {
-            let host = mount(Self.aditiWithReview, scheme: scheme)
+            let host = mount(Self.daughterWithReview, scheme: scheme)
             #expect(ink(host, Self.reviewZone) > 600, "the review group is empty in \(scheme)")
         }
     }
@@ -275,8 +275,8 @@ import Design
     /// is itself a claim that there is something to review.
     @Test("The review group is absent when there is nothing to review", .machinePinned(.pixelSampling))
     func theReviewGroupIsConditional() {
-        let without = mount(Self.aditi)
-        let with = mount(Self.aditiWithReview)
+        let without = mount(Self.daughter)
+        let with = mount(Self.daughterWithReview)
         #expect(ink(without, Self.reviewZone) < 100, "the review group painted with nothing in it")
         #expect(ink(with, Self.reviewZone) > 600)
         // …and the groups above are untouched, or the band is measuring the wrong region.
@@ -289,7 +289,7 @@ import Design
     /// **The two answers paint as controls, not as a third link.**
     ///
     /// Rendered first as plain text runs, the row read as three links of which the answers were the
-    /// least prominent — "Not Aditi's" wore the same grey as "Reveal", so the refusal looked like a
+    /// least prominent — "Not Daughter's" wore the same grey as "Reveal", so the refusal looked like a
     /// tertiary action rather than half of the question. The fill is drawn by hand for a reason
     /// worth keeping: `.borderedProminent` renders **unfilled** in an offscreen host, so a
     /// filled-control assertion would read false with the button plainly on screen.
@@ -300,7 +300,7 @@ import Design
     func theConfirmButtonPaintsFilled() {
         let capsule = CGRect(x: 612, y: 298, width: 38, height: 10)
         for scheme in [ColorScheme.light, .dark] {
-            let host = mount(Self.aditiWithReview, scheme: scheme)
+            let host = mount(Self.daughterWithReview, scheme: scheme)
             host.layoutSubtreeIfNeeded()
             guard let rep = host.bitmapImageRepForCachingDisplay(in: capsule) else {
                 Issue.record("no bitmap in \(scheme)")
@@ -327,9 +327,9 @@ import Design
     /// these pixels.
     @Test("The review count is its own chip, not folded into the total", .machinePinned(.pixelSampling))
     func theReviewCountIsSeparate() {
-        #expect(differingPixels(mount(Self.aditiWithReview), mount(Self.aditi), Self.headerZone) > 20,
+        #expect(differingPixels(mount(Self.daughterWithReview), mount(Self.daughter), Self.headerZone) > 20,
                 "the header paints the same with and without questions — the chip is missing")
-        #expect(Self.aditiWithReview.total == Self.aditi.total,
+        #expect(Self.daughterWithReview.total == Self.daughter.total,
                 "a question was counted as an answer")
     }
 
@@ -345,12 +345,12 @@ import Design
     /// Two names, one set: the only thing that can differ in the heading band is the name.
     @Test("The folders group is headed with the person's name", .machinePinned(.pixelSampling))
     func theOwnFoldersTitleNamesThePerson() {
-        let aditi = mount(Self.aditi, name: "Aditi")
-        let bartholomew = mount(Self.aditi, name: "Bartholomew")
+        let daughter = mount(Self.daughter, name: "Daughter")
+        let bartholomew = mount(Self.daughter, name: "Bartholomew")
         // Not two blank bands agreeing to differ: the heading has to be painting in both.
-        #expect(ink(aditi, Self.ownFoldersTitleZone) > 200, "the folders heading is not painting")
+        #expect(ink(daughter, Self.ownFoldersTitleZone) > 200, "the folders heading is not painting")
         #expect(ink(bartholomew, Self.ownFoldersTitleZone) > 200, "the folders heading is not painting")
-        #expect(differingPixels(aditi, bartholomew, Self.ownFoldersTitleZone) > 500,
+        #expect(differingPixels(daughter, bartholomew, Self.ownFoldersTitleZone) > 500,
                 "the folders heading is the same under two names — it no longer names the person")
     }
 
@@ -358,10 +358,10 @@ import Design
     /// shows the name as well. The rows carry paths and counts, so they must not move at all.
     @Test("The folder rows below the heading do not carry the name", .machinePinned(.pixelSampling))
     func theFoldersRowsBelowDoNotCarryTheName() {
-        let aditi = mount(Self.aditi, name: "Aditi")
-        let bartholomew = mount(Self.aditi, name: "Bartholomew")
-        #expect(ink(aditi, Self.ownFoldersRowsZone) > 200, "the folder rows are not painting")
-        #expect(differingPixels(aditi, bartholomew, Self.ownFoldersRowsZone) == 0,
+        let daughter = mount(Self.daughter, name: "Daughter")
+        let bartholomew = mount(Self.daughter, name: "Bartholomew")
+        #expect(ink(daughter, Self.ownFoldersRowsZone) > 200, "the folder rows are not painting")
+        #expect(differingPixels(daughter, bartholomew, Self.ownFoldersRowsZone) == 0,
                 """
                 a folder row changed with the name — either the heading band above is measuring \
                 the wrong region, or the heading wrapped under the longer name and pushed the rows \
@@ -374,16 +374,16 @@ import Design
     @Test("A shared-word row and a page row do not read the same")
     func theTwoReasonsPaintDifferently() {
         let page = PersonFile(path: "a.pdf", evidence: .namedOnPage,
-                              reason: .namedOnPageOnly(form: "Aditi Abhishek"))
+                              reason: .namedOnPageOnly(form: "Daughter Father"))
         let word = PersonFile(path: "a.pdf", evidence: .namedInFile,
-                              reason: .sharedWordInName(word: "abhishek", sharedWith: 3))
-        #expect(PersonView.caption(for: page, displayName: "Aditi")
-                != PersonView.caption(for: word, displayName: "Aditi"))
-        #expect(PersonView.caption(for: word, displayName: "Aditi").contains("3 others"))
-        #expect(PersonView.caption(for: page, displayName: "Aditi").contains("page 1"))
+                              reason: .sharedWordInName(word: "father", sharedWith: 3))
+        #expect(PersonView.caption(for: page, displayName: "Daughter")
+                != PersonView.caption(for: word, displayName: "Daughter"))
+        #expect(PersonView.caption(for: word, displayName: "Daughter").contains("3 others"))
+        #expect(PersonView.caption(for: page, displayName: "Daughter").contains("page 1"))
         // Singular is not "1 others".
         let one = PersonFile(path: "a.pdf", evidence: .namedInFile,
-                             reason: .sharedWordInName(word: "girish", sharedWith: 1))
-        #expect(PersonView.caption(for: one, displayName: "Girish").contains("1 other person"))
+                             reason: .sharedWordInName(word: "elder", sharedWith: 1))
+        #expect(PersonView.caption(for: one, displayName: "Elder").contains("1 other person"))
     }
 }

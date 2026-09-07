@@ -10,13 +10,13 @@ struct PeopleOrderTests {
     /// The real roster as `people.json` had it — alphabetical, which put the daughter first and
     /// the owner of the Mac fifth.
     static func alphabetical() -> [Person] {
-        [Person(id: "abhishek", displayName: "Abhishek", relationship: "me"),
-         Person(id: "aditi", displayName: "Aditi", relationship: "daughter"),
-         Person(id: "anuraag", displayName: "Anuraag", relationship: "brother"),
-         Person(id: "divit", displayName: "Divit", relationship: "son"),
-         Person(id: "girish", displayName: "Girish", relationship: "father"),
-         Person(id: "muktha", displayName: "Muktha", relationship: "mother"),
-         Person(id: "shweta", displayName: "Shweta", relationship: "wife")]
+        [Person(id: "father", displayName: "Father", relationship: "me"),
+         Person(id: "daughter", displayName: "Daughter", relationship: "daughter"),
+         Person(id: "uncle", displayName: "Uncle", relationship: "brother"),
+         Person(id: "son", displayName: "Son", relationship: "son"),
+         Person(id: "elder", displayName: "Elder", relationship: "father"),
+         Person(id: "granny", displayName: "Granny", relationship: "mother"),
+         Person(id: "mother", displayName: "Mother", relationship: "wife")]
     }
 
     private func scratchDirectory() -> URL {
@@ -27,7 +27,7 @@ struct PeopleOrderTests {
     /// alphabetical inside a tier so the two children and the two parents do not swap between runs.
     @Test func theDefaultOrderIsByRelationship() {
         #expect(PeopleOrder.arranged(Self.alphabetical()).map(\.id)
-                == ["abhishek", "shweta", "aditi", "divit", "girish", "muktha", "anuraag"])
+                == ["father", "mother", "daughter", "son", "elder", "granny", "uncle"])
     }
 
     /// Every word the tiers accept, and the ways a relationship is written that must not matter.
@@ -72,10 +72,10 @@ struct PeopleOrderTests {
         }
         let store = PeopleStore(directory: dir, profileId: "t", profile: nil)
         #expect(!store.orderIsCustom)
-        #expect(store.people.map(\.id) == ["abhishek", "shweta", "aditi", "divit", "girish", "muktha", "anuraag"])
+        #expect(store.people.map(\.id) == ["father", "mother", "daughter", "son", "elder", "granny", "uncle"])
 
         store.add(displayName: "Rhea", relationship: "daughter")
-        #expect(store.people.map(\.id) == ["abhishek", "shweta", "aditi", "divit", "rhea", "girish", "muktha", "anuraag"],
+        #expect(store.people.map(\.id) == ["father", "mother", "daughter", "rhea", "son", "elder", "granny", "uncle"],
                 "a new child should join the children, not the end")
     }
 
@@ -87,13 +87,13 @@ struct PeopleOrderTests {
         let store = PeopleStore(directory: dir, profileId: "t", profile: nil)
         for p in Self.alphabetical() { store.add(displayName: p.displayName, relationship: p.relationship) }
 
-        #expect(store.move(id: "anuraag", up: true))
+        #expect(store.move(id: "uncle", up: true))
         #expect(store.orderIsCustom)
-        #expect(store.people.map(\.id) == ["abhishek", "shweta", "aditi", "divit", "girish", "anuraag", "muktha"])
+        #expect(store.people.map(\.id) == ["father", "mother", "daughter", "son", "elder", "uncle", "granny"])
 
         let reopened = PeopleStore(directory: dir, profileId: "t", profile: nil)
         #expect(reopened.orderIsCustom, "the file did not record that the order is the user's")
-        #expect(reopened.people.map(\.id) == ["abhishek", "shweta", "aditi", "divit", "girish", "anuraag", "muktha"])
+        #expect(reopened.people.map(\.id) == ["father", "mother", "daughter", "son", "elder", "uncle", "granny"])
 
         reopened.add(displayName: "Rhea", relationship: "daughter")
         #expect(reopened.people.last?.id == "rhea", "an add into a hand-arranged list must not re-sort it")
@@ -103,14 +103,14 @@ struct PeopleOrderTests {
     }
 
     /// The ends are the ends: a refused move changes nothing and writes nothing. (The in-memory
-    /// store arranges too, so the ends are the arranged ends — Abhishek first, Anuraag last.)
+    /// store arranges too, so the ends are the arranged ends — Father first, Uncle last.)
     @Test func aMoveOffEitherEndIsRefused() {
         let store = PeopleStore(people: Self.alphabetical())
         let before = store.people
-        #expect(before.first?.id == "abhishek" && before.last?.id == "anuraag",
+        #expect(before.first?.id == "father" && before.last?.id == "uncle",
                 "the in-memory store no longer arranges — the ends below are the wrong ends")
-        #expect(!store.move(id: "abhishek", up: true))
-        #expect(!store.move(id: "anuraag", up: false))
+        #expect(!store.move(id: "father", up: true))
+        #expect(!store.move(id: "uncle", up: false))
         #expect(!store.move(id: "nobody", up: true))
         #expect(store.people == before)
         #expect(!store.orderIsCustom, "a refused move must not claim the order as the user's")
@@ -122,10 +122,10 @@ struct PeopleOrderTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "t", profile: nil)
         for p in Self.alphabetical() { store.add(displayName: p.displayName, relationship: p.relationship) }
-        store.move(id: "muktha", up: true)
+        store.move(id: "granny", up: true)
         store.useDefaultOrder()
         #expect(!store.orderIsCustom)
-        #expect(store.people.map(\.id) == ["abhishek", "shweta", "aditi", "divit", "girish", "muktha", "anuraag"])
+        #expect(store.people.map(\.id) == ["father", "mother", "daughter", "son", "elder", "granny", "uncle"])
         let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: store.fileURL)) as? [String: Any])
         #expect(object["order"] == nil, "a default order is the absence of the key, not a value")
         #expect(!PeopleStore(directory: dir, profileId: "t", profile: nil).orderIsCustom)

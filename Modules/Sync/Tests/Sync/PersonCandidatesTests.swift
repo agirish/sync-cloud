@@ -41,8 +41,8 @@ import Testing
 
     /// A direct child of a household folder is a person, on that folder's word alone.
     @Test func aChildOfAHouseholdFolderIsProposed() {
-        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Aditi", "Family/Divit"]))
-        #expect(Set(proposals.map(\.name)) == ["Aditi", "Divit"])
+        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Daughter", "Family/Son"]))
+        #expect(Set(proposals.map(\.name)) == ["Daughter", "Son"])
     }
 
     /// **A descendant is not a child**, which is the clause that took the reference tree from 79
@@ -70,8 +70,8 @@ import Testing
 
     @Test func everyHouseholdParentNameWorks() {
         for parent in PersonCandidates.householdParents {
-            let proposals = PersonCandidates.propose(tree: Self.tree(["\(parent)/Aditi"]))
-            #expect(proposals.map(\.name) == ["Aditi"], "\(parent) did not read as a household folder")
+            let proposals = PersonCandidates.propose(tree: Self.tree(["\(parent)/Daughter"]))
+            #expect(proposals.map(\.name) == ["Daughter"], "\(parent) did not read as a household folder")
         }
     }
 
@@ -79,7 +79,7 @@ import Testing
 
     /// All-caps names belong to the jurisdiction rule, and the two read the same tree.
     @Test func anAcronymIsNotAPerson() {
-        for name in ["US", "HPE", "TODO", "IT"] {
+        for name in ["US", "EMP", "TODO", "IT"] {
             #expect(!PersonCandidates.isNameShaped(name), "\(name) read as a given name")
         }
     }
@@ -92,7 +92,7 @@ import Testing
 
     /// Names really do carry these, and excluding them would drop real people.
     @Test func aJoinedOrAccentedNameIsStillAName() {
-        for name in ["Anne-Marie", "O'Brien", "Muktha", "Anuraag", "José"] {
+        for name in ["Anne-Marie", "O'Brien", "Granny", "Uncle", "José"] {
             #expect(PersonCandidates.isNameShaped(name), "\(name) was refused as a name")
         }
     }
@@ -106,16 +106,16 @@ import Testing
 
     /// Somebody already on the roster is not proposed again, in any spelling.
     @Test func aKnownPersonIsNotOfferedBack() {
-        let tree = Self.tree(["Family/Aditi", "Family/Divit"])
-        let proposals = PersonCandidates.propose(tree: tree, known: ["aditi"])
-        #expect(proposals.map(\.name) == ["Divit"], "offered a name the roster already has")
+        let tree = Self.tree(["Family/Daughter", "Family/Son"])
+        let proposals = PersonCandidates.propose(tree: tree, known: ["daughter"])
+        #expect(proposals.map(\.name) == ["Son"], "offered a name the roster already has")
     }
 
     /// A name nested under itself is one branch, not two — the correction
     /// `JurisdictionCandidates` needed for the same reason.
     @Test func aNameUnderItselfDoesNotCountTwice() {
-        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Aditi/Aditi"]))
-        #expect(proposals.map(\.name) == ["Aditi"])
+        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Daughter/Daughter"]))
+        #expect(proposals.map(\.name) == ["Daughter"])
         #expect(proposals.first?.folderCount == 1, "the nested copy was counted as a second folder")
     }
 
@@ -127,12 +127,12 @@ import Testing
     /// that fixture in miniature: a name under two household folders leads one under a single
     /// household folder and forty other places.
     @Test func householdEvidenceOutranksFolderCount() {
-        var paths = ["Family/Shweta", "People/Shweta", "Family/Reference"]
+        var paths = ["Family/Mother", "People/Mother", "Family/Reference"]
         paths += (1...12).map { "Work/Project\($0)/Reference" }
         let proposals = PersonCandidates.propose(tree: Self.tree(paths))
 
         let names = proposals.map(\.name)
-        #expect(names.first == "Shweta",
+        #expect(names.first == "Mother",
                 "ordered \(names) — the biggest name won instead of the best-evidenced one")
         let reference = proposals.first { $0.name == "Reference" }
         #expect(reference?.folderCount ?? 0 > proposals[0].folderCount,
@@ -140,7 +140,7 @@ import Testing
     }
 
     @Test func theOrderDoesNotWobbleBetweenRuns() {
-        let tree = Self.tree(["Family/Aditi", "Family/Divit", "People/Aditi"])
+        let tree = Self.tree(["Family/Daughter", "Family/Son", "People/Daughter"])
         let first = PersonCandidates.propose(tree: tree).map(\.name)
         for _ in 0..<5 {
             #expect(PersonCandidates.propose(tree: tree).map(\.name) == first)
@@ -151,11 +151,11 @@ import Testing
 
     /// Each proposal carries the parents that justify it, which is what the dialog shows.
     @Test func aProposalCarriesItsEvidence() throws {
-        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Aditi", "People/Aditi"]))
-        let aditi = try #require(proposals.first)
-        #expect(aditi.parents == ["Family", "People"])
-        #expect(aditi.folderCount == 2)
-        #expect(aditi.householdParents == 2)
+        let proposals = PersonCandidates.propose(tree: Self.tree(["Family/Daughter", "People/Daughter"]))
+        let daughter = try #require(proposals.first)
+        #expect(daughter.parents == ["Family", "People"])
+        #expect(daughter.folderCount == 2)
+        #expect(daughter.householdParents == 2)
     }
 
     /// The three sort keys, in the order the documentation now claims — **and the `- Returns:` line

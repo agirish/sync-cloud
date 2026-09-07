@@ -22,7 +22,7 @@ import Testing
     /// What the in-app survey can produce: paths and counts, no `naming`, no `anchors`, no axes.
     /// Deliberately unlike the hand-built fixture below in every visible field, so "the file did
     /// not change" and "the file changed to this" can never be confused.
-    private static func nameOnly(id: String = "abhishek",
+    private static func nameOnly(id: String = "father",
                                  root: String = "~/Documents",
                                  builtBy: String? = nil) -> FolderProfile {
         FolderProfile(
@@ -79,9 +79,9 @@ import Testing
 
         let written = try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir,
                                                           now: Date(timeIntervalSince1970: 1_754_000_000))
-        #expect(written == FilingProfileStore.profileURL(id: "abhishek", in: dir))
+        #expect(written == FilingProfileStore.profileURL(id: "father", in: dir))
 
-        let read = try #require(FilingProfileStore.profile(id: "abhishek", in: dir))
+        let read = try #require(FilingProfileStore.profile(id: "father", in: dir))
         // Every field, including the empty person axis — and the `builtBy` the store stamps, which
         // the input did not carry. **The round trip is deliberately not identity**: that header is
         // what makes the profile the app's own to replace later, so a read that came back equal to
@@ -107,19 +107,19 @@ import Testing
     }
 
     /// A person axis survives the round trip, aliases included — the pairing that makes
-    /// `Family/Mom` and `Muktha` one person rather than two.
+    /// `Family/Mom` and `Granny` one person rather than two.
     @Test func thePersonAxisRoundTrips() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let profile = FolderProfile(profileId: "abhishek", root: "~/Documents",
+        let profile = FolderProfile(profileId: "father", root: "~/Documents",
                                     folders: Self.nameOnly().folders,
-                                    personTokens: ["abhishek", "shweta", "mom", "muktha"],
-                                    personAliases: ["mom": "muktha"])
+                                    personTokens: ["father", "mother", "mom", "granny"],
+                                    personAliases: ["mom": "granny"])
         try FilingProfileStore.writeProfile(profile, in: dir)
 
-        let read = try #require(FilingProfileStore.profile(id: "abhishek", in: dir))
-        #expect(read.personTokens == ["abhishek", "shweta", "mom", "muktha"])
-        #expect(read.personAliases["mom"] == "muktha")
+        let read = try #require(FilingProfileStore.profile(id: "father", in: dir))
+        #expect(read.personTokens == ["father", "mother", "mom", "granny"])
+        #expect(read.personAliases["mom"] == "granny")
         #expect(read == FolderProfile(profileId: profile.profileId, root: profile.root,
                                       folders: profile.folders, personTokens: profile.personTokens,
                                       personAliases: profile.personAliases, builtBy: read.builtBy))
@@ -159,11 +159,11 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         try FilingProfileStoreTests.makeProfiles(dir, profile: FilingProfileStoreTests.profileJSON,
                                                  memory: nil)
-        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
+        let url = FilingProfileStore.profileURL(id: "father", in: dir)
         let before = try Data(contentsOf: url)
         let indexBefore = try Data(contentsOf: FilingProfileStore.indexURL(in: dir))
 
-        #expect(throws: FilingProfileStore.WriteRefusal.profileExists(id: "abhishek")) {
+        #expect(throws: FilingProfileStore.WriteRefusal.profileExists(id: "father")) {
             try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
         }
 
@@ -172,10 +172,10 @@ import Testing
 
         // And what reads back is still the hand-built one — the survey's three folders are not
         // there, the surveyed anchors and person axis are.
-        let read = try #require(FilingProfileStore.profile(id: "abhishek", in: dir))
+        let read = try #require(FilingProfileStore.profile(id: "father", in: dir))
         #expect(read.folders["Finance/US/Income Tax/2023"]?.anchors == ["income", "tax"])
         #expect(read.folders["Finance/Receipts"] == nil)
-        #expect(read.personAliases["mom"] == "muktha")
+        #expect(read.personAliases["mom"] == "granny")
     }
 
     /// An id that cannot name a directory is refused before anything is written, rather than
@@ -217,7 +217,7 @@ import Testing
             try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
         }
         #expect(try Data(contentsOf: index) == before)
-        #expect(FilingProfileStore.profile(id: "abhishek", in: dir) == nil,
+        #expect(FilingProfileStore.profile(id: "father", in: dir) == nil,
                 "no profile may be left behind by a refused write")
     }
 
@@ -236,10 +236,10 @@ import Testing
         try FilingProfileStore.writeProfile(Self.nameOnly(id: "second", root: "~/Work"), in: dir)
 
         #expect(try Data(contentsOf: index) == before, "profiles.json was rewritten")
-        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek")
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "father")
         // The second profile is on disk and readable — additive, exactly as the id keying intends.
         #expect(FilingProfileStore.profile(id: "second", in: dir)?.root == "~/Work")
-        #expect(FilingProfileStore.active(in: dir)?.profile.profileId == "abhishek")
+        #expect(FilingProfileStore.active(in: dir)?.profile.profileId == "father")
     }
 
     /// When nothing is active the index is **amended, not replaced**: an entry the user or the
@@ -282,10 +282,10 @@ import Testing
     @Test func theProfileIsWrittenAtomically() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("abhishek"),
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("father"),
                                                 withIntermediateDirectories: true)
-        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
-        let target = dir.appendingPathComponent("abhishek/somewhere-else.json")
+        let url = FilingProfileStore.profileURL(id: "father", in: dir)
+        let target = dir.appendingPathComponent("father/somewhere-else.json")
         try FileManager.default.createSymbolicLink(atPath: url.path, withDestinationPath: target.path)
         // A dangling link is not an existing profile, so the never-overwrite guard does not fire
         // here and this test measures atomicity rather than refusal.
@@ -297,7 +297,7 @@ import Testing
         #expect(type == .typeRegular, "the write followed a symlink — it was not atomic")
         #expect(!FileManager.default.fileExists(atPath: target.path),
                 "the link's target was created, so the bytes went through the link")
-        #expect(FilingProfileStore.profile(id: "abhishek", in: dir) != nil)
+        #expect(FilingProfileStore.profile(id: "father", in: dir) != nil)
     }
 
     // MARK: - An index this cannot fully read is refused, not amended
@@ -341,7 +341,7 @@ import Testing
         #expect(try Data(contentsOf: FilingProfileStore.indexURL(in: dir)) == before,
                 "profiles.json was rewritten — an index this cannot read is still the user's")
         #expect(!FileManager.default.fileExists(
-            atPath: FilingProfileStore.profileURL(id: "abhishek", in: dir).path),
+            atPath: FilingProfileStore.profileURL(id: "father", in: dir).path),
                 "the profile landed even though the index was refused")
     }
 
@@ -387,7 +387,7 @@ import Testing
         let type = try FileManager.default.attributesOfItem(atPath: index.path)[.type] as? FileAttributeType
         #expect(type == .typeSymbolicLink, "the symlink was replaced by a freshly composed index")
         #expect(!FileManager.default.fileExists(
-            atPath: FilingProfileStore.profileURL(id: "abhishek", in: dir).path),
+            atPath: FilingProfileStore.profileURL(id: "father", in: dir).path),
                 "the profile landed even though the index was refused")
     }
 
@@ -395,7 +395,7 @@ import Testing
     ///
     /// The write path refuses to re-point an index that already names an active profile, which is
     /// right — but it took the *name* as proof. A hand-edit as small as a trailing space makes every
-    /// read load nothing (`profiles/abhishek /folder-profile.json` does not exist) while the writer
+    /// read load nothing (`profiles/father /folder-profile.json` does not exist) while the writer
     /// saw a non-empty string and declined to re-point for ever after: the bootstrap was dead and
     /// every call still reported success. A dangling pointer is not an answer, so "active" now asks
     /// the filesystem.
@@ -404,15 +404,15 @@ import Testing
     /// "no profile" — an empty component collapses in `appendingPathComponent`, so it addresses
     /// `profiles/folder-profile.json`, a layout that can genuinely exist. Asking whether the file is
     /// there answers both without guessing which ids are meaningful.
-    @Test(arguments: ["abhishek ", "", "never-surveyed"])
+    @Test(arguments: ["father ", "", "never-surveyed"])
     func anIndexNamingAProfileThatIsNotThereIsRePointed(id: String) throws {
         let (dir, _) = try Self.withIndex(#"{"schemaVersion": 1, "activeProfileId": "\#(id)"}"#)
         defer { try? FileManager.default.removeItem(at: dir) }
 
         try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
-        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek",
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "father",
                 "the index still names a profile that does not exist, so nothing can load")
-        #expect(FilingProfileStore.active(in: dir)?.profile.profileId == "abhishek")
+        #expect(FilingProfileStore.active(in: dir)?.profile.profileId == "father")
     }
 
     /// The other half of that rule, and the one that must not regress: an id naming a profile that
@@ -428,7 +428,7 @@ import Testing
         try FilingProfileStore.writeProfile(Self.nameOnly(id: "second", root: "~/Work"), in: dir)
 
         #expect(try Data(contentsOf: FilingProfileStore.indexURL(in: dir)) == before)
-        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek")
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "father")
     }
 
     /// The control for both refusals above: an index this *can* read, with nothing active, really is
@@ -443,10 +443,10 @@ import Testing
 
         let data = try Data(contentsOf: FilingProfileStore.indexURL(in: dir))
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(object["activeProfileId"] as? String == "abhishek")
+        #expect(object["activeProfileId"] as? String == "father")
         #expect(object["note"] as? String == "kept", "an unrelated field was dropped")
         let listed = try #require(object["profiles"] as? [[String: Any]])
-        #expect(listed.compactMap { $0["profileId"] as? String }.sorted() == ["abhishek", "older"],
+        #expect(listed.compactMap { $0["profileId"] as? String }.sorted() == ["father", "older"],
                 "the profile the index already named was not preserved")
     }
 
@@ -465,7 +465,7 @@ import Testing
     @Test func anIndexThatAlreadyListsTheProfileDoesNotGainASecondEntry() throws {
         let (dir, _) = try Self.withIndex(#"""
         {"schemaVersion": 1,
-         "profiles": [{"profileId": "abhishek", "root": "~/Old", "displayName": "Hand built"}]}
+         "profiles": [{"profileId": "father", "root": "~/Old", "displayName": "Hand built"}]}
         """#)
         defer { try? FileManager.default.removeItem(at: dir) }
         // Listed but not on disk, and nothing named active — so the write is allowed and reaches
@@ -477,10 +477,10 @@ import Testing
         let object = try #require(try JSONSerialization
             .jsonObject(with: Data(contentsOf: FilingProfileStore.indexURL(in: dir)))
             as? [String: Any])
-        #expect(object["activeProfileId"] as? String == "abhishek",
+        #expect(object["activeProfileId"] as? String == "father",
                 "the index was not pointed at the profile just written")
         let profiles = try #require(object["profiles"] as? [[String: Any]])
-        #expect(profiles.count == 1, "the index gained a duplicate entry for abhishek")
+        #expect(profiles.count == 1, "the index gained a duplicate entry for father")
         #expect(profiles.first?["displayName"] as? String == "Hand built",
                 "the entry already listed was replaced rather than left alone")
         #expect(profiles.first?["root"] as? String == "~/Old")
@@ -509,14 +509,14 @@ import Testing
 
         try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
 
-        #expect(FilingProfileStore.profile(id: "abhishek", in: dir) != nil,
+        #expect(FilingProfileStore.profile(id: "father", in: dir) != nil,
                 "the profile was not written")
-        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek")
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "father")
         let object = try #require(try JSONSerialization
             .jsonObject(with: Data(contentsOf: FilingProfileStore.indexURL(in: dir)))
             as? [String: Any])
         let profiles = try #require(object["profiles"] as? [[String: Any]])
-        #expect(profiles.compactMap { $0["profileId"] as? String } == ["abhishek"],
+        #expect(profiles.compactMap { $0["profileId"] as? String } == ["father"],
                 "the amended index does not list the profile it now names")
     }
 
@@ -561,22 +561,22 @@ import Testing
     }
 
     private static let deterministicFolders = [
-        "Work", "Photos", "Finance", "Finance/TODO", "Health/Aditi", "Travel", "Health",
+        "Work", "Photos", "Finance", "Finance/TODO", "Health/Daughter", "Travel", "Health",
         "Finance/Receipts"
     ].map {
         FolderProfileEntry(path: $0, role: nil, naming: nil, anchors: [], acceptsNewFiles: nil,
                            fileCount: 1, subfolderCount: 0, axes: [:])
     }
 
-    private static let deterministicPeople = ["shweta", "abhishek", "aditi", "muktha", "girish"]
+    private static let deterministicPeople = ["mother", "father", "daughter", "granny", "elder"]
 
     private static func writeDeterministic(folders: [String: FolderProfileEntry],
                                            people: Set<String>) throws -> Data {
         let dir = scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let profile = FolderProfile(profileId: "abhishek", root: "~/Documents", folders: folders,
+        let profile = FolderProfile(profileId: "father", root: "~/Documents", folders: folders,
                                     personTokens: people,
-                                    personAliases: ["mom": "muktha", "dad": "girish"])
+                                    personAliases: ["mom": "granny", "dad": "elder"])
         return try Data(contentsOf: FilingProfileStore.writeProfile(
             profile, in: dir, now: Date(timeIntervalSince1970: 1_754_000_000)))
     }
@@ -624,14 +624,14 @@ import Testing
 
         let entries = try #require(object["folders"] as? [[String: Any]])
         #expect(entries.compactMap { $0["path"] as? String }
-                == ["Finance", "Finance/Receipts", "Finance/TODO", "Health", "Health/Aditi",
+                == ["Finance", "Finance/Receipts", "Finance/TODO", "Health", "Health/Daughter",
                     "Photos", "Travel", "Work"],
                 "the folders array is in the dictionary's bucket order, not sorted by path")
 
         let axes = try #require(object["axes"] as? [String: Any])
         let person = try #require(axes["person"] as? [String: Any])
         #expect(person["values"] as? [String]
-                == ["abhishek", "aditi", "girish", "muktha", "shweta"],
+                == ["daughter", "elder", "father", "granny", "mother"],
                 "the person axis is in the set's bucket order, not sorted")
 
         // `.sortedKeys`, read as first-occurrence offsets: each of these spellings appears exactly
@@ -671,10 +671,10 @@ import Testing
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
+        let url = FilingProfileStore.profileURL(id: "father", in: dir)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        let bytes = Data(#"{"profileId":"abhishek"}"#.utf8)
+        let bytes = Data(#"{"profileId":"father"}"#.utf8)
         let unwritable = dir.appendingPathComponent("no-such-dir/profiles.json")
 
         #expect(throws: (any Error).self) {
@@ -704,7 +704,7 @@ import Testing
     @Test func theRollbackLeavesAProfileItDidNotWrite() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
+        let url = FilingProfileStore.profileURL(id: "father", in: dir)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
         let theirs = Data(#"{"profileId":"someone-else"}"#.utf8)
@@ -833,7 +833,7 @@ import Testing
     @Test func theRollbackRemovesTheProfileItDidWrite() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let url = FilingProfileStore.profileURL(id: "abhishek", in: dir)
+        let url = FilingProfileStore.profileURL(id: "father", in: dir)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
 
@@ -876,13 +876,13 @@ import Testing
             #expect(!Self.isNilValue(child.value), "fixture leaves \(child.label ?? "?") nil, so it proves nothing about that field")
         }
 
-        let profile = FolderProfile(profileId: "abhishek", root: "~/Documents",
+        let profile = FolderProfile(profileId: "father", root: "~/Documents",
                                     folders: ["Finance": full], personTokens: [], personAliases: [:])
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
         try FilingProfileStore.writeProfile(profile, in: dir)
 
-        let data = try Data(contentsOf: FilingProfileStore.profileURL(id: "abhishek", in: dir))
+        let data = try Data(contentsOf: FilingProfileStore.profileURL(id: "father", in: dir))
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let entries = try #require(object["folders"] as? [[String: Any]])
         let written = Set(try #require(entries.first).keys)
@@ -893,7 +893,7 @@ import Testing
 
         // **Presence is not enough.** An encoder writing `[]` for `anchors` or `0` for `fileCount`
         // keeps every key and loses the data, so the entry is read back and compared whole.
-        let read = try #require(FilingProfileStore.profile(id: "abhishek", in: dir))
+        let read = try #require(FilingProfileStore.profile(id: "father", in: dir))
         #expect(read.folders["Finance"] == full, "a field was written but with the wrong value")
     }
 
@@ -916,7 +916,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         try FilingProfileStore.writeProfile(Self.nameOnly(), in: dir)
 
-        let data = try Data(contentsOf: FilingProfileStore.profileURL(id: "abhishek", in: dir))
+        let data = try Data(contentsOf: FilingProfileStore.profileURL(id: "father", in: dir))
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let note = try #require(object["note"] as? String)
         #expect(!note.contains("left empty rather than guessed"),

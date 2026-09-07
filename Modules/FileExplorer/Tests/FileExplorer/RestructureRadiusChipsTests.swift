@@ -48,7 +48,7 @@ import Testing
     /// own clause, and the chips are supposed to be that sentence's numbers.
     @Test func aWholeFolderCarryIsCarriedNotRenamed() {
         let manifest = Self.manifest([
-            .init(action: .moveDir, src: "Work/Badge", dst: "Work/MapR/Badge",
+            .init(action: .moveDir, src: "Work/Badge", dst: "Work/Acme/Badge",
                   filesCarried: 7, movesWholeFolder: true),
         ])
         let info = LensWorkspaceView.plannedInfo(of: manifest)

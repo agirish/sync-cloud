@@ -15,20 +15,20 @@ import Sync
 
     private var discovered: [CloudProvider] {
         [provider("icloud", "iCloud Drive"), provider("dropbox", "Dropbox"),
-         provider("drive-hpe", "Drive"), provider("onedrive", "OneDrive")]
+         provider("drive-emp", "Drive"), provider("onedrive", "OneDrive")]
     }
 
     /// No stored order — every install before the first drag — is discovery order, untouched.
     /// This is what makes the feature safe without a migration or a seed.
     @Test func anEmptyOrderLeavesDiscoveryOrderAlone() {
         #expect(SettingsManager.inUserOrder(discovered, order: []).map(\.id)
-                == ["icloud", "dropbox", "drive-hpe", "onedrive"])
+                == ["icloud", "dropbox", "drive-emp", "onedrive"])
     }
 
     @Test func theStoredOrderWins() {
         let out = SettingsManager.inUserOrder(
-            discovered, order: ["onedrive", "drive-hpe", "dropbox", "icloud"])
-        #expect(out.map(\.id) == ["onedrive", "drive-hpe", "dropbox", "icloud"])
+            discovered, order: ["onedrive", "drive-emp", "dropbox", "icloud"])
+        #expect(out.map(\.id) == ["onedrive", "drive-emp", "dropbox", "icloud"])
     }
 
     /// **A newly connected account appends** rather than jumping to the front. A sort that gave
@@ -36,14 +36,14 @@ import Sync
     /// user would least expect a source they did not add on purpose.
     @Test func anAccountTheOrderHasNeverSeenGoesToTheEnd() {
         let out = SettingsManager.inUserOrder(discovered, order: ["onedrive", "icloud"])
-        #expect(out.map(\.id) == ["onedrive", "icloud", "dropbox", "drive-hpe"])
+        #expect(out.map(\.id) == ["onedrive", "icloud", "dropbox", "drive-emp"])
     }
 
     /// An id naming a source that is gone — an account signed out, a folder source removed — is
     /// ignored rather than leaving a hole.
     @Test func aStaleIdInTheOrderIsIgnored() {
         let out = SettingsManager.inUserOrder(discovered, order: ["ghost", "dropbox"])
-        #expect(out.map(\.id) == ["dropbox", "icloud", "drive-hpe", "onedrive"])
+        #expect(out.map(\.id) == ["dropbox", "icloud", "drive-emp", "onedrive"])
     }
 
     /// **The unnamed tail keeps a stable order between launches.** Swift's sort is not stable, so a
@@ -53,7 +53,7 @@ import Sync
         let answers = Set((0..<40).map { _ in
             SettingsManager.inUserOrder(discovered, order: ["onedrive"]).map(\.id).joined(separator: ">")
         })
-        #expect(answers == ["onedrive>icloud>dropbox>drive-hpe"],
+        #expect(answers == ["onedrive>icloud>dropbox>drive-emp"],
                 "the unnamed tail varies between runs: \(answers)")
     }
 
@@ -61,7 +61,7 @@ import Sync
     /// answer that keeps the output the same length as the input.
     @Test func aDuplicatedIdIsTolerated() {
         let out = SettingsManager.inUserOrder(discovered, order: ["dropbox", "dropbox", "icloud"])
-        #expect(out.map(\.id) == ["dropbox", "icloud", "drive-hpe", "onedrive"])
+        #expect(out.map(\.id) == ["dropbox", "icloud", "drive-emp", "onedrive"])
         #expect(out.count == discovered.count)
     }
 

@@ -37,7 +37,7 @@ import Foundation
         let plans = [
             plan("Finance/IN/SBI/2019", steps: [step(.tidied)]),
             plan("Finance/IN/SBI/2020", steps: [step(.tidied)]),
-            plan("Scans/Aditi", steps: [step(.placed)]),
+            plan("Scans/Daughter", steps: [step(.placed)]),
             plan("Health/Records", steps: [], skips: [RenameSkip(path: "/y", fileName: "y", reason: "r")]),
         ]
         let sections = RenameCategories.sections(plans)

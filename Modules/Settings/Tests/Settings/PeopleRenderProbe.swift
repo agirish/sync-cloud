@@ -17,26 +17,26 @@ import Testing
 struct PeopleRenderProbe {
 
     static func roster() -> [Person] {
-        [Person(id: "abhishek", displayName: "Abhishek", relationship: "me",
-                fullNames: ["Abhishek Girish"]),
-         Person(id: "aditi", displayName: "Aditi", relationship: "daughter",
-                fullNames: ["Aditi Abhishek"]),
-         Person(id: "anuraag", displayName: "Anuraag", relationship: "brother",
-                fullNames: ["Anuraag Girish"]),
-         Person(id: "divit", displayName: "Divit", relationship: "son",
-                fullNames: ["Divit Abhishek"]),
-         Person(id: "girish", displayName: "Girish", relationship: "father",
-                fullNames: ["Girish Krishnamurthy"], aliases: ["Dad", "Father"]),
-         Person(id: "muktha", displayName: "Muktha", relationship: "mother",
-                fullNames: ["Muktha Girish"], aliases: ["Mom", "Mother"]),
-         Person(id: "shweta", displayName: "Shweta", relationship: "wife",
-                fullNames: ["Shweta Dani", "Shweta Ravindra Dani", "Shweta R Dani",
-                            "Shweta Abhishek"]),
+        [Person(id: "father", displayName: "Father", relationship: "me",
+                fullNames: ["Father Elder"]),
+         Person(id: "daughter", displayName: "Daughter", relationship: "daughter",
+                fullNames: ["Daughter Father"]),
+         Person(id: "uncle", displayName: "Uncle", relationship: "brother",
+                fullNames: ["Uncle Elder"]),
+         Person(id: "son", displayName: "Son", relationship: "son",
+                fullNames: ["Son Father"]),
+         Person(id: "elder", displayName: "Elder", relationship: "father",
+                fullNames: ["Elder Forebear"], aliases: ["Dad", "Grandad"]),
+         Person(id: "granny", displayName: "Granny", relationship: "mother",
+                fullNames: ["Granny Elder"], aliases: ["Mom", "Mother"]),
+         Person(id: "mother", displayName: "Mother", relationship: "wife",
+                fullNames: ["Mother Maiden", "Mother Inlaw Maiden", "Mother I Maiden",
+                            "Mother Father"]),
          // Just added, no full name yet, and their only word is somebody else's surname — the one
          // state the amber line is for. Included so the render PROVES that line can appear; the
          // first pass tinted all seven rows amber and the fix could otherwise have removed it
          // entirely without the picture changing.
-         Person(id: "girish-2", displayName: "Girish")]
+         Person(id: "elder-2", displayName: "Elder")]
     }
 
     /// A profile giving each person folders and filed documents, so the rows carry the numbers a
@@ -45,11 +45,11 @@ struct PeopleRenderProbe {
         var folders: [String: FolderProfileEntry] = [:]
         var memory: [String: FilingMemoryEntry] = [:]
         let plan: [(String, String, Int)] = [
-            ("Immigration/OCI/Aditi", "Aditi", 6), ("School/Aditi", "Aditi", 24),
-            ("Immigration/OCI/Divit", "Divit", 5), ("School/Divit", "Divit", 18),
-            ("Family/Mom", "Mom", 12), ("Immigration/Passport/Muktha", "Muktha", 4),
-            ("Family/Dad", "Dad", 9), ("Family/Anuraag", "Anuraag", 25),
-            ("Work/Shweta", "Shweta", 31), ("Finance/US/Credit Accounts/Abhishek", "Abhishek", 88),
+            ("Immigration/OCI/Daughter", "Daughter", 6), ("School/Daughter", "Daughter", 24),
+            ("Immigration/OCI/Son", "Son", 5), ("School/Son", "Son", 18),
+            ("Family/Mom", "Mom", 12), ("Immigration/Passport/Granny", "Granny", 4),
+            ("Family/Dad", "Dad", 9), ("Family/Uncle", "Uncle", 25),
+            ("Work/Mother", "Mother", 31), ("Finance/US/Credit Accounts/Father", "Father", 88),
             // Somebody the tree files for who is NOT on the roster — the gap the overview exists
             // to surface. Included so the render proves that path draws; on the real tree there
             // are none, so a fixture without one could never show it.
@@ -62,9 +62,9 @@ struct PeopleRenderProbe {
             memory[path] = FilingMemoryEntry(docs: docs, anchors: [], idHashes: [])
         }
         let profile = FolderProfile(profileId: "t", root: "~", folders: folders,
-                                    personTokens: ["aditi", "divit", "mom", "muktha", "dad",
-                                                   "girish", "anuraag", "shweta", "abhishek"],
-                                    personAliases: ["mom": "muktha", "dad": "girish"])
+                                    personTokens: ["daughter", "son", "mom", "granny", "dad",
+                                                   "elder", "uncle", "mother", "father"],
+                                    personAliases: ["mom": "granny", "dad": "elder"])
         return (profile, FilingMemory(profileId: "t", salt: "s", folders: memory))
     }
 
@@ -101,9 +101,9 @@ struct PeopleRenderProbe {
         let width = SettingsSheetMetrics.contentWidth(textScale: 1)
 
         let log = PersonVetoLog(userDefaults: Self.scratchDefaults())
-        log.record(PersonVetoEvent(namedPerson: "aditi", proposedPerson: "divit",
-                                   fileName: "Aditi OCI.pdf",
-                                   destination: "Immigration/OCI/Divit",
+        log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",
+                                   fileName: "Daughter OCI.pdf",
+                                   destination: "Immigration/OCI/Son",
                                    at: Date(timeIntervalSince1970: 1_786_000_000)))
         try write(
             VStack(alignment: .leading, spacing: 8) {
@@ -120,7 +120,7 @@ struct PeopleRenderProbe {
                 // An `onShowPerson` so the render carries "Show Their Files" — the app wires
                 // one; a nil here would render the row as tests see it, not as users do.
                 PeopleList(store: store, profile: profile, memory: memory, vetoLog: log,
-                           onShowPerson: { _ in }, initiallyExpanded: ["aditi", "girish-2"])
+                           onShowPerson: { _ in }, initiallyExpanded: ["daughter", "elder-2"])
             }
             .padding(16),
             size: CGSize(width: width, height: 0), name: "people-section-open")
@@ -129,7 +129,7 @@ struct PeopleRenderProbe {
         // because `move` latches `orderIsCustom` for the life of the one it is called on and every
         // render above is of a list nobody has arranged.
         let moved = PeopleStore(people: Self.roster())
-        moved.move(id: "anuraag", up: true)
+        moved.move(id: "uncle", up: true)
         try write(
             VStack(alignment: .leading, spacing: 8) {
                 PeopleList(store: moved, profile: profile, memory: memory, vetoLog: log,
@@ -139,12 +139,12 @@ struct PeopleRenderProbe {
             size: CGSize(width: width, height: 0), name: "people-section-custom-order")
 
         // The suggestion the learning sweep produces — the surface nobody has looked at yet.
-        let suggestion = PersonNameSuggestion(personId: "muktha", form: "Muktha Girish",
+        let suggestion = PersonNameSuggestion(personId: "granny", form: "Granny Elder",
                                               occurrences: 7,
-                                              exampleFile: "Muktha Girish - Resume, 2017.pdf")
+                                              exampleFile: "Granny Elder - Resume, 2017.pdf")
         try write(
             VStack(alignment: .leading, spacing: 8) {
-                PersonSuggestionRow(suggestion: suggestion, personName: "Muktha",
+                PersonSuggestionRow(suggestion: suggestion, personName: "Granny",
                                     onAccept: {}, onDismiss: {})
             }
             .padding(16),
@@ -159,7 +159,7 @@ struct PeopleRenderProbe {
         try write(
             VStack(alignment: .leading, spacing: 14) {
                 PeopleTester(registry: store.registry, factsById: facts,
-                             initialText: "Aditi Abhishek - OCI Card.pdf")
+                             initialText: "Daughter Father - OCI Card.pdf")
                 PeopleTester(registry: store.registry, factsById: facts,
                              initialText: "Mom - passport.pdf")
                 PeopleTester(registry: store.registry, factsById: facts,
@@ -171,9 +171,9 @@ struct PeopleRenderProbe {
         // The editor mid-edit: a person whose every word is shared, which is the state the sheet
         // exists to explain.
         try write(
-            PersonEditor(person: Person(id: "aditi", displayName: "Aditi",
+            PersonEditor(person: Person(id: "daughter", displayName: "Daughter",
                                         relationship: "daughter",
-                                        fullNames: ["Aditi Abhishek"]),
+                                        fullNames: ["Daughter Father"]),
                          isNew: false, roster: Self.roster(),
                          onSave: { _ in }, onCancel: {}),
             size: CGSize(width: 480, height: 0), name: "people-editor")

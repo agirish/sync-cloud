@@ -2951,12 +2951,12 @@ import Sync
     @Test func twoSourcesLandingOnTheSameFolderNameAreQualifiedByTheirSource() {
         let items = PaneTabChips.items(
             list(["My Drive", "My Drive"], selected: 0,
-                 providers: ["gdrive-personal", "gdrive-hpe"]),
+                 providers: ["gdrive-personal", "gdrive-emp"]),
             liveProviderId: "gdrive-personal", livePath: "My Drive", drawsColumns: true,
             source: { id in self.drive(id == "gdrive-personal" ? "Google Drive (Personal)"
-                                                              : "Google Drive (HPE)") })
+                                                              : "Google Drive (EMP)") })
         #expect(items[0].title == "My Drive — Google Drive (Personal)")
-        #expect(items[1].title == "My Drive — Google Drive (HPE)")
+        #expect(items[1].title == "My Drive — Google Drive (EMP)")
     }
 
     /// **A strip with no collision is left exactly as it was.**

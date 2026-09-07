@@ -19,7 +19,7 @@ import Testing
         let entries = roles.enumerated().map { i, role in
             """
             {"path":"F\(i)","role":\(role),"naming":null,"anchors":["a"],"acceptsNewFiles":null,
-             "fileCount":\(i + 1),"subfolderCount":0,"axes":{"person":"Aditi"}}
+             "fileCount":\(i + 1),"subfolderCount":0,"axes":{"person":"Daughter"}}
             """
         }.joined(separator: ",")
         return Data("""
@@ -42,7 +42,7 @@ import Testing
         // ...and it keeps every field this build DOES understand.
         #expect(unknown.fileCount == 2)
         #expect(unknown.anchors == ["a"])
-        #expect(unknown.axes["person"] == "Aditi")
+        #expect(unknown.axes["person"] == "Daughter")
     }
 
     /// The count and the string are carried out, because a folder silently demoted to "no role"
@@ -88,10 +88,10 @@ import Testing
     @Test func thePersonAxisSurvivesTheNewFolderDecode() throws {
         let data = Data("""
         {"profileId":"p","root":"~","folders":[],
-         "axes":{"person":{"values":["Muktha"],"aliases":{"Mom":"Muktha"}}}}
+         "axes":{"person":{"values":["Granny"],"aliases":{"Mom":"Granny"}}}}
         """.utf8)
         let profile = try JSONDecoder().decode(FolderProfile.self, from: data)
-        #expect(profile.personTokens.contains("muktha"))
-        #expect(profile.personAliases["mom"] == "muktha")
+        #expect(profile.personTokens.contains("granny"))
+        #expect(profile.personAliases["mom"] == "granny")
     }
 }

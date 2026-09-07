@@ -951,7 +951,7 @@ public enum FilingEngine {
     /// and drops deep leaves; on a real 5,012-folder tree the cut lands at depth 3, so a visa foil
     /// belonging in `Immigration/Visa/US/H-1B Visa/2024-2026` (1,344th by that order) was never in
     /// the prompt at all — nor was any folder under `Visa/US`. The model picked the best of what it
-    /// could see, `Immigration/Form I-94/Abhishek` at 205th, and wrote a confident sentence about a
+    /// could see, `Immigration/Form I-94/Father` at 205th, and wrote a confident sentence about a
     /// name match that does not exist. It was not wrong about the folders it was shown; it was
     /// shown the wrong folders.
     ///
@@ -1019,7 +1019,7 @@ public enum FilingEngine {
     /// verdict for one of those must not demote a home the router derived from that very text: the
     /// model answered from strictly less information, and the confidence it reports is its own
     /// opinion of a guess. A visa foil went out as a bare filename and came back `High` for
-    /// `Immigration/Form I-94/Abhishek`, which outranked the `Medium` the router had earned by
+    /// `Immigration/Form I-94/Father`, which outranked the `Medium` the router had earned by
     /// reading `CHENNAI (MADRAS) … Visa Type/Class R H1B` off page 1.
     /// Which of the files handed to the classifier were judged **without their text** — the set
     /// every `contentBlind` rule below is asked about.
@@ -1105,7 +1105,7 @@ public enum FilingEngine {
             // on the reported case: asked where `Payslip_2026-06-15.pdf` belonged, the backend
             // answered `…/Petition/Supporting Documents/pay_statements` at High confidence, four
             // copies of January and February payslips whose originals are the ten files in
-            // `Work/HPE/Compensation/Salary Statements/2026`.
+            // `Work/EMP/Compensation/Salary Statements/2026`.
             //
             // Stated once here rather than by pre-filtering the shortlist, because the shortlist is
             // also what the model is *shown*, and a satellite is a perfectly good answer when its
@@ -1130,9 +1130,9 @@ public enum FilingEngine {
                 : rawDest
             // **A document that names a person does not go in a different person's folder.**
             //
-            // Opus, asked where `Aditi OCI.pdf` belonged, answered
-            // `Immigration/OCI/Divit/Application` — the wrong child, in the wrong person's folder,
-            // while `Immigration/OCI/Aditi` exists, holds `Aditi - eOCI.pdf`, and is what the
+            // Opus, asked where `Daughter OCI.pdf` belonged, answered
+            // `Immigration/OCI/Son/Application` — the wrong child, in the wrong person's folder,
+            // while `Immigration/OCI/Daughter` exists, holds `Daughter - eOCI.pdf`, and is what the
             // router ranked first. Of every error this arc produced, filing one family member's
             // document into another's is the one worth a hard rule: it is the least likely to be
             // noticed and the most annoying to undo.
@@ -1140,16 +1140,16 @@ public enum FilingEngine {
             // Asked of the profile's PERSON AXIS, not of the words in the path. Measured over the
             // 756 corpus documents whose filename names a known person, the gold folder's
             // `axes.person` is a different person for **3** of them (0.40%) — all one baby-shower
-            // folder under `Family/Aditi/Events`. Testing the path text instead would fire on 15,
-            // because `Health/Medical/Travel/Girish - 2021` reads as Girish's folder while the
+            // folder under `Family/Daughter/Events`. Testing the path text instead would fire on 15,
+            // because `Health/Medical/Travel/Elder - 2021` reads as Elder's folder while the
             // profile correctly records it as a trip with no person axis at all.
             //
             // Resolved through the ``PersonRegistry`` when there is one, and the difference is
             // what the registry exists for. The token comparison below it reads `Mom -
-            // passport.pdf` against a folder whose axis says `muktha` as a CONTRADICTION — the
+            // passport.pdf` against a folder whose axis says `granny` as a CONTRADICTION — the
             // veto fired against the correct folder, because the flattened token set knew both
             // words but not that they are one person. The registry also matches names as phrases,
-            // so `Aditi Abhishek - OCI.pdf` names Aditi alone rather than Aditi-and-her-father.
+            // so `Daughter Father - OCI.pdf` names Daughter alone rather than Daughter-and-her-father.
             //
             // The filename outranks the page: a filename is the user's own label, a page-1
             // mention is testimony (a sponsor's affidavit prints the sponsor, not the applicant).
@@ -1206,13 +1206,13 @@ public enum FilingEngine {
     /// | …where that home was the folder the user themselves had filed it in | **0** |
     /// | left with no surviving home | **0** |
     ///
-    /// The refusals are the error the rule was written for, at scale: `Muktha Girish - 2015.pdf`
-    /// and six more of Muktha's CVs led with `Family/Girish`, and eighteen of Abhishek's HDFC
+    /// The refusals are the error the rule was written for, at scale: `Granny Elder - 2015.pdf`
+    /// and six more of Granny's CVs led with `Family/Elder`, and eighteen of Father's HDFC
     /// statements led there too — his father's folder, on the strength of the surname.
     ///
     /// One cost is worth stating rather than rounding to zero: three corpus documents *do* sit in a
-    /// folder whose person axis contradicts their filename — `Shweta's Baby Shower.docx` and two
-    /// siblings, under `Family/Aditi/Events/Baby Shower`, which is Aditi's folder and correctly so.
+    /// folder whose person axis contradicts their filename — `Mother's Baby Shower.docx` and two
+    /// siblings, under `Family/Daughter/Events/Baby Shower`, which is Daughter's folder and correctly so.
     /// Nothing suggested that folder for them in the measurement above, so no card actually lost it;
     /// a tree with more folders like it would pay 0.4% of person-named cards for the 19% it protects.
     ///
@@ -1275,25 +1275,25 @@ public enum FilingEngine {
 
     /// **A document that names a person does not go in a different person's folder.**
     ///
-    /// Opus, asked where `Aditi OCI.pdf` belonged, answered `Immigration/OCI/Divit/Application` —
-    /// the wrong child, in the wrong person's folder, while `Immigration/OCI/Aditi` exists, holds
-    /// `Aditi - eOCI.pdf`, and is what the router ranked first. Of every error this arc produced,
+    /// Opus, asked where `Daughter OCI.pdf` belonged, answered `Immigration/OCI/Son/Application` —
+    /// the wrong child, in the wrong person's folder, while `Immigration/OCI/Daughter` exists, holds
+    /// `Daughter - eOCI.pdf`, and is what the router ranked first. Of every error this arc produced,
     /// filing one family member's document into another's is the one worth a hard rule: it is the
     /// least likely to be noticed and the most annoying to undo.
     ///
     /// Asked of the profile's PERSON AXIS, not of the words in the path. Measured over the 756
     /// corpus documents whose filename names a known person, the gold folder's `axes.person` is a
     /// different person for **3** of them (0.40%) — all one baby-shower folder under
-    /// `Family/Aditi/Events`. Testing the path text instead would fire on 15, because
-    /// `Health/Medical/Travel/Girish - 2021` reads as Girish's folder while the profile correctly
+    /// `Family/Daughter/Events`. Testing the path text instead would fire on 15, because
+    /// `Health/Medical/Travel/Elder - 2021` reads as Elder's folder while the profile correctly
     /// records it as a trip with no person axis at all.
     ///
     /// Resolved through the ``PersonRegistry`` when there is one, and the difference is what the
     /// registry exists for. The token comparison below it reads `Mom - passport.pdf` against a
-    /// folder whose axis says `muktha` as a CONTRADICTION — the veto fired against the correct
+    /// folder whose axis says `granny` as a CONTRADICTION — the veto fired against the correct
     /// folder, because the flattened token set knew both words but not that they are one person.
-    /// The registry also matches names as phrases, so `Aditi Abhishek - OCI.pdf` names Aditi alone
-    /// rather than Aditi-and-her-father.
+    /// The registry also matches names as phrases, so `Daughter Father - OCI.pdf` names Daughter alone
+    /// rather than Daughter-and-her-father.
     ///
     /// The filename outranks the page: a filename is the user's own label, a page-1 mention is
     /// testimony (a sponsor's affidavit prints the sponsor, not the applicant). Only a file whose
@@ -1335,12 +1335,12 @@ public enum FilingEngine {
     /// destination it most needed to refuse.** The lookup here was an exact one into
     /// `profile.folders`, and a profile describes the folders that DO exist — so a
     /// `proposesNewFolder: true` destination missed it and returned `nil`, skipping the veto
-    /// entirely. `Immigration/OCI/Divit/Application` missed even while its parent sat in the
-    /// profile carrying `axes.person = Divit`, which is exactly the answer the rule's own doc
-    /// cites Opus giving for `Aditi OCI.pdf`.
+    /// entirely. `Immigration/OCI/Son/Application` missed even while its parent sat in the
+    /// profile carrying `axes.person = Son`, which is exactly the answer the rule's own doc
+    /// cites Opus giving for `Daughter OCI.pdf`.
     ///
-    /// **Nearest ancestor, not outermost**, so a new folder under Aditi's own folder stays hers
-    /// even though Divit's sits beside it under a shared parent. The most specific claim available
+    /// **Nearest ancestor, not outermost**, so a new folder under Daughter's own folder stays hers
+    /// even though Son's sits beside it under a shared parent. The most specific claim available
     /// is the one that describes the destination.
     ///
     /// **Measured against the real corpus before it was written, because widening a refusal risks
@@ -1418,10 +1418,10 @@ public enum FilingEngine {
         }
         // **And not any other file's name either.** The rule above matched only the incoming file,
         // which is the case that was in front of me; the general one is that a path segment
-        // carrying a file extension is a file. Asked where `Divit - eOCI.pdf` goes, the model
-        // answered `Immigration/OCI/Divit/eOCI.pdf` — the name of the PEER document already filed
+        // carrying a file extension is a file. Asked where `Son - eOCI.pdf` goes, the model
+        // answered `Immigration/OCI/Son/eOCI.pdf` — the name of the PEER document already filed
         // there — and the apply path duly created a folder called `eOCI.pdf` and moved the file
-        // into it. Trimming it lands on `Immigration/OCI/Divit`, which is where it belongs and
+        // into it. Trimming it lands on `Immigration/OCI/Son`, which is where it belongs and
         // what the model was reaching for.
         //
         // Only ever applied to a segment that would be CREATED: a folder that already exists is
@@ -1450,7 +1450,7 @@ public enum FilingEngine {
         // answer with a folder that does not exist — that is how a genuinely new destination gets
         // offered — and it now has to SAY so. When it did not, a path that turns out not to exist is
         // a segment the model composed rather than chose, so the existing prefix is the answer and
-        // the rest is dropped. `Immigration/OCI/Divit/eOCI.pdf` becomes `Immigration/OCI/Divit`.
+        // the rest is dropped. `Immigration/OCI/Son/eOCI.pdf` becomes `Immigration/OCI/Son`.
         if !verdict.proposesNewFolder, !newSegments.isEmpty {
             segments.removeLast(newSegments.count)
             newSegments = []

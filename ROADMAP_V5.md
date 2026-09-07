@@ -196,7 +196,7 @@ And two things the plan did not know it needed:
   re-derives that gap on every run rather than quoting it, so nobody unifies them on the
   reasonable-looking grounds that both make tokens out of names.
 - **Jurisdiction values cannot be derived.** The heuristic alone scores **.83**, and the gap is
-  three inventions: it proposes `HPE`, `IT` and `PRD` as *places*. Without its 2–3-character bound
+  three inventions: it proposes `EMP`, `IT` and `PRD` as *places*. Without its 2–3-character bound
   the strongest candidate on this tree is **`TODO`**, under more parents than `US` — the inbox
   marker the whole filing path exists to refuse. So values are **proposed for confirmation, never
   adopted**, which is what puts them in §6's dialog. The rule also **misses**: `Singapore` is a real
@@ -372,13 +372,13 @@ pinned by `StructureDetectorsTests.theReferenceTreeCountsArePinned`:
 
 | Detector | Fires | Notes |
 |---|---|---|
-| **Backlog** | **11** | `Health/Dental/2025`, `Work/HPE/Compensation/Benefits/2026`, `Vehicles`- and account-shaped series, all plausible, all computable from `fileCount` and `subfolderCount`. *(Was 10 in the 08-16 dry-run; the built rule — newest bare year flat with files, at least one older shaped sibling — returns 11.)* **The firing bar and the scaffold bar differ on purpose**: one shaped sibling makes the flatness a finding, but the scaffold copies only a scheme **two** shaped members vouch for, so a lone member's idiosyncrasy (`Benefits/2024/Archive`) never becomes next year's convention — most real backlog cards therefore say *no shared shape to copy* and still hand the files to To File, which the measurement shows is the common case (10 of 11 here). Best value of the set. |
+| **Backlog** | **11** | `Health/Dental/2025`, `Work/EMP/Compensation/Benefits/2026`, `Vehicles`- and account-shaped series, all plausible, all computable from `fileCount` and `subfolderCount`. *(Was 10 in the 08-16 dry-run; the built rule — newest bare year flat with files, at least one older shaped sibling — returns 11.)* **The firing bar and the scaffold bar differ on purpose**: one shaped sibling makes the flatness a finding, but the scaffold copies only a scheme **two** shaped members vouch for, so a lone member's idiosyncrasy (`Benefits/2024/Archive`) never becomes next year's convention — most real backlog cards therefore say *no shared shape to copy* and still hand the files to To File, which the measurement shows is the common case (10 of 11 here). Best value of the set. |
 | **Echo name** | **5** | One kind, two sub-rules, counted together: **4 child-echoes-parent** (`TODO/IRS/IRS`, `ACI/ACI`, `Petition/Petition`, `Amazon/Amazon`) + **1 sibling pair** — the true merge hit, `Form W-2` beside `Form W2` under `Finance/US/Income Tax/2023/Forms`. *(The table used to say 1, counting only the sibling rule.)* **The sibling fix is a merge** — §5.4 defines it — so it lands with a two-row mapping and a plan of one merge, collisions kept both. Until stage two of §5.5 lands, the card offers Export and says Apply is coming, rather than a button that dead-ends. |
 | **Mirrored inbox** | **0** | *(Was 1.)* The clean rule — a folder strictly inside an inbox whose de-inboxed path exists — fires on nothing here: the 6 Aug TODO drain cleared the class. The one candidate, the degenerate `Finance/US/TODO/IRS/IRS`, is a child restating its parent *inside* an inbox — **parent/child echo's observation, and the echo detector names it precisely**; bending the mirror rule to also claim it would fire on a path whose de-inboxed form exists nowhere. So the two-detectors-one-folder overlap this section describes below is now shape × loose-above on `Income Tax`, not mirror × echo. **Build it, validate it on the synthetic fixture, expect zero here.** |
-| **Shadow axis** | **3** | *(Was 5.)* Under the narrow rule — exactly one embedded year, at least one bare-year sibling — the hits are `IRS Docs - 2023`, `IRS Docs - 2024`, and `Travel/…/Florida/2023 (Family)` (whose target year does not exist — a rename, not a merge). The complete candidate set was enumerated on 2026-08-28: everything else beside bare years is a **fiscal span** (`2014-2015` under SBI NRE, Honda payments, MapR benefits), which carries two years and is an era disagreement — the shape detector's business, not a shadow of either year. |
+| **Shadow axis** | **3** | *(Was 5.)* Under the narrow rule — exactly one embedded year, at least one bare-year sibling — the hits are `IRS Docs - 2023`, `IRS Docs - 2024`, and `Travel/…/Florida/2023 (Family)` (whose target year does not exist — a rename, not a merge). The complete candidate set was enumerated on 2026-08-28: everything else beside bare years is a **fiscal span** (`2014-2015` under SBI NRE, Honda payments, Acme benefits), which carries two years and is an era disagreement — the shape detector's business, not a shadow of either year. |
 | **Dead weight** | **86 / 503 / 20** | Pass-through, single-file leaves, and **wholly empty** — unchanged, and now pinned by the fixture test. |
 | **Loose above a series** | **11** | `Finance/US/Investments/Fidelity/Statements` — **22 loose files above 4 year folders** — plus `Finance/US/Credit Reports` (5 above 11), `Finance/US/Income Tax` itself (5 above 14), `Vehicles/FasTrak` (38 above 6). *(Was 10; the built thresholds are ≥3 year folders and ≥4 parked files — swept 2026-08-28: a floor of 1 file returns 38, of 2 returns 20, of 4 returns 11, and at 4 the one-stray-closure-letter hits above closed accounts' archives stop dominating.)* **The second-best detector on this tree after backlog**, and the closest thing here to an everyday one: a statement gets saved to the folder rather than into the year. Its fix is per-file, so it hands off to To File exactly as the scaffold does (§5.2's scaffold) rather than growing an Apply. |
-| **Loose beside a container** | **2** | `School/US/Divit/City Pre-K` beside `Pre-K/`, and `Work/HPE/Products/Cray PE` beside `Cray/`. **Three guards, each killing a measured junk class**: skip names whose tokens are all digits on both sides (`5.2.1` "inside" `5.1.1` — version numbers tokenise into subsets of each other); the loose one must be a **leaf with files** (`H-4 EAD` has four era subfolders and is a parallel family, not a stray); the container must have **subfolders** (`Archive/HDFC Savings` beside a flat `Archive/HDFC` is six accounts sharing a brand word with a pile of loose files, and "move the accounts into the pile" is the finding backwards). The name rule alone fires **38** here; with the shape guards it is 2 for 2. |
+| **Loose beside a container** | **2** | `School/US/Son/City Pre-K` beside `Pre-K/`, and `Work/EMP/Products/Nova PE` beside `Nova/`. **Three guards, each killing a measured junk class**: skip names whose tokens are all digits on both sides (`5.2.1` "inside" `5.1.1` — version numbers tokenise into subsets of each other); the loose one must be a **leaf with files** (`H-4 EAD` has four era subfolders and is a parallel family, not a stray); the container must have **subfolders** (`Archive/HDFC Savings` beside a flat `Archive/HDFC` is six accounts sharing a brand word with a pile of loose files, and "move the accounts into the pile" is the finding backwards). The name rule alone fires **38** here; with the shape guards it is 2 for 2. |
 
 **Two detectors will name the same folder, and the list has to decide which one speaks.** Measured
 (2026-08-28, through the built detectors): `Finance/US/Income Tax` is caught by **shape** *and* by
@@ -419,7 +419,7 @@ second machine.
 **Only sub-classes with a stated rule get an Apply.** The 503 single-file leaves get a number and
 nothing else: a folder can look like debt and be a destination waiting for its next file, and
 nothing in its own shape separates the two. That is the same mistake that had
-`Supporting Documents/Resume` and `Supporting Docs/HPE/Payslips` put back on 6 Aug. **Pass-through
+`Supporting Documents/Resume` and `Supporting Docs/EMP/Payslips` put back on 6 Aug. **Pass-through
 folders (86) are also report-only in 5.0**: hoisting `A/B/…` to `A/…` is a move of everything
 under `B` and a rename of every path in the profile, corpus and memory beneath it, for a defect
 that costs one click in a column view. Say the number, offer the list, offer no button.
@@ -774,14 +774,14 @@ respectively rather than as an item:
 **Held back deliberately, and the reason has now expired.** `ROADMAP.md` 20 kept this one out of the
 set because it must not ship on **name** evidence: matching siblings by their child names is
 dominated by correct parallels on this tree — Vanguard's Roth and Traditional IRAs, four Chase
-accounts each foldered by year, `PFL - Shweta` beside `SDI - Shweta`. **Identical sibling structure
+accounts each foldered by year, `PFL - Mother` beside `SDI - Mother`. **Identical sibling structure
 is usually a sign of health.**
 
-What separates the real case — `Work/Archive/MapR/Compensation/` holding both `Forms/` and
+What separates the real case — `Work/Archive/Acme/Compensation/` holding both `Forms/` and
 `Income Tax/`, each with the same three form folders — is that **the same documents sit in both**.
 That is a content claim, and the evidence for it did not exist when the detector was deferred.
 **It does now:** item 18 shipped the PDF content fingerprint, and its `.sameText` pass already groups
-both halves of the `Form 1095-C` pair across `Work/Archive/MapR/Compensation/Forms/` and
+both halves of the `Form 1095-C` pair across `Work/Archive/Acme/Compensation/Forms/` and
 `Finance/US/Income Tax/2016/Forms/`. `ROADMAP.md` 20 records the unblocking; nothing has been built
 on it.
 
@@ -884,7 +884,7 @@ through `FolderSurveyBuilder`, writes through the store's first-write path and r
 pre-ticked**, and runs the walk on a button. `FilingArtifacts.attach(to:)` was extracted so a profile
 the user just wrote takes effect **without a relaunch**. The measurement that settled the chips is
 worth keeping: used as-is the proposals agree with the hand-built profile on **83.2%** of folders and
-every point of that gap is an invention (`HPE` an employer, `IT` a department, `PRD` a product
+every point of that gap is an invention (`EMP` an employer, `IT` a department, `PRD` a product
 stage); handed only the *confirmed* values the same code is right about **100%**.
 
 **So the sentence this section opened with for eight days is no longer true.** A machine that has
@@ -922,13 +922,13 @@ Asks only what a walk cannot compute, and nothing else:
 - **The jurisdiction values — inferred and confirmed.** `JurisdictionCandidates.propose` supplies
   the list *with its evidence*: the distinct parents each value appears under, and the number of
   folders it would change. The user ticks the real ones. **Nothing is pre-ticked** — the rule is
-  tuned to offer `HPE` rather than to be right about it — and there is a free-text row to **add**
+  tuned to offer `EMP` rather than to be right about it — and there is a free-text row to **add**
   one, because that is the only way `Singapore` can ever be recorded (§4.2).
 
 Fig. 25 is that dialog as a sheet over Organize: the tree at the top and the household under it,
 both stated rather than asked, each with a quiet *Change…* / *Edit…* — they are confirmations of
 what the app already holds. Then the one thing it cannot decide alone, under the heading *Places*:
-the proposals as tick chips, `US` and `IN` ticked and `HPE`, `IT` and `PRD` not, with an *Add…*
+the proposals as tick chips, `US` and `IN` ticked and `EMP`, `IT` and `PRD` not, with an *Add…*
 for the value the rule cannot reach. Pre-ticking is the point — the user is correcting a list, not
 composing one, and the line beneath says what leaving one unticked costs, which is nothing but the
 axis. Two buttons: *Not now*, and *Start in background*, which is the whole bargain in three words.
@@ -1168,7 +1168,7 @@ goes to a branch.
   fixture was cut. The candidate rule probed — a letter-bearing compound name (`X - Y`) whose left
   part is another folder's full name in a different branch — fires 4 times on the tree, and every
   hit is a generic-token false positive (`TODO - May 2025` against three `TODO` inboxes,
-  `Plan - HPE` against `Stock Options/Plan`, `DMV - Abhishek` against `Keys/DMV`). Zero ground
+  `Plan - EMP` against `Stock Options/Plan`, `DMV - Father` against `Keys/DMV`). Zero ground
   truth plus an all-noise candidate means no rule can be designed honestly today: 5.0 ships
   without the Ask detector, exactly the outcome §5.3 sanctioned, and now it loses zero findings
   on this tree rather than one. The `.ask` kind, the store's `answers` section and the identity
