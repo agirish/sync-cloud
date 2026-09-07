@@ -63,7 +63,7 @@ below them is written under these; nothing in them is open.
 | **What ⌘K does once the pill is a field** | **It focuses the field**, identically to clicking it. | One palette, one surface. The 620pt full-window card stops existing rather than living on beside the inline field. The alternative — chord opens the card, click opens the field — is two palettes. |
 | **What the field shows before you type** | **Recents and places, as ⌘K behaves today.** | The list is down on open, which is most of the value. It also makes persisting recents release-gating rather than a nicety — see §3's correction: `recentsByRoot` does not survive a quit today, so the list would be empty on the first open after every launch. |
 | **Whether it collapses on every dismissal** | **Yes.** Escape and click-away both collapse to the 135pt pill and clear the query. | The rule `ExpandingSearchField` already uses everywhere else, so a live query can never hide behind a collapsed control. |
-| **The status bar's chord** | **⌘/ , matching Finder** — `shortcutsReference` gives it up and keeps **no chord at all**. **Not yet acted on: the status bar moved to v4.3 on 2026-08-20, and ⌘/ stays with the reference until it is built.** The decision stands for whenever that is; what it is waiting on is placement, not the chord. | ⌘/ is `shortcutsReference` today (`AppChord.swift:51`). Two replacements were proposed and both are wrong: **⇧⌘/ is ⌘?**, which Help already holds, and **⌥⌘/ is forbidden outright** — see the two notes below. |
+| **The status bar's chord** | ~~**⌘/ , matching Finder** — `shortcutsReference` gives it up and keeps **no chord at all**.~~ **Overtaken 2026-09-07: the bar shipped (roadmap RD6) with NO chord, and ⌘/ stays with the reference.** The decision was never wrong — it was made when the bar was expected to be Finder's window-wide strip. It shipped Browse-only, which changes what the chord would buy: a global key for a switch that is live on one workspace and greyed on three. Weighed against taking ⌘/ off a reference that has since grown to three columns and is the thing a user reaches for *while learning the chords*, no chord won. | ⌘/ is still `shortcutsReference` (`AppChord.swift:81`). The two rejected replacements below stand rejected for their own reasons, which do not depend on this. |
 
 **Why ⇧⌘/ was wrong, and what it costs to have believed it.** ⇧⌘/ **is ⌘?** — shift-slash is the
 question mark — and `SyncCloudApp.swift:596` already binds ⌘? to **Help ▸ SyncCloud Help**, with a
@@ -276,7 +276,7 @@ stands" below was re-read at `c604321e` rather than carried forward.
 
 | Item | Cost | State on `main` |
 |---|---|---|
-| **Status bar** (⌘/) — item count, selection size, cloud-only count, scan freshness | small | Zero `statusBar` hits anywhere. Highest value per point of work. **Deferred to v4.3 on placement.** |
+| ~~**Status bar** (⌘/) — item count, selection size, cloud-only count, scan freshness~~ | small | **Shipped 2026-09-07 as roadmap RD6**, Browse-only and with no chord. All four facts, shedding from the right. The placement question is answered below. |
 | **↩ renames** | — | **Shipped 2026-08-20** (`88d95ed9`) — a pane key handler beside Space, sharing File ▸ Rename's own closure so the two cannot drift. Never a menu equivalent: a bare ↩ there would take the key that commits the destination picker, the ⌘K field and every sheet. |
 | **⌘↑ enclosing folder, ⌘↓ open** | small | **Deferred to v4.3, 2026-08-20 — the chords are free, the meaning is not.** A pane has TWO positions and the two candidates move different ones: `handleFocus` (what the row menu calls "Open") **re-scopes the pane**, while `drill`/`popLast` walk the **column stack** the breadcrumb shows. Pairing them across axes — Open re-scoping while Up pops a column — makes two chords that look like opposites move different things, which is the confusion this codebase already has a history of. Columns is the default mode, so a stack-based pair works where most people are and is dead in Tree; a scope-based pair works in both and resets the breadcrumb rather than walking it. **Decide the axis first; the implementation is small either way.** |
 | **Go to Folder** | small | **Shipped 2026-08-19** — `PalettePath`, no sheet. Cross-source paths refuse and name the source; switching to it is deferred to v4.3, see below. |
@@ -307,14 +307,14 @@ a folder that has since gone — the same three questions the tab strip already 
 
 ### The four small ones
 
-- **A status bar, on ⌘/ — deferred to v4.3, 2026-08-20.** Item count, selection size, cloud-only
-  count, scan freshness. Browse shows none of this: the selection summary lives in the Compare-only
+- **A status bar — shipped 2026-09-07 as roadmap RD6, Browse-only and with no chord.** Item count,
+  selection size, cloud-only count, scan freshness. Browse shows none of this: the selection summary lives in the Compare-only
   floating action bar, so browsing a single tree tells you nothing about what you have selected.
   Two inherited constraints — the View-menu entry is a `Toggle` with a noun and a tick, never a
   Show/Hide pair (`ShortcutCommands.swift:494–535`), and it sheds cleanly down to the 220pt rail
   clamp.
 
-  **What it is deferred ON is placement, and Finder's answer does not transfer.** Finder has one
+  **What it was deferred ON is placement, and Finder's answer does not transfer.** Finder has one
   window and one tree; Compare has two trees, and the window's bottom edge already belongs to the
   Differences list. Three shapes, each with a real cost:
 
@@ -324,16 +324,35 @@ a folder that has since gone — the same three questions the tab strip already 
   | **One window-wide strip** | Finder's literal shape, cheapest in pixels | in Compare it must name the pane it is describing, and it lands on the edge the Differences list owns |
   | **One strip following focus** | one row, no naming problem | the numbers change under you when focus moves, which is the one thing a status bar should not do |
 
-  **Settle this together with §8's one-line pane headers**, which is trying to give vertical room
-  back at exactly the place the per-pane shape would spend it. Deciding either alone is how they
-  end up disagreeing.
+  **Settled together with §8's one-line pane headers, as this said to** — and the answer is a fourth
+  shape none of the three rows names: **the bar exists on Browse and nowhere else.** The one-line
+  headers reached the finding that decides it. Each pane's header already carries that pane's own
+  facts, so in Compare a shared strip is not choosing between three costs — it is choosing which
+  pane to repeat and which to be silent about. Browse has one pane, so the question does not arise
+  there, and a bar that appears where it can be honest beats a bar that appears everywhere and
+  hedges on two thirds of the surfaces. It is built in `browseLayout` rather than in `paneColumn`
+  (the one pane builder Browse, both Compare panes and the lens rail all share), which is what makes
+  the scope structural rather than a flag someone can flip by accident.
 
-  One measured note for whoever builds it: a cloud-only **count** is not free the way the other
-  three are. `SelectionSummary` and `lastScanDate` are already in hand, but
-  `MaterializationStatus.isCloudOnly(atPath:)` answers one path at a time and
-  `CloudOnlyBadgeCache` is a cache of what has been *drawn*, not a total — so a count over a
-  ~40,000-node tree is a walk, not a read. Decide whether the count is worth that before promising
-  it in the bar.
+  **A Compare bar is not ruled out; it is a different design.** It would be per pane, inside each
+  column, and would have to argue with the one-line headers about the same vertical room all over
+  again. Nothing shipped here decides it.
+
+  **The measured note about the cloud-only count held exactly, and the answer was to pay it in the
+  background.** `MaterializationStatus.isCloudOnly(atPath:)` answers one path at a time and
+  `CloudOnlyBadgeCache` is a cache of what has been *drawn*, not a total, so a count over a
+  ~40,000-node tree is a walk. `CloudOnlyCensus` runs that walk off the main actor after the rows
+  are on screen, cancels and restarts on the pane's publish stamp, and the segment reads `—` until
+  it lands rather than a number climbing towards the answer. It writes nothing into the badge memo:
+  a bulk writer landing 40,000 entries would trip that cache's 8,192 capacity wipe and throw away
+  the answers the visible rows are serving from.
+
+  **One thing this entry did not anticipate: `lastScanDate` was the wrong clock.** It is the
+  *comparison* scan's, so on Browse — which runs no comparison — it is either nil or a fact about
+  two folders the user is not looking at. The bar reads a new per-pane stamp (`leftTreeReadAt`) set
+  by the walk that produced the rows, and carried on the prefetch cache entry so a served tree keeps
+  the age of the walk that built it rather than claiming to have been read at the moment it was
+  handed over.
 - **↩ renames.** The one chord people try first in any file list, and today it does nothing.
 - **⌘↑ / ⌘↓ — deferred to v4.3, 2026-08-20.** Back and forward exist as ⌘[ / ⌘], and the
   breadcrumb is clickable, but "up one level" has no key — and back is not the same gesture: it
@@ -888,8 +907,9 @@ two; the row menu should take it.
 
 **v4.2 is a navigation release, and §§3 and 7 are one piece of work rather than two.** The field is
 what makes Go to Folder possible and what makes the recents question urgent; the chords were
-independent of it and of each other. ↩ shipped; ⌘↑/⌘↓ and the status bar are v4.3, each on a
-question rather than on effort — see the v4.3 section below.
+independent of it and of each other. ↩ shipped; ⌘↑/⌘↓ and the status bar were deferred, each on a
+question rather than on effort — see the v4.3 section below. **Both questions are answered now**:
+⌘↑/⌘↓ shipped as RD5, and the status bar as RD6 on 2026-09-07, in v5.3 rather than v4.3.
 
 **The build order.** **Decided 2026-08-19: 1–12 are v4.2; 13–15 become v4.3.** Three of the twelve
 have already shipped, so what is actually left is nine.
@@ -919,8 +939,12 @@ have already shipped, so what is actually left is nine.
    v4.3.** ↩ is a pane key handler beside Space, never a menu equivalent — it outranks the field
    editor and every default button, and Finder does not register it either. **⌘↑/⌘↓ and the status
    bar are deferred with a question each, and neither is a scheduling excuse** — both are recorded
-   in §3 so the next attempt starts from the question rather than from the item. ⌘/ stays with the
-   shortcuts reference for as long as the status bar is not built.
+   in §3 so the next attempt starts from the question rather than from the item. **That worked:
+   both shipped in v5.3 from the recorded question rather than from a re-derivation** — ⌘↑/⌘↓ as
+   RD5, the status bar as RD6 on 2026-09-07. ~~⌘/ stays with the shortcuts reference for as long as
+   the status bar is not built.~~ **⌘/ stays with the reference permanently**: the bar shipped
+   Browse-only and with no chord at all, so the trade the reassignment was for never came due — see
+   the decisions table at the top.
 7. **The polish batch** (§9). Two small items, no dependencies — the two Organize ones moved to
    `ROADMAP_V5.md` §12.
 8. **Title-bar subtitle** (§8). Small, and the only item here that answers a question the app
@@ -988,7 +1012,7 @@ matters which:
 | | Item | Size | Why it is here |
 |---|---|---|---|
 | 1 | **⌘↑ / ⌘↓** (§3) | small | **On a question.** A pane has two positions and the two candidate meanings move different ones — see §3's entry for the axis choice. The implementation is small once the axis is decided. |
-| 2 | **The status bar** (§3) | small | **On a question.** Placement: per-pane, window-wide, or following focus — see §3's table. **Settle it with §8's one-line headers**, which spends room at the same place. Also: a cloud-only *count* is a walk, not a read. |
+| 2 | ~~**The status bar** (§3)~~ | small | **Shipped 2026-09-07 (roadmap RD6).** The question is answered, and the answer is a fourth shape: Browse-only. §8's one-line headers settled it, exactly as this row said they would — see §3. The cloud-only count is indeed a walk, and it is paid in the background behind a `—`. |
 | 3 | **Switching to the source a typed path is in** (§3) | small | **On a mechanism, not a question.** Go to Folder refuses a cross-source path and names the source; switching to it needs `adoptProviderForTab`'s counter to suppress the provider change's own `resetNavigation()`, or the pane lands at its root with the folder silently dropped. Expect the reload ordering to be the whole of the work. |
 | 4 | ~~**Mirroring tab *switches* on linked panes** (§1)~~ | — | **Deleted 2026-09-07** (roadmap RD8), under the fourth-carry rule this row itself set: *"If it is carried a fourth time, delete it instead."* v4.3 shipped without it. The design and the two questions it never answered are described — not restored — in §1. |
 | 5 | **One-line pane headers** (§8) | medium | **On a decision that has now been taken twice, and the second one is why it is here.** Built and measured 2026-08-20: 23pt back and one file row, not §8's 44pt and three; unusable below ~560pt; and folding the lens rail breaks the 83.5 line it shares with `LensHeaderCard`. **Browse-only is the only safe shape.** §8 carries every number. Take §8's in-window subtitle line with it — same width budget, and settling it twice is how the ⌘K field ends up under its floor. |
@@ -1044,12 +1068,14 @@ renders correctly at one tab if you do tick it), and its tick is **one app-wide 
   by ending. A durable list does not: it needs a length, an order, and an answer for a folder that no
   longer exists on disk — the same three questions `PaneTabChips` already had to answer, and the same
   trap, since a recent that quietly repoints is worse than one that disappears.
-- **§3 / §8: what does the status bar say in Compare?** — **still open, and now the thing v4.3's
-  status bar is deferred ON.** Two panes, one bar or two. A single bar has to name which pane it is
-  describing, which is the problem the per-pane header already solves by being per-pane — and that
-  header is the surface §8 is trying to make shorter. The two items are cheap separately and
-  contradict each other if decided separately. §3 now carries the three candidate shapes with the
-  cost of each; this entry stays because the question is unanswered, not because it is unstated.
+- **§3 / §8: what does the status bar say in Compare?** — **ANSWERED 2026-09-07: nothing, because
+  there is no bar there.** The two items were decided together as this entry required, and the
+  finding was that the question has no good answer rather than three costly ones: the per-pane
+  header already carries each side's facts, so a shared strip must either repeat one pane or pick a
+  winner silently. The bar shipped on Browse, the one surface with a single pane, and it is built in
+  `browseLayout` rather than in the shared `paneColumn` so the scope is structural. A per-pane
+  Compare bar remains possible and remains a different design — it would contest the same vertical
+  room §8 spent, which is the argument this entry was pointing at all along. See §3.
 - **§3: is tags actually wanted, or is it here because it was on a list?** — **ANSWERED,
   2026-08-19: it was here because it was on a list, and it is cut.** The objection stood
   unanswered through two roadmaps; asked directly, the answer was to cut it rather than build a

@@ -374,8 +374,11 @@ public enum FolderSidebarModel {
 /// clicked a shortcut and pressed ⌘Z gets a source removed instead of their move back. Correct undo
 /// semantics, wrong answer.
 ///
-/// It sits in the column rather than in the pane's status bar because that bar is item #11 and is
-/// not built; here it is also next to the row the user just clicked, which is where they are looking.
+/// It sits in the column rather than in the pane's status bar, and that stayed the right answer when
+/// the bar was built (roadmap RD6, 2026-09-07). The reason it was given — "that bar is not built" —
+/// expired; the second one did not. A notice belongs next to the row the user just clicked, which is
+/// where they are looking, and Browse's status bar states standing facts about the tree rather than
+/// carrying transient messages about one of them.
 public struct SidebarNotice: Equatable, Sendable {
     public let message: String
     /// **Always present, and "Dismiss" is a real one.** A notice about a card that has been ejected

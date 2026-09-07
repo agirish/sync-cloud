@@ -3809,3 +3809,46 @@ git grep -nwiI -e Aditi -e Divit -e Shweta -e Muktha -e Anuraag -e Abhishek -e G
   defaults domain. That is the app working as designed on one Mac, and `printsWhatEachPersonsViewHolds`
   still prints it locally — but `liveProfile` is in `SYNCCLOUD_SKIP_MACHINE_PINNED` on CI, and the
   public Actions log for `9299c080` contains zero occurrences of those names.
+## 2026-09-07 — Browse's status bar (roadmap RD6)
+
+The strip under Browse's pane — item count, selection, cloud-only census, listing freshness — plus
+the two things it needed: a per-pane "when was this tree read" stamp on `FileSyncManager` that
+survives a prefetch-cache hit, and `View ▸ Status Bar`.
+
+**The pick genuinely APPLIES to `v4.x` in substance, and that is why it is measured rather than
+waved through.** Almost every Editor-shaped row above it — RD9's printing included — closes as "does
+not apply" for the same structural reason: the workspace it describes does not exist on the
+maintenance lines, so there is nothing there to send it to. That reasoning does not reach this one.
+Browse exists on `v4.x`. So does `browseLayout`, so does the tab-bar switch this sits beside, and so
+does the prefetch cache the freshness stamp hangs off. (The scrub row above is the other kind again:
+it applied *and* was sent, being a correctness fix about the repository rather than a feature.)
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%s statusline=%s browseLayout=%s tabBarCmd=%s walkStopped=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorStatusLine.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:MacApp/ContentView+SplitLayout.swift | grep -c 'func browseLayout')" \
+    "$(git show origin/$l:MacApp/SyncCloudApp.swift | grep -c 'ToggleTabBarCommand')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift | grep -c 'prefetchedTreeWalkStopped')"
+done
+# measured 2026-09-07:
+#   main  1 / 1 / 1 / 2
+#   v4.x  0 / 1 / 1 / 2   ← the host surface and both prerequisites are there
+#   v3.x  0 / 0 / 0 / 0
+#   v2.x  0 / 0 / 0 / 0
+```
+
+The positive control is `main`'s row: three of those four paths exist on every line, so a row of
+zeroes on `v3.x` is an absence rather than a mistyped path.
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`PaneStatusFacts` + `PaneStatusBar`** — the four captions, the shedding ladder, the `ViewThatFits` rungs | Applies. `browseLayout` is there to hang it under, and `ScanFreshness` and `CloudOnlyBadgeCache` are both present | No `browseLayout` — Browse is not a workspace of its own on these lines | RECORDED — not owed |
+| **`CloudOnlyCensus`** — the background `lstat` walk behind the cloud-only count | Applies. `MaterializationStatus.isCloudOnlyIfKnown` is on every line | Same absence: nothing would draw the number | RECORDED — not owed |
+| **`leftTreeReadAt` / `rightTreeReadAt` + `prefetchedTreeReadAt`** — the read stamp that survives a cache hit | Applies, and this is the half worth naming separately: it is a `FileSyncManager` change, not a Browse one, and `prefetchedTreeWalkStopped` (which it is modelled on) is already there | `prefetchedTreeWalkStopped` is absent, so the store this parallels does not exist yet | RECORDED — not owed |
+| **`View ▸ Status Bar`, and `PaneChromeCommands` grouping it with Tab Bar** | Applies. `ToggleTabBarCommand` is there; whether that line's View group has a spare child was NOT measured | No tab-bar switch to group with | RECORDED — not owed |
+
+**Owed to `v4.x` in the ordinary sense, and deliberately not sent**, per the standing direction. The
+pick would not be free even if it were authorised: the grouping change depends on `v4.x`'s own View
+menu being at its ten-child limit, which this audit did not check, and a `ViewBuilder` that silently
+drops an eleventh child is exactly the failure that has no test on that line.

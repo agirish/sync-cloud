@@ -264,3 +264,47 @@ called `noteWorkingIn` unconditionally through `tabAction`. A mutation artifact 
 into a checked-in document as if it were release history. And the call was added by `becf9cbd`, as
 that commit's own body says; `b1b0a56d` only gave Copy Path's log line its side and tab. Do not
 reintroduce a "regression fixed" note here without a commit that shows the defect shipped.
+
+## Browse's status bar, on a real cloud tree (roadmap RD6, 2026-09-07)
+
+**What the unit tests cannot reach.** `SF_DATALESS` is an `SF_` flag: `chflags` refuses it to
+anyone but root, and only a File Provider ever sets one. Every test of the census therefore runs
+against a stubbed `lstat`, which proves the walk and the arithmetic and proves nothing at all about
+the flag being there to read. The cost of the walk is the other half: 40,000 stats against a
+provider's synthetic filesystem is not a thing a mock can time.
+
+Preconditions: Browse (⌘1), pointed at a real iCloud or Dropbox root with a deep tree — the more
+cloud-only files the better. `tail -f ~/sync-cloud.log` beside it for the load lines.
+
+- [ ] **The cloud-only count lands, and it is not zero.** Point Browse at a provider root with
+  files you know are evicted (Finder shows them with the ☁ badge). The segment reads `— in the
+  cloud only` while the rows are already usable, then becomes a number. **A `0` that never moves is
+  the failure this check exists for**: it means the flag is not being read, and no unit test can
+  tell you that. Cross-check the magnitude against Finder — select the folder, ⌘I, or just scroll
+  and count badges in a small subfolder.
+- [ ] **The rows arrive before the count does.** The whole design is that the census is paid where
+  nobody is waiting. If the folder itself feels slower to open than it did before, the walk has
+  landed on the load path and that is a regression, not a slow census.
+- [ ] **It restarts, and the dash comes back.** Navigate into a subfolder, or press ⌘R. The count
+  returns to `—` and then to a new number. A count that stays put across a navigation is describing
+  the tree you left.
+- [ ] **Downloading a file moves the number.** Right-click a cloud-only file ▸ Download. When the ☁
+  badge clears, the census has not re-run (nothing republished the tree), so the total is expected
+  to be one stale. Press ⌘R and confirm it drops by one. **This is a known and accepted looseness**
+  — recorded here rather than in a test because the honest fix is a census that watches downloads,
+  and that was not built.
+- [ ] **"Scanned N ago" is about the listing, not about a comparison.** Open a folder, wait a few
+  minutes, navigate away and back. It must say the minutes, not "0s ago" — the cache hit carries the
+  walk's age. Then ⌘R and confirm it resets. (In Compare, ⌘R also runs a comparison scan; the bar is
+  not there, which is the point.)
+- [ ] **The ladder sheds.** Drag the window narrow with three files selected. The freshness goes
+  first, then the cloud-only count, then the selection; the item count is still there at the
+  narrowest width the window allows, un-truncated.
+- [ ] **VoiceOver reads all four at any width.** With the window narrow enough that only the item
+  count is drawn, VO-arrow onto the bar: it must still speak the selection, the cloud-only count and
+  the freshness — and, on a listing older than an hour, the words "may be out of date". Colour is
+  the only other carrier of staleness, which is why this one is on the list.
+- [ ] **View ▸ Status Bar, and where it is greyed.** Untick it on Browse: the bar goes, and the pane
+  takes the room back with no animation. Switch to Compare, Organize or Edit — the item is greyed,
+  because none of them draws the bar. Switch back to Browse and it is live again, still unticked.
+  Quit and relaunch: the preference survives.

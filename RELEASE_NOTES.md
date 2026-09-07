@@ -32,6 +32,25 @@ User-facing changes, newest first. For the full commit history see the
   anywhere outside Edit, it shows or hides the inspector as it always has. The five Markup keys
   follow the same rule — they never edit the document from a field you are typing in.
 
+### Browse gets a status bar
+
+- **A line at the foot of the pane, on by default.** How many items are in the tree, what your
+  selection comes to, how much of the tree is still in the cloud, and when the listing was read.
+  It has been deferred since v4.2 on what it would say in Compare, where two panes want two
+  answers and one strip can only give one — so it ships where that question does not arise. **View
+  ▸ Status Bar** turns it off; there is no key for it.
+- **It sheds from the right as the pane narrows**, keeping the item count longest: the freshness
+  goes first, then the cloud-only count, then the selection. VoiceOver is never shed — it reads
+  every fact at every width, and it is the one place a stale listing is described in words rather
+  than by colour.
+- **The cloud-only count reads `—` until it is true.** It is one `lstat` per file over a tree that
+  can hold forty thousand of them, so it is counted in the background after the rows are already on
+  screen, and the bar shows a dash rather than a number climbing towards the answer. Navigating,
+  scanning or deleting starts it again, and the dash comes back with it.
+- **"Scanned N ago" is about the listing you are looking at**, not about a comparison. Coming back
+  to a folder you were in ten minutes ago says ten minutes, not "just now" — the age belongs to the
+  walk that read the disk, and it survives being served from memory.
+
 ### Three menu items that were missing
 
 - **View ▸ Text Size ▸ Bigger ⌘+ / Smaller ⌘− / Default Size ⌘0.** The whole app's type, from the
