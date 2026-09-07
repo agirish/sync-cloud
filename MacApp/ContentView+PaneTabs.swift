@@ -296,7 +296,20 @@ extension ContentView {
     /// skipped all three, the discard branch never wrote the id at all, and the launch restore
     /// wrote it with no suppression whatsoever. `log` is the ONLY thing that varies between them —
     /// deliberately, so the three cannot drift again.
-    private func adoptProviderForTab(_ id: String, isLeft: Bool, log: String) {
+    ///
+    /// **`ForTab` names the CONTRACT, not the caller — there is a fourth now, and it is not a
+    /// tab.** ⌘K's Go to Folder for a path in another source (RD7,
+    /// `ContentView.switchSourceAndReveal`) needs exactly this and differs in nothing that matters:
+    /// it too has already decided where the pane is going, so `retargetPane()` must not run, and it
+    /// too still owes the re-key, the lens clear and the tab-shaped review dispatch. It is
+    /// `internal` rather than `private` for that caller alone; every write of a pane provider id in
+    /// **this** file still goes through it, which is what
+    /// `theOnlyWriterOfAPaneProviderIdInTheTabsFileIsTheAdoptHelper` counts.
+    ///
+    /// The counter it arms is shared with the palette's use for the same reason the two consuming
+    /// cases of `PaneProviderChange` may be mis-attributed to each other: what is guaranteed is a
+    /// total, and `.consumeTab` does the same nothing for either writer. See that rule's doc.
+    func adoptProviderForTab(_ id: String, isLeft: Bool, log: String) {
         // One suppressed change, then the caller drives the single reload — exactly the shape
         // `swapPanesAction` uses, and on its OWN counter: two features sharing one would have a
         // swap eat a tab switch's suppression and reset the navigation it just restored.
@@ -344,7 +357,11 @@ extension ContentView {
     ///   rebuilds something identical — 15–36ms of every switch, measured on a real strip, spent on
     ///   a pane nobody moved. The scan still runs and still compares both; the untouched pane
     ///   contributes the tree it already holds.
-    private func refreshForTabSwitch(movedPane isLeft: Bool) {
+    ///
+    /// **`internal` for the same one caller `adoptProviderForTab` is** — ⌘K's cross-source Go to
+    /// Folder drives the same single reload after the same suppressed provider write, and a second
+    /// spelling of "reload the moved pane" is the drift these two helpers exist to prevent.
+    func refreshForTabSwitch(movedPane isLeft: Bool) {
         guard let left = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
               let right = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else { return }
         Task {

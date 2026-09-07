@@ -937,7 +937,7 @@ import Sync
     /// The call site: adopting is what arms the suppression counter, and without that the provider
     /// `onChange` runs `retargetPane()` over the navigation the switch just restored.
     @Test func adoptingASourceArmsTheSuppressionCounter() throws {
-        let body = try Self.memberBody("private func adoptProviderForTab(",
+        let body = try Self.memberBody("func adoptProviderForTab(",
                                        in: Self.source("ContentView+PaneTabs.swift"))
         #expect(body.contains("pendingTabProviderChanges += 1"),
                 "adopting a source does not suppress the navigation reset")
@@ -966,7 +966,7 @@ import Sync
         let writes = Self.paneProviderIdWrites(in: raw)
         #expect(writes == 2,
                 "\(writes) writes of a pane provider id — the helper's own two are the only ones allowed")
-        let helper = try Self.memberBody("private func adoptProviderForTab(",
+        let helper = try Self.memberBody("func adoptProviderForTab(",
                                          in: Self.source("ContentView+PaneTabs.swift"))
         #expect(helper.contains("if isLeft { leftProviderId = id } else { rightProviderId = id }"),
                 "the two writes are not the helper's — this scan is counting someone else's")
@@ -1022,7 +1022,7 @@ import Sync
     /// the old pair hides items ignored for a comparison that is no longer on screen and persists
     /// new ones under the wrong key.
     @Test func adoptingDoesEverythingTheSuppressedHandlerWouldExceptTheReset() throws {
-        let body = try Self.memberBody("private func adoptProviderForTab(",
+        let body = try Self.memberBody("func adoptProviderForTab(",
                                        in: Self.source("ContentView+PaneTabs.swift"))
         // Positives through `codeOnly` as well as the negative below: this file has tripped over its
         // own prose twice, and a doc comment naming any of these would satisfy the check with the
@@ -1383,8 +1383,15 @@ import Sync
         // The call is unreachable, not gone, so the coverage this derivation gives it is what keeps
         // the verb correct for the release that turns the column on — dropping the file from this
         // list because "nothing runs it" would silently uncover it on the day it runs again.
+        //
+        // **`CommandPaletteHost.swift` joined the list at RD7**, and it wires no tab verb at all —
+        // it calls the two members this file exposes for the one operation a tab switch and a ⌘K
+        // source switch genuinely share: `adoptProviderForTab` (the armed provider write) and
+        // `refreshForTabSwitch` (the one reload of the moved pane). Both are excluded from the
+        // focus-door rule below by name, for the reason the readers are: they are not verbs a user
+        // aimed at a pane, they are the tail of one.
         let wiringFiles = ["ContentView.swift", "ShortcutCommands.swift", "ContentView+PaneSearch.swift",
-                           "ContentView+FolderSidebar.swift"]
+                           "ContentView+FolderSidebar.swift", "CommandPaletteHost.swift"]
         var derived: Set<String> = []
         for file in hostFiles where file.lastPathComponent != "ContentView+PaneTabs.swift" {
             let code = Self.codeOnly(try String(contentsOf: file, encoding: .utf8))
@@ -1397,8 +1404,18 @@ import Sync
         }
 
         // The readers and the persistence pair: called by the host, and deliberately not verbs.
+        //
+        // **The last two are the shared tail of a source change, not a tab verb.** RD7's ⌘K route
+        // switches the aimed pane's source and lands it on a typed folder, and it does that through
+        // the same two members a cross-source tab click does. Neither says which pane the user is
+        // working in, and neither should: `adoptProviderForTab` is *given* a side by a caller that
+        // has already decided, and the palette's caller is aimed at the focused pane by
+        // construction — `lensTargetIsRight` is what `paletteProviderId` and the whole folder index
+        // were built from. Requiring the focus door here would have the tail of an operation
+        // re-announce a pane the operation never chose.
         let notVerbs = ["paneTabItems", "paneShowsTabStrip", "seamInset",
-                        "saveBrowseTabs", "restoreBrowseTabs"]
+                        "saveBrowseTabs", "restoreBrowseTabs",
+                        "adoptProviderForTab", "refreshForTabSwitch"]
         for excluded in notVerbs {
             #expect(derived.contains(excluded),
                     "“\(excluded)” is excluded from this rule as a reader, and the derivation no longer finds it being called at all — the exclusion is now a name that could be hiding a real verb")
@@ -1670,8 +1687,8 @@ import Sync
         // watches all six values because either pane moving has to save that pane's strip.
         var exemptions: [(name: String, span: Range<String.Index>)] = []
         for (name, declaration, closing) in
-                [("adoptProviderForTab", "private func adoptProviderForTab(", "\n    }\n"),
-                 ("refreshForTabSwitch", "private func refreshForTabSwitch(movedPane isLeft: Bool)", "\n    }\n"),
+                [("adoptProviderForTab", "func adoptProviderForTab(", "\n    }\n"),
+                 ("refreshForTabSwitch", "func refreshForTabSwitch(movedPane isLeft: Bool)", "\n    }\n"),
                  ("BrowseTabPersistence", "struct BrowseTabPersistence: ViewModifier {", "\n}\n")] {
             let start = try #require(file.range(of: declaration),
                                      "“\(name)” is exempted from this rule and is no longer in the file — the exemption is a name that could be hiding a hand-written narrowing")

@@ -273,6 +273,8 @@ extension ContentView {
             aimProvider(id)
         case .folder(let path):
             revealInSourcePane(path)
+        case .folderInSource(let providerId, let path):
+            switchSourceAndReveal(providerId: providerId, path: path)
         case .action(let action):
             runPaletteAction(action)
         case .settings(let raw):
@@ -656,6 +658,140 @@ extension ContentView {
         case .outsideSource(let root):
             Logger.shared.warning("Command palette: \(absolutePath) is not inside \(root) — "
                 + "the row was offered against a source the pane is no longer showing")
+        }
+    }
+
+    // MARK: Go to Folder, across sources — RD7
+
+    /// Where a **cross-source** Go to Folder route lands, or why it cannot.
+    ///
+    /// Extracted for the reason ``RevealOutcome`` is: the caller is a method on a SwiftUI `View`
+    /// with `@State`, which nothing can construct, and three of these four answers are an accepted
+    /// route delivering nothing. The one that delivers is the one whose *ordering* matters, and the
+    /// ordering is the caller's; what is here is the decision.
+    enum SourceSwitchOutcome: Equatable {
+        /// Point the aimed pane at the named source and focus it here, root-relative.
+        case switchAndFocus(relativePath: String)
+        /// The route named a source this app no longer has, or one with no path configured.
+        case noSuchSource
+        /// The source is there and the typed path is not inside it.
+        case outsideNamedSource(root: String)
+        /// The source is there and contains the path, and there is nothing at it.
+        case nothingAtThatPath
+    }
+
+    /// - Parameters:
+    ///   - path: the absolute path the user typed, already standardized by `PalettePath`.
+    ///   - namedRoot: the root of the source the ROUTE named, tilde-expanded — never the pane's
+    ///     current one. Optional because the route carries an id across a package wall and the
+    ///     settings can have dropped it since the palette opened, exactly as a `.person` id can.
+    ///     An **empty** root is the same answer as a missing one: an empty base prefixes every
+    ///     absolute path, which is the hazard `PathBoundary.relativize` guards by name, so a
+    ///     source with no path configured must claim nothing rather than claim everything.
+    ///   - kind: what is at `path`, `@autoclosure` **so the disk is not asked at all** when the
+    ///     source is gone or does not contain the path. That laziness is the same stall guard
+    ///     `PalettePath` states for the keystroke path, kept at the one place a `stat` is still
+    ///     made: the two answers above it are index questions, and a source whose row was built
+    ///     when the palette opened can have gone to sleep since.
+    static func sourceSwitchOutcome(path: String, namedRoot: String?,
+                                    kind: @autoclosure () -> PathKind) -> SourceSwitchOutcome {
+        guard let namedRoot, !namedRoot.isEmpty else { return .noSuchSource }
+        guard let relative = PathBoundary.relativize(path, under: namedRoot) else {
+            return .outsideNamedSource(root: namedRoot)
+        }
+        switch kind() {
+        case .missing:
+            // **Refused rather than delivered half.** Switching the source and landing at whatever
+            // this path's parent happens to be is the "folder silently dropped" outcome the whole
+            // feature is arranged to avoid; the router could not ask about this path (it is not in
+            // the aimed source, so probing it is the stall the ordering forbids), so ↩ is the first
+            // moment anything can.
+            return .nothingAtThatPath
+        case .directory:
+            return .switchAndFocus(relativePath: relative)
+        case .file:
+            // A pasted path is usually a file's — the enclosing folder is the destination, the same
+            // rule `PaletteRouter.pathRow` applies inside the aimed source and the same one ⇧⌘G
+            // follows. Taken off the RELATIVE path, so a file sitting at the source root gives `""`,
+            // which is how you say "the pane's own top" to `focusOn`.
+            return .switchAndFocus(relativePath: (relative as NSString).deletingLastPathComponent)
+        }
+    }
+
+    /// **Switches the aimed pane to another source and lands it on the typed folder** — the half of
+    /// Go to Folder ROADMAP_V4 §3 deferred, and the ordering below is the whole of it.
+    ///
+    /// A provider change runs its own navigation reset: `onChange(of: leftProviderId)` fires on the
+    /// **next view update** and calls `retargetPane()`, which re-homes the pane at its new source's
+    /// landing folder. An `aimProvider` followed by a `focusOn` therefore lands at the root with the
+    /// typed folder silently dropped — which is why the row said "switch source first" for two
+    /// releases rather than doing it.
+    ///
+    /// So the write goes through `adoptProviderForTab`, whose contract is exactly this one: a
+    /// caller that has already decided where the pane is going arms `pendingTabProviderChanges`,
+    /// the handler consumes it instead of resetting, and everything else the handler owes — the
+    /// ignored-items re-key on the new PAIR, the lens clear, the review dispatch that must not
+    /// repoint the sibling — still happens. `refreshForTabSwitch` then drives the one reload, of
+    /// the moved pane only.
+    ///
+    /// **Three statements in one order, and each position is load-bearing:**
+    ///
+    /// 1. **`focusOn` first**, matching `tabAction`, where the verb applies the tab's navigation
+    ///    before the source is adopted. Both writes land in the same synchronous turn, so by the
+    ///    time SwiftUI runs either `onChange` the pane already names the folder *and* the source —
+    ///    which is also what makes `onChange(of: leftRelativePath)` record the visit against the
+    ///    NEW root rather than the one being left.
+    /// 2. **the armed provider write second**, because it is the write whose handler must find the
+    ///    navigation already done.
+    /// 3. **the reload last**, because it resolves both providers out of `enabledProviders` by the
+    ///    ids as they now are.
+    ///
+    /// **Only the aimed pane moves, and `PaneLinkPreference.isLinked` deliberately does not apply.**
+    /// `focusOn(relativePath:isLeft:)` is the single-pane door — the `.folder` route has always used
+    /// it, so this introduces no asymmetry — and honoring the link here would hand a path
+    /// relativized against the *named* source's root to a sibling still showing a different one,
+    /// which is verbatim the "path from one provider's tree handed to the other's" defect
+    /// `revealInSourcePane`'s doc records and `FileActionHandler.focusFolder`'s
+    /// `suppressLinkedNavigation` exists for. The source switch is per-pane besides: the sibling's
+    /// provider is untouched, so a linked follow would put it in a folder of a source it is not on.
+    ///
+    /// The workspace is left alone, exactly as `.folder` leaves it: this is a navigation, not a
+    /// change of place.
+    private func switchSourceAndReveal(providerId: String, path: String) {
+        // **Which pane, read once and used for every write below.** `aimedAtRight` is computed over
+        // the layout, and re-reading it per statement is how `aimOrganize` came to reveal a
+        // right-pane scope into the left pane.
+        let isLeft = !aimedAtRight
+        // The pane's own list, not the discovered one — `paneCanShowSource`'s reading. A source
+        // switched off in Settings is one no refresh will walk, so pointing a pane at it is the
+        // invisible middle case `PaneTabProviderSwitch` was written around.
+        let named = settings.enabledProviders.first { $0.id == providerId }
+        // Expanded for the reason the index expands it: Settings stores a hand-typed `~/…`
+        // verbatim, and the path in hand was expanded by `PalettePath` before it ever got here.
+        let namedRoot = named.map { ($0.rootPath as NSString).expandingTildeInPath }
+        switch Self.sourceSwitchOutcome(path: path, namedRoot: namedRoot,
+                                        kind: Self.pathKind(path)) {
+        case .switchAndFocus(let relative):
+            syncManager.focusOn(relativePath: relative, isLeft: isLeft)
+            adoptProviderForTab(providerId, isLeft: isLeft,
+                                log: "Go to Folder moved the \(PaneSideChoice.name(isLeft)) pane "
+                                    + "to \(providerId) and landed it on \(path)")
+            refreshForTabSwitch(movedPane: isLeft)
+        case .noSuchSource:
+            // Reachable the way the `.person` route's missing id is: the index is a snapshot taken
+            // when the palette opened, and the sources are live. Said out loud, because ↩ on a row
+            // that offered a named source and then did nothing is the "nothing happened" this
+            // surface's whole logging exists for.
+            Logger.shared.warning("Command palette: \(providerId) is no longer an enabled source — "
+                + "the row offering \(path) was listed from an index taken when the palette opened")
+        case .outsideNamedSource(let root):
+            Logger.shared.warning("Command palette: \(path) is not inside \(root) — "
+                + "the source it was offered against has been re-pointed since the palette opened")
+        case .nothingAtThatPath:
+            // The one refusal that could not be made before ↩: the router must not `stat` a path
+            // outside the aimed source, so this is the first moment the disk was asked at all.
+            Logger.shared.warning("Command palette: nothing at \(path) — the pane stays where it "
+                + "is rather than switching source and landing somewhere else")
         }
     }
 

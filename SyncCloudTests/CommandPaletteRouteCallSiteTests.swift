@@ -257,6 +257,9 @@ import Sync
         for arm in ["case .compare:", "case .editor:",
                     "case .organize(let lens, let scope):",
                     "case .person(let id):", "case .provider(let id):", "case .folder(let path):",
+                    // RD7. Listed separately from `.folder` because it is a separate destination:
+                    // the same reveal, preceded by a source switch the pane has to survive.
+                    "case .folderInSource(let providerId, let path):",
                     "case .action(let action):", "case .settings(let raw):"] {
             #expect(host.contains(arm), "runPaletteRoute no longer handles `\(arm)`")
         }

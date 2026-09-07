@@ -9,6 +9,11 @@ import Foundation
 /// feature is one row, so most of this suite is about the cases where that row is a **refusal** —
 /// which is the point of it rather than an edge. A path query used to produce an empty list, and an
 /// empty list is the "nothing happened" this family of features exists to remove.
+///
+/// **RD7 (2026-09-06) turned one of the four refusals into a destination**: a path inside another
+/// configured, mounted source is now a row that switches the pane to that source and lands on the
+/// folder, routed as `.folderInSource`. The other three stay refusals, each for a reason the
+/// switched one does not have, and the tests below say which is which.
 @Suite struct PalettePathTests {
 
     static let home = "/Users/x"
@@ -33,7 +38,7 @@ import Foundation
     }
 
     /// A probe that answers from a set **and counts what it was asked**, because half of this
-    /// feature's design is about what it must NOT ask. See `theDiskIsNeverAskedAboutAPathThatIsRefusedAnyway`.
+    /// feature's design is about what it must NOT ask. See `theDiskIsNeverAskedAboutAPathOutsideTheAimedSource`.
     final class Probe: @unchecked Sendable {
         private let directories: Set<String>
         private let files: Set<String>
@@ -185,22 +190,106 @@ import Foundation
         #expect(PaletteSelection.chosen(at: 0, in: [row]) == nil, "↩ would go nowhere and say nothing")
     }
 
+    /// **Still a refusal after RD7, and for a reason the cross-source row does not have**: this is
+    /// a statement about the *configuration*, not a navigation the palette declined to perform.
+    /// There is no source to switch to.
     @Test func aPathOutsideEverySourceNamesThatAsTheReason() throws {
         let row = try #require(Self.row("~/Downloads/Taxes", probe: Probe()))
         #expect(row.unavailable == "Not in any source")
+        #expect(PaletteSelection.chosen(at: 0, in: [row]) == nil,
+                "↩ runs a row that names no destination the app has")
     }
 
-    /// Decided 2026-08-19: refuse and **name the source**, rather than switching to it. Switching
-    /// means suppressing the provider change's own navigation reset and driving the reload, or the
-    /// pane lands at the root with the folder silently dropped — deferred to v4.3 (ROADMAP_V4 §3).
-    @Test func aPathInAnotherSourceNamesTheSourceToSwitchTo() throws {
+    /// **RD7: the refusal that named the fix became the fix.** Decided 2026-08-19 to refuse and
+    /// name the source ("In Dropbox — switch source first"); shipped 2026-09-06 as a live row that
+    /// switches the pane and lands on the folder, once the host learned to suppress the provider
+    /// change's own navigation reset and drive the reload itself.
+    ///
+    /// The three things asserted here are the three ways this can silently stop working: the row
+    /// has to be **runnable** (an `unavailable` of any wording puts it back where it was, because
+    /// `PaletteSelection.chosen` reads that field and nothing else), it has to carry the
+    /// **owning** source's id rather than the pane's, and it has to carry the typed path.
+    @Test func aPathInAnotherSourceSwitchesToThatSource() throws {
         let row = try #require(Self.row("~/Dropbox/Legal", probe: Probe()))
-        #expect(row.unavailable == "In Dropbox — switch source first")
+        #expect(row.isAvailable, "refused with: \(row.unavailable ?? "")")
+        #expect(row.route == .folderInSource(providerId: "dropbox", path: "\(Self.dropbox)/Legal"),
+                "got \(row.route)")
+        // ↩ really runs it, rather than the row merely looking live. `chosen` is the one gate
+        // between an offered row and the host, and it is what refused this row for two releases.
+        #expect(PaletteSelection.chosen(at: 0, in: [row])
+                == .folderInSource(providerId: "dropbox", path: "\(Self.dropbox)/Legal"),
+                "↩ on the row still goes nowhere")
     }
 
+    /// **The row says which source it is about to switch to, and still says which folder.**
+    ///
+    /// The title changed from the leaf to a verb, so the leaf now lives only in the detail — and
+    /// `PaletteResultsList` middle-truncates a detail containing a `/` for exactly that reason.
+    /// A detail with anything appended to the path moves the leaf into the truncator's bite.
+    @Test func theSwitchRowNamesTheSourceInItsTitleAndKeepsThePathAsItsDetail() throws {
+        let row = try #require(Self.row("~/Dropbox/Clients/Acme/2026", probe: Probe()))
+        #expect(row.title == "Open in Dropbox",
+                "the row does not say the pane is about to change source — got “\(row.title)”")
+        #expect(row.detail == "\(Self.dropbox)/Clients/Acme/2026",
+                "the detail is no longer the bare path, so the middle-truncation that keeps the leaf readable no longer applies to it")
+        #expect(row.detail?.contains("/") == true,
+                "the detail lost its slashes — the list would truncate it at the TAIL and eat the folder name")
+    }
+
+    /// **The switch names the INNERMOST owner**, the same rule `PalettePath.owner` has always
+    /// applied — asserted through the route rather than through `owner` alone, because the route
+    /// is what the host acts on and the id is what crosses the wall.
+    ///
+    /// The fixture is a pane aimed at a source that contains NEITHER: `~/Dropbox` nests
+    /// `~/Dropbox/Clients` and the pane is on `~/Documents`, so the path leaves the aimed root and
+    /// both nested sources claim it. Handing it to the outer one would switch the pane to Dropbox
+    /// and land it at `Clients/Legal` — the right folder by luck, and the wrong source the moment
+    /// the two roots stop being ancestor and descendant.
+    @Test func theSwitchGoesToTheInnermostSourceThatOwnsThePath() throws {
+        let inner = "\(Self.dropbox)/Clients"
+        let index = PaletteIndex(
+            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true,
+                                        isCurrent: true, root: Self.documents),
+                        PaletteProvider(id: "dropbox", name: "Dropbox", isMounted: true,
+                                        isCurrent: false, root: Self.dropbox),
+                        PaletteProvider(id: "clients", name: "Clients", isMounted: true,
+                                        isCurrent: false, root: inner)],
+            providerRoot: Self.documents, folders: [], home: Self.home,
+            isScanning: false, hasSurvey: true)
+        let probe = Probe()
+        let row = try #require(PaletteRouter.rows(query: "~/Dropbox/Clients/Legal", index: index,
+                                                  probe: probe.kind)
+            .first { $0.id.hasPrefix("path.") })
+        #expect(row.route == .folderInSource(providerId: "clients", path: "\(inner)/Legal"),
+                "the outer source claimed a path the inner one owns — got \(row.route)")
+        #expect(row.title == "Open in Clients")
+    }
+
+    /// **Still a refusal after RD7**, and it is the check that stands in front of the switch: a
+    /// source that is not mounted is one the pane cannot be pointed at at all, so "switch to it"
+    /// is not an offer this palette can make. Ordered above the switch in `pathRow`, which is what
+    /// `theSwitchIsOfferedOnlyForAMountedOwner` drives from the other side.
     @Test func aPathInAnUnmountedSourceSaysTheSourceIsNotThere() throws {
         let row = try #require(Self.row("/Volumes/Backup/2019", probe: Probe()))
         #expect(row.unavailable == "Backup SSD is not mounted")
+        #expect(PaletteSelection.chosen(at: 0, in: [row]) == nil,
+                "↩ would switch the pane to a source that is not there")
+    }
+
+    /// The same fixture with the drive awake — **the positive control for the test above.** Without
+    /// it, "unmounted refuses" passes just as well if the switch is never offered for any source.
+    @Test func theSwitchIsOfferedOnlyForAMountedOwner() throws {
+        let awake = [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true,
+                                     isCurrent: true, root: Self.documents),
+                     PaletteProvider(id: "ssd", name: "Backup SSD", isMounted: true,
+                                     isCurrent: false, root: "/Volumes/Backup")]
+        let index = PaletteIndex(providers: awake, providerRoot: Self.documents, folders: [],
+                                 home: Self.home, isScanning: false, hasSurvey: true)
+        let row = try #require(PaletteRouter.rows(query: "/Volumes/Backup/2019", index: index,
+                                                  probe: Probe().kind)
+            .first { $0.id.hasPrefix("path.") })
+        #expect(row.route == .folderInSource(providerId: "ssd", path: "/Volumes/Backup/2019"),
+                "a mounted source the pane is not on is not offered as a switch — got \(row.route)")
     }
 
     // MARK: The root that decides it
@@ -257,18 +346,28 @@ import Foundation
         #expect(row.route == .folder(path: "\(inner)/Legal"))
     }
 
-    /// **A question mark is a claim about existence**, and only one of the four refusals makes it.
-    /// Badging "In Dropbox — switch source first" with one says the app does not know whether the
-    /// folder is there, which is both wrong and a different thing from what the row says in words.
+    /// **A question mark is a claim about existence**, and only one of the refusals makes it.
+    /// Badging "Backup SSD is not mounted" with one says the app does not know whether the folder
+    /// is there, which is both wrong and a different thing from what the row says in words.
+    ///
+    /// **`~/Dropbox/Legal` left this list at RD7** — it is a live row now, not a refusal — and it
+    /// is asserted separately below rather than dropped, because the same argument applies to it
+    /// with more force: the row is offered without the disk having been asked at all.
     @Test func onlyTheRefusalThatIsAboutExistenceWearsAQuestionMark() throws {
         let missing = try #require(Self.row("~/Documents/Nope", probe: Probe()))
         #expect(missing.symbol == "folder.badge.questionmark")
-        for query in ["~/Downloads/Taxes", "~/Dropbox/Legal", "/Volumes/Backup/2019"] {
+        for query in ["~/Downloads/Taxes", "/Volumes/Backup/2019"] {
             let row = try #require(Self.row(query, probe: Probe()))
             #expect(!row.isAvailable, "\(query) is no longer a refusal — this case moved")
             #expect(row.symbol == "folder",
                     "\(query) is badged as if the app did not know whether the folder exists, when the reason it gives is that it cannot be reached")
         }
+        // The switch row: a folder glyph, because nothing here knows whether the folder exists —
+        // and a question mark on a row that is about to be RUN would be the app asking the user
+        // a question it is not going to wait for the answer to.
+        let switching = try #require(Self.row("~/Dropbox/Legal", probe: Probe()))
+        #expect(switching.isAvailable, "the switch row went back to being a refusal")
+        #expect(switching.symbol == "folder")
     }
 
     /// The aimed root itself asleep: the same wording every remembered folder already carries, and
@@ -289,20 +388,28 @@ import Foundation
 
     // MARK: The stall guard — what must NOT be asked
 
-    /// **Every refusal is reached without touching the disk, and that ordering is the feature's
-    /// safety rather than its style.** The probe is a `stat`, it runs on the keystroke path, and a
+    /// **Every row decided outside the aimed source is reached without touching the disk, and that
+    /// ordering is the feature's safety rather than its style.** The probe is a `stat`, it runs on
+    /// the keystroke path, and a
     /// `stat` under an unreachable mount blocks — the hazard `FolderJumpStore.reachable` is built
     /// around. So a path is only ever probed once it is known to be inside a source that is mounted
     /// and already showing.
     ///
     /// Mutation: move the `probe(typed)` switch above any of the three guards and this fails naming
     /// the path that was asked about.
-    @Test func theDiskIsNeverAskedAboutAPathThatIsRefusedAnyway() {
+    ///
+    /// **RD7 made the third of these a live row and did NOT move it out of this list**, which is
+    /// the more interesting half now: `~/Dropbox/Legal` is offered as a switch *without* the disk
+    /// being asked whether the folder is there, because probing a source the pane is not showing
+    /// has no `foldersUnavailable` standing in front of it the way the aimed root does. The
+    /// existence question moves to ↩ — `ContentView.sourceSwitchOutcome`, off the keystroke path —
+    /// and this is what stops it creeping back onto the keystroke.
+    @Test func theDiskIsNeverAskedAboutAPathOutsideTheAimedSource() {
         for query in ["~/Downloads/Taxes", "~/Dropbox/Legal", "/Volumes/Backup/2019"] {
             let probe = Probe()
             _ = Self.row(query, probe: probe)
             #expect(probe.asked.isEmpty,
-                    "\(query) was stat'ed before being refused — under a sleeping mount that is a stalled keystroke")
+                    "\(query) was stat'ed outside the aimed source — under a sleeping mount that is a stalled keystroke")
         }
         // …and the case that IS asked, so the assertions above are not passing because nothing runs.
         let live = Probe(directories: ["\(Self.documents)/Legal"])

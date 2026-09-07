@@ -25,6 +25,9 @@ import Design
 @Suite(.serialized) struct PaletteRouteDoorTests {
 
     static let root = "/Users/x/Documents"
+    /// A second **mounted** source the pane is not aimed at — the only configuration that can
+    /// produce a `.folderInSource` route.
+    static let dropbox = "/Users/x/Dropbox"
 
     /// Everything a route can be, flattened to a name, so a walk can assert coverage without
     /// `PaletteRoute` being `CaseIterable` — it has associated values and cannot be.
@@ -41,6 +44,7 @@ import Design
         case .person: return "person"
         case .provider: return "provider"
         case .folder: return "folder"
+        case .folderInSource: return "folderInSource"
         case .action(let action): return "action.\(action)"
         // One kind, not one per tab: which tabs are offered is a property of the list the host
         // injects, and it is walked where that list is derived (`everyTabIsOffered`) and where it
@@ -65,7 +69,13 @@ import Design
         switch route {
         case .folder(let path): return path
         case .organize(_, let scope): return scope
-        case .browse, .compare, .editor, .person, .provider, .action, .settings:
+        // **`.folderInSource` names a path under ANOTHER source's root, so it is not one of
+        // these** — and that is the point of the distinction rather than an omission.
+        // `foldersUnavailable` is an answer about the root the pane is aimed at ("this drive did
+        // not answer"), and a source the pane is not on has its own `isMounted`, which
+        // `pathRow` checks before offering the switch at all. Marking a cross-source row with the
+        // aimed root's verdict would refuse a folder on a disk that is wide awake.
+        case .browse, .compare, .editor, .person, .provider, .folderInSource, .action, .settings:
             return nil
         }
     }
@@ -86,6 +96,13 @@ import Design
         PaletteIndex(
             providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true,
                                         isCurrent: true, root: root),
+                        // **Mounted, and not the one the pane is on** — the shape RD7's
+                        // `.folderInSource` needs, and the only shape that can produce it. Without
+                        // a source like this in the fixture the walk below cannot reach that
+                        // destination at all, and "every destination has a door" would quietly
+                        // mean "every destination except the newest one".
+                        PaletteProvider(id: "dropbox", name: "Dropbox", isMounted: true,
+                                        isCurrent: false, root: dropbox),
                         PaletteProvider(id: "ssd", name: "Backup SSD", isMounted: false,
                                         isCurrent: false, root: "/Volumes/Backup")],
             providerRoot: root,
@@ -134,10 +151,17 @@ import Design
         let index = Self.index()
         let queries = ["", "browse", "compare", "storage", "organize", "daughter", "icloud",
                        "legal", "rescan", "new folder", "choose", "find", "settings",
-                       "shortcuts", "activity"]
+                       "shortcuts", "activity",
+                       // The two typed-path doors, which are two different destinations: a path
+                       // inside the source the pane is showing (`folder`) and one inside another
+                       // mounted source (`folderInSource`, RD7). Both need the probe below — a
+                       // `rows` call without one emits no path row at all, which is how this walk
+                       // was blind to the path builder until 2026-08-20.
+                       "\(Self.root)/Finance", "\(Self.dropbox)/Legal"]
         var reached = Set<String>()
         for query in queries {
-            for row in PaletteRouter.rows(query: query, index: index) where row.isAvailable {
+            for row in PaletteRouter.rows(query: query, index: index, probe: Self.probe)
+            where row.isAvailable {
                 reached.insert(Self.kind(row.route))
             }
         }
@@ -147,7 +171,7 @@ import Design
         // door is still there; it is one of Organize's. `CommandPaletteTests` is where the query
         // "storage" is followed to that route, including with a folder.
         var expected: Set<String> = ["browse", "compare", "organize", "person",
-                                     "provider", "folder", "settings"]
+                                     "provider", "folder", "folderInSource", "settings"]
         for action in PaletteAction.allCases { expected.insert("action.\(action)") }
 
         let missing = expected.subtracting(reached).sorted()

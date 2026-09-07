@@ -41,6 +41,26 @@ public enum PaletteRoute: Equatable, Sendable {
     /// Reveal this folder in the source browser, without re-aiming Organize.
     case folder(path: String)
 
+    /// Point the aimed pane at another source **and land on this folder** — ROADMAP_V4 §3's
+    /// deferred half of Go to Folder, shipped as RD7.
+    ///
+    /// **A case of its own rather than a `.folder` with a provider bolted on**, for two reasons
+    /// that are both about the host rather than about this module. `.folder` already has callers
+    /// (`folderRows`, and the same-source arm of ``PaletteRouter/pathRow(query:index:probe:)``)
+    /// whose whole premise is that the pane is already aimed at the right source, so widening it
+    /// would make every one of them say something it does not mean. And the host's `switch` is
+    /// exhaustive with no `default:` — pinned by `everyRouteCaseIsHandledWithoutADefaultArm` — so a
+    /// distinct case is what makes the compiler ask the one site that has to think about this.
+    ///
+    /// The provider arrives as its **id, a plain string**, exactly as ``settings(tab:)`` carries a
+    /// tab: `FileExplorer` cannot see the settings model, so a provider crosses the wall as data
+    /// (``PaletteProvider``) and leaves the same way. An id the settings no longer know is
+    /// therefore representable, and the host says so out loud rather than switching to nothing.
+    ///
+    /// `path` is **absolute** — it is the path the user typed, standardized by `PalettePath` — and
+    /// the host relativizes it against the *named* source's root, never the pane's current one.
+    case folderInSource(providerId: String, path: String)
+
     /// A named action, run or opened.
     case action(PaletteAction)
 
@@ -816,6 +836,11 @@ public enum PaletteRouter {
     /// folder outside every source, is a question this surface can answer, and answering it is
     /// strictly better than the empty list a path query used to produce.
     ///
+    /// **Three refusals, not four, since RD7.** A path inside another *configured and mounted*
+    /// source is a navigation the app can perform, so it is a live row routing to
+    /// ``PaletteRoute/folderInSource(providerId:path:)``; the branch below carries why the other
+    /// three stay refusals.
+    ///
     /// The order of the checks is `PalettePath`'s stall guard — everything answerable from the
     /// index first, the disk last and only inside the aimed source, once that source has answered.
     ///
@@ -832,15 +857,22 @@ public enum PaletteRouter {
         // same row rather than two — the highlight does not jump as you type.
         // **The reasons are sized against the 320pt floor, and that was rendered rather than
         // guessed.** `PaletteResultsList` draws the reason `.fixedSize()`, so it never truncates and
-        // always wins its row: measured 2026-08-19 at 320pt, the longest of these ("In Dropbox —
-        // switch source first", 32 characters) leaves the title intact and squeezes the path detail
-        // to `/Us…Legal`, and a long title degrades to `Some Very…` with the reason still whole.
+        // always wins its row: measured 2026-08-19 at 320pt, the longest of these then ("In Dropbox
+        // — switch source first", 32 characters) left the title intact and squeezed the path detail
+        // to `/Us…Legal`, and a long title degraded to `Some Very…` with the reason still whole.
         // That is the right way round for a refusal — the reason is what the row is *for*, and the
-        // path is still sitting in the field above it — but a reason much longer than this one
+        // path is still sitting in the field above it — but a reason much longer than that one
         // starts eating the folder name, which is the half that says WHICH folder was refused.
-        // `unknown` marks the one refusal that is a claim about *existence*. The other three are
+        //
+        // **RD7 retired the longest of them**, so the budget the measurement set is now slack
+        // rather than tight: the survivors are "No folder at that path" (22) and "<Source> is not
+        // mounted", whose length is a source's display name plus 16. Nothing here got wider — the
+        // 32-character measurement is kept because it is the number a new reason has to come in
+        // under, not because a string of that length is still drawn.
+        //
+        // `unknown` marks the one refusal that is a claim about *existence*. The other two are
         // refusals about reachability — the folder is very probably there, in a source that is not
-        // mounted or not the one on screen — and badging those with a question mark says the app
+        // mounted or not configured at all — and badging those with a question mark says the app
         // does not know whether the folder exists, which is a different and wronger thing to say.
         func refusal(_ reason: String, unknown: Bool = false) -> PaletteRow {
             PaletteRow(id: "path.\(typed)", group: .folders, title: leaf(typed), detail: typed,
@@ -861,7 +893,11 @@ public enum PaletteRouter {
         // `SettingsManager` allows for a re-pointed account.
         //
         // Asking `providerRoot` cannot drift from the route, because it *is* the value the route is
-        // applied with. (An earlier version of this comment blamed the `enabledProviders` /
+        // applied with. **RD7 did not retire this check, it changed what getting it wrong costs**:
+        // deciding on `isCurrent` would now hand a folder the pane is already showing to
+        // `.folderInSource` and re-point the pane at a nested source it never needed to leave —
+        // a silent, visible source switch instead of a visible refusal. (An earlier version of this
+        // comment blamed the `enabledProviders` /
         // `availableProviders` split instead — disable the source a pane is showing, the reasoning
         // went, and it leaves the list while the pane keeps it. **That is not reachable**:
         // `onChange(of: settings.enabledProviders)` re-points any pane whose provider was switched
@@ -876,11 +912,41 @@ public enum PaletteRouter {
                 return refusal("Not in any source")
             }
             guard owner.isMounted else { return refusal("\(owner.name) is not mounted") }
-            // Decided 2026-08-19: refuse and name the source rather than switching to it.
-            // Switching means suppressing the provider change's own navigation reset (the counter
-            // `adoptProviderForTab` arms) and driving the reload, or the pane lands at the root
-            // with the folder silently dropped. Deferred to v4.3 — ROADMAP_V4 §3.
-            return refusal("In \(owner.name) — switch source first")
+            // **RD7: the row that named the fix now IS the fix.** Until 2026-09-06 this refused
+            // with "In Dropbox — switch source first" — a row that told the user what to do and
+            // then made them do it by hand. The deferral was never about the wording: switching
+            // means suppressing the provider change's own navigation reset (the counter
+            // `adoptProviderForTab` arms) and driving the reload, or the pane lands at the source
+            // root with the typed folder silently dropped. The host does that now, so this is a
+            // live row with `unavailable` nil — which is what lets `PaletteSelection.chosen`
+            // return it at all.
+            //
+            // **The three other refusals stay refusals, and each for a reason this one does not
+            // have.** "Not in any source" is a true statement about the *configuration* — there is
+            // no source to switch to, so there is no navigation to perform. "<Source> is not
+            // mounted" (above) names a source that cannot be shown at all. "No folder at that
+            // path" is a claim about existence, made only inside the aimed source.
+            //
+            // **The disk is still not asked here**, and that is the stall guard rather than an
+            // omission: `theDiskIsNeverAskedAboutAPathOutsideTheAimedSource` holds the ordering, and
+            // a `stat` inside a source the pane is *not* showing has no `foldersUnavailable`
+            // standing in front of it the way the aimed root does. So this row is offered without
+            // knowing whether the folder is there, and the host probes once — on ↩, off the
+            // keystroke path — and refuses out loud rather than switching to a folder that is gone.
+            //
+            // **The wording, and why the detail is the bare path.** The title carries the verb and
+            // the source because the row's whole content is that the pane will change sources; the
+            // leaf is not lost with it, because `PaletteResultsList` truncates a detail containing
+            // a `/` in the MIDDLE precisely so the leaf survives. Appending anything to the path —
+            // "· switches this pane", say — moves the leaf into the middle and hands it to the
+            // truncator, which is the half that says WHICH folder. The ↩ affordance the roadmap
+            // card wanted is already drawn: the list puts a `↩` on the selected row, and a live row
+            // gets one where a refusal gets its reason instead.
+            return PaletteRow(id: "path.\(typed)", group: .folders,
+                              title: "Open in \(owner.name)", detail: typed,
+                              symbol: "folder",
+                              route: .folderInSource(providerId: owner.id, path: typed),
+                              score: pathRowScore)
         }
         // **The aimed root itself did not answer.** Every remembered folder is already marked with
         // this exact reason (`foldersUnavailable`), so a typed path under the same root says the
