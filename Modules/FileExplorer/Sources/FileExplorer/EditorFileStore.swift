@@ -300,6 +300,31 @@ public enum EditorFileStore {
         }!
     }
 
+    /// Writes **bytes** to `path`, through the same staging, flush, swap and read-back the text
+    /// save uses.
+    ///
+    /// **The door File ▸ Export as PDF… goes through, and it exists so that there is one answer to
+    /// "how does this app put a file on disk".** Everything the editor writes is text, so this
+    /// store spoke only text; a bare `Data.write(to:)` beside it would be a second writer with none
+    /// of what the first one learned — no staging, so a crash mid-write leaves a truncated PDF
+    /// where the old one was; no `F_FULLFSYNC`, so the swap can outrun the bytes; no read-back, so
+    /// a file replaced in the window after the swap is never noticed.
+    ///
+    /// It takes the write order for the same reason too. An export writes a *different* path from
+    /// the document being edited, and the order is per destination, so in practice it waits for
+    /// nothing — but "in practice" is doing the work there, and an export over a file the editor
+    /// also has open is exactly the case where it stops being true.
+    ///
+    /// No encoding parameter, because bytes have none. That is the whole difference between this
+    /// door and the text one above, and it is why the encoding now lives on the text path rather
+    /// than in the staging code the two share.
+    @discardableResult
+    public static func write(_ data: Data, toPath path: String) throws -> Stamp {
+        try writeOrder.perform(ticket: nil, to: resolved(path)) {
+            try writeUnordered(bytes: data, toPath: path)
+        }!
+    }
+
     /// The same write, carrying a ticket taken earlier — see ``WriteOrder``.
     ///
     /// - Returns: `nil` when a newer write has already committed, in which case nothing was
@@ -314,6 +339,19 @@ public enum EditorFileStore {
 
     private static func writeUnordered(_ text: String, toPath path: String,
                                        encoding: BoundedTextRead.TextEncoding) throws -> Stamp {
+        // **Written back in the encoding it was read in.** The reader decodes six of them, and a
+        // writer that only spoke UTF-8 would silently transcode a UTF-16 or BOM-carrying file the
+        // first time somebody saved it: still openable, still correct here, and a different file to
+        // everything else that produced or consumes it.
+        guard let bytes = encode(text, as: encoding) else {
+            throw Failure(message: "This file's text can't be written back as \(encoding.rawValue).")
+        }
+        return try writeUnordered(bytes: bytes, toPath: path)
+    }
+
+    /// The staging, the flush, the swap and the read-back — everything both doors share, with the
+    /// bytes already decided.
+    private static func writeUnordered(bytes: Data, toPath path: String) throws -> Stamp {
         let fileManager = FileManager.default
         let destination = URL(fileURLWithPath: resolved(path))
 
@@ -349,13 +387,6 @@ public enum EditorFileStore {
             try? fileManager.removeItem(at: backupPath)
         }
 
-        // **Written back in the encoding it was read in.** The reader decodes six of them, and a
-        // writer that only spoke UTF-8 would silently transcode a UTF-16 or BOM-carrying file the
-        // first time somebody saved it: still openable, still correct here, and a different file to
-        // everything else that produced or consumes it.
-        guard let bytes = encode(text, as: encoding) else {
-            throw Failure(message: "This file's text can't be written back as \(encoding.rawValue).")
-        }
         try bytes.write(to: staged)
         // **Flushed before the swap, or the swap is a promise the disk has not made.** The rename
         // is what makes this atomic, but APFS is free to commit the rename before the staged file's
