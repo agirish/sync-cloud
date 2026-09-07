@@ -341,9 +341,9 @@ import Foundation
         let block = try? #require(blocks(quoted).first)
         #expect(block?.quoteDepth == 20, "the walk reported a depth of \(block?.quoteDepth ?? -1)")
         // And the preview is what refuses to draw twenty bars, so the words keep their column.
-        #expect(MarkdownPreview.drawnDepth(20) == MarkdownPreview.maxNestingDrawn)
-        #expect(MarkdownPreview.drawnDepth(2) == 2, "the clamp is flattening depths it should draw")
-        #expect(MarkdownPreview.drawnDepth(0) == 0)
+        #expect(MarkdownBlockView.drawnDepth(20) == MarkdownBlockView.maxNestingDrawn)
+        #expect(MarkdownBlockView.drawnDepth(2) == 2, "the clamp is flattening depths it should draw")
+        #expect(MarkdownBlockView.drawnDepth(0) == 0)
     }
 
     // MARK: Source lines

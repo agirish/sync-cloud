@@ -372,7 +372,7 @@ import Design
     /// Six heading levels, each no larger than the one above it and the smallest still readable.
     /// A ramp that inverted anywhere would render an `###` bigger than the `##` over it.
     @Test func theHeadingRampNeverGrowsAsItGoesDeeper() {
-        let sizes = (1...6).map { MarkdownPreview.headingSize($0) }
+        let sizes = (1...6).map { MarkdownBlockView.headingSize($0) }
         for (level, pair) in zip(sizes, sizes.dropFirst()).enumerated() {
             #expect(pair.0 >= pair.1,
                     "h\(level + 1) is \(pair.0)pt and h\(level + 2) is \(pair.1)pt")
