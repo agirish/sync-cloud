@@ -315,11 +315,16 @@ extension FileSyncManager {
             if !leftTree.isEmpty { leftTree = [] }
             if leftItemCount != 0 { leftItemCount = 0 }
             lastLoadedLeftFocusPath = nil
+            // The stamp described the tree that just went; leaving it would date the EMPTY pane by
+            // a walk of somewhere else. Nil is the state a pane that has never loaded is in, which
+            // is what this pane now is.
+            leftTreeReadAt = nil
         } else {
             rawRightTree = []
             if !rightTree.isEmpty { rightTree = [] }
             if rightItemCount != 0 { rightItemCount = 0 }
             lastLoadedRightFocusPath = nil
+            rightTreeReadAt = nil
         }
     }
 

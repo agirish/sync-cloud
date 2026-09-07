@@ -144,7 +144,18 @@ extension FileSyncManager {
                     prefetchedTreeWalkStopped.insert(focusPath)
                 }
                 prefetchedTrees[focusPath] = cached
-                self.adoptRawTree(cached, isLeft: isLeft, focusPath: focusPath)
+                // The read stamp travels the same way and for the same reason: a slice belongs to
+                // the root's walk, so it is exactly as old as that walk. `??` rather than an
+                // overwrite — a direct hit on `focusPath` already carries its own, and the root's
+                // is the older of the two.
+                if prefetchedTreeReadAt[focusPath] == nil {
+                    prefetchedTreeReadAt[focusPath] = prefetchedTreeReadAt[rootURL.path]
+                }
+                // A cache entry with no stamp predates this bookkeeping (or was written by a test);
+                // `Date()` is then the only answer available, and it is the one the pane had before
+                // any of this existed.
+                self.adoptRawTree(cached, isLeft: isLeft, focusPath: focusPath,
+                                  readAt: prefetchedTreeReadAt[focusPath] ?? Date())
                 await self.applyFilters()
                 outcome = "served \(Self.countItems(in: cached)) nodes from cache"
                 // The spinner (set by a slow load this one just cancelled) is released by the
@@ -299,6 +310,11 @@ extension FileSyncManager {
         //    poor tree. Cache only the genuine, unmodified build.
         if sortOption == sortOp, liveSort == sortOp, scanConfigGeneration == configToken, !Task.isCancelled {
             prefetchedTrees[focusPath] = tree
+            // Same publish, same clock: `adoptRawTree` above stamped the pane with `Date()`, and a
+            // second reading here would drift from it by the length of the re-sort. Reading the
+            // pane's own stamp back keeps the entry and the pane exactly equal, which is what makes
+            // a later cache hit able to reproduce this moment rather than approximate it.
+            prefetchedTreeReadAt[focusPath] = (isLeft ? leftTreeReadAt : rightTreeReadAt) ?? Date()
             // The provenance travels with the entry, in both directions — a fresh complete walk
             // must also RETIRE a stale stopped mark, or the banner would outlive the truncation.
             if walkStopped {
@@ -330,7 +346,12 @@ extension FileSyncManager {
     /// Publishes a freshly built (or cache-served) raw tree for one pane. Also bumps
     /// `rawTreeGeneration`, which invalidates any off-main resort snapshot in flight —
     /// this tree was built with the current sort option already applied.
-    func adoptRawTree(_ tree: [FileNode], isLeft: Bool, focusPath: String) {
+    /// - Parameter readAt: when the walk behind `tree` read the disk. Defaults to *now*, which is
+    ///   right for every path that has just walked something; the cache fast path passes the
+    ///   walk's own stamp instead, because a served tree is as old as the walk that built it and
+    ///   Browse's freshness segment would otherwise announce a re-read that never happened.
+    func adoptRawTree(_ tree: [FileNode], isLeft: Bool, focusPath: String,
+                      readAt: Date = Date()) {
         // An unreadable-root walk comes back as the root itself marked unexplored (see
         // `buildTree`), so the cache and the diff know the contents are UNKNOWN rather than
         // empty. The pane must not render the focused folder nested inside itself, though —
@@ -343,9 +364,11 @@ extension FileSyncManager {
         if isLeft {
             rawLeftTree = tree
             lastLoadedLeftFocusPath = focusPath
+            leftTreeReadAt = readAt
         } else {
             rawRightTree = tree
             lastLoadedRightFocusPath = focusPath
+            rightTreeReadAt = readAt
         }
     }
 

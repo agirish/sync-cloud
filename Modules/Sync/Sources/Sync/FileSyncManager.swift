@@ -1906,6 +1906,20 @@ public class FileSyncManager: ObservableObject {
     /// Total number of files and folders in the right pane tree (recursive).
     @Published public var rightItemCount = 0
 
+    /// When the walk behind each pane's published tree read the disk, or nil when the pane has
+    /// never loaded one. What Browse's status bar puts through `ScanFreshness`.
+    ///
+    /// **Not `lastScanDate`**, which is the *comparison* scan's clock — a pair of folders diffed
+    /// against each other. A Browse pane runs no comparison, so on that surface `lastScanDate` is
+    /// either nil or a fact about two folders the user is not looking at. This is the walk that
+    /// produced the rows on screen, which is the question "how current is this listing?" actually
+    /// asks. Written by `adoptRawTree`, so every publish path — cold walk, shallow first paint and
+    /// cache hit alike — stamps exactly once, and the cache hit stamps the walk's time rather than
+    /// its own (see `prefetchedTreeReadAt`).
+    @Published public internal(set) var leftTreeReadAt: Date?
+    /// Right-pane counterpart of `leftTreeReadAt`.
+    @Published public internal(set) var rightTreeReadAt: Date?
+
     // MARK: - Selection resolution index
 
     /// Path→node maps for resolving a selection to nodes in O(selection) instead of walking the
@@ -1969,6 +1983,17 @@ public class FileSyncManager: ObservableObject {
     /// a stale bit into a verdict.
     public var prefetchedTreeWalkStopped: Set<String> = []
 
+    /// When the walk that produced each cache entry actually read the disk.
+    ///
+    /// **Provenance the tree cannot carry, and the reason the status bar's freshness is honest.**
+    /// A cache hit republishes a tree that was walked minutes ago — navigate away, navigate back,
+    /// nothing mutated in between — so stamping "read just now" at the moment it is *served* would
+    /// make the freshness segment say `Scanned 0s ago` over a listing nobody has re-read. The stamp
+    /// travels with the entry instead, exactly as `prefetchedTreeWalkStopped` does, and a slice
+    /// inherits its root's stamp for the same reason it inherits the root's stopped bit: the slice
+    /// is part of that walk, not a walk of its own.
+    public var prefetchedTreeReadAt: [String: Date] = [:]
+
     /// Drops every cached pane tree AND its walk-stopped provenance — one verb, so the two stores
     /// cannot part company at an invalidation site. Every invalidation of `prefetchedTrees` goes
     /// through here; a site that cleared the trees alone would leave provenance bits to be
@@ -1976,6 +2001,7 @@ public class FileSyncManager: ObservableObject {
     public func dropPrefetchedTrees() {
         prefetchedTrees.removeAll()
         prefetchedTreeWalkStopped.removeAll()
+        prefetchedTreeReadAt.removeAll()
     }
     /// Focused-folder path each pane's published tree was last loaded for; distinguishes a
     /// same-focus refresh (keep showing the current tree while rebuilding) from a focus
