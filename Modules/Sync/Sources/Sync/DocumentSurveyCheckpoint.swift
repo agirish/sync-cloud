@@ -79,11 +79,21 @@ public struct DocumentSurveyCheckpoint: Sendable, Equatable {
     /// partial corpus wearing a different filename — one `mv` from the failure this whole type
     /// exists to prevent.
     public let read: [String: FilingCorpusDocument]
+    /// Documents skipped so far because their content was not on this disk.
+    ///
+    /// **Carried because the completion summary is explicit about this number.** `read` survived a
+    /// resume and this did not, so a survey stopped and carried on reported every not-downloaded
+    /// document from the first sitting as though it had never been looked at — understating, in the
+    /// one figure the summary exists to state plainly. Defaulted so a checkpoint written before
+    /// this field still decodes; the cost of the default is a resumed count that is low rather than
+    /// a decode failure that costs the whole survey.
+    public let documentsUnavailable: Int
     public let startedAt: Date
     public let updatedAt: Date
 
     public init(profileId: String, rootPath: String, salt: String, plan: [String],
                 nextIndex: Int, read: [String: FilingCorpusDocument],
+                documentsUnavailable: Int = 0,
                 startedAt: Date, updatedAt: Date) {
         self.profileId = profileId
         self.rootPath = rootPath
@@ -91,6 +101,7 @@ public struct DocumentSurveyCheckpoint: Sendable, Equatable {
         self.plan = plan
         self.nextIndex = nextIndex
         self.read = read
+        self.documentsUnavailable = documentsUnavailable
         self.startedAt = startedAt
         self.updatedAt = updatedAt
     }
@@ -126,7 +137,7 @@ public struct DocumentSurveyCheckpoint: Sendable, Equatable {
 extension DocumentSurveyCheckpoint: Codable {
     private enum Key: String, CodingKey {
         case schemaVersion, kind, note, profileId, rootPath, salt, plan, nextIndex, read
-        case startedAt, updatedAt
+        case documentsUnavailable, startedAt, updatedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -154,6 +165,7 @@ extension DocumentSurveyCheckpoint: Codable {
         plan = try c.decodeIfPresent([String].self, forKey: .plan) ?? []
         nextIndex = try c.decodeIfPresent(Int.self, forKey: .nextIndex) ?? 0
         read = try c.decodeIfPresent([String: FilingCorpusDocument].self, forKey: .read) ?? [:]
+        documentsUnavailable = try c.decodeIfPresent(Int.self, forKey: .documentsUnavailable) ?? 0
         startedAt = (try? c.decodeIfPresent(String.self, forKey: .startedAt))
             .flatMap { $0 }.flatMap(FilingArtifactStamp.date(from:)) ?? Date()
         updatedAt = (try? c.decodeIfPresent(String.self, forKey: .updatedAt))
@@ -170,6 +182,7 @@ extension DocumentSurveyCheckpoint: Codable {
         try c.encode(plan, forKey: .plan)
         try c.encode(nextIndex, forKey: .nextIndex)
         try c.encode(read, forKey: .read)
+        try c.encode(documentsUnavailable, forKey: .documentsUnavailable)
         try c.encode(FilingArtifactStamp.string(from: startedAt), forKey: .startedAt)
         try c.encode(FilingArtifactStamp.string(from: updatedAt), forKey: .updatedAt)
         try c.encode("""

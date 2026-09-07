@@ -137,6 +137,10 @@ public actor DocumentSurveyRun {
     /// Seconds spent reading, pauses excluded — the ETA's basis. Accumulated per document rather
     /// than measured end to end, which is what makes excluding the pauses possible at all.
     private var readingSeconds: TimeInterval = 0
+    /// The pause reason last published, so a reason that CHANGES mid-pause republishes while a
+    /// steady one does not. Without it, "paused while Duplicates runs" would stay on the card after
+    /// Duplicates finished and the display went to sleep — a true sentence about the wrong cause.
+    private var lastPublishedPause: DocumentSurveyPause?
     private var userPaused = false
     private var stopRequested = false
     private var gate = ProgressPublishGate()
@@ -201,6 +205,11 @@ public actor DocumentSurveyRun {
             // than a survey that believes it is finished.
             nextIndex = checkpoint.progress.done
             startedAt = checkpoint.startedAt
+            // **Carried, because the summary claims to be honest about exactly this number.**
+            // `read` was adopted and this was not, so a resumed survey reported every
+            // not-downloaded document from the first sitting as if it had never happened — the one
+            // count `DocumentSurveyReport.summary` exists to state plainly.
+            unavailable = checkpoint.documentsUnavailable
             return nil
         }
     }
@@ -240,12 +249,26 @@ public actor DocumentSurveyRun {
             // Pause is polled at the document boundary, which is the only place it can land: a
             // read already in flight finishes regardless, so checking mid-read would report a
             // pause the run is not yet honouring.
+            var wasPaused = false
             while let reason = await effectivePause() {
-                environment.publish(progressNow(phase: .paused(reason)))
+                if !wasPaused || lastPublishedPause != reason {
+                    environment.publish(progressNow(phase: .paused(reason)))
+                    lastPublishedPause = reason
+                }
+                wasPaused = true
                 await environment.whilePaused()
                 if Task.isCancelled || stopRequested { break }
             }
             if Task.isCancelled || stopRequested { break }
+            // **Published the instant the pause clears, ahead of the gate.** The gate admits on
+            // whole percent, so without this the card kept saying "paused — the display is asleep"
+            // until the count crossed the next percent — about 75 documents, over a minute, on a
+            // 7,558-document run. A card that says paused under a survey that is reading is the
+            // same failure as one that says reading under a survey that has stopped.
+            if wasPaused {
+                lastPublishedPause = nil
+                environment.publish(progressNow(phase: .reading))
+            }
 
             let path = plan[nextIndex]
             await readOne(at: path)
@@ -276,7 +299,16 @@ public actor DocumentSurveyRun {
     // MARK: - One document
 
     private func readOne(at path: String) async {
-        guard let stamp = stamps[path] else { return }
+        // **Counted, not silently dropped.** The plan comes from the same walk as the stamps, so
+        // this cannot fire today — but if it ever does, returning without counting would leave the
+        // report's figures not summing to the plan, and `summary` states them as though they do.
+        // Counted as unavailable because that is what it is: a document the survey did not read.
+        guard let stamp = stamps[path] else {
+            Logger.shared.warning("Document survey: \(path) is in the plan with no stamp from the "
+                                  + "walk — not read, and counted as unavailable.")
+            unavailable += 1
+            return
+        }
         let absolute = root.appendingPathComponent(path).path
 
         // Asked before the read: opening a cloud placeholder is what makes the provider fetch it,
@@ -335,7 +367,8 @@ public actor DocumentSurveyRun {
         guard let directory else { return }
         let checkpoint = DocumentSurveyCheckpoint(
             profileId: profileId, rootPath: root.path, salt: salt, plan: plan,
-            nextIndex: nextIndex, read: read, startedAt: startedAt, updatedAt: environment.now())
+            nextIndex: nextIndex, read: read, documentsUnavailable: unavailable,
+            startedAt: startedAt, updatedAt: environment.now())
         do {
             try DocumentSurveyCheckpointStore.write(checkpoint, id: profileId, in: directory)
         } catch {
