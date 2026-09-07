@@ -109,10 +109,38 @@ extension FilingCorpusDocument: Codable {
 }
 
 extension FilingCorpus: Codable {
-    private enum Key: String, CodingKey { case schemaVersion, profileId, salt, note, documents, surveyedAt }
+    private enum Key: String, CodingKey {
+        case schemaVersion, profileId, salt, note, documents, surveyedAt, kind
+    }
+
+    /// What a corpus document says it is. Absent in every corpus written before this key existed
+    /// — and in the offline builder's output — which is why the guard below only fires on a
+    /// `kind` that is present and names something ELSE.
+    static let kind = "filing-corpus"
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
+        // **A file that says what it is, and says it is something else, is not a corpus.**
+        //
+        // Everything below is `decodeIfPresent ?? default`, deliberately, so that a corpus written
+        // by an older build or by the offline generator still loads. The cost of that leniency is
+        // that a JSON document sharing none of these keys decodes *successfully*, as an empty
+        // corpus — `.loaded`, not `.unreadable`. That distinction is the whole of
+        // ``FilingSurveyStore/CorpusRead``: `.unreadable` makes the survey refuse and leave the
+        // bytes alone, while an empty `.loaded` is merged into and written over the memory,
+        // discarding months of learned content and every cached verdict keyed to its fingerprint.
+        //
+        // The file that makes this reachable is ``DocumentSurveyCheckpoint``, which by design holds
+        // a partly-finished survey and by design lives next door. One `mv`, one recovery script, one
+        // future refactor reusing `corpusURL`, and a progress file becomes an empty corpus with
+        // nothing anywhere reporting a problem. Naming the fields differently is not enough on its
+        // own; leniency means the corpus simply does not notice the difference.
+        //
+        // So: unknown `kind` throws, and the survey's existing refusal does the rest.
+        if let kind = try c.decodeIfPresent(String.self, forKey: .kind), kind != FilingCorpus.kind {
+            throw DecodingError.dataCorruptedError(forKey: .kind, in: c,
+                                                   debugDescription: "\(kind) is not a filing corpus")
+        }
         // Same rule as the other filing artifacts: a foreign schema is discarded, not half-read. The
         // cost of being wrong here is a full re-survey, which is exactly what an absent corpus means.
         if let v = try c.decodeIfPresent(Int.self, forKey: .schemaVersion), v != FilingCorpus.currentSchema {
@@ -132,6 +160,9 @@ extension FilingCorpus: Codable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Key.self)
         try c.encode(FilingCorpus.currentSchema, forKey: .schemaVersion)
+        // Written from now on so the guard above has something to read on the way back — and so a
+        // corpus is as unmistakable for progress as progress is for a corpus.
+        try c.encode(FilingCorpus.kind, forKey: .kind)
         try c.encode(profileId, forKey: .profileId)
         try c.encode(salt, forKey: .salt)
         try c.encode(documents, forKey: .documents)
