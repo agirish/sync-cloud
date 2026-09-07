@@ -3914,3 +3914,48 @@ Mac" would be false on **every one of the four lines**: all four carry `CloudFil
 `AnthropicKeyCheck`, so all four can reach `api.anthropic.com`. Anyone picking this article to a
 maintenance line must carry the last paragraph with it, or the pick ships a claim the code
 contradicts. That is the opposite of the usual backport hazard, where the risk is picking too much.
+
+---
+
+## 2026-09-07 — the startup disk moves from Favorites to Locations' device band
+
+`main` `1621f868` (SHA read after the push). One behaviour change — the startup disk left
+`SidebarFavoritePlaces.standard`, so it is drawn as a `.device` row above any card and the Trash —
+plus the stamped migration that makes it visible on an install that already has a stored list.
+
+```sh
+# stage 1 — does the sidebar this changes EXIST on the line at all?
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s SidebarSources=%s favPlaces=%s standardHasDisk=%s bandWalk=%s ordered=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Dashboard/Sources/Dashboard/SidebarSources.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/SidebarSources.swift 2>/dev/null | grep -c 'enum SidebarFavoritePlaces')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/SidebarSources.swift 2>/dev/null | grep -c 'startupDiskPath\]')" \
+    "$(git show origin/$l:MacApp/ContentView+FolderSidebar.swift 2>/dev/null | grep -c 'Band.cloud, .device, .trash')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/SidebarSources.swift 2>/dev/null | grep -c 'func orderedVolumes')"
+done
+# main 1/1/1/1/1 · v4.x 1/1/1/1/1 · v3.x 0/0/0/0/0 · v2.x 0/0/0/0/0
+# The whole folder sidebar is a v4.2+ surface. v3.x and v2.x have no SidebarSources.swift at all —
+# their Dashboard module goes BreadcrumbTrail → DashboardViews → Details* → FolderJumpStore, with
+# no sidebar sources file between them.
+
+# stage 2 — v4.x is the only line where the question is live. Are the migration's prerequisites there?
+printf 'v4.x   migrationCallSite=%s paneBarMigration=%s appStorageKey=%s\n' \
+  "$(git show origin/v4.x:MacApp/SyncCloudApp.swift | grep -c 'OrganizeScopeDefaults.migrate')" \
+  "$(git show origin/v4.x:Modules/Dashboard/Sources/Dashboard/PaneBarArrangement.swift | grep -c 'enum PaneBarMigration')" \
+  "$(git show origin/v4.x:MacApp/ContentView.swift | grep -c 'browseSidebarFavoritePlaces')"
+# v4.x 1/1/1 — the launch migration block, the stamped-migration precedent, and the @AppStorage
+# property are all present. A pick would land cleanly.
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **The disk out of `SidebarFavoritePlaces.standard`** | Applies in full and would land cleanly — `standard` is there with the same five entries and the same trailing `+ [SidebarSourceModel.startupDiskPath]`. It is a **preference change, not a fix**: nothing on `v4.x` is wrong, the disk simply sits in Favorites there. Weigh it as such if the direction ever changes | **Does not apply.** No `SidebarSources.swift`, no `SidebarFavoritePlaces`, no folder sidebar — the section shipped with v4.2 | RECORDED — not owed (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`SidebarFavoritePlaces.migrate` + `storageKey`/`salvageKey`** | Applies, and is **worthless without the row above** — it exists only to bring a stored list forward to a `standard` that changed. Prerequisites all present: the launch block in `SyncCloudApp.swift`, `PaneBarMigration` as the stamped precedent, and `ContentView`'s `@AppStorage`. Note the stamp key is per-line state: a user who runs `v4.x` and then `main` gets one migration, not two, because both write `browseSidebarFavoritePlacesMigration` | **Does not apply** — nothing to migrate | RECORDED — not owed (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`LocationsDeviceBandOrderTests`, `SidebarFavoritePlacesMigrationTests`, `FavoritePlacesKeyTests`** | Follow the two rows above. The end-to-end suite asserts through `ContentView.splitFolderSidebarPlaceRows`, which `v4.x` has with the same signature, so it would compile as picked | Same — no builder to assert against | RECORDED — not owed (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+
+**The one thing worth knowing if this is ever picked.** The asked-for order — disk, then card, then
+Trash — is produced by `orderedVolumes` (startup disk first) and the `[.cloud, .device, .trash]` band
+walk, both of which `v4.x` already has, unchanged. So the pick is genuinely just the one-line
+`standard` edit plus the migration; there is no ordering code to carry with it. On `v4.x` today those
+two rules are already correct and simply have nothing to draw, because the disk is lifted into
+Favorites before the device band is built.
