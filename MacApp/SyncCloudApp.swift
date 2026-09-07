@@ -679,8 +679,24 @@ struct SyncCloudApp: App {
             // that costs nothing, because an ⌥ chord is the one kind that fires through the ⌥-hold
             // reveal (see `AppChord.foldAllDifferences`), which is an invariant the whole app is
             // held to. `theFileMenuIsInTheRoadmapsOrder` pins the absence so it stays a decision.
-            CommandGroup(replacing: .saveItem) {
-                SaveDocumentCommand()       // ⌘S
+            // **Grouped, because `CommandsBuilder` takes ten children** and this block was at ten
+            // before RD9's print pair arrived — the same wall the Organize/Text/Markup group below
+            // hit, and it fails the same way: `extra argument in call`, reported against the
+            // closing brace rather than against anything new. `Group` changes nothing in the bar.
+            Group {
+                CommandGroup(replacing: .saveItem) {
+                    SaveDocumentCommand()       // ⌘S
+                }
+                // File ▸ the document on paper (roadmap RD9). **`.printItem` rather than more rows
+                // in the group above**: it is where AppKit puts printing, which places both items
+                // below Save with a separator of the platform's own making — the arrangement RD9's
+                // mockup draws — and it leaves the Save group meaning one thing. Replacing rather
+                // than adding after, because the group is empty until something fills it: SwiftUI
+                // supplies no Print item of its own for an app that never asked for one.
+                CommandGroup(replacing: .printItem) {
+                    ExportPDFCommand()          // no chord — see AppChord.printDocument
+                    PrintDocumentCommand()      // ⌘P
+                }
             }
             // View ▸ the workspaces (one ⌘-digit each, checkmarked) and the show/hide switches. The
             // workspace items sit in the View menu because that is what they change — which

@@ -161,7 +161,14 @@ enum ShortcutsReference {
         // a heading about panes reads as an app-wide key that saves something in Browse.
         Group(title: "Edit", items: [
             Item(keys: "⌘ N", action: "New text file in Edit's folder"),
-            Item(keys: "⌘ S", action: "Save the open document"),
+            // **⌘P shares ⌘S's row, and that was measured rather than chosen for tidiness.** On a
+            // row of its own the reference stood 770pt against a 740pt window, which
+            // `theReferenceFitsItsWindowWithoutScrolling` refuses — the same wall the editor's ⌘F
+            // row hit. The pairing also says the true thing: these are the two verbs that take the
+            // open document somewhere. "What Preview shows" is the half a reader could otherwise
+            // only learn by printing. File ▸ Export as PDF… is deliberately absent: it has no
+            // chord, and this is a reference to the keyboard.
+            Item(keys: "⌘ S / ⌘ P", action: "Save the open document — or print what Preview shows"),
             // One row for the three modes: they are one control, and rows are the budget here.
             Item(keys: "⌃⌘ 1 / ⌃⌘ 2 / ⌃⌘ 3", action: "Source / Preview / Split, for a Markdown file"),
             // **The Markup chords, now that the Markup menu registers them.** This group carried a

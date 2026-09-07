@@ -31,6 +31,7 @@ import Foundation
             openSelectedFolder: {}, enclosingFolder: {},
             rescan: {}, newFolder: {},
             saveDocument: {}, newTextFile: {},
+            documentPrint: DocumentPrintActions(print: {}, export: {}),
             hiddenFiles: .constant(false),
             previewColumn: .constant(true),
             inspector: .constant(false),
@@ -164,6 +165,7 @@ import Foundation
         // pick is still deciding about; ⌘N would switch workspace out from under it.
         #expect(publisher.effectiveSaveDocument == nil)
         #expect(publisher.effectiveNewTextFile == nil)
+        #expect(publisher.effectiveDocumentPrint == nil)
         #expect(publisher.effectiveHiddenFiles == nil)
         #expect(publisher.effectivePreviewColumn == nil)
         #expect(publisher.effectiveInspector == nil)
@@ -212,6 +214,7 @@ import Foundation
         #expect(publisher.effectiveNewFolder != nil)
         #expect(publisher.effectiveSaveDocument != nil)
         #expect(publisher.effectiveNewTextFile != nil)
+        #expect(publisher.effectiveDocumentPrint != nil)
         #expect(publisher.effectiveHiddenFiles != nil)
         #expect(publisher.effectivePreviewColumn != nil)
         #expect(publisher.effectiveInspector != nil)

@@ -34,6 +34,7 @@ import Foundation
         // these are four separate chords rather than two with an accident in them.
         #expect(AppChord.saveDocument.display == "⌘S")
         #expect(AppChord.newTextFile.display == "⌘N")
+        #expect(AppChord.printDocument.display == "⌘P")
         #expect(AppChord.hiddenFiles.display == "⇧⌘.")
         #expect(AppChord.previewColumn.display == "⇧⌘P")
         #expect(AppChord.deleteSelection.display == "⌘⌫")

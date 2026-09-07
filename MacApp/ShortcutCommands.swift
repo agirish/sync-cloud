@@ -395,6 +395,10 @@ private struct NewTextFileKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct DocumentPrintKey: FocusedValueKey {
+    typealias Value = DocumentPrintActions
+}
+
 private struct ShowHiddenFilesKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -665,6 +669,13 @@ extension FocusedValues {
         set { self[NewTextFileKey.self] = newValue }
     }
 
+    /// File ▸ Print… and File ▸ Export as PDF… — the open document as pages (roadmap RD9). `nil`
+    /// outside Edit, or with nothing openable open, which is what greys both items.
+    var documentPrint: DocumentPrintActions? {
+        get { self[DocumentPrintKey.self] }
+        set { self[DocumentPrintKey.self] = newValue }
+    }
+
     /// The hidden-files filter — one switch for both panes (`FileSyncManager.showHiddenFiles`).
     var showHiddenFiles: Binding<Bool>? {
         get { self[ShowHiddenFilesKey.self] }
@@ -815,6 +826,10 @@ struct ShortcutValuePublisher: ViewModifier {
     let newFolder: (() -> Void)?
     let saveDocument: (() -> Void)?
     let newTextFile: (() -> Void)?
+    /// ⌘P and Export as PDF…. Suspended with the rest: the print panel is a sheet, and putting one
+    /// up over a destination picker that is itself waiting on an answer stacks two modal questions
+    /// on one window.
+    let documentPrint: DocumentPrintActions?
     let hiddenFiles: Binding<Bool>
     let previewColumn: Binding<Bool>?
     let inspector: Binding<Bool>
@@ -900,6 +915,7 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveNewFolder: (() -> Void)? { suspended ? nil : newFolder }
     var effectiveSaveDocument: (() -> Void)? { suspended ? nil : saveDocument }
     var effectiveNewTextFile: (() -> Void)? { suspended ? nil : newTextFile }
+    var effectiveDocumentPrint: DocumentPrintActions? { suspended ? nil : documentPrint }
     var effectiveHiddenFiles: Binding<Bool>? { suspended ? nil : hiddenFiles }
     var effectivePreviewColumn: Binding<Bool>? { suspended ? nil : previewColumn }
     var effectiveInspector: Binding<Bool>? { suspended ? nil : inspector }
@@ -944,6 +960,7 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.newFolderInFocusedPane, effectiveNewFolder) // ⇧⌘N
             .focusedSceneValue(\.saveDocument, effectiveSaveDocument)       // ⌘S
             .focusedSceneValue(\.newTextFile, effectiveNewTextFile)         // ⌘N
+            .focusedSceneValue(\.documentPrint, effectiveDocumentPrint)    // ⌘P, Export as PDF…
             .focusedSceneValue(\.showHiddenFiles, effectiveHiddenFiles)      // ⇧⌘.
             .focusedSceneValue(\.previewColumn, effectivePreviewColumn)      // ⇧⌘P
             .focusedSceneValue(\.infoInspector, effectiveInspector)          // ⌘I
@@ -982,6 +999,7 @@ extension ContentView {
             newFolder: shortcutNewFolder,
             saveDocument: shortcutSaveDocument,
             newTextFile: shortcutNewTextFile,
+            documentPrint: shortcutDocumentPrint,
             hiddenFiles: $syncManager.showHiddenFiles,
             previewColumn: shortcutPreviewColumn,
             inspector: shortcutInfoInspector,
@@ -1717,6 +1735,36 @@ struct SaveDocumentCommand: View {
         Button("Save") { save?() }
             .keyboardShortcut(AppChord.saveDocument.key, modifiers: AppChord.saveDocument.modifiers)
             .disabled(save == nil)
+    }
+}
+
+/// File ▸ Export as PDF… — the rendered document, written where the reader says.
+///
+/// **Above Print…, and with the ellipsis Print's own convention explains.** Both open a dialog, so
+/// both carry one; Export is first because it is the one whose destination is a file, which is the
+/// question the rest of this group answers (New…, Save). No key equivalent — see
+/// ``AppChord/printDocument``.
+struct ExportPDFCommand: View {
+    @FocusedValue(\.documentPrint) private var actions
+
+    var body: some View {
+        Button("Export as PDF…") { actions?.export() }
+            .disabled(actions == nil)
+    }
+}
+
+/// File ▸ Print… — the open document, rendered, on paper.
+///
+/// **It prints what Preview shows**, whichever of the three modes is on screen: printing a Markdown
+/// document means the rendered document, and a reader in Source mode asking to print has asked for
+/// the document, not for its markup. A plain-text file has no rendered form, and prints as text.
+struct PrintDocumentCommand: View {
+    @FocusedValue(\.documentPrint) private var actions
+
+    var body: some View {
+        Button("Print…") { actions?.print() }
+            .keyboardShortcut(AppChord.printDocument.key, modifiers: AppChord.printDocument.modifiers)
+            .disabled(actions == nil)
     }
 }
 

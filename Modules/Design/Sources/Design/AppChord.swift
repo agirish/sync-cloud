@@ -253,6 +253,20 @@ public extension AppChord {
     /// and the text view never sees it.
     static let saveDocument = AppChord("s", .command)
 
+    /// File ▸ Print… — the open document, rendered, on paper (roadmap RD9).
+    ///
+    /// **⌘P was free, and that is not the same as unused.** ⇧⌘P is View ▸ Preview Column and has
+    /// been since v3; the bare ⌘P has never been registered by anything here, and it is the one
+    /// chord on the platform a reader will try without looking. `TextEditingChord` does not claim
+    /// it either — printing is not one of `NSTextView`'s own key bindings — so a menu equivalent
+    /// takes it outright and the field editor never sees it.
+    ///
+    /// **File ▸ Export as PDF… deliberately has none.** It is the same render to a different
+    /// destination, and the destination is the *dialog*, so a key equivalent would buy nothing that
+    /// ⌘P and the panel's own PDF button do not already offer. ⇧⌘P is taken, ⌥ chords are barred
+    /// app-wide (see ``foldAllDifferences``), and ⌘E is Use Selection for Find.
+    static let printDocument = AppChord("p", .command)
+
     /// File ▸ New Text File… — opens the naming row in the editor's rail. The ellipsis is the
     /// promise: nothing is on disk until Return.
     ///
@@ -336,7 +350,7 @@ public extension AppChord {
         settings, infoInspector, activityLog, shortcutsReference, commandPalette,
         selectAll, cut, copy, paste,
         findInPane, paneBack, paneForward, rescan, newFolder,
-        saveDocument, newTextFile,
+        saveDocument, newTextFile, printDocument,
         folderSidebar, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
         openSelectedFolder, enclosingFolder,
