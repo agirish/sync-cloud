@@ -108,6 +108,8 @@ import Design
         ("AppChord.paste.key", [.paste]),
         ("AppChord.deleteSelection.key", [.deleteSelection]),
         ("AppChord.transfer(", [.copyToLeft, .copyToRight, .moveToLeft, .moveToRight]),
+        ("AppChord.enclosingFolder.key", [.enclosingFolder]),
+        ("AppChord.openSelectedFolder.key", [.openSelectedFolder]),
     ]
 
     @Test func theCollidingSpellingTableMatchesTheRegistry() {

@@ -44,6 +44,8 @@ public struct AppChord: Sendable {
         // renders as a blank box instead of nothing, which is worse.
         if key == .leftArrow { return "←" }
         if key == .rightArrow { return "→" }
+        if key == .upArrow { return "↑" }
+        if key == .downArrow { return "↓" }
         // The hyphen-minus is the KEY (`AppChord("-", …)` is what registers), but on a keycap it
         // reads as a dash — "⌘-" looks like a stray punctuation mark beside "⌘+". The minus sign is
         // what the platform's own View ▸ Zoom Out draws, and what the ⌘/ reference already spells.
@@ -172,6 +174,21 @@ public extension AppChord {
     static let hiddenFiles = AppChord(".", [.shift, .command])
     static let previewColumn = AppChord("p", [.shift, .command])
     static let deleteSelection = AppChord(.delete, .command)
+    /// ⌘↓ — open the selected folder into a new column, and ⌘↑ — close the rightmost one.
+    ///
+    /// **They move the COLUMN STACK, never the comparison scope** (roadmap RD5, decided
+    /// 2026-09-06). A pane has two positions and `PaneBrowsePath`'s own doc comment is where the
+    /// difference is written down: the scope reloads the tree and re-runs the scan, the column
+    /// stack costs nothing and leaves every difference badge valid. These are the cheap one, which
+    /// is what makes them safe on a keypress — and is why they are dead in Tree view, which draws
+    /// no columns at all, rather than quietly meaning something else there.
+    static let openSelectedFolder = AppChord(.downArrow, .command)
+    /// ⌘↑. **Not a second spelling of ⌘[.** `paneBack` pops the column stack and then FALLS
+    /// THROUGH to the pane's focus history once the stack is empty, which steps the comparison
+    /// scope back; this one stops at the root column and disables instead. That is the whole
+    /// difference between them, it is deliberate, and it is why both exist — Finder draws the same
+    /// distinction between Back and Enclosing Folder. Do not "simplify" this into `paneBack`.
+    static let enclosingFolder = AppChord(.upArrow, .command)
     /// Moves the pane-scoped chords (⌘F, ⌘[, ⌘], ⇧⌘N, ⇧⌘P) to the other comparison pane.
     ///
     /// ⌃⇥ and deliberately **not** a bare ⇥, which is the two-pane convention this borrows from.
@@ -322,6 +339,7 @@ public extension AppChord {
         saveDocument, newTextFile,
         folderSidebar, hiddenFiles, previewColumn,
         deleteSelection, switchPaneFocus,
+        openSelectedFolder, enclosingFolder,
         newTab, closeTab, nextTab, previousTab, tabBar,
         reviewDifferences, verifyDifferences, differencesList, foldAllDifferences, compareTwoFiles,
         copyToLeft, copyToRight, moveToLeft, moveToRight,

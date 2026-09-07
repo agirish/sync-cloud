@@ -21,6 +21,11 @@ import Foundation
         #expect(AppChord.findInPane.display == "⌘F")
         #expect(AppChord.paneBack.display == "⌘[")
         #expect(AppChord.paneForward.display == "⌘]")
+        // The column-stack pair (RD5). Both are function-key code points, so these two pins are
+        // also what proves `keyGlyph` names them — without its ↑/↓ arms `display` renders an
+        // unprintable glyph, which draws as a blank box on a keycap rather than as nothing.
+        #expect(AppChord.openSelectedFolder.display == "⌘↓")
+        #expect(AppChord.enclosingFolder.display == "⌘↑")
         #expect(AppChord.rescan.display == "⌘R")
         #expect(AppChord.newFolder.display == "⇧⌘N")
         #expect(AppChord.folderSidebar.display == "⌃⌘S")

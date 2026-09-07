@@ -27,7 +27,9 @@ import Foundation
                                  closeTab: @escaping () -> Void = {}) -> ShortcutValuePublisher {
         ShortcutValuePublisher(
             workspace: .constant(.compare),
-            goBack: {}, goForward: {}, rescan: {}, newFolder: {},
+            goBack: {}, goForward: {},
+            openSelectedFolder: {}, enclosingFolder: {},
+            rescan: {}, newFolder: {},
             saveDocument: {}, newTextFile: {},
             hiddenFiles: .constant(false),
             previewColumn: .constant(true),
@@ -154,6 +156,8 @@ import Foundation
         #expect(publisher.effectiveWorkspace == nil)
         #expect(publisher.effectiveGoBack == nil)
         #expect(publisher.effectiveGoForward == nil)
+        #expect(publisher.effectiveOpenSelectedFolder == nil)
+        #expect(publisher.effectiveEnclosingFolder == nil)
         #expect(publisher.effectiveRescan == nil)
         #expect(publisher.effectiveNewFolder == nil)
         // The editor's two. ⌘S under a destination pick would write the buffer to a path the
@@ -202,6 +206,8 @@ import Foundation
         #expect(publisher.effectiveWorkspace != nil)
         #expect(publisher.effectiveGoBack != nil)
         #expect(publisher.effectiveGoForward != nil)
+        #expect(publisher.effectiveOpenSelectedFolder != nil)
+        #expect(publisher.effectiveEnclosingFolder != nil)
         #expect(publisher.effectiveRescan != nil)
         #expect(publisher.effectiveNewFolder != nil)
         #expect(publisher.effectiveSaveDocument != nil)

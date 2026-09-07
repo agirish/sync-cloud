@@ -134,6 +134,15 @@ enum ShortcutsReference {
             // is the only place a reader is told the chord has two destinations.
             Item(keys: "⌘ F", action: "Find a file or folder in this pane — in Edit, in the document"),
             Item(keys: "⌘ [ / ⌘ ]", action: "Back / forward in the focused pane"),
+            // **One row, paired like ⌘[ / ⌘] directly above it** — and that is a height decision,
+            // not only a tidiness one. Two rows measured 740pt against a 700pt window; the window
+            // cannot simply follow, because 800pt is a 13" display's usable height and reaching it
+            // is what forced the three-column deal in the first place. Paired, the content is 704pt.
+            //
+            // Immediately under ⌘[ / ⌘], because the question a reader arrives with is how these
+            // differ from them, and "stops at the first" is the answer — this is the only place
+            // both pairs are seen together.
+            Item(keys: "⌘ ↓ / ⌘ ↑", action: "In Columns, open the selected folder / close the rightmost column, stopping at the first"),
             Item(keys: "⌘ R", action: "Scan both panes for changes"),
             Item(keys: "⇧⌘ N", action: "New folder in the focused pane's current folder"),
             Item(keys: "⌃⌘ S", action: "Show or hide the sidebar"),
@@ -305,7 +314,17 @@ struct ShortcutsReferenceView: View {
     /// columns of the same rows are shorter: the content **measured 668pt** at this width (the
     /// first guess of 640 was caught by the test, as every number above was), so 700 leaves 32pt,
     /// in the band the earlier raises settled into and under the test's 60pt ceiling on empty space.
-    static let windowSize = CGSize(width: 1240, height: 700)
+    ///
+    /// **700 → 740 when the RD5 column pair arrived**, the ninth move and the same story as the
+    /// eight before it: the test caught it, at 740pt of content against a 700pt window. The pair
+    /// went in as ONE row (`⌘ ↓ / ⌘ ↑`, like `⌘ [ / ⌘ ]` above it) rather than two, which is what
+    /// keeps this a 19pt raise instead of a 40pt one — its action text wraps to a second line, so
+    /// it costs about half a row rather than none. **Sideways is no longer the escape it was**: the
+    /// width is already three columns, and the groups are atomic, so the tallest column cannot be
+    /// cut below the tallest GROUP however they are dealt. The content **measures 719pt**, so 740
+    /// leaves 21pt — in the same band, under the 60pt ceiling, and still 60pt below the 800pt that
+    /// a 13" display makes the practical limit.
+    static let windowSize = CGSize(width: 1240, height: 740)
 
     var body: some View {
         ScrollView {

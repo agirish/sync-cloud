@@ -367,6 +367,14 @@ private struct PaneGoForwardKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+private struct PaneOpenSelectedFolderKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+private struct PaneEnclosingFolderKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 private struct RescanPanesKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -603,6 +611,22 @@ extension FocusedValues {
         set { self[PaneGoForwardKey.self] = newValue }
     }
 
+    /// ⌘↓ — open the focused pane's selected folder into a new column. `nil` outside Columns, or
+    /// when the selection is not a single folder in the deepest open column. See
+    /// ``ContentView/shortcutOpenSelectedFolder``.
+    var paneOpenSelectedFolder: (() -> Void)? {
+        get { self[PaneOpenSelectedFolderKey.self] }
+        set { self[PaneOpenSelectedFolderKey.self] = newValue }
+    }
+
+    /// ⌘↑ — close the focused pane's rightmost column. `nil` outside Columns and `nil` at the root
+    /// column, where — unlike ⌘[ — it deliberately does NOT fall through to the focus history.
+    /// See ``ContentView/shortcutEnclosingFolder``.
+    var paneEnclosingFolder: (() -> Void)? {
+        get { self[PaneEnclosingFolderKey.self] }
+        set { self[PaneEnclosingFolderKey.self] = newValue }
+    }
+
     /// Opens the pair viewer on the focused pane's two selected files. `nil` when the selection
     /// is not exactly two files — see `PaneLogic.compareOffer(for:)`, which is the same rule the
     /// action bar's Compare button reads, so the menu item and the button cannot disagree about
@@ -782,6 +806,11 @@ struct ShortcutValuePublisher: ViewModifier {
     let workspace: Binding<Workspace>
     let goBack: (() -> Void)?
     let goForward: (() -> Void)?
+    /// ⌘↓ / ⌘↑ — the column stack (roadmap RD5). Suspended with the rest: a destination picker is
+    /// up because a file operation is waiting on an answer, and walking the columns under it moves
+    /// the pane the pick is describing — the same argument `newFolder` and the tab chords carry.
+    let openSelectedFolder: (() -> Void)?
+    let enclosingFolder: (() -> Void)?
     let rescan: (() -> Void)?
     let newFolder: (() -> Void)?
     let saveDocument: (() -> Void)?
@@ -865,6 +894,8 @@ struct ShortcutValuePublisher: ViewModifier {
     var effectiveWorkspace: Binding<Workspace>? { suspended ? nil : workspace }
     var effectiveGoBack: (() -> Void)? { suspended ? nil : goBack }
     var effectiveGoForward: (() -> Void)? { suspended ? nil : goForward }
+    var effectiveOpenSelectedFolder: (() -> Void)? { suspended ? nil : openSelectedFolder }
+    var effectiveEnclosingFolder: (() -> Void)? { suspended ? nil : enclosingFolder }
     var effectiveRescan: (() -> Void)? { suspended ? nil : rescan }
     var effectiveNewFolder: (() -> Void)? { suspended ? nil : newFolder }
     var effectiveSaveDocument: (() -> Void)? { suspended ? nil : saveDocument }
@@ -907,6 +938,8 @@ struct ShortcutValuePublisher: ViewModifier {
             .focusedSceneValue(\.workspaceSelection, effectiveWorkspace)     // ⌘1…⌘N, one per workspace
             .focusedSceneValue(\.paneGoBack, effectiveGoBack)                // ⌘[
             .focusedSceneValue(\.paneGoForward, effectiveGoForward)          // ⌘]
+            .focusedSceneValue(\.paneOpenSelectedFolder, effectiveOpenSelectedFolder)  // ⌘↓
+            .focusedSceneValue(\.paneEnclosingFolder, effectiveEnclosingFolder)        // ⌘↑
             .focusedSceneValue(\.rescanPanes, effectiveRescan)               // ⌘R
             .focusedSceneValue(\.newFolderInFocusedPane, effectiveNewFolder) // ⇧⌘N
             .focusedSceneValue(\.saveDocument, effectiveSaveDocument)       // ⌘S
@@ -943,6 +976,8 @@ extension ContentView {
             workspace: workspaceSelection,
             goBack: shortcutGoBack,
             goForward: shortcutGoForward,
+            openSelectedFolder: shortcutOpenSelectedFolder,
+            enclosingFolder: shortcutEnclosingFolder,
             rescan: shortcutRescan,
             newFolder: shortcutNewFolder,
             saveDocument: shortcutSaveDocument,
@@ -1362,6 +1397,60 @@ extension ContentView {
         return { syncManager.goForward(isLeft: isLeft, drawsColumns: columns) }
     }
 
+    // MARK: - The column stack: ⌘↓ and ⌘↑ (roadmap RD5)
+    //
+    // **These move the pane's COLUMN STACK, never its comparison scope.** `PaneBrowsePath`'s own
+    // doc comment is where that distinction is written down, and it is the decision RD5 was
+    // deferred on since 2026-08-20: the scope reloads the tree and re-runs the scan, the stack
+    // costs nothing and leaves every difference badge valid. Decided 2026-09-06 in favour of the
+    // stack, which is also why both items are dead in Tree view — a tree draws no columns, and a
+    // chord that quietly means something else there is the confusion this codebase has a history
+    // of.
+    //
+    // Both go through `applyColumnNavigation`, the same door a column click uses, so the seam
+    // link's mirroring is applied identically. Writing the binding directly would give the chord
+    // a behaviour the click it replaces does not have.
+
+    /// ⌘↓ — open the selected folder into a new column.
+    ///
+    /// `nil`, and so disabled, unless Columns is on screen and the selection is exactly one folder
+    /// **in the deepest open column**. The depth restriction is what makes the resulting stack the
+    /// same one a click on that row produces: `drill(into:atDepth:)` discards every column past
+    /// `depth`, so drilling a selection held in an earlier column would silently close the columns
+    /// to its right — which a click there does too, but which nobody pressing ⌘↓ is asking for.
+    var shortcutOpenSelectedFolder: (() -> Void)? {
+        guard contentLayout.drawsAPaneList else { return nil }
+        let isLeft = shortcutTargetIsLeft
+        let pane = paneContext(isLeft: isLeft)
+        guard let next = PaneLogic.openSelectedFolderStack(
+            drawsColumns: paneDrawsColumns(isLeft: isLeft),
+            stack: isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath,
+            selection: paneSelectionNodes(isLeft: isLeft),
+            treeRoot: pane.currentPath) else { return nil }
+        return { applyColumnNavigation(next, isLeft: isLeft) }
+    }
+
+    /// ⌘↑ — close the rightmost column.
+    ///
+    /// **Not a second spelling of ⌘[, and the difference is the whole reason it exists.** `⌘[`
+    /// (`shortcutGoBack`) pops this same stack and then FALLS THROUGH to the pane's focus history
+    /// once the stack is empty, stepping the comparison scope back. This one stops at the root
+    /// column and returns `nil`, which disables the item. Finder draws the same distinction between
+    /// Back and Enclosing Folder; a reader who "simplifies" this into `shortcutGoBack` reintroduces
+    /// a rescan on a chord that promises not to move the scope.
+    ///
+    /// `popLast()` pushes onto the forward stack, exactly as `‹` does — the two are the same move
+    /// on the same axis, so `›` must be able to walk back into a column either of them closed.
+    var shortcutEnclosingFolder: (() -> Void)? {
+        guard contentLayout.drawsAPaneList else { return nil }
+        let isLeft = shortcutTargetIsLeft
+        guard let next = PaneLogic.enclosingFolderStack(
+            drawsColumns: paneDrawsColumns(isLeft: isLeft),
+            stack: isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath)
+        else { return nil }
+        return { applyColumnNavigation(next, isLeft: isLeft) }
+    }
+
     /// One resolution of "where does a new folder go", shared by the pane-bar rung and ⇧⌘N:
     /// the pane's current folder, which in Columns is the deepest open column.
     func beginNewFolder(isLeft: Bool) {
@@ -1506,6 +1595,77 @@ struct GoForwardCommand: View {
         Button("Forward") { go?() }
             .keyboardShortcut(AppChord.paneForward.key, modifiers: AppChord.paneForward.modifiers)
             .disabled(go == nil)
+    }
+}
+
+/// Go ▸ Back, Forward, Enclosing Folder, Open Selected Folder — **one child, not four.**
+///
+/// `CommandMenu`'s builder takes ten children and the Go menu had nine; adding the RD5 pair loose
+/// would have put it at eleven, which fails as `extra argument in call` reported at the CLOSING
+/// brace rather than at either new line. Bundling the four that move one pane also says what they
+/// have in common, the way `TransferCommands` does for the four directional transfers.
+///
+/// **Back/Forward and the RD5 pair are not the same axis, and the grouping does not claim they
+/// are.** ⌘[ walks the column stack and then the pane's focus history; ⌘↑ walks the column stack
+/// and stops. See ``ContentView/shortcutEnclosingFolder``.
+struct PaneNavigationCommands: View {
+    var body: some View {
+        Group {
+            GoBackCommand()             // ⌘[
+            GoForwardCommand()          // ⌘]
+            EnclosingFolderCommand()    // ⌘↑
+            OpenSelectedFolderCommand() // ⌘↓
+        }
+    }
+}
+
+/// ⌘↑ — close the rightmost column. Disabled outside Columns and at the root column.
+///
+/// **Visible-and-greyed in Tree view rather than absent**, which is this menu's convention
+/// throughout (⌘[, ⌘], ⌃⇥ all stay drawn and disable): a menu whose items appear and disappear with
+/// the view mode makes the keyboard undiscoverable, and the item is how someone finds out the chord
+/// exists at all.
+struct EnclosingFolderCommand: View {
+    @FocusedValue(\.paneEnclosingFolder) private var up
+
+    var body: some View {
+        Button("Enclosing Folder") {
+            // **⌘↑ is NSText's move-to-beginning-of-document**, and a menu key equivalent outranks
+            // the field editor — so without this, ⌘↑ with the caret in the pane search, a rename
+            // row, the ⌘K field or an open document would close a column instead of moving the
+            // caret. `TextEditingChord`'s own doc comment named this pair as the case it was built
+            // ahead of; this is it arriving. Handing the key back is not optional: swallowing it
+            // would read as the app being broken rather than as a chord being busy.
+            TextEditingChord.route(editorAction: { $0.moveToBeginningOfDocument(nil) },
+                                   fileAction: { up?() })
+        }
+            .keyboardShortcut(AppChord.enclosingFolder.key,
+                              modifiers: AppChord.enclosingFolder.modifiers)
+            // **Disabled AND routed, which is `TransferCommands`' arrangement and not a belt-and-
+            // braces one.** The two cover different halves. Disabled is what greys the item out in
+            // Tree view and at the root column — and a disabled item does not consume its key
+            // equivalent, so ⌘↑ falls through to the field editor there of its own accord. The
+            // routing covers the other half: while the item IS enabled, the menu outranks the
+            // field editor, and without it ⌘↑ would close a column out from under a caret.
+            .disabled(up == nil)
+    }
+}
+
+/// ⌘↓ — open the selected folder into a new column. Disabled outside Columns, and unless the
+/// selection is a single folder in the deepest open column.
+struct OpenSelectedFolderCommand: View {
+    @FocusedValue(\.paneOpenSelectedFolder) private var down
+
+    var body: some View {
+        Button("Open Selected Folder") {
+            // ⌘↓ is NSText's move-to-end-of-document; see `EnclosingFolderCommand` above for why
+            // this routes and why it is not `.disabled`.
+            TextEditingChord.route(editorAction: { $0.moveToEndOfDocument(nil) },
+                                   fileAction: { down?() })
+        }
+            .keyboardShortcut(AppChord.openSelectedFolder.key,
+                              modifiers: AppChord.openSelectedFolder.modifiers)
+            .disabled(down == nil)
     }
 }
 

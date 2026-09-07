@@ -451,6 +451,62 @@ enum PaneLogic {
     /// `depth` is nil where there is no column to truncate to: Tree mode, the single-source rail, and the
     /// dead space past the last column. Closing the stack from a click *past* it would be a
     /// navigation the user did not ask for.
+    // MARK: - The column stack's two chords (roadmap RD5)
+
+    /// The stack ⌘↓ should apply, or `nil` when the chord must be disabled.
+    ///
+    /// **⌘↓ moves the COLUMN STACK, never the comparison scope.** `PaneBrowsePath`'s own doc
+    /// comment is where that distinction is written down; RD5 was deferred from 2026-08-20 to
+    /// 2026-09-06 on which of the two these chords move, and the stack is the answer. So this
+    /// returns a `PaneBrowsePath` and nothing else: there is no branch here that could re-root a
+    /// pane or start a scan.
+    ///
+    /// Three conditions, and each one is a refusal rather than a guess:
+    ///
+    /// - **Columns must be on screen.** A tree draws no columns, so there is nothing to open one
+    ///   into. The item greys out there rather than quietly meaning something else.
+    /// - **Exactly one row, and it must be a directory.** ⌘↓ on a file is not "open the file" —
+    ///   that is Space and Quick Look — and ⌘↓ on a multi-selection names no single destination.
+    /// - **The row must live in the DEEPEST open column.** `drill(into:atDepth:)` discards every
+    ///   column past `atDepth`, so drilling a row held in an earlier column would close the columns
+    ///   to its right. A *click* there does exactly that and is right to, because the click says
+    ///   where it landed; a chord carries no such statement, and silently closing three columns is
+    ///   not what anybody pressing ⌘↓ is asking for.
+    static func openSelectedFolderStack(drawsColumns: Bool,
+                                        stack: PaneBrowsePath,
+                                        selection: [FileNode],
+                                        treeRoot: String) -> PaneBrowsePath? {
+        guard drawsColumns else { return nil }
+        guard selection.count == 1, let folder = selection.first, folder.isDirectory else { return nil }
+        guard (folder.id as NSString).deletingLastPathComponent
+                == stack.currentDirectory(treeRoot: treeRoot) else { return nil }
+        var next = stack
+        next.drill(into: folder.name, atDepth: stack.depth)
+        return next
+    }
+
+    /// The stack ⌘↑ should apply, or `nil` when the chord must be disabled.
+    ///
+    /// **This is what makes ⌘↑ a different chord from ⌘[, and it is the whole point of it.**
+    /// `⌘[` pops this same stack and then FALLS THROUGH to the pane's focus history once the stack
+    /// is empty (`FileSyncManager.canGoBack(isLeft:drawsColumns:)`), which steps the comparison
+    /// scope back and costs a reload. ⌘↑ returns `nil` at the root column instead, so the item
+    /// disables and the scope never moves. Finder draws the same distinction between Back and
+    /// Enclosing Folder.
+    ///
+    /// A reader who "simplifies" this into `canGoBack` puts a rescan behind a chord that promises
+    /// not to move the scope. `theEnclosingFolderChordStopsAtTheRootColumn` is what catches that.
+    ///
+    /// `popLast()` pushes onto the forward stack, exactly as `‹` does — the two are the same move
+    /// on the same axis, so `›` must be able to walk back into a column either of them closed.
+    static func enclosingFolderStack(drawsColumns: Bool,
+                                     stack: PaneBrowsePath) -> PaneBrowsePath? {
+        guard drawsColumns, !stack.isEmpty else { return nil }
+        var next = stack
+        next.popLast()
+        return next
+    }
+
     static func backgroundDeselectPath(from browsePath: PaneBrowsePath, depth: Int?) -> PaneBrowsePath? {
         guard let depth else { return nil }
         var path = browsePath
