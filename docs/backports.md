@@ -3680,6 +3680,59 @@ says no" row: a maintenance line cannot carry a diff of an editor buffer when it
 row is filed so a later audit does not have to re-derive that from the shape of the feature — and so
 the *reason* is on record as a measurement rather than as an assumption.
 
+## 2026-09-07 — File ▸ Print… and File ▸ Export as PDF… (roadmap RD9)
+
+The open document rendered to paginated PDF — the preview's own arms in a `.page` medium, a block
+paginator, a bytes door on `EditorFileStore`, and two File-menu items on `⌘P` and no chord. **It
+rests on the Edit workspace (v5.2, 2026-09-03) and on `MarkdownPreview`, neither of which exists on
+any maintenance line**, so almost none of it can apply — but "almost" is doing real work here, and
+the two pieces that *could* stand alone are named below rather than swept into the same sentence.
+
+```sh
+# stage 1 — is the FILE there? main is the positive control: it must print 1 across the row.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s preview=%s store=%s workspace=%s chord=%s reference=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/MarkdownPreview.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorFileStore.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/Design/Sources/Design/AppChord.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/ShortcutsReference.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-07: main 1/1/1/1/1 · v4.x 0/0/0/1/1 · v3.x 0/0/0/0/1 · v2.x 0/0/0/0/1
+
+# stage 2 — the SHAPE, for the two files that do exist off main. Is ⌘P already spoken for?
+for l in v4.x v3.x v2.x; do
+  printf '%-6s p-chords=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Design/Sources/Design/AppChord.swift 2>/dev/null | grep -c 'AppChord("p"')"
+done
+# v4.x: 1 — and it is `previewColumn = AppChord("p", [.shift, .command])`, the SHIFTED form.
+# v3.x / v2.x: 0 — those lines have no AppChord type at all; their chords are still literals.
+```
+
+| What landed on `main` | `v4.x` / `v3.x` / `v2.x` | Status |
+|---|---|---|
+| **`DocumentPDF`** — the block measure, the page geometry from `NSPrintInfo`, the `ImageRenderer`-into-`CGPDFContext` render, and the CoreText path for plain text | No `MarkdownPreview.swift` and no Edit workspace: there is no preview to print and no document to print it from | CLOSED — checked, does not apply |
+| **`MarkdownBlockView`** — the preview's per-block arms extracted so paper and screen draw from one body of code | Nothing to extract: the arms it was lifted out of do not exist on these lines | CLOSED — checked, does not apply |
+| **`DocumentPagination`** — the block-boundary page breaks, and the one case where a cut is right | Pure arithmetic and it would *compile* anywhere, but nothing on these lines produces block heights to feed it | CLOSED — checked, does not apply |
+| **`DocumentPrinting`** — `NSPrintOperation` via `PDFDocument`, because a hosting view drawn into a print context draws nothing | Same dependency chain | CLOSED — checked, does not apply |
+| **`EditorFileStore.write(_ data: Data, toPath:)`** — a bytes door onto the staging, `F_FULLFSYNC`, swap and read-back the text save already had | No `EditorFileStore.swift` on any of the three | CLOSED — checked, does not apply |
+| **`AppChord.printDocument`** (`⌘P`) and its registry entry | `v4.x` HAS `AppChord.swift`, and `⌘P` is free there — only the shifted `⇧⌘P` is taken. It would apply in the narrow sense of compiling. `v3.x` and `v2.x` have no `AppChord` type | RECORDED — not owed |
+| **The `⌘/` reference row** — `⌘S / ⌘P`, paired because the row on its own took the reference to 770pt against a 740pt window | All three carry `ShortcutsReference.swift`, and none carries a `⌘S` row to pair with: Save arrived with the editor | CLOSED — checked, does not apply |
+| **Help copy** — one bullet under the Edit workspace topic | `HelpBook.swift` exists on all three; the Edit topic it belongs to does not | CLOSED — checked, does not apply |
+
+**The one row that is genuinely "not owed" rather than "does not apply" is the chord**, and sending
+it alone would be worse than not sending it: a registered `⌘P` on a line with nothing to print is a
+key equivalent that greys forever, or worse, one that fires an item that is not there. The chord is
+half of a feature, and the other half cannot go.
+
+**A measurement worth not re-deriving**, because it is the kind of thing a later session would spend
+an afternoon rediscovering: **an `NSHostingView` handed to `NSPrintOperation` prints blank paper** —
+right page count, correct pagination, no ink. SwiftUI renders into an arbitrary `CGContext` only
+through `ImageRenderer`, which is why the pages are built into a PDF context first and the print
+operation is `PDFDocument`'s. That constraint is not specific to this app or this branch.
+
+Recorded rather than picked, per the standing direction.
+
 ## 2026-09-07 — the install skill's branch count
 
 `73c55103`. The sweep step in `.claude/skills/install-sync-cloud/SKILL.md` said `origin` holds three

@@ -63,6 +63,26 @@ User-facing changes, newest first. For the full commit history see the
   sleeping drive. If the folder has gone since, the pane stays where it is rather than switching
   source and landing somewhere else, and the Activity Log says so.
 
+### Print a document, or write it as a PDF
+
+- **⌘P prints what Preview shows.** File ▸ Print… renders the open Markdown document the way the
+  Preview mode does — the same headings, the same type, the same accent on links and quote bars —
+  and hands the pages to the standard print panel. It prints the rendered document whichever mode
+  you are looking at, because printing a Markdown file means the document rather than its markup.
+- **File ▸ Export as PDF… writes those same pages to a file.** It opens on the folder the rail is
+  reading, with the document's own name and `.pdf` in place of its extension, and the file is
+  written the way every other file this app writes is — staged, flushed and swapped, never half
+  written over a good copy.
+- **A plain text file prints as text**, wrapped to the page in the editor's own monospaced face. It
+  has no rendered form, so there is nothing else it could honestly be.
+- **It prints what is on screen, unsaved typing included.** The version on disk and the version you
+  are looking at differ exactly when you have not saved yet, and printing the older one is the kind
+  of wrong answer you would only find out about after it came out of the printer.
+- **Page breaks land between blocks.** A heading, a paragraph, a list item or a table that would
+  straddle a break moves down to the next page instead of being cut in half; only a block taller
+  than a whole page is ever divided. The text on the page is text, so a printed-to-PDF document is
+  still searchable and selectable.
+
 ### The ⌘/ reference grows sideways
 
 - **Three columns instead of two.** Seven rows arrived at once and the two-column window was already
