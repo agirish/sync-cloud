@@ -934,13 +934,10 @@ struct FilePairCompareView<Verdict: View>: View {
     /// started: a large pair's diff can resume after a small pair's has been drawn and overwrite
     /// it, leaving one pair's changes under another pair's name until the mode is left and
     /// re-entered. The token is taken before the hop and re-read after it.
-    /// One pass's answer. A CANCELLED pass is a fourth state and lands nowhere: it knows nothing
-    /// about the pair, so writing its empty notes would replace a real answer with silence.
-    private struct TextDiffResult {
-        var diff: TextPairDiff?
-        var notes: [String] = []
-        var cancelled = false
-    }
+    /// One pass's answer — see ``TextPairDiffPipeline/Outcome``, which is where the reading, the
+    /// pre-filter, the walk and the notes now live, so the editor's divergence overlay can ask the
+    /// same question in the same order rather than growing a second copy of it.
+    private typealias TextDiffResult = TextPairDiffPipeline.Outcome
 
     private func refreshTextDiff() async {
         // **Not the diff's mode: nothing is cleared and nothing is read.** Leaving `.textDiff` used
@@ -969,41 +966,13 @@ struct FilePairCompareView<Verdict: View>: View {
         textDiffTask?.cancel()
         let leftPath = left.path, rightPath = right.path
         let task = Task.detached(priority: .userInitiated) { () -> TextDiffResult in
-            let left = BoundedTextRead.read(path: leftPath)
-            let right = BoundedTextRead.read(path: rightPath)
-            var notes: [String] = []
-            guard let leftText = left.string, let rightText = right.string else {
-                if let caption = left.caption { notes.append("Left: \(caption)") }
-                if let caption = right.caption { notes.append("Right: \(caption)") }
-                return TextDiffResult(diff: nil, notes: notes)
-            }
-            notes += BoundedTextRead.readingNotes(left: left, right: right)
-            let leftLines = BoundedTextRead.lines(leftText)
-            let rightLines = BoundedTextRead.lines(rightText)
-            // The cheap pre-filter: two enormous files with nothing in common are refused in one
-            // linear pass, before a line of either is interned. See ``TextPairDiff/refusalNote``.
-            if let refusal = TextPairDiff.refusalNote(left: leftLines, right: rightLines) {
-                notes.append(refusal)
-                return TextDiffResult(diff: nil, notes: notes)
-            }
-            // **The walk is bounded and it stops when this task is cancelled**, which is what the
-            // handle above exists for: closing the surface now ends the work rather than only
-            // discarding what it produces. See ``TextPairDiff/maxDiffWork``.
-            switch TextPairDiff.bounded(left: leftLines, right: rightLines,
-                                        isCancelled: { Task.isCancelled }) {
-            case .cancelled:
-                return TextDiffResult(diff: nil, cancelled: true)
-            case .tooDifferent:
-                // The same finding, in the same words, as the pre-filter's — the estimate is a
-                // lower bound, so this is the one that catches a reordered file.
-                notes.append(TextPairDiff.refusalCaption)
-                return TextDiffResult(diff: nil, notes: notes)
-            case .diffed(let diff):
-                // Rows the intra-line budget could not pay for are marked whole, and say so — see
-                // ``TextPairDiff/maxIntraLineWork``.
-                if let note = TextPairDiff.coarseNote(rows: diff.coarseRows) { notes.append(note) }
-                return TextDiffResult(diff: diff, notes: notes)
-            }
+            // The reads stay inside the detached task — they are two `contents(atPath:)` calls of
+            // up to 4 MiB each — and the ordering after them is ``TextPairDiffPipeline/diff``'s,
+            // which this call site used to spell out. The walk still stops when THIS task is
+            // cancelled, which is what the handle above exists for.
+            TextPairDiffPipeline.diff(left: BoundedTextRead.read(path: leftPath),
+                                      right: BoundedTextRead.read(path: rightPath),
+                                      isCancelled: { Task.isCancelled })
         }
         textDiffTask = task
         let result = await task.value
