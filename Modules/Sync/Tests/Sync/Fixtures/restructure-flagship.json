@@ -1231,7 +1231,7 @@
     "year": "2019"
    },
    "fileCount": 0,
-   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/MapR",
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/Acme",
    "role": "container",
    "subfolderCount": 3
   },
@@ -1243,7 +1243,7 @@
     "year": "2019"
    },
    "fileCount": 1,
-   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/MapR/Form 3921",
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/Acme/Form 3921",
    "role": "destination",
    "subfolderCount": 0
   },
@@ -1255,7 +1255,7 @@
     "year": "2019"
    },
    "fileCount": 1,
-   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/MapR/Proof of Worthlessness",
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/Acme/Proof of Worthlessness",
    "role": "destination",
    "subfolderCount": 0
   },
@@ -1267,7 +1267,7 @@
     "year": "2019"
    },
    "fileCount": 4,
-   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/MapR/Stock Certificates",
+   "path": "Finance/US/Income Tax/2019/Forms/Form 1099-B/Acme/Stock Certificates",
    "role": "destination",
    "subfolderCount": 0
   },
@@ -2488,11 +2488,11 @@
    "axes": {
     "jurisdiction": "US",
     "lifecycle": "active",
-    "person": "Abhishek",
+    "person": "Father",
     "year": "2024"
    },
    "fileCount": 16,
-   "path": "Finance/US/Income Tax/2024/Tax Records/Tax Forms/Abhishek",
+   "path": "Finance/US/Income Tax/2024/Tax Records/Tax Forms/Father",
    "role": "person-bucket",
    "subfolderCount": 0
   },
@@ -2513,11 +2513,11 @@
    "axes": {
     "jurisdiction": "US",
     "lifecycle": "active",
-    "person": "Shweta",
+    "person": "Mother",
     "year": "2024"
    },
    "fileCount": 8,
-   "path": "Finance/US/Income Tax/2024/Tax Records/Tax Forms/Shweta",
+   "path": "Finance/US/Income Tax/2024/Tax Records/Tax Forms/Mother",
    "role": "person-bucket",
    "subfolderCount": 0
   },
@@ -2752,10 +2752,10 @@
    "axes": {
     "jurisdiction": "US",
     "lifecycle": "active",
-    "person": "Abhishek"
+    "person": "Father"
    },
    "fileCount": 21,
-   "path": "Finance/US/Income Tax/IRS Docs - 2023/Docs/Abhishek",
+   "path": "Finance/US/Income Tax/IRS Docs - 2023/Docs/Father",
    "role": "person-bucket",
    "subfolderCount": 0
   },
@@ -2764,10 +2764,10 @@
    "axes": {
     "jurisdiction": "US",
     "lifecycle": "active",
-    "person": "Shweta"
+    "person": "Mother"
    },
    "fileCount": 3,
-   "path": "Finance/US/Income Tax/IRS Docs - 2023/Docs/Shweta",
+   "path": "Finance/US/Income Tax/IRS Docs - 2023/Docs/Mother",
    "role": "person-bucket",
    "subfolderCount": 0
   },
@@ -2787,10 +2787,10 @@
    "axes": {
     "jurisdiction": "US",
     "lifecycle": "active",
-    "person": "Shweta"
+    "person": "Mother"
    },
    "fileCount": 4,
-   "path": "Finance/US/Income Tax/IRS Docs - 2023/Transcripts/Shweta",
+   "path": "Finance/US/Income Tax/IRS Docs - 2023/Transcripts/Mother",
    "role": "person-bucket",
    "subfolderCount": 0
   },
