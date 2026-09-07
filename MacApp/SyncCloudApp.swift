@@ -46,6 +46,11 @@ struct SyncCloudApp: App {
     static let mainWindowId = "main"
 
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
+
+    /// Held for its lifetime, not its value: it registers two `NSWorkspace` observers in `init` and
+    /// removes them in `deinit`, so a monitor nobody retains stops reporting the moment it is
+    /// collected — and the survey would then never notice a sleeping display, silently.
+    @State private var machineConditionsMonitor: MachineConditionsMonitor
     @StateObject private var syncManager: FileSyncManager
     @StateObject private var settings: SettingsManager
     /// Drives the in-window settings overlay. Hoisted to App scope so the ⌘, menu command can
@@ -494,6 +499,14 @@ struct SyncCloudApp: App {
         manager.filingOCRExtractor = { path in
             await ContentSignalExtractor.ocrPDFFirstPage(atPath: path)
         }
+        // RD11: what the document survey stands aside for. Installed here rather than read inside
+        // `Sync` for the reason the extractors above are — the display's sleep state and the
+        // thermal band come from AppKit and `ProcessInfo`, and a library that reached for either
+        // would answer differently under `swift test` than in the app. A host that installs none
+        // gets `MachineConditions.unknown`, which is a survey that never pauses for the machine.
+        let machineConditions = MachineConditionsMonitor()
+        _machineConditionsMonitor = State(wrappedValue: machineConditions)
+        manager.machineConditions = { machineConditions.current() }
         // The second half of `filingContentExtractor`, on its own. `tokens(forFileAt:)` reads the
         // file and then derives tokens from what it read; handing the manager the derivation lets
         // the scan read a page once and share it with the router and the classifier.
