@@ -17,6 +17,12 @@ extension FileSyncManager {
     /// What a document survey did. Reported to the completion summary, which says what was **not**
     /// read as plainly as what was.
     public struct DocumentSurveyReport: Sendable, Equatable {
+        /// The tree this describes.
+        ///
+        /// **Carried because the receipt outlives the run and Organize's scope can move under it.**
+        /// Without it the card showed a completed survey's summary over whatever folder was
+        /// selected next — a real answer about the wrong tree, which is worse than no answer.
+        public let rootPath: String
         public let documentsRead: Int
         public let documentsBlank: Int
         public let documentsUnavailable: Int
@@ -61,6 +67,10 @@ extension FileSyncManager {
     /// its job rather than failing at it. `sentence` is what a card shows, and it says so.
     public enum DocumentSurveyRefusal: Error, Sendable, Equatable {
         case alreadyRunning
+        /// The walk was cancelled — a provider switch, a quit. **Its own case because it was
+        /// reported as `alreadyRunning`**, which put "A survey is already running" on screen for a
+        /// survey that had just been cancelled and was running nowhere.
+        case cancelled
         case landingInProgress
         case noProfileDirectory
         case noExtractor
@@ -83,6 +93,7 @@ extension FileSyncManager {
         public var sentence: String {
             switch self {
             case .alreadyRunning: return "A survey is already running."
+            case .cancelled: return "Stopped before it started."
             case .landingInProgress:
                 return "A reorganisation is landing — run this once the landing finishes."
             case .noProfileDirectory, .noProfile:
@@ -168,14 +179,14 @@ extension FileSyncManager {
         let probe = NodeBudget(wholeTreeProbeBudget)
         var walked = await Self.buildTree(url: root, sortOption: .name,
                                           fileManager: fileManager, maxDepth: nil, budget: probe)
-        if Task.isCancelled { return .failure(.alreadyRunning) }
+        if Task.isCancelled { return .failure(.cancelled) }
         if probe.didStopADescent {
             let preflight = LargeWalkPreflight(pass: .filing, rootPath: root.path,
                                                probeLimit: probe.limit)
             guard largeWalkConfirmer(preflight) else { return .failure(.treeTooLargeAndDeclined) }
             walked = await Self.buildTree(url: root, sortOption: .name,
                                           fileManager: fileManager, maxDepth: nil)
-            if Task.isCancelled { return .failure(.alreadyRunning) }
+            if Task.isCancelled { return .failure(.cancelled) }
         }
 
         // **A root that could not be listed must never reach a merge.** `buildTree` reports a
@@ -186,8 +197,17 @@ extension FileSyncManager {
         if Self.isUnreadableRootMarker(walked, root: root) { return .failure(.rootUnreadable) }
 
         let tree = FilingSurvey.flatten(walked)
-        let salt = existing?.salt.isEmpty == false ? existing!.salt
-            : (filingMemory?.salt.isEmpty == false ? filingMemory!.salt : Self.newSurveySalt())
+        // **A resumable checkpoint's salt wins over everything, and forgetting that made resume
+        // impossible.** With no corpus and no memory the last branch mints a RANDOM salt, so a
+        // resume planned a different salt from the one the checkpoint was written under,
+        // `adoptCheckpoint` refused it as another run's, and the user was told their progress
+        // belonged to a different folder. On a fresh machine — the only machine that runs a first
+        // survey — that was every resume.
+        let resumableSalt = DocumentSurveyCheckpointStore.read(id: profileId, in: directory)
+            .checkpoint.flatMap { $0.rootPath == root.path ? $0.salt : nil }
+        let salt = resumableSalt
+            ?? (existing?.salt.isEmpty == false ? existing!.salt
+                : (filingMemory?.salt.isEmpty == false ? filingMemory!.salt : Self.newSurveySalt()))
         let paths = FilingSurvey.documentsToRead(tree: tree, corpus: existing, memory: filingMemory)
         let unreadableTypes = tree.documents.keys.filter {
             !FilingSurvey.readableExtensions.contains(($0 as NSString).pathExtension.lowercased())
@@ -220,7 +240,14 @@ extension FileSyncManager {
         if filingScanLifecycle.isRunning { scans.append("To File") }
         if duplicateScanLifecycle.isRunning { scans.append("Duplicates") }
         if nameScanLifecycle.isRunning { scans.append("Names") }
-        if filingSurveyLifecycle.isRunning { scans.append("folder memory") }
+        // **`filingSurveyLifecycle` is deliberately NOT here, and leaving it in was a deadlock.**
+        // `runDocumentSurvey` takes that very lifecycle for the duration — it is the survey's own
+        // running flag — so counting it as a scan to stand aside for made the survey yield to
+        // itself on the first poll, before opening a single document, and stay there for ever. The
+        // card would have read "paused while folder memory runs" under a survey that was the thing
+        // running. Nothing else can hold it at the same time: `planDocumentSurvey` and
+        // `resurveyFilingMemory` both refuse to start while it is set.
+        _ = filingSurveyLifecycle
         if storageLensLifecycle.isRunning { scans.append("Storage") }
         if automationDryRunLifecycle.isRunning { scans.append("Rules") }
         // Read ONCE. Three calls would be three snapshots taken at three instants, which is the
@@ -261,6 +288,13 @@ extension FileSyncManager {
         guard let directory = filingProfilesDirectory else { return .failure(.noProfileDirectory) }
         guard let extractor = filingSnippetExtractor else { return .failure(.noExtractor) }
 
+        // **Logged at every edge, because this runs for hours with nobody watching.**
+        // `~/sync-cloud.log` is how this app is debugged, and a pass that wrote one line at the end
+        // would leave "it seemed to stop" with nothing to read. Start, every pause and its reason,
+        // and the stop all land here; the per-document reads deliberately do not, which would be
+        // 7,558 lines.
+        Logger.shared.info("Document survey: starting — \(plan.total) document(s) to read under "
+                           + "\(root.lastPathComponent)")
         let epoch = beginScan(\.filingSurveyLifecycle, status: "Reading your documents…")
         defer { endScan(\.filingSurveyLifecycle) }
 
@@ -286,8 +320,12 @@ extension FileSyncManager {
         // whole, and a partial one would make `surveyedRegion` cover just what was read — which
         // makes every future survey skip the rest of the tree, silently and permanently.
         guard outcome.isComplete else {
+            Logger.shared.info("Document survey: stopped at \(outcome.stoppedAt ?? 0) of "
+                               + "\(plan.total). Progress is on disk; carrying on reads only the "
+                               + "rest.")
             documentSurveyProgress = nil
             return .success(DocumentSurveyReport(
+                rootPath: root.path,
                 documentsRead: outcome.documentsRead, documentsBlank: outcome.documentsBlank,
                 documentsUnavailable: outcome.documentsUnavailable,
                 foldersLearned: filingMemory?.folders.count ?? 0,
@@ -323,6 +361,7 @@ extension FileSyncManager {
             // run resumes rather than re-reading three hours of documents to reach the same failure.
             documentSurveyProgress = nil
             return .success(DocumentSurveyReport(
+                rootPath: root.path,
                 documentsRead: outcome.documentsRead, documentsBlank: outcome.documentsBlank,
                 documentsUnavailable: outcome.documentsUnavailable,
                 foldersLearned: previousMemory?.folders.count ?? 0,
@@ -343,6 +382,7 @@ extension FileSyncManager {
         completeScan(\.filingSurveyLifecycle, root: root)
 
         let report = DocumentSurveyReport(
+            rootPath: root.path,
             documentsRead: outcome.documentsRead, documentsBlank: outcome.documentsBlank,
             documentsUnavailable: outcome.documentsUnavailable,
             foldersLearned: written?.memory.folders.count ?? 0,
