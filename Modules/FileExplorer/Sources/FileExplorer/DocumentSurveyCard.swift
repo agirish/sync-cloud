@@ -27,6 +27,15 @@ public enum DocumentSurveyCardState: Equatable, Sendable {
     case running(done: Int, total: Int, folder: String?,
                  secondsRemaining: TimeInterval?, pause: PauseNote?)
 
+    /// Every document decided; merging, rebuilding the memory and writing.
+    ///
+    /// **Its own state, because rendering it as a pause said something false.** It was first mapped
+    /// onto a `PauseNote`, which made the card read "Reading documents · paused at 7,558 of 7,558 …
+    /// Resumes on its own" — over a survey that was not paused, could not be resumed, and was doing
+    /// the last and least interruptible minutes of its work. It also offered a Pause for something
+    /// with nothing to pause.
+    case finishing(done: Int)
+
     /// Stopped with progress on disk — RD11 decision 3.
     ///
     /// **The card that never starts anything.** The offer card promises "nothing starts it but a
@@ -83,6 +92,8 @@ public enum DocumentSurveyCardText {
             let counted = "\(done.formatted()) of \(total.formatted())"
             return pause == nil ? "Reading documents · \(counted)"
                                 : "Reading documents · paused at \(counted)"
+        case .finishing(let done):
+            return "Read \(done.formatted()) documents · building folder memory"
         case .interrupted(let done, let total):
             return "Reading documents — paused at \(done.formatted()) of \(total.formatted())"
         case .finished:
@@ -114,6 +125,9 @@ public enum DocumentSurveyCardText {
             }
             let eta = seconds.map(remaining) ?? "working out how long this will take"
             return folder.map { "\(eta) · reading \($0)" } ?? eta
+        case .finishing:
+            return "Working out what each folder has learned from them. A minute or two, and "
+                + "nothing to do."
         case .interrupted(let done, let total):
             let left = max(0, total - done)
             return "Stopped when you quit. \(left.formatted()) still to read — carrying on opens "
@@ -135,7 +149,9 @@ public enum DocumentSurveyCardText {
     /// full bar under "Documents read" is a second way of saying the same thing.
     public static func fraction(for state: DocumentSurveyCardState) -> Double? {
         switch state {
-        case .offered, .finished:
+        case .offered, .finished, .finishing:
+            // Finishing has no fraction of its own: the reading is done, and a full bar under it
+            // would be counting something that has stopped counting.
             return nil
         case .running(let done, let total, _, _, _), .interrupted(let done, let total):
             guard total > 0 else { return nil }
@@ -281,7 +297,9 @@ struct DocumentSurveyCard: View {
                         .chromeHover().fixedSize()
                 }
             }
-        case .finished:
+        case .finished, .finishing:
+            // Nothing to offer: the reading is over, and the merge cannot be paused or stopped
+            // without throwing away the whole pass.
             EmptyView()
         }
     }

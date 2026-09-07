@@ -9,6 +9,28 @@ import Sync
 /// `DocumentSurveyCardState` is deliberately made of plain values — counts, seconds, one worded
 /// sentence — the same rule `OrganizeOverview` follows for `reclaimable`, so the translating has to
 /// happen somewhere that can see both, and that is the app.
+/// What the last plan found, and which tree it found it in.
+///
+/// **The root is the whole point.** These two numbers were plain `@State` with no idea what they
+/// described, so after surveying one folder the offer card over a *different* folder quoted the
+/// first one's document count — a specific, confident, wrong number in the sentence a person
+/// decides on.
+struct DocumentSurveyPlanFacts: Equatable {
+    let rootPath: String
+    let count: Int
+    let unreadable: Int
+
+    init(rootPath: String, documents: Int, unreadableTypes: Int) {
+        self.rootPath = rootPath
+        self.count = documents
+        self.unreadable = unreadableTypes
+    }
+
+    /// The count, but only for the tree it was measured in.
+    func documents(for path: String?) -> Int? { path == rootPath ? count : nil }
+    func unreadableTypes(for path: String?) -> Int { path == rootPath ? unreadable : 0 }
+}
+
 extension ContentView {
 
     /// The root a survey would cover: the scope when one is set, otherwise the lens's own root —
@@ -39,18 +61,20 @@ extension ContentView {
                                 pause: .init(sentence: reason.sentence,
                                              resumesOnItsOwn: reason.resumesOnItsOwn))
             case .finishing:
-                // No verb and no reason: merging and rebuilding is minutes of work with nothing to
-                // pause, and a card offering Pause there would offer something that cannot happen.
-                return .running(done: progress.completed, total: progress.total,
-                                folder: nil, secondsRemaining: nil,
-                                pause: .init(sentence: "Rebuilding folder memory…",
-                                             resumesOnItsOwn: true))
+                // Its own card state, not a pause. Rendered as one it read "paused at 7,558 of
+                // 7,558 … Resumes on its own" over a survey that was not paused and could not be
+                // resumed — and offered a Pause for something with nothing to pause.
+                return .finishing(done: progress.completed)
             }
         }
-        // 2. Just finished — the receipt, for as long as the report stands.
-        if let report = syncManager.documentSurveyReport, report.isComplete {
+        // 2. Just finished — the receipt, **for the tree it actually describes.**
+        //    The report outlives the run and Organize's scope moves under it, so without the root
+        //    check a completed survey's summary sat over whatever folder was selected next: a real
+        //    answer about the wrong tree, which is worse than no answer at all.
+        if let report = syncManager.documentSurveyReport, report.isComplete,
+           report.rootPath == documentSurveyRoot?.path {
             return .finished(summary: report.summary,
-                             unreadableTypes: documentSurveyUnreadableTypes)
+                             unreadableTypes: documentSurveyPlan?.unreadableTypes(for: report.rootPath) ?? 0)
         }
         // 3. Unfinished progress on disk. **Offered, never resumed by itself** — RD11 decision 3.
         if let root = documentSurveyRoot,
@@ -63,7 +87,8 @@ extension ContentView {
         //    worse of two answers.
         guard syncManager.filingFolderProfile != nil,
               syncManager.filingMemory?.folders.isEmpty ?? true else { return nil }
-        return .offered(documents: documentSurveyPlannedCount)
+        // The count only where it belongs to THIS tree — see `DocumentSurveyPlanFacts`.
+        return .offered(documents: documentSurveyPlan?.documents(for: documentSurveyRoot?.path))
     }
 
     /// Starts a survey: the walk, then the read.
@@ -79,8 +104,9 @@ extension ContentView {
             case .failure(let refusal):
                 syncManager.banner = .warning(refusal.sentence)
             case .success(let plan):
-                documentSurveyPlannedCount = plan.total
-                documentSurveyUnreadableTypes = plan.skippedUnreadableTypes
+                documentSurveyPlan = DocumentSurveyPlanFacts(
+                    rootPath: root.path, documents: plan.total,
+                    unreadableTypes: plan.skippedUnreadableTypes)
                 guard plan.total > 0 else {
                     syncManager.banner = .success(
                         "Nothing to read — no document here is in a format this app can open.")

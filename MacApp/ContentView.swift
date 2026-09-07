@@ -26,16 +26,14 @@ struct ContentView: View {
     /// it cold. Cleared on close, so the next ⌘? opens the book at its front as before.
     @State private var helpTopic: String?
 
-    /// How many documents the last plan actually found, and how many were in formats this app
-    /// cannot open (RD11).
+    /// What the last plan found, and in which tree (RD11).
     ///
     /// **State rather than computed, because the honest answer costs a whole-tree walk.** The offer
     /// card shows no count until a plan has really been built — the numbers lying around are the
     /// wrong ones, and a card that promised the profile's summed `fileCount` would overstate the
     /// work by 7% in the one sentence a person decides on. These are seeded by the walk and then
     /// stand until the next one.
-    @State var documentSurveyPlannedCount: Int?
-    @State var documentSurveyUnreadableTypes: Int = 0
+    @State var documentSurveyPlan: DocumentSurveyPlanFacts?
     /// §11's folder verbs, written by the menu and carried out by the workspace — see
     /// ``RestructureVerbRequest`` for why it is a value rather than a call. Not `private`: the
     /// verbs are built in `ShortcutCommands`' extension of this view.

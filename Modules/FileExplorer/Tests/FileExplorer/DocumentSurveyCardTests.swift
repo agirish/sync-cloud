@@ -172,12 +172,33 @@ import Testing
 
     // MARK: - Every state
 
+    /// **Finishing is not a pause, and rendering it as one said three false things at once.**
+    /// It first arrived as a `PauseNote`, which made the card read "Reading documents · paused at
+    /// 7,558 of 7,558 … Resumes on its own" — over a survey that was not paused, could not be
+    /// resumed, and was doing the least interruptible minutes of its work — while offering a Pause
+    /// button for something with nothing to pause.
+    @Test func finishingSaysWhatItIsDoingRatherThanClaimingToBePaused() {
+        let state = DocumentSurveyCardState.finishing(done: 7558)
+        let title = DocumentSurveyCardText.title(for: state)
+        #expect(!title.lowercased().contains("paused"), "finishing still reports itself as paused")
+        #expect(title.contains("7,558"))
+        let detail = DocumentSurveyCardText.detail(for: state)
+        #expect(!detail.contains("Resumes on its own"),
+                "finishing promises a resume for something that is not stopped")
+        #expect(detail.lowercased().contains("nothing to do"),
+                "finishing does not tell the reader there is nothing for them to do")
+        // No bar: the reading has stopped counting, and a full one would be counting it anyway.
+        #expect(DocumentSurveyCardText.fraction(for: state) == nil)
+    }
+
     @Test func everyStateHasATitleAndADetail() {
         let states: [DocumentSurveyCardState] = [
             .offered(documents: 100),
+            .offered(documents: nil),
             .running(done: 1, total: 100, folder: "A", secondsRemaining: 60, pause: nil),
             .running(done: 1, total: 100, folder: "A", secondsRemaining: 60,
                      pause: .init(sentence: "Paused.", resumesOnItsOwn: false)),
+            .finishing(done: 100),
             .interrupted(done: 1, total: 100),
             .finished(summary: "done.", unreadableTypes: 0),
         ]
