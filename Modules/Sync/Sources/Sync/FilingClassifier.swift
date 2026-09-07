@@ -32,7 +32,7 @@ public struct FilingCandidateFile: Sendable, Equatable, Identifiable {
 
 /// A backend's verdict for one file.
 public struct FilingVerdict: Sendable, Equatable {
-    /// Destination folder as a path **relative to the provider root** (e.g. "Documents/Family/Divit").
+    /// Destination folder as a path **relative to the provider root** (e.g. "Documents/Family/Son").
     /// May name an existing folder or propose a new sub-path under an existing parent. Empty ⇒ the
     /// backend had no confident home (the file keeps its heuristic suggestion, if any).
     public let relativePath: String

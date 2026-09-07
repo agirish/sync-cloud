@@ -455,28 +455,28 @@ import Testing
 
     @Test func relativeFolderPathsAreRootRelativeAndShallowFirst() {
         let taxonomy = [dir("/root/Documents", [
-            dir("/root/Documents/Family", [dir("/root/Documents/Family/Divit", [])]),
+            dir("/root/Documents/Family", [dir("/root/Documents/Family/Son", [])]),
             dir("/root/Documents/Health", []),
         ])]
         let rels = FilingEngine.relativeFolderPaths(of: taxonomy)
         #expect(rels.contains("Documents"))
-        #expect(rels.contains("Documents/Family/Divit"))
+        #expect(rels.contains("Documents/Family/Son"))
         #expect(!rels.contains { $0.hasPrefix("/") })              // relative, no leading slash
         #expect(rels.first == "Documents")                          // shallowest first
     }
 
     @Test func verdictOverridesTheHeuristicSuggestion() throws {
-        // The keyword engine can't reason "Divit is a person"; the classifier can.
+        // The keyword engine can't reason "Son is a person"; the classifier can.
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Family",
-                          [dir("/root/Documents/Family/Divit", [])])])]
-        let loose = [file("/root/Downloads/Physician's Report - Divit.pdf", modified: y2024)]
+                          [dir("/root/Documents/Family/Son", [])])])]
+        let loose = [file("/root/Downloads/Physician's Report - Son.pdf", modified: y2024)]
         let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
 
-        let verdicts = ["/root/Downloads/Physician's Report - Divit.pdf":
-            FilingVerdict(relativePath: "Documents/Family/Divit", confidence: .high, reason: "Divit’s medical record")]
+        let verdicts = ["/root/Downloads/Physician's Report - Son.pdf":
+            FilingVerdict(relativePath: "Documents/Family/Son", confidence: .high, reason: "Son’s medical record")]
         let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: taxonomy, providerRoot: "/root")
         let best = try #require(out.first?.best)
-        #expect(best.path == "/root/Documents/Family/Divit")
+        #expect(best.path == "/root/Documents/Family/Son")
         #expect(best.fromAI)
         #expect(best.confidence == .high)
         #expect(out.first?.hasConfidentHome == true)
