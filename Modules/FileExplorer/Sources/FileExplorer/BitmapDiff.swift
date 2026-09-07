@@ -307,15 +307,36 @@ enum BitmapDiff {
 
     /// The same, plus the difference raster where a mode is going to draw it.
     ///
-    /// **The picture is of the pages AS THEY ARE, even when the comparison de-skewed them**, which
-    /// is what this did before the two calls were fused and is left alone here on purpose: changing
-    /// which pair the glow is drawn from is a change to what the reader sees, not a saving. (It is
-    /// also, as it stands, why the callouts and the glow can disagree on a pair that was aligned —
-    /// worth settling, and not here.)
+    /// **The picture is of the same pair the comparison read — the aligned one, where an alignment
+    /// was applied.** It used to be drawn from the pages as they are, which left the callouts and
+    /// the glow computed from two different image pairs. This is the settling the old comment here
+    /// asked for, and it went this way for two reasons, neither of them the one it expected.
+    ///
+    /// **It is cheaper, not dearer.** The old shape walked `analyse` twice — once over the aligned
+    /// pair for the numbers, once over the unaligned pair for the picture. `aligned` is already in
+    /// hand, so asking the first walk for the picture removes a second one and the two normalised
+    /// full-page rasters it needed. Measured at 1600x2070 on an Apple M4, Release, best of 20:
+    /// **10.4 ms against 18.7 ms**, and ~26 MB less transient allocation.
+    ///
+    /// **The disagreement it was meant to settle was never the visible half.** Measured on a 0.5
+    /// degree skew at that size: 95.7-99.5% of the old picture's glow already fell inside the
+    /// outlines drawn over it, and the aligned and unaligned region lists were the same eight boxes
+    /// to within one cell. What the change actually buys is that the de-skew becomes VISIBLE — the
+    /// old shape let an alignment move the region list and write the caption while leaving the
+    /// picture, which is the thing a reader in the difference mode is looking at, exactly as it was.
+    ///
+    /// **What it does not buy is a clean page, and the reason is worth knowing before anyone
+    /// tightens the estimator to chase one.** ``warped`` resamples the right page and leaves the
+    /// left alone, so every anti-aliased edge moves past ``tolerance`` however good the geometry is.
+    /// On that same pair the true answer is 0.78% changed and ONE region; a *perfect* alignment
+    /// still reports 3.42% and eight, of which 2.87 points is that one-sided resample — put both
+    /// sides through the same resample and it falls to 0.94% and one region. So the callouts still
+    /// box every paragraph on a skewed pair, and no sharpening of the search will change that.
+    /// ``PageRegistration/caption`` says "best effort" partly for this.
     ///
     /// Where no alignment is applied — every pair the estimator is not confident about, which is
-    /// most of them — the comparison and the picture are of the same two pages, and then it really
-    /// is one pass.
+    /// most of them — the comparison and the picture are of the same two pages, as they always
+    /// were, and then it really is one pass.
     static func compareAligning(_ left: CGImage, _ right: CGImage,
                                 wantsDifferenceImage: Bool) -> (result: BitmapDiffResult?,
                                                                 difference: CGImage?) {
@@ -329,14 +350,13 @@ enum BitmapDiff {
         guard registration.isUsable, let aligned = warped(right, by: registration) else {
             return analyse(left, right, wantsDifferenceImage: wantsDifferenceImage)
         }
-        guard var result = analyse(left, aligned, wantsDifferenceImage: false).result else {
+        // One walk over the aligned pair, and the picture comes out of it — see the doc comment.
+        let outcome = analyse(left, aligned, wantsDifferenceImage: wantsDifferenceImage)
+        guard var result = outcome.result else {
             return analyse(left, right, wantsDifferenceImage: wantsDifferenceImage)
         }
         result.registration = registration
-        let picture = wantsDifferenceImage
-            ? analyse(left, right, wantsDifferenceImage: true).difference
-            : nil
-        return (result, picture)
+        return (result, outcome.difference)
     }
 
     /// `bytesPerRow: 0` — CoreGraphics picks the stride, and every reader of the buffer reads it

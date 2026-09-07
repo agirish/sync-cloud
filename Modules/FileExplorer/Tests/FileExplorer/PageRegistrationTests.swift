@@ -218,6 +218,100 @@ import CoreGraphics
                 "the declined alignment still changed what was compared")
     }
 
+    /// **The glow and the outlines are one arithmetic.** `compareAligning` used to walk the aligned
+    /// pair for the numbers and the UNALIGNED pair for the picture, so a de-skewed page was outlined
+    /// from one comparison and lit from another. This asserts the two now come from the same walk,
+    /// in the only terms that cannot drift: the picture IS the per-channel distance, so counting the
+    /// pixels in it that clear ``BitmapDiff/tolerance`` must reproduce `changedFraction` exactly.
+    ///
+    /// **Three guards, because two of them are the ones that go vacuous.** The pair has to actually
+    /// align — on a refused pair both sides read the same two pages and the check passes saying
+    /// nothing — and the unaligned picture has to actually differ, or the fixture could not tell the
+    /// old behaviour from the new. Measured when this was written: the old shape put 0.068 of ink on
+    /// screen against a reported 0.029, and this test fails on it by that margin.
+    @Test func thePictureAndTheFigureAreOfTheSamePair() throws {
+        let left = try barPage(edited: false)
+        let right = try skewed(barPage(edited: true), degrees: -1.0)
+
+        let (outcome, picture) = BitmapDiff.compareAligning(left, right, wantsDifferenceImage: true)
+        let result = try #require(outcome)
+        let shown = try #require(picture)
+
+        // Guard one: this pair really was de-skewed, so the assertion below has something to catch.
+        #expect(result.registration != nil,
+                "the fixture was not aligned, so this test would pass without comparing anything")
+
+        // Guard two: the picture the reader is shown reports the figure the reader is told.
+        #expect(inkFraction(shown) == result.changedFraction, """
+            the picture holds \(inkFraction(shown)) of changed pixels while the result reports \
+            \(result.changedFraction) — the glow and the callouts are of different image pairs again
+            """)
+
+        // Guard three: the OLD picture would have failed the line above, so the fixture is sharp.
+        let asTheyAre = try #require(BitmapDiff.analyse(left, right,
+                                                        wantsDifferenceImage: true).difference)
+        #expect(inkFraction(asTheyAre) != result.changedFraction,
+                "the unaligned picture already matched the aligned figure — this fixture proves nothing")
+    }
+
+    /// The share of a difference raster that is above ``BitmapDiff/tolerance`` — the same predicate
+    /// `analyse` counts `changedFraction` with, read back off the picture it drew.
+    private func inkFraction(_ difference: CGImage) -> Double {
+        guard let data = difference.dataProvider?.data,
+              let bytes = CFDataGetBytePtr(data) else { return .nan }
+        var changed = 0
+        for y in 0..<difference.height {
+            for x in 0..<difference.width {
+                // The stride read back, never computed — see `BitmapDiff.analyse`.
+                let i = y * difference.bytesPerRow + x * 4
+                // Byte 4 is `noneSkipLast` padding and carries no distance.
+                if max(Int(bytes[i]), max(Int(bytes[i + 1]), Int(bytes[i + 2]))) > BitmapDiff.tolerance {
+                    changed += 1
+                }
+            }
+        }
+        return Double(changed) / Double(difference.width * difference.height)
+    }
+
+    /// ``page()``'s bars drawn as a real raster, at a size whose 256-wide grid is a reduction rather
+    /// than an enlargement. `edited` shortens one bar — the "one paragraph changed" a reader is
+    /// looking for.
+    private func barPage(edited: Bool, width: Int = 512, height: Int = 662) throws -> CGImage {
+        let ctx = try #require(CGContext(data: nil, width: width, height: height,
+                                         bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpaceCreateDeviceRGB(),
+                                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let u = CGFloat(width) / 96
+        func bar(_ x: CGFloat, _ top: CGFloat, _ w: CGFloat, _ h: CGFloat, _ value: CGFloat) {
+            ctx.setFillColor(CGColor(red: value, green: value, blue: value, alpha: 1))
+            ctx.fill(CGRect(x: x * u, y: CGFloat(height) - (top + h) * u, width: w * u, height: h * u))
+        }
+        bar(14, 10, 50, 4, 0.15)
+        for line in 0..<9 { bar(14, CGFloat(24 + line * 8), edited && line == 5 ? 30 : 62, 3, 0.25) }
+        bar(14, 100, 34, 3, 0.25)
+        bar(80, 8, 2, 100, 0.4)
+        return try #require(ctx.makeImage())
+    }
+
+    /// The page as if it had gone through the scanner at an angle: rotated about its centre and
+    /// resampled once, which is the forward transform `BitmapDiff.warped` has to invert.
+    private func skewed(_ image: CGImage, degrees: Double) throws -> CGImage {
+        let ctx = try #require(CGContext(data: nil, width: image.width, height: image.height,
+                                         bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpaceCreateDeviceRGB(),
+                                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        ctx.interpolationQuality = .high
+        ctx.translateBy(x: CGFloat(image.width) / 2, y: CGFloat(image.height) / 2)
+        ctx.rotate(by: CGFloat(degrees * .pi / 180))
+        ctx.translateBy(x: -CGFloat(image.width) / 2, y: -CGFloat(image.height) / 2)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return try #require(ctx.makeImage())
+    }
+
     /// The scale conversion is real: the estimate is applied to the full-size image, not the grid.
     @Test func theTranslationComesBackInFullSizePixels() {
         let a = page()
