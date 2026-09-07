@@ -259,6 +259,17 @@ struct SyncCloudApp: App {
             // about and is cleared rather than trusted. Idempotent, like its neighbours above.
             OrganizeScopeDefaults.migrate(defaults: .standard)
 
+            // The startup disk went back to Locations' device band (2026-09-07), where it sits
+            // above any card and the Trash. A change to `SidebarFavoritePlaces.standard` reaches a
+            // first run for free and reaches nobody else at all — the stored list is the whole
+            // answer once the key has a value, and every install that has ever drawn the sidebar
+            // has one — so without this the move would be invisible on exactly the machines it was
+            // asked for. Stamped, so a disk put back afterwards stays put; idempotent, like its
+            // neighbours above.
+            if let line = SidebarFavoritePlaces.migrate(defaults: .standard).logLine {
+                Logger.shared.info(line)
+            }
+
             // Sources now begin at their account folder rather than at the `Documents` inside it,
             // so every position stored RELATIVE to a source root — the last-open folder of each
             // pane, both tab strips, pinned and recent folders, the Favorites order, the filing

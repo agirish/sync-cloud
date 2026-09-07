@@ -124,12 +124,13 @@ public enum SidebarSourceModel {
     /// Downloads, the three a person files *into*.
     ///
     /// Not the whole of Favorites, and the distinction matters: ``SidebarFavoritePlaces/standard``
-    /// is what a first run actually gets, and it puts the home folder above these three and the
-    /// startup disk below them. Those two are absent HERE because they are already places in their
-    /// own right — home heads `deviceEntries()` and the startup disk arrives from the mounted-volume
-    /// walk — so a second entry for either would build two rows for one folder. What decides which
-    /// section a place is drawn in is membership of the Favorites list, not this constant; this is
-    /// only the set of places that have no Locations row to fall back to.
+    /// is what a first run actually gets, and it puts the home folder above these three. Home is
+    /// absent HERE because it is already a place in its own right — it heads `deviceEntries()` — so
+    /// a second entry for it would build two rows for one folder. The startup disk is absent for
+    /// the same reason and is no longer in the default list either, so on a first run it is drawn
+    /// in Locations. What decides which section a place appears in is membership of the Favorites
+    /// list, not this constant; this is only the set of places that have no Locations row to fall
+    /// back to.
     ///
     /// **Fixed, and deliberately short.** Every folder past these is somebody's preference rather
     /// than everybody's, and adding a folder source is the mechanism this list is a shortcut *to*
@@ -158,8 +159,12 @@ public enum SidebarSourceModel {
     /// Its row is already built by the mounted-volume walk, which is where its name comes from —
     /// `Macintosh HD` on a stock install, and whatever the user renamed it to otherwise — and its
     /// `internaldrive` glyph. Naming it here as well would be a constant that goes stale the day
-    /// someone renames their disk, so ``SidebarFavoritePlaces/standard`` names the path and lets
-    /// the volume row supply the rest.
+    /// someone renames their disk.
+    ///
+    /// **Not in ``SidebarFavoritePlaces/standard`` since 2026-09-07** — the disk is drawn in
+    /// Locations' device band, which `orderedVolumes(_:)` heads with it. This path is what
+    /// ``SidebarFavoritePlaces/migrate(defaults:)`` removes from a list stored before then, and
+    /// what a favorite of the disk is still matched against if the user adds it back.
     ///
     /// `/` is the boot volume by definition, so this needs no lookup and cannot fail to resolve.
     public static let startupDiskPath = "/"
@@ -458,28 +463,34 @@ public enum SidebarReorder {
 /// separator any plain join would pick.
 public enum SidebarFavoritePlaces {
 
-    /// **What a first run gets** — the home folder, Finder's own three, and the startup disk, in
-    /// that order.
+    /// **What a first run gets** — the home folder, then Finder's own three.
     ///
-    /// It was the three standard folders alone until 2026-08-27, with home and the startup disk
-    /// left in Locations' device band. That is defensible on paper — home *contains* the three, and
-    /// a disk is hardware — and it was wrong in use for the same reason both ended up dragged into
-    /// Favorites by hand: these are the two places a person navigates to from a standing start, and
-    /// Locations on a machine with eleven cloud accounts is where you go to find an account. A
+    /// It was the three standard folders alone until 2026-08-27, when home AND the startup disk
+    /// were both added: these are the places a person navigates to from a standing start, and
+    /// Locations on a machine with seven cloud accounts is where you go to find an account. A
     /// default that every user rebuilds by hand is not a default.
     ///
-    /// **Order is Finder's, and it is the reason this is a list rather than a set**: home first
-    /// because it is where a path starts, the three you file into next, the disk last because it is
-    /// the widest scope and the least often wanted.
+    /// **The startup disk came back out on 2026-09-07**, asked for directly, and the reason is the
+    /// half of that argument it never fitted. Home is where a path starts; the disk is the widest
+    /// scope and the least often wanted, so it sat at the bottom of Favorites earning a row above
+    /// the section that already describes it. Locations' device band is where hardware belongs, and
+    /// putting it back there gives that band the shape it should always have had — the disk, then
+    /// any card plugged in beside it, then the Trash (``SidebarSourceModel/orderedVolumes(_:)``
+    /// puts the startup disk first and `Band.trash` is last by declaration, so no code here orders
+    /// them). Existing installs are moved across once by ``migrate(defaults:)``; without it a
+    /// stored list keeps the disk in Favorites and nothing changes for anyone who has ever launched
+    /// the app.
     ///
-    /// Home and the startup disk are also Locations rows (``SidebarSourceModel/homeEntry`` and the
-    /// mounted-volume walk), so removing either from Favorites moves it back down the column rather
-    /// than off it — unlike Desktop, Documents and Downloads, whose only band is `.shortcut` and
-    /// for which ``restoring(_:)`` is the way back.
+    /// **Order is Finder's, and it is the reason this is a list rather than a set**: home first
+    /// because it is where a path starts, then the three you file into.
+    ///
+    /// Home is also a Locations row (``SidebarSourceModel/homeEntry``), so removing it from
+    /// Favorites moves it back down the column rather than off it — unlike Desktop, Documents and
+    /// Downloads, whose only band is `.shortcut` and for which ``restoring(_:)`` is the way back.
+    /// The startup disk has the same fallback, through the mounted-volume walk; it is simply no
+    /// longer lifted out of it to begin with.
     public static var standard: [String] {
-        [SidebarSourceModel.homeEntry.path]
-            + SidebarSourceModel.favoriteShortcuts.map(\.path)
-            + [SidebarSourceModel.startupDiskPath]
+        [SidebarSourceModel.homeEntry.path] + SidebarSourceModel.favoriteShortcuts.map(\.path)
     }
 
     /// **Absent is not the same as empty, and the difference is the whole default.**
@@ -520,10 +531,15 @@ public enum SidebarFavoritePlaces {
         return false
     }
 
+    /// Where the list is stored. `ContentView` reads it through `@AppStorage`, which needs the
+    /// literal at the property; `favoritePlacesKeyMatchesTheAppStorageProperty` binds the two.
+    public static let storageKey = "browseSidebarFavoritePlaces"
+
     /// Where bytes this build cannot decode are put, instead of being overwritten —
     /// `FolderJumpStore.salvageKey(for:)`'s spelling, so the two stores are recoverable the same
-    /// way.
-    public static let salvageKey = "browseSidebarFavoritePlaces.unreadable"
+    /// way. Derived from ``storageKey`` so a rename cannot leave the salvage pointing at the old
+    /// name.
+    public static let salvageKey = storageKey + ".unreadable"
 
     public static func encoded(_ places: [String]) -> String {
         guard let data = try? JSONEncoder().encode(places),
@@ -560,6 +576,80 @@ public enum SidebarFavoritePlaces {
     /// worth offering. A menu item that would do nothing is a menu item that teaches nothing.
     public static func isMissingStandard(_ places: [String]) -> Bool {
         standard.contains { !places.contains($0) }
+    }
+
+    // MARK: - Bringing a stored list forward
+
+    /// How far a stored Favorites list has been brought forward — see ``migrate(defaults:)``.
+    public static let migrationKey = "browseSidebarFavoritePlacesMigration"
+
+    /// Bump this, and add a step in ``migrate(defaults:)``, whenever ``standard`` changes in a way
+    /// a stored list has to follow.
+    public static let currentVersion = 1
+
+    /// What ``migrate(defaults:)`` did, in the form the launch log line is built from.
+    public enum Outcome: Equatable, Sendable {
+        /// The stamp was already current, or there was nothing stored to bring forward.
+        case unchanged
+        /// The stored list was rewritten. `removed` names what came out, in the order it was in.
+        case rewritten(removed: [String])
+        /// The stored bytes could not be decoded, so they were left exactly as they are. Migrating
+        /// an unreadable value means writing ``standard`` over the user's real list, which is the
+        /// loss ``isUnreadable(_:)`` exists to prevent — and it would happen here rather than at
+        /// the read that caused it.
+        case unreadable
+
+        public var logLine: String? {
+            switch self {
+            case .unchanged:
+                return nil
+            case .rewritten(let removed):
+                return "Sidebar: \(removed.joined(separator: ", ")) moved out of Favorites and back "
+                    + "into Locations, where the startup disk sits above any card and the Trash. "
+                    + "Add to Favorites on the row puts it back."
+            case .unreadable:
+                return "Sidebar: the stored Favorites places could not be read, so they were left "
+                    + "untouched rather than replaced by the standard set."
+            }
+        }
+    }
+
+    /// **Brings a Favorites list someone already has forward when ``standard`` changes.**
+    ///
+    /// A change to ``standard`` reaches a first run for free and reaches nobody else at all: the
+    /// stored list is the whole answer once the key has a value, and every install that has ever
+    /// drawn the sidebar has one. Without a step here, moving the startup disk out of the default
+    /// would have been invisible on every machine it was asked for.
+    ///
+    /// **Stamped, not conditional**, for the reason `PaneBarMigration` gives: it runs once, so a
+    /// place the user puts back afterwards stays put. A list that grows back is worse than one that
+    /// never moved, because the user can see they are being overruled.
+    ///
+    /// Idempotent, so the repeat `App.init` calls the launch path makes are harmless.
+    public static func migrate(defaults: UserDefaults) -> Outcome {
+        let from = defaults.integer(forKey: migrationKey)   // 0 when never stamped
+        guard from < currentVersion else { return .unchanged }
+        defer { defaults.set(currentVersion, forKey: migrationKey) }
+
+        // No stored list: a first run already gets `standard`, and writing one here would turn an
+        // untouched key into a decision — the third state `places(from:)` is shaped around.
+        let raw = defaults.string(forKey: storageKey) ?? ""
+        guard !raw.isEmpty else { return .unchanged }
+        guard !isUnreadable(raw) else { return .unreadable }
+
+        var places = places(from: raw)
+        let before = places
+        // v1 — the startup disk went back to Locations' device band, above any card and the Trash.
+        if from < 1 { places.removeAll { $0 == SidebarSourceModel.startupDiskPath } }
+
+        // **Compared, not flagged.** Every step above does nothing but mutate `places`, so whatever
+        // a later step does — remove, add, reorder — reaches the defaults through this one write
+        // and is described by this one outcome, rather than by somebody remembering to set a flag
+        // beside their new step. `PaneBarMigration.apply` shipped a flag that lied for exactly
+        // this reason.
+        guard places != before else { return .unchanged }
+        defaults.set(encoded(places), forKey: storageKey)
+        return .rewritten(removed: before.filter { !places.contains($0) })
     }
 }
 

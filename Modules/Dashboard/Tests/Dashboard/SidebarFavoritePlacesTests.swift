@@ -7,19 +7,31 @@ import Foundation
 
     /// **The arrangement a first run gets, in order.**
     ///
-    /// Pinned as a whole list rather than as five `contains` checks, because ORDER is half of what
-    /// was asked for: home first because it is where a path starts, the three you file into next,
-    /// the startup disk last because it is the widest scope. A set-membership assertion would pass
-    /// on any shuffle of the same five, and a shuffle is exactly the regression a later edit to
-    /// `favoriteShortcuts` or to the concatenation would produce.
-    @Test func theDefaultFavoritesAreHomeTheThreeFoldersAndTheStartupDisk() {
+    /// Pinned as a whole list rather than as four `contains` checks, because ORDER is half of what
+    /// was asked for: home first because it is where a path starts, then the three you file into. A
+    /// set-membership assertion would pass on any shuffle of the same four, and a shuffle is exactly
+    /// the regression a later edit to `favoriteShortcuts` or to the concatenation would produce.
+    @Test func theDefaultFavoritesAreHomeAndTheThreeFolders() {
         #expect(SidebarFavoritePlaces.standard == [
             NSHomeDirectory(),
             NSHomeDirectory() + "/Desktop",
             NSHomeDirectory() + "/Documents",
             NSHomeDirectory() + "/Downloads",
-            "/",
         ])
+    }
+
+    /// **The startup disk is NOT a default favorite**, which is the 2026-09-07 move stated as the
+    /// one thing that decides it: a place's section is membership of this list, so the disk being
+    /// absent from it IS the disk being drawn in Locations' device band.
+    ///
+    /// Asserted separately from the list above rather than folded into it, because the two fail for
+    /// different reasons — that one catches a reorder, this one catches the entry coming back — and
+    /// a reader hitting this name knows immediately which question was answered.
+    @Test func theStartupDiskIsNotAFavoriteByDefault() {
+        #expect(!SidebarFavoritePlaces.standard.contains(SidebarSourceModel.startupDiskPath),
+                "the startup disk is back in the default Favorites — it belongs in Locations' device band, above any card and the Trash")
+        #expect(!SidebarFavoritePlaces.isMissingStandard(SidebarFavoritePlaces.standard),
+                "Restore Standard Places would be offered forever on an untouched install")
     }
 
     /// Every default entry is an absolute path — the list is matched against a row's
@@ -257,5 +269,108 @@ import Foundation
     @Test func anEncodedListDecodesBackToItself() {
         let places = ["/Users/x/Desktop", "/Volumes/Off/Notes"]
         #expect(SidebarFavoritePlaces.places(from: SidebarFavoritePlaces.encoded(places)) == places)
+    }
+}
+
+/// **Bringing a Favorites list someone already has forward** — see
+/// `SidebarFavoritePlaces.migrate(defaults:)`.
+///
+/// The suite exists because the change it carries is invisible without it. `standard` is consulted
+/// only when the key has no value, and every install that has ever drawn the sidebar has one — so
+/// moving the startup disk out of the default reaches a first run for free and reaches nobody else
+/// at all. Each test below is one way a stored list can arrive.
+@Suite struct SidebarFavoritePlacesMigrationTests {
+
+    private static let disk = SidebarSourceModel.startupDiskPath
+
+    /// The case every existing install is in: the old default, stored verbatim.
+    @Test func theStartupDiskIsTakenOutOfAStoredList() {
+        let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-stored")
+        let old = [NSHomeDirectory(), NSHomeDirectory() + "/Desktop", NSHomeDirectory() + "/Documents",
+                   NSHomeDirectory() + "/Downloads", Self.disk]
+        defaults.set(SidebarFavoritePlaces.encoded(old), forKey: SidebarFavoritePlaces.storageKey)
+
+        #expect(SidebarFavoritePlaces.migrate(defaults: defaults) == .rewritten(removed: [Self.disk]))
+        let after = SidebarFavoritePlaces.places(
+            from: defaults.string(forKey: SidebarFavoritePlaces.storageKey) ?? "")
+        #expect(after == SidebarFavoritePlaces.standard,
+                "the stored list did not come forward to the new default")
+        #expect(defaults.integer(forKey: SidebarFavoritePlaces.migrationKey)
+                == SidebarFavoritePlaces.currentVersion)
+    }
+
+    /// **Everything the user put there stays, in the order they put it.** A migration that
+    /// reordered the rest would be indistinguishable, from the column, from a drag they did not
+    /// make.
+    @Test func nothingElseInTheListMoves() {
+        let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-keeps")
+        let stored = ["/Volumes/Work", Self.disk, NSHomeDirectory(), "/Volumes/Archive"]
+        defaults.set(SidebarFavoritePlaces.encoded(stored), forKey: SidebarFavoritePlaces.storageKey)
+
+        #expect(SidebarFavoritePlaces.migrate(defaults: defaults) == .rewritten(removed: [Self.disk]))
+        #expect(SidebarFavoritePlaces.places(
+            from: defaults.string(forKey: SidebarFavoritePlaces.storageKey) ?? "")
+                == ["/Volumes/Work", NSHomeDirectory(), "/Volumes/Archive"])
+    }
+
+    /// **An untouched key is left untouched**, not written with `standard`. A first run already
+    /// gets the new default from `places(from:)`, and writing one here would turn "never decided"
+    /// into "decided" — the third state the JSON encoding exists to keep separate.
+    @Test func aFirstRunIsStampedWithoutBeingWritten() {
+        let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-fresh")
+        #expect(SidebarFavoritePlaces.migrate(defaults: defaults) == .unchanged)
+        #expect(defaults.string(forKey: SidebarFavoritePlaces.storageKey) == nil,
+                "nothing to migrate, nothing written")
+        #expect(defaults.integer(forKey: SidebarFavoritePlaces.migrationKey)
+                == SidebarFavoritePlaces.currentVersion,
+                "an unstamped first run would migrate the user's FIRST edit on the next launch")
+    }
+
+    /// Someone who had already taken the disk out is a no-op, and must not be reported as a change:
+    /// the log line names a move that did not happen.
+    @Test func aListWithoutTheDiskIsNotRewritten() {
+        let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-absent")
+        let stored = SidebarFavoritePlaces.encoded([NSHomeDirectory(), "/Volumes/Work"])
+        defaults.set(stored, forKey: SidebarFavoritePlaces.storageKey)
+        #expect(SidebarFavoritePlaces.migrate(defaults: defaults) == .unchanged)
+        #expect(defaults.string(forKey: SidebarFavoritePlaces.storageKey) == stored)
+    }
+
+    /// **Unreadable bytes are left exactly as they are.** `places(from:)` answers `standard` for
+    /// them, which is right for a read and catastrophic for the write that would follow — the
+    /// user's real list encoded over by the standard set, at the migration rather than at the read
+    /// that caused it. Same line `writeFolderSidebarFavoritePlaces` draws.
+    @Test func unreadableBytesAreNotMigratedOver() {
+        for raw in ["{not json", "[1,2,3]"] {
+            let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-unreadable")
+            defaults.set(raw, forKey: SidebarFavoritePlaces.storageKey)
+            #expect(SidebarFavoritePlaces.migrate(defaults: defaults) == .unreadable)
+            #expect(defaults.string(forKey: SidebarFavoritePlaces.storageKey) == raw,
+                    "the migration overwrote bytes it could not read")
+        }
+    }
+
+    /// **It runs once.** Adding the disk back after the migration must stick — a favorite that
+    /// grows back is worse than one that never moved, because the user can see they are being
+    /// overruled. This is the whole reason the version is stamped rather than the list checked.
+    @Test func aDiskPutBackAfterwardsStays() {
+        let defaults = ScratchDefaults("SidebarFavoritePlacesMigration-putback")
+        defaults.set(SidebarFavoritePlaces.encoded(SidebarFavoritePlaces.standard + [Self.disk]),
+                     forKey: SidebarFavoritePlaces.storageKey)
+        #expect(SidebarFavoritePlaces.migrate(defaults: defaults) == .rewritten(removed: [Self.disk]))
+
+        let putBack = SidebarFavoritePlaces.encoded(SidebarFavoritePlaces.standard + [Self.disk])
+        defaults.set(putBack, forKey: SidebarFavoritePlaces.storageKey)
+        #expect(SidebarFavoritePlaces.migrate(defaults: defaults) == .unchanged)
+        #expect(defaults.string(forKey: SidebarFavoritePlaces.storageKey) == putBack,
+                "the migration ran twice and took the disk back out")
+    }
+
+    /// Only a rewrite says anything in the log. A line on every launch about a list nobody has is
+    /// the noise `PaneBarMigration` shipped and then had to remove.
+    @Test func onlyARewriteProducesALogLine() {
+        #expect(SidebarFavoritePlaces.Outcome.unchanged.logLine == nil)
+        #expect(SidebarFavoritePlaces.Outcome.rewritten(removed: ["/"]).logLine?.contains("Locations") == true)
+        #expect(SidebarFavoritePlaces.Outcome.unreadable.logLine?.contains("left") == true)
     }
 }

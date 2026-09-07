@@ -243,3 +243,100 @@ import Foundation
         #expect(claims.map(\.id) == ["iCloud", "iCloud", "Dropbox"])
     }
 }
+
+/// **The tail of Locations, in the order it is drawn: the startup disk, then any card, then the
+/// Trash.**
+///
+/// Asked for directly on 2026-09-07, and asserted end to end because no single rule produces it.
+/// Three separate mechanisms have to agree: `SidebarFavoritePlaces.standard` leaving the disk out
+/// (so it stays a `.device` row rather than being lifted into Favorites),
+/// `SidebarSourceModel.orderedVolumes` putting the internal disk ahead of the removable one, and
+/// `splitFolderSidebarPlaceRows`' band walk putting `.trash` last. A unit test on any one of them
+/// passes while the column is wrong.
+///
+/// **The Trash row depends on `~/.Trash` existing**, which `isMountedFolder` checks — it does on a
+/// real Mac and the assertions below say so rather than assuming it, so a machine without one fails
+/// loudly instead of silently measuring a two-row list.
+@Suite struct LocationsDeviceBandOrderTests {
+
+    static let card = SidebarSourceModel.Volume(name: "Untitled", path: "/Volumes/Untitled",
+                                                isRemovable: true, isInternal: false)
+    static let disk = SidebarSourceModel.Volume(name: "Macintosh HD", path: "/",
+                                                isRemovable: false, isInternal: true)
+
+    static func locations(_ volumes: [SidebarSourceModel.Volume]) -> [SidebarSourceRow] {
+        ContentView.splitFolderSidebarPlaceRows(
+            [], volumes: volumes, favoritePlaces: SidebarFavoritePlaces.standard, links: [:]).locations
+    }
+
+    /// With nothing plugged in: the disk, then the Trash. Home is a default favorite, so the device
+    /// band starts at the volumes — which is what makes the disk the first row under the rule.
+    @Test func theStartupDiskSitsAboveTheTrash() throws {
+        let rows = Self.locations([Self.disk])
+        #expect(rows.map(\.name) == ["Macintosh HD", "Trash"],
+                "Locations reads \(rows.map(\.name)) — the disk is not between the rule and the Trash")
+        #expect(rows.first?.band == .device)
+        #expect(rows.last?.state == .revealOnly)
+    }
+
+    /// A card plugged in lands **below the disk and above the Trash** — the only gap it can take,
+    /// and it is `orderedVolumes` that puts it there rather than anything in the sidebar.
+    @Test func aCardLandsBetweenTheDiskAndTheTrash() throws {
+        let rows = Self.locations([Self.card, Self.disk])
+        #expect(rows.map(\.name) == ["Macintosh HD", "Untitled", "Trash"],
+                "Locations reads \(rows.map(\.name))")
+        #expect(rows.first { $0.name == "Untitled" }?.symbol == "sdcard")
+    }
+
+    /// **The Trash is last whatever else is mounted**, including a volume whose name sorts after
+    /// it. Names are the trap here: the volumes sort among themselves, and a `Zip` disk beside a
+    /// row called `Trash` is exactly the fixture that would expose an ordering that sorted the
+    /// whole band by name instead of walking the bands.
+    @Test func theTrashStaysLastWhateverIsMounted() throws {
+        let extras = [SidebarSourceModel.Volume(name: "Zip", path: "/Volumes/Zip",
+                                               isRemovable: true, isInternal: false),
+                      SidebarSourceModel.Volume(name: "Archive", path: "/Volumes/Archive",
+                                                isRemovable: false, isInternal: false)]
+        let rows = Self.locations([Self.card] + extras + [Self.disk])
+        #expect(rows.map(\.name) == ["Macintosh HD", "Archive", "Untitled", "Zip", "Trash"],
+                "Locations reads \(rows.map(\.name))")
+    }
+
+    /// **And the disk is only there because the default list leaves it out.** Favoriting it takes
+    /// it back out of Locations — the fallback both directions rest on — which is what stops this
+    /// suite from passing for a reason other than the one it claims.
+    @Test func favoritingTheDiskTakesItBackOutOfLocations() throws {
+        let split = ContentView.splitFolderSidebarPlaceRows(
+            [], volumes: [Self.disk],
+            favoritePlaces: SidebarFavoritePlaces.standard + [SidebarSourceModel.startupDiskPath],
+            links: [:])
+        #expect(split.locations.map(\.name) == ["Trash"])
+        #expect(split.shortcuts.last?.name == "Macintosh HD")
+    }
+}
+
+/// **The Favorites defaults key is spelled twice, and this is what binds the two.**
+///
+/// `SidebarFavoritePlaces.storageKey` is what the launch migration reads; `ContentView`'s
+/// `@AppStorage` is what the column reads, and it needs the literal at the property. Nothing fails
+/// when they drift — the migration rewrites a key nothing draws from, silently, which is the shape
+/// of every defaults-key bug in this app's history.
+@Suite struct FavoritePlacesKeyTests {
+
+    @Test func favoritePlacesKeyMatchesTheAppStorageProperty() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("MacApp/ContentView.swift")
+        let code = try #require(try? String(contentsOf: url, encoding: .utf8),
+                                "cannot read ContentView.swift — this scan would be vacuous")
+        try #require(code.contains("@AppStorage("), "the file holds no @AppStorage — the scan is vacuous")
+        #expect(code.contains("@AppStorage(\"\(SidebarFavoritePlaces.storageKey)\")"),
+                "ContentView reads a different key from the one SidebarFavoritePlaces.migrate writes")
+    }
+
+    /// The salvage key is derived, so it cannot be left behind by a rename — asserted rather than
+    /// assumed, because it was a separate literal until 2026-09-07.
+    @Test func theSalvageKeyFollowsTheStorageKey() {
+        #expect(SidebarFavoritePlaces.salvageKey == SidebarFavoritePlaces.storageKey + ".unreadable")
+    }
+}

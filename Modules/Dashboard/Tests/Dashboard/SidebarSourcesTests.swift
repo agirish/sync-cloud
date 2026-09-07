@@ -146,10 +146,12 @@ import Foundation
     /// **Home is favorited by default and is still built as a Locations row**, which is not a
     /// contradiction — it is the difference the two constants encode.
     ///
-    /// `favoriteShortcuts` is "places that exist only in Favorites"; `homeEntry` and the startup
-    /// disk are places with a Locations row of their own that the default list happens to lift into
-    /// Favorites. A second `favoriteShortcuts` entry for either would build TWO rows for one folder
-    /// — the builder walks both lists — which is why the default set names paths instead.
+    /// `favoriteShortcuts` is "places that exist only in Favorites"; `homeEntry` is a place with a
+    /// Locations row of its own that the default list happens to lift into Favorites. A second
+    /// `favoriteShortcuts` entry for it would build TWO rows for one folder — the builder walks both
+    /// lists — which is why the default set names a path instead. The startup disk is checked here
+    /// for the same hazard even though it is no longer in the default list: adding it to
+    /// `favoriteShortcuts` would draw it in both sections at once.
     @Test func homeIsAFavoriteByDefaultAndStillHasItsLocationsRow() {
         #expect(SidebarSourceModel.homeEntry.path == NSHomeDirectory())
         #expect(SidebarFavoritePlaces.standard.contains(NSHomeDirectory()),
