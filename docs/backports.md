@@ -3710,3 +3710,49 @@ done   # v4.x: 1 and nothing · v3.x and v2.x: 0 and "only ever held"
 - Nothing here is user-facing: the file is tooling for a session, not code the app runs.
 
 Recorded rather than picked, per the standing direction.
+
+## 2026-09-07 — the real-name and employer scrub — **CLOSED: sent to all four lines**
+
+`9299c080` and `1f7551e1` on `main`, `cb7b79b9` on `v4.x`, `2c40dfa3` on `v3.x`, `051e05ed` on
+`v2.x`. The repository is public and every line carried the household's real names — in shipped UI
+text, in test corpora, in the roadmaps and on the Pages site — plus two real email addresses in
+shipped source, an employer, its products, and the names of ~50 colleagues in the Restructure
+fixtures.
+
+**This is the exception to the standing no-backporting direction, and it was given explicitly.**
+Recorded here precisely because it contradicts the rule the rest of this file tracks: a future audit
+finding the same change on four lines should not read it as a lapse. Nothing was cherry-picked —
+the lines have diverged too far for a pick to apply, so each was scrubbed directly and verified on
+its own.
+
+```sh
+# The scrub is complete on a line when this prints nothing.
+git grep -nwiI -e Aditi -e Divit -e Shweta -e Muktha -e Anuraag -e Abhishek -e Girish -e Dani \
+  -e Ravindra -e Krishnamurthy -e HPE -e Cray -e MapR -e Hewlett origin/<line> \
+ | grep -vE 'com\.abhishekgirish|/Users/abhishek|github\.com/agirish|repos/agirish'
+```
+
+- **What each line got differs, because each line carries a different surface.** `main` got the
+  names, the emails and the fixture rewrite; `v4.x` the names, an email and the employer vocabulary
+  (33 files of it); `v3.x` and `v2.x` names only — they carry no employer vocabulary and none of
+  the Restructure fixtures, which postdate all three cuts.
+- **The mapping is relationship words, not numbers, and that is forced by the code.**
+  `PersonCandidates.isNameShaped` rejects any name containing a digit, so `Child1` would silently
+  stop being recognised as a person. `parent`, `children` and `sibling` were excluded for a second
+  reason — they are this codebase's own vocabulary, 717/907/791 uses.
+- **Four probes were preserved in kind rather than in text**, and a future re-scrub must keep them
+  that way: `Sonations` keeps `Son` a strict prefix; `NAPR` keeps an all-caps run ending `APR`;
+  `EMP` stays a three-letter all-caps token so `JurisdictionCandidates` still reads it as an
+  acronym; the `HewlettPackardEnterprise` replacement is the same 24 characters, so `SetupSheet`'s
+  truncation example stays true of its own subject.
+- **The fixture was renamed, not trimmed, and the reason is measurable.** Deleting the 694-folder
+  `Work/` subtree moved six pinned counts — backlog 11→7, looseBesideContainer 2→1, dead weight
+  86/503/20→63/362/16 — and lost two named oracle cases. A 1:1 token map preserves every name-based
+  relationship the detectors key on, so the counts held exactly and no coverage was traded away.
+- **Not touched, on any line:** `bundleIdPrefix: com.abhishekgirish`, which orphans every persisted
+  setting and the installed app's defaults domain if it moves; the `/Users/abhishek` paths CI and
+  the install skill resolve; and the `github.com/agirish` URLs.
+- **Out of scope by nature:** the live roster in `~/Library/Application Support/SyncCloud` and the
+  defaults domain. That is the app working as designed on one Mac, and `printsWhatEachPersonsViewHolds`
+  still prints it locally — but `liveProfile` is in `SYNCCLOUD_SKIP_MACHINE_PINNED` on CI, and the
+  public Actions log for `9299c080` contains zero occurrences of those names.
