@@ -11,4 +11,13 @@ public enum OrganizeHelpTopics {
     /// *What Restructure finds* — the page explaining the findings, how a plan is reviewed, and
     /// why taking a landing back is not ⌘Z.
     public static let restructure = "restructure-shapes"
+
+    /// *Reading your documents* — what the on-device readers open, how much of each file they read,
+    /// what is kept, and why none of it reaches anyone.
+    ///
+    /// **The same string `SettingsHelpTopics.onDeviceReading` holds**, and deliberately not shared
+    /// between them: this module and `Settings` cannot see each other, and neither can see the
+    /// book. Two constants naming one article is the shape that already exists here; the app
+    /// target's tests are what hold all three together.
+    public static let onDeviceReading = "on-device-reading"
 }

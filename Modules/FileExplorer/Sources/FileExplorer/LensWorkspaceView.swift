@@ -427,6 +427,17 @@ public struct LensWorkspaceView: View {
     /// Builds (or rebuilds) the read-only storage picture for the focused folder — the Storage lens's
     /// analyze/re-analyze action. Host owns the root deriving.
     private let onBuildStorage: () -> Void
+    /// RD11's four verbs. **Optional, and the reason is the one `onUpdateFolderMemory` gives**: a
+    /// host that cannot run a survey — the CLI-driven and preview hosts pass nothing — must get a
+    /// card that states the position rather than a button that does nothing.
+    private let onStartDocumentSurvey: (() -> Void)?
+    private let onResumeDocumentSurvey: (() -> Void)?
+    private let onPauseDocumentSurvey: (() -> Void)?
+    private let onStopDocumentSurvey: (() -> Void)?
+    /// What the survey card should show, worked out by the host — which is where `Sync` lives.
+    /// nil hides the card entirely: no profile to survey against, or a corpus already covers the
+    /// tree and the incremental pass is the right one.
+    private let documentSurveyCard: DocumentSurveyCardState?
     /// Whether to show the source bar (provider dropdown + folder) above the lens. True only when the
     /// source rail is collapsed; when it's expanded, the rail header owns the provider dropdown, so
     /// showing it here too would name the provider twice.
@@ -488,6 +499,11 @@ public struct LensWorkspaceView: View {
         filingInboxFolder: String? = nil,
         onQuickLook: ((URL) -> Void)? = nil,
         onBuildStorage: @escaping () -> Void = {},
+        documentSurveyCard: DocumentSurveyCardState? = nil,
+        onStartDocumentSurvey: (() -> Void)? = nil,
+        onResumeDocumentSurvey: (() -> Void)? = nil,
+        onPauseDocumentSurvey: (() -> Void)? = nil,
+        onStopDocumentSurvey: (() -> Void)? = nil,
         showSourcePicker: Bool = false,
         providers: [CloudProvider] = [],
         currentProviderId: String = "",
@@ -534,6 +550,11 @@ public struct LensWorkspaceView: View {
         self.filingInboxFolder = filingInboxFolder
         self.onQuickLook = onQuickLook
         self.onBuildStorage = onBuildStorage
+        self.documentSurveyCard = documentSurveyCard
+        self.onStartDocumentSurvey = onStartDocumentSurvey
+        self.onResumeDocumentSurvey = onResumeDocumentSurvey
+        self.onPauseDocumentSurvey = onPauseDocumentSurvey
+        self.onStopDocumentSurvey = onStopDocumentSurvey
         self.showSourcePicker = showSourcePicker
         self.providers = providers
         self.currentProviderId = currentProviderId
@@ -3931,7 +3952,17 @@ public struct LensWorkspaceView: View {
             // Storage's own verb, not `onRun` — it is in no `OrganizePass`, so `rescanControl`
             // has nothing to mint a button from. Gated exactly as the header's button is.
             onBuildStorage: onBuildStorage,
-            isBuildingStorage: syncManager.isBuildingStorageLens
+            isBuildingStorage: syncManager.isBuildingStorageLens,
+            documentSurvey: documentSurveyCard,
+            onStartDocumentSurvey: onStartDocumentSurvey,
+            onResumeDocumentSurvey: onResumeDocumentSurvey,
+            onPauseDocumentSurvey: onPauseDocumentSurvey,
+            onStopDocumentSurvey: onStopDocumentSurvey,
+            // The privacy line's pointer, routed through the app's one Help front door — the same
+            // shape `RestructureLens.helpPointer` uses, down to the glyph.
+            onOpenSurveyHelp: onOpenHelp.map { open in
+                { open(OrganizeHelpTopics.onDeviceReading) }
+            }
         )
     }
 
@@ -5072,7 +5103,12 @@ public struct LensWorkspaceView: View {
     /// the results, which quotes a real estimate for a batch it has in hand.
     private var filingIntroState: some View {
         FilingSetupCard(
-            intro: LensIntros.organize(scanTargetName: scanTargetName),
+            // `documentsRead` is the memory's own answer: a tree whose documents have been read
+            // has learned folders, and one that has not has none. Reading it here rather than
+            // passing another flag in keeps the sentence and the fact it describes together.
+            intro: LensIntros.organize(
+                scanTargetName: scanTargetName,
+                documentsRead: !(syncManager.filingMemory?.folders.isEmpty ?? true)),
             accent: glassHue.accentColor,
             // Under the card, not above it — see `SpendRowPlacement`.
             footnote: spendRowPlacement == .underTheSetupCard

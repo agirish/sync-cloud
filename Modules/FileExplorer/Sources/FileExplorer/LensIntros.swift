@@ -52,11 +52,21 @@ enum LensIntros {
         )
     }
 
-    static func organize(scanTargetName: String) -> LensIntro {
-        LensIntro(
+    /// `documentsRead` false adds RD11's one line: this lens gets better once the documents have
+    /// been read, and the overview is where that is offered.
+    ///
+    /// **A sentence, not a second button.** The offer lives on Organize's overview and starting a
+    /// three-hour pass from inside a lens that is about to scan would be two long jobs one click
+    /// apart. The line says where to go and what it buys, and stops.
+    static func organize(scanTargetName: String, documentsRead: Bool = true) -> LensIntro {
+        let extra = documentsRead ? ""
+            : " It goes on names and folder shapes for now — reading your documents, offered on "
+                + "Organize's overview, lets it use what a file says too. That reading happens on "
+                + "this Mac and is never sent anywhere."
+        return LensIntro(
             icon: FilingGlyph.lens,
             title: "File loose files in \(scanTargetName)",
-            message: "Suggest where the files sitting loose in this folder belong — reusing the folders you already keep, and proposing new ones only when it's sure.",
+            message: "Suggest where the files sitting loose in this folder belong — reusing the folders you already keep, and proposing new ones only when it's sure." + extra,
             safety: "Nothing moves without your say-so, and every move is undoable."
         )
     }

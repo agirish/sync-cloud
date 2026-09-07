@@ -495,6 +495,19 @@ struct OrganizeOverview: View {
     /// gated exactly as the header's own button is.
     var isBuildingStorage: Bool = false
 
+    /// The document survey's card, or nil where there is nothing to say about one (RD11).
+    ///
+    /// **Nil on a machine with no folder profile, and nil once the corpus covers the tree** — in
+    /// the second case the incremental *Update folder memory* is the right pass and it is a click,
+    /// so offering three hours beside it would be offering the worse of two answers.
+    var documentSurvey: DocumentSurveyCardState?
+    var onStartDocumentSurvey: (() -> Void)?
+    var onResumeDocumentSurvey: (() -> Void)?
+    var onPauseDocumentSurvey: (() -> Void)?
+    var onStopDocumentSurvey: (() -> Void)?
+    /// Opens Help at the topic the privacy line points to.
+    var onOpenSurveyHelp: (() -> Void)?
+
     private var reporting: [OrganizeOverviewSection] {
         sections.filter { if case .findings = $0.state { return true } else { return false } }
     }
@@ -596,7 +609,10 @@ struct OrganizeOverview: View {
                 ForEach(pendingPasses) { pass in
                     passCard(pass)
                 }
-                if reporting.isEmpty && pendingPasses.isEmpty && receipts.isEmpty {
+                // `documentSurvey` counts here too: an "everything is clear" panel above a card
+                // offering three hours of reading is the screen contradicting itself.
+                if reporting.isEmpty && pendingPasses.isEmpty && receipts.isEmpty
+                    && documentSurvey == nil {
                     allClearState
                 }
                 // **After the findings and the offers, before the footer.** A receipt is not work,
@@ -604,6 +620,19 @@ struct OrganizeOverview: View {
                 // belong on the quiet trailing line with the clean checks. Its own rung between
                 // them is what says "this is an answer you asked for, and there is nothing to do
                 // about it".
+                // **Above the receipts and below the offers**, which is the rung its meaning
+                // asks for: while it is offered or running it is closer to work than to an answer,
+                // and when it has finished it is a receipt like Storage's. One position through
+                // every state, because a card that moved as it progressed would make the same
+                // feature look like three.
+                if let documentSurvey {
+                    DocumentSurveyCard(state: documentSurvey, accent: accent,
+                                       onStart: onStartDocumentSurvey,
+                                       onResume: onResumeDocumentSurvey,
+                                       onPause: onPauseDocumentSurvey,
+                                       onStop: onStopDocumentSurvey,
+                                       onOpenHelp: onOpenSurveyHelp)
+                }
                 ForEach(receipts) { section in
                     receiptCard(section)
                 }
