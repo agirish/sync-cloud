@@ -23,4 +23,27 @@ enum EditorAutosaveStop: Equatable {
         case .failed: return "not saving — couldn't write"
         }
     }
+
+    /// **Whether the header's amber words are a DOOR back to the question, or just words.**
+    ///
+    /// The alert is modal and Cancel dismisses it while leaving the latch set, so without a second
+    /// door the only way back to "which version wins" is ⌘S — a keystroke whose name says "save",
+    /// pressed to reach a question about not saving. The stop line is already on screen saying the
+    /// thing the diff would explain, so it is the honest place to put that door.
+    ///
+    /// **Only for `.diverged(.changed)`, and the exclusions are not tidiness.** `.diverged(.missing)`
+    /// has nothing at the path to read, so the right-hand column of a diff would be empty and the
+    /// control would be a promise the app cannot keep. `.failed` is not a disagreement between two
+    /// versions at all — it is a full disk or a read-only volume, where there is one version and
+    /// nothing to compare it against.
+    ///
+    /// A property on the stop rather than a condition at the header's call site, because it is a
+    /// rule about which stops have a second version to show and the view must not be the place that
+    /// knows.
+    var offersDiff: Bool {
+        switch self {
+        case .diverged(.changed): return true
+        case .diverged(.missing), .failed: return false
+        }
+    }
 }

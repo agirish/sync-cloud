@@ -111,6 +111,18 @@ public struct EditorWorkspaceView: View {
     /// Why autosave has stopped, in the header's own words, or `nil` while it is working. A string
     /// rather than the host's enum: this view draws it and never branches on it.
     let stopped: String?
+    /// **The second door onto "which version wins", or `nil` when there is nothing to show.**
+    ///
+    /// The stop's words are already on this line saying the file changed underneath the buffer, and
+    /// the alert that asks about it is modal — Cancel dismisses it and leaves autosave latched
+    /// stopped, so without this the only way back to the question is ⌘S, a chord whose name says
+    /// "save" pressed to reach a question about not saving.
+    ///
+    /// **Optional, and the view does not decide.** Which stops have a second version to show is a
+    /// rule about the stop, not about the header — see `EditorAutosaveStop.offersDiff`, which is
+    /// where it is stated and tested. `nil` here means the words stay words: a plain read-only piece
+    /// of state, with no hover wash and nothing for VoiceOver to activate.
+    var onShowWhatChanged: (() -> Void)?
     let prefilledName: () -> String
     let refusal: (String) -> String?
     let onOpen: (EditorRailEntry) -> Void
@@ -184,6 +196,7 @@ public struct EditorWorkspaceView: View {
                 namingFocus: Int = 0,
                 undoManager: UndoManager,
                 stopped: String? = nil,
+                onShowWhatChanged: (() -> Void)? = nil,
                 prefilledName: @escaping () -> String,
                 refusal: @escaping (String) -> String?,
                 onOpen: @escaping (EditorRailEntry) -> Void,
@@ -211,6 +224,7 @@ public struct EditorWorkspaceView: View {
         self.namingFocus = namingFocus
         self.undoManager = undoManager
         self.stopped = stopped
+        self.onShowWhatChanged = onShowWhatChanged
         self.prefilledName = prefilledName
         self.refusal = refusal
         self.onOpen = onOpen
@@ -449,15 +463,52 @@ public struct EditorWorkspaceView: View {
             // grows into the gap instead. The cost is distance from the switch it qualifies, which
             // is the trade this layout was picked for.
             if let word = status.word {
-                Text(word)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(status.isWarning ? AnyShapeStyle(.orange)
-                                                      : AnyShapeStyle(.primary))
+                statusWord(word)
             }
         }
         .scaledFont(.system(size: 10))
         .foregroundStyle(.secondary)
+    }
+
+    /// The status word — a control when there is something behind it, plain text when there is not.
+    ///
+    /// **Nothing at rest either way, which is what makes this honest.** A word drawn as a button at
+    /// all times would promise a door that is there for one stop out of three; a word that gave no
+    /// sign at all would hide the one door there is. The clickable case goes through the app's one
+    /// hover-affordance choke point — nothing painted until the pointer is over it, then a wash, a
+    /// ring, and the pointing cursor `Button` brings with it — which is exactly the shape this
+    /// problem has been solved in twenty-six other places here.
+    ///
+    /// **`.segment`, tinted amber rather than accent.** The word it washes is amber, and the
+    /// affordance previews the fill the control would take; the accent would put a second colour on
+    /// the one line of the header that is a warning.
+    ///
+    /// The padding is the wash's room, and it is **horizontal only**. Bare glyphs inside a capsule
+    /// leave the wash tight against the letters — and the word sits at the far end of the row behind
+    /// a `Spacer`, so widening it grows into the gap rather than moving anything. Vertical padding
+    /// is a different matter: it made this row 2pt taller, and the row is half of a header whose
+    /// whole design is that it comes out the same height for every file (see
+    /// `theHeaderIsTheSameHeightForEveryKindOfTextFile`). A header that grew when the stop happened
+    /// to be the clickable one would start the document column at two different places.
+    @ViewBuilder
+    private func statusWord(_ word: String) -> some View {
+        let text = Text(word)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .foregroundStyle(status.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
+        if let onShowWhatChanged {
+            Button(action: onShowWhatChanged) {
+                text.padding(.horizontal, 5)
+            }
+            .buttonStyle(.hoverAffordance(.segment, tint: .orange))
+            // **What activating it DOES, not what it says.** The words already read "not saving —
+            // changed on disk"; a label repeating them would tell a VoiceOver user that this is a
+            // button and leave them to guess what pressing it is for.
+            .accessibilityLabel("Show what changed on disk")
+            .help("Show what changed on disk since you opened it")
+        } else {
+            text
+        }
     }
 
     /// The reserved width of the dot's column, shared by both rows of the header.

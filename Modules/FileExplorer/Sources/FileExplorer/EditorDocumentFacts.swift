@@ -232,10 +232,13 @@ struct EditorDocumentFacts: Equatable, Sendable {
     /// **Singular is not a nicety here.** The status line is beside a document somebody is typing
     /// into, so it passes through 1 on the way to everything else, and "1 words" is the kind of
     /// thing that is noticed once and remembered.
-    var wordsCaption: String { count(words, "word") }
-    var charactersCaption: String { count(characters, "character") }
+    var wordsCaption: String { Self.count(words, "word") }
+    var charactersCaption: String { Self.count(characters, "character") }
 
-    private func count(_ value: Int, _ noun: String) -> String {
+    /// **Static, so a caller holding only the number can say it the same way.** The divergence
+    /// diff's left column is `In the editor · 1,204 words` and has no facts value to ask — a second
+    /// spelling of the same rule there is how "1 words" gets back in through a door nobody watches.
+    static func count(_ value: Int, _ noun: String) -> String {
         "\(value.formatted(.number)) \(noun)\(value == 1 ? "" : "s")"
     }
 

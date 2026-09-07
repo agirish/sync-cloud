@@ -89,6 +89,13 @@ struct ContentView: View {
     /// would return two seconds after each dismissal for as long as the file stayed diverged. It is
     /// cleared by a successful write, by discarding the buffer, and by nothing else.
     @State var editorAutosaveStop: EditorAutosaveStop?
+    /// The divergence question, detoured into the diff overlay and waiting for an answer.
+    ///
+    /// **Not a fourth answer and not a second state machine** — `editorAutosaveStop` is still the
+    /// latch, still set while this is non-nil, so autosave stays stopped and the header still says
+    /// so. This only records that the same question is currently being asked with the two versions
+    /// on screen instead of in a modal. See `applyDivergenceAnswer`.
+    @State var editorDivergenceReview: EditorDivergenceReview?
     /// Whether an autosave write is out on a background thread right now.
     ///
     /// **Not a lock, and not what makes the write safe** — `EditorFileStore`'s write order does
@@ -1008,9 +1015,18 @@ struct ContentView: View {
             // background, because it is a binding to AppKit and not a view.
             .background(WindowChromeBinder(subtitle: windowSubtitleText).frame(width: 0, height: 0))
         .overlay {
-            // The picker wins the precedence: it is a direct answer to an action the user just
-            // took on a file, where Settings and Help are ambient panels they can reopen.
-            if pendingDestination != nil {
+            // **The divergence diff leads, ahead of even the picker.** Everything below is
+            // something the user *opened*; this is a question they are in the middle of ANSWERING.
+            // It is on screen only because a modal alert asked which version wins and they chose to
+            // look first, and the latch behind it has autosave stopped until they say. An ambient
+            // panel that covered it would leave the document silently not saving with the question
+            // it is waiting on drawn nowhere — the one failure this whole feature exists to remove.
+            // Escape and a click on the scrim answer Cancel, which is exactly what the alert's
+            // Cancel does, so it is never a surface somebody is stuck behind.
+            if editorDivergenceReview != nil {
+                EditorDivergenceDiffOverlay(document: editorDocument,
+                                            onAnswer: { answerEditorDivergenceDiff($0) })
+            } else if pendingDestination != nil {
                 destinationOverlay
             } else if showSettings {
                 settingsOverlay
@@ -1048,6 +1064,7 @@ struct ContentView: View {
         // reach it. (The four `.animation` lines below predate the wrapper and are classified in
         // `ReduceMotionCoverageScanTests`; a new raw one would have to be classified too, and this
         // one has no reason to be.)
+        .designAnimation(.easeOut(duration: 0.15), value: editorDivergenceReview)
         .designAnimation(.easeOut(duration: 0.15), value: compareFilePair)
         .designAnimation(.easeOut(duration: 0.15), value: compareDifferencePair)
         .animation(.easeOut(duration: 0.15), value: showSettings)

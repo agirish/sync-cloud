@@ -166,6 +166,12 @@ extension ContentView {
             namingFocus: editorNamingFocus,
             undoManager: editorUndoManager,
             stopped: editorAutosaveStop?.caption,
+            // **The stop's words become a door, and only where there is something behind them.**
+            // The alert is modal and its Cancel leaves the latch set, so the question would
+            // otherwise be reachable only through ⌘S. Which stops have a second version to show is
+            // `EditorAutosaveStop.offersDiff`'s rule — `nil` here leaves the header a plain word.
+            onShowWhatChanged: (editorAutosaveStop?.offersDiff ?? false)
+                ? { showEditorDivergenceDiff() } : nil,
             // Both closures, so neither walks the folder until the naming row is actually open.
             prefilledName: { EditorFileStore.availableUntitledName(in: editorFolder) },
             refusal: { typed in EditorFileStore.refusal(forName: typed, in: editorFolder) },
@@ -438,20 +444,94 @@ extension ContentView {
         // Re-stat before writing. A file opened an hour ago may have been filed, renamed or edited
         // since — including by this same window's Organize run.
         if let divergence = EditorFileStore.divergence(atPath: path, from: stamp) {
-            switch EditorAlerts.askAboutDivergence(name: editorDocument.name,
-                                                   divergence: divergence) {
-            case .saveAnyway:
-                break
-            case .reloadFromDisk:
-                return reloadOverTheBuffer(path: path)
-            case .cancel:
-                // Declining leaves autosave stopped, and says so on the header rather than going
-                // quiet: the document is now in the one state where typing is not reaching disk.
-                editorAutosaveStop = .diverged(divergence)
-                return false
-            }
+            return applyDivergenceAnswer(
+                EditorAlerts.askAboutDivergence(name: editorDocument.name, divergence: divergence),
+                divergence: divergence, path: path, explicit: true)
         }
         return writeEditorDocument(explicit: true)
+    }
+
+    // MARK: - Which version wins
+
+    /// A divergence question that has been detoured into the diff overlay.
+    ///
+    /// **Carried rather than recomputed, because the answer has to come back to the same path that
+    /// asked.** `explicit` is what ⌘S and the header's door have in common and the autosave timer
+    /// does not: a write the user asked for logs at INFO and one the debounce made logs at DEBUG,
+    /// and the overlay's Save Anyway must land in the right one. See `writeEditorDocument`.
+    struct EditorDivergenceReview: Equatable {
+        var divergence: EditorFileStore.Divergence
+        var explicit: Bool
+        /// **The document the diff is ABOUT.**
+        ///
+        /// The overlay leads the window's overlay chain and its scrim absorbs clicks, but the menu
+        /// bar is still live — File ▸ Open and ⌘N can hand the editor another file while two
+        /// versions of this one are on screen. Without this, the foot's Save Anyway would write
+        /// whatever document happened to be open by then, on the strength of a diff of a different
+        /// file. The answer is refused instead: see ``answerEditorDivergenceDiff(_:)``.
+        var path: String
+    }
+
+    /// **The one place a divergence answer is acted on** — from the alert, from the overlay's foot,
+    /// and from the header's door. One function, so a caller cannot answer one of the four cases
+    /// differently from the others, and `.showWhatChanged` cannot be dropped on the floor by a
+    /// `switch` that has run out of interesting cases.
+    ///
+    /// - Returns: whether anything was WRITTEN — so `false` for the detour, which resolves nothing.
+    @discardableResult
+    func applyDivergenceAnswer(_ answer: EditorAlerts.DivergenceAnswer,
+                               divergence: EditorFileStore.Divergence,
+                               path: String, explicit: Bool) -> Bool {
+        switch answer {
+        case .saveAnyway:
+            return writeEditorDocument(explicit: explicit)
+        case .reloadFromDisk:
+            return reloadOverTheBuffer(path: path)
+        case .showWhatChanged:
+            // **The latch goes on BEFORE the overlay, not after it.** While two versions are on
+            // screen the debounce must not quietly write one of them — and it makes dismissing the
+            // overlay identical to Cancel, which is the property Escape has to have.
+            editorAutosaveStop = .diverged(divergence)
+            editorDivergenceReview = EditorDivergenceReview(divergence: divergence,
+                                                            explicit: explicit, path: path)
+            return false
+        case .cancel:
+            // Declining leaves autosave stopped, and says so on the header rather than going
+            // quiet: the document is now in the one state where typing is not reaching disk.
+            editorAutosaveStop = .diverged(divergence)
+            return false
+        }
+    }
+
+    /// The header's amber words, clicked. Re-reads the stop rather than trusting the caller: the
+    /// closure is built while the header renders and the stop can have been settled since.
+    func showEditorDivergenceDiff() {
+        guard case .diverged(let divergence) = editorAutosaveStop, divergence == .changed,
+              let path = editorDocument.path else { return }
+        applyDivergenceAnswer(.showWhatChanged, divergence: divergence, path: path, explicit: true)
+    }
+
+    /// The overlay's foot, answered. **The same three answers travelling back**, through the same
+    /// function the alert's answer goes through — never a second write path.
+    func answerEditorDivergenceDiff(_ verdict: EditorDivergenceVerdict) {
+        guard let review = editorDivergenceReview else { return }
+        // Cleared FIRST. Every branch below either writes, reloads, or leaves the stop standing,
+        // and all three want the overlay gone; clearing after would leave it up over a document
+        // that has already been reloaded out from under it.
+        editorDivergenceReview = nil
+        // **The answer is about the file the diff showed, and only that one.** The menu bar stays
+        // live behind the scrim, so another document can have been opened while the overlay was up
+        // — and then Save Anyway would overwrite it on the strength of a comparison of something
+        // else. Dropping the answer is the safe end: nothing is written, and the stop on whatever
+        // is open now still says what it says.
+        guard editorDocument.path == review.path else {
+            Logger.shared.info(
+                "Editor discarded a divergence answer for \(review.path) — the open document is now \(editorDocument.path ?? "none")")
+            return
+        }
+        applyDivergenceAnswer(EditorAlerts.divergenceAnswer(for: verdict),
+                              divergence: review.divergence,
+                              path: review.path, explicit: review.explicit)
     }
 
     /// The write itself, with no questions in it — both ⌘S and autosave land here.
@@ -545,13 +625,12 @@ extension ContentView {
         case .blocked(let divergence):
             editorAutosaveStop = .diverged(divergence)
             // Interrupt now rather than wait to be noticed. The latch above is already set, so
-            // declining leaves the document visibly stopped instead of asking again.
-            switch EditorAlerts.askAboutDivergence(name: editorDocument.name,
-                                                   divergence: divergence) {
-            case .saveAnyway: _ = writeEditorDocument(explicit: false)
-            case .reloadFromDisk: _ = reloadOverTheBuffer(path: editorDocument.path ?? "")
-            case .cancel: break   // the latch above is already set
-            }
+            // declining leaves the document visibly stopped instead of asking again — and so does
+            // asking to see the diff, which is why both go through the one function below rather
+            // than being re-decided here.
+            applyDivergenceAnswer(
+                EditorAlerts.askAboutDivergence(name: editorDocument.name, divergence: divergence),
+                divergence: divergence, path: editorDocument.path ?? "", explicit: false)
         case .failed(let message):
             // Latched for the same reason: a full disk or a read-only volume fails identically
             // every two seconds, and a banner per attempt is not a report, it is noise.

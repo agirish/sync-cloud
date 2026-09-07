@@ -62,7 +62,7 @@ import FileExplorer
         // The titles are now per-divergence: a changed file gains a reload it can actually do.
         #expect(EditorAlerts.divergenceButtonTitles(for: .missing) == ["Save Anyway", "Cancel"])
         #expect(EditorAlerts.divergenceButtonTitles(for: .changed)
-                == ["Save Anyway", "Reload from Disk", "Cancel"])
+                == ["Save Anyway", "Reload from Disk", "Show What Changed…", "Cancel"])
         #expect(EditorAlerts.isConfirmed(.alertFirstButtonReturn))
         for response: NSApplication.ModalResponse in [.alertSecondButtonReturn, .alertThirdButtonReturn,
                                                       .abort, .stop, .cancel, .OK] {
@@ -205,21 +205,109 @@ import FileExplorer
     /// The titles and the mapping have to be read together, position by position, or the alert says
     /// one thing and the code does another. This is the pairing `theTitleAndTheAnswerAgree…` makes
     /// for the unsaved question, made for this one.
+    ///
+    /// **The positions come from `divergenceResponse(atButtonIndex:)` rather than a literal list.**
+    /// They used to be three named constants, which is exactly as many as `NSApplication` names —
+    /// so the day a fourth button arrived the list would have run out and the test would have
+    /// crashed on the index rather than checked it. The alert now has four buttons.
     @Test func everyDivergenceButtonMapsToTheAnswerItsWordsPromise() {
-        let responses: [NSApplication.ModalResponse] =
-            [.alertFirstButtonReturn, .alertSecondButtonReturn, .alertThirdButtonReturn]
         for divergence in [EditorFileStore.Divergence.changed, .missing] {
             let titles = EditorAlerts.divergenceButtonTitles(for: divergence)
             for (index, title) in titles.enumerated() {
-                let answer = EditorAlerts.divergenceAnswer(for: responses[index],
-                                                           divergence: divergence)
+                let answer = EditorAlerts.divergenceAnswer(
+                    for: EditorAlerts.divergenceResponse(atButtonIndex: index),
+                    divergence: divergence)
                 switch title {
                 case "Save Anyway": #expect(answer == .saveAnyway)
                 case "Reload from Disk": #expect(answer == .reloadFromDisk)
+                case "Show What Changed…": #expect(answer == .showWhatChanged)
                 case "Cancel": #expect(answer == .cancel)
                 default: Issue.record("unrecognised button “\(title)” — it maps to \(answer)")
                 }
             }
+        }
+    }
+
+    /// **The positions this file reads are the ones AppKit really hands back.**
+    ///
+    /// Every assertion above is about "button N", and `NSApplication` names only the first three —
+    /// a four-button alert's last one is `alertThirdButtonReturn + 1`, which is arithmetic nobody
+    /// should be doing at a call site. This pins the helper against the three constants that DO
+    /// exist, so the fourth position is the same rule extended rather than a guess.
+    @Test func theButtonPositionsAreAppKitsOwnNumbering() {
+        #expect(EditorAlerts.divergenceResponse(atButtonIndex: 0) == .alertFirstButtonReturn)
+        #expect(EditorAlerts.divergenceResponse(atButtonIndex: 1) == .alertSecondButtonReturn)
+        #expect(EditorAlerts.divergenceResponse(atButtonIndex: 2) == .alertThirdButtonReturn)
+        #expect(EditorAlerts.divergenceResponse(atButtonIndex: 3).rawValue
+                == NSApplication.ModalResponse.alertThirdButtonReturn.rawValue + 1)
+    }
+
+    /// **Adding a button changes what every position after it means.** "Show What Changed…" went in
+    /// third, behind both real answers, so the two destructive positions are exactly where they
+    /// were; this states that as a fact rather than leaving it to be inferred from the titles list.
+    @Test func theNewButtonDidNotMoveEitherDestructiveAnswer() {
+        #expect(EditorAlerts.divergenceAnswer(for: .alertFirstButtonReturn, divergence: .changed)
+                == .saveAnyway)
+        #expect(EditorAlerts.divergenceAnswer(for: .alertSecondButtonReturn, divergence: .changed)
+                == .reloadFromDisk)
+        #expect(EditorAlerts.divergenceAnswer(for: .alertThirdButtonReturn, divergence: .changed)
+                == .showWhatChanged)
+        // …and Cancel, now the fourth button, still lands on the default arm.
+        #expect(EditorAlerts.divergenceAnswer(for: EditorAlerts.divergenceResponse(atButtonIndex: 3),
+                                              divergence: .changed) == .cancel)
+    }
+
+    /// **Neither destructive answer keeps Return, and the detour is not destructive.**
+    ///
+    /// The alert strips Return and paints the destructive styling by asking this of every position;
+    /// it used to ask "is this button titled Cancel", which was the same set right up until a
+    /// button arrived that is neither. "Show What Changed…" writes nothing and discards nothing, and
+    /// styling it as a destructive action would misread the one safe way to look before deciding.
+    @Test func onlyTheAnswersThatDiscardSomethingAreDestructive() {
+        #expect(EditorAlerts.DivergenceAnswer.saveAnyway.isDestructive)
+        #expect(EditorAlerts.DivergenceAnswer.reloadFromDisk.isDestructive)
+        #expect(!EditorAlerts.DivergenceAnswer.showWhatChanged.isDestructive)
+        #expect(!EditorAlerts.DivergenceAnswer.cancel.isDestructive)
+
+        // Position by position, which is how the alert applies it: for a changed file exactly the
+        // first two buttons are stripped, and for a missing one exactly the first.
+        for divergence in [EditorFileStore.Divergence.changed, .missing] {
+            let titles = EditorAlerts.divergenceButtonTitles(for: divergence)
+            let destructive = titles.indices.filter {
+                EditorAlerts.divergenceAnswer(for: EditorAlerts.divergenceResponse(atButtonIndex: $0),
+                                              divergence: divergence).isDestructive
+            }
+            #expect(destructive.allSatisfy { titles[$0] == "Save Anyway"
+                                             || titles[$0] == "Reload from Disk" },
+                    "\(divergence): destructive styling lands on \(destructive.map { titles[$0] })")
+            #expect(!destructive.contains { titles[$0] == "Cancel" },
+                    "\(divergence): Cancel would be styled destructive and lose its Escape")
+        }
+    }
+
+    /// **A file that is gone is offered neither the reload NOR the diff.** There is nothing at that
+    /// path to read, so the right-hand column of a comparison would be empty — the same reason the
+    /// reload is withheld, applied to the same case.
+    @Test func aMissingFileIsNotOfferedTheDiffEither() {
+        #expect(EditorAlerts.divergenceButtonTitles(for: .missing) == ["Save Anyway", "Cancel"])
+        #expect(!EditorAlerts.divergenceButtonTitles(for: .missing).contains("Show What Changed…"))
+        #expect(EditorAlerts.divergenceButtonTitles(for: .changed).contains("Show What Changed…"))
+        // And no position on a missing file answers `.showWhatChanged`, whatever AppKit returns.
+        for index in 0..<6 {
+            #expect(EditorAlerts.divergenceAnswer(
+                for: EditorAlerts.divergenceResponse(atButtonIndex: index),
+                divergence: .missing) != .showWhatChanged)
+        }
+    }
+
+    /// **The overlay's foot hands back the alert's own answers**, and cannot hand back the detour —
+    /// which would reopen the overlay from inside itself, leaving the question unanswerable.
+    @Test func theOverlayAnswersWithTheSameThreeVerbsTheAlertOffers() {
+        #expect(EditorAlerts.divergenceAnswer(for: EditorDivergenceVerdict.saveAnyway) == .saveAnyway)
+        #expect(EditorAlerts.divergenceAnswer(for: .reloadFromDisk) == .reloadFromDisk)
+        #expect(EditorAlerts.divergenceAnswer(for: .cancel) == .cancel)
+        for verdict: EditorDivergenceVerdict in [.saveAnyway, .reloadFromDisk, .cancel] {
+            #expect(EditorAlerts.divergenceAnswer(for: verdict) != .showWhatChanged)
         }
     }
 
