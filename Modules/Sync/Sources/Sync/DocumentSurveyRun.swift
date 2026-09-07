@@ -51,9 +51,14 @@ public actor DocumentSurveyRun {
         /// after a blank one**, because a provider can evict a file in between and a blank stamp is
         /// permanent — see `readOne(at:)`.
         public var isAvailable: @Sendable (String) -> Bool
-        /// Why the run should not be reading right now, or nil to carry on. Stage 3 supplies the
-        /// real signals; a test supplies a closure it controls.
-        public var shouldPause: @Sendable () -> DocumentSurveyPause?
+        /// Why the run should not be reading right now, or nil to carry on.
+        ///
+        /// **Async, and that is a correctness requirement rather than a convenience.** The real
+        /// answer is assembled from `FileSyncManager`'s six lifecycles and two counters, which are
+        /// `@MainActor` state; this run is its own actor, so reading them means a hop, and a hop
+        /// means `await`. Making it synchronous would force the driver into
+        /// `MainActor.assumeIsolated`, which from here does not hop — it traps.
+        public var shouldPause: @Sendable () async -> DocumentSurveyPause?
         /// Awaited between polls while paused. The app sleeps; a test can clear its own signal here
         /// rather than racing a clock — `docs/flaky-tests.md` mechanism 5 is what this avoids.
         public var whilePaused: @Sendable () async -> Void
@@ -65,7 +70,7 @@ public actor DocumentSurveyRun {
 
         public init(readDocument: @escaping @Sendable (String) async -> String?,
                     isAvailable: @escaping @Sendable (String) -> Bool = { _ in true },
-                    shouldPause: @escaping @Sendable () -> DocumentSurveyPause? = { nil },
+                    shouldPause: @escaping @Sendable () async -> DocumentSurveyPause? = { nil },
                     whilePaused: @escaping @Sendable () async -> Void = {},
                     now: @escaping @Sendable () -> Date = { Date() },
                     publish: @escaping @Sendable (DocumentSurveyProgress) -> Void = { _ in }) {
@@ -235,7 +240,7 @@ public actor DocumentSurveyRun {
             // Pause is polled at the document boundary, which is the only place it can land: a
             // read already in flight finishes regardless, so checking mid-read would report a
             // pause the run is not yet honouring.
-            while let reason = effectivePause() {
+            while let reason = await effectivePause() {
                 environment.publish(progressNow(phase: .paused(reason)))
                 await environment.whilePaused()
                 if Task.isCancelled || stopRequested { break }
@@ -302,12 +307,12 @@ public actor DocumentSurveyRun {
 
     // MARK: - Odds and ends
 
-    private func effectivePause() -> DocumentSurveyPause? {
+    private func effectivePause() async -> DocumentSurveyPause? {
         // The user's own Pause wins over an environmental one: they pressed a button, and a card
         // reading "paused while Duplicates runs" under a Pause they just pressed would be the app
         // explaining away their own action.
         if userPaused { return .user }
-        return environment.shouldPause()
+        return await environment.shouldPause()
     }
 
     private func progressNow(phase: DocumentSurveyProgress.Phase,

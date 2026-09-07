@@ -642,6 +642,34 @@ public class FileSyncManager: ObservableObject {
     /// would swap the lens to its scanning view and blank the results the user is reading. Its own
     /// lifecycle lets the status line say what is happening without the results moving.
     @Published public internal(set) var filingSurveyLifecycle = ScanLifecycle()
+    /// Where the running document survey has got to, or nil when none is running (RD11).
+    ///
+    /// **Its own published value rather than fields on ``ScanLifecycle``.** Six lifecycles share
+    /// that struct and five of them have nothing that can pause and no denominator to count
+    /// against; the survey's card needs a fraction, an ETA basis and a typed pause reason, and
+    /// giving all six those fields would move every test that builds or compares one. The
+    /// lifecycle above still says *running / completed / root*, which is what it has always meant.
+    @Published public internal(set) var documentSurveyProgress: DocumentSurveyProgress?
+
+    /// What the last document survey did, for the completion card. Survives the run so the summary
+    /// can be read after the fact.
+    @Published public internal(set) var documentSurveyReport: DocumentSurveyReport?
+
+    /// The running survey, so Pause, Resume and Stop reach it. Not published: it is a handle, not a
+    /// state — `documentSurveyProgress` is what a view watches.
+    var documentSurveyRun: DocumentSurveyRun?
+
+    /// What the Mac is doing that a background survey should stand aside for — display asleep,
+    /// thermal state, Low Power Mode.
+    ///
+    /// **A closure the app supplies, for the reason `filingSnippetExtractor` is one.** All three
+    /// facts come from AppKit and `ProcessInfo`, and `Sync` does not reach for either: nothing in
+    /// this module reads the display's state or a thermal sensor, and a library that did would be
+    /// answering differently under `swift test` than in the app. nil means "nothing known", which
+    /// yields a survey that never pauses for the machine — the honest behaviour for a host that
+    /// cannot see it, rather than one that guesses.
+    public var machineConditions: (@MainActor @Sendable () -> MachineConditions)?
+
     /// Filing suggestions from the most recent scan of a picked folder.
     @Published public internal(set) var filingSuggestions: [FilingSuggestion] = []
 
