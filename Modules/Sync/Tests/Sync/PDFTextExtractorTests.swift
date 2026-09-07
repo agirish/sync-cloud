@@ -39,7 +39,7 @@ import Testing
         return dir
     }
 
-    private let sentence = "Account statement for Abhishek Girish amount due 124.50 thank you"
+    private let sentence = "Account statement for Father Elder amount due 124.50 thank you"
 
     @Test func readsThePageTextAndGeometry() throws {
         let dir = try tempDir()
@@ -105,7 +105,7 @@ import Testing
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let text = dir.appendingPathComponent("notes.txt")
-        try Data("Account statement for Abhishek Girish amount due".utf8).write(to: text)
+        try Data("Account statement for Father Elder amount due".utf8).write(to: text)
         let fake = dir.appendingPathComponent("not-really.pdf")
         try Data(repeating: 0x41, count: 4096).write(to: fake)
 

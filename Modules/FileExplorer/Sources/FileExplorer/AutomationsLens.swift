@@ -62,7 +62,7 @@ func automationConditionChipText(_ condition: AutomationCondition) -> String {
     }
 }
 
-/// The chip text with person ids replaced by names — "Aditi" rather than the `aditi` slug.
+/// The chip text with person ids replaced by names — "Daughter" rather than the `daughter` slug.
 ///
 /// A separate entry point rather than a parameter on the one above: only the two surfaces that
 /// have a roster in hand can resolve, and every other caller should keep getting a chip that needs

@@ -331,8 +331,8 @@ struct PersonChannelReplayTests {
     /// **A sorted token bag has no phrases to find, and any it yields were never on the page.**
     ///
     /// The corpus stores page-1 anchors as a *sorted, de-duplicated set* — word order is gone by the
-    /// time anything reads it back. So a phrase match in that bag is alphabetical luck (`girish`
-    /// next to `krishnamurthy` because *g* precedes *k*), not something the document said.
+    /// time anything reads it back. So a phrase match in that bag is alphabetical luck (`elder`
+    /// next to `forebear` because *g* precedes *k*), not something the document said.
     ///
     /// **Measured: zero, over 1,304 documents with text.** A barrier token between anchors was
     /// written to prevent this and then deleted, because it prevented nothing — the mechanism had no

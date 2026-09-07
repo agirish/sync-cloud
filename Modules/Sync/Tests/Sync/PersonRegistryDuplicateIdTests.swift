@@ -32,56 +32,56 @@ import Testing
 
     @Test func aRepeatedIdCollapsesToOneRecord() {
         let registry = PersonRegistry(people: [
-            Self.person("girish", "Girish One", fullNames: ["Girish One"]),
-            Self.person("muktha", "Muktha", fullNames: ["Muktha Girish"]),
-            Self.person("girish", "Girish Two", fullNames: ["Girish Two"]),
+            Self.person("elder", "Elder One", fullNames: ["Elder One"]),
+            Self.person("granny", "Granny", fullNames: ["Granny Elder"]),
+            Self.person("elder", "Elder Two", fullNames: ["Elder Two"]),
         ])
         // The premise: without this the whole suite proves nothing, because a roster that never
         // held a duplicate cannot show one being resolved.
         #expect(registry.people.count == 2, "the duplicate was not collapsed")
-        #expect(registry.people.map(\.id) == ["girish", "muktha"],
+        #expect(registry.people.map(\.id) == ["elder", "granny"],
                 "the surviving record moved: the first occurrence's position is what orders the roster")
     }
 
     @Test func theLastRecordWins() {
         let registry = PersonRegistry(people: [
-            Self.person("girish", "Girish One", relationship: "self"),
-            Self.person("girish", "Girish Two", relationship: "father"),
+            Self.person("elder", "Elder One", relationship: "self"),
+            Self.person("elder", "Elder Two", relationship: "father"),
         ])
         let kept = try? #require(registry.people.first)
         // Named fields rather than record equality, so a future field cannot pass this by being
         // equal on both sides. Display and relationship differ between the two, deliberately.
-        #expect(kept?.displayName == "Girish Two", "the FIRST record won, or the two were merged")
+        #expect(kept?.displayName == "Elder Two", "the FIRST record won, or the two were merged")
         #expect(kept?.relationship == "father")
     }
 
     @Test func theWinnerIsARecordAndNotAMergeOfBoth() {
         let registry = PersonRegistry(people: [
-            Self.person("girish", "Girish One", fullNames: ["Girish One"], aliases: ["Gigi"]),
-            Self.person("girish", "Girish Two", fullNames: ["Girish Two"]),
+            Self.person("elder", "Elder One", fullNames: ["Elder One"], aliases: ["Gigi"]),
+            Self.person("elder", "Elder Two", fullNames: ["Elder Two"]),
         ])
         let kept = try? #require(registry.people.first)
-        #expect(kept?.fullNames == ["Girish Two"])
+        #expect(kept?.fullNames == ["Elder Two"])
         #expect(kept?.aliases.isEmpty == true,
                 "the loser's aliases came across — this is a pick, not a merge")
         // And the dropped record's names are really gone from matching, which is the cost of
         // picking. Stated as a test so the trade-off is recorded rather than discovered.
         //
         // Asserted on what was UNIQUE to the loser — its alias, and its phrase — because the two
-        // records share the token "girish", which still matches and should: it belongs to the
-        // surviving record too. `detect(in: "Girish One")` therefore returns the person either
+        // records share the token "elder", which still matches and should: it belongs to the
+        // surviving record too. `detect(in: "Elder One")` therefore returns the person either
         // way, and would have proved nothing about the merge.
         #expect(registry.detect(in: "Scan from Gigi.pdf").isEmpty,
                 "an alias only the dropped record carried still matches — something merged")
-        #expect(!registry.phrases.contains { $0.display == "Girish One" },
+        #expect(!registry.phrases.contains { $0.display == "Elder One" },
                 "the dropped record's phrase is still registered")
-        #expect(registry.phrases.contains { $0.display == "Girish Two" },
+        #expect(registry.phrases.contains { $0.display == "Elder Two" },
                 "the surviving record lost its own phrase, so the assertion above proves nothing")
     }
 
     @Test func anOrdinaryRosterIsUntouched() {
-        let people = [Self.person("girish", "Girish", fullNames: ["Girish Rao"]),
-                      Self.person("muktha", "Muktha", fullNames: ["Muktha Girish"])]
+        let people = [Self.person("elder", "Elder", fullNames: ["Elder Rao"]),
+                      Self.person("granny", "Granny", fullNames: ["Granny Elder"])]
         let registry = PersonRegistry(people: people)
         #expect(registry.people.map(\.id) == people.map(\.id))
         #expect(registry.people.map(\.displayName) == people.map(\.displayName))
@@ -100,42 +100,42 @@ import Testing
     /// pair, and the premise assertion below is what caught it.)
     ///
     /// The shape that does reach it is this household's own: a surname that is also somebody's
-    /// given name. "girish" is owned by Muktha, through "Muktha Girish", and by Girish; only
-    /// Girish's display name *starts* with it, so his is the single claim that resolves it.
+    /// given name. "elder" is owned by Granny, through "Granny Elder", and by Elder; only
+    /// Elder's display name *starts* with it, so his is the single claim that resolves it.
     @Test func aDuplicateNoLongerDisablesItsOwnGivenName() {
-        let girish = Self.person("girish", "Girish Rao", fullNames: ["Girish Rao"])
-        let muktha = Self.person("muktha", "Muktha Girish", fullNames: ["Muktha Girish"])
+        let elder = Self.person("elder", "Elder Rao", fullNames: ["Elder Rao"])
+        let granny = Self.person("granny", "Granny Elder", fullNames: ["Granny Elder"])
 
         // The premise. If this ever stops holding, the duplicate assertion below means nothing.
-        let clean = PersonRegistry(people: [girish, muktha])
-        #expect(clean.given["girish"] == "girish",
+        let clean = PersonRegistry(people: [elder, granny])
+        #expect(clean.given["elder"] == "elder",
                 "fixture: the given-name claim is not in play, so duplicating it proves nothing")
-        #expect((clean.strong["girish"] ?? nil) == nil,
-                "fixture: 'girish' is answered by `strong`, so `given` is never consulted")
+        #expect((clean.strong["elder"] ?? nil) == nil,
+                "fixture: 'elder' is answered by `strong`, so `given` is never consulted")
 
-        let duplicated = PersonRegistry(people: [girish, muktha, girish])
-        #expect(duplicated.given["girish"] == "girish",
+        let duplicated = PersonRegistry(people: [elder, granny, elder])
+        #expect(duplicated.given["elder"] == "elder",
                 "a repeated entry cancelled its own given-name claim")
-        #expect(duplicated.detect(in: "Girish statement.pdf") == ["girish"])
+        #expect(duplicated.detect(in: "Elder statement.pdf") == ["elder"])
     }
 
     @Test func aRepeatedIdKeepsItsTokensInTheStrongMap() {
         let registry = PersonRegistry(people: [
-            Self.person("girish", "Girish", fullNames: ["Girish Kulkarni"]),
-            Self.person("girish", "Girish", fullNames: ["Girish Kulkarni"]),
+            Self.person("elder", "Elder", fullNames: ["Elder Kulkarni"]),
+            Self.person("elder", "Elder", fullNames: ["Elder Kulkarni"]),
         ])
-        #expect(registry.strong["kulkarni"] == "girish")
-        #expect(registry.detect(in: "Kulkarni tax notice.pdf") == ["girish"])
+        #expect(registry.strong["kulkarni"] == "elder")
+        #expect(registry.detect(in: "Kulkarni tax notice.pdf") == ["elder"])
     }
 
     /// The phrase list took every record, so a duplicated roster listed the same phrase twice and
     /// the matcher had two identical candidates to choose between for one person.
     @Test func aRepeatedIdIsNotPhraseMatchedTwice() {
         let registry = PersonRegistry(people: [
-            Self.person("girish", "Girish", fullNames: ["Girish Kulkarni"]),
-            Self.person("girish", "Girish", fullNames: ["Girish Kulkarni"]),
+            Self.person("elder", "Elder", fullNames: ["Elder Kulkarni"]),
+            Self.person("elder", "Elder", fullNames: ["Elder Kulkarni"]),
         ])
-        #expect(registry.phrases.filter { $0.display == "Girish Kulkarni" }.count == 1,
+        #expect(registry.phrases.filter { $0.display == "Elder Kulkarni" }.count == 1,
                 "the same phrase is registered twice for one person")
     }
 }

@@ -167,7 +167,7 @@ extension FileSyncManager {
         // **The peer-name rerank is applied HERE, and this line is the whole of its effect.** The
         // lookup was built by every scan and threaded through three signatures to reach this
         // function, which then ranked without it — so the one case it exists for
-        // (`Divit OCI Photo.jpg`, where a folder and its own subfolder sit 1% apart and only the
+        // (`Son OCI Photo.jpg`, where a folder and its own subfolder sit 1% apart and only the
         // filenames already in them can separate the two) went on being decided by the content
         // score that cannot see the difference. A parameter accepted and not read is worse than one
         // that was never added: the cache is built, the closure is passed, and every test of the
@@ -281,7 +281,7 @@ extension FileSyncManager {
     ///
     /// Re-routes through the router alone — no model call, so the answer costs nothing beyond the
     /// OCR and comes from the measured path rather than an uncalibrated one. The recovered text is
-    /// exactly what that path was missing: `Divit - eOCI.pdf` extracts nothing and OCRs to
+    /// exactly what that path was missing: `Son - eOCI.pdf` extracts nothing and OCRs to
     /// "eOCI Card | Government of India | Bureau of Immigration | OVERSEAS CITIZEN OF INDIA".
     @discardableResult
     public func readScan(for suggestion: FilingSuggestion) async -> Bool {
@@ -324,12 +324,12 @@ extension FileSyncManager {
         filingUnreadableScans.remove(suggestion.filePath)
         // The scan recorded nothing for this file — it had no text to record. Now it has, and a
         // rule offered after filing it should key on what the OCR found rather than on a filename
-        // that says `Divit - eOCI.pdf`.
+        // that says `Son - eOCI.pdf`.
         filingPageSamples[suggestion.filePath] = String(text.prefix(FilingRouter.contentSampleChars))
         // **The same cross-person rule the scan applies, on the one card this replaces.** This
         // path routes and writes a home without going near `applyVerdicts`, so before the sweep
         // existed it was a second live way for one family member's document to land on another's
-        // folder — and the rule's own worked example, `Divit - eOCI.pdf`, is a scan with no text
+        // folder — and the rule's own worked example, `Son - eOCI.pdf`, is a scan with no text
         // layer, which is to say exactly the file this button exists for.
         //
         // After the page sample is recorded, not before: the OCR text is what lets the rule

@@ -105,7 +105,7 @@ struct SetupDraft: Codable, Equatable, Sendable {
     ///
     /// **Idempotent, because it is called more than once.** A machine with a profile applies on
     /// every step commit, and the survey stage applies again after minting a profile; a second
-    /// application must not produce a second Abhishek. Matching is on the display name, compared
+    /// application must not produce a second Father. Matching is on the display name, compared
     /// the way the roster itself compares names, and a match is *updated* rather than replaced —
     /// setup adding a full name must never delete one the user typed in Settings.
     ///
@@ -145,7 +145,7 @@ struct SetupDraft: Codable, Equatable, Sendable {
     /// `existing` order preserved, `incoming` appended where it says something new.
     ///
     /// Compared case- and diacritic-insensitively, which is the comparison the matcher itself uses:
-    /// adding “Abhishek Girish” to a record that already carries “abhishek girish” would otherwise
+    /// adding “Father Elder” to a record that already carries “father elder” would otherwise
     /// grow the list by a duplicate that matches exactly the same documents.
     private static func union(_ existing: [String], _ incoming: [String]) -> [String] {
         var out = existing

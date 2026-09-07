@@ -121,7 +121,7 @@ import Design
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    static func finding(family: String = "Family/Aditi/Events") -> StructureFinding {
+    static func finding(family: String = "Family/Daughter/Events") -> StructureFinding {
         StructureFinding(family: family, schemes: [
             .init(vocabulary: ["Photos", "Invitations"], members: ["Naming Ceremony", "Birthday"]),
             .init(vocabulary: [], members: ["Graduation"]),

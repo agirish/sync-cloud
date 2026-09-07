@@ -1,7 +1,7 @@
 import Foundation
 
 /// One proposed jurisdiction value, and the evidence for it — enough for a dialog to say
-/// *"we found US, IN and HPE under Finance, Legal and School; which of these are places?"*
+/// *"we found US, IN and EMP under Finance, Legal and School; which of these are places?"*
 public struct JurisdictionCandidate: Sendable, Equatable, Identifiable {
     public var id: String { value }
     /// The folder name as it appears in the tree, verbatim — `US`, not `us`. The profile's
@@ -38,8 +38,8 @@ public struct JurisdictionCandidate: Sendable, Equatable, Identifiable {
 /// | the same code handed the confirmed values | 3,013 / 3,013 — **100%** |
 ///
 /// The gap is not noise, it is three inventions. The rule proposes `US` and `IN`, which are real,
-/// **and `HPE`, `IT` and `PRD`, which are an employer, a department and a product stage.** A file
-/// routed by a `jurisdiction: HPE` axis is being reasoned about with a fact that does not exist.
+/// **and `EMP`, `IT` and `PRD`, which are an employer, a department and a product stage.** A file
+/// routed by a `jurisdiction: EMP` axis is being reasoned about with a fact that does not exist.
 /// That is why the shape of this API is *propose*, and why the confirmation step is not optional
 /// polish: handed the right values the axis is perfect, so **the entire error is in the guessing.**
 ///
@@ -50,7 +50,7 @@ public struct JurisdictionCandidate: Sendable, Equatable, Identifiable {
 /// third jurisdiction can never be recorded at all.
 ///
 /// The rule is deliberately permissive — short all-caps names under several parents — because a
-/// human filters the output. It is tuned to offer `HPE` rather than to be right about it; a
+/// human filters the output. It is tuned to offer `EMP` rather than to be right about it; a
 /// tighter rule that dropped the false positives would drop `IN` with them.
 ///
 /// Pure: no disk, no `FileManager`, no clock. It reads the tree it is handed and nothing else.

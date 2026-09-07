@@ -21,9 +21,9 @@ import Foundation
     }
 
     @Test func theSubThresholdSuffixFoldsAndBytesAreConserved() {
-        let nodes = [node("Muktha", 28_000), node("Aditi", 12_900), node("Anuraag", 10_500),
-                     node("Gifts", 9_700), node("Divit", 6_600), node("Events", 2_000),
-                     node("Girish", 1_500), node("Shweta", 900), node("Home", 400)]
+        let nodes = [node("Granny", 28_000), node("Daughter", 12_900), node("Uncle", 10_500),
+                     node("Gifts", 9_700), node("Son", 6_600), node("Events", 2_000),
+                     node("Elder", 1_500), node("Mother", 900), node("Home", 400)]
         let fold = TreemapView.fold(nodes: nodes, availableWidth: 700)
         #expect(!fold.folded.isEmpty)
         // Conservation: the picture still accounts for every byte.

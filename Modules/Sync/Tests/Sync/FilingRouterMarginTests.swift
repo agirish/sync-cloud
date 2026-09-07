@@ -32,7 +32,7 @@ import Testing
     /// what keeps `route` from promoting the folder and the blind batch from moving the file.
     @Test func aZeroMarginRankingIsLowConfidence() {
         let ranking = FilingRouter.Ranking(
-            candidates: [.init(relativePath: "School/Divit", score: -0.55,
+            candidates: [.init(relativePath: "School/Son", score: -0.55,
                                evidenceToken: nil, sharedAnchors: 0)],
             margin: FilingRouter.margin(top: -0.55, runnerUp: nil))
         #expect(ranking.confidence == .low)

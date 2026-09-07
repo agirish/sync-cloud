@@ -4,7 +4,7 @@ import Testing
 
 @Suite struct FilingProfileStoreTests {
 
-    static func makeProfiles(_ dir: URL, id: String = "abhishek",
+    static func makeProfiles(_ dir: URL, id: String = "father",
                              profile: String, memory: String?) throws {
         try FileManager.default.createDirectory(at: dir.appendingPathComponent(id),
                                                 withIntermediateDirectories: true)
@@ -22,8 +22,8 @@ import Testing
     /// only contract between a Python builder and this module, so the fixture is written the way the
     /// builder writes it — including the two-element token arrays and the axis aliases.
     static let profileJSON = """
-    {"profileId":"abhishek","root":"~/Documents",
-     "axes":{"person":{"values":["Abhishek","Shweta"],"aliases":{"Mom":"Muktha"}}},
+    {"profileId":"father","root":"~/Documents",
+     "axes":{"person":{"values":["Father","Mother"],"aliases":{"Mom":"Granny"}}},
      "folders":[
        {"path":"Finance/US/Income Tax/2023","role":"year-bucket","naming":"descriptive",
         "anchors":["income","tax"],"fileCount":3,"subfolderCount":6,
@@ -36,7 +36,7 @@ import Testing
     """
 
     static let memoryJSON = """
-    {"schemaVersion":1,"profileId":"abhishek","salt":"abc123","idfFolderBase":2096,
+    {"schemaVersion":1,"profileId":"father","salt":"abc123","idfFolderBase":2096,
      "folders":{"Finance/US/Income Tax/2023":
        {"docs":12,"anchors":[["turbotax",4.2],["deduction",3.1]],
         "idHashes":[["3437e15c04d360ef",5.0]],"folderModified":1754000000}}}
@@ -49,7 +49,7 @@ import Testing
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: Self.memoryJSON)
 
         let loaded = try #require(FilingProfileStore.active(in: dir))
-        #expect(loaded.profile.profileId == "abhishek")
+        #expect(loaded.profile.profileId == "father")
         #expect(loaded.profile.folders.count == 3)
         #expect(loaded.memory?.folders.count == 1)
         #expect(loaded.memory?.salt == "abc123")
@@ -58,11 +58,11 @@ import Testing
         #expect(year.role == .yearBucket)
         #expect(year.yearKey == "2023")
         #expect(year.anchors == ["income", "tax"])
-        // Aliases are the same person under two names — `Family/Mom` is Immigration's `Muktha`.
-        #expect(loaded.profile.personTokens.isSuperset(of: ["abhishek", "shweta", "mom", "muktha"]))
+        // Aliases are the same person under two names — `Family/Mom` is Immigration's `Granny`.
+        #expect(loaded.profile.personTokens.isSuperset(of: ["father", "mother", "mom", "granny"]))
         // And the PAIRING survives decode, which is the half that used to be thrown away: without
         // it nothing downstream can tell that those are one person rather than two.
-        #expect(loaded.profile.personAliases["mom"] == "muktha")
+        #expect(loaded.profile.personAliases["mom"] == "granny")
 
         let entry = try #require(loaded.memory?.folders["Finance/US/Income Tax/2023"])
         #expect(entry.docs == 12)
@@ -78,7 +78,7 @@ import Testing
             .appendingPathComponent("fps-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
-        let p = try #require(FilingProfileStore.profile(id: "abhishek", in: dir))
+        let p = try #require(FilingProfileStore.profile(id: "father", in: dir))
         #expect(p.folders["Finance/US/Income Tax/IRS Docs - 2024"]?.axes["year"] == nil)
         #expect(FolderProfileEntry.looksLikeYear("2019-2020"))
         #expect(FolderProfileEntry.looksLikeYear("2024"))
@@ -92,7 +92,7 @@ import Testing
             .appendingPathComponent("fps-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
-        let p = try #require(FilingProfileStore.profile(id: "abhishek", in: dir))
+        let p = try #require(FilingProfileStore.profile(id: "father", in: dir))
         #expect(!p.acceptsNewFiles("Documents/TODO"))               // flagged in the profile
         #expect(!p.acceptsNewFiles("Health/TODO/Dental"))           // never surveyed, path rule
         #expect(!p.acceptsNewFiles("Work/EDD - TODO"))              // component, not suffix
@@ -115,8 +115,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         #expect(FilingProfileStore.active(in: dir) == nil)          // nothing there at all
         try Self.makeProfiles(dir, profile: "{ not json", memory: nil)
-        #expect(FilingProfileStore.profile(id: "abhishek", in: dir) == nil)
-        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek")
+        #expect(FilingProfileStore.profile(id: "father", in: dir) == nil)
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "father")
     }
 
     /// **A future schema is refused, not half-read.** The store's own doc claimed this and only
@@ -130,17 +130,17 @@ import Testing
         let future = Self.memoryJSON.replacingOccurrences(of: "\"schemaVersion\":1",
                                                           with: "\"schemaVersion\":99")
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: future)
-        #expect(FilingProfileStore.memory(id: "abhishek", in: dir) == nil)
+        #expect(FilingProfileStore.memory(id: "father", in: dir) == nil)
         // and the same file at the current schema still reads, or the test above proves nothing
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: Self.memoryJSON)
-        #expect(FilingProfileStore.memory(id: "abhishek", in: dir) != nil)
+        #expect(FilingProfileStore.memory(id: "father", in: dir) != nil)
     }
 
     /// **The hash format is the contract with the builder that wrote the file.** A change here does
     /// not fail — it silently stops every identifier matching — so it is pinned against a literal
     /// computed independently: `sha256("abc123" + "1892")[0..<16]`.
     /// `people.json` is read when it is there, and it is what supplies the full names — the forms
-    /// a survey of folder names cannot know, and the only thing that makes "Aditi Abhishek"
+    /// a survey of folder names cannot know, and the only thing that makes "Daughter Father"
     /// attributable to one person.
     @Test func aPeopleFileIsReadAndSuppliesTheFullNames() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -149,21 +149,21 @@ import Testing
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
         try """
         {"schemaVersion":1,"people":[
-          {"id":"abhishek","displayName":"Abhishek","relationship":"me",
-           "fullNames":["Abhishek Girish"]},
-          {"id":"aditi","displayName":"Aditi","relationship":"daughter",
-           "fullNames":["Aditi Abhishek"]},
-          {"id":"muktha","displayName":"Muktha","relationship":"mother",
-           "fullNames":["Muktha Girish"],"aliases":["Mom","Mother"]}]}
-        """.write(to: dir.appendingPathComponent("abhishek/people.json"),
+          {"id":"father","displayName":"Father","relationship":"me",
+           "fullNames":["Father Elder"]},
+          {"id":"daughter","displayName":"Daughter","relationship":"daughter",
+           "fullNames":["Daughter Father"]},
+          {"id":"granny","displayName":"Granny","relationship":"mother",
+           "fullNames":["Granny Elder"],"aliases":["Mom","Mother"]}]}
+        """.write(to: dir.appendingPathComponent("father/people.json"),
                   atomically: true, encoding: .utf8)
 
         let loaded = try #require(FilingProfileStore.active(in: dir))
         #expect(loaded.registry.source == .file)
         #expect(loaded.registry.people.count == 3)
         #expect(loaded.registry.people.first?.relationship == "me")
-        #expect(loaded.registry.detect(in: "Aditi Abhishek - OCI.pdf") == ["aditi"])
-        #expect(loaded.registry.detect(in: "Mom - passport.pdf") == ["muktha"])
+        #expect(loaded.registry.detect(in: "Daughter Father - OCI.pdf") == ["daughter"])
+        #expect(loaded.registry.detect(in: "Mom - passport.pdf") == ["granny"])
     }
 
     /// With no `people.json` the registry is seeded from the profile's own axis — so the alias fix
@@ -176,8 +176,8 @@ import Testing
 
         let loaded = try #require(FilingProfileStore.active(in: dir))
         #expect(loaded.registry.source == .profileAxis)
-        #expect(Set(loaded.registry.people.map(\.id)) == ["abhishek", "shweta", "muktha"])
-        #expect(loaded.registry.detect(in: "Mom - passport.pdf") == ["muktha"])
+        #expect(Set(loaded.registry.people.map(\.id)) == ["father", "mother", "granny"])
+        #expect(loaded.registry.detect(in: "Mom - passport.pdf") == ["granny"])
     }
 
     /// The fingerprint moves when the roster does — it is mixed into every verdict cache key, and
@@ -187,11 +187,11 @@ import Testing
             .appendingPathComponent("fps-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
-        let before = FilingProfileStore.fingerprint(id: "abhishek", in: dir)
-        try #"{"schemaVersion":1,"people":[{"id":"aditi","displayName":"Aditi"}]}"#
-            .write(to: dir.appendingPathComponent("abhishek/people.json"),
+        let before = FilingProfileStore.fingerprint(id: "father", in: dir)
+        try #"{"schemaVersion":1,"people":[{"id":"daughter","displayName":"Daughter"}]}"#
+            .write(to: dir.appendingPathComponent("father/people.json"),
                    atomically: true, encoding: .utf8)
-        #expect(FilingProfileStore.fingerprint(id: "abhishek", in: dir) != before)
+        #expect(FilingProfileStore.fingerprint(id: "father", in: dir) != before)
     }
 
     /// **An exists-but-unreadable people.json makes the fingerprint UNAVAILABLE, not silently
@@ -202,17 +202,17 @@ import Testing
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fps-\(UUID().uuidString)")
         let fm = FileManager.default
-        let people = dir.appendingPathComponent("abhishek/people.json")
+        let people = dir.appendingPathComponent("father/people.json")
         defer {
             try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: people.path)
             try? fm.removeItem(at: dir)
         }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
-        try #"{"schemaVersion":1,"people":[{"id":"aditi","displayName":"Aditi"}]}"#
+        try #"{"schemaVersion":1,"people":[{"id":"daughter","displayName":"Daughter"}]}"#
             .write(to: people, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: people.path)
 
-        #expect(FilingProfileStore.fingerprint(id: "abhishek", in: dir) == nil,
+        #expect(FilingProfileStore.fingerprint(id: "father", in: dir) == nil,
                 "an unreadable component minted a digest instead of declaring it unavailable")
     }
 
@@ -223,7 +223,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         try Self.makeProfiles(dir, profile: Self.profileJSON, memory: nil)
 
-        let digest = FilingProfileStore.fingerprint(id: "abhishek", in: dir)
+        let digest = FilingProfileStore.fingerprint(id: "father", in: dir)
         #expect(digest != nil, "an absent optional component made the fingerprint unavailable")
         #expect(digest != "", "the present artifacts were not digested")
     }
@@ -248,12 +248,12 @@ struct RealFilingProfileTests {
     /// Every already-filed document is a labelled example: the folder it sits in *is* the right
     /// answer. The obvious metric is therefore *false vetoes* — a rule refusing the folder the
     /// document actually lives in — and on this corpus the two rules are **identical at 3 of
-    /// 1,375**. All three are `Family/Aditi/Events/Baby Shower/`, documents named for the parents
+    /// 1,375**. All three are `Family/Daughter/Events/Baby Shower/`, documents named for the parents
     /// inside the child's event folder; no amount of name intelligence resolves that, because the
-    /// folder is Aditi's for a reason the filename cannot state.
+    /// folder is Daughter's for a reason the filename cannot state.
     ///
-    /// What the registry actually fixes is **over-attribution**: `Muktha Girish - Resume.pdf` names
-    /// one person, and the token rule reports two, because `girish` is her surname and his given
+    /// What the registry actually fixes is **over-attribution**: `Granny Elder - Resume.pdf` names
+    /// one person, and the token rule reports two, because `elder` is her surname and his given
     /// name. The token rule does that to **36** of the same 1,375. Every one is a document the veto
     /// would let into the wrong person's folder — the protection failing open, which is exactly the
     /// failure that is invisible in use — and, since the router penalises a folder whose person the
@@ -380,11 +380,11 @@ struct RealFilingProfileTests {
 
     /// And when they agree — the ordinary case — nothing changes.
     @Test func anAgreeingProfileLoadsUnderItsOwnId() throws {
-        let dir = try makeProfiles(activeId: "abhishek", folderId: "abhishek")
+        let dir = try makeProfiles(activeId: "father", folderId: "father")
         defer { try? FileManager.default.removeItem(at: dir) }
         let loaded = try #require(FilingProfileStore.active(in: dir))
-        #expect(loaded.id == "abhishek")
-        #expect(loaded.profile.profileId == "abhishek")
+        #expect(loaded.id == "father")
+        #expect(loaded.profile.profileId == "father")
     }
 
     /// The fingerprint follows the same id, so a cached verdict is keyed against the artifacts

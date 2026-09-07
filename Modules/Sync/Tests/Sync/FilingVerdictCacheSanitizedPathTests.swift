@@ -17,7 +17,7 @@ import Testing
 @Suite struct FilingVerdictCacheSanitizedPathTests {
 
     static let root = "/root"
-    static let existing: Set<String> = ["Immigration", "Immigration/OCI", "Immigration/OCI/Divit"]
+    static let existing: Set<String> = ["Immigration", "Immigration/OCI", "Immigration/OCI/Son"]
     static let now = Date(timeIntervalSince1970: 1_786_000_000)
 
     /// Force-unwrapped: the initializer is failable only for an unknown mtime or size, and both
@@ -32,7 +32,7 @@ import Testing
     @Test func aVerdictWhoseTrailingSegmentIsAFileNameIsServedBack() throws {
         var cache = FilingVerdictCache()
         let k = Self.key("eOCI.pdf")
-        let verdict = FilingVerdict(relativePath: "Immigration/OCI/Divit/eOCI.pdf", confidence: .high,
+        let verdict = FilingVerdict(relativePath: "Immigration/OCI/Son/eOCI.pdf", confidence: .high,
                                     reason: "the OCI card", proposesNewFolder: false)
 
         // The premise: this really is a sanitized answer — the resolution differs from the raw
@@ -47,7 +47,7 @@ import Testing
         let hit = cache.verdict(for: k, providerRoot: Self.root, existingRelative: Self.existing)
         #expect(hit != nil, "a sanitized verdict was recorded and then never servable")
         // And what is served is the answer that was cached, not the trimmed comparand.
-        #expect(hit?.relativePath == "Immigration/OCI/Divit/eOCI.pdf")
+        #expect(hit?.relativePath == "Immigration/OCI/Son/eOCI.pdf")
         #expect(hit?.confidence == .high)
     }
 
@@ -57,7 +57,7 @@ import Testing
     @Test func aVerdictThatNowResolvesElsewhereStillMisses() {
         var cache = FilingVerdictCache()
         let k = Self.key("passport.pdf")
-        let verdict = FilingVerdict(relativePath: "Documents/Family/Divit", confidence: .high,
+        let verdict = FilingVerdict(relativePath: "Documents/Family/Son", confidence: .high,
                                     reason: "family", proposesNewFolder: false)
         let before: Set<String> = ["Documents", "Documents/Family"]
         cache.record(verdict, for: k, providerRoot: Self.root, existingRelative: before, now: Self.now)
@@ -81,16 +81,16 @@ import Testing
                 == "Immigration/OCI")
     }
 
-    /// **A resolution that got BETTER is still a hit.** A verdict for `Documents/Family/Divit`
-    /// recorded while `Divit` did not exist is stored with the trimmed resolution
-    /// `Documents/Family`; when the user then creates `Divit`, the resolution becomes the model's
+    /// **A resolution that got BETTER is still a hit.** A verdict for `Documents/Family/Son`
+    /// recorded while `Son` did not exist is stored with the trimmed resolution
+    /// `Documents/Family`; when the user then creates `Son`, the resolution becomes the model's
     /// own answer. Comparing only against the recorded resolution called that stale and re-billed
     /// it — the exact inverse of what this type promises ("the answer got better, not worse"), and
     /// a direction the first version of the comparand fix silently reversed.
     @Test func aVerdictWhoseFolderHasSinceBeenCreatedIsStillServed() throws {
         var cache = FilingVerdictCache()
         let k = Self.key("card.pdf")
-        let verdict = FilingVerdict(relativePath: "Documents/Family/Divit", confidence: .high,
+        let verdict = FilingVerdict(relativePath: "Documents/Family/Son", confidence: .high,
                                     reason: "family", proposesNewFolder: false)
         let before: Set<String> = ["Documents", "Documents/Family"]
         cache.record(verdict, for: k, providerRoot: Self.root, existingRelative: before, now: Self.now)
@@ -99,9 +99,9 @@ import Testing
         let recorded = try #require(cache.entries[k]?.resolvedRelativePath)
         #expect(recorded == "Documents/Family", "the fixture did not record a trimmed resolution")
 
-        let after: Set<String> = ["Documents", "Documents/Family", "Documents/Family/Divit"]
+        let after: Set<String> = ["Documents", "Documents/Family", "Documents/Family/Son"]
         #expect(cache.verdict(for: k, providerRoot: Self.root, existingRelative: after)?.relativePath
-                == "Documents/Family/Divit",
+                == "Documents/Family/Son",
                 "the answer improved toward the verdict's own path and was thrown away")
     }
 

@@ -61,7 +61,7 @@ public struct LargeWalkPreflight: Sendable, Equatable {
     /// **The same rule a source is named by**, not a second one — `FolderSource.defaultDisplayName`
     /// — because the two answer the same question about the same folders. The two roots this guard
     /// exists for are exactly the two that rule was written for: the home folder (196,726
-    /// directories) and the startup disk. Its own leaf-component answer called them “abhishek” and
+    /// directories) and the startup disk. Its own leaf-component answer called them “father” and
     /// “/”; the rule calls them “Home folder” and whatever the volume calls itself. A prompt is a
     /// worse place than a sidebar row to print a path separator and expect it to be recognised.
     ///

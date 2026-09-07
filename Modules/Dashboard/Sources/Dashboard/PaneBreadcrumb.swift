@@ -57,7 +57,7 @@ public enum SourceChip {
 }
 
 /// Clickable breadcrumb inside each `PaneHeader`: the source itself (named after the *source* —
-/// "iCloud", "OneDrive (HPE)" — with the root's full path in the tooltip) followed by the pane's
+/// "iCloud", "OneDrive (EMP)" — with the root's full path in the tooltip) followed by the pane's
 /// relative-path segments, spelled out from the root down. Since a source's root is the account
 /// folder rather than the `Documents` inside it, the levels between — Google Drive's `My Drive`,
 /// OneDrive's `Documents` — are ordinary crumbs here, and the first crumb goes to the top of the
@@ -206,7 +206,7 @@ struct PaneBreadcrumb: View {
     /// So the two acts share one target and the menu separates them.
     ///
     /// **The disclosure mark is back, and the reason it was dropped is why it had to come back.**
-    /// It was hidden because at depth a chevron here would render `Google Drive (HPE) ⌄ … ⌄`, two
+    /// It was hidden because at depth a chevron here would render `Google Drive (EMP) ⌄ … ⌄`, two
     /// adjacent marks opening unrelated menus — the quick-jump chevron sits a few points to the
     /// right. That reasoning is sound *at depth*, where the quick-jump mark is attached to the last
     /// crumb with a whole trail between the two. **At a source root there is no trail.** The chip is

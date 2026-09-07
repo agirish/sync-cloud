@@ -98,9 +98,9 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
     /// The document is **about this person** — the household member whose registry id this is.
     ///
     /// Keyed on the id rather than on a name, deliberately: `Person.id` survives a rename and the
-    /// addition of a name variant, so a rule taught today keeps working when "Shweta Ravindra Dani"
+    /// addition of a name variant, so a rule taught today keeps working when "Mother Inlaw Maiden"
     /// is added to her record tomorrow. A word-based rule cannot — and could not be written safely
-    /// in the first place, since `abhishek` is one person's given name and three others' surname.
+    /// in the first place, since `father` is one person's given name and three others' surname.
     case personIs(String)
     /// A condition written by a **newer build** of the app, preserved verbatim.
     ///
@@ -168,7 +168,7 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
         }
     }
 
-    /// The same sentence with person ids replaced by the names on the roster — "is Aditi's
+    /// The same sentence with person ids replaced by the names on the roster — "is Daughter's
     /// document". Falls back to the id when the roster does not know them, which is what a rule
     /// pointing at a deleted person should look like: visible, not silently blank.
     public func summary(resolvingPeople registry: PersonRegistry?) -> String {

@@ -27,7 +27,7 @@ import Testing
     }
 
     private static func tree(in root: URL) throws {
-        for path in ["Family/Shweta", "Finance/Receipts", "Finance/TODO"] {
+        for path in ["Family/Mother", "Finance/Receipts", "Finance/TODO"] {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(path),
                                                     withIntermediateDirectories: true)
         }
@@ -66,9 +66,9 @@ import Testing
         try Self.tree(in: root)
 
         var draft = SetupDraft()
-        draft.yourName = "Abhishek"
-        draft.yourFullNames = ["Abhishek Girish"]
-        draft.others = [SetupDraft.DraftPerson(displayName: "Shweta", relationship: "wife")]
+        draft.yourName = "Father"
+        draft.yourFullNames = ["Father Elder"]
+        draft.others = [SetupDraft.DraftPerson(displayName: "Mother", relationship: "wife")]
 
         let manager = FileSyncManager()
         manager.filingProfilesDirectory = profiles
@@ -78,8 +78,8 @@ import Testing
         let store = PeopleStore(directory: profiles, profileId: loaded.id, profile: loaded.profile)
         SetupDraft.apply(draft, to: store)
 
-        #expect(Set(store.people.map(\.displayName)) == ["Abhishek", "Shweta"])
-        #expect(store.people.first { $0.displayName == "Abhishek" }?.relationship == "me")
+        #expect(Set(store.people.map(\.displayName)) == ["Father", "Mother"])
+        #expect(store.people.first { $0.displayName == "Father" }?.relationship == "me")
         #expect(report.profileId == loaded.id, "the walk's profile is not the one the roster hangs off")
 
         // And it is on disk under the profile the walk just wrote, which is what makes it survive
@@ -103,12 +103,12 @@ import Testing
         manager.filingProfilesDirectory = profiles
 
         // What the form holds before any profile exists.
-        let drafted = PersonRegistry(people: [Person(id: "shweta", displayName: "Shweta")],
+        let drafted = PersonRegistry(people: [Person(id: "mother", displayName: "Mother")],
                                      source: .profileAxis)
         let report = try #require(try? (await manager.deriveFolderProfile(root: root,
                                                                           registry: drafted)).get())
         let written = try #require(FilingProfileStore.profile(id: report.profileId, in: profiles))
-        #expect(written.personTokens.contains("shweta"),
+        #expect(written.personTokens.contains("mother"),
                 "the walk built a profile with no person axis from a form that had just collected one")
     }
 

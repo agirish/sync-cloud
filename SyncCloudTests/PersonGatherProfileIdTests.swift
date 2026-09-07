@@ -8,7 +8,7 @@ import Foundation
 /// the folder name and the `profileId` field inside `folder-profile.json` disagree, which they do
 /// whenever a hand-built profile omits the field: it decodes to `"default"`. Keyed on the field,
 /// `acceptPersonScope` asked `FilingSurveyStore.corpus(id:in:)` for a folder holding nothing, got
-/// nil, and "show me everything that's Aditi's" quietly produced nothing at all.
+/// nil, and "show me everything that's Daughter's" quietly produced nothing at all.
 ///
 /// **This is a scan because the function cannot be driven.** `PersonGatherSupersedeTests` says so
 /// in as many words — `acceptPersonScope` needs a whole `ContentView` with a live environment —

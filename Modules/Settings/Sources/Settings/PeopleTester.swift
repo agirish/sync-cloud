@@ -7,7 +7,7 @@ import SwiftUI
 /// **The section could describe the rule but not demonstrate it.** Everything above this reports
 /// state: these names, those folders, that many documents. None of it shows the rule *running*,
 /// which is the thing the user is actually being asked to trust — and the interesting behaviour is
-/// counter-intuitive enough to be worth watching: "Aditi Abhishek" naming one person rather than
+/// counter-intuitive enough to be worth watching: "Daughter Father" naming one person rather than
 /// two only makes sense once you have seen it happen.
 ///
 /// Answers come from ``PersonRegistry/explain(in:)``, which is the same call `detect` is built on,
@@ -30,7 +30,7 @@ struct PeopleTester: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                TextField("Try a filename — Aditi Abhishek - OCI Card.pdf", text: $text)
+                TextField("Try a filename — Daughter Father - OCI Card.pdf", text: $text)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
                 if !text.isEmpty {
@@ -129,7 +129,7 @@ struct PeopleTester: View {
                                         factsById: [String: PersonFilingFacts]) -> String? {
         // **Distinct people.** `matches` can hold two entries for ONE person — a phrase match plus
         // a token match, or two different strong tokens — and the dedupe in `explain` only removes
-        // exact repeats of the same word. Counting rows made `Mom - Muktha Girish Passport.pdf`
+        // exact repeats of the same word. Counting rows made `Mom - Granny Elder Passport.pdf`
         // report "2 people are named, so no folder is refused", while `detect` (a Set) returns one
         // person and the cross-person veto does fire. The diagnostic contradicted the engine it
         // exists to explain.

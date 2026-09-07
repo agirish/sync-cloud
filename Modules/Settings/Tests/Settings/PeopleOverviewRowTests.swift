@@ -25,8 +25,8 @@ import Testing
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PeopleOverviewRowTests {
 
     private static let roster = [
-        Person(id: "aditi", displayName: "Aditi", relationship: "daughter"),
-        Person(id: "divit", displayName: "Divit", relationship: "son"),
+        Person(id: "daughter", displayName: "Daughter", relationship: "daughter"),
+        Person(id: "son", displayName: "Son", relationship: "son"),
     ]
 
     private static func row(_ overview: PeopleOverview,
@@ -169,7 +169,7 @@ import Testing
         // reassurance being drawn. One line is measured from the row's only other single-line
         // state: a tree with no survey behind it and one inert person on the roster.
         let oneLine = height(Self.row(PeopleOverview(claimedFolders: 0, claimedDocuments: 0,
-                                                     unclaimed: [], peopleWithNoFolders: ["aditi"])))
+                                                     unclaimed: [], peopleWithNoFolders: ["daughter"])))
         let bothLines = height(Self.row(complete))
         #expect(oneLine > 0, "the single-line control measured nothing — the comparison below is vacuous")
         #expect(bothLines > oneLine * 1.6,
@@ -235,7 +235,7 @@ import Testing
         let base = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                   unclaimed: [], peopleWithNoFolders: [])
         let inert = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
-                                   unclaimed: [], peopleWithNoFolders: ["aditi"])
+                                   unclaimed: [], peopleWithNoFolders: ["daughter"])
         #expect(ink(Self.row(inert)) > ink(Self.row(base)) + 100,
                 "a person with no folders recorded adds nothing to the row — their record's inertness is never said")
         // An id nobody on the roster answers to resolves to no name, and the line is dropped rather

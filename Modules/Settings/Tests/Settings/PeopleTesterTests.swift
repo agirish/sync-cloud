@@ -11,17 +11,17 @@ import Sync
 /// describes is worse than no diagnostic — it teaches the user a rule the app does not have.
 ///
 /// One line in `consequence` had already been through that: counting `matches` rather than distinct
-/// people made `Mom - Muktha Girish Passport.pdf` report "2 people are named, so no folder is
+/// people made `Mom - Granny Elder Passport.pdf` report "2 people are named, so no folder is
 /// refused", while `detect` returns one person and the cross-person veto does fire.
 @Suite struct PeopleTesterTests {
 
     static func household() -> [Person] {
-        [Person(id: "abhishek", displayName: "Abhishek", relationship: "me",
-                fullNames: ["Abhishek Girish"]),
-         Person(id: "aditi", displayName: "Aditi", relationship: "daughter",
-                fullNames: ["Aditi Abhishek"]),
-         Person(id: "muktha", displayName: "Muktha", relationship: "mother",
-                fullNames: ["Muktha Girish"], aliases: ["Mom"])]
+        [Person(id: "father", displayName: "Father", relationship: "me",
+                fullNames: ["Father Elder"]),
+         Person(id: "daughter", displayName: "Daughter", relationship: "daughter",
+                fullNames: ["Daughter Father"]),
+         Person(id: "granny", displayName: "Granny", relationship: "mother",
+                fullNames: ["Granny Elder"], aliases: ["Mom"])]
     }
 
     /// Facts with `folders` under this person's name, so `folderCount` is what drives the sentence.
@@ -48,7 +48,7 @@ import Sync
 
     // MARK: - The tester agrees with the engine
 
-    /// **The documented defect, as a test.** "Mom" and "Muktha Girish" both name one person, so
+    /// **The documented defect, as a test.** "Mom" and "Granny Elder" both name one person, so
     /// `explain` returns two matches and `detect` returns one id. Counting rows here made the panel
     /// announce that no folder is refused — about a filename for which the veto fires.
     ///
@@ -56,7 +56,7 @@ import Sync
     /// the count in the words has to be the count the engine acts on.
     @Test func aPersonMatchedTwiceIsStillOnePerson() throws {
         let registry = PersonRegistry(people: Self.household())
-        let stem = PeopleTester.stem(of: "Mom - Muktha Girish Passport.pdf")
+        let stem = PeopleTester.stem(of: "Mom - Granny Elder Passport.pdf")
 
         let report = registry.explain(in: stem)
         try #require(report.matches.count > 1,
@@ -64,7 +64,7 @@ import Sync
         #expect(registry.detect(in: stem).count == 1)
 
         let said = PeopleTester.consequence(of: stem, registry: registry,
-                                            factsById: Self.factsById([("muktha", 3)]))
+                                            factsById: Self.factsById([("granny", 3)]))
         #expect(said?.contains("people are named") != true,
                 "the tester reported multiple people for a filename the engine attributes to one — the panel contradicts the veto it exists to explain: \(said ?? "nil")")
         #expect(said == "Prefers their 3 folders.")
@@ -75,7 +75,7 @@ import Sync
     /// named" about three of them is simply wrong.
     @Test func severalPeopleAreCountedNotAssumedToBeTwo() {
         let registry = PersonRegistry(people: Self.household())
-        let stem = PeopleTester.stem(of: "Abhishek Girish Aditi Abhishek Muktha Girish - scan.pdf")
+        let stem = PeopleTester.stem(of: "Father Elder Daughter Father Granny Elder - scan.pdf")
         let ids = registry.detect(in: stem)
         let said = PeopleTester.consequence(of: stem, registry: registry, factsById: [:])
         #expect(said == "\(ids.count) people are named, so no folder is refused on anyone's behalf.")
@@ -88,10 +88,10 @@ import Sync
     /// promising a preference the engine cannot act on.
     @Test func aPersonWithNoFoldersIsToldTheyChangeNothing() {
         let registry = PersonRegistry(people: Self.household())
-        let said = PeopleTester.consequence(of: PeopleTester.stem(of: "Aditi Abhishek - OCI.pdf"),
+        let said = PeopleTester.consequence(of: PeopleTester.stem(of: "Daughter Father - OCI.pdf"),
                                             registry: registry,
-                                            factsById: Self.factsById([("aditi", 0)]))
-        #expect(said == "Aditi has no folders recorded yet, so this changes nothing.")
+                                            factsById: Self.factsById([("daughter", 0)]))
+        #expect(said == "Daughter has no folders recorded yet, so this changes nothing.")
     }
 
     /// The two halves of the consequence, which are what make the panel worth reading: the folders
@@ -100,37 +100,37 @@ import Sync
     /// fire.
     @Test func theRefusalHalfAppearsOnlyWhenThereIsSomeoneToRefuse() {
         let registry = PersonRegistry(people: Self.household())
-        let stem = PeopleTester.stem(of: "Aditi Abhishek - OCI.pdf")
+        let stem = PeopleTester.stem(of: "Daughter Father - OCI.pdf")
 
         let alone = PeopleTester.consequence(of: stem, registry: registry,
-                                             factsById: Self.factsById([("aditi", 2)]))
+                                             factsById: Self.factsById([("daughter", 2)]))
         #expect(alone == "Prefers their 2 folders.")
 
         // Somebody else with folders of their own, and the sentence gains its second half.
         let withOthers = PeopleTester.consequence(of: stem, registry: registry,
-                                                  factsById: Self.factsById([("aditi", 2), ("muktha", 4)]))
+                                                  factsById: Self.factsById([("daughter", 2), ("granny", 4)]))
         #expect(withOthers == "Prefers their 2 folders; refuses the other person's.")
 
         // …and pluralises on the count of people, not of folders.
         let twoOthers = PeopleTester.consequence(
             of: stem, registry: registry,
-            factsById: Self.factsById([("aditi", 2), ("muktha", 4), ("abhishek", 9)]))
+            factsById: Self.factsById([("daughter", 2), ("granny", 4), ("father", 9)]))
         #expect(twoOthers == "Prefers their 2 folders; refuses the other 2 people's.")
 
         // A person on the roster with no folders is not somebody to refuse — there is nothing of
         // theirs to keep this document out of.
         let othersButEmpty = PeopleTester.consequence(
             of: stem, registry: registry,
-            factsById: Self.factsById([("aditi", 2), ("muktha", 0)]))
+            factsById: Self.factsById([("daughter", 2), ("granny", 0)]))
         #expect(othersButEmpty == "Prefers their 2 folders.")
     }
 
     /// One folder is "their 1 folder", not "their 1 folders".
     @Test func aSingleFolderIsSingular() {
         let registry = PersonRegistry(people: Self.household())
-        #expect(PeopleTester.consequence(of: PeopleTester.stem(of: "Aditi Abhishek.pdf"),
+        #expect(PeopleTester.consequence(of: PeopleTester.stem(of: "Daughter Father.pdf"),
                                          registry: registry,
-                                         factsById: Self.factsById([("aditi", 1)]))
+                                         factsById: Self.factsById([("daughter", 1)]))
                 == "Prefers their 1 folder.")
     }
 
@@ -139,7 +139,7 @@ import Sync
     @Test func aFilenameNamingNobodyHasNoConsequence() {
         #expect(PeopleTester.consequence(of: PeopleTester.stem(of: "Utility Bill.pdf"),
                                          registry: PersonRegistry(people: Self.household()),
-                                         factsById: Self.factsById([("aditi", 2)])) == nil)
+                                         factsById: Self.factsById([("daughter", 2)])) == nil)
     }
 
     // MARK: - The question the engine is actually asked
@@ -149,7 +149,7 @@ import Sync
     /// extension that happens to be somebody's name is not a hypothetical: the panel is where a
     /// user goes to find out why a file went somewhere odd.
     @Test func theExtensionIsNotPartOfTheName() {
-        #expect(PeopleTester.stem(of: "Aditi Abhishek - OCI.pdf") == "Aditi Abhishek - OCI")
+        #expect(PeopleTester.stem(of: "Daughter Father - OCI.pdf") == "Daughter Father - OCI")
         #expect(PeopleTester.stem(of: "no-extension") == "no-extension")
         #expect(PeopleTester.stem(of: "Scan.2026.01.pdf") == "Scan.2026.01")
     }
@@ -160,25 +160,25 @@ import Sync
     /// counter-intuitive part the panel exists to show.
     @Test func aPhraseMatchAndATokenMatchReadDifferently() {
         let registry = PersonRegistry(people: Self.household())
-        let phrase = PersonMatch(personId: "aditi", form: "Aditi Abhishek",
-                                 words: ["aditi", "abhishek"], isPhrase: true)
-        let token = PersonMatch(personId: "aditi", form: "aditi", words: ["aditi"], isPhrase: false)
+        let phrase = PersonMatch(personId: "daughter", form: "Daughter Father",
+                                 words: ["daughter", "father"], isPhrase: true)
+        let token = PersonMatch(personId: "daughter", form: "daughter", words: ["daughter"], isPhrase: false)
         #expect(PeopleTester.line(for: phrase, registry: registry)
-                == "Aditi — matched the full name “Aditi Abhishek”")
-        #expect(PeopleTester.line(for: token, registry: registry) == "Aditi — matched “aditi”")
+                == "Daughter — matched the full name “Daughter Father”")
+        #expect(PeopleTester.line(for: token, registry: registry) == "Daughter — matched “daughter”")
         #expect(PeopleTester.line(for: phrase, registry: registry)
                 != PeopleTester.line(for: token, registry: registry),
                 "a phrase and a token read identically — the row no longer shows which rule fired")
     }
 
-    /// The absorbed line, which is the whole reason full names are worth entering: "Abhishek" in
-    /// "Aditi Abhishek" does not name Abhishek.
+    /// The absorbed line, which is the whole reason full names are worth entering: "Father" in
+    /// "Daughter Father" does not name Father.
     @Test func anAbsorbedWordSaysWhoItWouldHaveNamed() {
         let registry = PersonRegistry(people: Self.household())
-        let absorbed = AbsorbedWord(word: "abhishek", wouldHaveNamed: "abhishek",
-                                    absorbedInto: "Aditi Abhishek", absorbedFor: "aditi")
+        let absorbed = AbsorbedWord(word: "father", wouldHaveNamed: "father",
+                                    absorbedInto: "Daughter Father", absorbedFor: "daughter")
         #expect(PeopleTester.absorbedLine(absorbed, registry: registry)
-                == "“abhishek” would have named Abhishek on its own — “Aditi Abhishek” claimed it first.")
+                == "“father” would have named Father on its own — “Daughter Father” claimed it first.")
     }
 
     /// An id the roster does not answer to falls back to the id rather than drawing a blank — the

@@ -62,30 +62,30 @@ import Testing
     @Test func theRouterAppliesThePeerNameRerankItIsGiven() {
         // Both folders describe the same documents, which is what makes them inseparable by
         // content: the parent outranks its child on the score alone.
-        let shared = ["divit", "oci", "photo"]
+        let shared = ["son", "oci", "photo"]
         let index = FilingRouterTests.index(
-            memoryDocs: ["Immigration/OCI/Divit": shared,
-                         "Immigration/OCI/Divit/Application": shared],
+            memoryDocs: ["Immigration/OCI/Son": shared,
+                         "Immigration/OCI/Son/Application": shared],
             // The memory only ranks folders the taxonomy knows about.
-            extraFolders: ["Immigration/OCI/Divit", "Immigration/OCI/Divit/Application"])
-        let s = [Self.suggestion("Divit OCI Photo.jpg", best: nil)]
-        let snippets = ["\(Self.root)/TODO/Divit OCI Photo.jpg": "divit oci photo"]
+            extraFolders: ["Immigration/OCI/Son", "Immigration/OCI/Son/Application"])
+        let s = [Self.suggestion("Son OCI Photo.jpg", best: nil)]
+        let snippets = ["\(Self.root)/TODO/Son OCI Photo.jpg": "son oci photo"]
 
         let (bare, _, _) = FileSyncManager.applyRoutes(
             s, index: index, snippets: snippets, providerRoot: Self.root)
-        #expect(bare[0].best?.path == "\(Self.root)/Immigration/OCI/Divit",
+        #expect(bare[0].best?.path == "\(Self.root)/Immigration/OCI/Son",
                 "fixture no longer holds: the child must NOT already win, or the check below is vacuous")
 
         // The lookup is keyed by ABSOLUTE folder, which is the adapter `route` has to get right:
         // the router ranks relative paths and the real lookup lists real directories.
         let names = [
-            "\(Self.root)/Immigration/OCI/Divit": ["Divit - eOCI.pdf"],
-            "\(Self.root)/Immigration/OCI/Divit/Application": ["Divit OCI Photo - 4up print sheet.jpg"],
+            "\(Self.root)/Immigration/OCI/Son": ["Son - eOCI.pdf"],
+            "\(Self.root)/Immigration/OCI/Son/Application": ["Son OCI Photo - 4up print sheet.jpg"],
         ]
         let (routed, _, _) = FileSyncManager.applyRoutes(
             s, index: index, snippets: snippets, providerRoot: Self.root,
             peerNames: { names[$0] ?? [] })
-        #expect(routed[0].best?.path == "\(Self.root)/Immigration/OCI/Divit/Application",
+        #expect(routed[0].best?.path == "\(Self.root)/Immigration/OCI/Son/Application",
                 "the peer-name lookup reached the ranking")
     }
 

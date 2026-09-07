@@ -372,7 +372,7 @@ public enum DestinationBrowser {
     ///
     /// This is the subtitle under a search match, and it is what makes two folders of the same name
     /// tellable apart — which is not a hypothetical: the report that started this feature involved
-    /// a `Divit` under `Health/Medical/Kaiser` and another under `School`.
+    /// a `Son` under `Health/Medical/Kaiser` and another under `School`.
     ///
     /// A path that is not under `root` yields its own parent components, so a result from the
     /// system panel still reads sensibly rather than coming back empty.
@@ -380,7 +380,7 @@ public enum DestinationBrowser {
     /// The root itself trails **nothing**: there is no level between a folder and itself. Handling
     /// that explicitly rather than letting it fall through to the outside-the-root branch, which
     /// answered with the root's own ancestors — `trail(of: "~/Dropbox", under: "~/Dropbox")` came
-    /// back as `["Users", "abhishek"]`, and `crumbs` then read "Dropbox › abhishek › Dropbox".
+    /// back as `["Users", "father"]`, and `crumbs` then read "Dropbox › father › Dropbox".
     public static func trail(of path: String, under root: String) -> [String] {
         let normalizedPath = PaneBrowsePath.normalized(path)
         let normalizedRoot = PaneBrowsePath.normalized(root)

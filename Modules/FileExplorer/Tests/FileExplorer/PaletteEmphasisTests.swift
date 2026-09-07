@@ -9,8 +9,8 @@ import Testing
 @Suite struct PaletteEmphasisTests {
 
     @Test func theRangeIsWhereTheMatchIs() throws {
-        let range = try #require(PaletteRouter.matchRange("Family/Aditi", "aditi"))
-        #expect(String("Family/Aditi"[range]) == "Aditi")
+        let range = try #require(PaletteRouter.matchRange("Family/Daughter", "daughter"))
+        #expect(String("Family/Daughter"[range]) == "Daughter")
     }
 
     @Test func foldsMatchTheRankingsOwnRules() throws {

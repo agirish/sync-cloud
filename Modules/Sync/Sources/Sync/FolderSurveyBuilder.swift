@@ -162,7 +162,7 @@ public enum FolderSurveyBuilder {
     ///   carried by `axes.lifecycle`, which *does* propagate. Any-component matching measured
     ///   99.20% against 99.80%.
     /// - **Year before person**, so a folder called `2019` never has to be checked against a roster.
-    /// - **Person only on an exact roster name.** `Credit 1892 (Shweta)` and `Chase/Shweta 2024`
+    /// - **Person only on an exact roster name.** `Credit 1892 (Mother)` and `Chase/Mother 2024`
     ///   *detect* a person and are `destination`s in the profile; asking the matcher instead of
     ///   requiring the whole name measured 99.17%.
     static func role(ownName: String, fileCount: Int, subfolderCount: Int,
@@ -234,7 +234,7 @@ public enum FolderSurveyBuilder {
             if jurisdictionValues.contains(component) { out["jurisdiction"] = component }
             if let registry {
                 let ids = registry.detect(in: component)
-                // **Exactly one, or nobody.** A component naming two people ("Abhishek & Shweta")
+                // **Exactly one, or nobody.** A component naming two people ("Father & Mother")
                 // is not evidence for either, and picking one arbitrarily would file a joint
                 // document under half its owners. Leaving the ancestor's value standing is right:
                 // the shallower folder still describes this one.

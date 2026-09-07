@@ -18,16 +18,16 @@ import Testing
 /// in the call site and a test of the engine cannot see a call site.
 ///
 /// **The fixture is built so only attribution can answer.** The first draft filed
-/// `Aditi Abhishek - Report.pdf` to `School/Aditi` and passed with the bug reintroduced — ordinary
+/// `Daughter Father - Report.pdf` to `School/Daughter` and passed with the bug reintroduced — ordinary
 /// filename-to-folder matching was producing that destination and the rule was never load-bearing.
 /// So the document is named by an **alias**: `Mom - vaccination.pdf` shares no token with
-/// `Archive/Records` or with `Archive/Muktha`, and the registry is the only thing that connects
-/// "Mom" to Muktha. Mutation-checked in both directions.
+/// `Archive/Records` or with `Archive/Granny`, and the registry is the only thing that connects
+/// "Mom" to Granny. Mutation-checked in both directions.
 @Suite @MainActor struct FilingScanPersonRuleSurvivalTests {
 
     static let household = PersonRegistry(people: [
-        Person(id: "muktha", displayName: "Muktha", fullNames: ["Muktha Girish"], aliases: ["Mom"]),
-        Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+        Person(id: "granny", displayName: "Granny", fullNames: ["Granny Elder"], aliases: ["Mom"]),
+        Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
     ])
 
     /// Counts the content extractor's calls, so "the content pass ran" is an observation instead of
@@ -59,7 +59,7 @@ import Testing
                          reads: Reads = Reads()) throws -> (FileSyncManager, URL, Reads) {
         let root = try makeCanonicalTempRoot(prefix: "FilingPersonRule")
         try write(root.appendingPathComponent("Archive/Records/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Archive/Muktha/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Archive/Granny/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/Mom - vaccination.pdf"))
         try write(root.appendingPathComponent("Downloads/9829custbill.pdf"))
 
@@ -73,7 +73,7 @@ import Testing
         // first draft of this fixture ended up asserting over a scan with no rules in it at all.
         m.didLoadAutomationRules = true
         m.automationRules = [
-            AutomationRule(name: "Mum's paperwork", conditions: [.personIs("muktha")],
+            AutomationRule(name: "Mum's paperwork", conditions: [.personIs("granny")],
                            destinationTemplate: destinationTemplate),
         ]
         return (m, root, reads)
@@ -113,7 +113,7 @@ import Testing
     /// The `{person}` destination is the other half: it resolves through the same registry, so it
     /// failed the same way — but as an `.unresolved` path rather than an unmatched condition.
     ///
-    /// `Archive/Muktha` is reachable only by resolving the token: the file is named "Mom".
+    /// `Archive/Granny` is reachable only by resolving the token: the file is named "Mom".
     @Test func aPersonTokenDestinationStillResolvesAfterTheContentPass() async throws {
         let (m, root, reads) = try Self.makeScan(destinationTemplate: "Archive/{person}")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -122,7 +122,7 @@ import Testing
 
         #expect(!reads.paths.isEmpty, "phase 2 did not run — this fixture cannot see the defect")
         let record = Self.best(m, named: "Mom - vaccination.pdf", root: root)
-        #expect(record == "Archive/Muktha",
+        #expect(record == "Archive/Granny",
                 "{person} resolved to nothing after the content pass — best was \(record ?? "nil")")
     }
 
@@ -140,7 +140,7 @@ import Testing
         m.filingPersonRegistry = Self.household
         m.didLoadAutomationRules = true
         m.automationRules = [
-            AutomationRule(name: "Divit's paperwork", conditions: [.personIs("divit")],
+            AutomationRule(name: "Son's paperwork", conditions: [.personIs("son")],
                            destinationTemplate: "Archive/Records"),
         ]
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
@@ -152,6 +152,6 @@ import Testing
         #expect(m.filingSuggestions.contains { $0.fileName == "Mom - vaccination.pdf" },
                 "the scan enumerated no suggestion for the document under test")
         #expect(Self.best(m, named: "Mom - vaccination.pdf", root: root) != "Archive/Records",
-                "a rule about Divit claimed Muktha's document")
+                "a rule about Son claimed Granny's document")
     }
 }

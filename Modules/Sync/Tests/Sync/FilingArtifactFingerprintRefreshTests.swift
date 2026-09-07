@@ -19,7 +19,7 @@ import Testing
 @Suite @MainActor struct FilingArtifactFingerprintRefreshTests {
 
     /// A profiles directory whose ACTIVE folder is `work` while the profile inside calls itself
-    /// `abhishek` — the split `FilingProfileStore.active` warns about and keeps working through.
+    /// `father` — the split `FilingProfileStore.active` warns about and keeps working through.
     private func makeSplitProfiles() throws -> URL {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("fpr-\(UUID().uuidString)")
@@ -27,7 +27,7 @@ import Testing
                                                 withIntermediateDirectories: true)
         try Data(#"{"schemaVersion":1,"activeProfileId":"work"}"#.utf8)
             .write(to: dir.appendingPathComponent("profiles.json"))
-        try Data(#"{"profileId":"abhishek","root":"~/Documents","folders":[]}"#.utf8)
+        try Data(#"{"profileId":"father","root":"~/Documents","folders":[]}"#.utf8)
             .write(to: dir.appendingPathComponent("work/folder-profile.json"))
         return dir
     }
@@ -36,7 +36,7 @@ import Testing
     /// `filingFolderProfile` carries the field inside the file.
     private func makeManager(_ dir: URL) throws -> FileSyncManager {
         let loaded = try #require(FilingProfileStore.active(in: dir))
-        #expect(loaded.id == "work" && loaded.profile.profileId == "abhishek",
+        #expect(loaded.id == "work" && loaded.profile.profileId == "father",
                 "fixture: the two ids stopped disagreeing, so this proves nothing")
         let manager = FileSyncManager()
         manager.filingProfilesDirectory = dir
@@ -57,7 +57,7 @@ import Testing
         let atLaunch = manager.filingArtifactFingerprint
         #expect(atLaunch?.isEmpty == false, "fixture: the launch digest must be real")
 
-        manager.filingPeopleStore?.add(displayName: "Muktha")
+        manager.filingPeopleStore?.add(displayName: "Granny")
 
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("work/people.json").path),
                 "fixture: the roster must actually have been written")
@@ -77,10 +77,10 @@ import Testing
         let manager = try makeManager(dir)
 
         // The premise, measured: looking under the field inside the file finds nothing at all.
-        #expect(FilingProfileStore.fingerprint(id: "abhishek", in: dir) == "",
+        #expect(FilingProfileStore.fingerprint(id: "father", in: dir) == "",
                 "fixture: the wrong id no longer yields the empty digest")
 
-        manager.filingPeopleStore?.add(displayName: "Muktha")
+        manager.filingPeopleStore?.add(displayName: "Granny")
         #expect(manager.filingArtifactFingerprint != "",
                 """
                 the session's verdicts are now recorded under `artifacts: ""` — billed, and \

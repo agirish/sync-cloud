@@ -38,7 +38,7 @@ struct MenuLabelMarkTests {
     }
 
     private static let sources = [
-        CloudProvider(id: "gd", displayName: "Google Drive (HPE)", imageName: "googledrive",
+        CloudProvider(id: "gd", displayName: "Google Drive (EMP)", imageName: "googledrive",
                       rootPath: "/tmp/gd", openAt: "My Drive", type: .googleDrive),
         CloudProvider(id: "ic", displayName: "iCloud", imageName: "icloud",
                       rootPath: "/tmp/ic", type: .iCloud)
@@ -99,7 +99,7 @@ struct MenuLabelMarkTests {
     /// **The bound is not "fits a 250pt pane", and that is deliberate.** `fittingSize` is the
     /// *ideal* width, and a breadcrumb whose crumbs middle-truncate legitimately wants more than the
     /// pane it will compress into: this header measures 260 for a two-deep trail on a source called
-    /// "Google Drive (HPE)". What the mark's regression does is not a few points over — it puts the
+    /// "Google Drive (EMP)". What the mark's regression does is not a few points over — it puts the
     /// asset's own 512 into the row, so the broken header measures north of 700. 400 separates the
     /// two with room, and **the separation is verified by mutation, not assumed**: flipping
     /// `inAppKitLabel` off in `PaneBreadcrumb.rootCrumb` fails this test at 757.

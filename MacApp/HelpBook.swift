@@ -426,9 +426,9 @@ enum HelpBook {
                 blocks: [
                     .bullets([
                         "It keeps one person's document out of another's folder.",
-                        "It chooses between two folders that differ only by person — School/Aditi beside School/Divit.",
+                        "It chooses between two folders that differ only by person — School/Daughter beside School/Son.",
                         "Add each person's full names as documents print them. That is what makes a shared surname attributable to the right person.",
-                        "Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else's surname.",
+                        "Names are matched longest-first, so “Daughter Father” reads as Daughter alone rather than as two people — which matters when a first name is also somebody else's surname.",
                         "“Look for names” reads the documents you have already filed and offers the forms it finds, so a name you never thought to type can still be added with one click.",
                     ]),
                     .paragraph("Setup asks for the list and proposes what a walk of your folders found, but nothing is ever locked in: a name can be added, changed or removed here at any time, and ⌘K's People rows gather everything belonging to whoever is on it."),

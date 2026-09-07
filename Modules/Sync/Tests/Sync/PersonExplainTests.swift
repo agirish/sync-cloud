@@ -7,9 +7,9 @@ import Testing
 @Suite struct PersonExplainTests {
 
     static let household = PersonRegistry(people: [
-        Person(id: "abhishek", displayName: "Abhishek", fullNames: ["Abhishek Girish"]),
-        Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-        Person(id: "muktha", displayName: "Muktha", fullNames: ["Muktha Girish"],
+        Person(id: "father", displayName: "Father", fullNames: ["Father Elder"]),
+        Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+        Person(id: "granny", displayName: "Granny", fullNames: ["Granny Elder"],
                aliases: ["Mom", "Mother"]),
     ])
 
@@ -24,18 +24,18 @@ import Testing
     /// assertion was empty, so they are kept and given real answers.
     ///
     /// Each line is a rule the file's prose claims elsewhere: a longer phrase consumes the words
-    /// inside it (`Aditi Abhishek` is Aditi, not Aditi-and-her-father), an alias resolves to the
+    /// inside it (`Daughter Father` is Daughter, not Daughter-and-her-father), an alias resolves to the
     /// person, a bare given name matching two people still resolves to whoever claims it as a
     /// first name, and text naming nobody names nobody.
     @Test func theMatcherAnswersEachShapeAsTheRulesSay() {
         let cases: [(String, Set<String>)] = [
-            ("Aditi Abhishek - OCI", ["aditi"]),
-            ("Mom - passport", ["muktha"]),
-            ("Muktha Girish", ["muktha"]),
-            ("Abhishek", ["abhishek"]),
+            ("Daughter Father - OCI", ["daughter"]),
+            ("Mom - passport", ["granny"]),
+            ("Granny Elder", ["granny"]),
+            ("Father", ["father"]),
             ("Scan 2026-08-02", []),
             ("", []),
-            ("Abhishek Girish and Muktha Girish", ["abhishek", "muktha"]),
+            ("Father Elder and Granny Elder", ["father", "granny"]),
         ]
         for (text, expected) in cases {
             #expect(Self.household.detect(in: text) == expected,
@@ -47,7 +47,7 @@ import Testing
     /// Worth one line, since the People section shows the explanation and the veto acts on the set —
     /// but it is a wiring check, not the matcher's coverage, which is what the case table above is.
     @Test func explainReportsTheSamePeopleDetectAnswers() {
-        let text = "Abhishek Girish and Mom"
+        let text = "Father Elder and Mom"
         #expect(Set(Self.household.explain(in: text).matches.map(\.personId))
                 == Self.household.detect(in: text))
     }
@@ -55,10 +55,10 @@ import Testing
     /// The form is reported **as the roster spells it**, not as the tokenizer sees it — the point
     /// is to quote the user's own entry back to them.
     @Test func theMatchedFormIsQuotedAsWritten() throws {
-        let report = Self.household.explain(in: "aditi abhishek - oci card")
+        let report = Self.household.explain(in: "daughter father - oci card")
         let match = try #require(report.matches.first)
-        #expect(match.personId == "aditi")
-        #expect(match.form == "Aditi Abhishek")
+        #expect(match.personId == "daughter")
+        #expect(match.form == "Daughter Father")
         #expect(match.isPhrase)
 
         let alias = try #require(Self.household.explain(in: "mom - passport").matches.first)
@@ -67,23 +67,23 @@ import Testing
     }
 
     /// **The explanation that makes phrase matching make sense**: the word that was spent, and who
-    /// it would otherwise have named. Without this the tester says "Aditi" and the user is left to
+    /// it would otherwise have named. Without this the tester says "Daughter" and the user is left to
     /// wonder why her father's name in the same filename did nothing.
     @Test func anAbsorbedWordNamesWhoItWouldHaveMatched() throws {
-        let report = Self.household.explain(in: "Aditi Abhishek - OCI Card")
+        let report = Self.household.explain(in: "Daughter Father - OCI Card")
         let absorbed = try #require(report.absorbed.first)
-        #expect(absorbed.word == "abhishek")
-        #expect(absorbed.wouldHaveNamed == "abhishek")
-        #expect(absorbed.absorbedInto == "Aditi Abhishek")
+        #expect(absorbed.word == "father")
+        #expect(absorbed.wouldHaveNamed == "father")
+        #expect(absorbed.absorbedInto == "Daughter Father")
         #expect(report.absorbed.count == 1)
     }
 
     /// A phrase that consumes only its own person's words absorbs nothing — the report must not
     /// invent an explanation where there is none to give.
     @Test func aPhraseThatStealsNothingReportsNothingAbsorbed() {
-        let report = Self.household.explain(in: "Muktha Girish - Resume")
-        #expect(report.matches.map(\.personId) == ["muktha"])
-        // "girish" belongs to Abhishek's full name too, but on its own it names nobody in this
+        let report = Self.household.explain(in: "Granny Elder - Resume")
+        #expect(report.matches.map(\.personId) == ["granny"])
+        // "elder" belongs to Father's full name too, but on its own it names nobody in this
         // roster — it is neither a strong token nor anyone's given name — so nothing was taken.
         #expect(report.absorbed.isEmpty)
     }
@@ -106,10 +106,10 @@ import Testing
     @Test func aPersonWithFoldersButNoRecordIsReported() throws {
         let profile = Self.profile([("Family/Ravi", "Ravi"),
                                     ("Immigration/Passport/Ravi", "Ravi"),
-                                    ("Family/Aditi", "Aditi")])
+                                    ("Family/Daughter", "Daughter")])
         let memory = FilingMemory(profileId: "t", salt: "s", folders: [
             "Family/Ravi": FilingMemoryEntry(docs: 7, anchors: [], idHashes: []),
-            "Family/Aditi": FilingMemoryEntry(docs: 3, anchors: [], idHashes: []),
+            "Family/Daughter": FilingMemoryEntry(docs: 3, anchors: [], idHashes: []),
         ])
         let overview = PeopleOverview.make(registry: Self.household, profile: profile, memory: memory)
 
@@ -125,7 +125,7 @@ import Testing
     /// A complete roster reports no gap — the state that lets the section say so plainly instead of
     /// showing an empty space.
     @Test func aCompleteRosterHasNoUnclaimedPeople() {
-        let profile = Self.profile([("Family/Aditi", "Aditi"), ("Family/Mom", "Mom")])
+        let profile = Self.profile([("Family/Daughter", "Daughter"), ("Family/Mom", "Mom")])
         let overview = PeopleOverview.make(registry: Self.household, profile: profile, memory: nil)
         #expect(overview.unclaimed.isEmpty)
         // `Family/Mom` counts as claimed through the alias, which is the whole point of resolving
@@ -136,9 +136,9 @@ import Testing
     /// Someone on the roster with no folders is named, so the section can say their record is
     /// currently inert rather than leaving them looking identical to everyone else.
     @Test func aPersonWithNoFoldersIsNamed() {
-        let profile = Self.profile([("Family/Aditi", "Aditi")])
+        let profile = Self.profile([("Family/Daughter", "Daughter")])
         let overview = PeopleOverview.make(registry: Self.household, profile: profile, memory: nil)
-        #expect(Set(overview.peopleWithNoFolders) == ["abhishek", "muktha"])
+        #expect(Set(overview.peopleWithNoFolders) == ["father", "granny"])
     }
 
     // MARK: - Areas
@@ -146,15 +146,15 @@ import Testing
     /// The areas are the top level of each folder's path, busiest first — what a person's record
     /// is *about*, which a folder count cannot say.
     @Test func areasGroupFoldersByTheTopOfTheirPath() throws {
-        let profile = Self.profile([("Family/Aditi", "Aditi"),
-                                    ("Family/Aditi/Events", "Aditi"),
-                                    ("School/Aditi", "Aditi")])
+        let profile = Self.profile([("Family/Daughter", "Daughter"),
+                                    ("Family/Daughter/Events", "Daughter"),
+                                    ("School/Daughter", "Daughter")])
         let memory = FilingMemory(profileId: "t", salt: "s", folders: [
-            "School/Aditi": FilingMemoryEntry(docs: 40, anchors: [], idHashes: []),
-            "Family/Aditi": FilingMemoryEntry(docs: 2, anchors: [], idHashes: []),
+            "School/Daughter": FilingMemoryEntry(docs: 40, anchors: [], idHashes: []),
+            "Family/Daughter": FilingMemoryEntry(docs: 2, anchors: [], idHashes: []),
         ])
-        let aditi = try #require(Self.household.people.first { $0.id == "aditi" })
-        let facts = PersonFilingFacts.make(for: aditi, registry: Self.household,
+        let daughter = try #require(Self.household.people.first { $0.id == "daughter" })
+        let facts = PersonFilingFacts.make(for: daughter, registry: Self.household,
                                            profile: profile, memory: memory)
         // School leads on documents despite Family holding more folders — busiest, not biggest.
         #expect(facts.areas.map(\.name) == ["School", "Family"])
@@ -171,19 +171,19 @@ import Testing
         defer { defaults.removePersistentDomain(forName: suite) }
         let log = PersonVetoLog(userDefaults: defaults)
 
-        log.record(PersonVetoEvent(namedPerson: "aditi", proposedPerson: "divit",
-                                   fileName: "Aditi OCI.pdf", destination: "Immigration/OCI/Divit",
+        log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",
+                                   fileName: "Daughter OCI.pdf", destination: "Immigration/OCI/Son",
                                    at: Date(timeIntervalSince1970: 1_000)))
-        log.record(PersonVetoEvent(namedPerson: "aditi", proposedPerson: "divit",
-                                   fileName: "Aditi Passport.pdf", destination: "Passport/Divit",
+        log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",
+                                   fileName: "Daughter Passport.pdf", destination: "Passport/Son",
                                    at: Date(timeIntervalSince1970: 2_000)))
 
-        #expect(log.count(namedPerson: "aditi") == 2)
-        #expect(log.count(namedPerson: "divit") == 0)
+        #expect(log.count(namedPerson: "daughter") == 2)
+        #expect(log.count(namedPerson: "son") == 0)
         // Newest first, so "last" means the most recent refusal rather than the first ever.
-        #expect(log.mostRecent(namedPerson: "aditi")?.fileName == "Aditi Passport.pdf")
+        #expect(log.mostRecent(namedPerson: "daughter")?.fileName == "Daughter Passport.pdf")
         // A relaunch reads the same history.
-        #expect(PersonVetoLog(userDefaults: defaults).count(namedPerson: "aditi") == 2)
+        #expect(PersonVetoLog(userDefaults: defaults).count(namedPerson: "daughter") == 2)
     }
 
     /// Capped, because this is an illustration and not a filing diary.
@@ -196,7 +196,7 @@ import Testing
         defer { defaults.removePersistentDomain(forName: name) }
         let log = PersonVetoLog(userDefaults: defaults)
         for i in 0..<(PersonVetoLog.capacity + 10) {
-            log.record(PersonVetoEvent(namedPerson: "aditi", proposedPerson: "divit",
+            log.record(PersonVetoEvent(namedPerson: "daughter", proposedPerson: "son",
                                        fileName: "\(i).pdf", destination: "d",
                                        at: Date(timeIntervalSince1970: Double(i))))
         }

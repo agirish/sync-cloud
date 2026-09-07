@@ -2673,7 +2673,7 @@ struct PeopleSettingsTab: View {
     var body: some View {
         SettingsPage {
             SettingsSection(
-                caption: "Who your documents belong to — the household Organize files for. It uses these names for two things: keeping one person’s document out of another’s folder, and choosing between folders that differ only by person (School/Aditi beside School/Divit). Names are matched longest-first, so “Aditi Abhishek” reads as Aditi alone rather than as two people — which matters when a first name is also somebody else’s surname. Add each person’s full names as documents print them; that is what makes a shared surname attributable. Nothing here leaves your Mac, and no document text is kept — only the names you add here."
+                caption: "Who your documents belong to — the household Organize files for. It uses these names for two things: keeping one person’s document out of another’s folder, and choosing between folders that differ only by person (School/Daughter beside School/Son). Names are matched longest-first, so “Daughter Father” reads as Daughter alone rather than as two people — which matters when a first name is also somebody else’s surname. Add each person’s full names as documents print them; that is what makes a shared surname attributable. Nothing here leaves your Mac, and no document text is kept — only the names you add here."
             ) {
                 if let store = syncManager?.filingPeopleStore,
                    let vetoLog = syncManager?.filingPersonVetoLog {
@@ -3166,7 +3166,7 @@ private struct PersonInitials: View {
 
     /// Two letters of the **display name**, not initials of the full name.
     ///
-    /// `AG` for Abhishek Girish and `AG` for Anuraag Girish is two identical discs in one list —
+    /// `AG` for Father Elder and `AG` for Uncle Elder is two identical discs in one list —
     /// rendered and seen. The display name is what the row is headed by and what the folders are
     /// called, so `Ab` and `An` track what the reader is actually looking at.
     private var initials: String {

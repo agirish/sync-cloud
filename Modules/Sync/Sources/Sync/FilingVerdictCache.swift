@@ -125,8 +125,8 @@ public struct FilingVerdictCacheEntry: Codable, Sendable, Equatable {
     /// Separate from `relativePath` because that one is the *served answer*: the entry
     /// reconstructs `verdict` from it, so overwriting it with the resolution would change what a
     /// hit returns. And it has to exist, because the two differ for a whole class of verdicts —
-    /// exactly the class the sanitizer was written for. `Immigration/OCI/Divit/eOCI.pdf` resolves
-    /// to `Immigration/OCI/Divit` (the trailing file name is stripped); comparing the resolution
+    /// exactly the class the sanitizer was written for. `Immigration/OCI/Son/eOCI.pdf` resolves
+    /// to `Immigration/OCI/Son` (the trailing file name is stripped); comparing the resolution
     /// against the raw string therefore failed *every* time, with nothing changed and nothing
     /// wrong, so those answers could never be served and were re-billed on every refine — the one
     /// thing this cache exists to prevent.
@@ -226,7 +226,7 @@ public struct FilingVerdictCache: Sendable, Equatable {
     /// segment count was a proxy for "the same offer", and it stopped being one when an undeclared
     /// new folder started being trimmed to its existing parent (see
     /// ``FilingEngine/destination(from:providerRoot:existingRelative:fileName:)``): a verdict for
-    /// `Documents/Family/Divit` whose `Family` was deleted since now resolves to `Documents` — a
+    /// `Documents/Family/Son` whose `Family` was deleted since now resolves to `Documents` — a
     /// count of zero, matching the cached zero, and a completely different folder. Comparing the
     /// path catches both that and anything else the resolver may learn to change.
     public func verdict(for key: FilingVerdictKey, providerRoot: String,
@@ -245,8 +245,8 @@ public struct FilingVerdictCache: Sendable, Equatable {
         let raw = entry.relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         // **Either the resolution it was recorded with, or the answer itself.** Comparing only
         // against the recorded resolution turned a case that used to hit into a miss: a verdict
-        // for `Documents/Family/Divit` recorded while `Divit` did not exist resolves to
-        // `Documents/Family` and is stored as such — then the user CREATES `Divit`, the resolution
+        // for `Documents/Family/Son` recorded while `Son` did not exist resolves to
+        // `Documents/Family` and is stored as such — then the user CREATES `Son`, the resolution
         // becomes the model's actual answer, and a strict comparison called that stale. It is the
         // opposite: the offer got better, which the paragraph above already promises is a hit.
         // A verdict that now resolves somewhere neither of those names — `Family` deleted, so it

@@ -84,12 +84,12 @@ import Testing
         let cases: [(String, Int, Int)] = [
             ("9829custbill07182023.pdf", 7, 2023),                       // MMDDYYYY
             ("20240128-statements-8857-.pdf", 1, 2024),                  // YYYYMMDD
-            ("STMTCMB100_20201101_5203_Girish_1154171_239175.PDF", 11, 2020),
+            ("STMTCMB100_20201101_5203_Elder_1154171_239175.PDF", 11, 2020),
             ("Statement12312020-5.pdf", 12, 2020),
             ("ATTBill_1897_Feb2022.pdf", 2, 2022),                       // glued MonYYYY
             ("DetailedBillApr2025.pdf", 4, 2025),                        // no separator at all
             // Two month tokens naming the SAME month is not a range.
-            ("ABHISHEK GIRISH 01 FEB 2020 TO  29 FEB 2020.pdf", 2, 2020),
+            ("FATHER ELDER 01 FEB 2020 TO  29 FEB 2020.pdf", 2, 2020),
         ]
         for (name, month, year) in cases {
             let m = try #require(FileNameDate.mine(name), "\(name)")
@@ -103,7 +103,7 @@ import Testing
         for name in [
             "Jan-Dec 2019.pdf",                                  // range across months
             "Apr 2009 - Mar 2010.pdf",                           // fiscal span: two months, two years
-            "ABHISHEK GIRISH 01 JUL 2020 TO  30 SEP 2020.pdf",   // range Jul→Sep
+            "FATHER ELDER 01 JUL 2020 TO  30 SEP 2020.pdf",   // range Jul→Sep
             "Year End Summary 2016.pdf",                         // a year, no month
             "2016 Summary.pdf",
             "2013-2014.pdf",                                     // two years, no month
@@ -560,7 +560,7 @@ import Testing
 /// The survey has written that value for 24 folders since it was built, and nothing read it: the
 /// string appeared nowhere else in the app, so the pass declined every one of them. Every fixture
 /// below is a real name from those folders, and the folder they mostly come from is
-/// `Work/HPE/Compensation/Salary Statements/2026`, which is paid on the 15th and the last day of
+/// `Work/EMP/Compensation/Salary Statements/2026`, which is paid on the 15th and the last day of
 /// each month.
 @Suite struct OrdinalDayTests {
 

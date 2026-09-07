@@ -29,7 +29,7 @@ import Testing
         let profile = FolderProfile(profileId: "t", root: "~/Documents",
                                     folders: Dictionary(entries.map { ($0.path, $0) },
                                                         uniquingKeysWith: { _, b in b }),
-                                    personTokens: ["shweta", "divit"])
+                                    personTokens: ["mother", "son"])
         var memFolders: [String: FilingMemoryEntry] = [:]
         for (folder, rawTokens) in memoryDocs {
             // Stored tokens go through the tokenizer first, exactly as the builder does — which
@@ -287,45 +287,45 @@ import Testing
     /// them apart. The folders carry identical memory on purpose: content cannot separate them, so
     /// the person axis is the only thing that can.
     static func siblingPersonIndex() -> FilingRouter.Index {
-        let folders = ["School/Aditi", "School/Divit"]
+        let folders = ["School/Daughter", "School/Son"]
         let entries = [
-            FolderProfileEntry(path: "School/Aditi", role: .personBucket, naming: nil, anchors: [],
+            FolderProfileEntry(path: "School/Daughter", role: .personBucket, naming: nil, anchors: [],
                                acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
-                               axes: ["person": "Aditi"]),
-            FolderProfileEntry(path: "School/Divit", role: .personBucket, naming: nil, anchors: [],
+                               axes: ["person": "Daughter"]),
+            FolderProfileEntry(path: "School/Son", role: .personBucket, naming: nil, anchors: [],
                                acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
-                               axes: ["person": "Divit"]),
+                               axes: ["person": "Son"]),
         ]
         let profile = FolderProfile(profileId: "t", root: "~",
                                     folders: Dictionary(entries.map { ($0.path, $0) },
                                                         uniquingKeysWith: { a, _ in a }),
-                                    personTokens: ["aditi", "divit", "abhishek"])
+                                    personTokens: ["daughter", "son", "father"])
         let shared = ["report", "card", "trimester", "attendance"]
             .map { FilingMemoryToken(token: $0, weight: 3.0) }
         let memory = FilingMemory(profileId: "t", salt: "s", folders: [
-            "School/Aditi": FilingMemoryEntry(docs: 6, anchors: shared, idHashes: []),
-            "School/Divit": FilingMemoryEntry(docs: 6, anchors: shared, idHashes: []),
+            "School/Daughter": FilingMemoryEntry(docs: 6, anchors: shared, idHashes: []),
+            "School/Son": FilingMemoryEntry(docs: 6, anchors: shared, idHashes: []),
         ])
         let registry = PersonRegistry(people: [
-            Person(id: "abhishek", displayName: "Abhishek", fullNames: ["Abhishek Girish"]),
-            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+            Person(id: "father", displayName: "Father", fullNames: ["Father Elder"]),
+            Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+            Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
         ])
         return FilingRouter.makeIndex(destinations: folders, profile: profile, memory: memory,
                                       registry: registry)
     }
 
     /// **The person axis picks the sibling.** Everything else about these two folders is identical,
-    /// so without it the winner is decided by the tie-break on the path — `School/Aditi` for every
-    /// child in the household, including Divit's report card.
+    /// so without it the winner is decided by the tie-break on the path — `School/Daughter` for every
+    /// child in the household, including Son's report card.
     @Test func thePersonAxisPicksBetweenSiblingPersonBuckets() {
         let idx = Self.siblingPersonIndex()
-        let divit = FilingRouter.rank(fileName: "Divit Abhishek - Report Card.pdf",
+        let son = FilingRouter.rank(fileName: "Son Father - Report Card.pdf",
                                       contentSnippet: "Trimester report card, attendance", index: idx)
-        #expect(divit.best?.relativePath == "School/Divit")
-        let aditi = FilingRouter.rank(fileName: "Aditi Abhishek - Report Card.pdf",
+        #expect(son.best?.relativePath == "School/Son")
+        let daughter = FilingRouter.rank(fileName: "Daughter Father - Report Card.pdf",
                                       contentSnippet: "Trimester report card, attendance", index: idx)
-        #expect(aditi.best?.relativePath == "School/Aditi")
+        #expect(daughter.best?.relativePath == "School/Daughter")
     }
 
     /// The father's name appears in both children's full names, and a document that is *his* must
@@ -333,7 +333,7 @@ import Testing
     /// folders belong to leaves both unpenalised — the tie stands rather than resolving wrongly.
     @Test func aSharedSurnameDoesNotAttributeAChildsFolder() {
         let idx = Self.siblingPersonIndex()
-        let r = FilingRouter.rank(fileName: "Abhishek Girish - Report Card.pdf",
+        let r = FilingRouter.rank(fileName: "Father Elder - Report Card.pdf",
                                   contentSnippet: "Trimester report card, attendance", index: idx)
         // Neither child is named, so neither bucket is confirmed OR contradicted: the two stay
         // level and the margin says the router cannot tell them apart.
@@ -343,41 +343,41 @@ import Testing
     /// **A contradiction has to demote, not merely fail to promote.** Confirmation alone is enough
     /// when two sibling buckets are otherwise identical, so the penalty only shows itself where the
     /// wrong person's folder is *winning on content* — which is the shape the real error had:
-    /// `Family/Aditi/Events` holds a pile of shower documents, and a shower invitation naming
-    /// Muktha matches all of them.
+    /// `Family/Daughter/Events` holds a pile of shower documents, and a shower invitation naming
+    /// Granny matches all of them.
     @Test func aFolderContentRanksFirstIsDemotedWhenItIsTheWrongPersons() {
-        let folders = ["Family/Aditi/Events", "Family/Muktha/Events"]
+        let folders = ["Family/Daughter/Events", "Family/Granny/Events"]
         func entry(_ path: String, person: String) -> FolderProfileEntry {
             FolderProfileEntry(path: path, role: .personBucket, naming: nil, anchors: [],
                                acceptsNewFiles: nil, fileCount: 4, subfolderCount: 0,
                                axes: ["person": person])
         }
-        let entries = [entry("Family/Aditi/Events", person: "Aditi"),
-                       entry("Family/Muktha/Events", person: "Muktha")]
+        let entries = [entry("Family/Daughter/Events", person: "Daughter"),
+                       entry("Family/Granny/Events", person: "Granny")]
         let profile = FolderProfile(profileId: "t", root: "~",
                                     folders: Dictionary(entries.map { ($0.path, $0) },
                                                         uniquingKeysWith: { a, _ in a }),
-                                    personTokens: ["aditi", "muktha", "girish"])
-        // Aditi's folder knows every word in this document; Muktha's knows one.
+                                    personTokens: ["daughter", "granny", "elder"])
+        // Daughter's folder knows every word in this document; Granny's knows one.
         let memory = FilingMemory(profileId: "t", salt: "s", folders: [
-            "Family/Aditi/Events": FilingMemoryEntry(
+            "Family/Daughter/Events": FilingMemoryEntry(
                 docs: 4,
                 anchors: ["shower", "invitation", "venue", "catering"]
                     .map { FilingMemoryToken(token: $0, weight: 3.0) }, idHashes: []),
-            "Family/Muktha/Events": FilingMemoryEntry(
+            "Family/Granny/Events": FilingMemoryEntry(
                 docs: 4, anchors: [FilingMemoryToken(token: "shower", weight: 3.0)], idHashes: []),
         ])
         let registry = PersonRegistry(people: [
-            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-            Person(id: "muktha", displayName: "Muktha", fullNames: ["Muktha Girish"]),
+            Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+            Person(id: "granny", displayName: "Granny", fullNames: ["Granny Elder"]),
         ])
         let idx = FilingRouter.makeIndex(destinations: folders, profile: profile, memory: memory,
                                          registry: registry)
-        let r = FilingRouter.rank(fileName: "Muktha Girish - Shower Invitation.pdf",
+        let r = FilingRouter.rank(fileName: "Granny Elder - Shower Invitation.pdf",
                                   contentSnippet: "Shower invitation — venue and catering details",
                                   index: idx)
-        #expect(r.best?.relativePath == "Family/Muktha/Events",
-                "the document names Muktha and went to Aditi's folder on content alone")
+        #expect(r.best?.relativePath == "Family/Granny/Events",
+                "the document names Granny and went to Daughter's folder on content alone")
     }
 
     /// A page that names the person routes a file whose name does not — the same channel the veto
@@ -385,27 +385,27 @@ import Testing
     @Test func aPageNamingThePersonRoutesANamelessFile() {
         let idx = Self.siblingPersonIndex()
         let r = FilingRouter.rank(fileName: "Scan 2026-08-02.pdf",
-                                  contentSnippet: "Trimester report card for Divit Abhishek, attendance",
+                                  contentSnippet: "Trimester report card for Son Father, attendance",
                                   index: idx)
-        #expect(r.best?.relativePath == "School/Divit")
+        #expect(r.best?.relativePath == "School/Son")
     }
 
     /// With no registry the axis is inert and the router behaves exactly as it did before — the
     /// "never been surveyed for people" machine, and the guard that this feature is additive.
     @Test func withNoRegistryThePersonAxisIsInert() {
-        let folders = ["School/Aditi", "School/Divit"]
+        let folders = ["School/Daughter", "School/Son"]
         let entries = [
-            FolderProfileEntry(path: "School/Aditi", role: .personBucket, naming: nil, anchors: [],
+            FolderProfileEntry(path: "School/Daughter", role: .personBucket, naming: nil, anchors: [],
                                acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
-                               axes: ["person": "Aditi"]),
-            FolderProfileEntry(path: "School/Divit", role: .personBucket, naming: nil, anchors: [],
+                               axes: ["person": "Daughter"]),
+            FolderProfileEntry(path: "School/Son", role: .personBucket, naming: nil, anchors: [],
                                acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
-                               axes: ["person": "Divit"]),
+                               axes: ["person": "Son"]),
         ]
         let profile = FolderProfile(profileId: "t", root: "~",
                                     folders: Dictionary(entries.map { ($0.path, $0) },
                                                         uniquingKeysWith: { a, _ in a }),
-                                    personTokens: ["aditi", "divit"])
+                                    personTokens: ["daughter", "son"])
         let idx = FilingRouter.makeIndex(destinations: folders, profile: profile, memory: nil)
         #expect(idx.folderPerson.isEmpty)
 
@@ -415,13 +415,13 @@ import Testing
         // registry is what turns it into one: the axis is inert *because* there is nobody to
         // resolve, not because nothing ever populates it.
         let registry = PersonRegistry(people: [
-            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+            Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+            Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
         ])
         let peopled = FilingRouter.makeIndex(destinations: folders, profile: profile, memory: nil,
                                              registry: registry)
-        #expect(peopled.folderPerson["School/Aditi"] == "aditi")
-        #expect(peopled.folderPerson["School/Divit"] == "divit")
+        #expect(peopled.folderPerson["School/Daughter"] == "daughter")
+        #expect(peopled.folderPerson["School/Son"] == "son")
     }
 
     // MARK: - Tokenizing, which must agree with the builder that wrote the memory
@@ -497,32 +497,32 @@ import Testing
     }
 
     /// **A folder and its own subfolder share their vocabulary by construction**, so content cannot
-    /// separate them — `Immigration/OCI/Divit` scored 1.388 and `.../Divit/Application` 1.374 for
-    /// `Divit OCI Photo.jpg`. The file names in them say it plainly: `Application/` already holds
-    /// `Divit OCI Photo - 4up print sheet.jpg`.
+    /// separate them — `Immigration/OCI/Son` scored 1.388 and `.../Son/Application` 1.374 for
+    /// `Son OCI Photo.jpg`. The file names in them say it plainly: `Application/` already holds
+    /// `Son OCI Photo - 4up print sheet.jpg`.
     @Test func namesAlreadyInTheFolderSeparateAParentFromItsChild() throws {
-        let r = Self.ranking([("Immigration/OCI/Divit", 1.388),
-                              ("Immigration/OCI/Divit/Application", 1.374)])
-        let names = ["Immigration/OCI/Divit": ["Divit - eOCI.pdf", "Divit OCI.pdf"],
-                     "Immigration/OCI/Divit/Application": ["Divit OCI Photo - 4up print sheet.jpg",
-                                                           "Divit OCI.jpg", "checklist.pdf"]]
-        let out = FilingRouter.rerankedByPeerNames(r, fileName: "Divit OCI Photo.jpg") {
+        let r = Self.ranking([("Immigration/OCI/Son", 1.388),
+                              ("Immigration/OCI/Son/Application", 1.374)])
+        let names = ["Immigration/OCI/Son": ["Son - eOCI.pdf", "Son OCI.pdf"],
+                     "Immigration/OCI/Son/Application": ["Son OCI Photo - 4up print sheet.jpg",
+                                                           "Son OCI.jpg", "checklist.pdf"]]
+        let out = FilingRouter.rerankedByPeerNames(r, fileName: "Son OCI Photo.jpg") {
             names[$0] ?? []
         }
-        #expect(out.best?.relativePath == "Immigration/OCI/Divit/Application")
+        #expect(out.best?.relativePath == "Immigration/OCI/Son/Application")
     }
 
-    /// **Coverage of the incoming name, not Jaccard.** `Divit OCI Photo - 4up print sheet` covers
-    /// all three tokens of `Divit OCI Photo`; `Divit OCI.pdf` covers two. Jaccard scores those the
+    /// **Coverage of the incoming name, not Jaccard.** `Son OCI Photo - 4up print sheet` covers
+    /// all three tokens of `Son OCI Photo`; `Son OCI.pdf` covers two. Jaccard scores those the
     /// same (0.67) and cannot separate the folders at all — this is the measure choice, pinned.
     @Test func aLongerPeerNameThatCoversTheWholeIncomingNameWins() {
-        let inc = "Divit OCI Photo"
+        let inc = "Son OCI Photo"
         func coverage(_ peer: String) -> Double {
             let i = Set(FilingRouter.tokenize(inc)), p = Set(FilingRouter.tokenize(peer))
             return Double(i.intersection(p).count) / Double(i.count)
         }
-        #expect(coverage("Divit OCI Photo - 4up print sheet") == 1.0)
-        #expect(coverage("Divit OCI") < 1.0)
+        #expect(coverage("Son OCI Photo - 4up print sheet") == 1.0)
+        #expect(coverage("Son OCI") < 1.0)
     }
 
     /// **Only between a folder and its own ancestor or descendant.** Between unrelated folders the
@@ -530,14 +530,14 @@ import Testing
     /// while the tune split moved −0.4, a disagreement in sign. An unrelated folder full of
     /// perfectly-covering names must not move.
     @Test func anUnrelatedFolderIsNotHelpedByItsNames() {
-        let r = Self.ranking([("Immigration/OCI/Divit", 1.0),
+        let r = Self.ranking([("Immigration/OCI/Son", 1.0),
                               ("Somewhere/Else", 0.9)])
-        let names = ["Immigration/OCI/Divit": ["nothing.pdf"],
-                     "Somewhere/Else": ["Divit OCI Photo exact.pdf"]]
-        let out = FilingRouter.rerankedByPeerNames(r, fileName: "Divit OCI Photo.jpg") {
+        let names = ["Immigration/OCI/Son": ["nothing.pdf"],
+                     "Somewhere/Else": ["Son OCI Photo exact.pdf"]]
+        let out = FilingRouter.rerankedByPeerNames(r, fileName: "Son OCI Photo.jpg") {
             names[$0] ?? []
         }
-        #expect(out.best?.relativePath == "Immigration/OCI/Divit", "an unrelated folder was boosted")
+        #expect(out.best?.relativePath == "Immigration/OCI/Son", "an unrelated folder was boosted")
     }
 
     /// With no peer names anywhere the ranking is returned untouched — the re-rank must not be a

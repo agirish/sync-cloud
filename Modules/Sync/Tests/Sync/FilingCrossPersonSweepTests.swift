@@ -21,18 +21,18 @@ import Testing
     static let root = "/root"
 
     static let household = PersonRegistry(people: [
-        Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-        Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+        Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+        Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
     ])
 
     static func profile() -> FolderProfile {
         let entries = [
-            FolderProfileEntry(path: "Immigration/OCI/Divit", role: .destination, naming: nil,
+            FolderProfileEntry(path: "Immigration/OCI/Son", role: .destination, naming: nil,
                                anchors: [], acceptsNewFiles: nil, fileCount: 3, subfolderCount: 0,
-                               axes: ["person": "Divit"]),
-            FolderProfileEntry(path: "Immigration/OCI/Aditi", role: .destination, naming: nil,
+                               axes: ["person": "Son"]),
+            FolderProfileEntry(path: "Immigration/OCI/Daughter", role: .destination, naming: nil,
                                anchors: [], acceptsNewFiles: nil, fileCount: 3, subfolderCount: 0,
-                               axes: ["person": "Aditi"]),
+                               axes: ["person": "Daughter"]),
             FolderProfileEntry(path: "Immigration/OCI", role: .container, naming: nil,
                                anchors: [], acceptsNewFiles: nil, fileCount: 0, subfolderCount: 2,
                                axes: [:]),
@@ -40,7 +40,7 @@ import Testing
         return FolderProfile(profileId: "t", root: "~",
                              folders: Dictionary(entries.map { ($0.path, $0) },
                                                  uniquingKeysWith: { a, _ in a }),
-                             personTokens: ["aditi", "divit"])
+                             personTokens: ["daughter", "son"])
     }
 
     static func dest(_ relative: String, remembered: Bool = false,
@@ -66,20 +66,20 @@ import Testing
 
     /// The whole point: a home nobody asked a model about is refused, and the next candidate leads.
     @Test func aWrongPersonHomeIsDroppedAndTheNextCandidateLeads() throws {
-        let out = Self.sweep([Self.card("Aditi OCI.pdf", [
-            Self.dest("Immigration/OCI/Divit"),
-            Self.dest("Immigration/OCI/Aditi"),
+        let out = Self.sweep([Self.card("Daughter OCI.pdf", [
+            Self.dest("Immigration/OCI/Son"),
+            Self.dest("Immigration/OCI/Daughter"),
         ])])
         let card = try #require(out.first)
         #expect(card.candidates.count == 1)
-        #expect(card.best?.path == "\(Self.root)/Immigration/OCI/Aditi")
+        #expect(card.best?.path == "\(Self.root)/Immigration/OCI/Daughter")
     }
 
     /// **Removal, not demotion.** A card whose only home is someone else's folder is the case the
     /// rule most exists for, and demoting a sole candidate leaves it leading. No home is the
     /// answer: the queue already renders that state, and the user can still file it by hand.
     @Test func aCardWhoseOnlyHomeIsAnothersFolderIsLeftWithNone() throws {
-        let out = Self.sweep([Self.card("Aditi OCI.pdf", [Self.dest("Immigration/OCI/Divit")])])
+        let out = Self.sweep([Self.card("Daughter OCI.pdf", [Self.dest("Immigration/OCI/Son")])])
         let card = try #require(out.first)
         #expect(card.candidates.isEmpty)
         #expect(card.best == nil)
@@ -90,11 +90,11 @@ import Testing
     /// user wrote, and an automation resolving `{person}` through this very registry would
     /// otherwise be refused by it.
     @Test func aRememberedHomeIsExempt() throws {
-        let out = Self.sweep([Self.card("Aditi OCI.pdf", [
-            Self.dest("Immigration/OCI/Divit", remembered: true),
+        let out = Self.sweep([Self.card("Daughter OCI.pdf", [
+            Self.dest("Immigration/OCI/Son", remembered: true),
         ])])
         let card = try #require(out.first)
-        #expect(card.best?.path == "\(Self.root)/Immigration/OCI/Divit")
+        #expect(card.best?.path == "\(Self.root)/Immigration/OCI/Son")
     }
 
     /// Reported once per card, for the highest-ranked refusal: the card had one home the user would
@@ -102,21 +102,21 @@ import Testing
     @Test func aCardReportsOneRefusalHoweverManyOfItsHomesAreRefused() throws {
         final class Box: @unchecked Sendable { var reports: [PersonVetoRefusal] = [] }
         let box = Box()
-        _ = Self.sweep([Self.card("Aditi OCI.pdf", [
-            Self.dest("Immigration/OCI/Divit"),
-            Self.dest("Immigration/OCI/Divit/Application"),
+        _ = Self.sweep([Self.card("Daughter OCI.pdf", [
+            Self.dest("Immigration/OCI/Son"),
+            Self.dest("Immigration/OCI/Son/Application"),
         ])], onVeto: { box.reports.append($0) })
         #expect(box.reports.count == 1)
         // The one the user would have been shown, not whichever was refused last.
-        #expect(box.reports.first?.destination == "Immigration/OCI/Divit")
+        #expect(box.reports.first?.destination == "Immigration/OCI/Son")
     }
 
     /// The other direction, so the sweep is not simply emptying every card: a correct home, and a
     /// folder with no person axis at all, both survive untouched — and an untouched card is
     /// returned as-is rather than rebuilt.
     @Test func correctAndUnownedHomesSurvive() throws {
-        let cards = [Self.card("Aditi OCI.pdf", [
-            Self.dest("Immigration/OCI/Aditi"),
+        let cards = [Self.card("Daughter OCI.pdf", [
+            Self.dest("Immigration/OCI/Daughter"),
             Self.dest("Immigration/Passports"),
         ])]
         let out = Self.sweep(cards)
@@ -126,7 +126,7 @@ import Testing
     /// No profile ⇒ no folder has a person axis ⇒ nothing to contradict. Pinned because the early
     /// return also skips the per-candidate work on a tree that was never surveyed.
     @Test func withoutAProfileNothingIsRefused() throws {
-        let cards = [Self.card("Aditi OCI.pdf", [Self.dest("Immigration/OCI/Divit")])]
+        let cards = [Self.card("Daughter OCI.pdf", [Self.dest("Immigration/OCI/Son")])]
         let out = FilingEngine.refusingCrossPersonHomes(
             cards, providerRoot: Self.root, profile: nil, registry: Self.household)
         #expect(out == cards)
@@ -136,8 +136,8 @@ import Testing
     /// gives `Scan 2026-08-02.pdf` an answer at all. Pinned here because the sweep is what passes
     /// the samples through, and passing an empty dictionary would silently disarm the tier.
     @Test func aNamelessFileIsJudgedOnItsPage() throws {
-        let card = Self.card("Scan 2026-08-02.pdf", [Self.dest("Immigration/OCI/Divit")])
-        let out = Self.sweep([card], pageSamples: [card.filePath: "Aditi Abhishek OCI application"])
+        let card = Self.card("Scan 2026-08-02.pdf", [Self.dest("Immigration/OCI/Son")])
+        let out = Self.sweep([card], pageSamples: [card.filePath: "Daughter Father OCI application"])
         #expect(out.first?.candidates.isEmpty == true)
         // …and with no sample, nothing is known and nothing is refused.
         #expect(Self.sweep([card]) == [card])
@@ -153,32 +153,32 @@ import Testing
         try Data(repeating: 0x41, count: bytes).write(to: url)
     }
 
-    /// A tree with Divit's OCI folder and a loose document named for Aditi. No classifier is
+    /// A tree with Son's OCI folder and a loose document named for Daughter. No classifier is
     /// injected, so `applyVerdicts` never runs — which is the ordinary state on a machine without
     /// Apple Intelligence, and was the state in which the rule could not fire at all.
     static func makeTree() throws -> (FileSyncManager, URL) {
         let root = try makeCanonicalTempRoot(prefix: "CrossPersonSweep")
-        try write(root.appendingPathComponent("Documents/Immigration/OCI/Divit/Divit - eOCI.pdf"))
-        try write(root.appendingPathComponent("Documents/Immigration/OCI/Divit/OCI Application.pdf"))
-        try write(root.appendingPathComponent("Downloads/Aditi OCI.pdf"))
+        try write(root.appendingPathComponent("Documents/Immigration/OCI/Son/Son - eOCI.pdf"))
+        try write(root.appendingPathComponent("Documents/Immigration/OCI/Son/OCI Application.pdf"))
+        try write(root.appendingPathComponent("Downloads/Daughter OCI.pdf"))
         let m = FileSyncManager()
         let entries = [
-            FolderProfileEntry(path: "Documents/Immigration/OCI/Divit", role: .destination,
+            FolderProfileEntry(path: "Documents/Immigration/OCI/Son", role: .destination,
                                naming: nil, anchors: ["oci"], acceptsNewFiles: nil,
-                               fileCount: 2, subfolderCount: 0, axes: ["person": "Divit"]),
+                               fileCount: 2, subfolderCount: 0, axes: ["person": "Son"]),
         ]
         m.filingFolderProfile = FolderProfile(
             profileId: "t", root: "~",
             folders: Dictionary(entries.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a }),
-            personTokens: ["aditi", "divit"])
+            personTokens: ["daughter", "son"])
         m.filingPersonRegistry = PersonRegistry(people: [
-            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+            Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+            Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
         ])
         return (m, root)
     }
 
-    /// **The scan.** Without the sweep the card leads with `…/OCI/Divit` — the keyword engine put
+    /// **The scan.** Without the sweep the card leads with `…/OCI/Son` — the keyword engine put
     /// it there on the strength of "oci", and nothing downstream looks at whose folder it is.
     @Test func theScanRefusesAnotherPersonsFolder() async throws {
         let (m, root) = try Self.makeTree()
@@ -189,14 +189,14 @@ import Testing
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
                                       providerRoot: root)
 
-        let card = try #require(m.filingSuggestions.first { $0.fileName == "Aditi OCI.pdf" })
+        let card = try #require(m.filingSuggestions.first { $0.fileName == "Daughter OCI.pdf" })
         // The premise, so this cannot pass by the engine simply never suggesting the folder.
         #expect(!card.candidates.isEmpty || log.events.count == 1,
-                "nothing suggested Divit's folder — the fixture stopped exercising the rule")
-        #expect(!card.candidates.contains { $0.path.hasSuffix("/OCI/Divit") },
+                "nothing suggested Son's folder — the fixture stopped exercising the rule")
+        #expect(!card.candidates.contains { $0.path.hasSuffix("/OCI/Son") },
                 "the scan offered one person's document a home in another's folder")
-        #expect(log.events.first?.proposedPerson == "divit")
-        #expect(log.events.first?.namedPerson == "aditi")
+        #expect(log.events.first?.proposedPerson == "son")
+        #expect(log.events.first?.namedPerson == "daughter")
     }
 
     /// **One page sample, so the scan and a later re-ask agree about who a document is about.**
@@ -213,11 +213,11 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let log = PersonVetoLog(userDefaults: UserDefaults(suiteName: "sweep-\(UUID().uuidString)")!)
         m.filingPersonVetoLog = log
-        // A nameless scan, whose page names Aditi only after 400 characters of filler.
+        // A nameless scan, whose page names Daughter only after 400 characters of filler.
         try Self.write(root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf"))
         let filler = String(repeating: "oci application overseas citizen india ", count: 40)
         try #require(filler.count > FilingRouter.contentSampleChars)
-        m.filingSnippetExtractor = { _ in filler + " Aditi Abhishek" }
+        m.filingSnippetExtractor = { _ in filler + " Daughter Father" }
         m.filingTokensFromText = { _ in ["oci"] }
         m.filingContentExtractor = { _ in ["oci"] }
 
@@ -225,27 +225,27 @@ import Testing
                                       providerRoot: root)
 
         let card = try #require(m.filingSuggestions.first { $0.fileName == "Scan 2026-08-02.pdf" })
-        // The premise: the scan really did offer Divit's folder for this file.
-        // The sibling card, whose FILENAME names Aditi, is refused as it should be — the fixture
+        // The premise: the scan really did offer Son's folder for this file.
+        // The sibling card, whose FILENAME names Daughter, is refused as it should be — the fixture
         // proves the rule is live in this scan rather than quietly absent.
-        try #require(log.events.contains { $0.fileName == "Aditi OCI.pdf" },
+        try #require(log.events.contains { $0.fileName == "Daughter OCI.pdf" },
                      "the rule did not fire at all here — the fixture stopped exercising it")
         #expect(!log.events.contains { $0.fileName == "Scan 2026-08-02.pdf" },
                 "a name past the sample cut decided the scan, which a re-ask could not see")
-        #expect(card.candidates.contains { $0.path.hasSuffix("/OCI/Divit") })
+        #expect(card.candidates.contains { $0.path.hasSuffix("/OCI/Son") })
     }
 
     /// **The OCR re-read.** `readScan` routes one card and writes the home straight onto it — no
     /// `applyVerdicts`, so before the sweep it was a second live way into someone else's folder.
     /// And the file it exists for is a scan with no text layer, which is the rule's own worked
-    /// example: `Divit - eOCI.pdf` extracts nothing.
+    /// example: `Son - eOCI.pdf` extracts nothing.
     @Test func theOCRReReadRefusesAnotherPersonsFolder() async throws {
         let (m, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
         let log = PersonVetoLog(userDefaults: UserDefaults(suiteName: "sweep-\(UUID().uuidString)")!)
         m.filingPersonVetoLog = log
         m.filingMemory = FilingMemory(profileId: "t", salt: "s", folders: [
-            "Documents/Immigration/OCI/Divit": FilingMemoryEntry(
+            "Documents/Immigration/OCI/Son": FilingMemoryEntry(
                 docs: 4, anchors: [FilingMemoryToken(token: "oci", weight: 4.0),
                                    FilingMemoryToken(token: "overseas", weight: 4.0)],
                 idHashes: []),
@@ -254,9 +254,9 @@ import Testing
         let scanPath = root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf").path
         try Self.write(URL(fileURLWithPath: scanPath))
         m.filingLastProviderRoot = root.path
-        m.prepareFilingRouter(destinations: ["Documents/Immigration/OCI/Divit"],
+        m.prepareFilingRouter(destinations: ["Documents/Immigration/OCI/Son"],
                               providerRoot: root.path)
-        m.filingOCRExtractor = { _ in "OCI Card Overseas Citizen of India — Aditi Abhishek" }
+        m.filingOCRExtractor = { _ in "OCI Card Overseas Citizen of India — Daughter Father" }
         let card = FilingSuggestion(filePath: scanPath, fileName: "Scan 2026-08-02.pdf", size: 5000,
                                     modificationDate: nil, candidates: [], providerRoot: root.path)
         m.publishFilingSuggestions([card])
@@ -265,6 +265,6 @@ import Testing
 
         #expect(changed == false, "the re-read accepted a home in another person's folder")
         #expect(m.filingSuggestions.first?.candidates.isEmpty == true)
-        #expect(log.events.first?.proposedPerson == "divit")
+        #expect(log.events.first?.proposedPerson == "son")
     }
 }

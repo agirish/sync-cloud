@@ -125,13 +125,13 @@ import Testing
     @Test func aHandBuiltProfileIsNeverSuperseded() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try Self.writeRaw(#"{"schemaVersion": 1, "profileId": "abhishek", "root": "~/Documents", "folders": []}"#,
-                          id: "abhishek", in: dir)
-        try Self.writeIndex(active: "abhishek", in: dir)
+        try Self.writeRaw(#"{"schemaVersion": 1, "profileId": "father", "root": "~/Documents", "folders": []}"#,
+                          id: "father", in: dir)
+        try Self.writeIndex(active: "father", in: dir)
 
         _ = try FilingProfileStore.writeProfile(Self.profile("derived"), in: dir)
 
-        #expect(FilingProfileStore.activeProfileId(in: dir) == "abhishek",
+        #expect(FilingProfileStore.activeProfileId(in: dir) == "father",
                 "a derived profile took over from a hand-built one")
         #expect(FilingProfileStore.profile(id: "derived", in: dir) != nil,
                 "the derived profile should still be written — it is refused the pointer, not the disk")

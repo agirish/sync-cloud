@@ -32,7 +32,7 @@ public struct PersonFile: Sendable, Equatable, Identifiable {
     /// Path relative to the surveyed root, as the corpus keys it.
     public let path: String
     public let evidence: PersonEvidence
-    /// The name form that matched, for `namedInFile` — "Aditi Abhishek", "Mom". Nil for a folder
+    /// The name form that matched, for `namedInFile` — "Daughter Father", "Mom". Nil for a folder
     /// match, where nothing in the document said anything.
     public let matchedForm: String?
 
@@ -141,7 +141,7 @@ public struct PersonFileSet: Sendable, Equatable {
     }
 }
 
-/// Answers "all of Aditi's files" — the question the People registry made possible and nothing yet
+/// Answers "all of Daughter's files" — the question the People registry made possible and nothing yet
 /// asks.
 ///
 /// **Read-only and computed on demand.** Nothing here is written, and no verdict is persisted: this
@@ -156,15 +156,15 @@ public struct PersonFileSet: Sendable, Equatable {
 /// (`FilingRouter.makeIndex`, `FilingEngine.applyVerdicts`, `PersonFilingFacts.make`,
 /// `PeopleOverview.make`), each of them asking it of a folder it already had. None of them could
 /// answer it for an arbitrary *file*, because that needs walking up the ancestors until a folder
-/// carries the axis — a document sits at `Family/Aditi/Classes/Swim/1.pdf` and the person axis is
+/// carries the axis — a document sits at `Family/Daughter/Classes/Swim/1.pdf` and the person axis is
 /// three levels above it. ``person(forPath:)`` is that walk, and it is the piece the whole feature
 /// was missing.
 public enum PersonFiles {
 
     /// The person whose folder this path is inside, nearest ancestor first.
     ///
-    /// **Nearest wins, and that is the whole subtlety.** `Immigration/OCI/Shweta/Aditi` is Aditi's
-    /// folder inside her mother's; attributing its contents to Shweta because her folder is also an
+    /// **Nearest wins, and that is the whole subtlety.** `Immigration/OCI/Mother/Daughter` is Daughter's
+    /// folder inside her mother's; attributing its contents to Mother because her folder is also an
     /// ancestor would be over-attribution of exactly the kind the registry's phrase matching took
     /// to zero. Walking up and stopping at the first resolvable axis gives the innermost claim.
     ///
@@ -187,13 +187,13 @@ public enum PersonFiles {
     /// Whether a filename match is strong enough to attribute **without asking**.
     ///
     /// **A shared word alone is not**, and the corpus says why in one number: attributing on any
-    /// match at all gave Dad *204* files "elsewhere" against 3 in his own folders, because `girish`
+    /// match at all gave Dad *204* files "elsewhere" against 3 in his own folders, because `elder`
     /// is his first name, his wife's surname and his son's surname, so it appears on every document
-    /// any of the three ever touched — `Muktha Girish - 2015-Win8MapR.pdf` among them.
+    /// any of the three ever touched — `Granny Elder - 2015-Win8MapR.pdf` among them.
     ///
     /// Two things are strong enough. A **phrase** — the matcher consumed a multi-word form, so
-    /// "Aditi Abhishek" is hers and spends the surname doing it. Or a token **unique to her** in
-    /// the roster: `dani`, `muktha`, `divit` name exactly one person and nobody else can claim
+    /// "Daughter Father" is hers and spends the surname doing it. Or a token **unique to her** in
+    /// the roster: `maiden`, `granny`, `son` name exactly one person and nobody else can claim
     /// them.
     ///
     /// This is the same discipline that took the router's over-attribution from 36 to 0, applied
@@ -235,7 +235,7 @@ public enum PersonFiles {
     /// way so a diff of two corpora shows real change, which means word order is gone by the time
     /// anything reads them back. Two consequences, both measured over the live tree:
     ///
-    /// - **Real phrases are lost.** "Aditi Abhishek" on page 1 sorts to `abhishek … aditi`, so the
+    /// - **Real phrases are lost.** "Daughter Father" on page 1 sorts to `father … daughter`, so the
     ///   phrase matcher cannot see it and the page can only ever contribute single distinctive
     ///   words. That is a ceiling on this channel, not a bug in it.
     /// - **Phrases could in principle be invented**, from tokens that happen to land next to each
@@ -258,7 +258,7 @@ public enum PersonFiles {
     /// case this channel exists for: her disability claim, his bank KYC form, her mother's broker
     /// form — scans whose names say nothing at all.
     ///
-    /// Note what this is *not*: it is not the strength gate. `dani` is unique to Shweta and passes
+    /// Note what this is *not*: it is not the strength gate. `maiden` is unique to Mother and passes
     /// ``isStrong`` easily, and it is on all 2,011 of those rows. Strength asks "could this word
     /// mean somebody else"; this asks "is this document about one person or a household".
     static func pageNamesOnly(_ personId: String, in report: PersonMatchReport) -> PersonMatch? {

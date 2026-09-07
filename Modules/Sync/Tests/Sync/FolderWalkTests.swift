@@ -20,13 +20,13 @@ import Testing
 
     /// A small tree with the shapes the builder reads: a container, an inbox, a person bucket.
     private static func tree(in root: URL) throws {
-        for path in ["Finance", "Finance/Receipts", "Finance/TODO", "Family", "Family/Shweta"] {
+        for path in ["Finance", "Finance/Receipts", "Finance/TODO", "Family", "Family/Mother"] {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(path),
                                                     withIntermediateDirectories: true)
         }
         try "x".write(to: root.appendingPathComponent("Finance/Receipts/2024 receipt.pdf"),
                       atomically: true, encoding: .utf8)
-        try "x".write(to: root.appendingPathComponent("Family/Shweta/passport.pdf"),
+        try "x".write(to: root.appendingPathComponent("Family/Mother/passport.pdf"),
                       atomically: true, encoding: .utf8)
     }
 
@@ -63,7 +63,7 @@ import Testing
     @Test func onlyConfirmedPlacesBecomeJurisdictions() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
-        for path in ["Finance/US", "Finance/HPE", "Legal/US"] {
+        for path in ["Finance/US", "Finance/EMP", "Legal/US"] {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(path),
                                                     withIntermediateDirectories: true)
         }
@@ -75,7 +75,7 @@ import Testing
 
         let written = try #require(FilingProfileStore.profile(id: report.profileId, in: profiles))
         #expect(written.folders["Finance/US"]?.axes["jurisdiction"] == "US")
-        #expect(written.folders["Finance/HPE"]?.axes["jurisdiction"] == nil,
+        #expect(written.folders["Finance/EMP"]?.axes["jurisdiction"] == nil,
                 "an unconfirmed value became a jurisdiction — the whole error is in the guessing")
     }
 
@@ -200,12 +200,12 @@ import Testing
         try Self.tree(in: root)
 
         // A hand-built profile: no `builtBy` header at all, which is how every one of them reads.
-        let handBuilt = profiles.appendingPathComponent("abhishek")
+        let handBuilt = profiles.appendingPathComponent("father")
         try FileManager.default.createDirectory(at: handBuilt, withIntermediateDirectories: true)
-        try #"{"schemaVersion": 1, "profileId": "abhishek", "root": "~/Documents", "folders": []}"#
+        try #"{"schemaVersion": 1, "profileId": "father", "root": "~/Documents", "folders": []}"#
             .write(to: handBuilt.appendingPathComponent("folder-profile.json"),
                    atomically: true, encoding: .utf8)
-        try #"{"schemaVersion": 1, "activeProfileId": "abhishek"}"#
+        try #"{"schemaVersion": 1, "activeProfileId": "father"}"#
             .write(to: profiles.appendingPathComponent("profiles.json"),
                    atomically: true, encoding: .utf8)
 
@@ -216,7 +216,7 @@ import Testing
         #expect(!report.becameActive)
         #expect(report.summary.contains("did not write"),
                 "the summary reads as plain success — a user would not know it changed nothing")
-        #expect(FilingProfileStore.activeProfileId(in: profiles) == "abhishek")
+        #expect(FilingProfileStore.activeProfileId(in: profiles) == "father")
         #expect(FilingProfileStore.profile(id: report.profileId, in: profiles) != nil,
                 "the derived profile should be on disk — it is refused the pointer, not the write")
     }

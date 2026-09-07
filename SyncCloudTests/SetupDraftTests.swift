@@ -27,9 +27,9 @@ import Testing
         let url = dir.appendingPathComponent("setup-draft.json")
 
         var draft = SetupDraft()
-        draft.yourName = "Abhishek"
-        draft.yourFullNames = ["Abhishek Girish", "Abhishek R Girish"]
-        draft.others = [SetupDraft.DraftPerson(displayName: "Shweta", relationship: "wife")]
+        draft.yourName = "Father"
+        draft.yourFullNames = ["Father Elder", "Father I Elder"]
+        draft.others = [SetupDraft.DraftPerson(displayName: "Mother", relationship: "wife")]
         SetupDraftStore.write(draft, to: url)
 
         #expect(SetupDraftStore.read(at: url) == draft)
@@ -50,7 +50,7 @@ import Testing
         let dir = try Self.scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("setup-draft.json")
-        try #"{"schemaVersion": 99, "draft": {"yourName": "Abhishek", "yourFullNames": [], "others": []}}"#
+        try #"{"schemaVersion": 99, "draft": {"yourName": "Father", "yourFullNames": [], "others": []}}"#
             .write(to: url, atomically: true, encoding: .utf8)
         #expect(SetupDraftStore.read(at: url) == nil)
     }
@@ -135,7 +135,7 @@ import Testing
 
     @Test func anEmptyDraftKnowsItIsEmpty() {
         #expect(SetupDraft().isEmpty)
-        var named = SetupDraft(); named.yourName = "Abhishek"
+        var named = SetupDraft(); named.yourName = "Father"
         #expect(!named.isEmpty)
         var blank = SetupDraft(); blank.yourName = "   "
         #expect(blank.isEmpty, "whitespace is not a name")
@@ -148,22 +148,22 @@ import Testing
     /// suffixed one. Your own record is what every other surface resolves through.
     @Test func youLeadTheRosterAndAreMarkedAsYou() throws {
         var draft = SetupDraft()
-        draft.yourName = "Abhishek"
-        draft.yourFullNames = ["Abhishek Girish"]
-        draft.others = [SetupDraft.DraftPerson(displayName: "Shweta")]
+        draft.yourName = "Father"
+        draft.yourFullNames = ["Father Elder"]
+        draft.others = [SetupDraft.DraftPerson(displayName: "Mother")]
 
         let everyone = draft.everyone
         #expect(everyone.count == 2)
         let first = try #require(everyone.first)
-        #expect(first.displayName == "Abhishek")
+        #expect(first.displayName == "Father")
         #expect(first.relationship == "me")
-        #expect(first.fullNames == ["Abhishek Girish"])
+        #expect(first.fullNames == ["Father Elder"])
     }
 
     @Test func anUnnamedYouIsSimplyAbsentFromTheRoster() {
         var draft = SetupDraft()
-        draft.others = [SetupDraft.DraftPerson(displayName: "Shweta")]
-        #expect(draft.everyone.map(\.displayName) == ["Shweta"])
+        draft.others = [SetupDraft.DraftPerson(displayName: "Mother")]
+        #expect(draft.everyone.map(\.displayName) == ["Mother"])
     }
 
     // MARK: - As a registry for the walk
@@ -171,11 +171,11 @@ import Testing
     /// The draft becomes the household the walk is built with.
     @Test func theDraftBecomesARegistryTheWalkCanUse() throws {
         var draft = SetupDraft()
-        draft.yourName = "Abhishek"
-        draft.others = [SetupDraft.DraftPerson(displayName: "Shweta")]
+        draft.yourName = "Father"
+        draft.others = [SetupDraft.DraftPerson(displayName: "Mother")]
 
         let registry = try #require(draft.registry)
-        #expect(Set(registry.people.map(\.displayName)) == ["Abhishek", "Shweta"])
+        #expect(Set(registry.people.map(\.displayName)) == ["Father", "Mother"])
         #expect(registry.people.first?.relationship == "me", "you should lead, marked as you")
     }
 
@@ -220,16 +220,16 @@ import Testing
         let store = emptyStore(in: dir)
 
         var draft = SetupDraft()
-        draft.yourName = "Abhishek"
-        draft.yourFullNames = ["Abhishek Girish"]
-        draft.others = [SetupDraft.DraftPerson(displayName: "Shweta", relationship: "wife")]
+        draft.yourName = "Father"
+        draft.yourFullNames = ["Father Elder"]
+        draft.others = [SetupDraft.DraftPerson(displayName: "Mother", relationship: "wife")]
 
         let result = SetupDraft.apply(draft, to: store)
         #expect(result.added == 2)
-        #expect(Set(store.people.map(\.displayName)) == ["Abhishek", "Shweta"])
-        let me = try #require(store.people.first { $0.displayName == "Abhishek" })
+        #expect(Set(store.people.map(\.displayName)) == ["Father", "Mother"])
+        let me = try #require(store.people.first { $0.displayName == "Father" })
         #expect(me.relationship == "me")
-        #expect(me.fullNames == ["Abhishek Girish"])
+        #expect(me.fullNames == ["Father Elder"])
     }
 
     /// Applying twice must not produce two of anybody.
@@ -246,15 +246,15 @@ import Testing
         let store = emptyStore(in: dir)
 
         var draft = SetupDraft()
-        draft.yourName = "Abhishek"
-        draft.others = [SetupDraft.DraftPerson(displayName: "Shweta")]
+        draft.yourName = "Father"
+        draft.others = [SetupDraft.DraftPerson(displayName: "Mother")]
 
         SetupDraft.apply(draft, to: store)
         let second = SetupDraft.apply(draft, to: store)
 
         #expect(second.added == 0)
         #expect(store.people.count == 2)
-        #expect(store.people.filter { $0.displayName == "Abhishek" }.count == 1)
+        #expect(store.people.filter { $0.displayName == "Father" }.count == 1)
     }
 
     /// A name that differs only in case is the same person.
@@ -263,13 +263,13 @@ import Testing
         let dir = try Self.scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
-        store.add(displayName: "shweta")
+        store.add(displayName: "mother")
 
         var draft = SetupDraft()
-        draft.others = [SetupDraft.DraftPerson(displayName: "Shweta")]
+        draft.others = [SetupDraft.DraftPerson(displayName: "Mother")]
         SetupDraft.apply(draft, to: store)
 
-        #expect(store.people.count == 1, "“Shweta” and “shweta” are one person")
+        #expect(store.people.count == 1, "“Mother” and “mother” are one person")
     }
 
     /// Setup adds to a record; it never takes anything out of one.
@@ -282,18 +282,18 @@ import Testing
         let dir = try Self.scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
-        store.add(displayName: "Abhishek", relationship: "me",
-                  fullNames: ["Abhishek Ravindra Girish"])
+        store.add(displayName: "Father", relationship: "me",
+                  fullNames: ["Father Inlaw Elder"])
 
         var draft = SetupDraft()
-        draft.yourName = "Abhishek"
-        draft.yourFullNames = ["Abhishek Girish"]
+        draft.yourName = "Father"
+        draft.yourFullNames = ["Father Elder"]
         let result = SetupDraft.apply(draft, to: store)
 
         #expect(result.updated == 1)
         let me = try #require(store.people.first)
-        #expect(me.fullNames.contains("Abhishek Ravindra Girish"), "the hand-typed form was deleted")
-        #expect(me.fullNames.contains("Abhishek Girish"))
+        #expect(me.fullNames.contains("Father Inlaw Elder"), "the hand-typed form was deleted")
+        #expect(me.fullNames.contains("Father Elder"))
     }
 
     /// The same form in a different case is not a new form.
@@ -302,15 +302,15 @@ import Testing
         let dir = try Self.scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
-        store.add(displayName: "Abhishek", fullNames: ["abhishek girish"])
+        store.add(displayName: "Father", fullNames: ["father elder"])
 
         var draft = SetupDraft()
-        draft.yourName = "Abhishek"
-        draft.yourFullNames = ["Abhishek Girish"]
+        draft.yourName = "Father"
+        draft.yourFullNames = ["Father Elder"]
         SetupDraft.apply(draft, to: store)
 
         let me = try #require(store.people.first)
-        #expect(me.fullNames.count == 1, "“Abhishek Girish” was added beside “abhishek girish”")
+        #expect(me.fullNames.count == 1, "“Father Elder” was added beside “father elder”")
     }
 
     /// The mutation that proves the two tests above are looking at anything.
@@ -323,11 +323,11 @@ import Testing
         let dir = try Self.scratchDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = emptyStore(in: dir)
-        store.add(displayName: "Abhishek", fullNames: ["Abhishek Girish"])
+        store.add(displayName: "Father", fullNames: ["Father Elder"])
 
         var draft = SetupDraft()
-        draft.yourName = "Abhishek"
-        draft.yourFullNames = ["A. R. Girish"]
+        draft.yourName = "Father"
+        draft.yourFullNames = ["F. I. Elder"]
         SetupDraft.apply(draft, to: store)
 
         let me = try #require(store.people.first)

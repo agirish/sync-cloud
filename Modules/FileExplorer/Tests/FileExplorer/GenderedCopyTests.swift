@@ -7,7 +7,7 @@ import Testing
 /// The person panel is drawn for whoever is scoped — seven people on the live roster — and for a
 /// while four of its strings said *hers*: the header capsule ("992 hers"), both group titles ("In
 /// her folders", "Hers, filed elsewhere") and the misfiling subtitle. Nothing failed, because the
-/// fixtures ``PersonViewTests`` renders are `aditi` and `shweta`; the copy was simply wrong for
+/// fixtures ``PersonViewTests`` renders are `daughter` and `mother`; the copy was simply wrong for
 /// everyone else, on screen, from the day it shipped. The rest of ``PersonView`` — the gathering
 /// line, the empty state — already said *theirs* and *them*, so the file disagreed with itself.
 ///
@@ -206,7 +206,7 @@ import Testing
     /// Every shipping `.swift` file: each module's `Sources`, the app target, and the CLI.
     ///
     /// Tests are excluded — they say "hers" about the fixture person all over, correctly, and a
-    /// fixture named Aditi is not copy. `.build` is excluded because it holds vendored packages.
+    /// fixture named Daughter is not copy. `.build` is excluded because it holds vendored packages.
     static func sourceFiles() throws -> [SourceFile] {
         let root = URL(fileURLWithPath: #filePath)                // …/Tests/FileExplorer/<this>
             .deletingLastPathComponent()                          // …/Tests/FileExplorer

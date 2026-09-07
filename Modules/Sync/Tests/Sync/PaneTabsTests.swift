@@ -142,13 +142,13 @@ import Events
 
         let saving = strip.replacingActive(providerId: "Dropbox",
                                            relativePath: "School",
-                                           browsePath: PaneBrowsePath(relativePath: "US/Aditi"))
+                                           browsePath: PaneBrowsePath(relativePath: "US/Daughter"))
 
         #expect(saving.active.providerId == "Dropbox",
                 "the save stored the tab's parked source rather than the pane's live one")
         #expect(saving.active.relativePath == "School")
-        #expect(saving.active.browsePath.relativePath == "US/Aditi")
-        #expect(saving.active.combinedRelativePath == "School/US/Aditi")
+        #expect(saving.active.browsePath.relativePath == "US/Daughter")
+        #expect(saving.active.combinedRelativePath == "School/US/Daughter")
         // The id: a save is the same tab with a newer location, and the strip's `ForEach` is keyed
         // on it.
         #expect(saving.active.id == live.id, "the saved entry is a different tab from the one it replaced")
@@ -798,7 +798,7 @@ import Events
         let defaults = ScratchDefaults("PaneTabsStore-stack")
         let tab = PaneTab(providerId: "iCloud",
                           relativePath: "School",
-                          browsePath: PaneBrowsePath(relativePath: "US/Aditi/Homework"))
+                          browsePath: PaneBrowsePath(relativePath: "US/Daughter/Homework"))
         PaneTabsStore.save(tabs: [tab], selected: 0, isLeft: true, to: defaults)
 
         let loaded = PaneTabsStore.load(isLeft: true, from: defaults)
@@ -806,14 +806,14 @@ import Events
                                              isKnownProvider: { _ in true },
                                              folderExists: { _, _ in true })
         #expect(restored?.list.active.relativePath == "School", "the scope came back wrong")
-        #expect(restored?.list.active.browsePath.relativePath == "US/Aditi/Homework",
+        #expect(restored?.list.active.browsePath.relativePath == "US/Daughter/Homework",
                 "the column stack did not survive the quit")
         // What the user actually sees, and the only assertion that speaks in columns: the stack
         // draws one column per component on top of the scope's own.
         #expect(restored?.list.active.browsePath.depth == 3)
         // …and the joined location is unchanged, which is what keeps the header's path line reading
         // the same string it did before the quit.
-        #expect(restored?.list.active.combinedRelativePath == "School/US/Aditi/Homework")
+        #expect(restored?.list.active.combinedRelativePath == "School/US/Daughter/Homework")
     }
 
     /// **The active tab's columns, end to end through the thing that actually writes them.**
@@ -830,11 +830,11 @@ import Events
                                 selectedIndex: 0)
         let saving = strip.replacingActive(providerId: "iCloud",
                                            relativePath: "School",
-                                           browsePath: PaneBrowsePath(relativePath: "US/Aditi/Homework"))
+                                           browsePath: PaneBrowsePath(relativePath: "US/Daughter/Homework"))
         PaneTabsStore.save(tabs: saving.tabs, selected: saving.selectedIndex, isLeft: true, to: defaults)
 
         let loaded = PaneTabsStore.load(isLeft: true, from: defaults)
-        #expect(loaded?.entries.first?.relativePath == "School/US/Aditi/Homework",
+        #expect(loaded?.entries.first?.relativePath == "School/US/Daughter/Homework",
                 "the tab on screen was saved where it was parked, not where it is")
         #expect(loaded?.entries.first?.stackDepth == 3,
                 "the active tab's columns were flattened on the way to disk")
@@ -866,7 +866,7 @@ import Events
     /// did: all scope, one column.
     @Test func aStripWrittenBeforeTheStackWasPersistedStillDecodes() {
         let defaults = ScratchDefaults("PaneTabsStore-legacyStack")
-        defaults.set(#"[{"providerId":"iCloud","relativePath":"School/US/Aditi"}]"#,
+        defaults.set(#"[{"providerId":"iCloud","relativePath":"School/US/Daughter"}]"#,
                      forKey: PaneTabsStore.tabsKey)
         let loaded = PaneTabsStore.load(isLeft: true, from: defaults)
         #expect(loaded?.entries.count == 1, "a strip without the new key was rejected wholesale")
@@ -874,7 +874,7 @@ import Events
         let restored = PaneTabsStore.restore(entries: loaded?.entries ?? [], selected: 0,
                                              isKnownProvider: { _ in true },
                                              folderExists: { _, _ in true })
-        #expect(restored?.list.active.relativePath == "School/US/Aditi")
+        #expect(restored?.list.active.relativePath == "School/US/Daughter")
         #expect(restored?.list.active.browsePath.isEmpty == true)
     }
 
@@ -886,11 +886,11 @@ import Events
         let defaults = ScratchDefaults("PaneTabsStore-forward")
         let tab = PaneTab(providerId: "iCloud",
                           relativePath: "School",
-                          browsePath: PaneBrowsePath(relativePath: "US/Aditi/Homework"))
+                          browsePath: PaneBrowsePath(relativePath: "US/Daughter/Homework"))
         PaneTabsStore.save(tabs: [tab], selected: 0, isLeft: true, to: defaults)
         let raw = defaults.string(forKey: PaneTabsStore.tabsKey) ?? ""
-        #expect(raw.contains(#""relativePath":"School\/US\/Aditi\/Homework""#)
-                    || raw.contains(#""relativePath":"School/US/Aditi/Homework""#),
+        #expect(raw.contains(#""relativePath":"School\/US\/Daughter\/Homework""#)
+                    || raw.contains(#""relativePath":"School/US/Daughter/Homework""#),
                 "the stored path is no longer the whole location: \(raw)")
     }
 
@@ -922,7 +922,7 @@ import Events
     @Test func aTabDrilledFromTheRootKeepsEveryColumnAndReportsAnEmptyScope() {
         let defaults = ScratchDefaults("PaneTabsStore-rootDrilled")
         let tab = PaneTab(providerId: "iCloud",
-                          browsePath: PaneBrowsePath(relativePath: "School/US/Aditi/Homework"))
+                          browsePath: PaneBrowsePath(relativePath: "School/US/Daughter/Homework"))
         PaneTabsStore.save(tabs: [tab], selected: 0, isLeft: true, to: defaults)
         #expect(PaneTabsStore.load(isLeft: true, from: defaults)?.entries.first?.stackDepth == 4)
 
@@ -932,7 +932,7 @@ import Events
                                              folderExists: { _, _ in true })
         #expect(restored?.list.active.relativePath == "", "a root drill should re-root nothing")
         #expect(restored?.list.active.browsePath.depth == 4, "the columns did not survive")
-        #expect(restored?.list.active.combinedRelativePath == "School/US/Aditi/Homework")
+        #expect(restored?.list.active.combinedRelativePath == "School/US/Daughter/Homework")
         // The guard that reads this: an empty SCOPE must not read as "this tab is at the root".
         #expect(restored?.list.isSeedState == false,
                 "a strip holding a four-column tab was mistaken for a fresh install and skipped")
@@ -1017,7 +1017,7 @@ import Events
     /// stack kept here would point the pane's New Folder and paste at a path that does not exist.
     @Test func aTabWhoseFolderIsGoneLosesItsStackToo() {
         let entries = [PaneTabsStore.Entry(providerId: "iCloud",
-                                           relativePath: "School/US/Aditi/Homework", stackDepth: 3)]
+                                           relativePath: "School/US/Daughter/Homework", stackDepth: 3)]
         let restored = PaneTabsStore.restore(entries: entries, selected: 0,
                                              isKnownProvider: { _ in true },
                                              folderExists: { _, _ in false })

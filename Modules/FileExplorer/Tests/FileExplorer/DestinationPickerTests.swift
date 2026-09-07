@@ -44,7 +44,7 @@ import Sync
     /// the footer path and the highlighted column agree.
     @Test func testTheStackResolvesBackToTheFolderItOpenedOn() {
         let root = "/p"
-        for folder in ["/p", "/p/Health", "/p/Health/Medical/Kaiser/Divit"] {
+        for folder in ["/p", "/p/Health", "/p/Health/Medical/Kaiser/Son"] {
             let path = DestinationPicker.browsePath(for: folder, under: root)
             #expect(path.currentDirectory(treeRoot: root) == folder, "round trip failed for \(folder)")
         }

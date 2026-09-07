@@ -13,31 +13,31 @@ import Testing
 @Suite struct PersonUnlearnWiringTests {
 
     static let household = PersonRegistry(people: [
-        Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-        Person(id: "muktha", displayName: "Muktha", aliases: ["Mom"]),
+        Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+        Person(id: "granny", displayName: "Granny", aliases: ["Mom"]),
     ])
 
     static func profile() -> FolderProfile {
         var folders: [String: FolderProfileEntry] = [:]
-        for (path, person) in [("Immigration/Passport/Muktha", "Muktha"), ("School/Aditi", "Aditi")] {
+        for (path, person) in [("Immigration/Passport/Granny", "Granny"), ("School/Daughter", "Daughter")] {
             folders[path] = FolderProfileEntry(path: path, role: .personBucket, naming: nil,
                                                anchors: [], acceptsNewFiles: nil, fileCount: 3,
                                                subfolderCount: 0, axes: ["person": person])
         }
         return FolderProfile(profileId: "p", root: "~", folders: folders,
-                             personTokens: ["muktha", "aditi"])
+                             personTokens: ["granny", "daughter"])
     }
 
-    /// The number in both folders — hers eleven times, Aditi's once by mistake.
+    /// The number in both folders — hers eleven times, Daughter's once by mistake.
     static let contested = "z1234567"
-    static let misfiled = "School/Aditi/Scan 2026-08-02.pdf"
+    static let misfiled = "School/Daughter/Scan 2026-08-02.pdf"
 
     static func memory(salt: String = "s") -> FilingMemory {
         let hash = FilingMemory.hash(contested, salt: salt)
         let entry = FilingMemoryEntry(docs: 4, anchors: [],
                                       idHashes: [FilingMemoryToken(token: hash, weight: 3.0)])
         return FilingMemory(profileId: "p", salt: salt,
-                            folders: ["Immigration/Passport/Muktha": entry, "School/Aditi": entry])
+                            folders: ["Immigration/Passport/Granny": entry, "School/Daughter": entry])
     }
 
     static func corpus(salt: String = "s") -> FilingCorpus {
@@ -66,8 +66,8 @@ import Testing
         return (m, dir)
     }
 
-    /// **The whole path, end to end.** Two claimants silence the identifier; pressing "not Aditi's"
-    /// hands it back to Muktha — without a relaunch, and without anything else moving.
+    /// **The whole path, end to end.** Two claimants silence the identifier; pressing "not Daughter's"
+    /// hands it back to Granny — without a relaunch, and without anything else moving.
     @Test func aVerdictRecordedNowChangesTheIndexNow() throws {
         let (m, dir) = try Self.makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -76,16 +76,16 @@ import Testing
         try #require(m.filingPersonIdentity.isEmpty,
                      "the fixture stopped reproducing the silenced identifier")
 
-        m.filingPersonTagStore?.record(personId: "aditi", key: .path(Self.misfiled),
+        m.filingPersonTagStore?.record(personId: "daughter", key: .path(Self.misfiled),
                                        verdict: .rejected, path: Self.misfiled)
 
-        #expect(m.filingPersonIdentity.count(for: "muktha") == 1,
+        #expect(m.filingPersonIdentity.count(for: "granny") == 1,
                 "the index did not rebuild when the verdict was recorded")
-        #expect(m.filingPersonIdentity.count(for: "aditi") == 0)
+        #expect(m.filingPersonIdentity.count(for: "daughter") == 0)
         // And the tier that reads it now answers, which is what the user actually sees.
         #expect(Self.household.attribute(fileName: "Scan.pdf",
                                          pageSample: "passport no \(Self.contested)",
-                                         identity: m.filingPersonIdentity) == ["muktha"])
+                                         identity: m.filingPersonIdentity) == ["granny"])
     }
 
     /// **The same correction, on a tree whose folder name and `profileId` field disagree.**
@@ -108,23 +108,23 @@ import Testing
         m.filingProfileDirectoryId = "p"
         m.filingFolderProfile = FolderProfile(profileId: "default", root: "~",
                                               folders: Self.profile().folders,
-                                              personTokens: ["muktha", "aditi"])
+                                              personTokens: ["granny", "daughter"])
         try #require(m.filingPersonIdentity.isEmpty,
                      "the fixture stopped reproducing the silenced identifier")
 
-        m.filingPersonTagStore?.record(personId: "aditi", key: .path(Self.misfiled),
+        m.filingPersonTagStore?.record(personId: "daughter", key: .path(Self.misfiled),
                                        verdict: .rejected, path: Self.misfiled)
 
-        #expect(m.filingPersonIdentity.count(for: "muktha") == 1,
+        #expect(m.filingPersonIdentity.count(for: "granny") == 1,
                 "the rejection was read against the wrong folder, so it withdrew nothing")
-        #expect(m.filingPersonIdentity.count(for: "aditi") == 0)
+        #expect(m.filingPersonIdentity.count(for: "daughter") == 0)
     }
 
     /// A confirmation moves nothing — it rebuilds, and the index is what it was.
     @Test func aConfirmationLeavesTheIndexAlone() throws {
         let (m, dir) = try Self.makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        m.filingPersonTagStore?.record(personId: "muktha", key: .path(Self.misfiled),
+        m.filingPersonTagStore?.record(personId: "granny", key: .path(Self.misfiled),
                                        verdict: .confirmed, path: Self.misfiled)
         #expect(m.filingPersonIdentity.isEmpty)
     }
@@ -139,18 +139,18 @@ import Testing
     @Test func theCorpusIsNotReReadForEveryVerdict() throws {
         let (m, dir) = try Self.makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        m.filingPersonTagStore?.record(personId: "aditi", key: .path(Self.misfiled),
+        m.filingPersonTagStore?.record(personId: "daughter", key: .path(Self.misfiled),
                                        verdict: .rejected, path: Self.misfiled)
-        try #require(m.filingPersonIdentity.count(for: "muktha") == 1,
+        try #require(m.filingPersonIdentity.count(for: "granny") == 1,
                      "the first rejection did not take effect, so the cache below proves nothing")
 
         // Break the corpus. Anything that reads it again now answers nil and the un-learn collapses.
         try Data("{ not json at all".utf8)
             .write(to: dir.appendingPathComponent("p/filing-corpus.json"))
 
-        m.filingPersonTagStore?.record(personId: "muktha", key: .path("other.pdf"),
+        m.filingPersonTagStore?.record(personId: "granny", key: .path("other.pdf"),
                                        verdict: .confirmed, path: "other.pdf")
-        #expect(m.filingPersonIdentity.count(for: "muktha") == 1,
+        #expect(m.filingPersonIdentity.count(for: "granny") == 1,
                 "the corpus was re-read for a verdict that changed no rejection")
     }
 
@@ -158,15 +158,15 @@ import Testing
     @Test func aNewRejectionReReadsTheCorpus() throws {
         let (m, dir) = try Self.makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        m.filingPersonTagStore?.record(personId: "aditi", key: .path(Self.misfiled),
+        m.filingPersonTagStore?.record(personId: "daughter", key: .path(Self.misfiled),
                                        verdict: .rejected, path: Self.misfiled)
-        try #require(m.filingPersonIdentity.count(for: "muktha") == 1)
+        try #require(m.filingPersonIdentity.count(for: "granny") == 1)
 
-        // A second rejection, this time for Muktha's own claim, withdraws the identifier from her
+        // A second rejection, this time for Granny's own claim, withdraws the identifier from her
         // too — which can only happen if the corpus was consulted again.
-        m.filingPersonTagStore?.record(personId: "muktha", key: .path(Self.misfiled),
+        m.filingPersonTagStore?.record(personId: "granny", key: .path(Self.misfiled),
                                        verdict: .rejected, path: Self.misfiled)
-        #expect(m.filingPersonIdentity.count(for: "muktha") == 0,
+        #expect(m.filingPersonIdentity.count(for: "granny") == 0,
                 "a new rejection was answered from the cache")
     }
 
@@ -190,7 +190,7 @@ import Testing
         m.filingFolderProfile = Self.profile()
         m.filingMemory = Self.memory()
         m.filingPersonTagStore = PersonTagStore(directory: dir, profileId: "p")
-        m.filingPersonTagStore?.record(personId: "muktha", key: .path("a.pdf"),
+        m.filingPersonTagStore?.record(personId: "granny", key: .path("a.pdf"),
                                        verdict: .confirmed, path: "a.pdf")
         // Nothing threw, nothing hung: the unreadable corpus was never opened, and the index is
         // exactly what the tree says.

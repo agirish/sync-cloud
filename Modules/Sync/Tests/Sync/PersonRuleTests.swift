@@ -9,10 +9,10 @@ import Testing
     static let now = Date(timeIntervalSince1970: 1_786_000_000)
 
     static let household = PersonRegistry(people: [
-        Person(id: "abhishek", displayName: "Abhishek", fullNames: ["Abhishek Girish"]),
-        Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
-        Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
-        Person(id: "muktha", displayName: "Muktha", fullNames: ["Muktha Girish"], aliases: ["Mom"]),
+        Person(id: "father", displayName: "Father", fullNames: ["Father Elder"]),
+        Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
+        Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
+        Person(id: "granny", displayName: "Granny", fullNames: ["Granny Elder"], aliases: ["Mom"]),
     ])
 
     static func facts(_ name: String, snippet: String? = nil,
@@ -27,45 +27,45 @@ import Testing
     // MARK: - Matching
 
     /// The rule keys on the id, and the id is reached through the registry — so a document naming
-    /// her by her **full name** matches a rule that says "is Aditi's document".
+    /// her by her **full name** matches a rule that says "is Daughter's document".
     @Test func aPersonRuleMatchesEveryNameFormThatPersonHas() {
-        let rule = AutomationRule(name: "Aditi", conditions: [.personIs("aditi")],
-                                  destinationTemplate: "School/Aditi")
-        #expect(AutomationEvaluator.matches(rule, Self.facts("Aditi Abhishek - Report.pdf"), now: Self.now))
-        #expect(AutomationEvaluator.matches(rule, Self.facts("Aditi - Report.pdf"), now: Self.now))
-        #expect(!AutomationEvaluator.matches(rule, Self.facts("Divit Abhishek - Report.pdf"), now: Self.now))
+        let rule = AutomationRule(name: "Daughter", conditions: [.personIs("daughter")],
+                                  destinationTemplate: "School/Daughter")
+        #expect(AutomationEvaluator.matches(rule, Self.facts("Daughter Father - Report.pdf"), now: Self.now))
+        #expect(AutomationEvaluator.matches(rule, Self.facts("Daughter - Report.pdf"), now: Self.now))
+        #expect(!AutomationEvaluator.matches(rule, Self.facts("Son Father - Report.pdf"), now: Self.now))
     }
 
-    /// An alias is the same person, so `Mom - passport.pdf` matches a rule about Muktha — the thing
+    /// An alias is the same person, so `Mom - passport.pdf` matches a rule about Granny — the thing
     /// a word-keyed rule could only do by listing every spelling and would still get wrong.
     @Test func anAliasMatchesThePersonItNames() {
-        let rule = AutomationRule(name: "Mum", conditions: [.personIs("muktha")],
-                                  destinationTemplate: "Family/Muktha")
+        let rule = AutomationRule(name: "Mum", conditions: [.personIs("granny")],
+                                  destinationTemplate: "Family/Granny")
         #expect(AutomationEvaluator.matches(rule, Self.facts("Mom - passport.pdf"), now: Self.now))
     }
 
     /// **The filename outranks the page, here as everywhere.** `attribute` is the one precedence
-    /// rule, shared with the cross-person veto: a file the user labelled Divit is Divit's, whatever
+    /// rule, shared with the cross-person veto: a file the user labelled Son is Son's, whatever
     /// a sibling's name on the page says.
     @Test func theFilenameOutranksThePageForRulesToo() {
-        let aditi = AutomationRule(name: "Aditi", conditions: [.personIs("aditi")],
-                                   destinationTemplate: "School/Aditi")
-        let facts = Self.facts("Divit - Report Card.pdf",
-                               snippet: "Sibling of Aditi Abhishek, same school")
-        #expect(!AutomationEvaluator.matches(aditi, facts, now: Self.now),
-                "a mention of Aditi on the page pulled Divit's report card into her rule")
+        let daughter = AutomationRule(name: "Daughter", conditions: [.personIs("daughter")],
+                                   destinationTemplate: "School/Daughter")
+        let facts = Self.facts("Son - Report Card.pdf",
+                               snippet: "Sibling of Daughter Father, same school")
+        #expect(!AutomationEvaluator.matches(daughter, facts, now: Self.now),
+                "a mention of Daughter on the page pulled Son's report card into her rule")
 
         // And a file whose NAME names nobody falls through to the page — the nameless-scan case.
-        let scan = Self.facts("Scan 2026-08-02.pdf", snippet: "Report card for Aditi Abhishek")
-        #expect(AutomationEvaluator.matches(aditi, scan, now: Self.now))
+        let scan = Self.facts("Scan 2026-08-02.pdf", snippet: "Report card for Daughter Father")
+        #expect(AutomationEvaluator.matches(daughter, scan, now: Self.now))
     }
 
     /// With no roster loaded a person rule matches nothing — it must not match *everything*, which
     /// is what an empty-set containment test would do if it were inverted.
     @Test func withNoRosterAPersonRuleIsInert() {
-        let rule = AutomationRule(name: "Aditi", conditions: [.personIs("aditi")],
-                                  destinationTemplate: "School/Aditi")
-        #expect(!AutomationEvaluator.matches(rule, Self.facts("Aditi - Report.pdf", registry: nil),
+        let rule = AutomationRule(name: "Daughter", conditions: [.personIs("daughter")],
+                                  destinationTemplate: "School/Daughter")
+        #expect(!AutomationEvaluator.matches(rule, Self.facts("Daughter - Report.pdf", registry: nil),
                                              now: Self.now))
     }
 
@@ -74,9 +74,9 @@ import Testing
     @Test func aRuleNamingNobodyMatchesNothing() {
         let rule = AutomationRule(name: "Ghost", conditions: [.personIs("ravi")],
                                   destinationTemplate: "Family/Ravi")
-        #expect(!AutomationEvaluator.matches(rule, Self.facts("Aditi - Report.pdf"), now: Self.now))
+        #expect(!AutomationEvaluator.matches(rule, Self.facts("Daughter - Report.pdf"), now: Self.now))
         #expect(AutomationCondition.personIs("").isComplete == false)
-        #expect(AutomationCondition.personIs("aditi").isComplete)
+        #expect(AutomationCondition.personIs("daughter").isComplete)
     }
 
     // MARK: - {person}
@@ -84,9 +84,9 @@ import Testing
     /// **One rule, everyone.** The token resolves to the folder name of whoever the document names,
     /// so a single rule files each person's card into their own folder.
     @Test func thePersonTokenResolvesToTheirFolder() {
-        for (file, folder) in [("Aditi Abhishek - OCI.pdf", "Aditi"),
-                               ("Divit Abhishek - OCI.pdf", "Divit"),
-                               ("Mom - OCI.pdf", "Muktha")] {
+        for (file, folder) in [("Daughter Father - OCI.pdf", "Daughter"),
+                               ("Son Father - OCI.pdf", "Son"),
+                               ("Mom - OCI.pdf", "Granny")] {
             let resolved = AutomationEvaluator.resolveDestination("Immigration/OCI/{person}",
                                                                   for: Self.facts(file),
                                                                   providerName: nil, now: Self.now)
@@ -105,7 +105,7 @@ import Testing
 
         let both = AutomationEvaluator.resolveDestination(
             "Immigration/OCI/{person}",
-            for: Self.facts("Abhishek Girish and Muktha Girish - Deed.pdf"),
+            for: Self.facts("Father Elder and Granny Elder - Deed.pdf"),
             providerName: nil, now: Self.now)
         #expect(both == .unresolved(token: "{person}"),
                 "a document naming two people was filed into one of their folders")
@@ -118,9 +118,9 @@ import Testing
     /// round-trip cannot notice that both sides changed together.
     @Test func theWireShapeIsUnchanged() throws {
         let json = #"[{"kindIs":{"_0":"pdf"}},{"mentionsAll":{"_0":["invoice","acme"]}},"#
-            + #"{"personIs":{"_0":"aditi"}}]"#
+            + #"{"personIs":{"_0":"daughter"}}]"#
         let decoded = try JSONDecoder().decode([AutomationCondition].self, from: Data(json.utf8))
-        #expect(decoded == [.kindIs(.pdf), .mentionsAll(["invoice", "acme"]), .personIs("aditi")])
+        #expect(decoded == [.kindIs(.pdf), .mentionsAll(["invoice", "acme"]), .personIs("daughter")])
 
         let reencoded = try JSONEncoder().encode(decoded)
         let again = try JSONDecoder().decode([AutomationCondition].self, from: reencoded)
@@ -133,11 +133,11 @@ import Testing
     /// itself and its neighbours are untouched.
     @Test func aConditionFromANewerBuildDoesNotDestroyTheOthers() throws {
         let json = #"[{"kindIs":{"_0":"pdf"}},{"vibeIs":{"_0":{"mood":"calm","level":3}}},"#
-            + #"{"personIs":{"_0":"aditi"}}]"#
+            + #"{"personIs":{"_0":"daughter"}}]"#
         let decoded = try JSONDecoder().decode([AutomationCondition].self, from: Data(json.utf8))
         #expect(decoded.count == 3, "the unknown condition took its neighbours with it")
         #expect(decoded[0] == .kindIs(.pdf))
-        #expect(decoded[2] == .personIs("aditi"))
+        #expect(decoded[2] == .personIs("daughter"))
         guard case .unrecognized(let name, _) = decoded[1] else {
             Issue.record("the unknown condition was not preserved: \(decoded[1])")
             return
@@ -172,8 +172,8 @@ import Testing
     // MARK: - The summary a person reads
 
     @Test func theSummaryUsesTheNameNotTheSlug() {
-        let condition = AutomationCondition.personIs("aditi")
-        #expect(condition.summary(resolvingPeople: Self.household) == "is Aditi's document")
+        let condition = AutomationCondition.personIs("daughter")
+        #expect(condition.summary(resolvingPeople: Self.household) == "is Daughter's document")
         // A rule pointing at a removed person says so rather than rendering blank.
         #expect(AutomationCondition.personIs("ravi").summary(resolvingPeople: Self.household)
                 == "is ravi's document (not on your People list)")

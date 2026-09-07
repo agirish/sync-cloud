@@ -234,7 +234,7 @@ private final class PromptProbe: @unchecked Sendable {
     /// A taxonomy folder the classifier's fixed verdict points at, plus one loose file.
     private func filingFixture(_ name: String) throws -> URL {
         let root = try makeCanonicalTempRoot(prefix: "AutoRescanFiling-\(name)")
-        try write(root.appendingPathComponent("Documents/Family/Divit/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
         return root
     }
@@ -268,8 +268,8 @@ private final class PromptProbe: @unchecked Sendable {
             tiers?.record(tier)
             var out: [String: FilingVerdict] = [:]
             for f in files {
-                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",
-                                                confidence: .high, reason: "Divit’s record")
+                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Son",
+                                                confidence: .high, reason: "Son’s record")
             }
             return out
         }

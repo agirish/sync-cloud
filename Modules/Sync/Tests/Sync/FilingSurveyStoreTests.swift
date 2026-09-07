@@ -95,14 +95,14 @@ import Testing
     @Test func aWrittenCorpusReadsBackWhole() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let written = Self.corpus(documents: ["Family/Muktha/Passport.pdf": Self.document])
+        let written = Self.corpus(documents: ["Family/Granny/Passport.pdf": Self.document])
 
         try FilingSurveyStore.write(corpus: written, memory: Self.memory(folders: [:]),
                                     previousMemory: nil, id: "p1", in: dir, root: "~/Documents")
 
         let read = try #require(FilingSurveyStore.corpus(id: "p1", in: dir))
         #expect(read == written)
-        let doc = try #require(read.documents["Family/Muktha/Passport.pdf"])
+        let doc = try #require(read.documents["Family/Granny/Passport.pdf"])
         #expect(doc.anchors == ["passport"])
         #expect(doc.idHashes == ["ab12"])
         #expect(doc.size == 10)
@@ -132,7 +132,7 @@ import Testing
     @Test func anUnchangedMemoryIsNotRewritten() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let memory = Self.memory(folders: ["Family/Muktha": Self.entry(docs: 3, token: "passport")])
+        let memory = Self.memory(folders: ["Family/Granny": Self.entry(docs: 3, token: "passport")])
 
         let first = try FilingSurveyStore.write(corpus: Self.corpus(), memory: memory,
                                                 previousMemory: nil, id: "p1", in: dir, root: "~")
@@ -142,7 +142,7 @@ import Testing
         let stampBefore = try #require(try FileManager.default
             .attributesOfItem(atPath: url.path)[.modificationDate] as? Date)
         // A distinct-but-equal value: equality decides this, not identity.
-        let same = Self.memory(folders: ["Family/Muktha": Self.entry(docs: 3, token: "passport")])
+        let same = Self.memory(folders: ["Family/Granny": Self.entry(docs: 3, token: "passport")])
 
         let second = try FilingSurveyStore.write(corpus: Self.corpus(), memory: same,
                                                  previousMemory: memory, id: "p1", in: dir,
@@ -159,11 +159,11 @@ import Testing
     @Test func aChangedMemoryIsWritten() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let first = Self.memory(folders: ["Family/Muktha": Self.entry(docs: 3, token: "passport")])
+        let first = Self.memory(folders: ["Family/Granny": Self.entry(docs: 3, token: "passport")])
         try FilingSurveyStore.write(corpus: Self.corpus(), memory: first, previousMemory: nil,
                                     id: "p1", in: dir, root: "~")
 
-        let changed = Self.memory(folders: ["Family/Muktha": Self.entry(docs: 4, token: "passport")])
+        let changed = Self.memory(folders: ["Family/Granny": Self.entry(docs: 4, token: "passport")])
         let wrote = try FilingSurveyStore.write(corpus: Self.corpus(), memory: changed,
                                                 previousMemory: first, id: "p1", in: dir, root: "~")
 
@@ -181,11 +181,11 @@ import Testing
     @Test func theCorpusIsWrittenEvenWhenTheMemoryIsUnchanged() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let memory = Self.memory(folders: ["Family/Muktha": Self.entry(docs: 3, token: "passport")])
+        let memory = Self.memory(folders: ["Family/Granny": Self.entry(docs: 3, token: "passport")])
         try FilingSurveyStore.write(corpus: Self.corpus(), memory: memory, previousMemory: nil,
                                     id: "p1", in: dir, root: "~")
 
-        let grown = Self.corpus(documents: ["Family/Muktha/Passport.pdf": Self.document])
+        let grown = Self.corpus(documents: ["Family/Granny/Passport.pdf": Self.document])
         let wrote = try FilingSurveyStore.write(corpus: grown, memory: memory,
                                                 previousMemory: memory, id: "p1", in: dir, root: "~")
 

@@ -1,10 +1,10 @@
 import Foundation
 
 /// One proposed member of the household, and the evidence for it — enough for a dialog to say
-/// *"folders called Aditi appear under School, Health and Family; is Aditi a person?"*
+/// *"folders called Daughter appear under School, Health and Family; is Daughter a person?"*
 public struct PersonCandidate: Sendable, Equatable, Identifiable {
     public var id: String { name }
-    /// The folder name as the tree spells it — `Aditi`, not `aditi`. The roster records the name the
+    /// The folder name as the tree spells it — `Daughter`, not `daughter`. The roster records the name the
     /// folders use, so the proposal has to carry the spelling rather than a normalised form.
     public let name: String
     /// The distinct parent folders it appears under, relative to the surveyed root and sorted.
@@ -15,7 +15,7 @@ public struct PersonCandidate: Sendable, Equatable, Identifiable {
     /// How many folders carry this name, counted once per folder. The blast radius, and what the
     /// list is ordered by.
     public let folderCount: Int
-    /// How many household folders this name is a direct child of — `Family/Aditi` counts, and
+    /// How many household folders this name is a direct child of — `Family/Daughter` counts, and
     /// `Family/Photos/Reference` does not. The rank, because it is the evidence that this is a
     /// person rather than a kind of document.
     public let householdParents: Int
@@ -51,12 +51,12 @@ public struct PersonCandidate: Sendable, Equatable, Identifiable {
 /// every real person. Document-type words repeat *harder* than people do, so repetition cannot be
 /// the signal — 214 names to confirm is not a step, it is a second job.
 ///
-/// What works is the one folder that says what its children are. `Family/Aditi` is a person because
+/// What works is the one folder that says what its children are. `Family/Daughter` is a person because
 /// `Family` said so; `Family/Photos/Reference` is not, which is why the match is on a **direct**
 /// child (matching anywhere in the path is the 79-name row).
 ///
 /// **The seventh person is the user, and the form already asked.** The one roster member this misses
-/// on the reference tree is `Abhishek`, who has no `Family/Abhishek` because the tree is his — and
+/// on the reference tree is `Father`, who has no `Family/Father` because the tree is his — and
 /// the You step collects him before this step is reached. That is a property of the design rather
 /// than a lucky escape: the proposer's job is *everyone else*.
 ///
@@ -66,7 +66,7 @@ public struct PersonCandidate: Sendable, Equatable, Identifiable {
 ///
 /// **It still over-proposes, and that is the direction to err in.** A name it misses is a person the
 /// user must think of unprompted; a name it over-proposes is one tick to refuse with the evidence
-/// beside it. `Events`, `Cray` and `Hiring` are in those 28. The dialog must also let the user ADD
+/// beside it. `Events`, `Nova` and `Hiring` are in those 28. The dialog must also let the user ADD
 /// a name, or a household member with no `Family/` folder can never be recorded at all.
 ///
 /// Pure: no disk, no `FileManager`, no clock. It reads the tree it is handed and nothing else.
@@ -75,8 +75,8 @@ public enum PersonCandidates {
     /// Parents whose children are people by construction.
     ///
     /// **The one signal that beats repetition**, and the reason a person with a single folder is
-    /// still findable: a folder called `Family` says what its children are, so `Family/Anuraag` is
-    /// proposable where a bare `Anuraag` under one parent is not. Matched on the whole component,
+    /// still findable: a folder called `Family` says what its children are, so `Family/Uncle` is
+    /// proposable where a bare `Uncle` under one parent is not. Matched on the whole component,
     /// case-insensitively.
     public static let householdParents: Set<String> = [
         "family", "people", "household", "kids", "children", "members", "relatives"
@@ -170,7 +170,7 @@ public enum PersonCandidates {
     /// Whether a folder name could be somebody's.
     ///
     /// **Shape only, and each clause earns its place on the reference tree.** Capitalised-then-lower
-    /// excludes the all-caps names `JurisdictionCandidates` exists to find (`US`, `HPE`, `TODO`) —
+    /// excludes the all-caps names `JurisdictionCandidates` exists to find (`US`, `EMP`, `TODO`) —
     /// the two rules read the same tree and must not both claim the same component. A digit excludes
     /// `2024` and `2024 Taxes`. Whitespace excludes `Tax Returns` without excluding `Anne-Marie`.
     static func isNameShaped(_ name: String) -> Bool {
@@ -181,7 +181,7 @@ public enum PersonCandidates {
         guard name.allSatisfy({ $0.isLetter || $0 == "-" || $0 == "'" || $0 == "." }) else {
             return false
         }
-        // At least one lowercase letter, so an acronym is not a person. `IN` and `HPE` are the
+        // At least one lowercase letter, so an acronym is not a person. `IN` and `EMP` are the
         // jurisdiction rule's to propose; a name that is entirely uppercase is not a given name.
         return name.dropFirst().contains { $0.isLowercase }
     }

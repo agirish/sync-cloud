@@ -3,22 +3,22 @@ import Foundation
 /// One member of the household the tree files for.
 ///
 /// The tree already knows these people — every category grows a folder named for each of them —
-/// but until now the engine held them as bare tokens. A record is what lets *Mom* and *Muktha*
-/// be the same person, and lets "Shweta R Dani" on a PAN card resolve to the same person as the
-/// folder called `Shweta`.
+/// but until now the engine held them as bare tokens. A record is what lets *Mom* and *Granny*
+/// be the same person, and lets "Mother I Maiden" on a PAN card resolve to the same person as the
+/// folder called `Mother`.
 public struct Person: Sendable, Equatable, Identifiable {
     /// Stable identity, never displayed — survives renames and added variants.
     ///
     /// `let`, unlike everything below it: the id is what a folder's `axes.person` and every saved
-    /// rule will resolve through, so renaming *Shweta* to *Shweta D.* must not orphan them.
+    /// rule will resolve through, so renaming *Mother* to *Mother D.* must not orphan them.
     public let id: String
     /// What the tree calls them: the folder name, usually a first name.
     public var displayName: String
     /// `me`, `wife`, `daughter`, … — display-only today; recorded because relationship words
     /// ("my wife") are what a future classifier brief will want to print.
     public var relationship: String?
-    /// Every full form a document might print — "Shweta Dani", "Shweta Ravindra Dani",
-    /// "Shweta R Dani", "Shweta Abhishek". Matching tries these before any single word.
+    /// Every full form a document might print — "Mother Maiden", "Mother Inlaw Maiden",
+    /// "Mother I Maiden", "Mother Father". Matching tries these before any single word.
     public var fullNames: [String]
     /// What the tree calls them when it is not using their name — "Mom", "Mother".
     public var aliases: [String]
@@ -94,7 +94,7 @@ extension Person: Codable {
 /// One person named by a piece of text, and what named them.
 public struct PersonMatch: Sendable, Equatable {
     public let personId: String
-    /// The name form that matched, spelled as the roster spells it — "Aditi Abhishek", "Mom".
+    /// The name form that matched, spelled as the roster spells it — "Daughter Father", "Mom".
     public let form: String
     /// The words it consumed, in order.
     public let words: [String]
@@ -112,7 +112,7 @@ public struct PersonMatch: Sendable, Equatable {
 
 /// A word that names somebody in the roster but was spent inside a longer name.
 ///
-/// This is the single most useful thing an explanation can say: "Abhishek" in "Aditi Abhishek"
+/// This is the single most useful thing an explanation can say: "Father" in "Daughter Father"
 /// *would* have named her father, and did not, because the phrase claimed it first.
 public struct AbsorbedWord: Sendable, Equatable {
     public let word: String
@@ -147,14 +147,14 @@ public struct PersonMatchReport: Sendable, Equatable {
 
 /// The household, compiled for matching.
 ///
-/// **This family's names overlap, and that is the whole problem.** "Abhishek" is one person's
-/// first name and three others' surname; "Girish" is Dad's first name, Mom's surname, and
-/// Abhishek's surname. A token intersection cannot attribute either — it reads "Aditi Abhishek"
+/// **This family's names overlap, and that is the whole problem.** "Father" is one person's
+/// first name and three others' surname; "Elder" is Dad's first name, Mom's surname, and
+/// Father's surname. A token intersection cannot attribute either — it reads "Daughter Father"
 /// as evidence for two people. So matching is **phrase-first, longest wins, and a match consumes
-/// its span**: the surname in "Aditi Abhishek" is spent on Aditi and never doubles as evidence
-/// for Abhishek. What remains is attributed only where it cannot mislead — a token unique to one
-/// person (`dani`, `muktha`), or a shared token standing alone that is exactly one person's first
-/// name (`girish` by itself is Dad).
+/// its span**: the surname in "Daughter Father" is spent on Daughter and never doubles as evidence
+/// for Father. What remains is attributed only where it cannot mislead — a token unique to one
+/// person (`maiden`, `granny`), or a shared token standing alone that is exactly one person's first
+/// name (`elder` by itself is Dad).
 ///
 /// The strong/weak split is **computed from the registry, never hand-maintained** — adding a
 /// seventh person re-derives it, so a variant added later can demote a token from unique to
@@ -187,7 +187,7 @@ public struct PersonRegistry: Sendable {
     struct Phrase: Sendable {
         let tokens: [String]
         let id: String
-        /// The form exactly as it was registered — "Shweta R Dani", not `shweta r dani`. Carried so
+        /// The form exactly as it was registered — "Mother I Maiden", not `mother r maiden`. Carried so
         /// an explanation can quote what the user typed into the roster rather than the tokenizer's
         /// view of it.
         let display: String
@@ -215,7 +215,7 @@ public struct PersonRegistry: Sendable {
         // given name claimed by exactly one id: a person listed twice claimed their own given
         // name twice, so `claims.count == 1` was false and their given-name matching was
         // *disabled by the duplicate*. Measured, not reasoned: with the fix reverted,
-        // `detect(in: "Girish statement.pdf")` on a roster listing Girish twice returns NOTHING.
+        // `detect(in: "Elder statement.pdf")` on a roster listing Elder twice returns NOTHING.
         //
         // Last wins, which is what `PeopleStore` already warns at load and what the two derived
         // maps already did; the first occurrence's POSITION is kept, since the roster is written
@@ -231,7 +231,7 @@ public struct PersonRegistry: Sendable {
             var tokens = Set<String>()
             for name in p.nameForms {
                 let words = PersonRegistry.words(name)
-                // Initials ("Shweta R Dani") stay in the phrase but are never standalone keys.
+                // Initials ("Mother I Maiden") stay in the phrase but are never standalone keys.
                 for w in words where w.count >= 2 { tokens.insert(w) }
                 if words.count >= 2 {
                     phraseList.append(Phrase(tokens: words, id: p.id, display: name))
@@ -337,8 +337,8 @@ public struct PersonRegistry: Sendable {
             }
         }
 
-        // Words a longer name spent. These are the whole reason phrase matching exists: `abhishek`
-        // inside "Aditi Abhishek" would otherwise name her father as well, so reporting what was
+        // Words a longer name spent. These are the whole reason phrase matching exists: `father`
+        // inside "Daughter Father" would otherwise name her father as well, so reporting what was
         // absorbed — and who it would have named — is the explanation, not a footnote.
         var absorbed: [AbsorbedWord] = []
         for (i, token) in tokens.enumerated() {
@@ -440,7 +440,7 @@ public struct PersonRegistry: Sendable {
     /// aliases attached to the person they resolve to.
     ///
     /// This is deliberately more than a fallback: the alias map alone fixes the misfire where
-    /// `Mom - passport.pdf` was vetoed *against* the folder whose axis says `muktha`, because the
+    /// `Mom - passport.pdf` was vetoed *against* the folder whose axis says `granny`, because the
     /// flattened token set knew both words but not that they are one person.
     public static func seeded(from profile: FolderProfile) -> PersonRegistry {
         var aliasesByCanonical: [String: [String]] = [:]
@@ -461,7 +461,7 @@ public struct PersonRegistry: Sendable {
     ///
     /// Derived from the roster, never stored: adding a seventh person can demote a token from
     /// unique to shared, and a hand-maintained list would not notice. This is what Settings shows
-    /// when it says `abhishek` is shared with three others.
+    /// when it says `father` is shared with three others.
     public func tokenBreakdown(for id: String) -> (unique: [String], shared: [String]) {
         guard let p = people.first(where: { $0.id == id }) else { return ([], []) }
         var tokens = Set<String>()
@@ -486,7 +486,7 @@ public struct PersonRegistry: Sendable {
     }
 
     /// Lowercased ASCII-alphanumeric runs, in order, 1-character runs kept — the initial in
-    /// "Shweta R Dani" is part of the phrase even though it could never stand alone.
+    /// "Mother I Maiden" is part of the phrase even though it could never stand alone.
     ///
     /// Public because the matcher's own splitting rule is the only correct way to derive anything
     /// *from* a name elsewhere — Settings takes initials with it, and a second hand-rolled split

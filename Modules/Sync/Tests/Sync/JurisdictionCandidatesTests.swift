@@ -7,9 +7,9 @@ import Testing
 ///
 /// The tests below deliberately include one that asserts a **known false positive is proposed**.
 /// That is not a bug being enshrined: the rule is permissive on purpose because a human filters it,
-/// and on the reference tree it invents `HPE`, `IT` and `PRD` while scoring 83.2% against a
+/// and on the reference tree it invents `EMP`, `IT` and `PRD` while scoring 83.2% against a
 /// hand-built profile that scores 100% when handed the confirmed values. A future tightening that
-/// silently stops offering `HPE` should have to look at this test and decide, because the same
+/// silently stops offering `EMP` should have to look at this test and decide, because the same
 /// tightening is what drops `IN`.
 @Suite struct JurisdictionCandidatesTests {
 
@@ -71,11 +71,11 @@ import Testing
         #expect(candidates.first?.folderCount == 6)      // three `IN` folders and one child each
     }
 
-    /// A single acronym under one parent — the `Work/HPE/Payslips` shape with nothing to
+    /// A single acronym under one parent — the `Work/EMP/Payslips` shape with nothing to
     /// generalise from — proposes nothing at all. The dialog is not opened for one folder.
     @Test func anAcronymUnderOneParentProposesNothing() {
         #expect(JurisdictionCandidates.propose(tree: Self.tree([
-            "Work/HPE/Payslips", "Work/HPE/Reviews", "Work/HPE/Offers", "Personal/Notes"
+            "Work/EMP/Payslips", "Work/EMP/Reviews", "Work/EMP/Offers", "Personal/Notes"
         ]), root: "/root").isEmpty)
     }
 
@@ -95,24 +95,24 @@ import Testing
         #expect(candidates[1].parents.count == 5)
     }
 
-    /// **A known false positive IS proposed, and that is the design.** `HPE` is an employer and
+    /// **A known false positive IS proposed, and that is the design.** `EMP` is an employer and
     /// `PRD` a product stage; both clear the bar on the reference tree, and both reach the user as
     /// a tick box beside `US`. Wiring this straight into a profile would write
-    /// `jurisdiction: HPE` onto 40-odd folders and give the router a fact that does not exist.
+    /// `jurisdiction: EMP` onto 40-odd folders and give the router a fact that does not exist.
     @Test func aKnownFalsePositiveIsProposedBecauseAPersonFiltersIt() {
         let candidates = JurisdictionCandidates.propose(tree: Self.tree([
             "Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts",
-            "Work/HPE/Payslips", "Benefits/HPE/Dental", "Equity/HPE/Grants",
+            "Work/EMP/Payslips", "Benefits/EMP/Dental", "Equity/EMP/Grants",
             "Docs/PRD/2024", "Specs/PRD/2025", "Archive/PRD/old"
         ]), root: "/root")
 
         let values = candidates.map(\.value)
-        #expect(values.contains("HPE"))
+        #expect(values.contains("EMP"))
         #expect(values.contains("PRD"))
         #expect(values.contains("US"))
         // And the evidence that lets a person tell them apart is carried, rather than the caller
         // being handed three bare strings: an employer's parents read nothing like a place's.
-        #expect(candidates.first { $0.value == "HPE" }?.parents == ["Benefits", "Equity", "Work"])
+        #expect(candidates.first { $0.value == "EMP" }?.parents == ["Benefits", "Equity", "Work"])
         #expect(candidates.first { $0.value == "US" }?.parents == ["Finance", "Legal", "School"])
     }
 

@@ -3,7 +3,7 @@ import Foundation
 /// A name form the tree keeps using for someone whose record does not have it.
 public struct PersonNameSuggestion: Sendable, Equatable, Identifiable {
     public let personId: String
-    /// The form spelled as the documents spell it — "Muktha Girish", not `muktha girish`.
+    /// The form spelled as the documents spell it — "Granny Elder", not `granny elder`.
     public let form: String
     /// How many filed documents use it. Recurrence is the whole claim: one file is an anecdote.
     public let occurrences: Int
@@ -25,23 +25,23 @@ public struct PersonNameSuggestion: Sendable, Equatable, Identifiable {
 ///
 /// **The rule is deliberately narrow, and the measurement is why.** The obvious version — recurring
 /// word runs in the filenames inside a person's folders — is almost all noise on a real tree:
-/// `Credit Report Shweta` (9 files), `Bio Pages MUKTHA`, `Wedding Gifts Anuraag`. The obvious fix,
+/// `Credit Report Mother` (9 files), `Bio Pages GRANNY`, `Wedding Gifts Uncle`. The obvious fix,
 /// vetoing words that many folders carry, is **backwards here**: a family surname is *broad*
-/// precisely because the family is everywhere (`girish` is carried by 161 folders, `dani` by 73),
-/// while document words like `oci` are narrow. Filtering on breadth keeps "Aditi OCI" and throws
-/// away "Muktha Girish", which is the opposite of what is wanted.
+/// precisely because the family is everywhere (`elder` is carried by 161 folders, `maiden` by 73),
+/// while document words like `oci` are narrow. Filtering on breadth keeps "Daughter OCI" and throws
+/// away "Granny Elder", which is the opposite of what is wanted.
 ///
 /// So this suggests only what it can be *sure* is name-shaped: a run in which **every word is
 /// already a name word of somebody on the roster**, starting with a word of the person whose folder
 /// it is. That cannot invent "Pratiksha" out of nothing — discovering an entirely new word still
 /// takes a human, and the section says so — but it has no false positives to apologise for.
-/// Measured on the real tree: **0 suggestions** with the roster complete, and "Muktha Girish"
+/// Measured on the real tree: **0 suggestions** with the roster complete, and "Granny Elder"
 /// (7 occurrences) the moment her record lacks it.
 public enum PersonNameLearning {
 
     /// The minimum number of documents that must use a form. One file is a typo; two is a habit.
     static let minimumOccurrences = 2
-    /// Longest run considered — "Shweta Ravindra Dani" is three, and nothing in a real roster is
+    /// Longest run considered — "Mother Inlaw Maiden" is three, and nothing in a real roster is
     /// longer without picking up document words.
     static let maximumWords = 3
 
@@ -60,9 +60,9 @@ public enum PersonNameLearning {
         // The words a run may START with, per person: their DISPLAY name and their aliases — what
         // the household calls them — not every word they answer to.
         //
-        // **Their full names are deliberately excluded, and a test caught why.** Aditi's record
-        // holds "Aditi Abhishek", so `abhishek` is one of her words; a file called
-        // `Report for Abhishek Girish.pdf` sitting in her folder then offered her *father's* name
+        // **Their full names are deliberately excluded, and a test caught why.** Daughter's record
+        // holds "Daughter Father", so `father` is one of her words; a file called
+        // `Report for Father Elder.pdf` sitting in her folder then offered her *father's* name
         // as another name for her. A form leads with the given name in this household, and that is
         // the only word that identifies whose form it is.
         var leadWordsByPerson: [String: Set<String>] = [:]
@@ -112,8 +112,8 @@ public enum PersonNameLearning {
                         guard run.allSatisfy({ nameWords.contains($0) }) else { continue }
                         let key = run.joined(separator: " ")
                         guard formsByPerson[personId]?.contains(key) != true else { continue }
-                        // Already somebody's name — a document in Aditi's folder that says
-                        // "Abhishek Girish" is naming her father, not teaching a form for her.
+                        // Already somebody's name — a document in Daughter's folder that says
+                        // "Father Elder" is naming her father, not teaching a form for her.
                         guard !claimedForms.contains(key) else { continue }
                         counts[personId, default: [:]][key, default: 0] += 1
                         // **Deterministic, not first-seen.** `fileNames` is a dictionary, so

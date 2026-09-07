@@ -41,9 +41,9 @@ import Testing
         let c = store.$savedRevision.dropFirst().sink { _ in seen.append(self.namesOnDisk(dir)) }
         defer { c.cancel() }
 
-        store.add(displayName: "Muktha")
+        store.add(displayName: "Granny")
         #expect(seen.count == 1, "the write published \(seen.count) times, expected once")
-        #expect(seen.first?.contains("Muktha") == true,
+        #expect(seen.first?.contains("Granny") == true,
                 "the post-save signal fired before the bytes were written — saw \(seen.first ?? [])")
     }
 
@@ -55,14 +55,14 @@ import Testing
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Abhishek")           // something on disk to be stale about
+        store.add(displayName: "Father")           // something on disk to be stale about
 
         var seen: [[String]] = []
         let c = store.$people.dropFirst().sink { _ in seen.append(self.namesOnDisk(dir)) }
         defer { c.cancel() }
 
-        store.add(displayName: "Muktha")
-        #expect(seen.first?.contains("Muktha") == false,
+        store.add(displayName: "Granny")
+        #expect(seen.first?.contains("Granny") == false,
                 """
                 `$people` now fires after the write — the two signals no longer differ and the \
                 test above has stopped proving anything
@@ -82,7 +82,7 @@ import Testing
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         #expect(store.rosterIsUnreadable, "the fixture did not produce a locked roster")
         let before = store.savedRevision
-        store.add(displayName: "Muktha")
+        store.add(displayName: "Granny")
         #expect(store.savedRevision == before,
                 "a save that refused to write still announced one")
     }
@@ -100,7 +100,7 @@ import Testing
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         #expect(store.rosterIsUnreadable, "the fixture did not produce a locked roster")
         let before = store.source
-        store.add(displayName: "Muktha")
+        store.add(displayName: "Granny")
         #expect(store.source == before,
                 "a save that refused to write still claimed the file as the household of record")
     }
@@ -111,7 +111,7 @@ import Testing
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Muktha")
+        store.add(displayName: "Granny")
         #expect(store.source == .file)
     }
 
@@ -128,7 +128,7 @@ import Testing
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Muktha")
+        store.add(displayName: "Granny")
 
         let before = FilingProfileStore.fingerprint(id: "p", in: dir)
         #expect(before?.isEmpty == false, "the fixture produced no fingerprint to compare")
@@ -153,10 +153,10 @@ import Testing
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
-        store.add(displayName: "Muktha")
+        store.add(displayName: "Granny")
         let before = FilingProfileStore.fingerprint(id: "p", in: dir)
 
-        store.add(displayName: "Divit")
+        store.add(displayName: "Son")
         #expect(FilingProfileStore.fingerprint(id: "p", in: dir) != before,
                 "adding a person left the fingerprint unchanged; cached verdicts would survive it")
     }
@@ -166,11 +166,11 @@ import Testing
         let dir = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("p/people.json")
-        try Data(#"{"schemaVersion":1,"people":[{"id":"a","displayName":"Abhishek"}]}"#.utf8)
+        try Data(#"{"schemaVersion":1,"people":[{"id":"a","displayName":"Father"}]}"#.utf8)
             .write(to: url)
         let before = FilingProfileStore.fingerprint(id: "p", in: dir)
 
-        try Data(#"{"schemaVersion":1,"_note":"Anuraag files here too","people":[{"id":"a","displayName":"Abhishek"}]}"#.utf8)
+        try Data(#"{"schemaVersion":1,"_note":"Uncle files here too","people":[{"id":"a","displayName":"Father"}]}"#.utf8)
             .write(to: url)
         #expect(FilingProfileStore.fingerprint(id: "p", in: dir) == before,
                 "a comment in people.json re-billed a full classification")
@@ -182,7 +182,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "p", profile: nil)
         let revision = store.savedRevision
-        store.add(displayName: "Muktha")
+        store.add(displayName: "Granny")
         #expect(store.savedRevision > revision)
     }
 
@@ -217,9 +217,9 @@ import Testing
 
     /// A store with no profile has nowhere to write, and must not announce either.
     @Test func aNonPersistentStoreDoesNotBumpTheRevision() {
-        let store = PeopleStore(people: [Person(id: "a", displayName: "Abhishek")])
+        let store = PeopleStore(people: [Person(id: "a", displayName: "Father")])
         let before = store.savedRevision
-        store.add(displayName: "Muktha")
+        store.add(displayName: "Granny")
         #expect(store.savedRevision == before)
     }
 }

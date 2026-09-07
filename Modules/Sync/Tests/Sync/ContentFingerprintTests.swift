@@ -15,7 +15,7 @@ import Testing
 
     /// Enough tokens to clear ``ContentFingerprint/minimumTokens`` in every fixture that isn't
     /// about the floor.
-    private let body = "Account statement for Abhishek Girish, amount due 124.50 on 2026 03 14, thank you"
+    private let body = "Account statement for Father Elder, amount due 124.50 on 2026 03 14, thank you"
 
     // MARK: The claim it makes
 
@@ -56,14 +56,14 @@ import Testing
         // The biggest of the precision levers on the real tree: 14 groups of 267 were a filled form
         // beside its own blank, because AcroForm values are not in the page text.
         let blank = doc(body)
-        let filled = doc(body, fields: ["applicantName=Aditi"])
+        let filled = doc(body, fields: ["applicantName=Daughter"])
         #expect(ContentFingerprint.digest(of: blank) != ContentFingerprint.digest(of: filled))
     }
 
     @Test func differentFieldValuesInTheSameFormSeparateIt() {
-        let aditi = doc(body, fields: ["applicantName=Aditi"])
-        let divit = doc(body, fields: ["applicantName=Divit"])
-        #expect(ContentFingerprint.digest(of: aditi) != ContentFingerprint.digest(of: divit))
+        let daughter = doc(body, fields: ["applicantName=Daughter"])
+        let son = doc(body, fields: ["applicantName=Son"])
+        #expect(ContentFingerprint.digest(of: daughter) != ContentFingerprint.digest(of: son))
     }
 
     @Test func pageGeometrySeparatesTwoDocumentsWithTheSameWords() {
@@ -178,11 +178,13 @@ import Testing
         // it fails for ANY change — token rule, separator, ingredient, or scheme — which is the
         // point: each one is a reason to bump the scheme.
         let pinned = ExtractedDocument(pages: ["Account statement, amount due 124.50 on 2026-03-14"],
-                                       formFieldValues: ["name=Girish"],
+                                       formFieldValues: ["name=Elder"],
                                        pageCount: 2, pageBoxes: ["612x792"])
         #expect(ContentFingerprint.scheme == "pdf-text-1")
+        // Golden re-taken when the pinned INPUT's name literal was scrubbed. The hashed
+        // ingredients and the scheme are unchanged, so this is not a rule change.
         #expect(ContentFingerprint.digest(of: pinned)
-                == "2361501169f662f905cc382b92187b24d9e45f05fc9f932274250e0526b3bbb9")
+                == "c43767b9557d1ec98400468d5b000ed15c1275f630691c656e4a82a525a1becf")
     }
 
     @Test func onlyPDFsAreFingerprintable() {

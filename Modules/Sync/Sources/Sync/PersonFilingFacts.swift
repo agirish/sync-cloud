@@ -29,7 +29,7 @@ public struct PersonFilingFacts: Sendable, Equatable {
     public let matchedForms: [String]
     /// Words that identify this person on their own.
     public let uniqueWords: [String]
-    /// Words another member of the household also answers to, with how many others — `abhishek` is
+    /// Words another member of the household also answers to, with how many others — `father` is
     /// shared with three. These are the reason matching is phrase-first.
     public let sharedWords: [(word: String, othersSharing: Int)]
     /// Folders whose `axes.person` resolves to this person, shallowest first.
@@ -41,7 +41,7 @@ public struct PersonFilingFacts: Sendable, Equatable {
     ///
     /// **A count alone does not say what a person's record covers.** "56 folders" is a number;
     /// "Family, School, Immigration" is what she has documents about, and it makes a thin record
-    /// (`Girish — Family 5`) visible as thin rather than merely small.
+    /// (`Elder — Family 5`) visible as thin rather than merely small.
     public let areas: [PersonArea]
 
     public var folderCount: Int { folders.count }
@@ -52,9 +52,9 @@ public struct PersonFilingFacts: Sendable, Equatable {
     /// Whether a document can be attributed to this person **at all**.
     ///
     /// Two ways to qualify, and the second is why this is not simply ``hasAnyUniqueWord``: a
-    /// distinctive word (`dani`, `muktha`), **or** a multi-word form the matcher can find as a
-    /// phrase. Abhishek has no unique word — `abhishek` and `girish` are each three other people's
-    /// too — yet "Abhishek Girish" names him unambiguously, so warning him to "add a full name"
+    /// distinctive word (`maiden`, `granny`), **or** a multi-word form the matcher can find as a
+    /// phrase. Father has no unique word — `father` and `elder` are each three other people's
+    /// too — yet "Father Elder" names him unambiguously, so warning him to "add a full name"
     /// when he already has one is advice he cannot act on.
     ///
     /// **This is the whole difference between a caution that means something and one that fires on
@@ -63,7 +63,7 @@ public struct PersonFilingFacts: Sendable, Equatable {
         hasAnyUniqueWord || matchedForms.contains { PersonRegistry.words($0).count >= 2 }
     }
 
-    /// "“abhishek” (also 3 others)", … — the shared-word detail, phrased once so the row's tooltip
+    /// "“father” (also 3 others)", … — the shared-word detail, phrased once so the row's tooltip
     /// and the editor cannot describe the same fact differently.
     public var sharedSummary: String {
         sharedWords.map { entry in

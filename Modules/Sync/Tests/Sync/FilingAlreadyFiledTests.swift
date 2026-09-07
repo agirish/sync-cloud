@@ -21,9 +21,9 @@ import Testing
         // review afterwards: it lands under a name of its own, in a folder that genuinely fits, and
         // nothing about it says it is a copy.
         #expect(suggestion("Payslip.jpg").isBatchEligible)
-        #expect(!suggestion("Payslip.jpg", alreadyFiledAt: ["Work/HPE/Pay/2026"]).isBatchEligible)
+        #expect(!suggestion("Payslip.jpg", alreadyFiledAt: ["Work/EMP/Pay/2026"]).isBatchEligible)
         // The per-file "File here" is untouched — this withholds the BLIND path, not the choice.
-        #expect(suggestion("Payslip.jpg", alreadyFiledAt: ["Work/HPE/Pay/2026"]).hasConfidentHome)
+        #expect(suggestion("Payslip.jpg", alreadyFiledAt: ["Work/EMP/Pay/2026"]).hasConfidentHome)
     }
 
     @Test("Being already filed is reported, not inferred from the candidates")

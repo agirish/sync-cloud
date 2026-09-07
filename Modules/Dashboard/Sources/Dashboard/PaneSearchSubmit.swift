@@ -9,7 +9,7 @@ import AppKit
 ///
 /// The table exists because the first cut got it wrong in a way nobody could see. ↩ accepted the
 /// person offer, on the reasoning that ⇧↩ still "kept the plain search" — but ⇧↩ is *previous
-/// match*, so on any query that happens to name someone (`aditi` matches twelve real filenames
+/// match*, so on any query that happens to name someone (`daughter` matches twelve real filenames
 /// here) forward advance became unreachable and the field's own placeholder, "↩ next, ⇧↩
 /// previous", was wrong about both keys.
 public enum PaneSearchSubmit {
