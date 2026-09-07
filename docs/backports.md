@@ -4667,3 +4667,51 @@ after `view.string = text`; it puts the caret at the END (11 for `"hello there"`
 view independently still at the top. That is why the symptom reads as "back to the top" while the
 caret sits invisibly at the bottom — and why a restore that skips a zero anchor as "nothing
 recorded" hands the top-of-file reader their document back with the caret at the end.
+
+
+## 2026-09-09 — the difference picture is drawn from the aligned pair (CC14.4 follow-up)
+
+`BitmapDiff.compareAligning(_:_:wantsDifferenceImage:)` now takes its difference raster from the
+same walk that produced the numbers, instead of running a second walk over the two pages as they
+are. This settles the disagreement the function's own doc comment flagged when CC14.4 landed
+(2026-09-02): the callouts came from the aligned pair and the glow from the unaligned one.
+
+**Not owed anywhere, and for the strongest of the reasons — the file does not exist off `main`.**
+
+```sh
+# stage 1 — is the FILE there? main is the positive control: it must print 1 across its row.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s bitmapdiff=%s registration=%s sheet=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/BitmapDiff.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PageRegistration.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/CompareCopiesSheet.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-09: main 1/1/1 · v4.x 0/0/0 · v3.x 0/0/0 · v2.x 0/0/0
+```
+
+**Stage 2 was not run, and that is the answer rather than a skipped step** — there is no
+`BitmapDiff.swift` on any maintenance line to grep inside. The pixel comparison arrived with the
+file-pair viewer, which is `main`-only; `v4.x` was cut at `v4.6` on 2026-08-28, before it.
+
+| What landed on `main` | `v4.x` / `v3.x` / `v2.x` | Status |
+|---|---|---|
+| **`compareAligning` draws the picture from `aligned`** rather than from `right` — one walk instead of two, and the glow and the callouts stop being of different image pairs | No `BitmapDiff.swift`: no pixel difference, no de-skew, nothing to draw either way | CLOSED — checked, does not apply |
+| **`thePictureAndTheFigureAreOfTheSamePair`** — counts the picture's above-tolerance pixels back and requires them to reproduce `changedFraction` exactly, with a guard that the fixture really aligned and a guard that the old shape would have failed | No `PageRegistrationTests.swift` | CLOSED — checked, does not apply |
+| **Release note and Pages bullet** under the v5.3 draft | `RELEASE_NOTES.md` exists on all three, but v5.3 is `main`'s line alone; `docs/releases.html` is served from `main` only | CLOSED — checked, does not apply |
+
+**Two measurements this leaves on record, because they are the expensive half to reconstruct and
+they bound what any future work on the estimator can achieve.** Both at 1600x2070, Apple M4,
+Release, machine quiet:
+
+- **The change is a saving, not a cost.** One walk over the aligned pair against a walk plus a
+  second walk for the picture: **10.4 ms against 18.7 ms**, best of 20, and ~26 MB less transient
+  allocation.
+- **A perfect de-skew does not clean the page, so do not tune the estimator expecting one.**
+  ``warped`` resamples the right page and leaves the left alone, and that asymmetry alone clears
+  ``BitmapDiff.tolerance`` on every anti-aliased edge. On a pair with one paragraph rewritten: the
+  true answer is 0.78% changed and ONE region; the estimate's alignment gives 3.42% and eight; an
+  *exact* alignment gives the same 3.42% and eight; putting both sides through the same resample
+  gives 0.94% and one. 2.87 of those 3.42 points is the one-sided resample, not the geometry.
+
+Recorded rather than picked, per the standing direction — though here the direction never comes
+into it, since there is no line to pick onto.
