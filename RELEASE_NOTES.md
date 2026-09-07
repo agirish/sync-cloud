@@ -102,6 +102,21 @@ User-facing changes, newest first. For the full commit history see the
   than a whole page is ever divided. The text on the page is text, so a printed-to-PDF document is
   still searchable and selectable.
 
+### The difference picture is of the pages it compared
+
+- **A de-skewed pair's highlight is drawn from the aligned pages now, not the originals.** v5.2
+  taught the pixel difference to correct a skew before comparing, but the picture on screen was
+  still of the two pages as they are — so the correction moved the outlines and wrote the caption
+  while the glow went on showing every line doubled, and the reader could see no sign the alignment
+  had happened. On a 0.5° skew the unchanged paragraphs now fall back to a faint ghost and the one
+  that was rewritten stays bright. It is less work rather than more: one pass over the aligned pair
+  instead of two, 10.4 ms against 18.7 ms at 1600×2070.
+- **The glow is still not clean, and the caption still says "best effort".** Correcting a skew
+  rotates one page and leaves the other alone, and resampling moves every anti-aliased edge — so a
+  corrected pair still lights more than the words that changed. Measured on a page with one
+  paragraph rewritten: the honest answer is one region, and even a *perfect* correction reports
+  eight.
+
 ### The ⌘/ reference grows sideways
 
 - **Three columns instead of two.** Seven rows arrived at once and the two-column window was already

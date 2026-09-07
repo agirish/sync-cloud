@@ -184,6 +184,13 @@
       </ul>
     </div>
     <div class="grp">
+      <h3>The difference picture is of the pages it compared</h3>
+      <ul class="flist">
+        <li><span class="ic">&#9635;</span><span><b>A de-skewed pair&#8217;s highlight is drawn from the aligned pages now, not the originals.</b> v5.2 taught the pixel difference to correct a skew before comparing, but the picture on screen was still of the two pages as they are &#8212; so the correction moved the outlines and wrote the caption while the glow went on showing every line doubled, and the reader could see no sign the alignment had happened. On a 0.5&#176; skew the unchanged paragraphs now fall back to a faint ghost and the one that was rewritten stays bright. It is less work rather than more: one pass over the aligned pair instead of two, 10.4&#8239;ms against 18.7&#8239;ms at 1600&#215;2070.</span></li>
+        <li><span class="ic">&#9888;</span><span><b>The glow is still not clean, and the caption still says &#8220;best effort&#8221;.</b> Correcting a skew rotates one page and leaves the other alone, and resampling moves every anti-aliased edge &#8212; so a corrected pair still lights more than the words that changed. Measured on a page with one paragraph rewritten: the honest answer is one region, and even a <i>perfect</i> correction reports eight.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
       <h3>The &#8984;/ reference grows sideways</h3>
       <ul class="flist">
         <li><span class="ic">&#9636;</span><span><b>Three columns instead of two.</b> Seven rows arrived at once and the two-column window was already as tall as a 13&#8243; display allows, so the reference is wider and shorter rather than taller &#8212; a reference you scroll is a reference you stop reading. Every chord above has its row.</span></li>
