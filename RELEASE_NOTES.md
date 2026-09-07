@@ -108,6 +108,24 @@ User-facing changes, newest first. For the full commit history see the
   as tall as a 13" display allows, so the reference is wider and shorter rather than taller — a
   reference you scroll is a reference you stop reading. Every chord above has its row.
 
+### Help now says what happens to your documents
+
+- **A new article, Reading your documents.** Some of what Organize knows comes from opening your
+  files rather than reading their names — To File reads a short piece of a loose file, Update folder
+  memory reads the first page of what has changed, and Duplicates reads a document's text to tell
+  real copies apart. Nothing said what that meant. The article says what can be opened, how much of
+  each file is read, what is kept afterwards — ordinary words as themselves, anything with a digit
+  in it only in scrambled form — and where all of it lives, so it can be deleted.
+- **And it says, plainly, that none of it is sent anywhere.** No upload, no account, no sign-in, no
+  key: the reading opens no network connection at all. SyncCloud has no server of its own, collects
+  no usage statistics and sends no crash reports. Nothing about your files reaches anyone.
+- **It names the one exception itself**, rather than leaving it to be found: Refine with Claude does
+  reach Anthropic's API, with a key you supply and that stays in your Keychain, and only when you
+  press Refine. Everything else on the page works the same on a Mac with no key and no internet.
+- **Settings ▸ Intelligence points at it.** "Read file contents on-device" is the one switch in
+  Settings whose whole subject is privacy and had the least to read beside it; it now carries a
+  question mark that opens the article.
+
 ---
 
 ## v5.2
