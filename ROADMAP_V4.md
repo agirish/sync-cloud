@@ -192,56 +192,29 @@ still share.
 
 The accepted limits it landed with are recorded as **items 14–16 of `DEFERRED_ENHANCEMENTS.md`**,
 which is where limits live rather than here. Dropping files on a tab was never in scope and is
-already ranked in §3. What follows is the one piece of *design* still open.
+already ranked in §3. The one piece of *design* left open here was deleted on 2026-09-07 under the
+fourth-carry rule; what follows is the record of that, not a design.
 
-### Mirroring tab *switches* on linked panes — not built
+### Mirroring tab *switches* on linked panes — **deleted 2026-09-07, never built** (roadmap RD8)
 
-The 🔗 link now carries into **opening** a tab: right-click ▸ Open in New Tab, ⌘-double-click and
-⌘T each open on the sibling too, on the same predicate a mirrored column drill uses
-(`layoutMode == .compare && (isLinked || ⌥)`), pruned to the deepest folder the sibling genuinely
-has. Switching between tabs does **not** mirror, so two panes that grew their tabs together
-diverge at the first ⇧⌘] — which is the state the link exists to prevent.
+The design that stood here is gone, and the deletion is the record. It described giving mirrored
+tabs a shared id so that switching a tab on one linked Compare pane switched its pair on the other;
+today opening a tab mirrors, switching does not, so two panes that grew their tabs together diverge
+at the first ⇧⌘].
 
-**Carried to v4.3, deliberately, on 2026-08-20 — and this is the third carry.** The choice was put
-as delete-or-build after a full release of running linked Compare, with deletion recommended on this
-file's own reasoning: a design carried twice without being built is usually a design nobody wants.
-It was carried instead. What that answers is the question the recommendation rested on — the
-unmirrored switch has *not* proved to be a non-issue in use — so the item survives on evidence rather
-than on inertia, which is the distinction the "third carry" rule exists to force. It is listed as
-**v4.3 item 4** below — this said item 7 until 2026-08-20, from a numbering two edits ago, and 7 is
-now Gallery view.
+**It was designed twice and carried three times without being built** — most recently on 2026-08-20,
+deliberately and against this file's own recommendation to delete it. That carry set the test
+itself: *"If it is carried a fourth time, delete it instead — the argument for keeping it was that
+the problem is real in use, and a fourth carry would be evidence against that."* v4.3 came and went
+without it. This is the fourth, so the rule is applied rather than re-argued.
 
-**What that means for whoever picks it up: it is deferred on a QUESTION, not on merit.** The
-recommendation below is already made; what is missing is the answer to the two questions after it,
-and neither is discoverable from the code. Do not treat this as schedulable small work — that is
-exactly the failure mode the v4.3 list names.
-
-Deferred rather than skipped, because it needs a **pairing rule** and the cheap one is wrong:
-
-- **By index** — switch the sibling to the same position. One line, and it silently desyncs: a
-  close, a reorder, a pin or a single unlinked ⌘T on either side shifts one list against the other,
-  and from then on every switch sends the sibling somewhere unrelated with nothing on screen
-  saying so.
-- **By path** — switch the sibling to *its* tab on the same relative folder. Correct when there is
-  one, undefined when there is not: open a new tab there (a switch that silently grows a list), or
-  leave the sibling where it is (the panes stay out of step, which is what this was to fix).
-- **By pairing** — record a shared id when a tab is mirrored into existence, and switch by it.
-  The only one that survives divergence, and the only one that adds persisted state to a format
-  that deliberately stores `{providerId, relativePath, pinned}` and nothing session-shaped.
-
-Two questions come with it, and they are why this is not a follow-up commit:
-
-- **Does closing mirror too?** If switches pair but closes do not, the pairing is stale the first
-  time a paired tab is closed on one side, and a switch then has to decide between an id that names
-  nothing and falling back to a rule already rejected above.
-- **What does the sibling do when its paired tab's folder has since gone?** The open-mirror prunes
-  at creation time; a *switch* arrives at a tab that already names a folder, so pruning there would
-  quietly move a tab off the location its chip claims — the one thing `PaneTabChips` is built to
-  prevent.
-
-Recommendation: **pairing, with closes mirrored**, and only once someone has run linked Compare
-long enough to say whether an unmirrored switch is actually a nuisance. Nothing about the shipped
-behaviour has to change to add it — `mirrorOpenInNewTab` is where a pair id would be minted.
+Nothing shipped depended on it: `mirrorOpenInNewTab` is untouched and still mirrors an *opened* tab,
+which is the half that was built and is in use. Two questions were what kept it open — what a switch
+does when its paired tab's folder has gone, and what happens once a paired tab is closed — and they
+are recorded here only so that anyone who re-proposes this knows the design was not abandoned for
+want of thinking about it. **Do not restore this from history; if the unmirrored switch ever becomes
+a real nuisance in use, that evidence is the reason to design it again, and it should be designed
+against the app as it then stands.**
 
 ---
 
@@ -369,8 +342,9 @@ a folder that has since gone — the same three questions the tab strip already 
 - **Go to Folder.** ~~Finder's ⇧⌘G as a behaviour rather than a surface: §7's field accepts a typed
   path, `~/` and `/` included, resolved against the pane's provider roots.~~ **Shipped 2026-08-19**
   (`PalettePath`). A query starting `/` or `~` resolves to one row: the folder, or a refusal saying
-  which of four things went wrong — outside every source, in a source that is not mounted, in a
-  source the pane is not showing, or nothing there. **The refusals are most of the feature**, because
+  which of three things went wrong — outside every source, in a source that is not mounted, or
+  nothing there. (There were four; the fourth is the deferral below, and it shipped.) **The
+  refusals are most of the feature**, because
   a path query used to match nothing at all and an empty list is the "nothing happened" this family
   of features exists to remove. A **file** path goes to its enclosing folder, the way ⇧⌘G accepts
   one — that is what a Finder copy puts on the clipboard.
@@ -381,15 +355,31 @@ a folder that has since gone — the same three questions the tab strip already 
   first and a path outside every source, or inside a sleeping one, is refused without the disk being
   touched.
 
-  **The one half deferred, and it is the interesting one: a path inside a source the pane is not
+  ~~**The one half deferred, and it is the interesting one: a path inside a source the pane is not
   currently showing.** It refuses and names the source ("In Dropbox — switch source first") rather
-  than switching. Switching is not the one line it looks like: `onChange(of: leftProviderId)` fires
-  on the *next* view update and calls `resetNavigation()`, so an `aimProvider` followed by a
-  `focusOn` lands the pane at the root with the typed folder silently dropped — the same discard
-  `aimOrganize` spends thirty lines of comment on. The mechanism to do it properly already exists
-  and is named: `adoptProviderForTab` arms `pendingTabProviderChanges`, which suppresses that reset
-  for a writer that has done the handler's work itself, and its caller then drives one reload.
-  **v4.3 or later**; expect the reload ordering to be the whole of the work.
+  than switching.~~ **Shipped 2026-09-06 as RD7.** The row is a destination now: it reads "Open in
+  Dropbox", and ↩ points the aimed pane at that source and lands it on the typed folder.
+
+  **The prediction held exactly — the reload ordering was the whole of the work**, and the
+  mechanism named here is the one that was used. `onChange(of: leftProviderId)` fires on the *next*
+  view update and re-homes the pane, so `adoptProviderForTab` arms `pendingTabProviderChanges`, the
+  handler consumes it instead of resetting, and `refreshForTabSwitch` drives one reload of the moved
+  pane. Three statements in one order — `focusOn`, then the armed provider write, then the reload —
+  in `ContentView.switchSourceAndReveal`; the route is its own case, `PaletteRoute.folderInSource`,
+  so the host's exhaustive `switch` had to name it. Both helpers stopped being `private` for that
+  one caller, which is the whole of the change to the tabs file.
+
+  **Two things it deliberately did not do.** The disk is still not asked on the keystroke path — a
+  cross-source path is offered without knowing whether the folder is there, because probing a source
+  the pane is not showing has no `foldersUnavailable` in front of it; the existence question moves
+  to ↩, and "nothing at that path" refuses there with a log rather than switching the source and
+  landing somewhere else. And the link toggle does not apply: only the aimed pane moves, because the
+  sibling is on another source and a path relativized against this one's root means nothing there.
+
+  **The other three refusals stay refusals**, each for a reason this one did not have: "Not in any
+  source" is a fact about the configuration rather than a navigation, an unmounted source cannot be
+  switched to at all, and "No folder at that path" is a claim about existence inside the aimed
+  source.
 
   **Reviewed twice, 2026-08-19/20.** Deliverability was being decided against the owning provider's
   `isCurrent` flag while the reveal relativizes against `providerRoot` — two values that disagree
@@ -942,10 +932,10 @@ have already shipped, so what is actually left is nine.
 10. **The pasteboard** (§3). ⌘C/⌘V to and from *Finder* + a paste-as-move whose chord is still to be
     chosen (**not ⌥⌘V** — the ⌥ ban above). Note §10's correction: the **in-app** clipboard already
     exists and works, so what is left here is `NSFilePromiseProvider`, not the whole feature.
-11. ~~**§1's switch mirroring** — or delete it, having now run tabs for a release.~~ **Carried to
-    v4.3 on 2026-08-20**, as its item 4. The delete-or-build choice was put and answered in favour
-    of keeping it, which is what makes this a decision rather than the third silent carry the
-    bullet was warning about. See §1 for what the carry commits whoever picks it up to.
+11. ~~**§1's switch mirroring** — or delete it, having now run tabs for a release.~~ **Deleted on
+    2026-09-07** (roadmap RD8). Carried to v4.3 on 2026-08-20 as its item 4, on the explicit
+    condition that a fourth carry would settle it the other way; v4.3 shipped without it, so it
+    was. See §1 for the record.
 12. ~~**One-line pane headers** (§8). Medium, and it argues with a pinned constant and its test.~~
     **Carried to v4.3 on 2026-08-20**, as its item 5 — built, measured, and moved on the numbers
     rather than on the argument. It did not merely argue with the pinned constant; it lost. §8
@@ -1000,7 +990,7 @@ matters which:
 | 1 | **⌘↑ / ⌘↓** (§3) | small | **On a question.** A pane has two positions and the two candidate meanings move different ones — see §3's entry for the axis choice. The implementation is small once the axis is decided. |
 | 2 | **The status bar** (§3) | small | **On a question.** Placement: per-pane, window-wide, or following focus — see §3's table. **Settle it with §8's one-line headers**, which spends room at the same place. Also: a cloud-only *count* is a walk, not a read. |
 | 3 | **Switching to the source a typed path is in** (§3) | small | **On a mechanism, not a question.** Go to Folder refuses a cross-source path and names the source; switching to it needs `adoptProviderForTab`'s counter to suppress the provider change's own `resetNavigation()`, or the pane lands at its root with the folder silently dropped. Expect the reload ordering to be the whole of the work. |
-| 4 | **Mirroring tab *switches* on linked panes** (§1) | medium | **On a question, and the oldest thing on this list.** Designed twice, carried three times — most recently on 2026-08-20, deliberately and against this file's own recommendation to delete it. Pairing with mirrored closes is the recommended design; the two questions it does not answer (what a switch does when its paired tab's folder has gone, and what happens once a paired tab is closed) are in §1 and are why this is not a follow-up commit. **If it is carried a fourth time, delete it instead** — the argument for keeping it was that the problem is real in use, and a fourth carry would be evidence against that. |
+| 4 | ~~**Mirroring tab *switches* on linked panes** (§1)~~ | — | **Deleted 2026-09-07** (roadmap RD8), under the fourth-carry rule this row itself set: *"If it is carried a fourth time, delete it instead."* v4.3 shipped without it. The design and the two questions it never answered are described — not restored — in §1. |
 | 5 | **One-line pane headers** (§8) | medium | **On a decision that has now been taken twice, and the second one is why it is here.** Built and measured 2026-08-20: 23pt back and one file row, not §8's 44pt and three; unusable below ~560pt; and folding the lens rail breaks the 83.5 line it shares with `LensHeaderCard`. **Browse-only is the only safe shape.** §8 carries every number. Take §8's in-window subtitle line with it — same width budget, and settling it twice is how the ⌘K field ends up under its floor. |
 | 6 | **Browse's folder sidebar — switch it on, and make it Finder's** (§3) | medium | **Built and held.** The column, its rows, its refresh, its render tests and its host wiring are all on `main` and all inert (`FolderSidebarModel.isEnabled`); switching it on is that constant plus the four surfaces named beside it. **That part is an afternoon and it is not the item.** The item is the difference between two ungrouped lists and what a Mac user means by a sidebar: named sections that collapse and reorder, a folder dragged *in* to become permanent, and a row you can drop a file onto to file it without navigating there. **Shares 8's prerequisite** — dropping onto a row and dragging a folder in both need pane row drag re-added, so take these two together or take 8 first. |
 | 7 | **Gallery view** (§3) | large | **On merit.** A third `PaneViewMode` case is free; thumbnails — generation, a cache that survives a quit, eviction, a placeholder that does not flash — are the whole job. Argue it from the scans folders, the only trees where a filename genuinely fails to identify the file. |

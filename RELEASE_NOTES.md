@@ -47,6 +47,22 @@ User-facing changes, newest first. For the full commit history see the
   way to move it beside Activity Log removes the main window's own entry from that menu, which is
   measured and pinned.
 
+### ⌘K takes you to a path in another source
+
+- **A typed path in a source the pane is not showing is delivered now, not refused.** ⌘K's Go to
+  Folder has accepted `/…` and `~/…` paths since v4.1, and a path inside a *different* configured
+  source answered “In Dropbox — switch source first” — a row that named the fix and then made you do
+  it. It reads **“Open in Dropbox”**, and ↩ points the pane at that source and lands it on the
+  folder. Only the pane ⌘K was aimed at moves; in Compare the one beside it keeps its source, its
+  tree and its place.
+- **The other three refusals are still refusals**, and each says something different: “Not in any
+  source” is about your configuration rather than about the folder, “Backup SSD is not mounted” is a
+  source that cannot be shown at all, and “No folder at that path” is the only one claiming nothing
+  is there.
+- **A path in another source is not checked until you press ↩**, so typing one never waits on a
+  sleeping drive. If the folder has gone since, the pane stays where it is rather than switching
+  source and landing somewhere else, and the Activity Log says so.
+
 ### The ⌘/ reference grows sideways
 
 - **Three columns instead of two.** Seven rows arrived at once and the two-column window was already

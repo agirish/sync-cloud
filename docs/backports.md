@@ -3588,3 +3588,94 @@ that green as a hole and "fix" a test that is already right.
 
 **Not backported, per the standing direction** (`e2b35dad`, 2026-08-26). These rows are the record a
 future audit needs, not a to-do.
+
+---
+
+## 2026-09-06 — ⌘K switches to the source a typed path is in (roadmap RD7)
+
+**`RECORDED — not owed`, all three lines.** Go to Folder's fourth refusal — a path inside a source
+the pane is not showing, answered "In Dropbox — switch source first" — became a destination. The
+row reads "Open in Dropbox" and ↩ points the aimed pane at that source and lands it on the folder.
+The mechanism is the one ROADMAP_V4 §3 predicted: a new route case `PaletteRoute.folderInSource`,
+and `ContentView.switchSourceAndReveal` doing `focusOn` → `adoptProviderForTab` (which arms
+`pendingTabProviderChanges`, so `onChange(of: leftProviderId)` consumes the counter instead of
+running `retargetPane()`) → `refreshForTabSwitch`. `adoptProviderForTab` and `refreshForTabSwitch`
+stopped being `private` for that one caller; nothing else in the tabs file moved.
+
+### What applies, per line
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s' "$l"
+  printf ' CommandPalette=%s' \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/CommandPalette.swift | grep -c . || true)"
+  printf ' PalettePath=%s' \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/PalettePath.swift | grep -c . || true)"
+  printf ' refusal=%s\n' \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/CommandPalette.swift 2>/dev/null | grep -c 'switch source first' || true)"
+done   # main 1/1/1 (before this landed) · v4.x 1/1/3 · v3.x 0/0/0 · v2.x 0/0/0
+```
+
+The `refusal=` count is the shape check that stage 1 cannot make: `v4.x` has both files **and** the
+refusal string three times (the branch, and two comments about it), which is the whole feature
+present and the deferral still in place. `main`'s pre-landing count was the same, which is what
+makes the comparison mean something.
+
+- **`v4.x`** carries Go to Folder whole, including the refusal, so this applies in substance. The
+  pick is small in the router (one route case, one row) and **not** small in the host: it needs
+  `adoptProviderForTab`'s suppression contract and `refreshForTabSwitch`, both of which exist on
+  that line, plus `PaneProviderChange` consuming the counter before the bootstrap guard. Feature
+  work on a maintenance line, so not owed by standing direction rather than by difficulty.
+- **`v3.x` and `v2.x`** have **no command palette at all** — neither `CommandPalette.swift` nor
+  `PalettePath.swift` is on those lines — so there is no Go to Folder to improve and no refusal to
+  retire. Checked, not owed, and it does not apply.
+
+**The one worth a sentence if the direction ever changes:** the ordering is the whole of the
+change, and it is invisible to a compiler. A pick that lands the route and writes the provider with
+`aimProvider` (the `.provider` route's writer, which arms nothing) compiles, runs, and puts the
+pane at the new source's landing folder with the typed folder silently dropped — the exact outcome
+the refusal existed to avoid. `PaletteSourceSwitchTests.theSwitchNavigatesFirstThenAdoptsUnderSuppressionThenReloads`
+is the scan that catches it, and it would have to travel with the pick.
+
+---
+
+## 2026-09-06 — the divergence diff (RD4) — **no maintenance line has any of it, and none can**
+
+"Show What Changed…" on the changed-on-disk alert, the in-window diff overlay behind it, and the
+header's amber stop line as a second door onto the same question. The whole batch stands on two
+things neither of which exists off `main`: the **Edit workspace** (v5.2, 2026-09-03) and the
+**Compare Copies text diff** (2026-08-30). `v4.x` was cut at `v4.6` on 2026-08-28, before both.
+
+```sh
+# stage 1 — is the FILE there? main is the positive control: it must print 1 across the row.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s alerts=%s stop=%s workspace=%s diff=%s diffview=%s bounded=%s compare=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/EditorAlerts.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- MacApp/EditorAutosaveStop.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/EditorWorkspaceView.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/TextPairDiff.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/TextPairDiffView.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/BoundedTextRead.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/CompareCopiesSheet.swift | wc -l | tr -d ' ')"
+done
+# measured 2026-09-06: main 1/1/1/1/1/1/1 · v4.x 0/0/0/0/0/0/0 · v3.x all 0 · v2.x all 0
+```
+
+**Stage 2 was not run, and that is the honest answer rather than a skipped step.** Stage 2 asks
+whether the *shape* is there in a file that exists; every file this batch touches or depends on is
+absent on all three maintenance lines, so there is nothing to grep inside. `main`'s row of `1`s is
+what keeps three rows of zeroes from being a mistyped path.
+
+| What landed on `main` | `v4.x` / `v3.x` / `v2.x` | Status |
+|---|---|---|
+| **`TextPairDiffPipeline`** — the read-refuse-prefilter-walk-notes ordering lifted out of `CompareCopiesSheet.refreshTextDiff`, so two surfaces share the stall guard instead of copying it | No `CompareCopiesSheet.swift`, no `TextPairDiff.swift`, no `BoundedTextRead.swift` — the refactor has nothing to refactor | CLOSED — checked, does not apply |
+| **`EditorDivergenceDiffOverlay`** — the in-window buffer-against-disk diff, its two column captions, and its three-verb foot | No Edit workspace at all, and no line differ to draw in it | CLOSED — checked, does not apply |
+| **The alert's fourth button** — `Show What Changed…` at position three, `divergenceAnswer` extended in lockstep, and the destructive styling now read from the answer rather than from the button's title | No `MacApp/EditorAlerts.swift`: the changed-on-disk question does not exist on these lines, because nothing on them edits a file | CLOSED — checked, does not apply |
+| **`EditorAutosaveStop.offersDiff`** and the header's amber words as a control | No `MacApp/EditorAutosaveStop.swift`, no `EditorWorkspaceView.swift` | CLOSED — checked, does not apply |
+| **`EditorDocumentFacts.count(_:_:)` made static** so the overlay's column phrases its word count by the same rule as the status line | No `EditorDocumentFacts.swift` | CLOSED — checked, does not apply |
+| **Help copy** — two paragraphs under the Edit workspace topic describing the diff and the pill | `MacApp/HelpBook.swift` exists on the maintenance lines, but the Edit workspace topic these paragraphs sit in does not | CLOSED — checked, does not apply |
+
+**Nothing here is owed in substance either.** This is not the usual "applies, but standing direction
+says no" row: a maintenance line cannot carry a diff of an editor buffer when it has no editor. The
+row is filed so a later audit does not have to re-derive that from the shape of the feature — and so
+the *reason* is on record as a measurement rather than as an assumption.
