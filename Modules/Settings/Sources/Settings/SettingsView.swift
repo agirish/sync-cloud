@@ -261,6 +261,15 @@ public struct SettingsView: View {
     /// People rows reach. nil where there is no app behind the sheet (tests, previews), which
     /// hides the button rather than offering one that does nothing.
     private let onShowPerson: ((Person) -> Void)?
+    /// Opens the app's Help book at a topic id. **A callback rather than a reach into `HelpBook`,
+    /// because the book lives in `MacApp` and this module cannot see it** — the same shape
+    /// `onShowPerson` uses to reach the gather, and for the same reason. nil in tests and previews,
+    /// which hides the pointer rather than offering one that does nothing.
+    ///
+    /// Settings and Help are mutually exclusive overlays on one window (`ContentView`'s latch
+    /// chain), so the host closes this sheet on the way — the reader lands on the article, not on
+    /// an article behind a settings card.
+    private let onOpenHelp: ((String) -> Void)?
 
     /// The header search text. While non-empty it takes over the content area with a list of
     /// matching settings across every tab; selecting one jumps to its tab and clears this.
@@ -299,6 +308,7 @@ public struct SettingsView: View {
         syncManager: FileSyncManager? = nil,
         onResetAllSettings: (() -> Void)? = nil,
         onShowPerson: ((Person) -> Void)? = nil,
+        onOpenHelp: ((String) -> Void)? = nil,
         availableSize: CGSize? = nil
     ) {
         _selectedTab = selection
@@ -306,6 +316,7 @@ public struct SettingsView: View {
         self.syncManager = syncManager
         self.onResetAllSettings = onResetAllSettings
         self.onShowPerson = onShowPerson
+        self.onOpenHelp = onOpenHelp
         self.availableSize = availableSize
     }
 
@@ -379,7 +390,7 @@ public struct SettingsView: View {
             case .duplicates:
                 DuplicatesSettingsTab()
             case .intelligence:
-                IntelligenceSettingsTab(syncManager: syncManager)
+                IntelligenceSettingsTab(syncManager: syncManager, onOpenHelp: onOpenHelp)
             case .advanced:
                 AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
             }
@@ -2437,6 +2448,11 @@ struct IntelligenceSettingsTab: View {
     /// Reaches `filingVerdictCache*` for the saved-suggestion count. Optional for the same reason
     /// every other tab's is: tests and previews build the tab without an engine.
     let syncManager: FileSyncManager?
+    /// See `SettingsView.onOpenHelp`. nil hides the pointer beside the on-device caption.
+    ///
+    /// **Defaulted, so the two layout tests that build this tab keep compiling** — and so that a
+    /// host which cannot open the book gets a section with no pointer rather than a dead glyph.
+    var onOpenHelp: ((String) -> Void)?
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
@@ -2480,14 +2496,44 @@ struct IntelligenceSettingsTab: View {
     /// on must never be gated on that thing being on.**
     static func cloudToggleEnabled(useAI: Bool) -> Bool { useAI }
 
+    /// **Where the reader who is worried goes first.** "Read file contents on-device" is a switch
+    /// whose whole subject is privacy, and the caption beside it could say what is read but never
+    /// what happens to it afterwards — so the one control most likely to prompt the question was
+    /// the one furthest from an answer.
+    ///
+    /// The shape is `RestructureLens.helpPointer`’s, deliberately and down to the glyph: one
+    /// affordance, routed through the app’s existing Help front door, never a second overlay and
+    /// never a sheet. `questionmark.circle` rather than `info.circle` so the app has one mark that
+    /// means "the book has a page on this" instead of two that nearly do.
+    @ViewBuilder
+    private var helpPointer: some View {
+        if let onOpenHelp {
+            Button { onOpenHelp(SettingsHelpTopics.onDeviceReading) } label: {
+                Image(systemName: "questionmark.circle")
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            // A glyph-only control needs both: `.help` is the tooltip, not the name.
+            .accessibilityLabel("About reading your documents")
+            .help("What gets opened, how much is read, what is kept — and why none of it leaves this Mac.")
+            .chromeHover()
+        }
+    }
+
     var body: some View {
         SettingsPage {
             SettingsSection(
                 "On-device",
-                caption: "Free, private, and always the first pass: the on-device model (Apple Intelligence, macOS 26) runs at no cost, and where it isn’t available Organize falls back to matching on names and metadata. Reading contents gives it more to go on for files whose name says nothing. Changes apply on the next scan."
+                caption: "Free, private, and always the first pass: the on-device model (Apple Intelligence, macOS 26) runs at no cost, and where it isn’t available Organize falls back to matching on names and metadata. Reading contents gives it more to go on for files whose name says nothing. Nothing here opens a network connection — the reading happens on this Mac and is never sent anywhere. Changes apply on the next scan."
             ) {
                 Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
-                Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
+                // `.firstTextBaseline`, so the glyph sits on the label's baseline rather than
+                // centring itself on the switch — which at Large text leaves it visibly high.
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
+                    helpPointer
+                }
             }
 
             SettingsSection(

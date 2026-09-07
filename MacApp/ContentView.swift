@@ -2354,6 +2354,14 @@ struct ContentView: View {
                 showSettings = false
                 acceptPersonScope(person)
             },
+            // Settings ▸ Intelligence's pointer at "Reading your documents". Settings and Help are
+            // mutually exclusive overlays in the latch chain above, so the sheet is closed on the
+            // way rather than left behind the article — the same hand-off `onShowPerson` makes.
+            onOpenHelp: { topic in
+                showSettings = false
+                helpTopic = topic
+                showHelp = true
+            },
             availableSize: available
         )
         .environmentObject(settings)
