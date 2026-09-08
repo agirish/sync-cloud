@@ -67,25 +67,40 @@ import Events
 
     // MARK: LogViewer rows
 
+    /// The zone the log rows' time column is rendered in.
+    ///
+    /// **These two references used to bake in the recording machine's zone, and it cost a day.**
+    /// SNAPSHOTS.md lists timezone among the things a reference bakes in; what it does not say is
+    /// how that reads when it fires. On 2026-09-05 this Mac moved from Pacific to `Asia/Kolkata`,
+    /// and `logRowsAllSeverities` and its compact twin went red on a frozen fixture with no code
+    /// change behind them — the stamp went `05:00:00.000` → `17:30:00.000`, and in compact the
+    /// wider run shoved the whole message line sideways, so 10% of the canvas differed with a
+    /// perceptual precision of 0.46. That looks exactly like a rendering regression and is not
+    /// one. Pinning the zone costs the pin nothing (what is being held here is the row's
+    /// geometry and the severity colour pairing, not which hour the clock reads) and takes the
+    /// one machine-state input out of these two images. UTC, so the rendered stamp reads back as
+    /// the fixture comment below writes it.
+    private static let pinnedZone = TimeZone(identifier: "UTC")!
+
     /// One row per severity, pinning the icon/color/capsule pairing, plus the dimmed
-    /// `Location:` developer-breadcrumb tail on the error row. Timestamps are frozen
-    /// (rendered in the machine's local timezone — see SNAPSHOTS.md).
+    /// `Location:` developer-breadcrumb tail on the error row. Timestamps are frozen, and
+    /// rendered in `pinnedZone` rather than the machine's — see its note.
     @Test func logRowsAllSeverities() {
         let at = Date(timeIntervalSince1970: 1_780_315_200) // 2026-06-01 12:00:00 UTC
         assertViewSnapshot(
             of: VStack(alignment: .leading, spacing: 0) {
                 LogEntryRow(entry: LogEntry(
                     timestamp: at, level: .debug,
-                    message: "Scan enumerated 1,204 items under ~/iCloud Drive"))
+                    message: "Scan enumerated 1,204 items under ~/iCloud Drive"), timeZone: Self.pinnedZone)
                 LogEntryRow(entry: LogEntry(
                     timestamp: at, level: .info,
-                    message: "Copied Invoice-2026-06.pdf to OneDrive/Documents"))
+                    message: "Copied Invoice-2026-06.pdf to OneDrive/Documents"), timeZone: Self.pinnedZone)
                 LogEntryRow(entry: LogEntry(
                     timestamp: at, level: .warning,
-                    message: "Skipped cloud-only file (not downloaded): Budget.xlsx"))
+                    message: "Skipped cloud-only file (not downloaded): Budget.xlsx"), timeZone: Self.pinnedZone)
                 LogEntryRow(entry: LogEntry(
                     timestamp: at, level: .error,
-                    message: "Move failed: destination folder is read-only | Location: FileSyncManager.swift:412 / moveItem(_:to:)"))
+                    message: "Move failed: destination folder is read-only | Location: FileSyncManager.swift:412 / moveItem(_:to:)"), timeZone: Self.pinnedZone)
             }
             .padding(12),
             size: CGSize(width: 560, height: 260),
@@ -103,16 +118,16 @@ import Events
             of: VStack(alignment: .leading, spacing: 0) {
                 LogEntryRow(entry: LogEntry(
                     timestamp: at, level: .debug,
-                    message: "Scan enumerated 1,204 items under ~/iCloud Drive"), density: .compact)
+                    message: "Scan enumerated 1,204 items under ~/iCloud Drive"), density: .compact, timeZone: Self.pinnedZone)
                 LogEntryRow(entry: LogEntry(
                     timestamp: at, level: .info,
-                    message: "Copied Invoice-2026-06.pdf to OneDrive/Documents"), density: .compact)
+                    message: "Copied Invoice-2026-06.pdf to OneDrive/Documents"), density: .compact, timeZone: Self.pinnedZone)
                 LogEntryRow(entry: LogEntry(
                     timestamp: at, level: .warning,
-                    message: "Skipped cloud-only file (not downloaded): Budget.xlsx"), density: .compact)
+                    message: "Skipped cloud-only file (not downloaded): Budget.xlsx"), density: .compact, timeZone: Self.pinnedZone)
                 LogEntryRow(entry: LogEntry(
                     timestamp: at, level: .error,
-                    message: "Move failed: destination folder is read-only | Location: FileSyncManager.swift:412 / moveItem(_:to:)"), density: .compact)
+                    message: "Move failed: destination folder is read-only | Location: FileSyncManager.swift:412 / moveItem(_:to:)"), density: .compact, timeZone: Self.pinnedZone)
             }
             .padding(12),
             size: CGSize(width: 560, height: 150),
