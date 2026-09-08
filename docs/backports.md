@@ -4147,3 +4147,44 @@ wrong; together they let one folder arrive twice with one id. Any line that late
 substitution gains the defect with it — so if `PathBoundary.LinkedFolders` is ever picked to a
 maintenance line, `65cc160b` must go with it in the same batch, or that line starts over-reporting
 Storage and offering the user's own Documents folder to the Trash.
+
+## 2026-09-08 — landing a place in the folder it names, and re-rooting a pane that walks into a source
+
+`main` `a73cbf23` (a sidebar shortcut lands in its folder, not at its owner's root) and `d1f8547d`
+(a columns drill onto another source's own root re-roots the pane there). SHAs read after the push.
+
+```sh
+# stage 1 — the sidebar fix needs the ARMED provider write. Without it the fix cannot be expressed:
+# the plain write runs retargetPane() on the next view update and discards the focusOn.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s adoptProviderForTab=%s insideItsOwner=%s\n' "$l" \
+    "$(git show origin/$l:MacApp/ContentView+PaneTabs.swift 2>/dev/null | grep -c 'func adoptProviderForTab')" \
+    "$(git show origin/$l:MacApp/ContentView+FolderSidebar.swift 2>/dev/null | grep -c 'openFolderSidebarShortcutInsideItsOwner')"
+done
+# main 1/2 · v4.x 1/2 · v3.x 0/0 · v2.x 0/0
+
+# stage 2 — the walk-in needs five things, and the lines differ in WHICH they are missing.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s applyColumnNavigation=%s paneStack=%s isSameFolder=%s setProvider=%s localFolder=%s folderSources=%s\n' "$l" \
+    "$(git show origin/$l:MacApp/ContentView.swift 2>/dev/null | grep -c 'func applyColumnNavigation')" \
+    "$(git show origin/$l:MacApp/ContentView+PaneTabs.swift 2>/dev/null | grep -c 'func paneStack')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/SidebarSources.swift 2>/dev/null | grep -c 'func isSameFolder')" \
+    "$(git show origin/$l:MacApp/ContentView+FolderSidebar.swift 2>/dev/null | grep -c 'func setFolderSidebarProvider')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/CloudProvider.swift 2>/dev/null | grep -c 'case localFolder')" \
+    "$(git show origin/$l:Modules/Settings/Sources/Settings/SettingsManager.swift 2>/dev/null | grep -c 'func addFolderSource')"
+done
+# main 1/1/1/1/1/1 · v4.x 1/1/1/1/1/1 · v3.x 1/0/0/0/1/1 · v2.x 1/0/0/0/0/0
+```
+
+| What landed on `main` | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| **`a73cbf23`** — the `.inside` sidebar branch adopts the three-statement contract (`focusOn`, armed provider write, one reload) instead of a bare provider write plus `focusOn` | **Applies cleanly and the DEFECT IS THERE.** `openFolderSidebarShortcutInsideItsOwner` and `adoptProviderForTab` are both present, and the branch is the pre-fix shape — a click on Downloads lands at Home folder's root with the folder dropped, exactly as on `main` before this | **Does not apply.** Neither the sidebar's `.inside` branch nor `adoptProviderForTab` exists; there is no place for the fix to go and no defect to fix | **Does not apply**, same reason | RECORDED — owed and reproducible (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`d1f8547d`** — `PaneLogic.sourceRootedAt` plus the drill-only walk-in in `applyColumnNavigation` | **Applies cleanly.** Every prerequisite is present, and so is the shape that motivates it: folder sources exist, so a `~` or `/` source can contain a cloud root and a drill can land on one | **Applies only after rewriting.** `applyColumnNavigation` is there and folder sources exist, so the situation ARISES — but `paneProviderId` / `paneScope` / `paneStack` do not, and neither do `isSameFolder` or `setFolderSidebarProvider`. Picking it means hand-writing the `isLeft ? left : right` ternaries those helpers were extracted to prevent, which is the transposition defect `PaneSideChoice` exists for | **Does not apply — the situation cannot arise.** No folder sources and no `.localFolder` case at all, so every source is a discovered cloud account. Those roots do not nest (iCloud under `~/Library/Mobile Documents`, the rest under `~/Library/CloudStorage/`), so a drill can never land on another source's root. Only a hand-set root override could create one, which is not a shipped configuration | RECORDED — owed (`v4.x`); RECORDED — owed but needs rewriting (`v3.x`); CLOSED — cannot arise (`v2.x`) |
+
+**The measurement worth keeping**, because it is what decides the `v3.x` row rather than the code diff.
+The walk-in's *guard* — cloud accounts only, never a folder source — exists because a re-root resets
+the pane's Back stack, so with `/` and `~` both added as sources an ordinary walk down the disk
+would strand the user in Home folder with `/Users` unreachable. That guard is only meaningful on a
+line that HAS folder sources. `v2.x` has none, which is why the whole feature is moot there rather
+than merely unbuilt — and if folder sources are ever picked back to it, this commit stops being
+"cannot arise" and becomes owed, guard included.
