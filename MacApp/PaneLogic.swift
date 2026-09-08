@@ -1,4 +1,5 @@
 import CoreGraphics
+import Dashboard
 import Design
 import Events
 import FileExplorer
@@ -813,6 +814,61 @@ enum PaneLogic {
     /// "the pane's full path", not as a path join.
     static func fullPath(root: String, relativePath: String) -> String {
         PathBoundary.join(root: root, relative: relativePath)
+    }
+
+    /// **A source of its own, walked into from inside another one.** Returns the provider a pane
+    /// should re-root at when a column drill lands exactly on that provider's root — nil when the
+    /// folder just entered is nobody's root, which is almost every drill.
+    ///
+    /// Browsing `~` into `Dropbox` and opening the Dropbox source put the *same folder* on screen,
+    /// and only one of them says so. The first reads `Home folder ▸ Dropbox ▸ Backup` and carries
+    /// Home folder's root, its scan and its breadcrumb ceiling; the second reads `Dropbox ▸ Backup`.
+    /// This is the rule that collapses the two into one place.
+    ///
+    /// **Exactly the root, never merely inside it.** `owningSource` answers the containment
+    /// question — *which source is this path under* — and it is the wrong question here: every
+    /// folder in a Dropbox tree is "inside Dropbox", so containment would re-root the pane on the
+    /// first drill and then claim every drill after it. A pane is re-rooted when the user walks
+    /// onto the source's own doorstep and at no other moment.
+    ///
+    /// **Cloud accounts only, never a folder source.** Not a nicety — it is what stops the rule
+    /// building one-way doors. A re-root resets the pane's Back stack (`retargetPane`), so the way
+    /// back up is the source picker, and with `/` and `~` both added as folder sources an ordinary
+    /// walk down the disk would re-root twice before reaching anything the user was looking for:
+    /// `/Users` → `/Users/abhishek` would strand them in Home folder with `/Users` unreachable. A
+    /// cloud root is a place people navigate *to*; a folder source is often a place they are
+    /// navigating *through*.
+    ///
+    /// **Never the source the pane is already on**, or the first drill inside a source would try to
+    /// adopt the source it is already showing and reset the pane onto its own root.
+    ///
+    /// `providers` should be the **enabled** list. A disabled source is one no refresh will walk,
+    /// so re-rooting a pane onto it lands in the state `PaneTabProviderSwitch` was written around.
+    ///
+    /// `resolve` expands and follows links, so a source stored as `~/Dropbox` and a path built from
+    /// an expanded root compare equal.
+    ///
+    /// **The empty-root check reads the RAW string, before `resolve` touches it, and that ordering
+    /// is the whole of it.** `URL(fileURLWithPath: "")` does not stay empty — it resolves to the
+    /// process's CURRENT DIRECTORY, which for an app launched from Finder is `/`. So a source with
+    /// no root configured resolves to a real folder and `isSameFolder` will happily match a pane
+    /// standing on it. Guarding after the resolve is a guard that cannot fire, and a fixture whose
+    /// resolver maps `""` to `""` agrees with it right up until the app runs.
+    ///
+    /// **One guard, not two.** An empty `absolutePath` needs none of its own: it too resolves to
+    /// the current directory, and the only source that could then match is one with no root — which
+    /// the guard below has already refused. A second check there was written, kept, and killed by
+    /// nothing (mutation M5), which is the tell for a rule with no reader.
+    static func sourceRootedAt(_ absolutePath: String,
+                               currentProviderId: String,
+                               among providers: [CloudProvider],
+                               resolve: (String) -> String) -> CloudProvider? {
+        let target = resolve(absolutePath)
+        return providers.first { provider in
+            guard !provider.isLocalFolder, provider.id != currentProviderId,
+                  !provider.rootPath.isEmpty else { return false }
+            return SidebarSourceModel.isSameFolder(resolve(provider.rootPath), target)
+        }
     }
 
     /// The folder a lens scan targets: the focus root, walked down to where the pane is

@@ -787,6 +787,9 @@ struct ContentView: View {
     /// is both honest and useful — it lands you on the deepest folder the two still share instead
     /// of on an empty column claiming a folder that isn't there.
     func applyColumnNavigation(_ path: PaneBrowsePath, isLeft: Bool) {
+        // Walking onto another source's own root re-roots the pane there instead of showing it
+        // nested under this one. Takes the navigation whole when it fires, so nothing below runs.
+        if adoptSourceWalkedInto(path, isLeft: isLeft) { return }
         // Only the comparison layout has a sibling to mirror into; the single-source rail has none. The
         // link-or-⌥ test is the same one the breadcrumb and the tree's drill-in already apply, so
         // all three ways of walking into a folder obey one setting.
@@ -802,6 +805,61 @@ struct ContentView: View {
                 : syncManager.leftChildrenIndex(treeRoot: otherRoot),
             otherTreeRoot: otherRoot
         )
+    }
+
+    /// **A column drill that walks into another source: point the pane at that source instead.**
+    ///
+    /// `Home folder ▸ Dropbox ▸ Backup` and `Dropbox ▸ Backup` are the same folder described two
+    /// ways, and the nested one is the worse description: it carries Home folder's root, so the
+    /// breadcrumb ceiling, the scan scope and every "the source root" the pane reports belong to a
+    /// source the user stopped thinking about two columns ago. Walking onto Dropbox's doorstep
+    /// re-roots the pane there. `PaneLogic.sourceRootedAt` holds the four conditions and says why
+    /// each one is there.
+    ///
+    /// **Drills only, and that guard is the whole reason this reads the current depth.** Three
+    /// things come through this same door going the other way: ⌘↑, a crumb click inside the scope,
+    /// and `handleBackgroundDeselect`, which truncates the stack when you click a pane's empty
+    /// space. A click on empty space that changed the pane's SOURCE would be the least explicable
+    /// gesture in the app — and nothing is lost by refusing, because arriving at a source root from
+    /// above shows the same folder either way.
+    ///
+    /// **A plain provider write, not the armed `adoptProviderForTab`.** The armed seam exists for
+    /// callers that have already decided where the pane is going and need `retargetPane()` NOT to
+    /// run; this caller wants exactly what `retargetPane()` does. The pane should come out of this
+    /// indistinguishable from one that picked Dropbox in the source menu — Back inside the new
+    /// source, the old source's Back stack gone rather than silently re-anchored (its entries are
+    /// paths relative to a root the pane no longer has), the column stack cleared, the tree
+    /// reloaded, the selection dropped. One behaviour, not a second one that merely resembles it.
+    ///
+    /// **Only this pane moves, and the seam link deliberately does not apply** — the same rule
+    /// `switchSourceAndReveal` states. A mirrored drill hands this pane's stack to the sibling, and
+    /// the sibling is on a different source: it would be pruned against a tree that has no such
+    /// folder, for a re-root it had no part in.
+    ///
+    /// Returns whether it took the navigation.
+    func adoptSourceWalkedInto(_ path: PaneBrowsePath, isLeft: Bool) -> Bool {
+        guard path.depth > paneStack(isLeft: isLeft).depth else { return false }
+        let providerId = paneProviderId(isLeft: isLeft)
+        // The pane's location as one absolute path: its own root, its own scope, its own new stack.
+        // Scope joined in because a pane focused inside its source still browses relative to that
+        // focus — reading the stack alone names a folder one or more components too shallow.
+        let absolute = PaneLogic.fullPath(
+            root: settings.rootPath(for: providerId),
+            relativePath: PathBoundary.joinRelative(paneScope(isLeft: isLeft), path.relativePath))
+        guard let adopted = PaneLogic.sourceRootedAt(absolute,
+                                                     currentProviderId: providerId,
+                                                     among: settings.enabledProviders,
+                                                     resolve: Self.resolved) else { return false }
+        // Said out loud, because this is the one navigation in the app the user did not ask for by
+        // name: they clicked a folder and the pane changed source. The provider handler logs its
+        // own "User switched … provider" line a beat later, and on its own that line describes a
+        // menu pick that never happened.
+        let from = settings.availableProviders.first { $0.id == providerId }?.displayName ?? providerId
+        Logger.shared.info(
+            "The \(PaneSideChoice.name(isLeft)) pane walked into \(adopted.displayName)'s own root "
+            + "at \(absolute) — re-rooting it there rather than showing it nested under \(from)")
+        setFolderSidebarProvider(adopted.id, isLeft: isLeft)
+        return true
     }
 
     /// A crumb click that must move both panes: the ⌥-click, and every plain click while the seam

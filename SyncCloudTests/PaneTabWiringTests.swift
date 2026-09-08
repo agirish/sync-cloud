@@ -1413,9 +1413,21 @@ import Sync
         // construction — `lensTargetIsRight` is what `paletteProviderId` and the whole folder index
         // were built from. Requiring the focus door here would have the tail of an operation
         // re-announce a pane the operation never chose.
+        //
+        // **The three side-narrowing readers joined the list with the columns walk-in.**
+        // `ContentView.adoptSourceWalkedInto` asks a pane for its own provider, scope and column
+        // stack in order to build the one absolute path it tests — three `PaneSideChoice.own`
+        // getters, which return a value and do nothing else. They are the CURE for this suite's
+        // own defect class, not an instance of it: their entire reason for existing is that the
+        // hand-written `isLeft ? left : right` they replaced was transposed three times, each
+        // survived the whole app suite, and `theSideChoiceReadsItsArgument` is what really drives
+        // their polarity. Requiring a getter to announce which pane the user is working in would
+        // push a caller back to writing the ternary out, which is the shape this file exists to
+        // keep out of the host.
         let notVerbs = ["paneTabItems", "paneShowsTabStrip", "seamInset",
                         "saveBrowseTabs", "restoreBrowseTabs",
-                        "adoptProviderForTab", "refreshForTabSwitch"]
+                        "adoptProviderForTab", "refreshForTabSwitch",
+                        "paneProviderId", "paneScope", "paneStack"]
         for excluded in notVerbs {
             #expect(derived.contains(excluded),
                     "“\(excluded)” is excluded from this rule as a reader, and the derivation no longer finds it being called at all — the exclusion is now a name that could be hiding a real verb")
