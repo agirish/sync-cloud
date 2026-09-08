@@ -4297,3 +4297,40 @@ even have a card") is about a lens that line does not carry. Anyone reading only
 subjects would send the whole thing and land a `strandedCards`/`strandedLines` split with nothing
 to put in the first list. `v3.x` and `v2.x` need no judgement: `OrganizeOverview.swift` is absent,
 so there is no partial pick and no defect to reproduce.
+
+---
+
+## 2026-09-08 — the two controls the card system had exempted (`cf3d561f`)
+
+One commit, and it only makes sense as a follow-on to the row above: it closes the exemption that
+row's redesign left behind, and it is built on the `OverviewCard` that row introduced.
+
+**Only half of the defect exists on `v4.x`, and the half that does is the one nobody reported.**
+
+```sh
+V=Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s card=%s nudge=%s inbox=%s link=%s chevron=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/OverviewCard.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:$V 2>/dev/null | grep -c 'BacklogNudge')" \
+    "$(git show origin/$l:$V 2>/dev/null | grep -c 'InboxShortcut')" \
+    "$(git show origin/$l:$V 2>/dev/null | grep -c 'buttonStyle(.link)')" \
+    "$(git show origin/$l:$V 2>/dev/null | grep -c 'chevron.right')"
+done
+# main   1/3/3/0/0   — the card exists, both notices are cards, no link and no chevron row left
+# v4.x   0/0/3/0/1   — no OverviewCard, NO BACKLOG NUDGE AT ALL, but the chevron row is there
+# v3.x   0/0/0/0/0   · v2.x 0/0/0/0/0 — no overview
+```
+
+| What landed on `main` | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| The nudge's *Set up…* stops being a bare `.link` inline in its sentence, and the nudge becomes a card | **Does not apply — there is no nudge.** `BacklogNudge` is absent from that line's overview entirely (§5.6's reminder came with the v5 line), so there is no bare link to fix and nothing to re-dress | **Does not apply** — no overview | **Does not apply** | CLOSED — does not apply on any line |
+| The inbox shortcut stops being a whole-row click with a chevron and gets a button | **Applies in substance, and this is the part worth knowing about.** `InboxShortcut` is there and so is the `chevron.right` row, so the defect is real on that line — a control with no hint of its own hit area — and it was never reported because nobody looking at `v4.x` was looking at this page. **It cannot be picked as written**: the fix is "make it an `OverviewCard`", and `OverviewCard.swift` does not exist there. Sending it means sending the row above first | **Does not apply** | **Does not apply** | RECORDED — not owed; blocked on the card system (`v4.x`) |
+| `OverviewCardDismiss`, and the title weight derived from the subtitle | **Does not apply on its own** — both are additions to a type that line does not have | **Does not apply** | **Does not apply** | CLOSED — carried by the row above, if that is ever sent |
+| The two draft bullets in `RELEASE_NOTES.md` and `docs/releases.html` | **Does not apply as written** — they correct a claim about a page `v4.x` does not have in this shape | **Does not apply** | **Does not apply** | CLOSED — written per line, never copied |
+
+**The one thing here a future audit should not have to re-derive**: `v4.x` has the inbox row's
+defect and not the nudge's, which is the opposite of what the commit subject suggests and the
+opposite of what the report that prompted the work was about. Anyone reading only the subject would
+go looking for a `.link` on that line and find none, and conclude the whole thing does not apply —
+missing the chevron row, which does.
