@@ -108,6 +108,27 @@ User-facing changes, newest first. For the full commit history see the
   as tall as a 13" display allows, so the reference is wider and shorter rather than taller — a
   reference you scroll is a reference you stop reading. Every chord above has its row.
 
+### Organize's landing page is one set of cards
+
+- **Every check on the page is now the same shape.** The screen had grown five card designs — a
+  tinted card for a lens with findings, a grey one for a scan that has not run, a third for a
+  report, a fourth for the document survey, and, for Storage before it has ever been analyzed, no
+  card at all. They disagreed about the surface, the corner, where a button goes and what a button
+  looks like. One anatomy now: a glyph, a heading and a line under it, whatever the check has to
+  show, and its small print under a rule.
+- **Storage gets a card before its first analysis.** It used to be a line of grey text at the foot
+  of the page with an Analyze button on it — a lens with a real answer to give, dressed as a
+  footnote about something that had already happened.
+- **The buttons line up, and they look like buttons.** Each card's main verb is the rightmost
+  control on it, so they run down one edge of the page; the second verb sits beside it. Nothing on
+  the page is a bare coloured word any more — Refresh in particular was a link on one card, a
+  button on another, and buried under a finding's examples on a third.
+- **A card with findings is no longer a coloured slab.** What says there is something here is the
+  tinted glyph and the count beside it, which is what the lens rail already uses — one card in six
+  reading as a different app was carrying a signal that was already being carried twice.
+- **The three tiles at the top are the same height**, and Restructure's Refresh now says what it
+  costs, under the same rule the scan cards use.
+
 ### Help now says what happens to your documents
 
 - **A new article, Reading your documents.** Some of what Organize knows comes from opening your
