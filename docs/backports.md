@@ -4334,3 +4334,48 @@ defect and not the nudge's, which is the opposite of what the commit subject sug
 opposite of what the report that prompted the work was about. Anyone reading only the subject would
 go looking for a `.link` on that line and find none, and conclude the whole thing does not apply —
 missing the chevron row, which does.
+
+---
+
+## 2026-09-08 — the card system reviewed, and Restructure stops sampling its own backlog (`ead5e80d`)
+
+One commit: six defects found by re-reading the two rows above, the new-year reminder folded onto
+the card whose finding it names, and Restructure's card summarising its backlog instead of drawing
+three findings off the front of an unsorted list.
+
+**`v4.x` has one of the three defects in code and cannot take its fix.** That is the whole content
+of this row, and neither half is guessable from the commit subject.
+
+```sh
+L=Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s card=%s tally=%s kindLabel=%s carriesPlan=%s sample=%s nudge=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/OverviewCard.swift | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- Modules/FileExplorer/Sources/FileExplorer/StructureBacklogTally.swift | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift 2>/dev/null | grep -c 'static func kindLabel')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/StructureDivergence.swift 2>/dev/null | grep -c 'var carriesPlan')" \
+    "$(git show origin/$l:$L 2>/dev/null | grep -c 'map(\\.headline)')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift 2>/dev/null | grep -c 'BacklogNudge')"
+done
+# main 1/1/1/1/1/5 · v4.x 0/0/0/0/1/0 · v3.x and v2.x 0/0/0/0/0/0
+```
+
+**`sample=1` on `main` is a COMMENT, and the two lines have to be told apart by reading them** —
+this file's own preamble warns about exactly this and the trap is live here:
+
+```sh
+git show origin/v4.x:$L | grep -B2 -A1 'map(\\.headline)'   # CODE: examples: scoped.prefix(…)
+git show origin/main:$L  | grep -B1 -A1 'map(\\.headline)'  # a comment recording what was removed
+```
+
+| What landed on `main` | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| The six review defects — Open withdrawn during a scan, the receipt's disabled `Re-analyze`, the card that demoted itself mid-run, `strandedTitle`'s false claim, the cost line that came and went, the survey's Stop in the primary's slot | **Does not apply.** Every one is a defect *in the card system*, and `OverviewCard.swift` is absent on this line — the cards it fixes were never built here. Three of the six are regressions against behaviour `v4.x` still has correctly, by never having changed it | **Does not apply** — no overview | **Does not apply** | CLOSED — does not apply on any line |
+| The reminder folded onto Restructure's card | **Does not apply — there is no reminder.** `BacklogNudge` is absent from that line's overview entirely (§5.6 came with v5) | **Does not apply** | **Does not apply** | CLOSED — does not apply |
+| **`StructureBacklogTally`, and Restructure's card summarising instead of sampling** | **The defect is real and the fix is unpickable as written.** `examples: scoped.prefix(OrganizeOverview.exampleLimit).map(\.headline)` is live in that arm, so the card draws three findings off an unsorted list exactly as `main`'s did. But **`FindingKind` does not exist on this line** — `StructureDivergence.swift` is there and carries `StructureFinding`, and the kind taxonomy arrived with v5 — so there is no `kindLabel` to quote, no `carriesPlan` to order by, and nothing for a tally to count *by*. A pick would have to invent a breakdown axis, which is a design decision and not a backport | **Does not apply** | **Does not apply** | RECORDED — not owed; defect real, fix blocked on `FindingKind` (`v4.x`) |
+| The three draft bullets in `RELEASE_NOTES.md` and `docs/releases.html` | **Does not apply as written** — they describe a card system and a reminder that line does not have | **Does not apply** | **Does not apply** | CLOSED — written per line, never copied |
+
+**The thing not to re-derive**: `v4.x` looks like the natural home for the Restructure summary —
+it has the overview, it has the arm, and it has the defect verbatim. It has no kind taxonomy, so
+the summary this commit writes cannot be expressed there at all. Anyone who checks only for the
+defect will conclude the pick is owed and easy; it is neither.
