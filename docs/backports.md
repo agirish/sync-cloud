@@ -4188,3 +4188,60 @@ would strand the user in Home folder with `/Users` unreachable. That guard is on
 line that HAS folder sources. `v2.x` has none, which is why the whole feature is moot there rather
 than merely unbuilt — and if folder sources are ever picked back to it, this commit stops being
 "cannot arise" and becomes owed, guard included.
+
+## 2026-09-08 — the document survey (roadmap RD11), its receipt, and the Refresh rename
+
+Sixteen commits, `18832045`..`6048e958`, plus the rename that follows them: `b40709d4`
+(the verb and the accessibility rule) and `a6c9b1b8` (the notes). SHAs read after the push.
+The Help article that accompanies the feature already has its own row — **2026-09-07, Help ▸
+Reading your documents** — and this section does not restate it.
+
+**One check settles almost all of it**, because the survey does not stand alone: it reads a
+`FilingCorpus`, scopes itself on a `FilingSurvey.surveyedRegion`, writes through
+`FilingSurveyStore`, and draws itself as a card on `OrganizeOverview`. A line with none of those
+has nowhere to put any of this.
+
+```sh
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s corpus=%s survey=%s store=%s resurvey=%s overview=%s pdfserial=%s memory=%s surveyedAt=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingCorpus.swift 2>/dev/null | grep -c 'struct FilingCorpus')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingSurvey.swift 2>/dev/null | grep -c 'FilingSurvey')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingSurveyStore.swift 2>/dev/null | grep -c 'memoryURL')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+FilingSurvey.swift 2>/dev/null | grep -c 'FilingSurveyReport')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/OrganizeOverview.swift 2>/dev/null | grep -c 'struct OrganizeOverview')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PDFKitSerialAccess.swift 2>/dev/null | grep -c 'PDFKitSerialAccess')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -c 'filingMemory')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager.swift 2>/dev/null | grep -c 'filingSurveyedAt')"
+done
+# main 2/1/2/5/2/1/4/1 · v4.x 2/1/2/5/2/1/3/0 · v3.x all 0 · v2.x all 0
+
+# the one extractor that IS everywhere — so "v3.x cannot read a document" would be the wrong reason
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s ContentSignalExtractor=%s\n' "$l" \
+    "$(git show origin/$l:MacApp/ContentSignalExtractor.swift 2>/dev/null | grep -c 'ContentSignalExtractor')"
+done
+# all four: 2
+```
+
+| What landed on `main` | `v4.x` | `v3.x` | `v2.x` | Status |
+|---|---|---|---|---|
+| **`18832045`, `5e020341`** — the corpus refuses a document that says it is not one (`kind`), and an unfinished survey gets `survey-progress.json`, deliberately not a `filing-corpus*` name | **Applies cleanly.** `FilingCorpus` and `FilingSurveyStore` are both there and the artifacts sit in the same `profiles/<id>/` directory, so the guard has something to guard and the checkpoint has somewhere to go. Worth sending on its own merits if the direction ever changes: the `kind` guard is what stops a hand-placed or half-written file being read as learned content | **Does not apply.** No `FilingCorpus`, no `FilingSurveyStore`, no `profiles/<id>/` filing artifacts at all — there is no corpus to mistake a checkpoint for | **Does not apply**, same reason | RECORDED — owed (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`ef4a0bea`, `bd80ab05`, `d2bc1c64`, `c671c708`** — `DocumentSurveyProgress`/`DocumentSurveyPause` as values the card draws, the pausable/resumable `DocumentSurveyRun` actor, the yield order, and `MachineConditionsMonitor` (screens asleep, thermal, low power) | **Applies in substance, and is the largest single piece.** Every dependency is present — `PDFKitSerialAccess` for the one serial lane, `filingSurveyLifecycle` for the scans it stands aside for, `LargeWalkPreflight` for the ask-first gate. The four files are new, so nothing conflicts; what needs care is the yield list, which must not name the survey's own lifecycle (that was the first critical finding on `main` and it would reproduce verbatim) | **Does not apply.** Nothing here to survey and no lifecycle to yield to | **Does not apply**, same reason | RECORDED — owed (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`d55cedd6`, `1d2e1004`, `4d1f7651`** — `FileSyncManager+DocumentSurvey`: plan, run, merge and write off the actor, and the two review fixes (a resumed index is distrusted against a plan it was not counted in; a failed write reports as a failure, not a success with a misleading summary) | **Applies cleanly, and the two fixes are the expensive half.** Both are about a survey reporting work it did not do — the exact failure class a three-hour pass must not have — and neither is discoverable from the diff of the commit that introduced the bug. Pick the three together or not at all | **Does not apply** | **Does not apply** | RECORDED — owed as a unit (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`da838810`, `2fac46f2`, `353063fc`, `d42836e0`, `610979cd`, `58d6763c`** — the card through every state, its way in from the overview, and the four review fixes (publish when a pause clears, carry `unavailable` across a resume, keep the receipt with the tree it describes, route the bar's motion through `designAnimation`) | **Applies in substance, needs re-fitting.** `OrganizeOverview` and `OrganizeOverviewSection` are both there and `designAnimation` exists in `Design`, so the card has a home and the motion rule has a call to make. What differs is the neighbourhood: `main`'s overview grew the Storage receipt and the survey card sits beside it, and `v4.x`'s has neither, so the placement is a judgement rather than a copy | **Does not apply** | **Does not apply** | RECORDED — owed but needs re-fitting (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`6048e958`** — a surveyed tree gets a receipt (`.settled`), derived from `filingMemory` + `filingSurveyedAt` on disk rather than from the in-session report, so it survives a relaunch | **Applies only after adding the stamp.** `filingMemory` is there; **`filingSurveyedAt` is not** — that is the one missing prerequisite the probe above finds, and without it the receipt can say what was learned but not when. Deriving it from the memory file's mtime was considered and rejected on `main`: any write touches it, so it would answer about the file rather than the survey | **Does not apply** | **Does not apply** | RECORDED — owed, prerequisite named (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`b40709d4`** — "Update folder memory" → **Refresh** on the button, **Refresh what's learned** in the Rescan menu; `rescanAccessibilityLabel` generalised from a `== "Rescan"` literal to a word count; the pass's log lines and report sentences moved with it | **Applies cleanly and is worth sending on its own** — more than the feature it came from. `v4.x` carries `OrganizePass.folderMemory` with the old title, the same `== "Rescan"` literal, and all six `Folder memory` strings the pass emits — four `Folder memory:` refusals, the up-to-date summary and the closing line — so the rename is a self-contained copy that needs none of the survey. The accessibility rule is the part that matters: under a bare verb the literal silently stops appending the lens, and `v4.x`'s own test asserts the OLD branch, so it would go green while VoiceOver announced an objectless button | **Does not apply.** No `OrganizePass`, no folder-memory pass, no strings to rename | **Does not apply**, same reason | RECORDED — owed, and the most sendable thing in this batch (`v4.x`); CLOSED — does not apply (`v3.x`, `v2.x`) |
+| **`a6c9b1b8`** — the notes for the receipt and the rename, in `RELEASE_NOTES.md` and `docs/releases.html` | **Does not apply as written.** The bullets describe a receipt and a rename `v4.x` does not have; if the code above is ever picked, the notes are written then, against that line's own tip | **Does not apply** | **Does not apply** | CLOSED — written per line, never copied |
+
+**The check that decided every "does not apply" above, stated once**: `v3.x` and `v2.x` have no
+filing corpus, no filing survey, no `FilingSurveyStore` and no `OrganizeOverview` — the probe
+prints `0` for all four on both lines. This is not "the feature is unbuilt there"; it is that the
+whole subsystem the survey reads, writes and draws into is absent, so there is no partial pick and
+no defect to reproduce. **The largest known gap in `docs/backports.md` — `v3.x` has none of the
+`DeleteOutcome` family — is unaffected by any of this.**
+
+**One thing worth not re-deriving**, because it cost a whole review round on `main` and is invisible
+in the diff: the survey's yield list must not contain its own `filingSurveyLifecycle`. It reads as
+correct — "stand aside for a running scan" — and the survey marks itself running before it reads
+its first document, so it stands aside for itself, forever, and the card sits at "paused" with no
+reason a user could act on. It is caught by a test only if that test starts the lifecycle first.
