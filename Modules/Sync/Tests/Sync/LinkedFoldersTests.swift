@@ -133,6 +133,59 @@ import Testing
                 == ["/other", "/other/Documents", "/other/Documents/Invoices"])
     }
 
+    /// The tree a pane republishes against, keyed the way the walk names it: the linked folder
+    /// under its REAL spelling, because `childURLs(of:)` substitutes it at the container listing.
+    private static func containerIndex() -> PaneChildrenIndex {
+        let invoices = FileNode(id: "/home/Documents/Invoices", name: "Invoices", isDirectory: true,
+                                children: [FileNode(id: "/home/Documents/Invoices/a.pdf",
+                                                    name: "a.pdf", isDirectory: false)])
+        let documents = FileNode(id: "/home/Documents", name: "Documents", isDirectory: true,
+                                 children: [invoices])
+        let word = FileNode(id: "/r/Word", name: "Word", isDirectory: true, children: [])
+        return PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: [documents, word]),
+                                 treeRoot: Self.root)
+    }
+
+    /// **`pruned` and `columnDirectories` must agree about a path, and for a linked first
+    /// component they did not.** `pruned` composed lexically, asked the index about
+    /// `/r/Documents` — a path the walk never keys, since it lists the link as the folder it
+    /// points at — was told "not a directory", and threw the whole stack away. Every republish
+    /// does this, so browsing into `Documents` from the iCloud Drive root collapsed back to the
+    /// root on the next refresh, and `currentDirectory` (where New Folder and paste act) went
+    /// with it. Measured against the real container 2026-09-08: `["Documents", "Home"]` → `[]`.
+    @Test func aColumnStackUnderALinkedFolderSurvivesARepublish() {
+        let path = PaneBrowsePath(components: ["Documents", "Invoices"])
+        let pruned = path.pruned(against: Self.containerIndex(), treeRoot: Self.root, links: Self.links)
+        #expect(pruned.components == ["Documents", "Invoices"])
+        #expect(pruned.currentDirectory(treeRoot: Self.root, links: Self.links) == "/home/Documents/Invoices")
+
+        // Still a prune, not a pass-through: a folder that is gone below the link still drops.
+        let stale = PaneBrowsePath(components: ["Documents", "Invoices", "Gone"])
+        #expect(stale.pruned(against: Self.containerIndex(), treeRoot: Self.root, links: Self.links)
+                .components == ["Documents", "Invoices"])
+        // And an unlinked first component is unaffected — `/r/Word` composes lexically, as before.
+        #expect(PaneBrowsePath(components: ["Word"])
+                .pruned(against: Self.containerIndex(), treeRoot: Self.root, links: Self.links)
+                .components == ["Word"])
+    }
+
+    /// `‹` all the way out leaves the live stack empty, so the entry `›` would walk back into is
+    /// itself a first component and needs the same resolution. Without it the forward arrow went
+    /// dead the moment you stepped out of a linked folder.
+    @Test func theForwardStackOutOfALinkedFolderSurvivesARepublish() {
+        var path = PaneBrowsePath(components: ["Documents", "Invoices"])
+        path.popLast()
+        path.popLast()
+        #expect(path.isEmpty)
+
+        var pruned = path.pruned(against: Self.containerIndex(), treeRoot: Self.root, links: Self.links)
+        #expect(pruned.canAdvance)
+        pruned.advance()
+        #expect(pruned.currentDirectory(treeRoot: Self.root, links: Self.links) == "/home/Documents")
+        pruned.advance()
+        #expect(pruned.currentDirectory(treeRoot: Self.root, links: Self.links) == "/home/Documents/Invoices")
+    }
+
     // MARK: - Coverage, recents, the name check
 
     @Test func aLinkedFolderIsCoveredGround() {
@@ -211,6 +264,57 @@ import Testing
         let link = try #require(plain.first { $0.name == "Documents" })
         #expect(link.id == container.appendingPathComponent("Documents").path)
         #expect(link.isSymbolicLink == true)
+    }
+
+    /// **A pane FOCUSED on the linked folder walks the folder itself**, so the substitution at
+    /// the container's listing never runs — the focus URL has to carry the resolution instead.
+    ///
+    /// This is the "empty column" report, end to end: composed lexically the walk started at
+    /// `<container>/Documents`, every node under it was named the link way, and the children index
+    /// — keyed from the pane's own `currentPath`, which goes through `join` — was asked about the
+    /// real spelling. The root column answered from `treeRoot`'s own key and every column past it
+    /// drew "Empty" over a folder full of files.
+    @Test func aFocusedLoadWalksWhereTheLinkedFolderReallyIs() async throws {
+        let fm = FileManager.default
+        let base = try makeCanonicalTempRoot(prefix: "LinkedFoldersTests")
+        defer { try? fm.removeItem(at: base) }
+        let container = base.appendingPathComponent("container")
+        let real = base.appendingPathComponent("outside").appendingPathComponent("Documents")
+        try fm.createDirectory(at: real.appendingPathComponent("Home"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: container, withIntermediateDirectories: true)
+        try "x".write(to: real.appendingPathComponent("Home/note.txt"), atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(at: container.appendingPathComponent("Documents"), withDestinationURL: real)
+        let table: PathBoundary.LinkedFolders = [container.path: ["Documents": real.path]]
+
+        let fallback = URL(fileURLWithPath: container.path)
+        let focus = FileSyncManager.focusURL(root: container.path, relative: "Documents",
+                                             fallback: fallback, links: table)
+        #expect(focus.path == real.path)
+
+        // What the pane asks the index with, from the same table.
+        let treeRoot = PathBoundary.join(root: container.path, relative: "Documents", links: table)
+        let nodes = await FileSyncManager.buildTree(url: focus, sortOption: .name, linkedFolders: table)
+        let index = PaneChildrenIndex(tree: PaneTree(side: .left, version: 1, nodes: nodes),
+                                      treeRoot: treeRoot)
+        let directories = PaneBrowsePath(components: ["Home"])
+            .columnDirectories(treeRoot: treeRoot, links: table)
+        #expect(directories == [real.path, real.path + "/Home"])
+        // The column past the root is the one that read "Empty".
+        #expect(index.isDirectory(atPath: directories[1]))
+        #expect(index.children(atPath: directories[1])?.map(\.node.name) == ["note.txt"])
+    }
+
+    /// Every root the table does not name composes exactly as it always did, and an empty root —
+    /// a provider dropped from settings with its tree still on screen — falls back rather than
+    /// composing onto nothing.
+    @Test func anUnlinkedFocusComposesLexicallyAndAnEmptyRootFallsBack() {
+        let fallback = URL(fileURLWithPath: "/fallback")
+        #expect(FileSyncManager.focusURL(root: "/other", relative: "Documents/Invoices",
+                                         fallback: fallback, links: Self.links).path
+                == "/other/Documents/Invoices")
+        #expect(FileSyncManager.focusURL(root: "/r", relative: "", fallback: fallback, links: Self.links).path == "/r")
+        #expect(FileSyncManager.focusURL(root: "", relative: "Documents",
+                                         fallback: fallback, links: Self.links) == fallback)
     }
 
     /// Discovery against a real link, end to end: the production reader sees the link the test

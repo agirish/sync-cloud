@@ -125,7 +125,8 @@ extension FileSyncManager {
 
             let relPath = isLeft ? leftRelativePath : rightRelativePath
             let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-            let focusURL = relPath.isEmpty ? rootURL : rootURL.appendingPathComponent(relPath)
+            // See `focusURL(root:relative:fallback:links:)` — the link resolution is the point.
+            let focusURL = Self.focusURL(root: path, relative: relPath, fallback: rootURL)
             let focusPath = focusURL.path
 
             // Fast path: serve the focus from the cache without touching the disk — a direct
@@ -1059,6 +1060,30 @@ extension FileSyncManager {
     /// unbounded *by necessity* — they total sizes and group duplicates, where a truncated tree is
     /// a wrong ANSWER rather than a partial view, so a budget is the wrong instrument entirely.
     nonisolated static let paneNodeBudget = 200_000
+
+    /// The directory a pane's load actually walks: its root, focused down to its relative path.
+    ///
+    /// **`PathBoundary.join`, not lexical composition**, and that is the whole content of this
+    /// function — a focus on a folder the root only LINKS to must walk where that folder really
+    /// is. Composed lexically this returned `<iCloud Drive>/Documents`, and the walk then named
+    /// every node below it the link way (`…/com~apple~CloudDocs/Documents/Home`), because the
+    /// linked-folder substitution in `childURLs(of:)` fires at the CONTAINER's listing and a walk
+    /// starting below it never sees that listing. Nothing else in the app spells a path that way:
+    /// the pane's own `currentPath` goes through `join` and comes back `~/Documents`. So
+    /// `PaneChildrenIndex` was keyed one way and asked the other — the root column survived on
+    /// `treeRoot`'s own key, and every column past it asked for a path the index had never heard
+    /// of and drew "Empty" over a folder full of files (measured against `~/Documents/Home`,
+    /// 15 children, 2026-09-08).
+    ///
+    /// `fallback` covers the empty root `join` answers `""` for — a provider dropped from settings
+    /// while its stale tree is still on screen — so this composes exactly what the lexical version
+    /// did for every root the link table does not name.
+    nonisolated static func focusURL(root: String, relative: String, fallback: URL,
+                                     links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders) -> URL {
+        let focused = PathBoundary.join(root: root, relative: relative, links: links)
+        return focused.isEmpty ? fallback : URL(fileURLWithPath: focused, isDirectory: true)
+    }
+
 
     /// Walks the directory tree off the main actor. Cancelling the calling task aborts the walk:
     /// the detached worker doesn't inherit cancellation, so it is forwarded explicitly below —

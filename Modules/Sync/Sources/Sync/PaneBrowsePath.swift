@@ -121,14 +121,27 @@ public struct PaneBrowsePath: Equatable, Sendable {
         var directories = [directory]
         let linked = PathBoundary.linkedFolders(atRoot: directory, in: links)
         for (index, component) in components.enumerated() {
-            if index == 0, let target = linked[component] {
-                directory = target
-            } else {
-                directory += "/" + component
-            }
+            directory = Self.step(from: directory, into: component,
+                                  atRoot: index == 0, linked: linked)
             directories.append(directory)
         }
         return directories
+    }
+
+    /// One column deeper: `directory` joined with `component`, except for a FIRST component that
+    /// names a folder the tree root only links to, which resolves to where that folder really is.
+    ///
+    /// **Extracted because two callers composed this and only one of them was right.**
+    /// `columnDirectories` resolved the link; `pruned` joined lexically, so browsing
+    /// `Documents › Home` from the iCloud Drive root asked the children index about
+    /// `…/com~apple~CloudDocs/Documents` — a path the walk never keys, since it lists the link as
+    /// the folder it points at — got `isDirectory == false`, and pruned the whole stack back to
+    /// the root on the next republish (measured 2026-09-08: `["Documents", "Home"]` → `[]`). One
+    /// rule, one place, so the two cannot disagree about a path again.
+    private static func step(from directory: String, into component: String,
+                             atRoot: Bool, linked: [String: String]) -> String {
+        if atRoot, let target = linked[component] { return target }
+        return directory + "/" + component
     }
 
     /// The deepest open directory: the folder New Folder creates into, the folder a paste or a
@@ -151,11 +164,17 @@ public struct PaneBrowsePath: Equatable, Sendable {
     /// `›` enabled pointing at it, and advancing put `currentDirectory(treeRoot:)` — where New
     /// Folder and paste act — on a path that no longer exists. That is the very hazard the live
     /// stack's prune closes, reached through the other arrow.
-    public func pruned(against index: PaneChildrenIndex, treeRoot: String) -> PaneBrowsePath {
+    public func pruned(against index: PaneChildrenIndex, treeRoot: String,
+                       links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders)
+    -> PaneBrowsePath {
         var kept: [String] = []
         var directory = Self.normalized(treeRoot)
+        // The same table `columnDirectories` reads, for the same reason: a first component naming
+        // a linked folder resolves to its real location. See `step(from:into:atRoot:linked:)`.
+        let linked = PathBoundary.linkedFolders(atRoot: directory, in: links)
         for component in components {
-            let candidate = directory + "/" + component
+            let candidate = Self.step(from: directory, into: component,
+                                      atRoot: kept.isEmpty, linked: linked)
             guard index.isDirectory(atPath: candidate) else { break }
             kept.append(component)
             directory = candidate
@@ -172,7 +191,11 @@ public struct PaneBrowsePath: Equatable, Sendable {
             var survived = 0
             var forwardDirectory = directory
             for component in forwardComponents.reversed() {
-                let candidate = forwardDirectory + "/" + component
+                // `‹` all the way out leaves the live stack empty, so the first component the
+                // forward walk re-enters is itself a first component and resolves through the
+                // link table too.
+                let candidate = Self.step(from: forwardDirectory, into: component,
+                                          atRoot: kept.isEmpty && survived == 0, linked: linked)
                 guard index.isDirectory(atPath: candidate) else { break }
                 survived += 1
                 forwardDirectory = candidate
