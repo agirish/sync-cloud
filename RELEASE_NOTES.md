@@ -122,6 +122,13 @@ User-facing changes, newest first. For the full commit history see the
 - **It names the one exception itself**, rather than leaving it to be found: Refine with Claude does
   reach Anthropic's API, with a key you supply and that stays in your Keychain, and only when you
   press Refine. Everything else on the page works the same on a Mac with no key and no internet.
+- **Organize's overview says when your documents were last read, and offers Refresh.** Until now
+  nothing on that screen said the reading had ever happened — the date lived on Restructure's card
+  and the refresh was an item inside a dropdown in To File. It is a receipt beside Storage's now:
+  what was learned, when, and one control. Refresh reads only what has changed since.
+- **"Update folder memory" is now just Refresh.** The old name said what the app stores rather than
+  what the button is for. The menu item inside To File keeps its object — "Refresh what’s learned" —
+  because a bare verb in a menu names nothing.
 - **Settings ▸ Intelligence points at it.** "Read file contents on-device" is the one switch in
   Settings whose whole subject is privacy and had the least to read beside it; it now carries a
   question mark that opens the article.
