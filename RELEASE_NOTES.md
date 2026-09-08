@@ -122,7 +122,14 @@ User-facing changes, newest first. For the full commit history see the
 - **The buttons line up, and they look like buttons.** Each card's main verb is the rightmost
   control on it, so they run down one edge of the page; the second verb sits beside it. Nothing on
   the page is a bare coloured word any more — Refresh in particular was a link on one card, a
-  button on another, and buried under a finding's examples on a third.
+  button on another, and buried under a finding's examples on a third, and the new-year reminder's
+  **Set up…** was a link sitting in the middle of its own sentence.
+- **The reminder and the inbox shortcut are cards too.** They are not checks — nothing scans to
+  produce them, and the "1 of 4" tile counts neither — so they lead with a sentence instead of a
+  heading and carry no small print. Everything else about them is the page's: the same surface, the
+  same column, the same buttons. The inbox used to be a row you clicked anywhere on, with a chevron
+  for a hint; it has a button now, like everything else. Its × is drawn just inside its button so
+  that the button still lands on the same line as every other card's.
 - **A card with findings is no longer a coloured slab.** What says there is something here is the
   tinted glyph and the count beside it, which is what the lens rail already uses — one card in six
   reading as a different app was carrying a signal that was already being carried twice.

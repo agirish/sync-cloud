@@ -659,37 +659,30 @@ struct OrganizeOverview: View {
 
     // MARK: The backlog nudge
 
-    /// One quiet line, a verb and a dismissal — the whole of §5.6's "say it the month it happens"
-    /// outside the lens.
+    /// §5.6's "say it the month it happens", outside the lens: one sentence, its verb, and a way
+    /// to make it go away until next year.
     ///
-    /// Deliberately not a card: it is news about a year that has just started, not a lens with an
-    /// answer, and next January it is news again. What it *does* share with the cards is the
-    /// column — same glyph tile, same inset, same text spine — so the page reads down one edge
-    /// rather than two. See ``OverviewQuietRow``.
+    /// **A card, and its verb is a button.** It was a grey well with *Set up…* set as a bare blue
+    /// link inline in the sentence — the one control on the page that had escaped the rule the
+    /// whole redesign was about, and the first thing anybody noticed afterwards. It is still not a
+    /// check — nothing scans to produce it and the ledger counts it nowhere — and it is not dressed
+    /// as one: with no lede under it, its sentence is set as a sentence rather than as a heading.
+    /// What being a notice no longer buys it is an exemption from how a verb looks.
     private func nudgeLine(_ nudge: BacklogNudge) -> some View {
-        OverviewQuietRow(symbol: "calendar.badge.plus", accent: accent) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(nudge.sentence)
-                    .scaledFont(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Set up…", action: nudge.setUp)
-                    .buttonStyle(.link)
-                    .scaledFont(.system(size: 11.5, weight: .medium))
-            }
-        } trailing: {
-            Button {
-                nudge.dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .scaledFont(.system(size: 9))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.tertiary)
-            .accessibilityLabel("Dismiss this reminder until next year")
-            .help("Dismisses it for this year. The same folders raise it again when a new year "
-                  + "arrives with the same gap.")
-        }
+        OverviewCard(
+            symbol: "calendar.badge.plus",
+            title: nudge.sentence,
+            accent: accent,
+            // The card's only verb, so it is the primary — the same rule the survey's lone Refresh
+            // follows, and the reason it now lands on the same vertical line as every other one.
+            actions: [OverviewCardAction(title: "Set up…", rank: .primary,
+                                         help: "Opens Restructure on the first folder with this "
+                                             + "gap.", run: nudge.setUp)],
+            dismiss: OverviewCardDismiss(
+                accessibilityLabel: "Dismiss this reminder until next year",
+                help: "Dismisses it for this year. The same folders raise it again when a new "
+                    + "year arrives with the same gap.",
+                run: nudge.dismiss)) { }
     }
 
     // MARK: The ledger
@@ -802,33 +795,32 @@ struct OrganizeOverview: View {
             : "\(n) loose files — organize just this folder"
     }
 
-    /// "Inbox (TODO) — N loose files", one click to scope there.
+    /// The inbox as a place to point Organize at, one press.
     ///
     /// Placed after the findings and before the quiet footer: it is an offer about where to look
     /// next, not a finding, and putting it above the sections would give the inbox the prominence
-    /// the old hidden default gave it — which is the thing being undone. A quiet row rather than a
-    /// card for the same reason: it names no lens and has no answer.
+    /// the old hidden default gave it — which is the thing being undone.
+    ///
+    /// **The whole row used to be the button, with a chevron for an affordance** — a fourth way of
+    /// offering an action on a page where everything else is *read the card, press the button*, and
+    /// the one control on it that gave no hint of its own hit area. The offer is the same; it is
+    /// made the way the rest of the page makes offers.
+    ///
+    /// Not a check either — it names no lens and has no answer — but it does have a name and a
+    /// line under it, so it heads them the way the cards do.
     private func inboxOffer(_ shortcut: InboxShortcut) -> some View {
-        Button(action: shortcut.apply) {
-            OverviewQuietRow(symbol: "tray", accent: accent, tinted: true) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Inbox (\(shortcut.name))")
-                        .scaledFont(.system(size: 12.5, weight: .semibold))
-                    Text(Self.inboxSubtitle(shortcut.looseFileCount))
-                        .scaledFont(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            } trailing: {
-                Image(systemName: "chevron.right")
-                    .scaledFont(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(accent)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: Radius.well))
-        }
-        .buttonStyle(.plain)
-        .chromeHover()
-        .help("Point Organize at the inbox. Every lens narrows to it, and it stays until you "
-              + "change it.")
+        OverviewCard(
+            symbol: "tray",
+            title: "Inbox (\(shortcut.name))",
+            subtitle: Self.inboxSubtitle(shortcut.looseFileCount),
+            accent: accent,
+            actions: [OverviewCardAction(
+                title: "Point Organize here", rank: .primary,
+                help: "Point Organize at the inbox. Every lens narrows to it, and it stays until "
+                    + "you change it.",
+                run: shortcut.apply)],
+            accessibilityLabel: "Inbox \(shortcut.name), "
+                + Self.inboxSubtitle(shortcut.looseFileCount)) { }
     }
 
     // MARK: A lens with findings

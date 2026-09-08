@@ -138,6 +138,9 @@ struct OverviewCard<Content: View>: View {
     var status: OverviewCardStatus = .none
     var actions: [OverviewCardAction] = []
     var note: OverviewCardNote?
+    /// The × that makes a notice go away, where there is one. Drawn last, outside the action row —
+    /// dismissal is not one of the card's verbs and must not be mistaken for the primary.
+    var dismiss: OverviewCardDismiss?
     /// VoiceOver's summary of the card. Defaults to the title.
     var accessibilityLabel: String?
     @ViewBuilder var content: () -> Content
@@ -175,8 +178,19 @@ struct OverviewCard<Content: View>: View {
         HStack(alignment: .top, spacing: Self.glyphGap) {
             glyph
             VStack(alignment: .leading, spacing: 2) {
+                // **A heading is set like a heading; a sentence is set like a sentence** — and
+                // which one this is follows from whether anything is written under it, rather than
+                // from a flag the call site sets. A title with a lede beneath it is heading the
+                // lede; a title that is the card's whole line is a sentence, and semibold over a
+                // sentence of news reads as a shout.
+                //
+                // A flag was tried first and was redundant twice over: it had to agree with the
+                // subtitle to look right, and the nudge (a sentence, no lede) and the inbox offer
+                // (a name, with one) wanted opposite answers from the same "this is not a check"
+                // value. Two things that must agree are one thing.
                 Text(title)
-                    .scaledFont(.system(size: 12.5, weight: .semibold))
+                    .scaledFont(.system(size: subtitle == nil ? 11.5 : 12.5,
+                                        weight: subtitle == nil ? .regular : .semibold))
                     .monospacedDigit()
                     .fixedSize(horizontal: false, vertical: true)
                 if let subtitle {
@@ -188,8 +202,30 @@ struct OverviewCard<Content: View>: View {
             }
             Spacer(minLength: 10)
             statusView
+            // **Before the buttons, not after them.** The × at the true trailing edge is the
+            // banner convention, and it cost the one thing this page is built on: it pushed the
+            // nudge's primary about 12pt inboard of every other card's, so the single card that
+            // had a dismissal was the single card whose verb missed the line. A macOS alert
+            // already orders its controls this way — the way out to the left of the default
+            // button — so the primary stays flush to the trailing padding on every card without
+            // exception, and nothing about the dismissal is hidden by the move.
+            if let dismiss { dismissControl(dismiss) }
             actionRow
         }
+    }
+
+    private func dismissControl(_ dismiss: OverviewCardDismiss) -> some View {
+        Button(action: dismiss.run) {
+            Image(systemName: "xmark")
+                .scaledFont(.system(size: 9))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.tertiary)
+        .accessibilityLabel(dismiss.accessibilityLabel)
+        .help(dismiss.help)
+        .chromeHover()
+        // Enough air that the cancel and the primary are not one target to a quick cursor.
+        .padding(.trailing, 4)
     }
 
     /// The tinted square every row on this screen starts with. Accent when the card is reporting,
@@ -295,43 +331,16 @@ struct OverviewCard<Content: View>: View {
     }
 }
 
-// MARK: - The quiet row
+// MARK: - Dismissal
 
-/// A row that is **not** a card: news, or an offer about where to look next.
+/// The × on a notice.
 ///
-/// Kept deliberately distinct from ``OverviewCard`` — a nudge about the new year and a shortcut to
-/// the inbox are not lenses and must not read as one — but aligned to it, which is the part that
-/// was missing. Same glyph tile, same 11pt inset, same text spine, one step quieter in surface. The
-/// eye follows one column down the whole page instead of two.
-struct OverviewQuietRow<Label: View, Trailing: View>: View {
-    let symbol: String
-    let accent: Color
-    /// Whether the glyph takes the accent — an offer you can act on does, a piece of news does not.
-    var tinted: Bool = false
-    @ViewBuilder var label: () -> Label
-    @ViewBuilder var trailing: () -> Trailing
-
-    /// The same geometry the cards use, read off the card rather than restated — a second copy of
-    /// `21` and `9` here is exactly how the two columns drifted apart the first time.
-    private typealias Metrics = OverviewCard<EmptyView>
-
-    var body: some View {
-        HStack(alignment: .center, spacing: Metrics.glyphGap) {
-            Image(systemName: symbol)
-                .scaledFont(.system(size: 11, weight: .semibold))
-                .foregroundStyle(tinted ? AnyShapeStyle(accent) : AnyShapeStyle(.secondary))
-                .frame(width: Metrics.glyphSize, height: Metrics.glyphSize)
-                .background(RoundedRectangle(cornerRadius: Radius.chip)
-                    .fill(tinted ? AnyShapeStyle(accent.opacity(0.14))
-                                 : AnyShapeStyle(.quaternary.opacity(0.5))))
-                .accessibilityHidden(true)
-            label()
-            Spacer(minLength: 8)
-            trailing()
-        }
-        .padding(.horizontal, Metrics.padding)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Radius.well).fill(.quaternary.opacity(0.35)))
-    }
+/// Its own type rather than an ``OverviewCardAction`` with a rank, because it is not one of the
+/// card's verbs: it is how you make the card go away without doing the thing it asks. Ranking it
+/// would put it in the row that ends in the primary, and the control nearest a card's main verb
+/// should never be the one that cancels the card.
+struct OverviewCardDismiss {
+    let accessibilityLabel: String
+    let help: String
+    let run: () -> Void
 }

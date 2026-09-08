@@ -187,6 +187,82 @@ import Design
                 "a reporting glyph tile is indistinguishable from an offer's — nothing says work")
     }
 
+    // MARK: The verbs land on one line
+
+    /// **Every card's main verb ends at the same x — including the one card that can be
+    /// dismissed.** This is the reported complaint stated literally, and it is the one claim on
+    /// this screen that only pixels can make: "the primary is drawn last" is a fact about an array,
+    /// and an array says nothing about where a control lands once a × is drawn beside it.
+    ///
+    /// It caught exactly that. With the dismissal at the trailing edge — the banner convention —
+    /// the nudge's *Set up…* sat about 12pt inboard of every other primary, so the single card with
+    /// a way out was the single card whose verb missed the line.
+    ///
+    /// Measured per card, because two things sit further right than a button and neither is one:
+    /// the card's own hairline, and the button's rounded corners. The border is excluded by
+    /// starting the walk *inside* the card rather than at the canvas edge; the corners are handled
+    /// by taking each card's furthest reach rather than every row's, since a capsule's flat
+    /// trailing edge is by definition the furthest right it goes.
+    ///
+    /// A first version compared every row and failed at 14.5pt on a correct layout — it was
+    /// measuring the curve of the capsules and the corner of the cards, which is the shape of
+    /// probe that reports a defect wherever you point it.
+    @Test func everyCardsPrimaryEndsOnTheSameLine() throws {
+        let sections = [Self.section(.restructure,
+                                     .findings(count: 53, headline: "53 findings",
+                                               examples: ["Finance/US — 11 folders, 3 schemes"])),
+                        Self.section(.duplicates, .notScanned),
+                        Self.section(.storage, .notScanned)]
+        let page = OrganizeOverview(
+            sections: sections, scopeLabel: nil, accent: .blue,
+            inboxShortcut: .init(name: "TODO", looseFileCount: 42, apply: {}),
+            backlogNudge: .init(sentence: "2026 has files but no folders yet in Health/Dental.",
+                                setUp: {}, dismiss: {}),
+            ledger: OrganizeOverview.Ledger(),
+            runnablePasses: Set(OrganizePass.allCases),
+            onOpen: { _ in }, onRun: { _ in }, onBuildStorage: {})
+        let rep = try #require(Self.render(page))
+        let scale = CGFloat(rep.pixelsWide) / Self.canvas.width
+        let ground = try #require(rep.colorAt(x: rep.pixelsWide - 3, y: rep.pixelsHigh - 3))
+        func differs(_ x: Int, _ y: Int) -> Bool {
+            guard let c = rep.colorAt(x: x, y: y) else { return false }
+            return max(abs(c.redComponent - ground.redComponent),
+                       max(abs(c.greenComponent - ground.greenComponent),
+                           abs(c.blueComponent - ground.blueComponent))) > 0.02
+        }
+        // Start inside the card: the page insets every card by 14pt, so anything at or beyond that
+        // is the card's own edge and not a control on it.
+        let from = Int((Self.canvas.width - 18) * scale)
+        func trailingEdge(_ y: Int) -> CGFloat? {
+            var run = 0
+            for x in stride(from: from, through: 0, by: -1) {
+                run = differs(x, y) ? run + 1 : 0
+                if run == 3 { return CGFloat(x + 3) / scale }
+            }
+            return nil
+        }
+        // Rows whose rightmost mark is out in the button gutter. Nothing else on the page reaches
+        // there, so a contiguous run of them is one card's action row.
+        let gutter = Self.canvas.width - 120
+        let rows = (0..<rep.pixelsHigh).map { trailingEdge($0).flatMap { $0 > gutter ? $0 : nil } }
+        var bands: [[CGFloat]] = []
+        for row in rows {
+            if let row {
+                if bands.isEmpty || bands[bands.count - 1].isEmpty { bands.append([]) }
+                bands[bands.count - 1].append(row)
+            } else if !(bands.last?.isEmpty ?? true) {
+                bands.append([])
+            }
+        }
+        let reaches = bands.filter { $0.count > 4 }.compactMap { $0.max() }
+        // Restructure, the duplicate pass, Storage, the nudge and the inbox all carry a verb.
+        #expect(reaches.count >= 5,
+                "found \(reaches.count) action rows — the probe is not seeing every card's verb")
+        let spread = (reaches.max() ?? 0) - (reaches.min() ?? 0)
+        #expect(spread < 1.5,
+                "the cards' verbs end between \(Int(reaches.min() ?? 0)) and \(Int(reaches.max() ?? 0))pt — they do not line up")
+    }
+
     private static let canvas = CGSize(width: 560, height: 700)
 
     /// Renders an overview and returns the colour of the first card's own fill, sampled at the
@@ -222,7 +298,11 @@ import Design
     }
 
     private static func render(_ sections: [OrganizeOverviewSection]) -> NSBitmapImageRep? {
-        let subject = overview(sections)
+        render(overview(sections))
+    }
+
+    private static func render(_ page: OrganizeOverview) -> NSBitmapImageRep? {
+        let subject = page
             .frame(width: canvas.width, height: canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
