@@ -951,6 +951,16 @@ struct LogEntryRow: View {
     /// to one baseline row and drops the Location tail. Neither truncates: a message too long
     /// for the window wraps in both densities.
     var density: ListDensity = .comfortable
+    /// The zone the time column reads in — `.current` everywhere in the app, because this column
+    /// is display and should read in the viewer's own clock.
+    ///
+    /// Injectable only so the snapshot references stop baking in the recording machine's zone.
+    /// They did, and it cost a day: `logRowsAllSeverities` and its compact twin went red on a
+    /// frozen fixture with no code change behind it, because the Mac moved from Pacific to
+    /// `Asia/Kolkata` — the rendered stamp went `05:00:00.000` → `17:30:00.000`, and in compact
+    /// the wider run shoved the whole message line sideways (10% of pixels). SNAPSHOTS.md lists
+    /// timezone among the things the references bake in; these two are now the exception.
+    var timeZone: TimeZone = .current
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
@@ -1026,15 +1036,36 @@ struct LogEntryRow: View {
         // Pinned locale + calendar, the same rule SyncHistoryRow follows and for the same reason:
         // an unpinned fixed-format DateFormatter follows the system region, which can rewrite even
         // an explicit "HH" into a 12-hour clock — so the row would disagree with the line Copy puts
-        // on the clipboard and with the on-disk log. Timezone stays local: this column is display.
+        // on the clipboard and with the on-disk log. The zone is NOT set here — `formatter(_:)`
+        // owns it, and owns it on every call; see its note.
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "HH:mm:ss.SSS"
         return formatter
     }()
 
+    /// The one formatter these rows stamp with, put on `zone` before it is handed back.
+    ///
+    /// **The zone is re-checked rather than captured**, the same rule and the same reason as
+    /// `RestructureLens.formatter(_:)`: this is one shared formatter built once, so it otherwise
+    /// keeps whichever zone was current the first time a row drew. The Activity Log is a window
+    /// someone leaves open, and a `DateFormatter` that never looks again would keep stamping in
+    /// the old zone for the rest of the session after a flight or a Date & Time change — every
+    /// row an hour or more out, with nothing to say so. The compare is cheap and the assignment
+    /// only runs when the zone has actually moved. (DST is not this question; a `TimeZone`
+    /// handles its own transitions.)
+    ///
+    /// Internal, not private, so `theLogTimeFormatterFollowsTheZoneItIsAskedFor` can drive the
+    /// refresh branch directly — the alternative is moving `NSTimeZone.default`, which is
+    /// process-wide and would race every other suite in the run.
+    static func formatter(_ zone: TimeZone) -> DateFormatter {
+        let formatter = Self.timeFormatter
+        if formatter.timeZone != zone { formatter.timeZone = zone }
+        return formatter
+    }
+
     private func timeString(from date: Date) -> String {
-        return Self.timeFormatter.string(from: date)
+        return Self.formatter(timeZone).string(from: date)
     }
 }
 
@@ -1114,16 +1145,14 @@ private struct LogOperationGroupRow: View {
         .accessibilityLabel("\(group.title), \(expanded ? "expanded" : "collapsed")")
     }
 
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        // Pinned locale + calendar, the same rule SyncHistoryRow follows and for the same reason:
-        // an unpinned fixed-format DateFormatter follows the system region, which can rewrite even
-        // an explicit "HH" into a 12-hour clock — so the row would disagree with the line Copy puts
-        // on the clipboard and with the on-disk log. Timezone stays local: this column is display.
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter
-    }()
-    private static func timeString(_ date: Date) -> String { timeFormatter.string(from: date) }
+    /// The run header's stamp, from `LogEntryRow`'s formatter rather than a second one.
+    ///
+    /// It WAS a second one — the same twelve lines, character for character, sitting under the
+    /// same "Timezone stays local" comment. Two copies of a shared formatter is how the zone
+    /// refresh would have been half-applied: the entry rows would follow a Date & Time change
+    /// and the folded-run headers directly above them would not, in the same list, with no
+    /// version of the code saying which is right.
+    private static func timeString(_ date: Date) -> String {
+        LogEntryRow.formatter(.current).string(from: date)
+    }
 }
