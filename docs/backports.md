@@ -4020,3 +4020,88 @@ cd Modules/Dashboard && TZ=America/Los_Angeles swift test --filter 'logRowsAllSe
 
 Green under the recording machine's zone and red under the current one means the rendering is
 fine and the reference is stale. `/etc/localtime`'s symlink mtime dates the move.
+
+---
+
+## 2026-09-08 — the last two zone-capturing formatters: Sync History, and the log file itself
+
+`main` `<SHAs read after the push>`. The sweep that the section above started, finished. Two more
+`static let DateFormatter`s captured the system zone at first use and never looked again:
+`SyncHistoryRow.timeFormatter`, which is `LogEntryRow`'s defect in a second window, and
+`LogEntry.timestampFormatter`, which is **not** the same case — it both writes `~/sync-cloud.log`
+and parses history lines back out of it, so the decision there was about the file, not a column.
+
+```sh
+# stage 1 — both formatters, on every line, with the comments that named the zone as deliberate
+H=Modules/Dashboard/Sources/Dashboard/SyncHistoryView.swift
+L=Modules/Events/Sources/Events/Logger.swift
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s SyncHistoryView=%s rowFmt=%s "stays local"=%s rowPrivate=%s | Logger=%s tsFmt=%s "continuity"=%s parse=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- $H | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:$H 2>/dev/null | grep -c 'static let timeFormatter')" \
+    "$(git show origin/$l:$H 2>/dev/null | grep -c 'timezone deliberately stays local')" \
+    "$(git show origin/$l:$H 2>/dev/null | grep -c 'private struct SyncHistoryRow')" \
+    "$(git ls-tree -r --name-only origin/$l -- $L | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:$L 2>/dev/null | grep -c 'static let timestampFormatter')" \
+    "$(git show origin/$l:$L 2>/dev/null | grep -c 'break continuity with them')" \
+    "$(git show origin/$l:$L 2>/dev/null | grep -c 'static func parse')"
+done
+# every line identical: SyncHistoryView=1 rowFmt=1 "stays local"=1 rowPrivate=1 | Logger=1 tsFmt=1 "continuity"=1 parse=1
+
+# and both formatter blocks are the SAME BYTES on all four lines
+for l in main v4.x v3.x v2.x; do git show origin/$l:$H | grep -A11 'static let timeFormatter' | shasum; done | sort -u | wc -l
+for l in main v4.x v3.x v2.x; do git show origin/$l:$L | grep -A8 'static let timestampFormatter' | shasum; done | sort -u | wc -l
+# prints 1 and 1 — one distinct block each, across all four lines
+
+# stage 2 — the prerequisites each half needs
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s | minLevelBox=%s tools=%s uncheckedSendable=%s | parseOlderThan=%s sessionStartFilter=%s | logEntryRowFmt=%s restructureFmt=%s\n' "$l" \
+    "$(git show origin/$l:$L 2>/dev/null | grep -c 'MinimumLevelBox')" \
+    "$(git show origin/$l:Modules/Events/Package.swift 2>/dev/null | grep -o 'swift-tools-version: [0-9.]*')" \
+    "$(git show origin/$l:$L 2>/dev/null | grep -c '@unchecked Sendable')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/LogViewer.swift 2>/dev/null | grep -c 'func parseOlderThan')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/LogViewer.swift 2>/dev/null | grep -c 'timestamp < sessionStart')" \
+    "$(git show origin/$l:Modules/Dashboard/Sources/Dashboard/LogViewer.swift 2>/dev/null | grep -c 'static func formatter')" \
+    "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift 2>/dev/null | grep -c 'static func formatter')"
+done
+# main   minLevelBox=2 tools=swift-tools-version: 6.0 uncheckedSendable=4 | parseOlderThan=1 sessionStartFilter=1 | logEntryRowFmt=1 restructureFmt=1
+# v4.x / v3.x / v2.x: identical EXCEPT the last two columns, which are 0/0 on all three.
+```
+
+| What landed on `main` | `v4.x` / `v3.x` / `v2.x` | Status |
+|---|---|---|
+| **`SyncHistoryRow.timeFormatter()` re-checking the zone** (+ the struct widened from `private` to internal so the accessor is reachable) | Applies in full on all three and would land cleanly — the same file, the same byte-identical formatter block, the same `private struct SyncHistoryRow`. Same user-visible defect as the Activity Log's: leave Sync History open across a Date & Time change and every stamp stays on the old zone for the rest of the session | RECORDED — not owed |
+| **`LogTimestampFormatter`** — the lock-guarded box `LogEntry` renders and parses through | Applies in full, and the prerequisites are all there: `MinimumLevelBox` is the `NSLock` + `@unchecked Sendable` shape it copies (present on all three), Events is `swift-tools-version: 6.0` on all three, and `LogEntry.parse` is unchanged. **This is the one row where a pick would need reading before doing** — the reasoning is in the type's doc comment and it is a decision about the log FILE (following the system zone, and accepting that `parseOlderThan`'s `timestamp < sessionStart` split can double or hide a few rows for the rest of a session in which the zone moved), not the mechanical fix the row above is | RECORDED — not owed |
+| **`SyncHistoryRowTimeZoneTests`, `LogTimestampZoneTests`** | Apply; both drive the new accessors and nothing else, and both compute their expectation from a fresh control formatter rather than from a frozen string, so neither bakes in a zone the way the log-row *references* did | RECORDED — not owed |
+| **The doc comments' cross-references** | **Do not apply verbatim.** Both new comments cite `LogEntryRow.formatter(_:)` and `RestructureLens.formatter(_:)` as the precedents; `logEntryRowFmt=0 restructureFmt=0` on all three lines, so a verbatim pick lands comments naming symbols that line does not have. Either pick the two earlier fixes first (see the section above, and the 2026-08-29 Organize rows for `RestructureLens`) or edit the prose | RECORDED — not owed |
+
+**The thing worth not re-deriving**, because it is the argument and not the diff. The old comment
+said the Logger's zone stayed local "because the file's existing lines are local-time, and changing
+it would break continuity with them" — and **that continuity does not exist.** `~/sync-cloud.log`
+is tail-trimmed at ~5 MB, so it spans sessions, and each session captured whatever zone was current
+when it started. This Mac's own log is the demonstration and it is reproducible on any line, since
+none of them stamp an offset:
+
+```sh
+# the file spans the Pacific → Asia/Kolkata move, and the boundary is INVISIBLE
+git log --format='%ad' --date=format:'%Y-%m-%dT%H:%M%z' | grep -- '-0700' | sort | tail -1   # 2026-09-03T07:13
+git log --format='%ad' --date=format:'%Y-%m-%dT%H:%M%z' | grep -- '+0530' | sort | tail -1   # today
+head -1 ~/sync-cloud.log   # 2026-07-28 — written in Pacific
+tail -1 ~/sync-cloud.log   # today      — written in IST
+```
+
+There is no jump to find between them: the app was not running across the change (a 63-hour gap,
+2026-09-03 07:42 → 2026-09-05 22:56), so the two zones sit either side of it with nothing marking
+where one ends. Re-checking the zone does not put a second zone in the file — it moves an unmarked
+boundary the file was going to get at the next launch anyway.
+
+The other half of the argument, which is what rules out pinning: **nothing reads a parsed line's
+instant for its own sake.** The Activity Log renders it back and buckets it by day, so
+parse-then-render is the identity on the file's text exactly while the reader and the writer are on
+the same zone — which is why zone-changed history has always *displayed* correctly despite being
+parsed at the wrong instant. `LogEntryRow` re-checks as of the section above. Pinning the Logger
+would put the reader and the renderer on different zones after a mid-session change and shift every
+older-history row. A line's zone can only be made genuinely recoverable by stamping a UTC offset
+into it, which is an on-disk format change with a migration for every line already written; that
+was considered and rejected, and the reasoning is in `LogTimestampFormatter`'s doc comment where
+anyone re-opening the question will find it.
