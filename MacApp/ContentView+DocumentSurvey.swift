@@ -81,13 +81,28 @@ extension ContentView {
            let resumable = syncManager.resumableDocumentSurvey(root: root) {
             return .interrupted(done: resumable.done, total: resumable.total)
         }
-        // 4. Never surveyed here. Hidden entirely where there is no profile to survey against, or
-        //    where a corpus already covers the tree — there the incremental *Update folder memory*
-        //    is both correct and a click, so offering three hours beside it would be offering the
-        //    worse of two answers.
-        guard syncManager.filingFolderProfile != nil,
-              syncManager.filingMemory?.folders.isEmpty ?? true else { return nil }
-        // The count only where it belongs to THIS tree — see `DocumentSurveyPlanFacts`.
+        // 4. Nothing to survey against at all — no profile, so no card.
+        guard syncManager.filingFolderProfile != nil else { return nil }
+
+        // 5. Already read: the settled receipt.
+        //
+        //    **Derived from what is on disk, not from this session's report.** The report exists
+        //    only after a run in THIS launch, so a tree read last week — or read by the offline
+        //    builder — had no receipt at all. That is how the card came to disappear completely
+        //    once a memory existed, leaving Organize's overview silent about the reading while the
+        //    "surveyed 3 days ago" line sat on Restructure's card and the refresh sat in a dropdown
+        //    inside To File. `filingMemory` and `filingSurveyedAt` are both restored at launch,
+        //    which is exactly how Storage's receipt survives one.
+        //
+        //    Cheap on purpose: the folder count and the stamp are already in memory. The document
+        //    count is not — drawing it would mean parsing a 9,500-entry corpus for one line — so
+        //    the card states what it knows and leaves out what it would have to pay for.
+        if let folders = syncManager.filingMemory?.folders.count, folders > 0 {
+            return .settled(folders: folders, lastRead: syncManager.filingSurveyedAt)
+        }
+
+        // 6. A profile, and nothing read yet. The count only where it belongs to THIS tree —
+        //    see `DocumentSurveyPlanFacts`.
         return .offered(documents: documentSurveyPlan?.documents(for: documentSurveyRoot?.path))
     }
 

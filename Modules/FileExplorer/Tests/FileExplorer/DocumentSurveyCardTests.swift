@@ -186,6 +186,49 @@ import Testing
         #expect(detail == "12 documents read.")
     }
 
+    // MARK: - Settled: the receipt, and the gap it closed
+
+    /// **The state whose absence left the feature with no front door.**
+    ///
+    /// Once a memory existed the card returned nil, so Organize's overview said nothing about the
+    /// reading at all — the "surveyed 3 days ago" line was on Restructure's card and the refresh
+    /// was an item in a dropdown on To File's rescan button. Three places, none of them where
+    /// somebody looks, and no way to tell the reading had ever happened.
+    @Test func theSettledReceiptStatesWhatIsKnownAndOffersTheRefresh() {
+        let detail = DocumentSurveyCardText.detail(
+            for: .settled(folders: 2306, lastRead: Date().addingTimeInterval(-3 * 86_400)))
+        #expect(detail.contains("2,306"), "the receipt does not say how much was learned")
+        #expect(detail.contains("days ago"), "the receipt does not say when")
+        #expect(detail.lowercased().contains("only what has changed"),
+                "the receipt does not say what updating costs, so Update reads as a re-run")
+        #expect(DocumentSurveyCardText.title(for: .settled(folders: 1, lastRead: nil))
+                == "Documents read")
+    }
+
+    /// A corpus written before the stamp existed — or by the offline builder — has no date. The
+    /// card states what it knows and skips what it does not, rather than inventing a "just now".
+    @Test func aSettledReceiptWithNoStampSaysWhatItKnows() {
+        let detail = DocumentSurveyCardText.detail(for: .settled(folders: 2306, lastRead: nil))
+        #expect(detail.contains("2,306"))
+        #expect(!detail.contains("read "), "a missing stamp was rendered as a claim about when")
+        #expect(detail.lowercased().contains("only what has changed"))
+    }
+
+    /// A receipt is not a to-do: no bar, no badge — the rule Storage's card already follows.
+    @Test func theSettledReceiptDrawsNoProgressBar() {
+        #expect(DocumentSurveyCardText.fraction(for: .settled(folders: 2306, lastRead: nil)) == nil)
+    }
+
+    /// Singular and plural, **verb included** — a one-folder tree is a real first survey, and
+    /// pluralising the noun while leaving the verb gave "1 folder have learned content".
+    @Test func theSettledReceiptCountsGrammatically() {
+        let one = DocumentSurveyCardText.detail(for: .settled(folders: 1, lastRead: nil))
+        #expect(one.contains("1 folder has learned content"))
+        #expect(!one.contains("folder have"))
+        let many = DocumentSurveyCardText.detail(for: .settled(folders: 2306, lastRead: nil))
+        #expect(many.contains("2,306 folders have learned content"))
+    }
+
     // MARK: - Every state
 
     /// **Finishing is not a pause, and rendering it as one said three false things at once.**
@@ -217,6 +260,8 @@ import Testing
             .finishing(done: 100),
             .interrupted(done: 1, total: 100),
             .finished(summary: "done.", unreadableTypes: 0),
+            .settled(folders: 2306, lastRead: Date()),
+            .settled(folders: 0, lastRead: nil),
         ]
         for state in states {
             #expect(!DocumentSurveyCardText.title(for: state).isEmpty)

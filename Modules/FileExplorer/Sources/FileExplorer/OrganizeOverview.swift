@@ -507,6 +507,8 @@ struct OrganizeOverview: View {
     var onStopDocumentSurvey: (() -> Void)?
     /// Opens Help at the topic the privacy line points to.
     var onOpenSurveyHelp: (() -> Void)?
+    /// The settled receipt's verb — the incremental re-survey.
+    var onUpdateDocumentSurvey: (() -> Void)?
 
     private var reporting: [OrganizeOverviewSection] {
         sections.filter { if case .findings = $0.state { return true } else { return false } }
@@ -631,7 +633,8 @@ struct OrganizeOverview: View {
                                        onResume: onResumeDocumentSurvey,
                                        onPause: onPauseDocumentSurvey,
                                        onStop: onStopDocumentSurvey,
-                                       onOpenHelp: onOpenSurveyHelp)
+                                       onOpenHelp: onOpenSurveyHelp,
+                                       onUpdate: onUpdateDocumentSurvey)
                 }
                 ForEach(receipts) { section in
                     receiptCard(section)

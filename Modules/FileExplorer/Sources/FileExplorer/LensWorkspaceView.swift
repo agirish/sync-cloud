@@ -3962,7 +3962,10 @@ public struct LensWorkspaceView: View {
             // shape `RestructureLens.helpPointer` uses, down to the glyph.
             onOpenSurveyHelp: onOpenHelp.map { open in
                 { open(OrganizeHelpTopics.onDeviceReading) }
-            }
+            },
+            // The receipt's Update IS `Update folder memory` — the same incremental pass, which
+            // until now was only reachable from a dropdown inside To File's rescan button.
+            onUpdateDocumentSurvey: onUpdateFolderMemory
         )
     }
 

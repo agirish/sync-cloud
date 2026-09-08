@@ -47,6 +47,20 @@ public enum DocumentSurveyCardState: Equatable, Sendable {
     /// Just finished. `summary` is the sentence the survey itself composed.
     case finished(summary: String, unreadableTypes: Int)
 
+    /// Read, and settled — the standing state of a tree whose documents are already in the corpus.
+    ///
+    /// **The state this card was missing, and the omission left the feature with no front door.**
+    /// Once a memory existed the card vanished entirely, so Organize's overview said nothing about
+    /// the reading at all: the "surveyed 3 days ago" line lived on Restructure's card, and the
+    /// refresh was an item inside a dropdown on To File's rescan button. Three places, none of them
+    /// where somebody would look, and nothing to say the reading had ever happened.
+    ///
+    /// Shaped as **Storage's receipt** — provenance and its verb, no badge, no count pill — which
+    /// is the pattern this screen already has for "an answer you asked for, with nothing to do
+    /// about it". `lastRead` is nil for a corpus written before the stamp existed, or by the
+    /// offline builder; the card then states what it knows and skips what it does not.
+    case settled(folders: Int, lastRead: Date?)
+
     /// A pause, worded by the caller.
     ///
     /// `resumesOnItsOwn` is what decides the verb — *Resumes on its own · Resume now* against a
@@ -99,6 +113,8 @@ public enum DocumentSurveyCardText {
             return "Reading documents — paused at \(done.formatted()) of \(total.formatted())"
         case .finished:
             return "Documents read"
+        case .settled:
+            return "Documents read"
         }
     }
 
@@ -141,6 +157,19 @@ public enum DocumentSurveyCardText {
             }
             return "Stopped when you quit. \(left.formatted()) still to read — carrying on opens "
                 + "only those."
+        case .settled(let folders, let lastRead):
+            // The VERB agrees too: "1 folder has", "2 folders have". Pluralising the noun and
+            // leaving the verb alone produced "1 folder have learned content", which is the shape
+            // a one-folder first survey would actually have shown.
+            var parts = [folders == 1 ? "1 folder has learned content"
+                                      : "\(folders.formatted()) folders have learned content"]
+            // `RestructureLens`' phrasing, not a second one: "today", "yesterday", "3 days ago" is
+            // already how this app says when a survey happened, and two vocabularies for one fact
+            // is how they drift.
+            if let lastRead {
+                parts.append("read \(RestructureLens.surveyedPhrase(lastRead, now: Date()))")
+            }
+            return parts.joined(separator: " · ") + ". Updating reads only what has changed since."
         case .finished(let summary, let unreadableTypes):
             guard unreadableTypes > 0 else { return summary }
             // **Named, not folded into the read count.** A summary that reports only what it
@@ -158,7 +187,7 @@ public enum DocumentSurveyCardText {
     /// full bar under "Documents read" is a second way of saying the same thing.
     public static func fraction(for state: DocumentSurveyCardState) -> Double? {
         switch state {
-        case .offered, .finished, .finishing:
+        case .offered, .finished, .finishing, .settled:
             // Finishing has no fraction of its own: the reading is done, and a full bar under it
             // would be counting something that has stopped counting.
             return nil
@@ -194,6 +223,9 @@ struct DocumentSurveyCard: View {
     /// Opens Help at *Reading your documents*. Same shape as `RestructureLens.helpPointer`, down to
     /// the glyph.
     var onOpenHelp: (() -> Void)?
+    /// Runs the incremental re-survey — the existing *Update folder memory* pass. nil hides the
+    /// verb, the same rule the other four follow.
+    var onUpdate: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -315,6 +347,19 @@ struct DocumentSurveyCard: View {
             // Nothing to offer: the reading is over, and the merge cannot be paused or stopped
             // without throwing away the whole pass.
             EmptyView()
+        case .settled:
+            // **Update, not "Read again".** This runs the incremental pass — new and changed
+            // documents only, seconds to minutes — which is the refresh anybody actually wants.
+            // A full re-read is three hours and a genuinely different need (a suspect corpus,
+            // changed extraction rules); offering it beside a thirty-second button would invite
+            // the wrong click, so it is deliberately not here.
+            if let onUpdate {
+                Button("Update", action: onUpdate)
+                    .buttonStyle(.plain)
+                    .scaledFont(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .chromeHover().fixedSize()
+            }
         }
     }
 
