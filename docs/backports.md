@@ -3959,3 +3959,64 @@ walk, both of which `v4.x` already has, unchanged. So the pick is genuinely just
 `standard` edit plus the migration; there is no ordering code to carry with it. On `v4.x` today those
 two rules are already correct and simply have nothing to draw, because the disk is lifted into
 Favorites before the device band is built.
+
+---
+
+## 2026-09-08 — the Activity Log's clock, and two references that baked in the machine's zone
+
+`main` `eeeaade4`..`3f4baec4` (SHAs read after the push). Two facts, one cause. `LogEntryRow` shared a
+`DateFormatter` built once for the process and never re-checked, so the Activity Log kept stamping
+in whichever zone was current the first time a row drew; and `DashboardSnapshotTests`' two
+`LogEntryRow` references had no way to pin a zone, so they baked in the recording machine's. This
+Mac moved Pacific → `Asia/Kolkata` on 2026-09-05 and both log-row snapshots went red on a frozen
+fixture with no code change behind them — `05:00:00.000` in the reference against `17:30:00.000`
+live, and in the compact row the wider run shoved the message line sideways (10% of the canvas, a
+perceptual precision of 0.46). CI never saw it: the suite is `machinePinned(.referenceImages)` and
+`tests.yml` skips that marker.
+
+```sh
+# stage 1 + 2 in one pass — main is the positive control on every column
+V=Modules/Dashboard/Sources/Dashboard/LogViewer.swift
+T=Modules/Dashboard/Tests/Dashboard/DashboardSnapshotTests.swift
+R=Modules/Dashboard/Tests/Dashboard/__Snapshots__/DashboardSnapshotTests/logRowsAllSeverities.severities-light.png
+D=Modules/Design/Tests/DesignTests/SNAPSHOTS.md
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s LogViewer=%s formatters=%s groupDup=%s snapTest=%s logRowsTests=%s refPNG=%s SNAPSHOTSmd=%s\n' "$l" \
+    "$(git ls-tree -r --name-only origin/$l -- $V | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:$V 2>/dev/null | grep -c 'static let timeFormatter')" \
+    "$(git show origin/$l:$V 2>/dev/null | grep -c 'private static func timeString(_ date: Date) -> String { timeFormatter')" \
+    "$(git ls-tree -r --name-only origin/$l -- $T | wc -l | tr -d ' ')" \
+    "$(git show origin/$l:$T 2>/dev/null | grep -c 'func logRowsAllSeverities')" \
+    "$(git ls-tree -r --name-only origin/$l -- $R | wc -l | tr -d ' ')" \
+    "$(git ls-tree -r --name-only origin/$l -- $D | wc -l | tr -d ' ')"
+done
+# every line identical: LogViewer=1 formatters=2 groupDup=1 snapTest=1 logRowsTests=2 refPNG=1 SNAPSHOTSmd=1
+# `formatters=2` is the duplicate: LogEntryRow's and LogOperationGroupRow's verbatim copy of it.
+
+# and the references are the SAME BYTES on all four lines, so all four carry the Pacific recording
+R=Modules/Dashboard/Tests/Dashboard/__Snapshots__/DashboardSnapshotTests
+for f in logRowsAllSeverities.severities-{light,dark} logRowsAllSeveritiesCompact.severities-compact-{light,dark}; do
+  for l in main v4.x v3.x v2.x; do git show origin/$l:$R/$f.png | shasum | cut -c1-12; done | sort -u | wc -l
+done
+# prints 1 four times — one distinct hash per image across all four lines
+```
+
+| What landed on `main` | `v4.x` / `v3.x` / `v2.x` | Status |
+|---|---|---|
+| **`LogEntryRow.timeZone` + `formatter(_:)` re-checking the zone** | Applies in full on all three, and would land cleanly: the same `LogViewer.swift`, the same `private static let timeFormatter` with no `timeZone` anywhere in the file. This is a real user-visible defect on every line — leave the Activity Log open across a Date & Time change or a flight and every stamp stays on the old zone for the rest of the session, silently | RECORDED — not owed |
+| **`LogOperationGroupRow`'s duplicate formatter, deleted** | Applies — the verbatim copy is present on all three (`groupDup=1`). Only meaningful *with* the row above; on its own it is a tidy-up | RECORDED — not owed |
+| **`DashboardSnapshotTests.pinnedZone` + the four re-recorded PNGs** | Applies, and is the row a maintainer would actually feel: the references are byte-identical to `main`'s old ones on all three lines, so **each line's `logRowsAllSeverities` pair is red on this Mac today for exactly this reason** — inferred from identical bytes, the identical test and the identical fixture, not from a run on those lines. The PNGs must be **re-recorded on the line**, never copied from `main`: they are machine-pinned, and the pin is per-line only by accident of the images matching | RECORDED — not owed |
+| **`LogRowTimeZoneTests`** | Applies; it drives `LogEntryRow.formatter(_:)` and renders a `LogEntryRow`, both present on all three lines with the same shapes | RECORDED — not owed |
+| **SNAPSHOTS.md's zone caveat + the four `SnapshotRendering.swift` doc bullets** | Present on all three lines (`SNAPSHOTSmd=1`), and the awkward doc case the 2026-09-01 row already describes: the guidance is true on those lines whether or not the code lands, and a maintainer reading it there would be reading advice about a seam their `LogEntryRow` does not have | DEFERRED — scope call |
+
+**The thing worth not re-deriving.** The failure message for this is indistinguishable from a
+rendering regression, which is what cost the time: "perceptual color precision 0.46" reads as a
+colour change, and the first four hypotheses were all about `SemanticColor`, `Pill` and the
+`Font` → `ScaledFont` move. The discriminator is one command, and it is cheap:
+
+```sh
+cd Modules/Dashboard && TZ=America/Los_Angeles swift test --filter 'logRowsAllSeverities'
+```
+
+Green under the recording machine's zone and red under the current one means the rendering is
+fine and the reference is stale. `/etc/localtime`'s symlink mtime dates the move.
