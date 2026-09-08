@@ -300,18 +300,22 @@ struct DocumentSurveyCard: View {
                 [OverviewCardAction(title: "Read my documents", rank: .primary, run: $0)]
             } ?? []
         case .running(_, _, _, _, let pause):
+            // **Stop is listed first, and that is not cosmetic.** `drawingOrder` moves a primary to
+            // the end, so a state that HAS one already put Stop on the left; the auto-resume state
+            // has none — "Resume now" is deliberately the quieter of the two, an impatience valve
+            // rather than the way out — and listing Stop last there left the one destructive verb
+            // on this page sitting in the slot the whole layout reserves for a card's main verb.
+            // Listing it first is correct in every state and depends on no other rule holding.
             var actions: [OverviewCardAction] = []
+            if let onStop {
+                actions.append(OverviewCardAction(title: "Stop", run: onStop))
+            }
             if let pause, !pause.resumesOnItsOwn, let onResume {
                 actions.append(OverviewCardAction(title: "Resume", rank: .primary, run: onResume))
             } else if pause == nil, let onPause {
                 actions.append(OverviewCardAction(title: "Pause", rank: .primary, run: onPause))
             } else if pause != nil, let onResume {
-                // Resumes on its own — the button is an impatience valve, not the way out, so it is
-                // the quieter of the two.
                 actions.append(OverviewCardAction(title: "Resume now", run: onResume))
-            }
-            if let onStop {
-                actions.append(OverviewCardAction(title: "Stop", run: onStop))
             }
             return actions
         case .interrupted:

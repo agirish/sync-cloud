@@ -604,7 +604,10 @@ struct OrganizeOverview: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if !ledger.isEmpty { ledgerStrip }
-                if let backlogNudge { nudgeLine(backlogNudge) }
+                // **Only if it has nowhere better to go** — see ``nudgeHost``. A due nudge names
+                // one of Restructure's own findings, so it rides that card; this rung is the
+                // fallback that keeps it from vanishing if it ever cannot.
+                if let backlogNudge, nudgeHost == nil { nudgeLine(backlogNudge) }
                 ForEach(reporting) { section in
                     sectionView(section)
                 }
@@ -659,6 +662,26 @@ struct OrganizeOverview: View {
 
     // MARK: The backlog nudge
 
+    /// The reporting card a due nudge belongs to, or nil when there is none to attach it to.
+    ///
+    /// **The nudge is not a sibling of Restructure's card — it is a callout of one of its rows.**
+    /// `LensWorkspaceView.backlogNudge()` derives it from `scopedStructureFindings`, and the
+    /// overview's Restructure section counts the same `structureFindings` through the same
+    /// `.inside` scope filter, so the folder the sentence names is *one of the findings the pill
+    /// above it is counting*. Drawn as a card of its own it read as a second, headless subject
+    /// sitting between the ledger and the card it was talking about — which is what it looked like,
+    /// and what it was.
+    ///
+    /// **The nil case is a real fallback, not defensive noise.** The two derivations are provably
+    /// in step today — same list, same scope, same filter, and `due` is a subset of the findings —
+    /// so this cannot be nil while a nudge is due. If that ever stops being true, the alternative
+    /// to a fallback is a time-sensitive line disappearing silently, which is the exact failure
+    /// §5.6 exists to prevent; ``theNudgeSurvivesLosingItsHost`` is the test.
+    var nudgeHost: OrganizeOverviewSection? {
+        guard backlogNudge != nil else { return nil }
+        return reporting.first { $0.lens == .restructure }
+    }
+
     /// §5.6's "say it the month it happens", outside the lens: one sentence, its verb, and a way
     /// to make it go away until next year.
     ///
@@ -674,15 +697,73 @@ struct OrganizeOverview: View {
             title: nudge.sentence,
             accent: accent,
             // The card's only verb, so it is the primary — the same rule the survey's lone Refresh
-            // follows, and the reason it now lands on the same vertical line as every other one.
+            // follows, and the reason it lands on the same vertical line as every other one.
             actions: [OverviewCardAction(title: "Set up…", rank: .primary,
-                                         help: "Opens Restructure on the first folder with this "
-                                             + "gap.", run: nudge.setUp)],
-            dismiss: OverviewCardDismiss(
-                accessibilityLabel: "Dismiss this reminder until next year",
-                help: "Dismisses it for this year. The same folders raise it again when a new "
-                    + "year arrives with the same gap.",
-                run: nudge.dismiss)) { }
+                                         help: Self.nudgeVerbHelp, run: nudge.setUp)],
+            dismiss: Self.nudgeDismissal(nudge)) { }
+    }
+
+    static let nudgeVerbHelp = "Opens Restructure on the first folder with this gap."
+
+    static func nudgeDismissal(_ nudge: BacklogNudge) -> OverviewCardDismiss {
+        OverviewCardDismiss(
+            accessibilityLabel: "Dismiss this reminder until next year",
+            help: "Dismisses it for this year. The same folders raise it again when a new year "
+                + "arrives with the same gap.",
+            run: nudge.dismiss)
+    }
+
+    /// The nudge riding its host card: **the same row shape the pass card gives its lenses.**
+    ///
+    /// An accent bracket down the leading edge is how this page already says "this belongs to the
+    /// card above it", and reusing it is what keeps the callout from becoming a sixth surface. The
+    /// verbs sit at the row's trailing edge, which — because the content slot is inset on the
+    /// leading side only — is the card's trailing padding, so `Set up…` lands on the same vertical
+    /// line as the primary above it rather than starting a second column.
+    ///
+    /// It is **secondary**, not primary: `Open Restructure` is this card's main verb, and two
+    /// filled buttons on one card would be the page's one organising rule broken from the inside.
+    private func nudgeRow(_ nudge: BacklogNudge) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            RoundedRectangle(cornerRadius: 1)
+                .fill(accent.opacity(0.35))
+                .frame(width: 2)
+                .frame(maxHeight: .infinity)
+                .accessibilityHidden(true)
+            Image(systemName: "calendar.badge.plus")
+                .scaledFont(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(accent)
+                .accessibilityHidden(true)
+            Text(nudge.sentence)
+                .scaledFont(.system(size: 11.5))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            // The × ahead of the verb, for the reason ``OverviewCard`` gives at the header: drawn
+            // after it, it pushed `Set up…` about 17pt inboard of the `Open Restructure` directly
+            // above, so the row that had just been folded into this card was the one thing on it
+            // missing the line. `everyCardsPrimaryEndsOnTheSameLine` caught it with no change —
+            // the nudge row is a second band in the same gutter, which is exactly what that probe
+            // measures.
+            let dismissal = Self.nudgeDismissal(nudge)
+            Button(action: dismissal.run) {
+                Image(systemName: "xmark").scaledFont(.system(size: 9))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.tertiary)
+            .accessibilityLabel(dismissal.accessibilityLabel)
+            .help(dismissal.help)
+            .chromeHover()
+            .padding(.trailing, 4)
+            Button("Set up…", action: nudge.setUp)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .chromeHover()
+                .fixedSize()
+                .help(Self.nudgeVerbHelp)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 5)
+        .accessibilityElement(children: .contain)
     }
 
     // MARK: The ledger
@@ -880,14 +961,22 @@ struct OrganizeOverview: View {
             // the heading rather than filling the slot for symmetry's sake.
             note: findingsNote(section),
             accessibilityLabel: "\(section.lens.title), \(headline)") {
-            if !examples.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(examples.prefix(Self.exampleLimit), id: \.self) { example in
-                        Text(example)
-                            .scaledFont(.system(size: 11.5, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 6) {
+                // **Above the examples**, because it is the one finding here with a clock on it:
+                // the examples are a sample of the backlog, this is the row that stops being
+                // actionable when the year turns.
+                if let backlogNudge, nudgeHost?.lens == section.lens {
+                    nudgeRow(backlogNudge)
+                }
+                if !examples.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(examples.prefix(Self.exampleLimit), id: \.self) { example in
+                            Text(example)
+                                .scaledFont(.system(size: 11.5, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
                 }
             }
@@ -902,13 +991,32 @@ struct OrganizeOverview: View {
     /// per card, and a stranded lens gets a card exactly when this returns something. Both are
     /// properties of the whole set, and a rule that has to be read off three call sites is a rule
     /// the next state will forget.
+    /// **While the work behind a card is running, the verb that STARTS that work is withdrawn and
+    /// the verb that OPENS the lens stays.** One rule, and the first draft of this file broke it in
+    /// both directions.
+    ///
+    /// A findings card returned no verbs at all while its scan was in flight, so a duplicate rescan
+    /// — minutes of hashing — took `Open Duplicates` off the screen for its whole duration, on the
+    /// one card whose answer you might want to read *while* it is being recomputed. The old
+    /// pre-card layout never did that: its Open was unconditional and only the rescan was
+    /// withdrawn. Nothing caught it, because the two render tests that watch a scanning row are
+    /// satisfied by *any* large change to the row and by the pass cards' own withdrawal.
+    ///
+    /// And Storage's receipt did the opposite: it kept a live `Re-analyze` while re-analysing, as a
+    /// disabled button, where every other card on the page swaps to a spinner. Both are the same
+    /// rule stated once here rather than three times at the call sites.
     func actions(for section: OrganizeOverviewSection) -> [OverviewCardAction] {
         switch section.state {
         case .findings(let count, _, _):
-            return section.isScanning ? [] : findingsActions(section, count: count)
+            // `findingsActions` withdraws only the rescan, through `offersRescan`, which already
+            // asks `!isScanning`. The way in is not gated on anything.
+            return findingsActions(section, count: count)
         case .receipt:
             return receiptActions(section)
         case .notScanned:
+            // The run verb is the only verb here, so a scan in flight leaves nothing — the card
+            // still draws, with its spinner. See ``canRunFromHere(_:)`` for why the partition
+            // between a card and a footer line does NOT ask this question.
             return section.isScanning ? [] : strandedActions(section)
         case .clean:
             // A clean lens takes no card at all — it is one entry on the footer's quiet line.
@@ -917,9 +1025,15 @@ struct OrganizeOverview: View {
     }
 
     /// What re-asking costs, where this card offers to re-ask at all.
-    private func findingsNote(_ section: OrganizeOverviewSection) -> OverviewCardNote? {
-        guard offersRescan(for: section),
-              let pass = OrganizePass(producing: section.lens) else { return nil }
+    ///
+    /// **Keyed on the static rule, not on `offersRescan`.** `offersRescan` also asks whether a scan
+    /// is in flight, and a note that came and went with that would take the card's whole bottom
+    /// rule away mid-scan and put it back afterwards — a card that changes height while you watch
+    /// it work. ``OrganizePass/answersOneLens`` exists to keep this control from moving with the
+    /// data; its price tag has to hold still for the same reason.
+    func findingsNote(_ section: OrganizeOverviewSection) -> OverviewCardNote? {
+        guard let pass = OrganizePass(producing: section.lens),
+              pass.answersOneLens, runnablePasses.contains(pass) else { return nil }
         return OverviewCardNote(pass.offerCost)
     }
 
@@ -967,6 +1081,10 @@ struct OrganizeOverview: View {
                 title: section.lens.title,
                 subtitle: headline,
                 accent: accent,
+                // The numbers above are the last analysis's while a new one runs, exactly as a
+                // findings card's count is — so it says so the same way, rather than leaving a
+                // live-looking headline over a report being rebuilt.
+                status: section.isScanning ? .working("Analyzing…") : .none,
                 actions: actions(for: section),
                 note: OverviewCardNote(detail, symbol: "clock"),
                 accessibilityLabel: "\(section.lens.title), \(detail), \(headline)") { }
@@ -976,12 +1094,16 @@ struct OrganizeOverview: View {
     private func receiptActions(_ section: OrganizeOverviewSection) -> [OverviewCardAction] {
         // "Open Storage" without a count, unlike a finding's pill. The count belongs on a backlog
         // you are going to work through; here it would put the number in the one place the badge
-        // rule was careful to keep it out of.
+        // rule was careful to keep it out of. Not withdrawn while the analysis re-runs: reading
+        // the last report is exactly what somebody waiting for the next one wants to do.
         var actions = [OverviewCardAction(title: "Open \(section.lens.title)", rank: .primary,
                                           run: { onOpen(section.lens) })]
-        if section.lens == .storage, let onBuildStorage {
-            actions.append(OverviewCardAction(title: isBuildingStorage ? "Analyzing…" : "Re-analyze",
-                                              isDisabled: isBuildingStorage,
+        // Withdrawn while it runs rather than drawn disabled — the spinner above already says the
+        // work is in flight, and a greyed button beside a spinner says it twice. This is the same
+        // swap the pass cards make.
+        if section.lens == .storage, let onBuildStorage, !section.isScanning {
+            actions.append(OverviewCardAction(title: "Re-analyze",
+                                              help: "Walks the tree again and rebuilds the report.",
                                               run: onBuildStorage))
         }
         return actions
@@ -1073,12 +1195,26 @@ struct OrganizeOverview: View {
     /// quiet line**, which keeps the rule that produced the footer in the first place — a card
     /// offering a scan this host cannot start is worse than a line saying it has not run.
     var strandedCards: [OrganizeOverviewSection] {
-        strandedUnscanned.filter { !actions(for: $0).isEmpty }
+        strandedUnscanned.filter(canRunFromHere)
     }
 
     /// Stranded lenses with nothing to offer — the quiet line, still, and for the original reason.
     var strandedLines: [OrganizeOverviewSection] {
-        strandedUnscanned.filter { actions(for: $0).isEmpty }
+        strandedUnscanned.filter { !canRunFromHere($0) }
+    }
+
+    /// Whether a never-run lens has a verb on this screen **at all** — which is a fact about the
+    /// host, not about this moment.
+    ///
+    /// **Deliberately not "does it have actions right now".** That was the first version, and it
+    /// moved Storage from a card to a footer line for the whole duration of the analysis you had
+    /// just started: `actions(for:)` withdraws the run verb while the work is in flight, so the
+    /// partition read "nothing to offer" and demoted the card mid-run. Pressing Analyze made the
+    /// card disappear into a footnote. What decides the shape has to be the standing fact; what
+    /// decides the buttons is the moment.
+    private func canRunFromHere(_ section: OrganizeOverviewSection) -> Bool {
+        if offersPassRun(for: section) { return true }
+        return section.lens == .storage && onBuildStorage != nil
     }
 
     /// The verb a never-run lens can offer from here, if any.
@@ -1091,9 +1227,12 @@ struct OrganizeOverview: View {
             return [OverviewCardAction(title: pass.runTitle, rank: .primary, help: pass.offerCost,
                                        run: { onRun(pass) })]
         }
+        // No `Analyzing…` arm: `actions(for:)` withdraws every verb here while the work runs, so a
+        // disabled button captioned with its own progress could never draw. It did draw before the
+        // cards, on the footer line this replaced, which is where the arm came from.
         if section.lens == .storage, let onBuildStorage {
-            return [OverviewCardAction(title: isBuildingStorage ? "Analyzing…" : "Analyze",
-                                       rank: .primary, isDisabled: isBuildingStorage,
+            return [OverviewCardAction(title: "Analyze", rank: .primary,
+                                       help: "Walks the tree and reports where the space goes.",
                                        run: onBuildStorage)]
         }
         return []
@@ -1115,16 +1254,20 @@ struct OrganizeOverview: View {
 
     /// The heading over a check that has not run and has no pass card to say so.
     ///
-    /// **It names what did not happen, in that check's own verb.** A generic "Storage hasn’t run
-    /// here" is the shape of sentence a pass card makes about a walk of the tree, and Storage does
-    /// not walk — it analyses, and its button says Analyze. A heading and a button disagreeing
-    /// about the verb on one card is how a screen teaches somebody the wrong word for what they
-    /// are about to do. Where a pass does own the lens, its own ``OrganizePass/offerTitle`` is
-    /// already the right sentence and is quoted rather than restated.
+    /// **It names what did not happen, in that check's own verb.** "Storage hasn’t run here" is the
+    /// shape of sentence a pass card makes about a walk of the tree, and Storage does not walk — it
+    /// analyses, and its button says Analyze. A heading and a button disagreeing about the verb on
+    /// one card is how a screen teaches somebody the wrong word for what they are about to do.
+    ///
+    /// **It is about the LENS, and quoting the pass's `offerTitle` here was wrong** even though it
+    /// read better. A lens reaches this card only when its pass has answered some of its other
+    /// lenses and not this one — that is what being stranded with a runnable pass means — so
+    /// "The file pass hasn’t run here" would be a flat contradiction of the answer sitting a card
+    /// above it. Unreachable today, since the one multi-lens pass publishes both its lenses from a
+    /// single flag; a sentence that is false the moment its branch is live is not made safe by the
+    /// branch being cold.
     static func strandedTitle(_ lens: OrganizeLens) -> String {
-        if let pass = OrganizePass(producing: lens) { return pass.offerTitle }
-        return lens == .storage ? "Storage hasn’t been analyzed here"
-                                : "\(lens.title) hasn’t run here"
+        lens == .storage ? "Storage hasn’t been analyzed here" : "\(lens.title) hasn’t run here"
     }
 
     @ViewBuilder

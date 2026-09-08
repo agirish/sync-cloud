@@ -5,6 +5,12 @@ import Design
 
 /// A verb offered by an overview card.
 ///
+/// **There is no disabled state, deliberately.** One shipped and was removed on review with no
+/// call site left: every card on this page answers "the work is already running" by swapping its
+/// status to a spinner and withdrawing the verb, so a greyed button captioned with its own
+/// progress would be saying the same thing a second time, next to the thing already saying it.
+/// A verb that cannot be pressed is not offered.
+///
 /// **Rank, not style.** Every call site used to pick its own button dress, and the screen ended up
 /// with three: `.borderedProminent` on a pass card's run, `.bordered` on a finding's rescan, and a
 /// bare accent `Text` masquerading as a link on the receipts. Three dresses for one kind of thing —
@@ -26,9 +32,6 @@ struct OverviewCardAction: Identifiable {
 
     let title: String
     var rank: Rank = .secondary
-    /// Drawn, but inert — a verb whose work is already running says so by staying in place rather
-    /// than vanishing, which is how the header's own scan buttons behave.
-    var isDisabled = false
     /// The tooltip: what the click costs, where there is a cost worth stating.
     var help: String?
     /// VoiceOver's version, where the visible words are a bare verb that needs its object.
@@ -289,7 +292,6 @@ struct OverviewCard<Content: View>: View {
         .controlSize(.small)
         .chromeHover()
         .fixedSize()
-        .disabled(action.isDisabled)
         .accessibilityLabel(action.accessibilityLabel ?? action.title)
         // Conditional rather than `.help(action.help ?? "")`: an empty help string still arms a
         // tooltip, and a tooltip that opens onto nothing reads as a rendering fault.

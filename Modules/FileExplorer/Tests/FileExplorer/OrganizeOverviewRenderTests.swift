@@ -299,7 +299,9 @@ import Design
         let scale = CGFloat(a.pixelsHigh) / band.height
         let points = CGFloat(differingPixels(a, b)) / (scale * scale)
         // Two rows earn a control here — Duplicates and Restructure — at roughly 60×18 and
-        // 150×18pt of chrome. 600pt² is well above noise and well under the pair.
+        // 150×18pt of chrome, and since the cost line is priced off the same runnability each of
+        // them also gains a rule and a line of small print. 600pt² is well above noise and well
+        // under the smallest of those pieces on its own.
         #expect(points > 600,
                 "no rescan control on an answered row (\(Int(points))pt² moved)")
     }
@@ -327,26 +329,24 @@ import Design
                 "a running Duplicates scan left its row unchanged (\(Int(points))pt² moved)")
     }
 
-    /// **A scan already running does not offer to start itself again**, or the screen invites the
-    /// second click that `rescanFilingButton` disables itself to prevent.
-    ///
-    /// Isolated by making **every** row that could carry the control scan at once, then rendering
-    /// that with the passes runnable and not runnable. If the withdrawal holds, neither render
-    /// draws a rescan and the two are pixel-identical; if it is removed, only one of them does.
-    /// The spinner is in both, so it cannot stand in for the button — which is precisely what it
-    /// did in the first version of this check.
-    @Test func aRunningLensWithdrawsItsRescanControl() throws {
-        let band = Self.fullBand
-        let running = Self.allAnswered().map {
-            OrganizeOverviewSection(lens: $0.lens, blurb: $0.blurb, state: $0.state,
-                                    isScanning: OrganizePass(producing: $0.lens)?
-                                        .answersOneLens == true)
-        }
-        let runnable = try #require(bitmap(mount(running), band))
-        let notRunnable = try #require(bitmap(mount(running, runnable: []), band))
-        #expect(differingPixels(runnable, notRunnable) == 0,
-                "a rescan control is still drawn on a row whose scan is already running")
-    }
+    // **`aRunningLensWithdrawsItsRescanControl` lived here, and its claim moved rather than died.**
+    //
+    // It rendered every rescan-carrying row mid-scan, once with the passes runnable and once not,
+    // and required the two to be pixel-identical: if the withdrawal holds, neither draws a rescan.
+    // The isolation rested on `runnablePasses` moving *only* that button on an answered row, and
+    // that stopped being true when the findings card gained its cost line — the small print prices
+    // the rescan, so a host that cannot run the pass correctly shows neither. Both renders now
+    // differ by a line of text that has nothing to do with the claim.
+    //
+    // No A/B can isolate it again: runnability moves the note, and `isScanning` moves the count
+    // pill into a spinner, so every axis available here carries a second passenger. What replaced
+    // it is stronger than what it could have measured anyway —
+    // `OverviewCardConsistencyTests.aScanInFlightWithdrawsTheRescanAndKeepsTheWayIn` asserts on
+    // `OrganizeOverview.actions(for:)`, the one expression the card's `actions:` parameter is, and
+    // it names *which* control survives. That is the thing this test's own note said pixels could
+    // not do: "the spinner is in both, so it cannot stand in for the button". A list of titles has
+    // no such ambiguity, and it caught a regression this test could not see — a scanning row that
+    // withdrew its way in along with its rescan.
 
     /// **Nothing on this screen says “Scan…” any more**, because nothing on it navigates instead of
     /// scanning. A guard against the old control returning by the back door.

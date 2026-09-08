@@ -471,6 +471,33 @@ import SwiftUI
                 "Storage gained a pass; `offersPassRun` will now mint a run button beside the storage-specific one")
     }
 
+    /// **Restructure's card no longer samples its own backlog.**
+    ///
+    /// Pinned at the call site rather than through `overviewModel`, because `structureReport` is a
+    /// pure function of `filingFolderProfile` and seeding one that produces findings of several
+    /// kinds is a heavier fixture than the claim is worth. `StructureBacklogTallyTests` pins what
+    /// the line says; this pins that the arm composes it, and that the thing it replaced is gone.
+    ///
+    /// What it replaced: `scoped.prefix(3).map(\.headline)` — three findings off the front of an
+    /// unsorted list, which on the reference tree drew one `node_modules` subtree three times over.
+    @Test func restructureSummarisesItsBacklogRatherThanSamplingIt() throws {
+        let view = try OrganizeScopeCallSiteTests.source("LensWorkspaceView.swift")
+        let model = try OrganizeScopeCallSiteTests.body(of: "var overviewModel: OverviewModel {",
+                                                        in: view)
+        #expect(model.contains("StructureBacklogTally(scoped).breakdown"),
+                "the Restructure arm does not build a breakdown — its card has nothing to summarise")
+        // `\\.headline` appears nowhere else in this declaration, and `body(of:)` strips comments,
+        // so this needle is exactly the old expression and nothing else. A multi-line needle with
+        // baked-in indentation was tried first and would have gone vacuous on the next reformat —
+        // a guard that cannot match is a guard that always passes.
+        #expect(!model.contains("\\.headline"),
+                "the three-of-fifty-three sample is back")
+        // Non-vacuity: the arms that SHOULD still draw rows do, so this is not passing because the
+        // haystack is empty or the declaration was renamed out from under it.
+        #expect(model.contains("copies"), "Duplicates stopped drawing its rows too")
+        #expect(model.contains("s.fileName"), "To File stopped drawing its rows too")
+    }
+
     /// The receipt's day-word, which is the one piece of the card that is arithmetic.
     @Test func theReceiptNamesADayRatherThanADuration() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)

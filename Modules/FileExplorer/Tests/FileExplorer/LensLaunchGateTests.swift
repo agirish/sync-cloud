@@ -130,8 +130,8 @@ import Design
                 still exists and no longer decides anything.
                 """)
         #expect(content.contains("onReview:"), "the card has no way to open the answer it gates")
-        // The overview's exception, which is a decision rather than an accident: arriving from
-        // A reporting card's "Open Restructure" skips the card: the pill beside that button
+        // The overview's exception, which is a decision rather than an accident: arriving from a
+        // reporting card's "Open Restructure" skips the card, because the pill beside that button
         // already stated the count.
         // If it stops being deliberate it should fail here rather than drift.
         let overview = try OrganizeScopeCallSiteTests.body(

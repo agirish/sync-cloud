@@ -124,12 +124,21 @@ User-facing changes, newest first. For the full commit history see the
   the page is a bare coloured word any more — Refresh in particular was a link on one card, a
   button on another, and buried under a finding's examples on a third, and the new-year reminder's
   **Set up…** was a link sitting in the middle of its own sentence.
-- **The reminder and the inbox shortcut are cards too.** They are not checks — nothing scans to
-  produce them, and the "1 of 4" tile counts neither — so they lead with a sentence instead of a
-  heading and carry no small print. Everything else about them is the page's: the same surface, the
-  same column, the same buttons. The inbox used to be a row you clicked anywhere on, with a chevron
-  for a hint; it has a button now, like everything else. Its × is drawn just inside its button so
-  that the button still lands on the same line as every other card's.
+- **Restructure's card says what its backlog is made of, instead of showing you three of it.**
+  It listed three findings off the front of an unsorted list, which on a real tree meant three
+  lines from one `node_modules` folder, each repeating sixty characters of the same path — telling
+  you only that the list was not empty, which the count beside it had already said. It reads
+  **"31 Shape · 14 Loose folder · 8 Dead weight"** now, in the same words the lens tags each
+  finding with, and the kinds you can actually fix come first. To File and Duplicates keep their
+  three lines: a filename and where it would go, or a filename and how many copies, are short,
+  different from each other, and worth reading.
+- **The new-year reminder moved onto Restructure's card.** It was a headless row of its own,
+  wedged between the tiles at the top and the card it was talking about — and the folder it names
+  is one of the findings that card is counting, so it belongs on it. It sits above the examples
+  with its own **Set up…** and its own ×, and the page is one rung shorter.
+- **The inbox shortcut is a card.** It used to be a row you clicked anywhere on, with a chevron for
+  a hint — the only control on the page that gave no sign of where its hit area was. It has a
+  button now, like everything else. It is not a check either, so it carries no small print.
 - **A card with findings is no longer a coloured slab.** What says there is something here is the
   tinted glyph and the count beside it, which is what the lens rail already uses — one card in six
   reading as a different app was carrying a signal that was already being carried twice.

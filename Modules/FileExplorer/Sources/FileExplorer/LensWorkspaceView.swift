@@ -4292,17 +4292,33 @@ public struct LensWorkspaceView: View {
                     OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,
                                                  scope: scope) == .inside
                 }
+                // **The breakdown goes in the blurb, and the detail rows go away entirely.**
+                //
+                // This lens's rows are deep paths that repeat their parents, so
+                // `scoped.prefix(3).map(\.headline)` drew three lines from whichever subtree
+                // happened to sort first — on the reference tree, one `node_modules` three times
+                // over, sixty characters of shared prefix, saying only that the list is not empty.
+                // The pill three inches away had already said that. See ``StructureBacklogTally``.
+                //
+                // The blurb is where a count clause belongs: To File's arm above already appends
+                // "31 ready, 11 unsure" to its own, so the card has a summary channel and this is
+                // it. It also renders in the system font, which a run of prose wants and the
+                // monospaced detail slot does not give it. To File and Duplicates keep their rows,
+                // which are short distinct filenames and exactly what that slot is for.
+                let structureBlurb = StructureBacklogTally(scoped).breakdown
+                let blurb = structureBlurb.isEmpty
+                    ? "Where the tree disagrees with its own habits."
+                    : "Where the tree disagrees with its own habits — \(structureBlurb)."
                 return OrganizeOverviewSection(
                     lens: item,
-                    blurb: "Where the tree disagrees with its own habits.",
+                    blurb: blurb,
                     // No profile means the detectors have nothing to read — "cannot run", which is
                     // a different sentence from "clean" and must not borrow its words.
                     state: syncManager.filingFolderProfile == nil ? .notScanned
                         : scoped.isEmpty ? .clean
                         : .findings(count: scoped.count,
                                     headline: "\(scoped.count) finding\(scoped.count == 1 ? "" : "s")",
-                                    examples: scoped.prefix(OrganizeOverview.exampleLimit)
-                                        .map(\.headline)),
+                                    examples: []),
                     // **The folder survey, which is this lens's pass.** Hard-coded `false` was
                     // right while nothing read it — Restructure runs no walk of its own — and wrong
                     // the moment the row grew a Refresh button: that button stayed
