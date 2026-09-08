@@ -29,6 +29,8 @@ public enum SelectionSummary {
 
     static func totalBytes(of node: FileNode) -> Int {
         if node.isSymbolicLink == true { return 0 }
+        // Nor a subtree this walk also reached directly — its bytes are counted there.
+        if node.isCoveredElsewhere == true { return 0 }
         if node.isDirectory {
             return (node.children ?? []).reduce(0) { $0 + totalBytes(of: $1) }
         }

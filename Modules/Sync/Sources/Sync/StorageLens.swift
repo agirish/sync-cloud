@@ -186,6 +186,12 @@ public enum StorageLensAnalyzer {
             // link AND its in-tree target would double the reported usage (and list every big file
             // twice). A symlink occupies no real space of its own. Mirrors DuplicateFinder.
             if node.isSymbolicLink == true { continue }
+            // And skip a subtree this walk also reached by a shorter route. Same hazard, and the
+            // line above could not see it: a folder the root links in from outside is SUBSTITUTED
+            // for the real folder, so it arrives with the real path and `isSymbolicLink == false`.
+            // Measured 2026-09-08 — `~/Documents` reached twice under a `~` scan put 10.5 GB of
+            // phantom usage into this total. See `FileNode.isCoveredElsewhere`.
+            if node.isCoveredElsewhere == true { continue }
             if node.isDirectory {
                 if node.isUnexplored == true { continue }
                 collectLeaves(node.children ?? [], into: &out)
@@ -205,6 +211,8 @@ public enum StorageLensAnalyzer {
     static func rolledUpBytes(_ node: FileNode) -> Int {
         // A symlink reclaims no real space (its size/content is its target's); don't roll it up.
         if node.isSymbolicLink == true { return 0 }
+        // Nor does a subtree already rolled up under its shorter route — see `collectLeaves`.
+        if node.isCoveredElsewhere == true { return 0 }
         if node.isDirectory {
             if node.isUnexplored == true { return 0 }
             return (node.children ?? []).reduce(0) { $0 + rolledUpBytes($1) }

@@ -32,6 +32,27 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
     /// "copies," and trashing the real target would leave a dangling link as the "kept" copy.
     /// Optional so JSON encoded before this field existed still decodes (nil = not a link).
     public var isSymbolicLink: Bool?
+    /// **True when this node's subtree is ALSO reached by a shorter route under the same walk
+    /// root**, so anything that adds up the tree must count it once, here or there, never both.
+    ///
+    /// One shape produces it, and only one: a folder that a root links in from OUTSIDE
+    /// (`PathBoundary.LinkedFolders` — iCloud Drive's `Desktop` and `Documents`) while the real
+    /// folder is *itself* inside the walk root. Walk `~` and `~/Documents` arrives twice — once
+    /// directly, once through the container — carrying the identical id both times, because the
+    /// walk deliberately substitutes the link for the folder it points at.
+    ///
+    /// **`isSymbolicLink` cannot answer this**, which is why the field exists. The substituted node
+    /// describes the REAL directory: its id is the real path and it is not a link, so flagging it
+    /// as one would be a lie told to every consumer, including those that act on the path. Measured
+    /// 2026-09-08 on a real machine — the container's children come back `sym=false` with real-path
+    /// ids — and the cost of nothing marking them was a Storage total 10.5 GB over and a Duplicates
+    /// group that offered to Trash `~/Documents` as a copy of itself.
+    ///
+    /// Consumers that SUM or GROUP the tree skip these (`StorageLensAnalyzer`, `DuplicateFinder`,
+    /// `SelectionSummary`). Consumers that DISPLAY or navigate must not: the folder really is
+    /// browsable at that spot, and the panes drew it long before this flag existed.
+    /// Optional so JSON encoded before this field existed still decodes (nil = not a re-reach).
+    public var isCoveredElsewhere: Bool?
 
     /// Initializes a new FileNode with optional metadata.
     public init(
@@ -44,7 +65,8 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
         tags: [String]? = nil,
         kind: String? = nil,
         isUnexplored: Bool? = nil,
-        isSymbolicLink: Bool? = nil
+        isSymbolicLink: Bool? = nil,
+        isCoveredElsewhere: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -56,6 +78,7 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
         self.kind = kind
         self.isUnexplored = isUnexplored
         self.isSymbolicLink = isSymbolicLink
+        self.isCoveredElsewhere = isCoveredElsewhere
     }
 }
 

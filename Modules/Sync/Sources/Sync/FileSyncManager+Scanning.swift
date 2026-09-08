@@ -1153,15 +1153,31 @@ extension FileSyncManager {
                 let budget: FileSyncManager.NodeBudget?
                 /// See `buildTree(url:…linkedFolders:)`.
                 let linkedFolders: PathBoundary.LinkedFolders
+                /// **Linked-folder targets that this walk ALSO reaches directly** — normalized.
+                ///
+                /// A folder linked in from outside is substituted for the real folder it points at
+                /// (`childURLs`), so when the real folder is *itself* under the walk root it is
+                /// reached twice, with one id. Which of the two happens depends entirely on the
+                /// root: walk `~` and `~/Documents` is inside it, so both routes exist; walk the
+                /// iCloud container and `~/Documents` is outside it, so the link is the ONLY route
+                /// and marking it would lose 11 GB from that source's totals. Deciding it here,
+                /// once per walk from the root, is the whole rule.
+                let coveredTargets: Set<String>
 
                 init(fileManager: FileManaging, sortOption: SortOption, maxDepth: Int?,
                      budget: FileSyncManager.NodeBudget?,
-                     linkedFolders: PathBoundary.LinkedFolders) {
+                     linkedFolders: PathBoundary.LinkedFolders,
+                     root: URL) {
                     self.fileManager = fileManager
                     self.sortOption = sortOption
                     self.maxDepth = maxDepth
                     self.budget = budget
                     self.linkedFolders = linkedFolders
+                    let rootPath = PathBoundary.normalizedRoot(root.path)
+                    self.coveredTargets = Set(
+                        linkedFolders.values.flatMap(\.values)
+                            .map(PathBoundary.normalizedRoot)
+                            .filter { PathBoundary.contains($0, under: rootPath) })
                     let includeTags = sortOption == .tags
                     self.includeTags = includeTags
                     var keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .typeIdentifierKey]
@@ -1258,7 +1274,7 @@ extension FileSyncManager {
                 /// denied, I/O error) as opposed to being legitimately empty. Both used to come back
                 /// as a bare `[]`, so a permission-denied directory cached as a plain empty node and
                 /// the diff minted phantom actionable "Missing" rows for its (invisible) contents.
-                func childURLs(of dirURL: URL) -> (urls: [URL], listingFailed: Bool) {
+                func childURLs(of dirURL: URL) -> (urls: [URL], listingFailed: Bool, coveredElsewhere: Set<String>) {
                     let listing = rawChildURLs(of: dirURL)
                     // **A folder linked into this directory from outside is listed as the folder
                     // it points at**, not as the link. iCloud Drive's container holds `Desktop`
@@ -1271,11 +1287,21 @@ extension FileSyncManager {
                     // A table that names nothing for this directory — every directory but one —
                     // costs one dictionary lookup.
                     let table = PathBoundary.linkedFolders(atRoot: dirURL.path, in: linkedFolders)
-                    guard !table.isEmpty else { return listing }
-                    return (listing.urls.map { child in
+                    guard !table.isEmpty else { return (listing.urls, listing.listingFailed, []) }
+                    // **Which substitutions land on a folder this walk also reaches directly.**
+                    // Reported rather than acted on here: the substitution itself must still
+                    // happen (the panes browse the real folder at that spot, and every stored path
+                    // is spelled the real way), so the duplication is marked on the NODE and left
+                    // for the consumers that add the tree up. See `FileNode.isCoveredElsewhere`.
+                    var covered: Set<String> = []
+                    let urls = listing.urls.map { child -> URL in
                         guard let target = table[child.lastPathComponent] else { return child }
+                        if coveredTargets.contains(PathBoundary.normalizedRoot(target)) {
+                            covered.insert(target)
+                        }
                         return URL(fileURLWithPath: target, isDirectory: true)
-                    }, listing.listingFailed)
+                    }
+                    return (urls, listing.listingFailed, covered)
                 }
 
                 /// `childURLs(of:)` before the linked-folder substitution — the listing as the
@@ -1451,7 +1477,26 @@ extension FileSyncManager {
                     budget?.charge(listing.urls.count)
                     var children = await walkChildren(listing.urls, depth: depth + 1, fanLevel: fanLevel, visited: branchVisited)
                     children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
+                    // Marked HERE rather than threaded through `walkChildren`: this is the one
+                    // place that knows both which children were substituted and what they became,
+                    // and ids are unique WITHIN a directory's children (the collision this whole
+                    // flag exists for is across sibling branches, never inside one listing), so
+                    // matching on id here is exact.
+                    children = Self.marking(children, coveredElsewhere: listing.coveredElsewhere)
                     return folderNode(fullURL, s, children: children)
+                }
+
+                /// Sets ``FileNode/isCoveredElsewhere`` on the children a listing substituted for a
+                /// folder the walk also reaches directly. A no-op for every directory but the one
+                /// or two per machine that link a folder in — the empty-set guard keeps it free.
+                static func marking(_ children: [FileNode], coveredElsewhere: Set<String>) -> [FileNode] {
+                    guard !coveredElsewhere.isEmpty else { return children }
+                    return children.map { child in
+                        guard coveredElsewhere.contains(child.id) else { return child }
+                        var marked = child
+                        marked.isCoveredElsewhere = true
+                        return marked
+                    }
                 }
 
                 /// Builds the nodes for one directory level, in listing order (callers apply
@@ -1528,7 +1573,7 @@ extension FileSyncManager {
             }
 
             let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth, budget: budget,
-                                      linkedFolders: linkedFolders)
+                                      linkedFolders: linkedFolders, root: url)
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
 
@@ -1552,6 +1597,11 @@ extension FileSyncManager {
             let visited: Set<TreeBuilder.DirectoryIdentity> = [builder.directoryIdentity(of: url)]
             var rootChildren = await builder.walkChildren(rootListing.urls, depth: 1, fanLevel: 0, visited: visited)
             rootChildren = FileSyncManager.sortLevel(nodes: rootChildren, by: sortOption)
+            // The root gets the same marking pass as every other directory. It is a no-op in
+            // practice — a root that links a folder in cannot also contain it, so `coveredTargets`
+            // never names one of the root's own substitutions — and it is here so the rule lives in
+            // one place rather than being a property of where the walk happens to start.
+            rootChildren = TreeBuilder.marking(rootChildren, coveredElsewhere: rootListing.coveredElsewhere)
             return rootChildren
         }
         return await withTaskCancellationHandler {

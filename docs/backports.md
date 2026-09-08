@@ -4105,3 +4105,45 @@ older-history row. A line's zone can only be made genuinely recoverable by stamp
 into it, which is an on-disk format change with a migration for every line already written; that
 was considered and rejected, and the reasoning is in `LogTimestampFormatter`'s doc comment where
 anyone re-opening the question will find it.
+
+---
+
+## 2026-09-08 — a folder reached twice under one walk root, and the trash list that trusted it
+
+`main` `65cc160b` (the walk + `FileNode.isCoveredElsewhere` + the consumers) and `b70f24d3`
+(`redundantCopies` hardening). SHAs read after the push.
+
+```sh
+# stage 1 — does the CAUSE exist on the line? The substitution is what creates a second reach.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s substitution=%s LinkedFolders=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/FileSyncManager+Scanning.swift 2>/dev/null | grep -c 'linkedFolders(atRoot:')" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift 2>/dev/null | grep -c 'LinkedFolders')"
+done
+# main 1/10 · v4.x 0/0 · v3.x 0/0 · v2.x 0/0
+# The linked-folder substitution arrived with the v5.3 iCloud root move (`4150041a`, 2026-09-06) and
+# exists ONLY on main. Without it the container's Desktop/Documents stay plain symlinks — sym=true —
+# and every existing `isSymbolicLink` guard already skips them. The defect cannot occur elsewhere.
+
+# stage 2 — the second commit is about a guard, so ask whether the guard is even the same shape.
+for l in main v4.x v3.x v2.x; do
+  printf '%-6s fallbackKeeperID=%s\n' "$l" \
+    "$(git show origin/$l:Modules/Sync/Sources/Sync/DuplicateFinder.swift 2>/dev/null | grep -c 'fallbackKeeperID')"
+done
+# main 2 · v4.x 2 · v3.x 0 · v2.x 0
+# v3.x/v2.x predate it entirely — theirs is `copies.filter { !$0.isRecommendedKeeper }`, with no id
+# test of any kind, so a same-path group would sail through even more easily than main's did.
+```
+
+| What landed on `main` | `v4.x` | `v3.x` / `v2.x` | Status |
+|---|---|---|---|
+| **`65cc160b`** — `FileNode.isCoveredElsewhere`, the walk's `coveredTargets` rule, and the `StorageLensAnalyzer` / `DuplicateFinder` / `SelectionSummary` guards that read it | **Does not apply.** No `PathBoundary.LinkedFolders`, no substitution in `childURLs` — the walk never produces a second reach with a real path, so there is nothing for the flag to mark. Picking it would add a field nothing can ever set | **Does not apply**, same reason | CLOSED — does not apply |
+| **`b70f24d3`** — `redundantCopies` compares against the keeper's id rather than a nil-when-flagged fallback | Applies cleanly and is a **latent** hardening: the weak filter is there verbatim, but nothing on the line can build a group holding one path twice (see the row above), so it defends against a shape that line cannot reach | **Does not apply as written** — `redundantCopies` there is `copies.filter { !$0.isRecommendedKeeper }` with no id test at all. The equivalent hardening would be a different edit on an older method, and it guards a shape those lines equally cannot produce | RECORDED — not owed (`v4.x`); CLOSED — does not apply as written (`v3.x`, `v2.x`) |
+
+**The measurement worth keeping.** The defect is a *composition* of two things that are individually
+correct: a substitution that makes linked folders read as the real folders (so stored paths resolve),
+and an ancestor-chain cycle guard (so a link back into the current path terminates). Neither is
+wrong; together they let one folder arrive twice with one id. Any line that later gains the
+substitution gains the defect with it — so if `PathBoundary.LinkedFolders` is ever picked to a
+maintenance line, `65cc160b` must go with it in the same batch, or that line starts over-reporting
+Storage and offering the user's own Documents folder to the Trash.

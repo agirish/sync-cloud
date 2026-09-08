@@ -131,6 +131,12 @@ public struct FolderContentSnapshot: Sendable, Equatable, Hashable {
                 out[rel] = .symlink(size: n.fileSize ?? 0, modificationDate: n.modificationDate)
                 continue
             }
+            // A folder reached twice under one root is recorded like a link and not descended —
+            // the snapshot describes what is HERE, and its contents belong to the shorter route.
+            if n.isCoveredElsewhere == true {
+                out[rel] = .symlink(size: n.fileSize ?? 0, modificationDate: n.modificationDate)
+                continue
+            }
             if n.isDirectory {
                 guard n.isUnexplored != true else { return false }
                 out[rel] = .directory
@@ -285,9 +291,17 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     /// direction for a list that feeds a trash.
     public var redundantCopies: [DuplicateCopy] {
         // Computed here rather than via `keeper` so an empty group stays empty instead of trapping.
-        let fallbackKeeperID = copies.contains(where: { $0.isRecommendedKeeper })
-            ? nil : copies.first?.id
-        return copies.filter { !$0.isRecommendedKeeper && $0.id != fallbackKeeperID }
+        // **The id test excludes whatever `keeper` names, flagged or not.** It used to compare
+        // against a `fallbackKeeperID` that was nil whenever ANY copy carried the flag, so it
+        // guarded only the no-flag case — and a group holding two copies at one PATH, one flagged
+        // and one not, walked straight through it. That is reachable: a folder a root links in
+        // from outside is substituted for the real folder, so a `~` scan saw `~/Documents` twice
+        // with one path (measured 2026-09-08) and this list named the keeper's own path as a thing
+        // to Trash. Comparing against the keeper's id closes it without weakening the case below.
+        let keeperID = copies.first(where: { $0.isRecommendedKeeper })?.id ?? copies.first?.id
+        // Both conditions still, deliberately — see the doc above: the id test alone would make a
+        // SECOND flagged copy redundant, and together they can only ever remove fewer copies.
+        return copies.filter { !$0.isRecommendedKeeper && $0.id != keeperID }
     }
 
     /// True when the recommendation removes copies without any merge — the per-group one-click
@@ -563,7 +577,8 @@ public enum DuplicateFinder {
         var dirNodesByPath: [String: FileNode] = [:]
         func indexDirs(_ nodes: [FileNode]) {
             for n in nodes where n.isDirectory {
-                if options.ignoredNames.contains(n.name) || n.isSymbolicLink == true { continue }
+                if options.ignoredNames.contains(n.name) || n.isSymbolicLink == true
+                    || n.isCoveredElsewhere == true { continue }
                 dirNodesByPath[n.id] = n
                 indexDirs(n.children ?? [])
             }
@@ -665,6 +680,21 @@ public enum DuplicateFinder {
                 depth: depth,
                 signature: signature,
                 contentHashes: []
+            )
+        }
+        // **A subtree this walk also reached by a shorter route is not a copy of anything** — it is
+        // the SAME directory entry, arriving twice with one path because the walk substitutes a
+        // linked-in folder for the folder it points at. The symlink branch above cannot catch it:
+        // the substituted node carries the real path and `isSymbolicLink == false`. Measured
+        // 2026-09-08 — under a `~` scan this produced an `identical` group whose two copies were
+        // both `/Users/…/Documents`, recommending the user Trash 11 GB of their own Documents
+        // folder as a redundant copy of itself. Same treatment as a symlink: counted by the parent
+        // as one entry, never a candidate, never walked into.
+        if node.isCoveredElsewhere == true {
+            return NodeInfo(
+                path: node.id, name: node.name, isDirectory: node.isDirectory,
+                size: 0, itemCount: 0, modificationDate: node.modificationDate,
+                depth: depth, signature: nil, contentHashes: []
             )
         }
 
