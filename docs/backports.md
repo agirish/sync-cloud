@@ -4421,3 +4421,53 @@ mouse-UP — a click `NSTableView` handles has its up consumed by the table's tr
 dead click is one with a matched down/up pair. `MouseDownProbe` (`5c04a0ad`, gated on
 `paneScrollTraceEnabled`) is what reports it; anyone re-doing this on a maintenance line wants that
 commit first, or they will re-run the same three wrong answers.
+
+### 19. The two spellings of a linked folder, which drew "Empty" over a full folder — NOT OWED, `main`-only (filed 2026-09-08)
+
+**No maintenance line carries this, and the check is one command per line** — the whole
+linked-folder table is v5 work, landed on `main` at `4150041a` (2026-09-06, "Root iCloud at iCloud
+Drive itself") and never cut into a maintenance branch:
+
+```sh
+for l in v4.x v3.x v2.x; do
+  echo -n "$l: "; git show origin/$l:Modules/Sync/Sources/Sync/PathBoundary.swift | grep -c 'typealias LinkedFolders'
+done   # all three print 0
+git merge-base --is-ancestor 4150041a origin/v4.x   # non-zero: the feature is not on that line
+```
+
+Those lines still have `PathBoundary.swift` and still compose lexically in all three places this
+commit changed (`rootURL.appendingPathComponent(relPath)`, `pruned`'s `directory + "/" + component`,
+`ignoreBasePath`) — so a grep for the *shape* of the defect hits on every line and says nothing.
+**What makes the shape harmless there is that there is only ever one spelling**: with no table,
+iCloud Drive's `Documents` is walked, named, composed and stored as
+`…/com~apple~CloudDocs/Documents` everywhere, and lexical composition agrees with itself. The
+defect needs two spellings to exist, and the table is what introduces the second one.
+
+**What the user saw** (`main` only, and only with iCloud Desktop & Documents syncing on): with the
+pane focused on iCloud's `Documents`, the root column listed correctly and **every column past it
+read "Empty"** — over `~/Documents/Home`, which has 15 children. `loadTree` composed its walk root
+lexically, so the walk began at `<iCloud Drive>/Documents` and named every node below it the link
+way; the linked-folder substitution lives in `childURLs(of:)` and fires at the CONTAINER's listing,
+which a walk starting below it never performs. Meanwhile `PaneChildrenIndex` was keyed from the
+pane's `currentPath`, which goes through `PathBoundary.join` and comes back `~/Documents`. The root
+column survived only because the index keys `treeRoot → tree.rows` directly.
+
+**Two more doors onto the same defect, found while measuring the first** and fixed in the same
+batch — neither is a symptom of the column bug, so a line that ever does take this must take all
+three:
+
+- `PaneBrowsePath.pruned` composed lexically where `columnDirectories` resolved the link, so the two
+  disagreed about one path. Browsing `Documents › Home` from the iCloud Drive **root** — where the
+  columns work — collapsed the whole stack back to the root on the next republish (measured:
+  `["Documents", "Home"]` → `[]`). `currentDirectory` went with it, and that is what New Folder and
+  paste target.
+- `PaneLogic.ignoreBasePath` composed the base that ignore targets are stripped against. Focused on
+  a linked folder, nothing stripped, and every "Ignore in comparison" landed in the **durable**
+  per-pair store as a verbatim absolute path — pane-specific, invisible to the other side. Its own
+  doc comment warns about exactly this outcome.
+
+**The rule, so it is not re-derived per site:** a pane root joined with a pane-relative path goes
+through `PathBoundary.join`; a first component under a tree root goes through
+`PaneBrowsePath.step(from:into:atRoot:linked:)`. Lexical composition is correct only where the root
+is already resolved — the filing profile's root, a scan root, a restructure root — and those sites
+were checked and left alone.
