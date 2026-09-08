@@ -930,59 +930,40 @@ struct PaneColumnsView: View {
             accent: glassHue.accentColor
         )
         .tag(node.id)
-        // Single click opens a folder's column, per the decision — the one real change to the
-        // pane's click contract, and what makes "columns appear when you click" work. A file click
-        // closes any deeper columns without opening one of its own.
+        // **No gesture on this row, and that is the fix.** Selection AND the column drill are the
+        // List's alone.
         //
-        // `simultaneousGesture` rather than `onTapGesture`: the tap must not CONSUME the click, so
-        // that ⌘- and ⇧-click still reach the List and extend or range-select there. That much is
-        // unchanged from `dba5cd3`.
+        // This row carried a `TapGesture` that committed a plain click's selection and navigated.
+        // It claimed the mouse-down and then, far more often than not, never completed — so the
+        // click never reached `NSTableView` at all, and the table selected nothing. That is the
+        // third time this repo has convicted a tap gesture on a pane row: `b2c65766` and
+        // `c04574f0` removed one from the tree row ("that gesture still intermittently swallowed
+        // the mouse-up the List needs to commit a selection — so clicks with the slightest travel
+        // did nothing"), and `743d8bde` reintroduced one here.
         //
-        // What changed is that this handler commits a PLAIN click's selection itself again. Leaving
-        // it entirely to the List looked right — it is what the tree presentation does — but it does
-        // not survive this gesture: one instrumented session logged **42 column taps and only 8
-        // selections**, i.e. this closure ran (the column navigated) while the row never highlighted
-        // and the action bar never appeared. That is the dead click, and it is why `[click]` lines
-        // were so much rarer than `[columns]` lines in the log.
+        // **Measured 2026-09-08, live, with `MouseDownProbe` and the row-tap bisect switch.** The
+        // discriminator is the mouse-UP, which nothing before had watched: a click the table
+        // handles has its up consumed by `NSTableView`'s own tracking loop, so an event monitor
+        // never sees it, while a dead click's up arrives untouched. Every selection that landed was
+        // a down with no up; every dead click was a matched down/up pair.
         //
-        // Only a plain click is taken. ⌘ and ⇧ return at the guard below without touching
-        // `selection`, so the multi-select `dba5cd3` restored is untouched: the flattening it fixed
-        // came from assigning on EVERY tap, modifiers included.
-        .contentShape(Rectangle())
-        // ⌘-DOUBLE-click a folder opens it in a new tab. Deliberately the double: plain ⌘-click is
-        // multi-select and must stay that way (`clickNavigates` refuses ⌘ for exactly that reason),
-        // so the second click is what distinguishes "add this to the selection" from "take me there
-        // in a new tab". Declared BEFORE the single-tap gesture so the two are siblings rather than
-        // one wrapping the other — the single tap still runs on the first click, unchanged.
-        .simultaneousGesture(TapGesture(count: 2).onEnded {
-            guard clickModifiers.contains(.command), node.isDirectory, delegate.canOpenInNewTab else { return }
-            delegate.handleOpenInNewTab(node)
-        })
-        .simultaneousGesture(TapGesture().onEnded {
-            // ⌘ and ⇧ clicks are the List's business — extend and range-select, no navigation.
-            guard PaneViewMode.clickNavigates(modifiers: clickModifiers) else { return }
-            if PaneScrollTrace.isEnabled {
-                Logger.shared.debug("[tap] \(isLeft ? "left" : "right") col\(depth) \(node.isDirectory ? "dir" : "file") \(node.name)")
-            }
-            // Before navigating: a drill restructures the column stack, and the selection should be
-            // committed against the stack the user clicked in, not the one they are about to get.
-            if selection != [node.id] { selection = [node.id] }
-            onNavigate(navigation(for: row, depth: depth))
-            // No click-cost stamp here any more, and that is deliberate.
-            //
-            // There have been two, and both measured the user's finger. `[click]` stamps from the
-            // selection commit on mouse-DOWN, inside `NSTableView`'s tracking loop, so it spans the
-            // hold — `dfa74e4` caught that. `[render]` replaced it by stamping here, in the tap
-            // gesture's `onEnded`, and reading back on the next main-queue turn, claiming "this
-            // stamp starts after the button is already up, so whatever it measures is work". It
-            // does not: across twenty clicks the two agreed to within 0.2ms. This closure runs
-            // INSIDE the same tracking loop, so the block it enqueues cannot run until that loop
-            // exits — when the button comes up. Moving the stamp changed nothing, because the flaw
-            // was never where the stamp was; it was hanging the clock off an input event at all.
-            //
-            // `MainThreadHitchMonitor` times the run loop instead, which cannot be inflated by a
-            // held button because a held button with nothing happening IS the run loop asleep.
-        })
+        //     gesture ON  : 28→3, 43→5, 8→1 selections, and `[tap]` fired 1 time in 50 clicks
+        //     gesture OFF : 6→6 selections, 6 downs and 0 ups — the table saw every click
+        //
+        // **Why it read as a ⌘/⇧-only bug for so long.** A plain click had two committers — this
+        // gesture and the List's binding — so a swallowed one still landed via whichever fired. A
+        // ⌘/⇧ click had exactly one: the gesture refused modifiers by design and handed them to
+        // `NSTableView`, which is the path being starved. Plain clicks looked fine; multi-select
+        // looked dead.
+        //
+        // Nothing is lost by removing it. `columnSelection`'s setter carries the same
+        // `navigation(for:depth:)` call, which is where every `[columns]` line came from whenever
+        // the tap did not fire — so a click still opens a folder's column and still closes deeper
+        // ones behind a file. What DID go with it is ⌘-double-click "Open in New Tab"; that stays
+        // reachable from the row's context menu and ⌘T, which is the same trade `c04574f0` made.
+        //
+        // **Do not put a gesture back on this row.** `PaneColumnRowHasNoGestureTests` fails if one
+        // returns, and the note above is the reason.
         .contextMenu {
             FileContextMenu(
                 row: row, selection: selection, tree: tree, otherTree: otherTree,
@@ -1021,21 +1002,17 @@ struct PaneColumnsView: View {
                     Logger.shared.debug("[sel] \(isLeft ? "left" : "right") list wrote \(newValue.count) item(s)")
                 }
                 selection = newValue
-                // The List committed this one, which means the tap gesture did NOT — the two never
-                // both drive a single click, and the log showed `[sel]` lines with no `[tap]`
-                // beside them. Those are the clicks that select a folder and leave its column
-                // shut: `TapGesture` fails outright if the pointer drifts even slightly, while
-                // `NSTableView` selects on mouse-down regardless.
+                // **This is the ONLY place a column click navigates from, and now the only one.**
+                // The row's `TapGesture` used to call `navigation(for:depth:)` too, and the pair
+                // was described here as belt-and-braces — "whichever source commits the selection
+                // navigates for it". It was never that: the gesture claimed the mouse-down and
+                // usually never completed, so it was not a second committer but a thief, and this
+                // path is what actually ran (`[sel]` lines with no `[tap]` beside them were not
+                // the exception, they were nearly all of them). See the note on the row.
                 //
-                // The row used to be `.draggable` too, and that was long blamed for the drift —
-                // but cross-pane drag was removed once it turned out never to have started here
-                // at all (that competition is exactly what killed it), and the drift remains.
-                // `TapGesture`'s own strictness is the whole cause, so BOTH sources still commit.
-                //
-                // So navigation cannot hang off the gesture alone. Whichever source commits the
-                // selection navigates for it, and they agree by construction because both call
-                // `navigation(for:depth:)`. A tap that DOES fire drills synchronously and this one
-                // then computes the same path, which `setBrowsePath` discards as unchanged.
+                // The row was once `.draggable` as well, and that was long blamed for the drift;
+                // cross-pane drag was removed when it turned out never to have started here at
+                // all, and the drift remained. The gesture itself was the whole cause.
                 guard PaneViewMode.clickNavigates(modifiers: clickModifiers),
                       newValue.count == 1,
                       let id = newValue.first,

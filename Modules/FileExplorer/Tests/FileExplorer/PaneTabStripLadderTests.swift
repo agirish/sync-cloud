@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 import SwiftUI
 import Design
@@ -367,14 +368,23 @@ import Design
 }
 
 
-/// The pane column's ⌘-double-click, which opens a folder in a new tab.
+/// **No gesture on a column row, ever** — the standing guard on a bug this repo has now fixed three
+/// times.
 ///
-/// A source scan, and it is the honest form: the gesture cannot be exercised from a test — a
-/// `TapGesture` installs no recognizer an `NSEvent` can reach, which this repo has measured more
-/// than once. What a scan CAN hold is that the gesture exists, that it is a *double*, that it is a
-/// sibling of the single-tap navigation rather than a replacement for it, and that it is gated on
-/// ⌘ and on a folder — the four things that make it not break plain clicking.
-@Suite struct PaneColumnOpenInNewTabGestureTests {
+/// `b2c65766` and `c04574f0` removed a `TapGesture` from the TREE row in July 2026 after a live
+/// flag-bisect convicted it: *"that gesture still intermittently swallowed the mouse-up the List
+/// needs to commit a selection — so clicks with the slightest travel did nothing."* `743d8bde` then
+/// put one on the COLUMN row to make a plain click drill, and `668ccaa2` added a second, count-2 one
+/// beside it for ⌘-double-click. Between them they ate roughly nine of every ten ⌘/⇧ clicks.
+///
+/// **Measured 2026-09-08, live** — the numbers are in the note on `columnRow`, and the discriminator
+/// was the mouse-UP: a click the table handles has its up consumed by `NSTableView`'s tracking loop,
+/// a dead click's up arrives untouched. Gesture on, 28→3 / 43→5 / 8→1 selections; gesture off, 6→6.
+///
+/// A source scan, and unavoidably so: a `TapGesture` installs no recognizer an `NSEvent` can reach,
+/// so no unit test can exercise the failure. What a scan CAN do is refuse the construct outright,
+/// which is the only guarantee that has ever held here.
+@Suite struct PaneColumnRowHasNoGestureTests {
 
     private func source() throws -> String {
         let url = URL(fileURLWithPath: #filePath)
@@ -385,76 +395,58 @@ import Design
 
     /// The positive control: the scan reads the file it claims to.
     @Test func theScanCanActuallyFail() throws {
-        let code = try source()
-        #expect(code.contains("struct PaneColumnsView"))
-        #expect(!code.contains("a string that is definitely not in the columns view"))
+        #expect(try source().contains("struct PaneColumnsView"), "this is not the columns view — the scan is vacuous")
     }
 
-    /// **Drag-to-reorder exists, is simultaneous, and needs real movement.** Fig. 8 calls this the
-    /// free half of the drag work (dropping FILES on a tab is the expensive half and is not here).
-    /// The three things that keep it from breaking tab-switching: a minimum distance, a
-    /// `simultaneousGesture` so the `Button` still fires, and an index computed from the chip's own
-    /// stride rather than a drop target that could disagree with what is drawn.
-    @Test func tabsCanBeDraggedIntoAnotherOrder() throws {
+    /// Comment lines stripped, because the note on the row NAMES the constructs it forbids — and a
+    /// scan that reads prose convicts the explanation instead of the code. (`PaneTabWiringTests`
+    /// keeps a `codeOnly` for the same reason; this is the local copy rather than a new dependency
+    /// between two suites in different targets.)
+    private func codeOnly(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
+    /// The row itself carries no gesture of any kind. Scoped to the row's own modifier chain,
+    /// because `.onTapGesture` is legitimate elsewhere in the file — the trailing deselect filler is
+    /// not a row and has no List selection to protect.
+    @Test func theColumnRowCarriesNoGesture() throws {
+        let code = try source()
+        let row = try #require(code.range(of: ".tag(node.id)"), "the column row is gone")
+        let chain = codeOnly(String(code[row.upperBound...].prefix(4000)))
+        for construct in ["TapGesture", "onTapGesture", "simultaneousGesture",
+                          "highPriorityGesture", "DragGesture", ".gesture("] {
+            #expect(!chain.contains(construct), """
+                    `\(construct)` is back on the column row. It claims the mouse-down and the \
+                    table never selects — 3 of 28 clicks landed last time. See the note on `columnRow`.
+                    """)
+        }
+    }
+
+    /// …and the navigation it used to do still exists, in the one place that actually ran it.
+    /// Removing the gesture without this would leave clicking a folder doing nothing at all.
+    @Test func theListsSelectionCommitStillNavigates() throws {
+        let code = try source()
+        let setter = try #require(code.range(of: "set: { newValue in"), "the column selection binding is gone")
+        let body = codeOnly(String(code[setter.upperBound...].prefix(4000)))
+        #expect(body.contains("navigation(for: row, depth: depth)"),
+                "the column drill is gone — clicking a folder no longer opens its column")
+        #expect(body.contains("PaneViewMode.clickNavigates(modifiers: clickModifiers)"),
+                "the drill no longer refuses ⌘/⇧, so a multi-select click navigates as well")
+        #expect(body.contains("DeferredColumnNavigation.isStillValid"),
+                "the deferred navigation lost its staleness check")
+    }
+
+    /// ⌘-double-click "Open in New Tab" went with the gesture, deliberately — but the feature has to
+    /// stay reachable, which is the trade `c04574f0` made when it removed the tree row's gesture.
+    @Test func openInNewTabIsStillReachableFromTheRowMenu() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/PaneTabStrip.swift")
+            .appendingPathComponent("Sources/FileExplorer/FileTreeView.swift")
         let code = try String(contentsOf: url, encoding: .utf8)
-        #expect(code.contains("struct PaneTabStrip"), "this is not the strip — the scan is vacuous")
-        let gesture = try #require(code.range(of: "DragGesture(minimumDistance: 6)"),
-                                   "the reorder drag is gone, or fires on a click")
-        let body = String(code[gesture.upperBound...].prefix(900))
-        #expect(body.contains("onReorder("), "the drag is wired to nothing")
-        #expect(body.contains("PaneTabStripLadder.tabGap"),
-                "the drop index ignores the gap between chips, so it drifts one tab per few dragged")
-        #expect(code.contains(".simultaneousGesture(\n            DragGesture(minimumDistance: 6)")
-                || code.contains(".simultaneousGesture(DragGesture(minimumDistance: 6)"),
-                "the reorder drag is not simultaneous — it can swallow the click that switches tabs")
-    }
-
-    @Test func aCommandDoubleClickOnAFolderOpensItInANewTab() throws {
-        let code = try source()
-        let gesture = try #require(code.range(of: "TapGesture(count: 2)"),
-                                   "the ⌘-double-click gesture is gone")
-        let body = String(code[gesture.upperBound...].prefix(400))
-        #expect(body.contains("clickModifiers.contains(.command)"),
-                "the double-click opens a tab without ⌘ — plain double-click now forks the pane")
-        #expect(body.contains("node.isDirectory"), "a FILE can be opened as a tab")
-        #expect(body.contains("delegate.canOpenInNewTab"),
-                "a host with no strip is offered the gesture anyway")
-        #expect(body.contains("handleOpenInNewTab"), "the gesture is wired to nothing")
-    }
-
-    /// **Simultaneous, and declared beside the single tap rather than around it.** The single-click
-    /// navigation is the pane's most delicate contract — it already has a "dead click" regression in
-    /// its history — and a double-tap that consumed the first click would take column navigation
-    /// with it.
-    @Test func theDoubleTapDoesNotReplaceTheSingleTap() throws {
-        let code = try source()
-        #expect(code.contains(".simultaneousGesture(TapGesture(count: 2)"),
-                "the double-click is not a simultaneous gesture — it can swallow the single click")
-        let double = try #require(code.range(of: ".simultaneousGesture(TapGesture(count: 2)"))
-        let single = try #require(code.range(of: ".simultaneousGesture(TapGesture().onEnded"),
-                                  "the single-click column navigation is gone")
-        // **The order the source states, asserted as an order.** This read
-        // `double.lowerBound < single.lowerBound || single.lowerBound < double.lowerBound`, which is
-        // `a < b || b < a` over two distinct ranges — true of every arrangement of the two, so it
-        // could not fail on the thing this test is named for. The claim beside the gesture is
-        // specific: the double is "Declared BEFORE the single-tap gesture so the two are siblings
-        // rather than one wrapping the other".
-        #expect(double.lowerBound < single.lowerBound, """
-                the ⌘-double-click is declared AFTER the single tap — the two are no longer in the \
-                order the source describes, and a re-order here is how one ends up wrapping the other
-                """)
-        // …and beside it, not somewhere else in the file: siblings are adjacent modifiers on one
-        // row, so the single tap follows within a few lines of the double. A `single` matched in
-        // some other subtree would satisfy the order above while proving nothing about this row.
-        #expect(code.distance(from: double.upperBound, to: single.lowerBound) < 400, """
-                the two gestures are \(code.distance(from: double.upperBound, to: single.lowerBound)) \
-                characters apart — they are no longer declared beside each other on the same row
-                """)
-        #expect(code.components(separatedBy: ".simultaneousGesture(TapGesture().onEnded").count - 1 == 1,
-                "there is more than one single-tap handler on a column row")
+        #expect(code.contains("Label(\"Open in New Tab\""),
+                "the row menu lost Open in New Tab, which is now its only pointer-driven route")
     }
 }
 
